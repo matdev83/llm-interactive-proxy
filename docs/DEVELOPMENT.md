@@ -28,6 +28,10 @@ The proxy is designed to integrate with various Large Language Model (LLM) APIs,
     *   The proxy can override the requested model based on special commands.
     *   **Command `!/set(model=xxx/yyy)`**: Sets `xxx/yyy` as the override model for subsequent requests from that "session" (globally, for this simple proxy, unless explicit session management is added).
     *   **Command `!/unset(model)`**: Clears the active model override, restoring original routing behavior.
+    *   **Model Sets**:
+        *   Models can be grouped into model sets.
+        *   Each set can contain multiple models as an ordered (by the user) list.
+        *   Model sets are meant to provide a failover mechanism, so if one remote backend model generates an error (meant as no completion), request should automatically get forwarded to the next model from the set.
 *   **Prompt/Reply Rewriting**:
     *   The framework should allow for general prompt/reply rewriting.
     *   Currently, the primary "rewriting" involves stripping proxy-specific commands from the prompt before forwarding to the LLM backend.
@@ -98,6 +102,9 @@ The proxy is designed to integrate with various Large Language Model (LLM) APIs,
 
 *   **Model Routing**: Implement robust model routing logic based on interactive commands sent by the user within their prompts.
 *   **Google AI/Gemini API Key Failover**: Develop a mechanism for API key failover specifically for Google AI/Gemini backends to ensure continuous service in case of key limitations or issues.
+    *   Support Google Gemini API calls.
+    *   User can define one or more Gemini API keys in env vars named like this: `GAI_AUTH_TOKEN_<number>`, up to 10.
+    *   If call to Gemini AI API fails with HTTP status: 429 Too Many Requests and response contains string 'You exceeded your current quota', that means user has reached quota of the free API. In such case our proxy needs either wait some time, defined in `retryDelay` field of the API JSON response. If the retryDelay is <= 10s we wait that retryDelay + 1s and re-try with the same auth token. If it is higher, we use the next available API key.
 *   **Diff/File Edit Response Repair Module**: Implement a module designed to analyze LLM responses containing file edits or diffs. This module will leverage knowledge of local files to attempt to fix or refine the remote LLM's output 'on-the-fly' before it is forwarded to the calling client, addressing common LLM struggles with precise code generation.
     ```mermaid
     sequenceDiagram
