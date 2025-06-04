@@ -31,4 +31,4 @@ build-backend = "setuptools.build_meta"
 find = { where = ["src"] }
 
 [tool.pytest.ini_options]
-pythonpath = "src"
+pythonpath = "."

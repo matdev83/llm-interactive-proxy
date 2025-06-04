@@ -133,3 +133,41 @@ class OpenRouterBackend(LLMBackend):
             # This catches errors during the setup of the request or unexpected issues
             logger.error(f"An unexpected error occurred in OpenRouterBackend.chat_completions: {type(e).__name__} - {str(e)}", exc_info=True)
             raise HTTPException(status_code=500, detail=f"Internal server error in backend connector: {str(e)}")
+
+    async def list_models(
+        self,
+        *,
+        openrouter_api_base_url: str,
+        openrouter_headers_provider: Callable[[], Dict[str, str]],
+    ) -> Dict[str, Any]:
+        """Fetch available models from OpenRouter."""
+        headers = openrouter_headers_provider()
+        try:
+            response = await self.client.get(f"{openrouter_api_base_url}/models", headers=headers)
+            response.raise_for_status()
+            return response.json()
+        except httpx.HTTPStatusError as e:
+            logger.error(
+                f"HTTP error from OpenRouter: {e.response.status_code} - {e.response.text}",
+                exc_info=True,
+            )
+            try:
+                error_detail = e.response.json()
+            except json.JSONDecodeError:
+                error_detail = e.response.text
+            raise HTTPException(status_code=e.response.status_code, detail=error_detail)
+        except httpx.RequestError as e:
+            logger.error(
+                f"Request error connecting to OpenRouter: {type(e).__name__} - {str(e)}",
+                exc_info=True,
+            )
+            raise HTTPException(
+                status_code=503,
+                detail=f"Service unavailable: Could not connect to OpenRouter ({str(e)})",
+            )
+        except Exception as e:
+            logger.error(
+                f"An unexpected error occurred in OpenRouterBackend.list_models: {type(e).__name__} - {str(e)}",
+                exc_info=True,
+            )
+            raise HTTPException(status_code=500, detail=f"Internal server error in backend connector: {str(e)}")
