@@ -51,6 +51,7 @@ class ChatCompletionRequest(BaseModel):
     frequency_penalty: Optional[float] = Field(None, description="Penalty for new tokens based on their existing frequency in the text so far.")
     logit_bias: Optional[Dict[str, float]] = Field(None, description="Modifies the likelihood of specified tokens appearing in the completion.")
     user: Optional[str] = Field(None, description="A unique identifier representing your end-user, which can help OpenAI monitor and detect abuse.")
+    extra_params: Optional[Dict[str, Any]] = None
     # Add other OpenAI parameters as needed, e.g., functions, tool_choice, tools
 
 class ChatCompletionChoiceMessage(BaseModel):

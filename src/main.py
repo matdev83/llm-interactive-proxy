@@ -12,7 +12,7 @@ from fastapi.responses import StreamingResponse, JSONResponse
 
 import models # Import the models module directly
 from proxy_logic import process_commands_in_messages, ProxyState # Import process_commands_in_messages and ProxyState class
-from src.connectors import OpenRouterBackend # Import the backend
+from backends import OpenRouterBackend # Import the backend
 
 # --- Configuration ---
 # Load environment variables from .env file
@@ -46,39 +46,28 @@ async def lifespan(app: FastAPI):
     and ensures they are cleaned up properly on shutdown.
     """
     # Startup: Initialize the HTTP client, backend connector, and proxy state
-    logger.info("Application startup: Initializing HTTPX client and OpenRouterBackend.")
-    app.state.httpx_client = httpx.AsyncClient(timeout=OPENROUTER_TIMEOUT)
-    app.state.openrouter_backend = OpenRouterBackend(client=app.state.httpx_client) # Instantiate the backend with the client
+    logger.info("Application startup: Initializing HTTPX client.")
+    client = httpx.AsyncClient(timeout=OPENROUTER_TIMEOUT)
+    app.state.httpx_client = client
+    app.state.backend = OpenRouterBackend(
+        client,
+        api_key=OPENROUTER_API_KEY or "",
+        api_base_url=OPENROUTER_API_BASE_URL,
+        app_site_url=APP_SITE_URL,
+        app_title=APP_X_TITLE,
+    )
     app.state.proxy_state = ProxyState() # Initialize and store ProxyState in app.state
-    if not OPENROUTER_API_KEY: # Log this warning again after client/backend setup attempt
-        logger.warning("OPENROUTER_API_KEY is not configured. Requests to OpenRouter will likely fail.")
+    if not OPENROUTER_API_KEY:
+        logger.warning(
+            "OPENROUTER_API_KEY is not configured. Requests to OpenRouter will likely fail."
+        )
     yield
     # Shutdown: Close the HTTP client
     logger.info("Application shutdown: Closing HTTPX client.")
-    await app.state.httpx_client.aclose()
+    await client.aclose()
 
 app = FastAPI(lifespan=lifespan)
 
-# --- Helper Functions ---
-def get_openrouter_headers() -> dict:
-    """
-    Generates the required HTTP headers for authenticating with the OpenRouter API.
-
-    Raises:
-        HTTPException: If the OPENROUTER_API_KEY is not set, indicating a server misconfiguration.
-
-    Returns:
-        A dictionary containing the necessary headers.
-    """
-    if not OPENROUTER_API_KEY:
-        raise HTTPException(status_code=500, detail="Proxy server misconfiguration: OpenRouter API key not set.")
-    return {
-        "Authorization": f"Bearer {OPENROUTER_API_KEY}",
-        "Content-Type": "application/json",
-        "HTTP-Referer": APP_SITE_URL,
-        "X-Title": APP_X_TITLE,
-        "User-Agent": f"{APP_X_TITLE}/1.0 (Python httpx)",
-    }
 
 # --- API Endpoints ---
 @app.get("/")
@@ -96,8 +85,7 @@ async def chat_completions(request_data: models.ChatCompletionRequest, http_requ
     It supports streaming and non-streaming responses. Special commands embedded
     in messages (e.g., `!/set(model=...)`) are processed by `proxy_logic`.
     """
-    client: httpx.AsyncClient = http_request.app.state.httpx_client
-    backend: OpenRouterBackend = http_request.app.state.openrouter_backend
+    backend: OpenRouterBackend = http_request.app.state.backend
     current_proxy_state: ProxyState = http_request.app.state.proxy_state # Access proxy_state from app.state
 
     logger.info(f"Received chat completion request for model: {request_data.model}")
@@ -171,53 +159,84 @@ async def chat_completions(request_data: models.ChatCompletionRequest, http_requ
     # If we reach here, there's valid content to send to the backend.
     effective_model = current_proxy_state.get_effective_model(request_data.model)
 
-    try:
-        # Delegate to the backend connector
-        return await backend.chat_completions(
-            request_data=request_data,
-            processed_messages=processed_messages,
-            effective_model=effective_model,
-            openrouter_api_base_url=OPENROUTER_API_BASE_URL,
-            openrouter_headers_provider=get_openrouter_headers
-        )
-    except HTTPException:
-        # Re-raise if the backend already processed it into an HTTPException
-        raise
-    except Exception as e:
-        # Catch any other unexpected errors from the backend call
-        logger.error(f"An unexpected error occurred calling the backend connector: {type(e).__name__} - {str(e)}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Internal server error during backend communication: {str(e)}")
+    backend_request = request_data.copy(deep=True)
+    backend_request.model = effective_model
+    backend_request.messages = processed_messages
 
-@app.get("/v1/models")
-async def list_models(http_request: Request):
-    """
-    Proxies requests to the OpenRouter /models endpoint to list available models.
-    """
-    client: httpx.AsyncClient = http_request.app.state.httpx_client
-    logger.info("Received request for /v1/models")
-
-    headers = get_openrouter_headers() # Re-fetch headers here, as they might change or be dynamic
+    logger.info(
+        f"Forwarding to backend. Effective model: {effective_model}. Stream: {backend_request.stream}"
+    )
 
     try:
-        response = await client.get(f"{OPENROUTER_API_BASE_URL}/models", headers=headers)
-        logger.debug(f"OpenRouter /models response status: {response.status_code}")
-        response.raise_for_status()
+        if backend_request.stream:
+            logger.debug("Initiating stream request to backend.")
+            stream_iter = await backend.chat_completion(backend_request, stream=True)
+            return StreamingResponse(stream_iter, media_type="text/event-stream")
 
-        models_data = response.json()
-        logger.debug(f"Successfully fetched models from OpenRouter. Count: {len(models_data.get('data', []))}")
-
-        return models_data
+        logger.debug("Initiating non-streaming request to backend.")
+        response_json = await backend.chat_completion(backend_request)
+        logger.debug(f"Backend response JSON: {json.dumps(response_json, indent=2)}")
+        return response_json
 
     except httpx.HTTPStatusError as e:
-        logger.error(f"HTTP error from OpenRouter fetching models: {e.response.status_code} - {e.response.text}", exc_info=True)
+        logger.error(
+            f"HTTP error from backend: {e.response.status_code} - {e.response.text}",
+            exc_info=True,
+        )
         try:
             error_detail = e.response.json()
         except json.JSONDecodeError:
             error_detail = e.response.text
         raise HTTPException(status_code=e.response.status_code, detail=error_detail)
     except httpx.RequestError as e:
-        logger.error(f"Request error connecting to OpenRouter for models: {str(e)}", exc_info=True)
-        raise HTTPException(status_code=503, detail=f"Service unavailable: Could not connect to OpenRouter for models ({str(e)})")
+        logger.error(
+            f"Request error connecting to backend: {type(e).__name__} - {str(e)}",
+            exc_info=True,
+        )
+        raise HTTPException(
+            status_code=503,
+            detail=f"Service unavailable: Could not connect to backend ({str(e)})",
+        )
+    except Exception as e:
+        logger.error(f"An unexpected error occurred in chat_completions: {type(e).__name__} - {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
+
+@app.get("/v1/models")
+async def list_models(http_request: Request):
+    """
+    Proxies requests to the OpenRouter /models endpoint to list available models.
+    """
+    backend: OpenRouterBackend = http_request.app.state.backend
+    logger.info("Received request for /v1/models")
+
+    try:
+        models_data = await backend.list_models()
+        logger.debug(
+            f"Successfully fetched models from backend. Count: {len(models_data.get('data', []))}"
+        )
+
+        # Optionally: annotate models_data here if needed.
+        return models_data
+
+    except httpx.HTTPStatusError as e:
+        logger.error(
+            f"HTTP error from backend fetching models: {e.response.status_code} - {e.response.text}",
+            exc_info=True,
+        )
+        try:
+            error_detail = e.response.json()
+        except json.JSONDecodeError:
+            error_detail = e.response.text
+        raise HTTPException(status_code=e.response.status_code, detail=error_detail)
+    except httpx.RequestError as e:
+        logger.error(
+            f"Request error connecting to backend for models: {str(e)}",
+            exc_info=True,
+        )
+        raise HTTPException(
+            status_code=503,
+            detail=f"Service unavailable: Could not connect to backend for models ({str(e)})",
+        )
     except Exception as e:
         logger.error(f"An unexpected error occurred fetching models: {str(e)}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Internal server error fetching models: {str(e)}")
