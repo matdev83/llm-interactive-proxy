@@ -3,7 +3,7 @@ import os
 import json
 from contextlib import asynccontextmanager
 from datetime import datetime # Needed for command-only response timestamp
-from typing import Union, Dict, Any # Import Union, Dict, Any for response_model
+from typing import Union, Dict, Any, Callable # Import Union, Dict, Any, Callable for response_model and headers
 
 import httpx
 from dotenv import load_dotenv
@@ -12,7 +12,7 @@ from fastapi.responses import StreamingResponse, JSONResponse
 
 import models # Import the models module directly
 from proxy_logic import process_commands_in_messages, ProxyState # Import process_commands_in_messages and ProxyState class
-from backends import OpenRouterBackend # Import the backend
+from src.connectors.openrouter import OpenRouterBackend  # Import the backend used in tests
 
 # --- Configuration ---
 # Load environment variables from .env file
@@ -25,6 +25,16 @@ APP_X_TITLE = os.getenv("APP_X_TITLE", "InterceptorProxy")     # Used for X-Titl
 PROXY_PORT = int(os.getenv("PROXY_PORT", "8000"))
 PROXY_HOST = os.getenv("PROXY_HOST", "0.0.0.0")
 OPENROUTER_TIMEOUT = int(os.getenv("OPENROUTER_TIMEOUT", "300")) # 5 minutes
+
+# Function to build headers for OpenRouter requests
+def get_openrouter_headers() -> Dict[str, str]:
+    """Return headers required for OpenRouter requests."""
+    return {
+        "Authorization": f"Bearer {OPENROUTER_API_KEY}" if OPENROUTER_API_KEY else "",
+        "Content-Type": "application/json",
+        "HTTP-Referer": APP_SITE_URL,
+        "X-Title": APP_X_TITLE,
+    }
 
 # --- Logging Setup ---
 logging.basicConfig(
@@ -49,14 +59,9 @@ async def lifespan(app: FastAPI):
     logger.info("Application startup: Initializing HTTPX client.")
     client = httpx.AsyncClient(timeout=OPENROUTER_TIMEOUT)
     app.state.httpx_client = client
-    app.state.backend = OpenRouterBackend(
-        client,
-        api_key=OPENROUTER_API_KEY or "",
-        api_base_url=OPENROUTER_API_BASE_URL,
-        app_site_url=APP_SITE_URL,
-        app_title=APP_X_TITLE,
-    )
-    app.state.proxy_state = ProxyState() # Initialize and store ProxyState in app.state
+    openrouter_backend = OpenRouterBackend(client)
+    app.state.openrouter_backend = openrouter_backend
+    app.state.proxy_state = ProxyState()  # Initialize and store ProxyState in app.state
     if not OPENROUTER_API_KEY:
         logger.warning(
             "OPENROUTER_API_KEY is not configured. Requests to OpenRouter will likely fail."
@@ -85,7 +90,7 @@ async def chat_completions(request_data: models.ChatCompletionRequest, http_requ
     It supports streaming and non-streaming responses. Special commands embedded
     in messages (e.g., `!/set(model=...)`) are processed by `proxy_logic`.
     """
-    backend: OpenRouterBackend = http_request.app.state.backend
+    backend: OpenRouterBackend = http_request.app.state.openrouter_backend
     current_proxy_state: ProxyState = http_request.app.state.proxy_state # Access proxy_state from app.state
 
     logger.info(f"Received chat completion request for model: {request_data.model}")
@@ -159,24 +164,18 @@ async def chat_completions(request_data: models.ChatCompletionRequest, http_requ
     # If we reach here, there's valid content to send to the backend.
     effective_model = current_proxy_state.get_effective_model(request_data.model)
 
-    backend_request = request_data.copy(deep=True)
-    backend_request.model = effective_model
-    backend_request.messages = processed_messages
-
-    logger.info(
-        f"Forwarding to backend. Effective model: {effective_model}. Stream: {backend_request.stream}"
-    )
-
     try:
-        if backend_request.stream:
-            logger.debug("Initiating stream request to backend.")
-            stream_iter = await backend.chat_completion(backend_request, stream=True)
-            return StreamingResponse(stream_iter, media_type="text/event-stream")
-
-        logger.debug("Initiating non-streaming request to backend.")
-        response_json = await backend.chat_completion(backend_request)
-        logger.debug(f"Backend response JSON: {json.dumps(response_json, indent=2)}")
-        return response_json
+        response = await backend.chat_completions(
+            request_data=request_data,
+            processed_messages=processed_messages,
+            effective_model=effective_model,
+            openrouter_api_base_url=OPENROUTER_API_BASE_URL,
+            openrouter_headers_provider=get_openrouter_headers,
+        )
+        if isinstance(response, StreamingResponse):
+            return response
+        logger.debug(f"Backend response JSON: {json.dumps(response, indent=2)}")
+        return response
 
     except httpx.HTTPStatusError as e:
         logger.error(
@@ -206,11 +205,14 @@ async def list_models(http_request: Request):
     """
     Proxies requests to the OpenRouter /models endpoint to list available models.
     """
-    backend: OpenRouterBackend = http_request.app.state.backend
+    backend: OpenRouterBackend = http_request.app.state.openrouter_backend
     logger.info("Received request for /v1/models")
 
     try:
-        models_data = await backend.list_models()
+        models_data = await backend.list_models(
+            openrouter_api_base_url=OPENROUTER_API_BASE_URL,
+            openrouter_headers_provider=get_openrouter_headers,
+        )
         logger.debug(
             f"Successfully fetched models from backend. Count: {len(models_data.get('data', []))}"
         )

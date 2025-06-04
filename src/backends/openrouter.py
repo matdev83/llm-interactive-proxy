@@ -44,7 +44,7 @@ class OpenRouterBackend(LLMBackend):
         extra_headers: Optional[Dict[str, str]] = None,
         stream: bool = False,
     ) -> Union[Dict[str, Any], AsyncIterator[bytes]]:
-        payload = request.dict(exclude_unset=True)
+        payload = request.model_dump(exclude_unset=True)
         if request.extra_params:
             payload.update(request.extra_params)
         headers = self._build_headers(extra_headers)

@@ -143,7 +143,7 @@ def process_commands_in_messages(messages: List[models.ChatMessage], current_pro
         return messages, False
     logger.debug(f"Processing messages for commands. Initial message count: {len(messages)}")
 
-    modified_messages = [msg.copy(deep=True) for msg in messages]
+    modified_messages = [msg.model_copy(deep=True) for msg in messages]
     any_command_processed_overall = False
 
     # Iterate backwards to find the last message suitable for command processing
@@ -182,7 +182,7 @@ def process_commands_in_messages(messages: List[models.ChatMessage], current_pro
                 #     new_content_parts.append(part.model_copy(deep=True)) # Pass through image parts
                 else: # Pass through any part that is not a MessageContentPartText
                     logger.debug(f"Passing through non-text part index {part_idx} in message {i} (type: {part.type}).")
-                    new_content_parts.append(part.copy(deep=True))
+                    new_content_parts.append(part.model_copy(deep=True))
 
 
             if part_level_command_found:
