@@ -2,6 +2,7 @@ import logging
 import os
 import json
 from contextlib import asynccontextmanager
+from datetime import datetime
 
 import httpx
 from dotenv import load_dotenv
@@ -210,7 +211,6 @@ async def list_models(http_request: Request):
 # --- Main execution for running with Uvicorn directly (optional) ---
 if __name__ == "__main__":
     import uvicorn
-    from datetime import datetime # For the command-only response timestamp
     
     if not OPENROUTER_API_KEY:
         print("CRITICAL: OPENROUTER_API_KEY environment variable is not set.")
