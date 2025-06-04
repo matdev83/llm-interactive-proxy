@@ -3,7 +3,7 @@ from __future__ import annotations
 import httpx
 from typing import AsyncIterator, Dict, Optional, Union, Any
 
-from models import ChatCompletionRequest
+from src.models import ChatCompletionRequest
 from .base import LLMBackend
 
 

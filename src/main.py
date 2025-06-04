@@ -10,8 +10,8 @@ from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import StreamingResponse, JSONResponse
 
-import models # Import the models module directly
-from proxy_logic import process_commands_in_messages, ProxyState # Import process_commands_in_messages and ProxyState class
+import src.models as models  # Import the models module directly
+from src.proxy_logic import process_commands_in_messages, ProxyState  # Import process_commands_in_messages and ProxyState class
 from src.connectors.openrouter import OpenRouterBackend  # Import the backend used in tests
 
 # --- Configuration ---

@@ -3,7 +3,7 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from typing import AsyncIterator, Dict, Optional, Union
 
-from models import ChatCompletionRequest
+from src.models import ChatCompletionRequest
 
 
 class LLMBackend(ABC):
