@@ -21,7 +21,8 @@ class LLMBackend(abc.ABC):
     async def chat_completions(
         self,
         request_data: 'ChatCompletionRequest',
-        client: httpx.AsyncClient,
+        processed_messages: list, # Messages after command processing
+        effective_model: str, # Model after considering override
         openrouter_api_base_url: str, # This might need to be more generic if we have more backends
         openrouter_headers_provider: Callable[[], Dict[str, str]] # Same as above
     ) -> Union[StreamingResponse, Dict[str, Any]]:
@@ -30,7 +31,8 @@ class LLMBackend(abc.ABC):
 
         Args:
             request_data: The request payload, conforming to ChatCompletionRequest model.
-            client: An httpx.AsyncClient instance for making asynchronous HTTP requests.
+            processed_messages: The list of messages after command processing.
+            effective_model: The model name to be used after considering any overrides.
             openrouter_api_base_url: The base URL for the OpenRouter API.
                                      (Will need generalization if supporting other backends)
             openrouter_headers_provider: A callable that returns a dictionary of headers

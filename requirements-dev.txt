@@ -1,4 +1,0 @@
-pytest
-pytest-asyncio
-pytest-httpx
-httpx # Already a main dep, but good to have for clarity

@@ -53,5 +53,31 @@ class ChatCompletionRequest(BaseModel):
     user: Optional[str] = Field(None, description="A unique identifier representing your end-user, which can help OpenAI monitor and detect abuse.")
     # Add other OpenAI parameters as needed, e.g., functions, tool_choice, tools
 
-# We don't strictly need to model the OpenAI response if we're just proxying JSON/SSE.
-# FastAPI handles serialization of dicts to JSON, and StreamingResponse handles SSE.
+class ChatCompletionChoiceMessage(BaseModel):
+    """Represents the message content within a chat completion choice."""
+    role: str
+    content: str
+
+class ChatCompletionChoice(BaseModel):
+    """Represents a single choice in a chat completion response."""
+    index: int
+    message: ChatCompletionChoiceMessage
+    finish_reason: str
+
+class CompletionUsage(BaseModel):
+    """Represents token usage statistics for a completion."""
+    prompt_tokens: int
+    completion_tokens: int
+    total_tokens: int
+
+class CommandProcessedChatCompletionResponse(BaseModel):
+    """
+    Represents a simplified chat completion response for command-only requests,
+    conforming to OpenAI's structure but indicating proxy processing.
+    """
+    id: str = "proxy_cmd_processed"
+    object: str = "chat.completion"
+    created: int
+    model: str
+    choices: List[ChatCompletionChoice]
+    usage: CompletionUsage

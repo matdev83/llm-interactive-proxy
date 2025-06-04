@@ -3,14 +3,15 @@ import os
 import json
 from contextlib import asynccontextmanager
 from datetime import datetime # Needed for command-only response timestamp
+from typing import Union, Dict, Any # Import Union, Dict, Any for response_model
 
 import httpx
 from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException, Request
-from fastapi.responses import StreamingResponse
+from fastapi.responses import StreamingResponse, JSONResponse
 
-from models import ChatCompletionRequest
-from proxy_logic import proxy_state, process_commands_in_messages
+import models # Import the models module directly
+from proxy_logic import process_commands_in_messages, ProxyState # Import process_commands_in_messages and ProxyState class
 from src.connectors import OpenRouterBackend # Import the backend
 
 # --- Configuration ---
@@ -44,10 +45,11 @@ async def lifespan(app: FastAPI):
     Initializes resources like the HTTPX client and backend connectors on startup,
     and ensures they are cleaned up properly on shutdown.
     """
-    # Startup: Initialize the HTTP client and the backend connector
+    # Startup: Initialize the HTTP client, backend connector, and proxy state
     logger.info("Application startup: Initializing HTTPX client and OpenRouterBackend.")
     app.state.httpx_client = httpx.AsyncClient(timeout=OPENROUTER_TIMEOUT)
-    app.state.openrouter_backend = OpenRouterBackend() # Instantiate the backend
+    app.state.openrouter_backend = OpenRouterBackend(client=app.state.httpx_client) # Instantiate the backend with the client
+    app.state.proxy_state = ProxyState() # Initialize and store ProxyState in app.state
     if not OPENROUTER_API_KEY: # Log this warning again after client/backend setup attempt
         logger.warning("OPENROUTER_API_KEY is not configured. Requests to OpenRouter will likely fail.")
     yield
@@ -85,8 +87,8 @@ async def root():
     logger.info("Root endpoint '/' accessed.")
     return {"message": "OpenAI Compatible Intercepting Proxy Server is running."}
 
-@app.post("/v1/chat/completions")
-async def chat_completions(request_data: ChatCompletionRequest, http_request: Request):
+@app.post("/v1/chat/completions", response_model=Union[models.CommandProcessedChatCompletionResponse, Dict[str, Any]])
+async def chat_completions(request_data: models.ChatCompletionRequest, http_request: Request):
     """
     Handles chat completion requests, processes potential commands, and proxies
     the request to the configured OpenRouter backend.
@@ -96,32 +98,78 @@ async def chat_completions(request_data: ChatCompletionRequest, http_request: Re
     """
     client: httpx.AsyncClient = http_request.app.state.httpx_client
     backend: OpenRouterBackend = http_request.app.state.openrouter_backend
+    current_proxy_state: ProxyState = http_request.app.state.proxy_state # Access proxy_state from app.state
 
     logger.info(f"Received chat completion request for model: {request_data.model}")
     logger.debug(f"Incoming request payload: {request_data.model_dump_json(indent=2)}")
 
-    processed_messages, commands_were_processed = process_commands_in_messages(request_data.messages)
+    processed_messages, commands_were_processed = process_commands_in_messages(
+        request_data.messages,
+        current_proxy_state # Pass the current_proxy_state instance
+    )
+    logger.debug(f"Processed messages: {processed_messages}, Commands processed: {commands_were_processed}")
 
-    if not processed_messages:
-        if commands_were_processed:
-            logger.info("Request contained only commands and messages list is now empty. Responding to client directly.")
-            return {
-                "id": "proxy_cmd_processed",
-                "object": "chat.completion",
-                "created": int(datetime.utcnow().timestamp()),
-                "model": proxy_state.override_model or request_data.model,
-                "choices": [{
-                    "index": 0,
-                    "message": {"role": "assistant", "content": "Proxy command processed. No query sent to LLM."},
-                    "finish_reason": "stop"
-                }],
-                "usage": {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
-            }
+    # Determine if the request is effectively command-only
+    is_command_only_response = False
+    if commands_were_processed:
+        if not processed_messages:  # List is empty
+            is_command_only_response = True
         else:
-            logger.warning("Received request with no messages after processing (and no commands found).")
-            raise HTTPException(status_code=400, detail="No messages provided in the request.")
+            # Check if all remaining messages are essentially empty strings (original content was just commands)
+            all_remaining_messages_have_empty_content = True
+            for msg in processed_messages:
+                if isinstance(msg.content, str):
+                    if msg.content.strip() != "":  # Found actual text
+                        all_remaining_messages_have_empty_content = False
+                        break
+                elif isinstance(msg.content, list):  # If a list (multimodal) message remains, it's not purely command-only
+                    # If process_commands_in_messages leaves a multimodal message, it implies it has non-command content (e.g., image, or unstripped text part)
+                    all_remaining_messages_have_empty_content = False
+                    break
+                # No else needed as Pydantic validates ChatMessage.content
+            if all_remaining_messages_have_empty_content:
+                is_command_only_response = True
 
-    effective_model = proxy_state.get_effective_model(request_data.model)
+    if is_command_only_response:
+        logger.info("Request contained only commands or resulted in effectively empty messages after command processing. Responding to client directly.")
+        return models.CommandProcessedChatCompletionResponse(
+            id="proxy_cmd_processed",
+            object="chat.completion",
+            created=int(datetime.utcnow().timestamp()),
+            model=current_proxy_state.get_effective_model(request_data.model), # Use effective model
+            choices=[
+                models.ChatCompletionChoice(
+                    index=0,
+                    message=models.ChatCompletionChoiceMessage(role="assistant", content="Proxy command processed. No query sent to LLM."),
+                    finish_reason="stop"
+                )
+            ],
+            usage=models.CompletionUsage(prompt_tokens=0, completion_tokens=0, total_tokens=0)
+        )
+
+    # If not a command-only response, check if there's any valid content to send.
+    # Valid content means processed_messages is not empty, AND at least one message has non-empty content.
+    has_valid_content_to_send = False
+    if processed_messages:  # If the list is not empty
+        for msg in processed_messages:
+            if isinstance(msg.content, str):
+                if msg.content.strip() != "":
+                    has_valid_content_to_send = True
+                    break
+            elif isinstance(msg.content, list):
+                # For multimodal, if the list of content parts is not empty, it's considered valid content.
+                # process_commands_in_messages removes messages if their content list becomes empty.
+                # So, if a list-based message is present here, it has content (e.g., an image, or remaining text).
+                if msg.content:  # Check if the list of parts is not empty
+                    has_valid_content_to_send = True
+                    break
+    
+    if not has_valid_content_to_send:
+        logger.warning("Received request with no effective messages to send to the backend (either initially empty or became empty after processing, and not a command-only scenario).")
+        raise HTTPException(status_code=400, detail="No messages provided in the request or messages became empty after processing.")
+
+    # If we reach here, there's valid content to send to the backend.
+    effective_model = current_proxy_state.get_effective_model(request_data.model)
 
     try:
         # Delegate to the backend connector
@@ -129,7 +177,6 @@ async def chat_completions(request_data: ChatCompletionRequest, http_request: Re
             request_data=request_data,
             processed_messages=processed_messages,
             effective_model=effective_model,
-            client=client,
             openrouter_api_base_url=OPENROUTER_API_BASE_URL,
             openrouter_headers_provider=get_openrouter_headers
         )

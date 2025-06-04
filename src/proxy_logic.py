@@ -1,7 +1,7 @@
 import logging
 import re
 from typing import Optional, Tuple, List, Dict, Any
-from models import ChatMessage, MessageContentPartText # Import necessary Pydantic models
+import src.models as models # Import the models module directly using full path
 
 logger = logging.getLogger(__name__)
 
@@ -21,6 +21,11 @@ class ProxyState:
         logger.info("Unsetting override model.")
         self.override_model = None
 
+    def reset(self):
+        """Resets the state of the ProxyState instance."""
+        logger.info("Resetting ProxyState instance.")
+        self.override_model = None
+
     def get_effective_model(self, requested_model: str) -> str:
         """
         Determines the effective model to be used, considering any override.
@@ -36,7 +41,7 @@ class ProxyState:
             return self.override_model
         return requested_model
 
-proxy_state = ProxyState() # Global instance for simplicity
+# proxy_state = ProxyState() # Global instance for simplicity - this will be managed by FastAPI app.state
 
 # Command regex: !/command(arg1=val1, arg2=val2, ...)
 COMMAND_PATTERN = re.compile(r"!/(\w+)\(([^)]*)\)") # Allows empty args
@@ -71,21 +76,23 @@ def parse_arguments(args_str: str) -> Dict[str, Any]:
             args[key.strip()] = value.strip()
         else: # For commands like !/unset(model) where 'model' isn't a value but a key itself.
             args[part.strip()] = True # Treat as a flag
-    logger.debug(f"Parsed arguments: {args}")
     return args
 
-def _process_text_for_commands(text_content: str) -> Tuple[str, bool]:
+def _process_text_for_commands(text_content: str, current_proxy_state: "ProxyState") -> Tuple[str, bool]:
     """
     Helper to process commands within a single text string.
     Returns the modified text and a boolean indicating if commands were found.
     """
     logger.debug(f"Processing text for commands: '{text_content}'")
     commands_found_in_text = False
+    modified_text = text_content
 
-    processed_text_parts = []
-    last_slice_end = 0
-
-    for match in COMMAND_PATTERN.finditer(text_content):
+    # Find all command matches
+    matches = list(COMMAND_PATTERN.finditer(text_content))
+    
+    # Process matches in reverse order to avoid issues with index shifts
+    # when replacing parts of the string.
+    for match in reversed(matches):
         commands_found_in_text = True
         command_full_match = match.group(0)
         command_name_extracted = match.group(1)
@@ -93,38 +100,38 @@ def _process_text_for_commands(text_content: str) -> Tuple[str, bool]:
         logger.debug(f"Regex match: Full='{command_full_match}', Command='{command_name_extracted}', ArgsStr='{args_str_extracted}'")
 
         command_name = command_name_extracted.lower()
-        args = parse_arguments(args_str_extracted) # parse_arguments now has its own DEBUG logs
-
-        processed_text_parts.append(text_content[last_slice_end:match.start()])
-        last_slice_end = match.end()
+        args = parse_arguments(args_str_extracted)
 
         logger.info(f"Processing command: name='{command_name}', args={args}")
-        logger.info(f"State before command '{command_name}': override_model='{proxy_state.override_model}'")
+        logger.info(f"State before command '{command_name}': override_model='{current_proxy_state.override_model}'")
+
+        replacement_string = "" # Default to removing the command
 
         if command_name == "set":
             if "model" in args and isinstance(args["model"], str):
-                proxy_state.set_override_model(args["model"])
+                current_proxy_state.set_override_model(args["model"])
             else:
                 logger.warning("!/set command found without valid 'model=model_name' argument. No change to override model.")
         elif command_name == "unset":
             if "model" in args:
-                proxy_state.unset_override_model()
+                current_proxy_state.unset_override_model()
             else:
                 logger.warning("!/unset command should be like !/unset(model). No change to override model.")
         else:
             logger.warning(f"Unknown command: {command_name}. Keeping command text.")
-            processed_text_parts.append(command_full_match)
+            replacement_string = command_full_match # Keep unknown commands
 
-        logger.info(f"State after command '{command_name}': override_model='{proxy_state.override_model}'")
+        # Replace the command in the modified_text
+        modified_text = modified_text[:match.start()] + replacement_string + modified_text[match.end():]
+        logger.info(f"State after command '{command_name}': override_model='{current_proxy_state.override_model}'")
 
-    processed_text_parts.append(text_content[last_slice_end:])
-
-    final_text = "".join(processed_text_parts).strip()
-    logger.debug(f"Text after command processing: '{final_text}'")
+    # Normalize whitespace: replace multiple spaces with a single space, and strip leading/trailing spaces
+    final_text = re.sub(r'\s+', ' ', modified_text).strip()
+    logger.debug(f"Text after command processing and normalization: '{final_text}'")
     return final_text, commands_found_in_text
 
 
-def process_commands_in_messages(messages: List[ChatMessage]) -> Tuple[List[ChatMessage], bool]:
+def process_commands_in_messages(messages: List[models.ChatMessage], current_proxy_state: "ProxyState") -> Tuple[List[models.ChatMessage], bool]:
     """
     Processes commands in messages. Checks the last message first.
     Returns the (potentially) modified messages list and a boolean indicating if any command was processed.
@@ -147,7 +154,7 @@ def process_commands_in_messages(messages: List[ChatMessage]) -> Tuple[List[Chat
 
         if isinstance(msg.content, str):
             logger.debug(f"Processing message index {i} (from end), current content (str): '{msg.content}'")
-            processed_text, commands_found = _process_text_for_commands(msg.content)
+            processed_text, commands_found = _process_text_for_commands(msg.content, current_proxy_state)
             if commands_found:
                 msg.content = processed_text
                 any_command_processed_overall = True
@@ -157,21 +164,26 @@ def process_commands_in_messages(messages: List[ChatMessage]) -> Tuple[List[Chat
             new_content_parts = []
             part_level_command_found = False
             for part_idx, part in enumerate(msg.content):
-                if part.type == "text":
+                if isinstance(part, models.MessageContentPartText): # Use isinstance for type narrowing
                     logger.debug(f"Processing text part index {part_idx} in message {i}: '{part.text}'")
-                    processed_text, commands_found = _process_text_for_commands(part.text)
-                    if commands_found: # Corrected typo here
+                    processed_text, commands_found = _process_text_for_commands(part.text, current_proxy_state)
+                    if commands_found:
                         part_level_command_found = True
                         any_command_processed_overall = True
                     # Add text part only if it's not empty after stripping commands
                     if processed_text.strip():
-                         new_content_parts.append(MessageContentPartText(type="text", text=processed_text))
+                         new_content_parts.append(models.MessageContentPartText(type="text", text=processed_text))
                     elif not commands_found : # if not command found and it was empty already preserve it
-                        new_content_parts.append(MessageContentPartText(type="text", text=processed_text))
+                        new_content_parts.append(models.MessageContentPartText(type="text", text=processed_text))
                     else:
                         logger.debug(f"Text part became empty after command processing and was removed: Original '{part.text}'")
-                else:
-                    new_content_parts.append(part.model_copy(deep=True)) # Pass through non-text parts
+                # Explicitly handle other known part types if needed, otherwise pass through
+                # elif isinstance(part, models.MessageContentPartImage): # Example for image parts
+                #     new_content_parts.append(part.model_copy(deep=True)) # Pass through image parts
+                else: # Pass through any part that is not a MessageContentPartText
+                    logger.debug(f"Passing through non-text part index {part_idx} in message {i} (type: {part.type}).")
+                    new_content_parts.append(part.model_copy(deep=True))
+
 
             if part_level_command_found:
                 msg.content = new_content_parts
