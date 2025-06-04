@@ -20,7 +20,9 @@ OPENROUTER_API_BASE_URL = os.getenv("OPENROUTER_API_BASE_URL", "https://openrout
 APP_SITE_URL = os.getenv("APP_SITE_URL", "http://localhost:8000") # Used for Referer header
 APP_X_TITLE = os.getenv("APP_X_TITLE", "InterceptorProxy")     # Used for X-Title header
 PROXY_PORT = int(os.getenv("PROXY_PORT", "8000"))
-PROXY_HOST = os.getenv("PROXY_HOST", "0.0.0.0")
+# Bind to localhost by default for safety. Set PROXY_HOST=0.0.0.0 to expose
+# the proxy on all network interfaces.
+PROXY_HOST = os.getenv("PROXY_HOST", "127.0.0.1")
 OPENROUTER_TIMEOUT = int(os.getenv("OPENROUTER_TIMEOUT", "300")) # 5 minutes
 
 # --- Logging Setup ---
