@@ -2,6 +2,7 @@ import logging
 import os
 import json
 from contextlib import asynccontextmanager
+from datetime import datetime
 
 import httpx
 from dotenv import load_dotenv
@@ -90,7 +91,7 @@ async def chat_completions(request_data: ChatCompletionRequest, http_request: Re
             return {
                 "id": "proxy_cmd_processed", 
                 "object": "text_completion", # Or chat.completion for consistency
-                "created": int(json.loads(json.dumps(datetime.utcnow(), default=str))[:-3] + "Z"), # Simulate timestamp
+                "created": int(datetime.utcnow().timestamp()),
                 "model": proxy_state.override_model or request_data.model,
                 "choices": [{
                     "index": 0,
