@@ -1,0 +1,9 @@
+{
+  "api_base": "http://localhost:8000/v1",
+  "model": "gpt-3.5-turbo",
+  "prompts": [
+    "Hello",
+    "!/set(model=gpt-3.5-turbo)",
+    "What is 2+2?"
+  ]
+}

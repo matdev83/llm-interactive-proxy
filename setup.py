@@ -7,6 +7,7 @@ setup(
     package_dir={"": "src"},
     install_requires=[
         "pytest",
+        "openai==1.84.0",
     ],
     # Add other metadata as needed
     author="Your Name",
