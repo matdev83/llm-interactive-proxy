@@ -102,7 +102,7 @@ def process_commands_in_messages(messages: List[ChatMessage]) -> Tuple[List[Chat
     if not messages:
         return messages, False
 
-    modified_messages = [msg.model_copy(deep=True) for msg in messages]
+    modified_messages = [msg.copy(deep=True) for msg in messages]
     any_command_processed_overall = False
 
     # Iterate backwards to find the last message suitable for command processing
@@ -132,7 +132,7 @@ def process_commands_in_messages(messages: List[ChatMessage]) -> Tuple[List[Chat
                     elif not commands_found : # if not command found and it was empty already preserve it
                         new_content_parts.append(MessageContentPartText(type="text", text=processed_text))
                 else:
-                    new_content_parts.append(part.model_copy(deep=True)) # Pass through non-text parts
+                    new_content_parts.append(part.copy(deep=True)) # Pass through non-text parts
 
             if part_level_command_found:
                 msg.content = new_content_parts

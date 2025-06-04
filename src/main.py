@@ -8,6 +8,8 @@ from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import StreamingResponse
 
+from backends import OpenRouterBackend
+
 from models import ChatCompletionRequest
 from proxy_logic import proxy_state, process_commands_in_messages
 
@@ -43,30 +45,25 @@ if not OPENROUTER_API_KEY:
 async def lifespan(app: FastAPI):
     # Startup: Initialize the HTTP client
     logger.info("Application startup: Initializing HTTPX client.")
-    app.state.httpx_client = httpx.AsyncClient(timeout=OPENROUTER_TIMEOUT)
+    client = httpx.AsyncClient(timeout=OPENROUTER_TIMEOUT)
+    app.state.httpx_client = client
+    app.state.backend = OpenRouterBackend(
+        client,
+        api_key=OPENROUTER_API_KEY or "",
+        api_base_url=OPENROUTER_API_BASE_URL,
+        app_site_url=APP_SITE_URL,
+        app_title=APP_X_TITLE,
+    )
     if not OPENROUTER_API_KEY:
-        logger.warning("OPENROUTER_API_KEY is not configured. Requests to OpenRouter will likely fail.")
+        logger.warning(
+            "OPENROUTER_API_KEY is not configured. Requests to OpenRouter will likely fail."
+        )
     yield
     # Shutdown: Close the HTTP client
     logger.info("Application shutdown: Closing HTTPX client.")
-    await app.state.httpx_client.aclose()
+    await client.aclose()
 
 app = FastAPI(lifespan=lifespan)
-
-# --- Helper Functions ---
-def get_openrouter_headers() -> dict:
-    if not OPENROUTER_API_KEY:
-        # This case should ideally be handled by not starting or raising prominently.
-        # If we reach here, it's a misconfiguration.
-        raise HTTPException(status_code=500, detail="Proxy server misconfiguration: OpenRouter API key not set.")
-
-    return {
-        "Authorization": f"Bearer {OPENROUTER_API_KEY}",
-        "Content-Type": "application/json",
-        "HTTP-Referer": APP_SITE_URL,
-        "X-Title": APP_X_TITLE,
-        "User-Agent": f"{APP_X_TITLE}/1.0 (Python httpx)",
-    }
 
 # --- API Endpoints ---
 @app.get("/")
@@ -75,8 +72,7 @@ async def root():
     return {"message": "OpenAI Compatible Intercepting Proxy Server is running."}
 
 @app.post("/v1/chat/completions")
-async def chat_completions(request_data: ChatCompletionRequest, http_request: Request): # http_request gives access to FastAPI app state
-    client: httpx.AsyncClient = http_request.app.state.httpx_client
+async def chat_completions(request_data: ChatCompletionRequest, http_request: Request):
     
     logger.info(f"Received chat completion request for model: {request_data.model}")
     logger.debug(f"Incoming request payload: {request_data.model_dump_json(indent=2)}")
@@ -106,103 +102,84 @@ async def chat_completions(request_data: ChatCompletionRequest, http_request: Re
 
 
     effective_model = proxy_state.get_effective_model(request_data.model)
-    
-    openrouter_payload = request_data.model_dump(exclude_unset=True)
-    openrouter_payload["model"] = effective_model
-    # Convert Pydantic message models back to dictionaries for the payload
-    openrouter_payload["messages"] = [msg.model_dump(exclude_unset=True) for msg in processed_messages]
 
-    logger.info(f"Forwarding to OpenRouter. Effective model: {effective_model}. Stream: {request_data.stream}")
-    logger.debug(f"Payload for OpenRouter: {json.dumps(openrouter_payload, indent=2)}")
+    backend_request = request_data.copy(deep=True)
+    backend_request.model = effective_model
+    backend_request.messages = processed_messages
 
-    headers = get_openrouter_headers()
+    backend = http_request.app.state.backend
+
+    logger.info(
+        f"Forwarding to backend. Effective model: {effective_model}. Stream: {backend_request.stream}"
+    )
 
     try:
-        if request_data.stream:
-            logger.debug("Initiating stream request to OpenRouter.")
-            req = client.build_request("POST", f"{OPENROUTER_API_BASE_URL}/chat/completions",
-                                       json=openrouter_payload, headers=headers)
-            
-            async def stream_generator():
-                try:
-                    async with client.stream(req) as response:
-                        logger.debug(f"OpenRouter stream response status: {response.status_code}")
-                        response.raise_for_status() # Check for HTTP errors from OpenRouter
-                        async for chunk in response.aiter_bytes():
-                            # logger.debug(f"Stream chunk (bytes): {chunk[:100]}") # Log first 100 bytes
-                            yield chunk
-                        logger.debug("OpenRouter stream finished.")
-                except httpx.HTTPStatusError as e_stream:
-                    logger.error(f"HTTP error during OpenRouter stream: {e_stream.response.status_code} - {await e_stream.response.aread()}")
-                    # This error won't be caught by the outer try/except if it happens inside the generator
-                    # It's complex to propagate this back as an HTTPException directly from here.
-                    # The client will see a broken stream.
-                    # For robust error reporting in streams, one might stream an error message in SSE format.
-                    yield f"data: {json.dumps({'error': {'message': f'OpenRouter stream error: {e_stream.response.status_code}', 'type': 'openrouter_error', 'code': e_stream.response.status_code}})}\n\n".encode()
-                except Exception as e_gen:
-                    logger.error(f"Error in stream generator: {e_gen}", exc_info=True)
-                    yield f"data: {json.dumps({'error': {'message': f'Proxy stream generator error: {str(e_gen)}', 'type': 'proxy_error'}})}\n\n".encode()
+        if backend_request.stream:
+            logger.debug("Initiating stream request to backend.")
+            stream_iter = await backend.chat_completion(backend_request, stream=True)
+            return StreamingResponse(stream_iter, media_type="text/event-stream")
 
-
-            return StreamingResponse(stream_generator(), media_type="text/event-stream")
-
-        else: # Non-streaming request
-            logger.debug("Initiating non-streaming request to OpenRouter.")
-            response = await client.post(f"{OPENROUTER_API_BASE_URL}/chat/completions",
-                                         json=openrouter_payload, headers=headers)
-            logger.debug(f"OpenRouter non-stream response status: {response.status_code}")
-            response.raise_for_status() # Raise HTTP errors
-            
-            response_json = response.json()
-            logger.debug(f"OpenRouter response JSON: {json.dumps(response_json, indent=2)}")
-            return response_json
+        logger.debug("Initiating non-streaming request to backend.")
+        response_json = await backend.chat_completion(backend_request)
+        logger.debug(f"Backend response JSON: {json.dumps(response_json, indent=2)}")
+        return response_json
 
     except httpx.HTTPStatusError as e:
-        logger.error(f"HTTP error from OpenRouter: {e.response.status_code} - {e.response.text}", exc_info=True)
+        logger.error(
+            f"HTTP error from backend: {e.response.status_code} - {e.response.text}",
+            exc_info=True,
+        )
         try:
             error_detail = e.response.json()
         except json.JSONDecodeError:
             error_detail = e.response.text
         raise HTTPException(status_code=e.response.status_code, detail=error_detail)
     except httpx.RequestError as e:
-        logger.error(f"Request error connecting to OpenRouter: {type(e).__name__} - {str(e)}", exc_info=True)
-        raise HTTPException(status_code=503, detail=f"Service unavailable: Could not connect to OpenRouter ({str(e)})")
+        logger.error(
+            f"Request error connecting to backend: {type(e).__name__} - {str(e)}",
+            exc_info=True,
+        )
+        raise HTTPException(
+            status_code=503,
+            detail=f"Service unavailable: Could not connect to backend ({str(e)})",
+        )
     except Exception as e:
         logger.error(f"An unexpected error occurred in chat_completions: {type(e).__name__} - {str(e)}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
 
 @app.get("/v1/models")
 async def list_models(http_request: Request):
-    client: httpx.AsyncClient = http_request.app.state.httpx_client
+    backend: OpenRouterBackend = http_request.app.state.backend
     logger.info("Received request for /v1/models")
-    
-    headers = get_openrouter_headers()
-    
+
     try:
-        response = await client.get(f"{OPENROUTER_API_BASE_URL}/models", headers=headers)
-        logger.debug(f"OpenRouter /models response status: {response.status_code}")
-        response.raise_for_status()
-        
-        models_data = response.json()
-        logger.debug(f"Successfully fetched models from OpenRouter. Count: {len(models_data.get('data', []))}")
-        
-        # Optionally: Modify models_data here if needed.
-        # For example, to add info about the currently overridden model.
-        # if proxy_state.override_model:
-        #     models_data["proxy_override_active"] = proxy_state.override_model
-        
+        models_data = await backend.list_models()
+        logger.debug(
+            f"Successfully fetched models from backend. Count: {len(models_data.get('data', []))}"
+        )
+
+        # Optionally: annotate models_data here if needed.
         return models_data
 
     except httpx.HTTPStatusError as e:
-        logger.error(f"HTTP error from OpenRouter fetching models: {e.response.status_code} - {e.response.text}", exc_info=True)
+        logger.error(
+            f"HTTP error from backend fetching models: {e.response.status_code} - {e.response.text}",
+            exc_info=True,
+        )
         try:
             error_detail = e.response.json()
         except json.JSONDecodeError:
             error_detail = e.response.text
         raise HTTPException(status_code=e.response.status_code, detail=error_detail)
     except httpx.RequestError as e:
-        logger.error(f"Request error connecting to OpenRouter for models: {str(e)}", exc_info=True)
-        raise HTTPException(status_code=503, detail=f"Service unavailable: Could not connect to OpenRouter for models ({str(e)})")
+        logger.error(
+            f"Request error connecting to backend for models: {str(e)}",
+            exc_info=True,
+        )
+        raise HTTPException(
+            status_code=503,
+            detail=f"Service unavailable: Could not connect to backend for models ({str(e)})",
+        )
     except Exception as e:
         logger.error(f"An unexpected error occurred fetching models: {str(e)}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Internal server error fetching models: {str(e)}")

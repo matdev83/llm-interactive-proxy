@@ -38,6 +38,7 @@ class ChatCompletionRequest(BaseModel):
     frequency_penalty: Optional[float] = None
     logit_bias: Optional[Dict[str, float]] = None
     user: Optional[str] = None
+    extra_params: Optional[Dict[str, Any]] = None
     # Add other OpenAI parameters as needed, e.g., functions, tool_choice, tools
 
 # We don't strictly need to model the OpenAI response if we're just proxying JSON/SSE.
