@@ -1,8 +1,9 @@
 import os
 import pytest
 from unittest.mock import AsyncMock
+import os
 from src.connectors import OpenRouterBackend, GeminiBackend
-from src.main import build_app # Import build_app
+from src.main import build_app, _load_config
 from starlette.testclient import TestClient # Import TestClient
 
 # Preserve original Gemini API key for integration tests
@@ -27,27 +28,27 @@ def patch_backend_discovery(monkeypatch):
     yield
 
 
-@pytest.fixture(scope="session") # Use session scope for app to avoid rebuilding for every test
+@pytest.fixture(scope="session")  # Use session scope for app to avoid rebuilding for every test
 def configured_app():
     """Fixture to provide a FastAPI app with configured backends for testing."""
-    # Ensure no numbered API keys are present before setting base keys
     for i in range(1, 21):
-        if f"OPENROUTER_API_KEY_{i}" in os.environ:
-            del os.environ[f"OPENROUTER_API_KEY_{i}"]
-        if f"GEMINI_API_KEY_{i}" in os.environ:
-            del os.environ[f"GEMINI_API_KEY_{i}"]
-
-    # Manually set environment variables for the session-scoped app build
-    os.environ["OPENROUTER_API_KEY"] = "dummy-openrouter-key"
-    os.environ["GEMINI_API_KEY"] = "dummy-gemini-key"
-    # This will call _load_config internally, which will pick up the env vars
-    app = build_app()
+        os.environ.pop(f"OPENROUTER_API_KEY_{i}", None)
+        os.environ.pop(f"GEMINI_API_KEY_{i}", None)
+    cfg = _load_config()
+    cfg.update(
+        {
+            "openrouter_api_keys": {
+                "OPENROUTER_API_KEY_1": "dummy-openrouter-key-1",
+                "OPENROUTER_API_KEY_2": "dummy-openrouter-key-2",
+            },
+            "gemini_api_keys": {"GEMINI_API_KEY": "dummy-gemini-key"},
+            "backend": "openrouter",
+        }
+    )
+    app = build_app(cfg)
+    import src.main as app_main
+    app_main.app = app
     yield app
-    # Clean up environment variables after the session
-    if "OPENROUTER_API_KEY" in os.environ:
-        del os.environ["OPENROUTER_API_KEY"]
-    if "GEMINI_API_KEY" in os.environ:
-        del os.environ["GEMINI_API_KEY"]
 
 @pytest.fixture
 def client(configured_app):
@@ -58,26 +59,25 @@ def client(configured_app):
 @pytest.fixture(scope="session")
 def configured_interactive_app():
     """Fixture to provide a FastAPI app configured for interactive mode."""
-    # Ensure no numbered API keys are present before setting base keys
     for i in range(1, 21):
-        if f"OPENROUTER_API_KEY_{i}" in os.environ:
-            del os.environ[f"OPENROUTER_API_KEY_{i}"]
-        if f"GEMINI_API_KEY_{i}" in os.environ:
-            del os.environ[f"GEMINI_API_KEY_{i}"]
-
-    # Manually set environment variables for the session-scoped app build
-    os.environ["OPENROUTER_API_KEY"] = "dummy-openrouter-key"
-    os.environ["GEMINI_API_KEY"] = "dummy-gemini-key"
-    os.environ["INTERACTIVE_MODE"] = "true"
-    app = build_app()
+        os.environ.pop(f"OPENROUTER_API_KEY_{i}", None)
+        os.environ.pop(f"GEMINI_API_KEY_{i}", None)
+    cfg = _load_config()
+    cfg.update(
+        {
+            "openrouter_api_keys": {
+                "OPENROUTER_API_KEY_1": "dummy-openrouter-key-1",
+                "OPENROUTER_API_KEY_2": "dummy-openrouter-key-2",
+            },
+            "gemini_api_keys": {"GEMINI_API_KEY": "dummy-gemini-key"},
+            "backend": "openrouter",
+            "interactive_mode": True,
+        }
+    )
+    app = build_app(cfg)
+    import src.main as app_main
+    app_main.app = app
     yield app
-    # Clean up environment variables after the session
-    if "OPENROUTER_API_KEY" in os.environ:
-        del os.environ["OPENROUTER_API_KEY"]
-    if "GEMINI_API_KEY" in os.environ:
-        del os.environ["GEMINI_API_KEY"]
-    if "INTERACTIVE_MODE" in os.environ:
-        del os.environ["INTERACTIVE_MODE"]
 
 @pytest.fixture
 def interactive_client(configured_interactive_app):
@@ -91,6 +91,10 @@ def interactive_client(configured_interactive_app):
 # It remains for LLM_BACKEND and numbered keys if individual tests set them.
 @pytest.fixture(autouse=True)
 def clean_env(monkeypatch):
+    for i in range(1, 21):
+        monkeypatch.delenv(f"GEMINI_API_KEY_{i}", raising=False)
+        monkeypatch.delenv(f"OPENROUTER_API_KEY_{i}", raising=False)
+    monkeypatch.delenv("LLM_BACKEND", raising=False)
     yield
     monkeypatch.delenv("LLM_BACKEND", raising=False)
     for i in range(1, 21):

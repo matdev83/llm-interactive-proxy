@@ -357,6 +357,13 @@ def build_app(cfg: Dict[str, Any] | None = None) -> FastAPI:
 
         effective_model = proxy_state.get_effective_model(request_data.model)
 
+        if (
+            backend_type == "openrouter"
+            and effective_model.lower().startswith("gemini")
+        ):
+            backend_type = "gemini"
+            backend = http_request.app.state.gemini_backend
+
         async def _call_backend(b_type: str, model: str, key_name: str, api_key: str):
             if b_type == "gemini":
                 retry_at = http_request.app.state.rate_limits.get(
