@@ -93,7 +93,7 @@ def _load_config() -> Dict[str, Any]:
         "app_site_url": os.getenv("APP_SITE_URL", "http://localhost:8000"),
         "app_x_title": os.getenv("APP_X_TITLE", "InterceptorProxy"),
         "proxy_port": int(os.getenv("PROXY_PORT", "8000")),
-        "proxy_host": os.getenv("PROXY_HOST", "0.0.0.0"),
+        "proxy_host": os.getenv("PROXY_HOST", "127.0.0.1"),
         "proxy_timeout": int(
             os.getenv("PROXY_TIMEOUT", os.getenv("OPENROUTER_TIMEOUT", "300"))
         ),

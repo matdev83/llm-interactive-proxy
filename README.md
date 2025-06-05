@@ -78,11 +78,11 @@ To start the proxy server, run the `main.py` script from the `src` directory:
 python src/main.py
 ```
 
-The server will typically start on `http://0.0.0.0:8000` (or as configured in your `.env` file). You should see log output indicating the server has started, e.g.:
+The server will typically start on `http://127.0.0.1:8000` (or as configured in your `.env` file). You should see log output indicating the server has started, e.g.:
 `INFO:     Started server process [xxxxx]`
 `INFO:     Waiting for application startup.`
 `INFO:     Application startup complete.`
-`INFO:     Uvicorn running on http://0.0.0.0:8000 (Press CTRL+C to quit)`
+`INFO:     Uvicorn running on http://127.0.0.1:8000 (Press CTRL+C to quit)`
 
 ### Running Tests
 
