@@ -184,3 +184,17 @@ class TestProcessCommandsInMessages:
         assert processed
         assert processed_messages[0].content == "hi"
         assert current_proxy_state.project == "proj1"
+
+    def test_unset_model_and_project_in_message(self):
+        current_proxy_state = ProxyState()
+        current_proxy_state.set_override_model("foo")
+        current_proxy_state.set_project("bar")
+        messages = [
+            models.ChatMessage(role="user", content="!/unset(model, project)")
+        ]
+        processed_messages, processed = process_commands_in_messages(messages, current_proxy_state)
+        assert processed
+        assert len(processed_messages) == 1
+        assert processed_messages[0].content == ""
+        assert current_proxy_state.override_model is None
+        assert current_proxy_state.project is None

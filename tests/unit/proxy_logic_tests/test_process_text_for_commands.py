@@ -141,3 +141,16 @@ class TestProcessTextForCommands:
         processed_text, _ = _process_text_for_commands("!/unset(project)", current_proxy_state, pattern)
         assert processed_text == ""
         assert current_proxy_state.project is None
+
+    def test_unset_model_and_project_together(self):
+        current_proxy_state = ProxyState()
+        pattern = get_command_pattern("!/")
+        _process_text_for_commands("!/set(model=foo)", current_proxy_state, pattern)
+        _process_text_for_commands("!/set(project=bar)", current_proxy_state, pattern)
+        assert current_proxy_state.override_model == "foo"
+        assert current_proxy_state.project == "bar"
+        processed_text, commands_found = _process_text_for_commands("!/unset(model, project)", current_proxy_state, pattern)
+        assert processed_text == ""
+        assert commands_found
+        assert current_proxy_state.override_model is None
+        assert current_proxy_state.project is None
