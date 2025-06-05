@@ -3,6 +3,7 @@ import os
 import random
 import socket
 import subprocess
+import sys
 import time
 
 import pytest
@@ -39,7 +40,7 @@ def _run_client(cfg_path: str, port: int) -> str:
     env = os.environ.copy()
     env.setdefault("OPENAI_API_KEY", "dummy")
     result = subprocess.run(
-        ["python", os.path.join("dev", "test_client.py"), cfg_path],
+        [sys.executable, os.path.join("dev", "test_client.py"), cfg_path],
         text=True,
         env=env,
         capture_output=True,
@@ -121,4 +122,3 @@ def test_gemini_interactive_banner(tmp_path):
         assert "Hello, this is" in out
     finally:
         _stop_server(server)
-
