@@ -173,3 +173,21 @@ class TestProcessTextForCommands:
         assert found
         assert current_proxy_state.interactive_mode is False
 
+    def test_hello_command(self):
+        current_proxy_state = ProxyState()
+        pattern = get_command_pattern("!/")
+        text = "!/hello"
+        processed_text, found = _process_text_for_commands(text, current_proxy_state, pattern)
+        assert processed_text == ""
+        assert found
+        assert current_proxy_state.hello_requested is True
+
+    def test_hello_command_with_text(self):
+        current_proxy_state = ProxyState()
+        pattern = get_command_pattern("!/")
+        text = "Greetings !/hello friend"
+        processed_text, found = _process_text_for_commands(text, current_proxy_state, pattern)
+        assert processed_text == "Greetings friend"
+        assert found
+        assert current_proxy_state.hello_requested is True
+

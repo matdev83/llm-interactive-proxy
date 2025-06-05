@@ -11,6 +11,8 @@ class ProxyState:
         self.override_model: Optional[str] = None
         self.project: Optional[str] = None
         self.interactive_mode: bool = interactive_mode
+        self.interactive_just_enabled: bool = False
+        self.hello_requested: bool = False
 
     def set_override_model(self, model_name: str) -> None:
         logger.info(f"Setting override model to: {model_name}")
@@ -30,17 +32,24 @@ class ProxyState:
 
     def set_interactive_mode(self, value: bool) -> None:
         logger.info(f"Setting interactive mode to: {value}")
+        if value and not self.interactive_mode:
+            self.interactive_just_enabled = True
+        else:
+            self.interactive_just_enabled = False
         self.interactive_mode = value
 
     def unset_interactive_mode(self) -> None:
         logger.info("Unsetting interactive mode (setting to False).")
         self.interactive_mode = False
+        self.interactive_just_enabled = False
 
     def reset(self) -> None:
         logger.info("Resetting ProxyState instance.")
         self.override_model = None
         self.project = None
         self.interactive_mode = False
+        self.interactive_just_enabled = False
+        self.hello_requested = False
 
     def get_effective_model(self, requested_model: str) -> str:
         if self.override_model:

@@ -32,7 +32,10 @@ def parse_arguments(args_str: str) -> Dict[str, Any]:
 
 def get_command_pattern(command_prefix: str) -> re.Pattern:
     prefix_escaped = re.escape(command_prefix)
-    return re.compile(rf"{prefix_escaped}(\w+)\(([^)]*)\)")
+    return re.compile(
+        rf"{prefix_escaped}(?: (?P<hello>hello)\b | (?P<cmd>\w+)\((?P<args>[^)]*)\) )",
+        re.VERBOSE,
+    )
 
 
 class CommandParser:
@@ -45,6 +48,7 @@ class CommandParser:
         self.handlers: Dict[str, callable] = {}
         self.register_command("set", self._handle_set)
         self.register_command("unset", self._handle_unset)
+        self.register_command("hello", self._handle_hello)
 
     def _parse_bool(self, value: str) -> Optional[bool]:
         val = value.strip().lower()
@@ -88,6 +92,9 @@ class CommandParser:
         if not keys_to_unset:
             logger.warning("!/unset command should specify what to unset. No change to state.")
 
+    def _handle_hello(self, args: Dict[str, Any]) -> None:
+        self.proxy_state.hello_requested = True
+
     # ------------------------------------------------------------------
     def process_text(self, text_content: str) -> Tuple[str, bool]:
         logger.debug(f"Processing text for commands: '{text_content}'")
@@ -98,8 +105,12 @@ class CommandParser:
         for match in reversed(matches):
             commands_found = True
             command_full = match.group(0)
-            command_name = match.group(1).lower()
-            args_str = match.group(2)
+            if match.group("hello"):
+                command_name = "hello"
+                args_str = ""
+            else:
+                command_name = match.group("cmd").lower()
+                args_str = match.group("args")
             logger.debug(
                 f"Regex match: Full='{command_full}', Command='{command_name}', ArgsStr='{args_str}'"
             )

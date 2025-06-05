@@ -7,6 +7,8 @@ import os
 from contextlib import asynccontextmanager
 from datetime import datetime
 from typing import Any, Dict, Union
+from pathlib import Path
+import tomllib
 
 import httpx
 from dotenv import load_dotenv
@@ -19,6 +21,16 @@ from src.command_parser import CommandParser
 from src.session import SessionManager, SessionInteraction
 from src.connectors import OpenRouterBackend, GeminiBackend
 from src.security import APIKeyRedactor
+
+
+def _load_project_metadata() -> tuple[str, str]:
+    pyproject = Path(__file__).resolve().parents[1] / "pyproject.toml"
+    try:
+        data = tomllib.loads(pyproject.read_text())
+        meta = data.get("project", {})
+        return meta.get("name", "llm-interactive-proxy"), meta.get("version", "0.0.0")
+    except Exception:
+        return "llm-interactive-proxy", "0.0.0"
 
 
 # ---------------------------------------------------------------------------
@@ -104,6 +116,15 @@ def get_openrouter_headers(cfg: Dict[str, Any], api_key: str) -> Dict[str, str]:
 def build_app(cfg: Dict[str, Any] | None = None) -> FastAPI:
     cfg = cfg or _load_config()
 
+    project_name, project_version = _load_project_metadata()
+
+    def _welcome_banner(session_id: str) -> str:
+        return (
+            f"Hello, this is {project_name} {project_version}\n"
+            f"Session id: {session_id}\n"
+            f"Type {cfg['command_prefix']}help for list of available commands"
+        )
+
     @asynccontextmanager
     async def lifespan(app: FastAPI):
         client = httpx.AsyncClient(timeout=cfg["proxy_timeout"])
@@ -145,10 +166,20 @@ def build_app(cfg: Dict[str, Any] | None = None) -> FastAPI:
         session = http_request.app.state.session_manager.get_session(session_id)
         proxy_state: ProxyState = session.proxy_state
 
-        parser = CommandParser(proxy_state, command_prefix=http_request.app.state.command_prefix)
+        parser = CommandParser(
+            proxy_state, command_prefix=http_request.app.state.command_prefix
+        )
         processed_messages, commands_processed = parser.process_messages(
             request_data.messages
         )
+        show_banner = False
+        if proxy_state.interactive_mode:
+            if not session.history:
+                show_banner = True
+            if proxy_state.interactive_just_enabled:
+                show_banner = True
+            if proxy_state.hello_requested:
+                show_banner = True
 
         # derive the raw prompt from the last user message for history
         raw_prompt = ""
@@ -171,15 +202,22 @@ def build_app(cfg: Dict[str, Any] | None = None) -> FastAPI:
             is_command_only = True
 
         if is_command_only:
+            response_text = (
+                _welcome_banner(session_id)
+                if show_banner
+                else "Proxy command processed. No query sent to LLM."
+            )
             session.add_interaction(
                 SessionInteraction(
                     prompt=raw_prompt,
                     handler="proxy",
                     model=proxy_state.get_effective_model(request_data.model),
                     project=proxy_state.project,
-                    response="Proxy command processed. No query sent to LLM.",
+                    response=response_text,
                 )
             )
+            proxy_state.hello_requested = False
+            proxy_state.interactive_just_enabled = False
             return models.CommandProcessedChatCompletionResponse(
                 id="proxy_cmd_processed",
                 object="chat.completion",
@@ -190,7 +228,7 @@ def build_app(cfg: Dict[str, Any] | None = None) -> FastAPI:
                         index=0,
                         message=models.ChatCompletionChoiceMessage(
                             role="assistant",
-                            content="Proxy command processed. No query sent to LLM.",
+                            content=response_text,
                         ),
                         finish_reason="stop",
                     )
@@ -224,6 +262,15 @@ def build_app(cfg: Dict[str, Any] | None = None) -> FastAPI:
                 api_key=api_key,
                 prompt_redactor=http_request.app.state.api_key_redactor,
             )
+            if show_banner:
+                orig = (
+                    response.get("choices", [{}])[0]
+                    .get("message", {})
+                    .get("content", "")
+                )
+                response["choices"][0]["message"]["content"] = (
+                    _welcome_banner(session_id) + "\n" + orig if orig else _welcome_banner(session_id)
+                )
             session.add_interaction(
                 SessionInteraction(
                     prompt=raw_prompt,
@@ -242,6 +289,8 @@ def build_app(cfg: Dict[str, Any] | None = None) -> FastAPI:
                     ),
                 )
             )
+            proxy_state.hello_requested = False
+            proxy_state.interactive_just_enabled = False
             return response
 
         key_name, api_key = (
@@ -273,6 +322,15 @@ def build_app(cfg: Dict[str, Any] | None = None) -> FastAPI:
                 )
             )
             return response
+        if show_banner:
+            orig = (
+                response.get("choices", [{}])[0]
+                .get("message", {})
+                .get("content", "")
+            )
+            response["choices"][0]["message"]["content"] = (
+                _welcome_banner(session_id) + "\n" + orig if orig else _welcome_banner(session_id)
+            )
         session.add_interaction(
             SessionInteraction(
                 prompt=raw_prompt,
@@ -291,6 +349,8 @@ def build_app(cfg: Dict[str, Any] | None = None) -> FastAPI:
                 ),
             )
         )
+        proxy_state.hello_requested = False
+        proxy_state.interactive_just_enabled = False
         return response
 
     @app.get("/v1/models")
