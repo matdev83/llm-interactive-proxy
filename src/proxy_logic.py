@@ -8,8 +8,9 @@ logger = logging.getLogger(__name__)
 class ProxyState:
     """Manages the state of the proxy, particularly model overrides."""
     def __init__(self):
-        """Initializes ProxyState with no model override."""
+        """Initializes ProxyState with no model override or project."""
         self.override_model: Optional[str] = None
+        self.project: Optional[str] = None
 
     def set_override_model(self, model_name: str):
         """Sets a model name to override subsequent requests."""
@@ -21,10 +22,21 @@ class ProxyState:
         logger.info("Unsetting override model.")
         self.override_model = None
 
+    def set_project(self, project_name: str) -> None:
+        """Sets the current project for this session."""
+        logger.info(f"Setting project to: {project_name}")
+        self.project = project_name
+
+    def unset_project(self) -> None:
+        """Clears the current project."""
+        logger.info("Unsetting project.")
+        self.project = None
+
     def reset(self):
         """Resets the state of the ProxyState instance."""
         logger.info("Resetting ProxyState instance.")
         self.override_model = None
+        self.project = None
 
     def get_effective_model(self, requested_model: str) -> str:
         """
@@ -81,9 +93,15 @@ def parse_arguments(args_str: str) -> Dict[str, Any]:
     for part in args_str.split(','):
         if '=' in part:
             key, value = part.split('=', 1)
-            args[key.strip()] = value.strip()
-        else: # For commands like !/unset(model) where 'model' isn't a value but a key itself.
-            args[part.strip()] = True # Treat as a flag
+            value = value.strip()
+            if (
+                (value.startswith('"') and value.endswith('"'))
+                or (value.startswith("'") and value.endswith("'"))
+            ):
+                value = value[1:-1]
+            args[key.strip()] = value
+        else:  # For commands like !/unset(model) where 'model' isn't a value but a key itself.
+            args[part.strip()] = True  # Treat as a flag
     return args
 
 def _process_text_for_commands(
@@ -115,27 +133,39 @@ def _process_text_for_commands(
         args = parse_arguments(args_str_extracted)
 
         logger.info(f"Processing command: name='{command_name}', args={args}")
-        logger.info(f"State before command '{command_name}': override_model='{current_proxy_state.override_model}'")
+        logger.info(
+            f"State before command '{command_name}': override_model='{current_proxy_state.override_model}', project='{current_proxy_state.project}'"
+        )
 
         replacement_string = "" # Default to removing the command
 
         if command_name == "set":
             if "model" in args and isinstance(args["model"], str):
                 current_proxy_state.set_override_model(args["model"])
-            else:
-                logger.warning("!/set command found without valid 'model=model_name' argument. No change to override model.")
+            if "project" in args and isinstance(args["project"], str):
+                current_proxy_state.set_project(args["project"])
+            if not any(k in args for k in ("model", "project")):
+                logger.warning(
+                    "!/set command found without valid arguments. No change to state."
+                )
         elif command_name == "unset":
             if "model" in args:
                 current_proxy_state.unset_override_model()
-            else:
-                logger.warning("!/unset command should be like !/unset(model). No change to override model.")
+            if "project" in args:
+                current_proxy_state.unset_project()
+            if not any(k in args for k in ("model", "project")):
+                logger.warning(
+                    "!/unset command should specify what to unset. No change to state."
+                )
         else:
             logger.warning(f"Unknown command: {command_name}. Keeping command text.")
             replacement_string = command_full_match # Keep unknown commands
 
         # Replace the command in the modified_text
         modified_text = modified_text[:match.start()] + replacement_string + modified_text[match.end():]
-        logger.info(f"State after command '{command_name}': override_model='{current_proxy_state.override_model}'")
+        logger.info(
+            f"State after command '{command_name}': override_model='{current_proxy_state.override_model}', project='{current_proxy_state.project}'"
+        )
 
     # Normalize whitespace: replace multiple spaces with a single space, and strip leading/trailing spaces
     final_text = re.sub(r'\s+', ' ', modified_text).strip()

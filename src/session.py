@@ -15,6 +15,7 @@ class SessionInteraction(BaseModel):
     handler: str  # "proxy" or "backend"
     backend: Optional[str] = None
     model: Optional[str] = None
+    project: Optional[str] = None
     parameters: Dict[str, Any] = {}
     response: Optional[str] = None
     usage: Optional[models.CompletionUsage] = None

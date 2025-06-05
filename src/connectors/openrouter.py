@@ -28,11 +28,12 @@ class OpenRouterBackend(LLMBackend):
 
     async def chat_completions(
         self,
-        request_data: ChatCompletionRequest, # This is the original request
-        processed_messages: list, # Messages after command processing
-        effective_model: str, # Model after considering override
+        request_data: ChatCompletionRequest,  # This is the original request
+        processed_messages: list,  # Messages after command processing
+        effective_model: str,  # Model after considering override
         openrouter_api_base_url: str,
-        openrouter_headers_provider: Callable[[], Dict[str, str]]
+        openrouter_headers_provider: Callable[[], Dict[str, str]],
+        project: str | None = None,
     ) -> Union[StreamingResponse, Dict[str, Any]]:
         """
         Forwards a chat completion request to the OpenRouter API.
@@ -57,6 +58,8 @@ class OpenRouterBackend(LLMBackend):
         openrouter_payload["model"] = effective_model
         # Ensure messages are in dict format, not Pydantic models
         openrouter_payload["messages"] = [msg.model_dump(exclude_unset=True) for msg in processed_messages]
+        if project is not None:
+            openrouter_payload["project"] = project
 
         logger.info(f"Forwarding to OpenRouter. Effective model: {effective_model}. Stream: {request_data.stream}")
         logger.debug(f"Payload for OpenRouter: {json.dumps(openrouter_payload, indent=2)}")

@@ -174,3 +174,13 @@ class TestProcessCommandsInMessages:
         assert processed
         assert processed_messages[0].content == "Hello"
         assert current_proxy_state.override_model == "foo"
+
+    def test_set_project_in_messages(self):
+        current_proxy_state = ProxyState()
+        messages = [
+            models.ChatMessage(role="user", content="!/set(project=proj1) hi")
+        ]
+        processed_messages, processed = process_commands_in_messages(messages, current_proxy_state)
+        assert processed
+        assert processed_messages[0].content == "hi"
+        assert current_proxy_state.project == "proj1"

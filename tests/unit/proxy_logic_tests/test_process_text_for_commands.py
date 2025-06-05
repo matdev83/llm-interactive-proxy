@@ -131,3 +131,13 @@ class TestProcessTextForCommands:
         assert processed_text == "" # Command is stripped
         assert commands_found
         assert current_proxy_state.override_model == "gpt-4" # Model remains set
+
+    def test_set_and_unset_project(self):
+        current_proxy_state = ProxyState()
+        pattern = get_command_pattern("!/")
+        processed_text, _ = _process_text_for_commands("!/set(project='abc def')", current_proxy_state, pattern)
+        assert processed_text == ""
+        assert current_proxy_state.project == "abc def"
+        processed_text, _ = _process_text_for_commands("!/unset(project)", current_proxy_state, pattern)
+        assert processed_text == ""
+        assert current_proxy_state.project is None
