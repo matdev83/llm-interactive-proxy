@@ -35,7 +35,7 @@ class SessionManager:
 
     def _cleanup_expired(self) -> None:
         now = datetime.utcnow()
-        expired = [sid for sid, sess in self.sessions.items() if now - sess.last_activity > timedelta(seconds=self.ttl)]
+        expired = [sid for sid, sess in self.sessions.items() if now - sess.last_activity >= timedelta(seconds=self.ttl)]
         for sid in expired:
             logger.info(f"Session {sid} expired, removing")
             self.sessions.pop(sid, None)
@@ -59,4 +59,3 @@ class SessionManager:
             return
         sess.history.append(Interaction(prompt=prompt, response=response, timestamp=datetime.utcnow()))
         sess.last_activity = datetime.utcnow()
-
