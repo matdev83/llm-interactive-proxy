@@ -11,7 +11,8 @@ This project provides an intercepting proxy server that is compatible with the O
 - **Multiple Backends** – forward requests to OpenRouter or Google Gemini, chosen with `LLM_BACKEND`.
 - **Streaming and Non‑Streaming Support** (OpenRouter backend).
 - **Session History Tracking** – optional per-session logs using the `X-Session-ID` header.
-- **CLI Configuration** – command line flags can override environment variables for quick testing.
+- **CLI Configuration** – command line flags can override environment variables for quick testing, including interactive mode.
+- **Configurable Interactive Mode** – enable or disable interactive mode by default via environment variable, CLI argument, or in-chat commands.
 
 ## Getting Started
 
@@ -104,6 +105,9 @@ You can embed special commands within your chat messages to control the proxy's 
 - `!/set(model=model_name)`: Overrides the model for the current session/request.
     Example: `Hello, please use !/set(model=mistralai/mistral-7b-instruct) for this conversation.`
 - `!/unset(model)`: Clears any previously set model override.
+- `!/set(interactive=true|false|on|off)`: Enables or disables interactive mode for the current session.
+    Example: `!/set(interactive=true)` to enable, `!/set(interactive=off)` to disable.
+- `!/unset(interactive)`: Resets interactive mode to its default setting (configured at startup).
 
 The proxy will process these commands, strip them from the message sent to the LLM, and adjust its behavior accordingly.
 

@@ -37,6 +37,7 @@ This document describes the layout of the repository and the purpose of the main
 │   └── unit/
 │       ├── test_cli.py
 │       ├── test_proxy_logic.py
+│       ├── test_session_manager.py
 │       ├── openrouter_connector_tests/
 │       │   ├── test_http_error_non_streaming.py
 │       │   ├── test_http_error_streaming.py
@@ -57,23 +58,30 @@ This document describes the layout of the repository and the purpose of the main
 ## Key components
 
 ### `src/main.py`
+
 Creates the FastAPI application, loads configuration from environment variables or CLI arguments and exposes the OpenAI-compatible endpoints. During startup it initialises the selected backend connector (`openrouter` or `gemini`), sets up an `httpx.AsyncClient`, and stores a `SessionManager` for recording interactions.
 
 ### `src/proxy_logic.py`
-Defines the `ProxyState` class and re-exports command parsing helpers.
+
+Defines the `ProxyState` class, which manages the current model override, project context, and interactive mode state. It also re-exports command parsing helpers.
 
 ### `src/command_parser.py`
+
 Implements the `CommandParser` class used to detect and handle proxy commands. Commands are identified using a configurable prefix (default `!/`).
 
 ### `src/session.py`
-Defines `Session` and `SessionManager` used to keep simple per-session history of prompts and backend replies. Session IDs are supplied via the `X-Session-ID` HTTP header.
+
+Defines `Session` and `SessionManager` used to keep simple per-session history of prompts and backend replies. Session IDs are supplied via the `X-Session-ID` HTTP header. The `SessionManager` can be configured with a default interactive mode for new sessions.
 
 ### Connectors and Backends
+
 `src/backends/` holds the abstract `LLMBackend` base class. Concrete implementations live under `src/connectors/`:
+
 - `openrouter.py` forwards requests to the OpenRouter API and supports streaming.
 - `gemini.py` connects to Google Gemini (non-streaming only).
 
 ### Tests
+
 Integration tests cover request forwarding, command handling and session tracking. Unit tests validate the CLI utilities, command parsing logic and connector behaviour.
 
 This modular structure aims to keep backend specific code isolated while letting the FastAPI app orchestrate request processing and session management.
