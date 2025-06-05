@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import httpx
 import json
 import logging
@@ -9,6 +11,7 @@ from fastapi import HTTPException # Required for raising HTTP exceptions
 # Assuming ChatCompletionRequest is in src.models
 from src.models import ChatCompletionRequest
 from src.connectors.base import LLMBackend
+from src.security import APIKeyRedactor
 # proxy_state and process_commands_in_messages are currently in src.proxy_logic
 # These are used in main.py *before* calling the backend.
 # The backend connector should ideally receive the final, processed payload.
@@ -36,6 +39,7 @@ class OpenRouterBackend(LLMBackend):
         key_name: str,
         api_key: str,
         project: str | None = None,
+        prompt_redactor: APIKeyRedactor | None = None,
     ) -> Union[StreamingResponse, Dict[str, Any]]:
         """
         Forwards a chat completion request to the OpenRouter API.
@@ -46,7 +50,8 @@ class OpenRouterBackend(LLMBackend):
             effective_model: The model name to be used after considering any overrides.
             openrouter_api_base_url: The base URL for the OpenRouter API.
             openrouter_headers_provider: A callable that returns OpenRouter API headers.
-
+            prompt_redactor: Optional APIKeyRedactor used to sanitize messages.
+            
         Returns:
             A StreamingResponse for streaming requests, or a dict for non-streaming.
 
@@ -62,6 +67,15 @@ class OpenRouterBackend(LLMBackend):
         openrouter_payload["messages"] = [msg.model_dump(exclude_unset=True) for msg in processed_messages]
         if project is not None:
             openrouter_payload["project"] = project
+
+        if prompt_redactor:
+            for msg in openrouter_payload["messages"]:
+                if isinstance(msg.get("content"), str):
+                    msg["content"] = prompt_redactor.redact(msg["content"])
+                elif isinstance(msg.get("content"), list):
+                    for part in msg["content"]:
+                        if part.get("type") == "text" and "text" in part:
+                            part["text"] = prompt_redactor.redact(part["text"])
 
         logger.info(f"Forwarding to OpenRouter. Effective model: {effective_model}. Stream: {request_data.stream}")
         logger.debug(f"Payload for OpenRouter: {json.dumps(openrouter_payload, indent=2)}")

@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import abc
 from typing import Union, Dict, Any, Callable
 import httpx
@@ -10,6 +12,7 @@ from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from src.models import ChatCompletionRequest # Corrected path assuming models.py is in src
+    from src.security import APIKeyRedactor
 
 class LLMBackend(abc.ABC):
     """
@@ -28,6 +31,7 @@ class LLMBackend(abc.ABC):
         key_name: str,
         api_key: str,
         project: str | None = None,
+        prompt_redactor: "APIKeyRedactor" | None = None,
     ) -> Union[StreamingResponse, Dict[str, Any]]:
         """
         Forwards a chat completion request to the LLM backend.
@@ -42,6 +46,7 @@ class LLMBackend(abc.ABC):
                                          required for OpenRouter API. (Needs generalization)
             key_name: The environment variable name of the API key in use.
             api_key: The secret value of the API key.
+            prompt_redactor: Optional APIKeyRedactor used to sanitize messages.
 
         Returns:
             A StreamingResponse if the request is for a stream, or a dictionary

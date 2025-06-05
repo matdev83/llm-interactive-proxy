@@ -8,6 +8,7 @@ from typing import Union, Dict, Any
 from fastapi import HTTPException
 from src.models import ChatCompletionRequest
 from src.connectors.base import LLMBackend
+from src.security import APIKeyRedactor
 
 logger = logging.getLogger(__name__)
 
@@ -26,23 +27,28 @@ class GeminiBackend(LLMBackend):
         key_name: str,
         api_key: str,
         project: str | None = None,
+        prompt_redactor: APIKeyRedactor | None = None,
     ) -> Dict[str, Any]:
         if request_data.stream:
             raise HTTPException(status_code=501, detail="Streaming not implemented for Gemini backend")
 
-        payload = {
-            "contents": [
-                {
-                    "role": msg.role,
-                    "parts": (
-                        [{"text": msg.content}]
-                        if isinstance(msg.content, str)
-                        else [part.model_dump(exclude_unset=True) for part in msg.content]
-                    ),
-                }
-                for msg in processed_messages
-            ]
-        }
+        payload_contents = []
+        for msg in processed_messages:
+            if isinstance(msg.content, str):
+                text = msg.content
+                if prompt_redactor:
+                    text = prompt_redactor.redact(text)
+                parts = [{"text": text}]
+            else:
+                parts = []
+                for part in msg.content:
+                    data = part.model_dump(exclude_unset=True)
+                    if data.get("type") == "text" and "text" in data and prompt_redactor:
+                        data["text"] = prompt_redactor.redact(data["text"])
+                    parts.append(data)
+            payload_contents.append({"role": msg.role, "parts": parts})
+
+        payload = {"contents": payload_contents}
         if request_data.extra_params:
             payload.update(request_data.extra_params)
         if project is not None:

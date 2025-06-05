@@ -18,6 +18,7 @@ from src.proxy_logic import ProxyState
 from src.command_parser import CommandParser
 from src.session import SessionManager, SessionInteraction
 from src.connectors import OpenRouterBackend, GeminiBackend
+from src.security import APIKeyRedactor
 
 
 # ---------------------------------------------------------------------------
@@ -106,6 +107,8 @@ def build_app(cfg: Dict[str, Any] | None = None) -> FastAPI:
             backend = OpenRouterBackend(client)
             app.state.openrouter_backend = backend
         app.state.backend = backend
+        all_keys = list(cfg.get("openrouter_api_keys", {}).values()) + list(cfg.get("gemini_api_keys", {}).values())
+        app.state.api_key_redactor = APIKeyRedactor(all_keys)
         yield
         await client.aclose()
 
@@ -206,6 +209,7 @@ def build_app(cfg: Dict[str, Any] | None = None) -> FastAPI:
                 gemini_api_base_url=cfg["gemini_api_base_url"],
                 key_name=key_name,
                 api_key=api_key,
+                prompt_redactor=http_request.app.state.api_key_redactor,
             )
             session.add_interaction(
                 SessionInteraction(
@@ -241,6 +245,7 @@ def build_app(cfg: Dict[str, Any] | None = None) -> FastAPI:
             key_name=key_name,
             api_key=api_key,
             project=proxy_state.project,
+            prompt_redactor=http_request.app.state.api_key_redactor,
         )
         if isinstance(response, StreamingResponse):
             session.add_interaction(
