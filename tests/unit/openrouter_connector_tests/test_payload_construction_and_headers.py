@@ -29,19 +29,10 @@ async def openrouter_backend_fixture():
 
 @pytest.fixture
 def sample_chat_request_data() -> models.ChatCompletionRequest:
+    """Return a minimal chat request without optional fields set."""
     return models.ChatCompletionRequest(
         model="test-model",
         messages=[models.ChatMessage(role="user", content="Hello")],
-        temperature=None,
-        top_p=None,
-        n=None, # Re-adding n=None to satisfy Pylance
-        stream=False,
-        stop=None,
-        max_tokens=None,
-        presence_penalty=None,
-        frequency_penalty=None,
-        logit_bias=None,
-        user=None
     )
 
 @pytest.fixture
@@ -118,9 +109,8 @@ async def test_payload_construction_and_headers(
     assert isinstance(sent_payload["messages"][2]["content"][1]["image_url"], dict)
 
     # Ensure only specified fields from request_data are passed (exclude_unset=True)
-    # e.g., if 'n' was not set in sample_chat_request_data, it shouldn't be in payload
-    # assert "n" not in sent_payload # Removing this assertion due to Pydantic/Pylance inconsistency
-    # assert "logit_bias" not in sent_payload # Removing this assertion due to Pydantic/Pylance inconsistency
+    assert "n" not in sent_payload
+    assert "logit_bias" not in sent_payload
 
     # Check if original request_data was not modified (important due to model_dump)
     assert sample_chat_request_data.model == "test-model"

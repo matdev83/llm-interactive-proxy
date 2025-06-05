@@ -29,19 +29,10 @@ async def openrouter_backend_fixture():
 
 @pytest.fixture
 def sample_chat_request_data() -> models.ChatCompletionRequest:
+    """Return a minimal chat request without optional fields set."""
     return models.ChatCompletionRequest(
         model="test-model",
         messages=[models.ChatMessage(role="user", content="Hello")],
-        temperature=None,
-        top_p=None,
-        n=None,
-        stream=False,
-        stop=None,
-        max_tokens=None,
-        presence_penalty=None,
-        frequency_penalty=None,
-        logit_bias=None,
-        user=None
     )
 
 @pytest.fixture
