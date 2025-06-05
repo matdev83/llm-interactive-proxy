@@ -24,6 +24,7 @@ class GeminiBackend(LLMBackend):
         effective_model: str,
         gemini_api_base_url: str,
         gemini_api_key: str,
+        project: str | None = None,
     ) -> Dict[str, Any]:
         if request_data.stream:
             raise HTTPException(status_code=501, detail="Streaming not implemented for Gemini backend")
@@ -43,6 +44,8 @@ class GeminiBackend(LLMBackend):
         }
         if request_data.extra_params:
             payload.update(request_data.extra_params)
+        if project is not None:
+            payload["project"] = project
 
         url = f"{gemini_api_base_url.rstrip('/')}/v1beta/models/{effective_model}:generateContent?key={gemini_api_key}"
         try:

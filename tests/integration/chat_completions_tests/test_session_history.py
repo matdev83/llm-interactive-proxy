@@ -22,7 +22,7 @@ def test_session_records_proxy_and_backend_interactions(client: TestClient):
         }
         payload1 = {
             'model': 'model-a',
-            'messages': [{'role': 'user', 'content': '!/set(model=override)'}]
+            'messages': [{'role': 'user', 'content': "!/set(project=proj1)"}]
         }
         client.post('/v1/chat/completions', json=payload1, headers={'X-Session-ID': 'abc'})
 
@@ -35,10 +35,10 @@ def test_session_records_proxy_and_backend_interactions(client: TestClient):
     session = client.app.state.session_manager.get_session('abc')  # type: ignore
     assert len(session.history) == 2
     assert session.history[0].handler == 'proxy'
-    assert session.history[0].prompt == '!/set(model=override)'
+    assert session.history[0].prompt == '!/set(project=proj1)'
     assert session.history[1].handler == 'backend'
     assert session.history[1].backend == 'openrouter'
-    assert session.history[1].model == 'override'
+    assert session.history[1].project == 'proj1'
     assert session.history[1].response == 'backend reply'
     assert session.history[1].usage.total_tokens == 3
 

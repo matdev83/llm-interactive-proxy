@@ -115,6 +115,7 @@ def build_app(cfg: Dict[str, Any] | None = None) -> FastAPI:
                     prompt=raw_prompt,
                     handler="proxy",
                     model=proxy_state.get_effective_model(request_data.model),
+                    project=proxy_state.project,
                     response="Proxy command processed. No query sent to LLM.",
                 )
             )
@@ -143,6 +144,7 @@ def build_app(cfg: Dict[str, Any] | None = None) -> FastAPI:
                 request_data=request_data,
                 processed_messages=processed_messages,
                 effective_model=effective_model,
+                project=proxy_state.project,
                 gemini_api_base_url=cfg["gemini_api_base_url"],
                 gemini_api_key=cfg["gemini_api_key"],
             )
@@ -152,6 +154,7 @@ def build_app(cfg: Dict[str, Any] | None = None) -> FastAPI:
                     handler="backend",
                     backend="gemini",
                     model=effective_model,
+                    project=proxy_state.project,
                     parameters=request_data.model_dump(exclude_unset=True),
                     response=response.get("choices", [{}])[0].get("message", {}).get("content"),
                     usage=models.CompletionUsage(**response.get("usage")) if response.get("usage") else None,
@@ -165,6 +168,7 @@ def build_app(cfg: Dict[str, Any] | None = None) -> FastAPI:
             effective_model=effective_model,
             openrouter_api_base_url=cfg["openrouter_api_base_url"],
             openrouter_headers_provider=lambda: get_openrouter_headers(cfg),
+            project=proxy_state.project,
         )
         if isinstance(response, StreamingResponse):
             session.add_interaction(
@@ -173,6 +177,7 @@ def build_app(cfg: Dict[str, Any] | None = None) -> FastAPI:
                     handler="backend",
                     backend="openrouter",
                     model=effective_model,
+                    project=proxy_state.project,
                     parameters=request_data.model_dump(exclude_unset=True),
                     response="<streaming>",
                 )
@@ -184,6 +189,7 @@ def build_app(cfg: Dict[str, Any] | None = None) -> FastAPI:
                 handler="backend",
                 backend="openrouter",
                 model=effective_model,
+                project=proxy_state.project,
                 parameters=request_data.model_dump(exclude_unset=True),
                 response=response.get("choices", [{}])[0].get("message", {}).get("content"),
                 usage=models.CompletionUsage(**response.get("usage")) if response.get("usage") else None,

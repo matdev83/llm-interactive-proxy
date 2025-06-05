@@ -36,3 +36,18 @@ class TestParseArguments:
         args_str = "model=claude/opus, debug_mode"
         expected = {"model": "claude/opus", "debug_mode": True}
         assert parse_arguments(args_str) == expected
+
+    def test_parse_project_with_spaces_and_quotes(self):
+        args_str = "project='my cool project'"
+        expected = {"project": "my cool project"}
+        assert parse_arguments(args_str) == expected
+
+    def test_parse_project_with_double_quotes(self):
+        args_str = 'project="another project"'
+        expected = {"project": "another project"}
+        assert parse_arguments(args_str) == expected
+
+    def test_parse_project_without_quotes(self):
+        args_str = "project=myproject"
+        expected = {"project": "myproject"}
+        assert parse_arguments(args_str) == expected

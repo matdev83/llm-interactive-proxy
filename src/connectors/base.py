@@ -21,10 +21,11 @@ class LLMBackend(abc.ABC):
     async def chat_completions(
         self,
         request_data: 'ChatCompletionRequest',
-        processed_messages: list, # Messages after command processing
-        effective_model: str, # Model after considering override
-        openrouter_api_base_url: str, # This might need to be more generic if we have more backends
-        openrouter_headers_provider: Callable[[], Dict[str, str]] # Same as above
+        processed_messages: list,  # Messages after command processing
+        effective_model: str,  # Model after considering override
+        openrouter_api_base_url: str,  # This might need to be more generic if we have more backends
+        openrouter_headers_provider: Callable[[], Dict[str, str]],  # Same as above
+        project: str | None = None,
     ) -> Union[StreamingResponse, Dict[str, Any]]:
         """
         Forwards a chat completion request to the LLM backend.
