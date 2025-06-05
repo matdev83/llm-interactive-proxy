@@ -15,6 +15,7 @@ class ProxyState:
         self.interactive_mode: bool = interactive_mode
         self.interactive_just_enabled: bool = False
         self.hello_requested: bool = False
+        self.failover_routes: dict[str, dict[str, object]] = {}
 
     def set_override_model(
         self, backend: str, model_name: str, *, invalid: bool = False
@@ -67,6 +68,35 @@ class ProxyState:
         self.interactive_mode = False
         self.interactive_just_enabled = False
 
+    # Failover route management -------------------------------------------------
+    def create_failover_route(self, name: str, policy: str) -> None:
+        self.failover_routes[name] = {"policy": policy, "elements": []}
+
+    def delete_failover_route(self, name: str) -> None:
+        self.failover_routes.pop(name, None)
+
+    def clear_route(self, name: str) -> None:
+        route = self.failover_routes.get(name)
+        if route is not None:
+            route["elements"] = []
+
+    def append_route_element(self, name: str, element: str) -> None:
+        route = self.failover_routes.setdefault(name, {"policy": "k", "elements": []})
+        route.setdefault("elements", []).append(element)
+
+    def prepend_route_element(self, name: str, element: str) -> None:
+        route = self.failover_routes.setdefault(name, {"policy": "k", "elements": []})
+        route.setdefault("elements", []).insert(0, element)
+
+    def list_routes(self) -> dict[str, str]:
+        return {n: r.get("policy", "") for n, r in self.failover_routes.items()}
+
+    def list_route(self, name: str) -> list[str]:
+        route = self.failover_routes.get(name)
+        if route is None:
+            return []
+        return list(route.get("elements", []))
+
     def reset(self) -> None:
         logger.info("Resetting ProxyState instance.")
         self.override_backend = None
@@ -76,6 +106,7 @@ class ProxyState:
         self.interactive_mode = False
         self.interactive_just_enabled = False
         self.hello_requested = False
+        self.failover_routes = {}
 
     def get_effective_model(self, requested_model: str) -> str:
         if self.override_model:

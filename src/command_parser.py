@@ -3,7 +3,6 @@ import re
 from typing import Any, Dict, List, Tuple
 
 import src.models as models
-from .proxy_logic import ProxyState
 from .constants import DEFAULT_COMMAND_PREFIX
 from .commands import (
     BaseCommand,
@@ -11,6 +10,13 @@ from .commands import (
     SetCommand,
     UnsetCommand,
     HelloCommand,
+    CreateFailoverRouteCommand,
+    RouteAppendCommand,
+    RoutePrependCommand,
+    DeleteFailoverRouteCommand,
+    RouteClearCommand,
+    ListFailoverRoutesCommand,
+    RouteListCommand,
 )
 
 logger = logging.getLogger(__name__)
@@ -37,11 +43,13 @@ def parse_arguments(args_str: str) -> Dict[str, Any]:
             args[part.strip()] = True
     return args
 
+from .proxy_logic import ProxyState
+
 
 def get_command_pattern(command_prefix: str) -> re.Pattern:
     prefix_escaped = re.escape(command_prefix)
     return re.compile(
-        rf"{prefix_escaped}(?: (?P<hello>hello)\b | (?P<cmd>\w+)\((?P<args>[^)]*)\) )",
+        rf"{prefix_escaped}(?: (?P<hello>hello)\b | (?P<cmd>[\w-]+)\((?P<args>[^)]*)\) )",
         re.VERBOSE,
     )
 
@@ -63,6 +71,13 @@ class CommandParser:
         self.register_command(SetCommand())
         self.register_command(UnsetCommand())
         self.register_command(HelloCommand())
+        self.register_command(CreateFailoverRouteCommand())
+        self.register_command(RouteAppendCommand())
+        self.register_command(RoutePrependCommand())
+        self.register_command(DeleteFailoverRouteCommand())
+        self.register_command(RouteClearCommand())
+        self.register_command(ListFailoverRoutesCommand())
+        self.register_command(RouteListCommand())
         self.results: List[CommandResult] = []
 
     def register_command(self, command: BaseCommand) -> None:
