@@ -17,6 +17,28 @@ class GeminiBackend(LLMBackend):
 
     def __init__(self, client: httpx.AsyncClient) -> None:
         self.client = client
+        self.available_models: list[str] = []
+
+    async def initialize(
+        self,
+        *,
+        gemini_api_base_url: str,
+        key_name: str,
+        api_key: str,
+    ) -> None:
+        """Fetch available models and cache them."""
+        data = await self.list_models(
+            gemini_api_base_url=gemini_api_base_url,
+            key_name=key_name,
+            api_key=api_key,
+        )
+        self.available_models = [
+            m.get("name") for m in data.get("models", []) if m.get("name")
+        ]
+
+    def get_available_models(self) -> list[str]:
+        """Return cached Gemini model names."""
+        return list(self.available_models)
 
     async def chat_completions(
         self,

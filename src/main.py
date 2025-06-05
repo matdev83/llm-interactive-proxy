@@ -137,14 +137,35 @@ def build_app(cfg: Dict[str, Any] | None = None) -> FastAPI:
         )
         app.state.command_prefix = cfg["command_prefix"]
         app.state.backend_type = cfg["backend"]
-        if cfg["backend"] == "gemini":
-            backend = GeminiBackend(client)
-            app.state.gemini_backend = backend
-        else:
-            backend = OpenRouterBackend(client)
-            app.state.openrouter_backend = backend
+
+        openrouter_backend = OpenRouterBackend(client)
+        gemini_backend = GeminiBackend(client)
+        app.state.openrouter_backend = openrouter_backend
+        app.state.gemini_backend = gemini_backend
+
+        if cfg.get("openrouter_api_keys"):
+            key_name, api_key = next(iter(cfg["openrouter_api_keys"].items()))
+            await openrouter_backend.initialize(
+                openrouter_api_base_url=cfg["openrouter_api_base_url"],
+                openrouter_headers_provider=lambda n, k: get_openrouter_headers(cfg, k),
+                key_name=key_name,
+                api_key=api_key,
+            )
+
+        if cfg.get("gemini_api_keys"):
+            key_name, api_key = next(iter(cfg["gemini_api_keys"].items()))
+            await gemini_backend.initialize(
+                gemini_api_base_url=cfg["gemini_api_base_url"],
+                key_name=key_name,
+                api_key=api_key,
+            )
+
+        backend = gemini_backend if cfg["backend"] == "gemini" else openrouter_backend
         app.state.backend = backend
-        all_keys = list(cfg.get("openrouter_api_keys", {}).values()) + list(cfg.get("gemini_api_keys", {}).values())
+
+        all_keys = list(cfg.get("openrouter_api_keys", {}).values()) + list(
+            cfg.get("gemini_api_keys", {}).values()
+        )
         app.state.api_key_redactor = APIKeyRedactor(all_keys)
         app.state.rate_limits = RateLimitRegistry()
         yield

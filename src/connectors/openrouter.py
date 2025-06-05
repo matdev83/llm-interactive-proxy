@@ -22,12 +22,34 @@ from src.security import APIKeyRedactor
 logger = logging.getLogger(__name__)
 
 class OpenRouterBackend(LLMBackend):
-    """
-    LLMBackend implementation for OpenRouter.ai.
-    """
+    """LLMBackend implementation for OpenRouter.ai."""
 
-    def __init__(self, client: httpx.AsyncClient):
+    def __init__(self, client: httpx.AsyncClient) -> None:
         self.client = client
+        self.available_models: list[str] = []
+
+    async def initialize(
+        self,
+        *,
+        openrouter_api_base_url: str,
+        openrouter_headers_provider: Callable[[str, str], Dict[str, str]],
+        key_name: str,
+        api_key: str,
+    ) -> None:
+        """Fetch available models and cache them for later use."""
+        data = await self.list_models(
+            openrouter_api_base_url=openrouter_api_base_url,
+            openrouter_headers_provider=openrouter_headers_provider,
+            key_name=key_name,
+            api_key=api_key,
+        )
+        self.available_models = [
+            m.get("id") for m in data.get("data", []) if m.get("id")
+        ]
+
+    def get_available_models(self) -> list[str]:
+        """Return the list of cached model identifiers."""
+        return list(self.available_models)
 
     async def chat_completions(
         self,
