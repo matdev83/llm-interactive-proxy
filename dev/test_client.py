@@ -34,7 +34,16 @@ def run_prompts(client: openai.OpenAI, model: str, prompts: List[Any]) -> List[s
         else:
             messages = [{'role': 'user', 'content': str(prm)}]
         resp = client.chat.completions.create(model=model, messages=messages)
-        content = resp.choices[0].message.content
+        content = None
+        if getattr(resp, "choices", None):
+            content = resp.choices[0].message.content
+        elif getattr(resp, "candidates", None):
+            cand = resp.candidates[0]
+            parts = cand.get("content", {}).get("parts") if isinstance(cand, dict) else getattr(cand, "content", {}).get("parts")
+            if parts:
+                content = "".join(p.get("text", "") if isinstance(p, dict) else getattr(p, "text", "") for p in parts)
+        if content is None:
+            content = str(resp)
         results.append(content)
     return results
 

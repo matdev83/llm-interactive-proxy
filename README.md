@@ -94,6 +94,10 @@ pytest
 
 Ensure you have installed the development dependencies (`requirements-dev.txt`) before running tests.
 
+Some integration tests communicate with the real Gemini backend. Provide the key at
+runtime using the environment variable `GEMINI_API_KEY_1`. The tests read this variable
+on startup and no API keys are stored in the repository.
+
 ## Usage
 
 Once the proxy server is running, you can configure your OpenAI-compatible client applications to point to the proxy's address (e.g., `http://localhost:8000/v1`) instead of the official OpenAI API base URL.
