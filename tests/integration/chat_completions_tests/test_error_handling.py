@@ -8,12 +8,12 @@ from fastapi import HTTPException
 
 from src.main import app, get_openrouter_headers
 import src.models as models
-from src.proxy_logic import ProxyState # Import ProxyState
+from src.session_manager import SessionManager
 
 @pytest.fixture
 def client():
     with TestClient(app) as c:
-        c.app.state.proxy_state = ProxyState() # type: ignore[attr-defined]
+        c.app.state.session_manager = SessionManager(ttl_seconds=1000)  # type: ignore
         yield c
 
 def test_empty_messages_after_processing_no_commands_bad_request(client: TestClient):

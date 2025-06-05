@@ -11,11 +11,12 @@ from typing import Any, Dict, Union
 import httpx
 from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException, Request
-from fastapi.responses import StreamingResponse
+from fastapi.responses import StreamingResponse, JSONResponse
 
 from src import models
 from src.proxy_logic import process_commands_in_messages, ProxyState
 from src.connectors import OpenRouterBackend, GeminiBackend
+from src.session_manager import SessionManager
 
 
 # ---------------------------------------------------------------------------
@@ -35,6 +36,7 @@ def _load_config() -> Dict[str, Any]:
         "proxy_port": int(os.getenv("PROXY_PORT", "8000")),
         "proxy_host": os.getenv("PROXY_HOST", "0.0.0.0"),
         "proxy_timeout": int(os.getenv("PROXY_TIMEOUT", os.getenv("OPENROUTER_TIMEOUT", "300"))),
+        "session_ttl": int(os.getenv("SESSION_TTL", "300")),
     }
 
 
@@ -58,7 +60,7 @@ def build_app(cfg: Dict[str, Any] | None = None) -> FastAPI:
     async def lifespan(app: FastAPI):
         client = httpx.AsyncClient(timeout=cfg["proxy_timeout"])
         app.state.httpx_client = client
-        app.state.proxy_state = ProxyState()
+        app.state.session_manager = SessionManager(ttl_seconds=cfg["session_ttl"])
         app.state.backend_type = cfg["backend"]
         if cfg["backend"] == "gemini":
             backend = GeminiBackend(client)
@@ -79,7 +81,12 @@ def build_app(cfg: Dict[str, Any] | None = None) -> FastAPI:
     @app.post("/v1/chat/completions", response_model=Union[models.CommandProcessedChatCompletionResponse, Dict[str, Any]])
     async def chat_completions(request_data: models.ChatCompletionRequest, http_request: Request):
         backend = http_request.app.state.backend
-        proxy_state: ProxyState = http_request.app.state.proxy_state
+        session_manager: SessionManager = http_request.app.state.session_manager
+
+        session_id_header = http_request.headers.get("X-Session-ID")
+        client_app = http_request.headers.get("X-Client-App", http_request.headers.get("User-Agent", "unknown"))
+        session = session_manager.get_session(session_id_header, client_app)
+        proxy_state: ProxyState = session.proxy_state
 
         processed_messages, commands_processed = process_commands_in_messages(request_data.messages, proxy_state)
 
@@ -90,7 +97,7 @@ def build_app(cfg: Dict[str, Any] | None = None) -> FastAPI:
             is_command_only = True
 
         if is_command_only:
-            return models.CommandProcessedChatCompletionResponse(
+            response_obj = models.CommandProcessedChatCompletionResponse(
                 id="proxy_cmd_processed",
                 object="chat.completion",
                 created=int(datetime.utcnow().timestamp()),
@@ -104,6 +111,10 @@ def build_app(cfg: Dict[str, Any] | None = None) -> FastAPI:
                 ],
                 usage=models.CompletionUsage(prompt_tokens=0, completion_tokens=0, total_tokens=0),
             )
+            session_manager.add_history(session.session_id, [m.model_dump() for m in processed_messages], response_obj.model_dump())
+            resp = JSONResponse(content=response_obj.model_dump())
+            resp.headers["X-Session-ID"] = session.session_id
+            return resp
 
         if not processed_messages:
             raise HTTPException(status_code=400, detail="No messages provided in the request or messages became empty after processing.")
@@ -118,7 +129,10 @@ def build_app(cfg: Dict[str, Any] | None = None) -> FastAPI:
                 gemini_api_base_url=cfg["gemini_api_base_url"],
                 gemini_api_key=cfg["gemini_api_key"],
             )
-            return response
+            session_manager.add_history(session.session_id, [m.model_dump() for m in processed_messages], response)
+            resp = JSONResponse(content=response)
+            resp.headers["X-Session-ID"] = session.session_id
+            return resp
 
         response = await backend.chat_completions(
             request_data=request_data,
@@ -128,8 +142,13 @@ def build_app(cfg: Dict[str, Any] | None = None) -> FastAPI:
             openrouter_headers_provider=lambda: get_openrouter_headers(cfg),
         )
         if isinstance(response, StreamingResponse):
+            response.headers["X-Session-ID"] = session.session_id
+            session_manager.add_history(session.session_id, [m.model_dump() for m in processed_messages], "[streaming]")
             return response
-        return response
+        session_manager.add_history(session.session_id, [m.model_dump() for m in processed_messages], response)
+        resp = JSONResponse(content=response)
+        resp.headers["X-Session-ID"] = session.session_id
+        return resp
 
     @app.get("/v1/models")
     async def list_models(http_request: Request):
@@ -165,6 +184,7 @@ def parse_cli_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--host")
     parser.add_argument("--port", type=int)
     parser.add_argument("--timeout", type=int)
+    parser.add_argument("--session-ttl", type=int)
     return parser.parse_args(argv)
 
 
@@ -178,6 +198,7 @@ def apply_cli_args(args: argparse.Namespace) -> Dict[str, Any]:
         "host": "PROXY_HOST",
         "port": "PROXY_PORT",
         "timeout": "PROXY_TIMEOUT",
+        "session_ttl": "SESSION_TTL",
     }
     for attr, env_name in mappings.items():
         value = getattr(args, attr)
