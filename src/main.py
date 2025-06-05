@@ -4,6 +4,7 @@ import argparse
 import json
 import logging
 import os
+import time
 from contextlib import asynccontextmanager
 from datetime import datetime
 from typing import Any, Dict, Union
@@ -22,6 +23,7 @@ from src.constants import DEFAULT_COMMAND_PREFIX
 from src.session import SessionManager, SessionInteraction
 from src.connectors import OpenRouterBackend, GeminiBackend
 from src.security import APIKeyRedactor
+from src.rate_limit import RateLimitRegistry, parse_retry_delay
 
 
 def _load_project_metadata() -> tuple[str, str]:
@@ -144,6 +146,7 @@ def build_app(cfg: Dict[str, Any] | None = None) -> FastAPI:
         app.state.backend = backend
         all_keys = list(cfg.get("openrouter_api_keys", {}).values()) + list(cfg.get("gemini_api_keys", {}).values())
         app.state.api_key_redactor = APIKeyRedactor(all_keys)
+        app.state.rate_limits = RateLimitRegistry()
         yield
         await client.aclose()
 
@@ -251,18 +254,41 @@ def build_app(cfg: Dict[str, Any] | None = None) -> FastAPI:
             key_name, api_key = (
                 next(iter(cfg["gemini_api_keys"].items()))
                 if cfg["gemini_api_keys"]
-                else ("GEMINI_API_KEY", cfg["gemini_api_key"])
+                else (
+                    "GEMINI_API_KEY",
+                    cfg["gemini_api_key"] or os.getenv("GEMINI_API_KEY"),
+                )
             )
-            response = await backend.chat_completions(
-                request_data=request_data,
-                processed_messages=processed_messages,
-                effective_model=effective_model,
-                project=proxy_state.project,
-                gemini_api_base_url=cfg["gemini_api_base_url"],
-                key_name=key_name,
-                api_key=api_key,
-                prompt_redactor=http_request.app.state.api_key_redactor,
+            retry_at = http_request.app.state.rate_limits.get(
+                "gemini", effective_model, key_name
             )
+            if retry_at:
+                raise HTTPException(
+                    status_code=429,
+                    detail={
+                        "message": "Backend rate limited, retry later",
+                        "retry_after": int(retry_at - time.time()),
+                    },
+                )
+            try:
+                response = await backend.chat_completions(
+                    request_data=request_data,
+                    processed_messages=processed_messages,
+                    effective_model=effective_model,
+                    project=proxy_state.project,
+                    gemini_api_base_url=cfg["gemini_api_base_url"],
+                    key_name=key_name,
+                    api_key=api_key,
+                    prompt_redactor=http_request.app.state.api_key_redactor,
+                )
+            except HTTPException as e:
+                if e.status_code == 429:
+                    delay = parse_retry_delay(e.detail)
+                    if delay:
+                        http_request.app.state.rate_limits.set(
+                            "gemini", effective_model, key_name, delay
+                        )
+                raise
             if show_banner:
                 orig = (
                     response.get("choices", [{}])[0]
@@ -297,19 +323,42 @@ def build_app(cfg: Dict[str, Any] | None = None) -> FastAPI:
         key_name, api_key = (
             next(iter(cfg["openrouter_api_keys"].items()))
             if cfg["openrouter_api_keys"]
-            else ("OPENROUTER_API_KEY", cfg["openrouter_api_key"])
+            else (
+                "OPENROUTER_API_KEY",
+                cfg["openrouter_api_key"] or os.getenv("OPENROUTER_API_KEY"),
+            )
         )
-        response = await backend.chat_completions(
-            request_data=request_data,
-            processed_messages=processed_messages,
-            effective_model=effective_model,
-            openrouter_api_base_url=cfg["openrouter_api_base_url"],
-            openrouter_headers_provider=lambda n, k: get_openrouter_headers(cfg, k),
-            key_name=key_name,
-            api_key=api_key,
-            project=proxy_state.project,
-            prompt_redactor=http_request.app.state.api_key_redactor,
+        retry_at = http_request.app.state.rate_limits.get(
+            "openrouter", effective_model, key_name
         )
+        if retry_at:
+            raise HTTPException(
+                status_code=429,
+                detail={
+                    "message": "Backend rate limited, retry later",
+                    "retry_after": int(retry_at - time.time()),
+                },
+            )
+        try:
+            response = await backend.chat_completions(
+                request_data=request_data,
+                processed_messages=processed_messages,
+                effective_model=effective_model,
+                openrouter_api_base_url=cfg["openrouter_api_base_url"],
+                openrouter_headers_provider=lambda n, k: get_openrouter_headers(cfg, k),
+                key_name=key_name,
+                api_key=api_key,
+                project=proxy_state.project,
+                prompt_redactor=http_request.app.state.api_key_redactor,
+            )
+        except HTTPException as e:
+            if e.status_code == 429:
+                delay = parse_retry_delay(e.detail)
+                if delay:
+                    http_request.app.state.rate_limits.set(
+                        "openrouter", effective_model, key_name, delay
+                    )
+            raise
         if isinstance(response, StreamingResponse):
             session.add_interaction(
                 SessionInteraction(
@@ -363,22 +412,51 @@ def build_app(cfg: Dict[str, Any] | None = None) -> FastAPI:
                 if cfg["gemini_api_keys"]
                 else ("GEMINI_API_KEY", cfg["gemini_api_key"])
             )
-            return await backend.list_models(
-                gemini_api_base_url=cfg["gemini_api_base_url"],
-                key_name=key_name,
-                api_key=api_key,
-            )
+            retry_at = http_request.app.state.rate_limits.get("gemini", "<list_models>", key_name)
+            if retry_at:
+                raise HTTPException(
+                    status_code=429,
+                    detail={"message": "Backend rate limited, retry later", "retry_after": int(retry_at - time.time())},
+                )
+            try:
+                return await backend.list_models(
+                    gemini_api_base_url=cfg["gemini_api_base_url"],
+                    key_name=key_name,
+                    api_key=api_key,
+                )
+            except HTTPException as e:
+                if e.status_code == 429:
+                    delay = parse_retry_delay(e.detail)
+                    if delay:
+                        http_request.app.state.rate_limits.set("gemini", "<list_models>", key_name, delay)
+                raise
         key_name, api_key = (
             next(iter(cfg["openrouter_api_keys"].items()))
             if cfg["openrouter_api_keys"]
-            else ("OPENROUTER_API_KEY", cfg["openrouter_api_key"])
+            else (
+                "OPENROUTER_API_KEY",
+                cfg["openrouter_api_key"] or os.getenv("OPENROUTER_API_KEY"),
+            )
         )
-        return await backend.list_models(
-            openrouter_api_base_url=cfg["openrouter_api_base_url"],
-            openrouter_headers_provider=lambda n, k: get_openrouter_headers(cfg, k),
-            key_name=key_name,
-            api_key=api_key,
-        )
+        retry_at = http_request.app.state.rate_limits.get("openrouter", "<list_models>", key_name)
+        if retry_at:
+            raise HTTPException(
+                status_code=429,
+                detail={"message": "Backend rate limited, retry later", "retry_after": int(retry_at - time.time())},
+            )
+        try:
+            return await backend.list_models(
+                openrouter_api_base_url=cfg["openrouter_api_base_url"],
+                openrouter_headers_provider=lambda n, k: get_openrouter_headers(cfg, k),
+                key_name=key_name,
+                api_key=api_key,
+            )
+        except HTTPException as e:
+            if e.status_code == 429:
+                delay = parse_retry_delay(e.detail)
+                if delay:
+                    http_request.app.state.rate_limits.set("openrouter", "<list_models>", key_name, delay)
+            raise
 
     return app
 
