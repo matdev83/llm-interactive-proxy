@@ -1,9 +1,12 @@
 import argparse
 import json
+import logging
 import os
 from typing import List, Dict, Any
 
 import openai
+
+logger = logging.getLogger(__name__)
 
 OUTPUT_DIR = os.path.join(os.path.dirname(__file__), 'output')
 
@@ -50,6 +53,8 @@ def main() -> None:
 
     client = openai.OpenAI(api_key=api_key, base_url=api_base)
 
+    logging.basicConfig(level=logging.INFO)
+
     results = run_prompts(client, model, prompts)
 
     if args.output:
@@ -60,7 +65,7 @@ def main() -> None:
                 f.write(line + '\n')
     else:
         for line in results:
-            print(line)
+            logger.info(line)
 
 
 if __name__ == '__main__':
