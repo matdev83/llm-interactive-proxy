@@ -16,6 +16,7 @@ This document describes the layout of the repository and the purpose of the main
 │   ├── models.py            # Pydantic models for API payloads
 │   ├── proxy_logic.py       # ProxyState class and re-exports
 │   ├── command_parser.py    # Command parsing utilities
+│   ├── security.py          # API key redaction helper
 │   ├── session.py           # Simple in-memory session/history tracking
 │   ├── backends/            # Abstract base class for backends
 │   │   ├── __init__.py
@@ -67,6 +68,9 @@ Implements the `CommandParser` class used to detect and handle proxy commands. C
 
 ### `src/session.py`
 Defines `Session` and `SessionManager` used to keep simple per-session history of prompts and backend replies. Session IDs are supplied via the `X-Session-ID` HTTP header.
+
+### `src/security.py`
+Provides the `APIKeyRedactor` which replaces any configured API keys found in prompts.
 
 ### Connectors and Backends
 `src/backends/` holds the abstract `LLMBackend` base class. Concrete implementations live under `src/connectors/`:

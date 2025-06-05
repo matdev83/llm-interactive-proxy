@@ -12,6 +12,8 @@ This project provides an intercepting proxy server that is compatible with the O
 - **Streaming and Non‑Streaming Support** (OpenRouter backend).
 - **Session History Tracking** – optional per-session logs using the `X-Session-ID` header.
 - **CLI Configuration** – command line flags can override environment variables for quick testing.
+- **Project Commands** – organise conversations with `!/set(project=...)` and `!/unset(project)`.
+- **API Key Redaction** – prevents leakage of configured API keys in user prompts.
 
 ## Getting Started
 
@@ -60,13 +62,13 @@ These instructions will get you a copy of the project up and running on your loc
 4. **Install dependencies:**
 
     ```bash
-    pip install -r requirements.txt
+    pip install .
     ```
 
 5. **Install development dependencies (for running tests and development):**
 
     ```bash
-    pip install -r requirements-dev.txt
+    pip install -e '.[dev]'
     ```
 
 ### Running the Proxy Server
@@ -112,18 +114,19 @@ The proxy will process these commands, strip them from the message sent to the L
 ```bash
 .
 ├── src/                  # Source code
-│   ├── connectors/       # Backend connectors (OpenRouter, etc.)
+│   ├── backends/         # Backend abstractions
+│   ├── connectors/       # Concrete connectors (OpenRouter, Gemini)
+│   ├── command_parser.py # Command parsing utilities
 │   ├── main.py           # FastAPI application, endpoints
 │   ├── models.py         # Pydantic models for API requests/responses
-│   └── proxy_logic.py    # Core logic for command parsing, state management
+│   ├── proxy_logic.py    # ProxyState and helpers
+│   ├── security.py       # API key redaction
+│   └── session.py        # Session/history tracking
 ├── tests/                # Automated tests
 │   ├── integration/
 │   └── unit/
-├── .env.example          # Example environment variables (optional, if not in README)
 ├── .gitignore
 ├── README.md             # This file
-├── requirements.txt      # Main application dependencies
-├── requirements-dev.txt  # Development and test dependencies
 └── pyproject.toml        # Project metadata, build system config
 ```
 
