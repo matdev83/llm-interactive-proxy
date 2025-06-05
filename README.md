@@ -24,20 +24,23 @@ These instructions will get you a copy of the project up and running on your loc
 
 ### Installation
 
-1.  **Clone the repository (if you haven't already):**
+1. **Clone the repository (if you haven't already):**
+
     ```bash
     git clone <repository-url>
     cd <repository-directory>
     ```
 
-2.  **Create a virtual environment (recommended):**
+2. **Create a virtual environment (recommended):**
+
     ```bash
     python -m venv venv
     source venv/bin/activate  # On Windows use `venv\Scripts\activate`
     ```
 
-3.  **Create a `.env` file:**
+3. **Create a `.env` file:**
     Copy the example environment variables or create a new `.env` file in the project root:
+
     ```env
     OPENROUTER_API_KEY="your_openrouter_api_key_here"
     # PROXY_HOST="0.0.0.0"  # Optional: Default is 0.0.0.0
@@ -45,14 +48,17 @@ These instructions will get you a copy of the project up and running on your loc
     # APP_SITE_URL="http://localhost:8000" # Optional: Used for HTTP-Referer header
     # APP_X_TITLE="MyProxy"              # Optional: Used for X-Title header
     ```
+
     Replace `"your_openrouter_api_key_here"` with your actual OpenRouter API key.
 
-4.  **Install dependencies:**
+4. **Install dependencies:**
+
     ```bash
     pip install -r requirements.txt
     ```
 
-5.  **Install development dependencies (for running tests and development):**
+5. **Install development dependencies (for running tests and development):**
+
     ```bash
     pip install -r requirements-dev.txt
     ```
@@ -89,15 +95,15 @@ Once the proxy server is running, you can configure your OpenAI-compatible clien
 
 You can embed special commands within your chat messages to control the proxy's behavior. The primary command currently supported is:
 
--   `!/set(model=model_name)`: Overrides the model for the current session/request.
+- `!/set(model=model_name)`: Overrides the model for the current session/request.
     Example: `Hello, please use !/set(model=mistralai/mistral-7b-instruct) for this conversation.`
--   `!/unset(model)`: Clears any previously set model override.
+- `!/unset(model)`: Clears any previously set model override.
 
 The proxy will process these commands, strip them from the message sent to the LLM, and adjust its behavior accordingly.
 
 ## Project Structure
 
-```
+```bash
 .
 ├── src/                  # Source code
 │   ├── connectors/       # Backend connectors (OpenRouter, etc.)
