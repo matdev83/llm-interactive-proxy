@@ -1,15 +1,17 @@
 # OpenAI Compatible Intercepting Proxy Server
 
-This project provides an intercepting proxy server that is compatible with the OpenAI API. It allows for modification of requests and responses, command execution within chat messages, and model overriding. It currently uses OpenRouter.ai as its backend.
+This project provides an intercepting proxy server that is compatible with the OpenAI API. It allows for modification of requests and responses, command execution within chat messages, and model overriding. The proxy can forward requests to **OpenRouter.ai** or **Google Gemini**, selectable at run time.
 
 ## Features
 
-- **OpenAI API Compatibility**: Acts as a drop-in replacement for OpenAI API endpoints like `/v1/chat/completions` and `/v1/models`.
-- **Request/Response Interception**: (Currently focused on request modification)
-- **Command System**: Process special commands in user messages (e.g., `!/set(model=claude-3-opus-20240229)` to change the target model).
-- **Model Override**: Dynamically change the LLM model used for requests via commands.
-- **OpenRouter Backend**: Leverages OpenRouter.ai to access a wide variety of LLMs.
-- **Streaming and Non-Streaming Support**: Handles both types of chat completion requests.
+- **OpenAI API Compatibility** – drop-in replacement for `/v1/chat/completions` and `/v1/models`.
+- **Request Interception and Command Parsing** – user messages can contain commands (default prefix `!/`) to change proxy behaviour.
+- **Configurable Command Prefix** via the `COMMAND_PREFIX` environment variable or CLI.
+- **Dynamic Model Override** – commands like `!/set(model=...)` change the model for subsequent requests.
+- **Multiple Backends** – forward requests to OpenRouter or Google Gemini, chosen with `LLM_BACKEND`.
+- **Streaming and Non‑Streaming Support** (OpenRouter backend).
+- **Session History Tracking** – optional per-session logs using the `X-Session-ID` header.
+- **CLI Configuration** – command line flags can override environment variables for quick testing.
 
 ## Getting Started
 
@@ -115,4 +117,4 @@ The proxy will process these commands, strip them from the message sent to the L
 
 ## Contributing
 
-Please refer to `docs/DEVELOPMENT.md` for details on the development process, style guides, and how to contribute. (Note: `docs/DEVELOPMENT.md` was mentioned in a previous subtask's `ls` output).
+For planned work and future ideas see `ROADMAP.md` in the project root.
