@@ -154,3 +154,22 @@ class TestProcessTextForCommands:
         assert commands_found
         assert current_proxy_state.override_model is None
         assert current_proxy_state.project is None
+
+    def test_set_interactive_mode(self):
+        current_proxy_state = ProxyState()
+        pattern = get_command_pattern("!/")
+        text = "hello !/set(interactive-mode=ON)"
+        processed_text, found = _process_text_for_commands(text, current_proxy_state, pattern)
+        assert processed_text == "hello"
+        assert found
+        assert current_proxy_state.interactive_mode is True
+
+    def test_unset_interactive_mode(self):
+        current_proxy_state = ProxyState(interactive_mode=True)
+        pattern = get_command_pattern("!/")
+        text = "!/unset(interactive)"
+        processed_text, found = _process_text_for_commands(text, current_proxy_state, pattern)
+        assert processed_text == ""
+        assert found
+        assert current_proxy_state.interactive_mode is False
+

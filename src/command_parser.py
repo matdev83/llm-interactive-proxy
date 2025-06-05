@@ -1,6 +1,6 @@
 import logging
 import re
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, List, Tuple, Optional
 
 import src.models as models
 from .proxy_logic import ProxyState
@@ -46,6 +46,14 @@ class CommandParser:
         self.register_command("set", self._handle_set)
         self.register_command("unset", self._handle_unset)
 
+    def _parse_bool(self, value: str) -> Optional[bool]:
+        val = value.strip().lower()
+        if val in ("true", "1", "yes", "on"):
+            return True
+        if val in ("false", "0", "no", "off", "none"):
+            return False
+        return None
+
     def register_command(self, name: str, handler: callable) -> None:
         self.handlers[name.lower()] = handler
 
@@ -53,11 +61,20 @@ class CommandParser:
     # Default command handlers
     # ------------------------------------------------------------------
     def _handle_set(self, args: Dict[str, Any]) -> None:
+        handled = False
         if "model" in args and isinstance(args["model"], str):
             self.proxy_state.set_override_model(args["model"])
+            handled = True
         if "project" in args and isinstance(args["project"], str):
             self.proxy_state.set_project(args["project"])
-        if not any(k in args for k in ("model", "project")):
+            handled = True
+        for key in ("interactive", "interactive-mode"):
+            if key in args and isinstance(args[key], str):
+                val = self._parse_bool(args[key])
+                if val is not None:
+                    self.proxy_state.set_interactive_mode(val)
+                    handled = True
+        if not handled:
             logger.warning("!/set command found without valid arguments. No change to state.")
 
     def _handle_unset(self, args: Dict[str, Any]) -> None:
@@ -66,6 +83,8 @@ class CommandParser:
             self.proxy_state.unset_override_model()
         if "project" in keys_to_unset:
             self.proxy_state.unset_project()
+        if any(k in keys_to_unset for k in ("interactive", "interactive-mode")):
+            self.proxy_state.unset_interactive_mode()
         if not keys_to_unset:
             logger.warning("!/unset command should specify what to unset. No change to state.")
 

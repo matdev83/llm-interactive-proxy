@@ -53,6 +53,16 @@ def _load_config() -> Dict[str, Any]:
     openrouter_keys = _collect_api_keys("OPENROUTER_API_KEY")
     gemini_keys = _collect_api_keys("GEMINI_API_KEY")
 
+    def _str_to_bool(val: str | None, default: bool = False) -> bool:
+        if val is None:
+            return default
+        val = val.strip().lower()
+        if val in ("true", "1", "yes", "on"):
+            return True
+        if val in ("false", "0", "no", "off", "none"):
+            return False
+        return default
+
     return {
         "backend": os.getenv("LLM_BACKEND", "openrouter"),
         "openrouter_api_key": next(iter(openrouter_keys.values())) if openrouter_keys else None,
@@ -73,6 +83,7 @@ def _load_config() -> Dict[str, Any]:
             os.getenv("PROXY_TIMEOUT", os.getenv("OPENROUTER_TIMEOUT", "300"))
         ),
         "command_prefix": os.getenv("COMMAND_PREFIX", "!/"),
+        "interactive_mode": _str_to_bool(os.getenv("INTERACTIVE_MODE"), False),
     }
 
 
@@ -97,7 +108,9 @@ def build_app(cfg: Dict[str, Any] | None = None) -> FastAPI:
     async def lifespan(app: FastAPI):
         client = httpx.AsyncClient(timeout=cfg["proxy_timeout"])
         app.state.httpx_client = client
-        app.state.session_manager = SessionManager()
+        app.state.session_manager = SessionManager(
+            default_interactive_mode=cfg["interactive_mode"]
+        )
         app.state.command_prefix = cfg["command_prefix"]
         app.state.backend_type = cfg["backend"]
         if cfg["backend"] == "gemini":
@@ -333,6 +346,12 @@ def parse_cli_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--port", type=int)
     parser.add_argument("--timeout", type=int)
     parser.add_argument("--command-prefix")
+    parser.add_argument(
+        "--interactive-mode",
+        action="store_true",
+        default=None,
+        help="Enable interactive mode by default for new sessions",
+    )
     return parser.parse_args(argv)
 
 
@@ -347,6 +366,7 @@ def apply_cli_args(args: argparse.Namespace) -> Dict[str, Any]:
         "port": "PROXY_PORT",
         "timeout": "PROXY_TIMEOUT",
         "command_prefix": "COMMAND_PREFIX",
+        "interactive_mode": "INTERACTIVE_MODE",
     }
     for attr, env_name in mappings.items():
         value = getattr(args, attr)
