@@ -350,7 +350,10 @@ def build_app(cfg: Dict[str, Any] | None = None) -> FastAPI:
             elif policy == "m":
                 for el in elems:
                     b, m = el.split(":", 1)
-                    kname, key = _keys_for(cfg, b)[0] # Pass cfg
+                    keys = _keys_for(cfg, b)
+                    if not keys:
+                        continue
+                    kname, key = keys[0]
                     attempts.append((b, m, kname, key))
             elif policy == "km":
                 for el in elems:

@@ -38,3 +38,70 @@ def test_conflicting_key_formats(monkeypatch):
     monkeypatch.setenv("GEMINI_API_KEY_1", "B")
     with pytest.raises(ValueError):
         app_main._load_config()
+
+
+def test_no_api_keys(monkeypatch):
+    for i in range(1, 21):
+        monkeypatch.delenv(f"GEMINI_API_KEY_{i}", raising=False)
+        monkeypatch.delenv(f"OPENROUTER_API_KEY_{i}", raising=False)
+    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+    monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
+    cfg = app_main._load_config()
+    assert cfg["gemini_api_keys"] == {}
+    assert cfg["openrouter_api_keys"] == {}
+    assert cfg["gemini_api_key"] is None
+    assert cfg["openrouter_api_key"] is None
+
+
+def test_multiple_gemini_keys(monkeypatch):
+    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+    for i in range(1, 21):
+        monkeypatch.delenv(f"GEMINI_API_KEY_{i}", raising=False)
+        monkeypatch.delenv(f"OPENROUTER_API_KEY_{i}", raising=False)
+    monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
+    monkeypatch.setenv("GEMINI_API_KEY_1", "G1")
+    monkeypatch.setenv("GEMINI_API_KEY_2", "G2")
+    cfg = app_main._load_config()
+    assert cfg["gemini_api_keys"] == {
+        "GEMINI_API_KEY_1": "G1",
+        "GEMINI_API_KEY_2": "G2",
+    }
+    assert cfg["gemini_api_key"] == "G1"
+
+
+def test_mixed_gemini_and_openrouter_keys(monkeypatch):
+    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+    monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
+    for i in range(1, 21):
+        monkeypatch.delenv(f"GEMINI_API_KEY_{i}", raising=False)
+        monkeypatch.delenv(f"OPENROUTER_API_KEY_{i}", raising=False)
+    monkeypatch.setenv("GEMINI_API_KEY", "G")
+    monkeypatch.setenv("OPENROUTER_API_KEY", "O")
+    cfg = app_main._load_config()
+    assert cfg["gemini_api_key"] == "G"
+    assert cfg["openrouter_api_key"] == "O"
+
+
+def test_gemini_with_multiple_openrouter_keys(monkeypatch):
+    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+    monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
+    for i in range(1, 21):
+        monkeypatch.delenv(f"GEMINI_API_KEY_{i}", raising=False)
+        monkeypatch.delenv(f"OPENROUTER_API_KEY_{i}", raising=False)
+    monkeypatch.setenv("GEMINI_API_KEY", "G")
+    monkeypatch.setenv("OPENROUTER_API_KEY_1", "O1")
+    monkeypatch.setenv("OPENROUTER_API_KEY_2", "O2")
+    cfg = app_main._load_config()
+    assert cfg["gemini_api_key"] == "G"
+    assert list(cfg["openrouter_api_keys"].values()) == ["O1", "O2"]
+
+
+def test_openrouter_only(monkeypatch):
+    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+    for i in range(1, 21):
+        monkeypatch.delenv(f"GEMINI_API_KEY_{i}", raising=False)
+        monkeypatch.delenv(f"OPENROUTER_API_KEY_{i}", raising=False)
+    monkeypatch.setenv("OPENROUTER_API_KEY", "O")
+    cfg = app_main._load_config()
+    assert cfg["gemini_api_keys"] == {}
+    assert cfg["openrouter_api_key"] == "O"
