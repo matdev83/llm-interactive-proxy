@@ -1,5 +1,6 @@
 import os
 from src import main as app_main
+from src.constants import DEFAULT_COMMAND_PREFIX
 
 
 def test_apply_cli_args_sets_env(monkeypatch):
@@ -73,5 +74,17 @@ def test_build_app_uses_interactive_env(monkeypatch):
     with TestClient(app) as client:
         session = client.app.state.session_manager.get_session("s1")  # type: ignore
         assert session.proxy_state.interactive_mode is True
+
+
+def test_default_command_prefix_from_env(monkeypatch):
+    monkeypatch.delenv("COMMAND_PREFIX", raising=False)
+    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+    monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
+    for i in range(1, 21):
+        monkeypatch.delenv(f"GEMINI_API_KEY_{i}", raising=False)
+        monkeypatch.delenv(f"OPENROUTER_API_KEY_{i}", raising=False)
+    args = app_main.parse_cli_args([])
+    cfg = app_main.apply_cli_args(args)
+    assert cfg["command_prefix"] == DEFAULT_COMMAND_PREFIX
 
 

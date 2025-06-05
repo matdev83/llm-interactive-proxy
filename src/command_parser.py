@@ -4,6 +4,7 @@ from typing import Any, Dict, List, Tuple, Optional
 
 import src.models as models
 from .proxy_logic import ProxyState
+from .constants import DEFAULT_COMMAND_PREFIX
 
 logger = logging.getLogger(__name__)
 
@@ -41,7 +42,7 @@ def get_command_pattern(command_prefix: str) -> re.Pattern:
 class CommandParser:
     """Parse and apply proxy commands embedded in chat messages."""
 
-    def __init__(self, proxy_state: ProxyState, command_prefix: str = "!/") -> None:
+    def __init__(self, proxy_state: ProxyState, command_prefix: str = DEFAULT_COMMAND_PREFIX) -> None:
         self.proxy_state = proxy_state
         self.command_prefix = command_prefix
         self.command_pattern = get_command_pattern(command_prefix)
@@ -79,7 +80,9 @@ class CommandParser:
                     self.proxy_state.set_interactive_mode(val)
                     handled = True
         if not handled:
-            logger.warning("!/set command found without valid arguments. No change to state.")
+            logger.warning(
+                f"{self.command_prefix}set command found without valid arguments. No change to state."
+            )
 
     def _handle_unset(self, args: Dict[str, Any]) -> None:
         keys_to_unset = [k for k, v in args.items() if v is True]
@@ -90,7 +93,9 @@ class CommandParser:
         if any(k in keys_to_unset for k in ("interactive", "interactive-mode")):
             self.proxy_state.unset_interactive_mode()
         if not keys_to_unset:
-            logger.warning("!/unset command should specify what to unset. No change to state.")
+            logger.warning(
+                f"{self.command_prefix}unset command should specify what to unset. No change to state."
+            )
 
     def _handle_hello(self, args: Dict[str, Any]) -> None:
         self.proxy_state.hello_requested = True
@@ -208,7 +213,7 @@ def _process_text_for_commands(
 def process_commands_in_messages(
     messages: List[models.ChatMessage],
     current_proxy_state: ProxyState,
-    command_prefix: str = "!/",
+    command_prefix: str = DEFAULT_COMMAND_PREFIX,
 ) -> Tuple[List[models.ChatMessage], bool]:
     parser = CommandParser(current_proxy_state, command_prefix=command_prefix)
     return parser.process_messages(messages)

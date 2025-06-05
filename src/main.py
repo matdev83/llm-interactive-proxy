@@ -18,6 +18,7 @@ from fastapi.responses import StreamingResponse
 from src import models
 from src.proxy_logic import ProxyState
 from src.command_parser import CommandParser
+from src.constants import DEFAULT_COMMAND_PREFIX
 from src.session import SessionManager, SessionInteraction
 from src.connectors import OpenRouterBackend, GeminiBackend
 from src.security import APIKeyRedactor
@@ -94,7 +95,7 @@ def _load_config() -> Dict[str, Any]:
         "proxy_timeout": int(
             os.getenv("PROXY_TIMEOUT", os.getenv("OPENROUTER_TIMEOUT", "300"))
         ),
-        "command_prefix": os.getenv("COMMAND_PREFIX", "!/"),
+        "command_prefix": os.getenv("COMMAND_PREFIX", DEFAULT_COMMAND_PREFIX),
         "interactive_mode": _str_to_bool(os.getenv("INTERACTIVE_MODE"), False),
     }
 
