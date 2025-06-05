@@ -23,26 +23,62 @@ from src.connectors import OpenRouterBackend, GeminiBackend
 # Configuration helpers
 # ---------------------------------------------------------------------------
 
+
+def _collect_api_keys(base_name: str) -> list[str]:
+    """Collect API keys either from a single env var or numbered variants."""
+
+    single = os.getenv(base_name)
+    numbered = [
+        os.getenv(f"{base_name}_{i}")
+        for i in range(1, 21)
+        if os.getenv(f"{base_name}_{i}")
+    ]
+
+    if single and numbered:
+        raise ValueError(
+            f"Specify either {base_name} or {base_name}_<n> (1-20), not both"
+        )
+
+    if single:
+        return [single]
+
+    return numbered
+
+
 def _load_config() -> Dict[str, Any]:
     load_dotenv()
+
+    openrouter_keys = _collect_api_keys("OPENROUTER_API_KEY")
+    gemini_keys = _collect_api_keys("GEMINI_API_KEY")
+
     return {
         "backend": os.getenv("LLM_BACKEND", "openrouter"),
-        "openrouter_api_key": os.getenv("OPENROUTER_API_KEY"),
-        "openrouter_api_base_url": os.getenv("OPENROUTER_API_BASE_URL", "https://openrouter.ai/api/v1"),
-        "gemini_api_key": os.getenv("GEMINI_API_KEY"),
-        "gemini_api_base_url": os.getenv("GEMINI_API_BASE_URL", "https://generativelanguage.googleapis.com"),
+        "openrouter_api_key": openrouter_keys[0] if openrouter_keys else None,
+        "openrouter_api_keys": openrouter_keys,
+        "openrouter_api_base_url": os.getenv(
+            "OPENROUTER_API_BASE_URL", "https://openrouter.ai/api/v1"
+        ),
+        "gemini_api_key": gemini_keys[0] if gemini_keys else None,
+        "gemini_api_keys": gemini_keys,
+        "gemini_api_base_url": os.getenv(
+            "GEMINI_API_BASE_URL", "https://generativelanguage.googleapis.com"
+        ),
         "app_site_url": os.getenv("APP_SITE_URL", "http://localhost:8000"),
         "app_x_title": os.getenv("APP_X_TITLE", "InterceptorProxy"),
         "proxy_port": int(os.getenv("PROXY_PORT", "8000")),
         "proxy_host": os.getenv("PROXY_HOST", "0.0.0.0"),
-        "proxy_timeout": int(os.getenv("PROXY_TIMEOUT", os.getenv("OPENROUTER_TIMEOUT", "300"))),
+        "proxy_timeout": int(
+            os.getenv("PROXY_TIMEOUT", os.getenv("OPENROUTER_TIMEOUT", "300"))
+        ),
         "command_prefix": os.getenv("COMMAND_PREFIX", "!/"),
     }
 
 
 def get_openrouter_headers(cfg: Dict[str, Any]) -> Dict[str, str]:
     return {
-        "Authorization": f"Bearer {cfg['openrouter_api_key']}" if cfg["openrouter_api_key"] else "",
+        "Authorization": (
+            f"Bearer {cfg['openrouter_api_key']}" if cfg["openrouter_api_key"] else ""
+        ),
         "Content-Type": "application/json",
         "HTTP-Referer": cfg["app_site_url"],
         "X-Title": cfg["app_x_title"],
@@ -52,6 +88,7 @@ def get_openrouter_headers(cfg: Dict[str, Any]) -> Dict[str, str]:
 # ---------------------------------------------------------------------------
 # Application factory
 # ---------------------------------------------------------------------------
+
 
 def build_app(cfg: Dict[str, Any] | None = None) -> FastAPI:
     cfg = cfg or _load_config()
@@ -79,8 +116,15 @@ def build_app(cfg: Dict[str, Any] | None = None) -> FastAPI:
     async def root():
         return {"message": "OpenAI Compatible Intercepting Proxy Server is running."}
 
-    @app.post("/v1/chat/completions", response_model=Union[models.CommandProcessedChatCompletionResponse, Dict[str, Any]])
-    async def chat_completions(request_data: models.ChatCompletionRequest, http_request: Request):
+    @app.post(
+        "/v1/chat/completions",
+        response_model=Union[
+            models.CommandProcessedChatCompletionResponse, Dict[str, Any]
+        ],
+    )
+    async def chat_completions(
+        request_data: models.ChatCompletionRequest, http_request: Request
+    ):
         backend = http_request.app.state.backend
         session_id = http_request.headers.get("x-session-id", "default")
         session = http_request.app.state.session_manager.get_session(session_id)
@@ -100,12 +144,15 @@ def build_app(cfg: Dict[str, Any] | None = None) -> FastAPI:
                 raw_prompt = last_msg.content
             elif isinstance(last_msg.content, list):
                 raw_prompt = " ".join(
-                    part.text for part in last_msg.content if isinstance(part, models.MessageContentPartText)
+                    part.text
+                    for part in last_msg.content
+                    if isinstance(part, models.MessageContentPartText)
                 )
 
         is_command_only = False
         if commands_processed and not any(
-            (msg.content if isinstance(msg.content, str) else "").strip() for msg in processed_messages
+            (msg.content if isinstance(msg.content, str) else "").strip()
+            for msg in processed_messages
         ):
             is_command_only = True
 
@@ -127,15 +174,23 @@ def build_app(cfg: Dict[str, Any] | None = None) -> FastAPI:
                 choices=[
                     models.ChatCompletionChoice(
                         index=0,
-                        message=models.ChatCompletionChoiceMessage(role="assistant", content="Proxy command processed. No query sent to LLM."),
+                        message=models.ChatCompletionChoiceMessage(
+                            role="assistant",
+                            content="Proxy command processed. No query sent to LLM.",
+                        ),
                         finish_reason="stop",
                     )
                 ],
-                usage=models.CompletionUsage(prompt_tokens=0, completion_tokens=0, total_tokens=0),
+                usage=models.CompletionUsage(
+                    prompt_tokens=0, completion_tokens=0, total_tokens=0
+                ),
             )
 
         if not processed_messages:
-            raise HTTPException(status_code=400, detail="No messages provided in the request or messages became empty after processing.")
+            raise HTTPException(
+                status_code=400,
+                detail="No messages provided in the request or messages became empty after processing.",
+            )
 
         effective_model = proxy_state.get_effective_model(request_data.model)
 
@@ -156,8 +211,14 @@ def build_app(cfg: Dict[str, Any] | None = None) -> FastAPI:
                     model=effective_model,
                     project=proxy_state.project,
                     parameters=request_data.model_dump(exclude_unset=True),
-                    response=response.get("choices", [{}])[0].get("message", {}).get("content"),
-                    usage=models.CompletionUsage(**response.get("usage")) if response.get("usage") else None,
+                    response=response.get("choices", [{}])[0]
+                    .get("message", {})
+                    .get("content"),
+                    usage=(
+                        models.CompletionUsage(**response.get("usage"))
+                        if response.get("usage")
+                        else None
+                    ),
                 )
             )
             return response
@@ -191,8 +252,14 @@ def build_app(cfg: Dict[str, Any] | None = None) -> FastAPI:
                 model=effective_model,
                 project=proxy_state.project,
                 parameters=request_data.model_dump(exclude_unset=True),
-                response=response.get("choices", [{}])[0].get("message", {}).get("content"),
-                usage=models.CompletionUsage(**response.get("usage")) if response.get("usage") else None,
+                response=response.get("choices", [{}])[0]
+                .get("message", {})
+                .get("content"),
+                usage=(
+                    models.CompletionUsage(**response.get("usage"))
+                    if response.get("usage")
+                    else None
+                ),
             )
         )
         return response
@@ -221,9 +288,14 @@ app = build_app()
 # CLI utilities
 # ---------------------------------------------------------------------------
 
+
 def parse_cli_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Run the LLM proxy server")
-    parser.add_argument("--backend", choices=["openrouter", "gemini"], default=os.getenv("LLM_BACKEND", "openrouter"))
+    parser.add_argument(
+        "--backend",
+        choices=["openrouter", "gemini"],
+        default=os.getenv("LLM_BACKEND", "openrouter"),
+    )
     parser.add_argument("--openrouter-api-key")
     parser.add_argument("--openrouter-api-base-url")
     parser.add_argument("--gemini-api-key")
@@ -257,7 +329,10 @@ def apply_cli_args(args: argparse.Namespace) -> Dict[str, Any]:
 def main(argv: list[str] | None = None) -> None:
     args = parse_cli_args(argv)
     cfg = apply_cli_args(args)
-    logging.basicConfig(level=logging.DEBUG, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
+    logging.basicConfig(
+        level=logging.DEBUG,
+        format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+    )
     app = build_app(cfg)
     import uvicorn
 

@@ -42,14 +42,20 @@ These instructions will get you a copy of the project up and running on your loc
     Copy the example environment variables or create a new `.env` file in the project root:
 
     ```env
+    # Provide a single OpenRouter key
     OPENROUTER_API_KEY="your_openrouter_api_key_here"
-    # PROXY_HOST="0.0.0.0"  # Optional: Default is 0.0.0.0
-    # PROXY_PORT="8000"      # Optional: Default is 8000
-    # APP_SITE_URL="http://localhost:8000" # Optional: Used for HTTP-Referer header
-    # APP_X_TITLE="MyProxy"              # Optional: Used for X-Title header
+    # Or provide multiple keys (up to 20)
+    # OPENROUTER_API_KEY_1="first_key"
+    # OPENROUTER_API_KEY_2="second_key"
+
+    # Gemini backend keys follow the same pattern
+    # GEMINI_API_KEY="your_gemini_api_key_here"
+    # GEMINI_API_KEY_1="first_gemini_key"
     ```
 
-    Replace `"your_openrouter_api_key_here"` with your actual OpenRouter API key.
+    Replace `"your_openrouter_api_key_here"` (or numbered variants) with your
+    actual OpenRouter API key(s). The single and numbered formats are mutually
+    exclusive. The same rule applies to the Gemini API keys.
 
 4. **Install dependencies:**
 
