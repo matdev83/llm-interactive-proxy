@@ -15,6 +15,7 @@ from fastapi.responses import StreamingResponse
 
 from src import models
 from src.proxy_logic import process_commands_in_messages, ProxyState
+from src.session import SessionManager, SessionInteraction
 from src.connectors import OpenRouterBackend, GeminiBackend
 
 
@@ -59,7 +60,7 @@ def build_app(cfg: Dict[str, Any] | None = None) -> FastAPI:
     async def lifespan(app: FastAPI):
         client = httpx.AsyncClient(timeout=cfg["proxy_timeout"])
         app.state.httpx_client = client
-        app.state.proxy_state = ProxyState()
+        app.state.session_manager = SessionManager()
         app.state.command_prefix = cfg["command_prefix"]
         app.state.backend_type = cfg["backend"]
         if cfg["backend"] == "gemini":
@@ -81,13 +82,26 @@ def build_app(cfg: Dict[str, Any] | None = None) -> FastAPI:
     @app.post("/v1/chat/completions", response_model=Union[models.CommandProcessedChatCompletionResponse, Dict[str, Any]])
     async def chat_completions(request_data: models.ChatCompletionRequest, http_request: Request):
         backend = http_request.app.state.backend
-        proxy_state: ProxyState = http_request.app.state.proxy_state
+        session_id = http_request.headers.get("x-session-id", "default")
+        session = http_request.app.state.session_manager.get_session(session_id)
+        proxy_state: ProxyState = session.proxy_state
 
         processed_messages, commands_processed = process_commands_in_messages(
             request_data.messages,
             proxy_state,
             command_prefix=http_request.app.state.command_prefix,
         )
+
+        # derive the raw prompt from the last user message for history
+        raw_prompt = ""
+        if request_data.messages:
+            last_msg = request_data.messages[-1]
+            if isinstance(last_msg.content, str):
+                raw_prompt = last_msg.content
+            elif isinstance(last_msg.content, list):
+                raw_prompt = " ".join(
+                    part.text for part in last_msg.content if isinstance(part, models.MessageContentPartText)
+                )
 
         is_command_only = False
         if commands_processed and not any(
@@ -96,6 +110,14 @@ def build_app(cfg: Dict[str, Any] | None = None) -> FastAPI:
             is_command_only = True
 
         if is_command_only:
+            session.add_interaction(
+                SessionInteraction(
+                    prompt=raw_prompt,
+                    handler="proxy",
+                    model=proxy_state.get_effective_model(request_data.model),
+                    response="Proxy command processed. No query sent to LLM.",
+                )
+            )
             return models.CommandProcessedChatCompletionResponse(
                 id="proxy_cmd_processed",
                 object="chat.completion",
@@ -124,6 +146,17 @@ def build_app(cfg: Dict[str, Any] | None = None) -> FastAPI:
                 gemini_api_base_url=cfg["gemini_api_base_url"],
                 gemini_api_key=cfg["gemini_api_key"],
             )
+            session.add_interaction(
+                SessionInteraction(
+                    prompt=raw_prompt,
+                    handler="backend",
+                    backend="gemini",
+                    model=effective_model,
+                    parameters=request_data.model_dump(exclude_unset=True),
+                    response=response.get("choices", [{}])[0].get("message", {}).get("content"),
+                    usage=models.CompletionUsage(**response.get("usage")) if response.get("usage") else None,
+                )
+            )
             return response
 
         response = await backend.chat_completions(
@@ -134,7 +167,28 @@ def build_app(cfg: Dict[str, Any] | None = None) -> FastAPI:
             openrouter_headers_provider=lambda: get_openrouter_headers(cfg),
         )
         if isinstance(response, StreamingResponse):
+            session.add_interaction(
+                SessionInteraction(
+                    prompt=raw_prompt,
+                    handler="backend",
+                    backend="openrouter",
+                    model=effective_model,
+                    parameters=request_data.model_dump(exclude_unset=True),
+                    response="<streaming>",
+                )
+            )
             return response
+        session.add_interaction(
+            SessionInteraction(
+                prompt=raw_prompt,
+                handler="backend",
+                backend="openrouter",
+                model=effective_model,
+                parameters=request_data.model_dump(exclude_unset=True),
+                response=response.get("choices", [{}])[0].get("message", {}).get("content"),
+                usage=models.CompletionUsage(**response.get("usage")) if response.get("usage") else None,
+            )
+        )
         return response
 
     @app.get("/v1/models")

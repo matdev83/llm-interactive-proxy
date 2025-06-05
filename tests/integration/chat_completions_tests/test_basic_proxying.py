@@ -11,14 +11,13 @@ from fastapi import HTTPException # Import HTTPException
 # Assuming your FastAPI app instance is named 'app' in 'src/main.py'
 from src.main import app, get_openrouter_headers # Import app and any direct dependencies for mocking
 import src.models as models # For constructing request payloads
-from src.proxy_logic import ProxyState # Import ProxyState if needed for type hinting or direct instantiation
+from src.session import SessionManager
 
 # Fixture to provide a TestClient instance
 @pytest.fixture
 def client():
     with TestClient(app) as c:
-        # Ensure a fresh ProxyState for each test, similar to other integration tests
-        c.app.state.proxy_state = ProxyState() # type: ignore[attr-defined]
+        c.app.state.session_manager = SessionManager()  # type: ignore[attr-defined]
         yield c
 
 # --- Test Cases ---
