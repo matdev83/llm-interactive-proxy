@@ -33,3 +33,18 @@ def test_set_command_confirmation(interactive_client: TestClient):
     assert "model set to openrouter:foo" in content
     assert "ok" in content
 
+
+def test_set_backend_confirmation(interactive_client: TestClient):
+    mock_backend_response = {"choices": [{"message": {"content": "resp"}}]}
+    with patch.object(app.state.gemini_backend, 'chat_completions', new_callable=AsyncMock) as gem_mock, \
+         patch.object(app.state.openrouter_backend, 'chat_completions', new_callable=AsyncMock) as open_mock:
+        gem_mock.return_value = mock_backend_response
+        payload = {"model": "m", "messages": [{"role": "user", "content": "hi !/set(backend=gemini)"}]}
+        resp = interactive_client.post("/v1/chat/completions", json=payload)
+    assert resp.status_code == 200
+    gem_mock.assert_called_once()
+    open_mock.assert_not_called()
+    content = resp.json()["choices"][0]["message"]["content"]
+    assert "backend set to gemini" in content
+    assert "resp" in content
+

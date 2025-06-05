@@ -217,6 +217,20 @@ def build_app(cfg: Dict[str, Any] | None = None) -> FastAPI:
         processed_messages, commands_processed = parser.process_messages(
             request_data.messages
         )
+        if proxy_state.override_backend:
+            backend_type = proxy_state.override_backend
+            if backend_type == "openrouter":
+                backend = http_request.app.state.openrouter_backend
+            elif backend_type == "gemini":
+                backend = http_request.app.state.gemini_backend
+            else:
+                raise HTTPException(status_code=400, detail=f"unknown backend {backend_type}")
+        else:
+            backend_type = http_request.app.state.backend_type
+            if backend_type == "gemini":
+                backend = http_request.app.state.gemini_backend
+            else:
+                backend = http_request.app.state.openrouter_backend
         show_banner = False
         if proxy_state.interactive_mode:
             if not session.history:

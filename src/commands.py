@@ -68,6 +68,18 @@ class SetCommand(BaseCommand):
                     )
                 state.set_override_model(backend_part, model_name, invalid=True)
                 handled = True
+        if isinstance(args.get("backend"), str):
+            backend_val = args["backend"].strip().lower()
+            if backend_val not in {"openrouter", "gemini"}:
+                if state.interactive_mode:
+                    return CommandResult(
+                        self.name,
+                        False,
+                        f"backend {backend_val} not supported",
+                    )
+            state.set_override_backend(backend_val)
+            handled = True
+            messages.append(f"backend set to {backend_val}")
         if isinstance(args.get("project"), str):
             state.set_project(args["project"])
             handled = True
@@ -93,6 +105,9 @@ class UnsetCommand(BaseCommand):
         if "model" in keys_to_unset:
             state.unset_override_model()
             messages.append("model unset")
+        if "backend" in keys_to_unset:
+            state.unset_override_backend()
+            messages.append("backend unset")
         if "project" in keys_to_unset:
             state.unset_project()
             messages.append("project unset")

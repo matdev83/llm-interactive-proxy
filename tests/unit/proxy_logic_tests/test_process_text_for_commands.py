@@ -219,3 +219,23 @@ class TestProcessTextForCommands:
         assert state.override_model == "bad"
         assert state.invalid_override is True
 
+    def test_set_backend(self):
+        state = ProxyState()
+        pattern = get_command_pattern("!/")
+        text = "!/set(backend=gemini) hi"
+        processed, found = _process_text_for_commands(text, state, pattern)
+        assert found
+        assert processed == "hi"
+        assert state.override_backend == "gemini"
+        assert state.override_model is None
+
+    def test_unset_backend(self):
+        state = ProxyState()
+        state.set_override_backend("gemini")
+        pattern = get_command_pattern("!/")
+        text = "!/unset(backend)"
+        processed, found = _process_text_for_commands(text, state, pattern)
+        assert found
+        assert processed == ""
+        assert state.override_backend is None
+

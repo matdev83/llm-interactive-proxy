@@ -26,8 +26,22 @@ class ProxyState:
         self.override_model = model_name
         self.invalid_override = invalid
 
+    def set_override_backend(self, backend: str) -> None:
+        """Override only the backend to use for this session."""
+        logger.info(f"Setting override backend to: {backend}")
+        self.override_backend = backend
+        self.override_model = None
+        self.invalid_override = False
+
     def unset_override_model(self) -> None:
         logger.info("Unsetting override model.")
+        self.override_backend = None
+        self.override_model = None
+        self.invalid_override = False
+
+    def unset_override_backend(self) -> None:
+        """Remove any backend override."""
+        logger.info("Unsetting override backend.")
         self.override_backend = None
         self.override_model = None
         self.invalid_override = False
