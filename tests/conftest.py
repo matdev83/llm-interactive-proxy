@@ -3,6 +3,9 @@ import pytest
 from unittest.mock import AsyncMock
 from src.connectors import OpenRouterBackend, GeminiBackend
 
+# Preserve original Gemini API key for integration tests
+ORIG_GEMINI_KEY = os.environ.get("GEMINI_API_KEY_1")
+
 # Ensure external API keys do not interfere with tests
 for i in range(1, 21):
     os.environ.pop(f"GEMINI_API_KEY_{i}", None)
