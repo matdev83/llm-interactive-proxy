@@ -9,7 +9,7 @@ def test_apply_cli_args_sets_env(monkeypatch):
         monkeypatch.delenv(f"GEMINI_API_KEY_{i}", raising=False)
     args = app_main.parse_cli_args(
         [
-            "--backend",
+            "--default-backend",
             "gemini",
             "--gemini-api-key",
             "TESTKEY",
