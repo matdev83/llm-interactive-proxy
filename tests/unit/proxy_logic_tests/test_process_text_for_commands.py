@@ -19,7 +19,7 @@ class TestProcessTextForCommands:
 
     def test_set_model_command(self):
         current_proxy_state = ProxyState()
-        text = "Please use this model: !/set(model=gpt-4-turbo)"
+        text = "Please use this model: !/set(model=openrouter:gpt-4-turbo)"
         pattern = get_command_pattern("!/")
         processed_text, commands_found = _process_text_for_commands(text, current_proxy_state, pattern)
         assert processed_text == "Please use this model:" # Command is stripped
@@ -28,7 +28,7 @@ class TestProcessTextForCommands:
 
     def test_set_model_command_with_slash(self):
         current_proxy_state = ProxyState()
-        text = "!/set(model=my/model-v1) This is a test."
+        text = "!/set(model=openrouter:my/model-v1) This is a test."
         pattern = get_command_pattern("!/")
         processed_text, commands_found = _process_text_for_commands(text, current_proxy_state, pattern)
         assert processed_text == "This is a test."
@@ -39,7 +39,7 @@ class TestProcessTextForCommands:
         current_proxy_state = ProxyState()
         # First set a model
         pattern = get_command_pattern("!/")
-        _process_text_for_commands("!/set(model=gpt-4)", current_proxy_state, pattern)
+        _process_text_for_commands("!/set(model=openrouter:gpt-4)", current_proxy_state, pattern)
         assert current_proxy_state.override_model == "gpt-4"
 
         # Then unset it
@@ -51,7 +51,7 @@ class TestProcessTextForCommands:
 
     def test_multiple_commands_in_one_string(self):
         current_proxy_state = ProxyState()
-        text = "!/set(model=claude-2) Then, !/unset(model) and some text."
+        text = "!/set(model=openrouter:claude-2) Then, !/unset(model) and some text."
         # The behavior for multiple commands in one string might depend on implementation details.
         # Assuming commands are processed in order and proxy_state reflects the final command.
         pattern = get_command_pattern("!/")
@@ -84,7 +84,7 @@ class TestProcessTextForCommands:
 
     def test_command_at_start_of_string(self):
         current_proxy_state = ProxyState()
-        text = "!/set(model=test-model) The rest of the message."
+        text = "!/set(model=openrouter:test-model) The rest of the message."
         pattern = get_command_pattern("!/")
         processed_text, commands_found = _process_text_for_commands(text, current_proxy_state, pattern)
         assert processed_text == "The rest of the message."
@@ -93,7 +93,7 @@ class TestProcessTextForCommands:
 
     def test_command_at_end_of_string(self):
         current_proxy_state = ProxyState()
-        text = "Message before !/set(model=another-model)"
+        text = "Message before !/set(model=openrouter:another-model)"
         pattern = get_command_pattern("!/")
         processed_text, commands_found = _process_text_for_commands(text, current_proxy_state, pattern)
         assert processed_text == "Message before"
@@ -102,7 +102,7 @@ class TestProcessTextForCommands:
 
     def test_command_only_string(self):
         current_proxy_state = ProxyState()
-        text = "!/set(model=command-only-model)"
+        text = "!/set(model=openrouter:command-only-model)"
         pattern = get_command_pattern("!/")
         processed_text, commands_found = _process_text_for_commands(text, current_proxy_state, pattern)
         assert processed_text == "" # Command is stripped, leaving empty string
@@ -124,7 +124,7 @@ class TestProcessTextForCommands:
         # The existing logic for !/unset(model) checks "if 'model' in args".
         # So !/unset(foo) would not unset the model.
         pattern = get_command_pattern("!/")
-        _process_text_for_commands("!/set(model=gpt-4)", current_proxy_state, pattern)
+        _process_text_for_commands("!/set(model=openrouter:gpt-4)", current_proxy_state, pattern)
         assert current_proxy_state.override_model == "gpt-4"
 
         text = "!/unset(foo)"
@@ -146,7 +146,7 @@ class TestProcessTextForCommands:
     def test_unset_model_and_project_together(self):
         current_proxy_state = ProxyState()
         pattern = get_command_pattern("!/")
-        _process_text_for_commands("!/set(model=foo)", current_proxy_state, pattern)
+        _process_text_for_commands("!/set(model=openrouter:foo)", current_proxy_state, pattern)
         _process_text_for_commands("!/set(project=bar)", current_proxy_state, pattern)
         assert current_proxy_state.override_model == "foo"
         assert current_proxy_state.project == "bar"
@@ -201,4 +201,21 @@ class TestProcessTextForCommands:
         assert processed == "Hi"
         assert parser.results[0].success is False
         assert "unknown command" in parser.results[0].message
+
+    def test_set_invalid_model_interactive(self):
+        state = ProxyState(interactive_mode=True)
+        parser = CommandParser(state, command_prefix="!/", preserve_unknown=False)
+        parser.process_text("!/set(model=openrouter:bad)")
+        assert state.override_model is None
+        assert state.invalid_override is False
+        assert parser.results[0].success is False
+        assert "not available" in parser.results[0].message
+
+    def test_set_invalid_model_noninteractive(self):
+        state = ProxyState()
+        parser = CommandParser(state, command_prefix="!/", preserve_unknown=True)
+        parser.process_text("!/set(model=openrouter:bad)")
+        assert state.override_backend == "openrouter"
+        assert state.override_model == "bad"
+        assert state.invalid_override is True
 

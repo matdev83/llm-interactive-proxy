@@ -25,10 +25,11 @@ def test_set_command_confirmation(interactive_client: TestClient):
     mock_backend_response = {"choices": [{"message": {"content": "ok"}}]}
     with patch.object(app.state.openrouter_backend, 'chat_completions', new_callable=AsyncMock) as mock_method:
         mock_method.return_value = mock_backend_response
-        payload = {"model": "m", "messages": [{"role": "user", "content": "hello !/set(model=foo)"}]}
+        interactive_client.app.state.openrouter_backend.available_models = ["foo"]
+        payload = {"model": "m", "messages": [{"role": "user", "content": "hello !/set(model=openrouter:foo)"}]}
         resp = interactive_client.post("/v1/chat/completions", json=payload)
     assert resp.status_code == 200
     content = resp.json()["choices"][0]["message"]["content"]
-    assert "model set to foo" in content
+    assert "model set to openrouter:foo" in content
     assert "ok" in content
 

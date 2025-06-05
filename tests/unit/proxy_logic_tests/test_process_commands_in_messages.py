@@ -11,7 +11,7 @@ class TestProcessCommandsInMessages:
         current_proxy_state = ProxyState()
         messages = [
             models.ChatMessage(role="user", content="Hello"),
-            models.ChatMessage(role="user", content="Please use !/set(model=new-model) for this query.")
+            models.ChatMessage(role="user", content="Please use !/set(model=openrouter:new-model) for this query.")
         ]
         processed_messages, processed = process_commands_in_messages(messages, current_proxy_state)
         assert processed
@@ -45,7 +45,7 @@ class TestProcessCommandsInMessages:
         current_proxy_state = ProxyState()
         messages = [
             models.ChatMessage(role="user", content=[
-                models.MessageContentPartText(type="text", text="!/set(model=text-only)"),
+                models.MessageContentPartText(type="text", text="!/set(model=openrouter:text-only)"),
                 models.MessageContentPartImage(type="image_url", image_url=models.ImageURL(url="fake.jpg", detail=None))
             ])
         ]
@@ -63,7 +63,7 @@ class TestProcessCommandsInMessages:
         current_proxy_state = ProxyState()
         messages = [
             models.ChatMessage(role="user", content=[
-                models.MessageContentPartText(type="text", text="!/set(model=empty-message-model)")
+                models.MessageContentPartText(type="text", text="!/set(model=openrouter:empty-message-model)")
             ])
         ]
         processed_messages, processed = process_commands_in_messages(messages, current_proxy_state)
@@ -75,13 +75,13 @@ class TestProcessCommandsInMessages:
         current_proxy_state = ProxyState()
         current_proxy_state.override_model = "initial-model"
         messages = [
-            models.ChatMessage(role="user", content="First message !/set(model=first-try)"),
-            models.ChatMessage(role="user", content="Second message !/set(model=second-try)")
+            models.ChatMessage(role="user", content="First message !/set(model=openrouter:first-try)"),
+            models.ChatMessage(role="user", content="Second message !/set(model=openrouter:second-try)")
         ]
         processed_messages, processed = process_commands_in_messages(messages, current_proxy_state)
         assert processed
         assert len(processed_messages) == 2
-        assert processed_messages[0].content == "First message !/set(model=first-try)"
+        assert processed_messages[0].content == "First message !/set(model=openrouter:first-try)"
         assert processed_messages[1].content == "Second message"
         assert current_proxy_state.override_model == "second-try"
 
@@ -89,7 +89,7 @@ class TestProcessCommandsInMessages:
         current_proxy_state = ProxyState()
         current_proxy_state.override_model = "initial-model"
         messages = [
-            models.ChatMessage(role="user", content="First message with !/set(model=model-from-past)"),
+            models.ChatMessage(role="user", content="First message with !/set(model=openrouter:model-from-past)"),
             models.ChatMessage(role="user", content="Second message, plain text.")
         ]
         processed_messages, processed = process_commands_in_messages(messages, current_proxy_state)
@@ -121,7 +121,7 @@ class TestProcessCommandsInMessages:
     def test_message_with_only_command_string_content(self):
         current_proxy_state = ProxyState()
         messages = [
-            models.ChatMessage(role="user", content="!/set(model=full-command-message)")
+            models.ChatMessage(role="user", content="!/set(model=openrouter:full-command-message)")
         ]
         processed_messages, processed = process_commands_in_messages(messages, current_proxy_state)
         assert processed
@@ -164,7 +164,7 @@ class TestProcessCommandsInMessages:
     def test_custom_command_prefix(self):
         current_proxy_state = ProxyState()
         messages = [
-            models.ChatMessage(role="user", content="Hello $$set(model=foo)")
+            models.ChatMessage(role="user", content="Hello $$set(model=openrouter:foo)")
         ]
         processed_messages, processed = process_commands_in_messages(
             messages,
@@ -180,7 +180,7 @@ class TestProcessCommandsInMessages:
         messages = [
             models.ChatMessage(
                 role="user",
-                content="Line1\n!/set(model=multi)\nLine3",
+                content="Line1\n!/set(model=openrouter:multi)\nLine3",
             )
         ]
         processed_messages, processed = process_commands_in_messages(messages, current_proxy_state)
@@ -200,7 +200,7 @@ class TestProcessCommandsInMessages:
 
     def test_unset_model_and_project_in_message(self):
         current_proxy_state = ProxyState()
-        current_proxy_state.set_override_model("foo")
+        current_proxy_state.set_override_model("openrouter", "foo")
         current_proxy_state.set_project("bar")
         messages = [
             models.ChatMessage(role="user", content="!/unset(model, project)")

@@ -186,10 +186,28 @@ def build_app(cfg: Dict[str, Any] | None = None) -> FastAPI:
     async def chat_completions(
         request_data: models.ChatCompletionRequest, http_request: Request
     ):
+        backend_type = http_request.app.state.backend_type
         backend = http_request.app.state.backend
         session_id = http_request.headers.get("x-session-id", "default")
         session = http_request.app.state.session_manager.get_session(session_id)
         proxy_state: ProxyState = session.proxy_state
+
+        if proxy_state.override_backend:
+            backend_type = proxy_state.override_backend
+            if proxy_state.invalid_override:
+                raise HTTPException(
+                    status_code=400,
+                    detail={
+                        "message": "invalid or unsupported model",
+                        "model": f"{proxy_state.override_backend}:{proxy_state.override_model}",
+                    },
+                )
+            if backend_type == "openrouter":
+                backend = http_request.app.state.openrouter_backend
+            elif backend_type == "gemini":
+                backend = http_request.app.state.gemini_backend
+            else:
+                raise HTTPException(status_code=400, detail=f"unknown backend {backend_type}")
 
         parser = CommandParser(
             proxy_state,
@@ -280,7 +298,7 @@ def build_app(cfg: Dict[str, Any] | None = None) -> FastAPI:
 
         effective_model = proxy_state.get_effective_model(request_data.model)
 
-        if http_request.app.state.backend_type == "gemini":
+        if backend_type == "gemini":
             key_name, api_key = (
                 next(iter(cfg["gemini_api_keys"].items()))
                 if cfg["gemini_api_keys"]

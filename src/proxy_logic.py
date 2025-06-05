@@ -8,19 +8,29 @@ class ProxyState:
     """Manages the state of the proxy, particularly model overrides."""
 
     def __init__(self, interactive_mode: bool = False) -> None:
+        self.override_backend: Optional[str] = None
         self.override_model: Optional[str] = None
+        self.invalid_override: bool = False
         self.project: Optional[str] = None
         self.interactive_mode: bool = interactive_mode
         self.interactive_just_enabled: bool = False
         self.hello_requested: bool = False
 
-    def set_override_model(self, model_name: str) -> None:
-        logger.info(f"Setting override model to: {model_name}")
+    def set_override_model(
+        self, backend: str, model_name: str, *, invalid: bool = False
+    ) -> None:
+        logger.info(
+            f"Setting override model to: {backend}:{model_name} (invalid={invalid})"
+        )
+        self.override_backend = backend
         self.override_model = model_name
+        self.invalid_override = invalid
 
     def unset_override_model(self) -> None:
         logger.info("Unsetting override model.")
+        self.override_backend = None
         self.override_model = None
+        self.invalid_override = False
 
     def set_project(self, project_name: str) -> None:
         logger.info(f"Setting project to: {project_name}")
@@ -45,7 +55,9 @@ class ProxyState:
 
     def reset(self) -> None:
         logger.info("Resetting ProxyState instance.")
+        self.override_backend = None
         self.override_model = None
+        self.invalid_override = False
         self.project = None
         self.interactive_mode = False
         self.interactive_just_enabled = False
@@ -58,6 +70,9 @@ class ProxyState:
             )
             return self.override_model
         return requested_model
+
+    def get_selected_backend(self, default_backend: str) -> str:
+        return self.override_backend or default_backend
 
 
 # Re-export command parsing helpers from the dedicated module for backward compatibility

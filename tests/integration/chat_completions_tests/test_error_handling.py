@@ -44,3 +44,24 @@ def test_get_openrouter_headers_no_api_key(client: TestClient):
 
     assert response.status_code == 500
     assert "Simulated backend error due to bad headers" in response.json()["detail"]
+
+
+def test_invalid_model_noninteractive(client: TestClient):
+    client.app.state.openrouter_backend.available_models = []
+    payload = {
+        "model": "m",
+        "messages": [{"role": "user", "content": "!/set(model=openrouter:bad)"}],
+    }
+    resp = client.post("/v1/chat/completions", json=payload)
+    assert resp.status_code == 200
+    assert resp.json()["choices"][0]["message"]["content"].startswith(
+        "Proxy command processed"
+    )
+
+    payload2 = {
+        "model": "m",
+        "messages": [{"role": "user", "content": "Hello"}],
+    }
+    resp2 = client.post("/v1/chat/completions", json=payload2)
+    assert resp2.status_code == 400
+    assert resp2.json()["detail"]["model"] == "openrouter:bad"

@@ -24,9 +24,10 @@ def test_set_model_command_integration(client: TestClient):
     with patch.object(app.state.openrouter_backend, 'chat_completions', new_callable=AsyncMock) as mock_method:
         mock_method.return_value = mock_backend_response
 
+        client.app.state.openrouter_backend.available_models = ["override-model"]
         payload = {
             "model": "original-model",
-            "messages": [{"role": "user", "content": "Use this: !/set(model=override-model) Hello"}]
+            "messages": [{"role": "user", "content": "Use this: !/set(model=openrouter:override-model) Hello"}]
         }
         response = client.post("/v1/chat/completions", json=payload)
 
@@ -44,13 +45,14 @@ def test_set_model_command_integration(client: TestClient):
 
 def test_unset_model_command_integration(client: TestClient):
     # Access proxy_state from the app state within the test client
-    client.app.state.session_manager.get_session("default").proxy_state.set_override_model("initial-override")  # type: ignore
+    client.app.state.session_manager.get_session("default").proxy_state.set_override_model("openrouter", "initial-override")  # type: ignore
 
     mock_backend_response = {"choices": [{"message": {"content": "Model unset and called."}}]}
 
     with patch.object(app.state.openrouter_backend, 'chat_completions', new_callable=AsyncMock) as mock_method:
         mock_method.return_value = mock_backend_response
 
+        client.app.state.openrouter_backend.available_models = ["another-model"]
         payload = {
             "model": "another-model",
             "messages": [{"role": "user", "content": "Please !/unset(model) use default."}]

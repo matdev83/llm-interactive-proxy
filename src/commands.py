@@ -35,9 +35,39 @@ class SetCommand(BaseCommand):
         messages: List[str] = []
         handled = False
         if isinstance(args.get("model"), str):
-            state.set_override_model(args["model"])
-            handled = True
-            messages.append(f"model set to {args['model']}")
+            model_val = args["model"].strip()
+            if ":" not in model_val:
+                return CommandResult(
+                    self.name,
+                    False,
+                    "model must be specified as <backend>:<model>",
+                )
+            backend_part, model_name = model_val.split(":", 1)
+            backend_part = backend_part.lower()
+
+            try:
+                from src import main as app_main
+                backend_obj = getattr(app_main.app.state, f"{backend_part}_backend", None)
+            except Exception:
+                backend_obj = None
+
+            available = (
+                backend_obj.get_available_models() if backend_obj else []
+            )
+
+            if model_name in available:
+                state.set_override_model(backend_part, model_name)
+                handled = True
+                messages.append(f"model set to {backend_part}:{model_name}")
+            else:
+                if state.interactive_mode:
+                    return CommandResult(
+                        self.name,
+                        False,
+                        f"model {backend_part}:{model_name} not available",
+                    )
+                state.set_override_model(backend_part, model_name, invalid=True)
+                handled = True
         if isinstance(args.get("project"), str):
             state.set_project(args["project"])
             handled = True
