@@ -6,7 +6,7 @@ import logging
 import os
 import time
 from contextlib import asynccontextmanager
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Dict, Union
 from pathlib import Path
 import tomli
@@ -309,7 +309,7 @@ def build_app(cfg: Dict[str, Any] | None = None) -> FastAPI:
             return models.CommandProcessedChatCompletionResponse(
                 id="proxy_cmd_processed",
                 object="chat.completion",
-                created=int(datetime.utcnow().timestamp()),
+                created=int(datetime.now(timezone.utc).timestamp()),
                 model=proxy_state.get_effective_model(request_data.model),
                 choices=[
                     models.ChatCompletionChoice(
