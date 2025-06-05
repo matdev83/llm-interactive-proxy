@@ -196,5 +196,6 @@ class TestProcessCommandsInMessages:
         assert processed
         assert len(processed_messages) == 1
         assert processed_messages[0].content == ""
+        assert "!/unset(model, project)" not in processed_messages[0].content
         assert current_proxy_state.override_model is None
         assert current_proxy_state.project is None

@@ -149,11 +149,12 @@ def _process_text_for_commands(
                     "!/set command found without valid arguments. No change to state."
                 )
         elif command_name == "unset":
-            if "model" in args:
+            keys_to_unset = [k for k in args if args[k] is True]  # Get keys where value is True (flags)
+            if "model" in keys_to_unset:
                 current_proxy_state.unset_override_model()
-            if "project" in args:
+            if "project" in keys_to_unset:
                 current_proxy_state.unset_project()
-            if not any(k in args for k in ("model", "project")):
+            if not keys_to_unset:
                 logger.warning(
                     "!/unset command should specify what to unset. No change to state."
                 )
