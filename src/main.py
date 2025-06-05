@@ -334,18 +334,35 @@ def build_app(cfg: Dict[str, Any] | None = None) -> FastAPI:
 
         effective_model = proxy_state.get_effective_model(request_data.model)
 
-        if backend_type == "gemini":
-            key_name, api_key = (
-                next(iter(cfg["gemini_api_keys"].items()))
-                if cfg["gemini_api_keys"]
-                else (
-                    "GEMINI_API_KEY",
-                    cfg["gemini_api_key"] or os.getenv("GEMINI_API_KEY"),
-                )
-            )
-            retry_at = http_request.app.state.rate_limits.get(
-                "gemini", effective_model, key_name
-            )
+        async def _call_backend(b_type: str, model: str, key_name: str, api_key: str):
+            if b_type == "gemini":
+                retry_at = http_request.app.state.rate_limits.get("gemini", model, key_name)
+                if retry_at:
+                    raise HTTPException(
+                        status_code=429,
+                        detail={
+                            "message": "Backend rate limited, retry later",
+                            "retry_after": int(retry_at - time.time()),
+                        },
+                    )
+                try:
+                    return await http_request.app.state.gemini_backend.chat_completions(
+                        request_data=request_data,
+                        processed_messages=processed_messages,
+                        effective_model=model,
+                        project=proxy_state.project,
+                        gemini_api_base_url=cfg["gemini_api_base_url"],
+                        key_name=key_name,
+                        api_key=api_key,
+                        prompt_redactor=http_request.app.state.api_key_redactor,
+                    )
+                except HTTPException as e:
+                    if e.status_code == 429:
+                        delay = parse_retry_delay(e.detail)
+                        if delay:
+                            http_request.app.state.rate_limits.set("gemini", model, key_name, delay)
+                    raise
+            retry_at = http_request.app.state.rate_limits.get("openrouter", model, key_name)
             if retry_at:
                 raise HTTPException(
                     status_code=429,
@@ -355,116 +372,90 @@ def build_app(cfg: Dict[str, Any] | None = None) -> FastAPI:
                     },
                 )
             try:
-                response = await backend.chat_completions(
+                return await http_request.app.state.openrouter_backend.chat_completions(
                     request_data=request_data,
                     processed_messages=processed_messages,
-                    effective_model=effective_model,
-                    project=proxy_state.project,
-                    gemini_api_base_url=cfg["gemini_api_base_url"],
+                    effective_model=model,
+                    openrouter_api_base_url=cfg["openrouter_api_base_url"],
+                    openrouter_headers_provider=lambda n, k: get_openrouter_headers(cfg, k),
                     key_name=key_name,
                     api_key=api_key,
+                    project=proxy_state.project,
                     prompt_redactor=http_request.app.state.api_key_redactor,
                 )
             except HTTPException as e:
                 if e.status_code == 429:
                     delay = parse_retry_delay(e.detail)
                     if delay:
-                        http_request.app.state.rate_limits.set(
-                            "gemini", effective_model, key_name, delay
-                        )
+                        http_request.app.state.rate_limits.set("openrouter", model, key_name, delay)
                 raise
-            if proxy_state.interactive_mode:
-                prefix_parts = []
-                if show_banner:
-                    prefix_parts.append(_welcome_banner(session_id))
-                if confirmation_text:
-                    prefix_parts.append(confirmation_text)
-                if prefix_parts:
-                    orig = (
-                        response.get("choices", [{}])[0]
-                        .get("message", {})
-                        .get("content", "")
-                    )
-                    response["choices"][0]["message"]["content"] = (
-                        "\n".join(prefix_parts) + "\n" + orig if orig else "\n".join(prefix_parts)
-                    )
-            elif show_banner:
-                orig = (
-                    response.get("choices", [{}])[0]
-                    .get("message", {})
-                    .get("content", "")
-                )
-                response["choices"][0]["message"]["content"] = (
-                    _welcome_banner(session_id) + "\n" + orig if orig else _welcome_banner(session_id)
-                )
-            session.add_interaction(
-                SessionInteraction(
-                    prompt=raw_prompt,
-                    handler="backend",
-                    backend="gemini",
-                    model=effective_model,
-                    project=proxy_state.project,
-                    parameters=request_data.model_dump(exclude_unset=True),
-                    response=response.get("choices", [{}])[0]
-                    .get("message", {})
-                    .get("content"),
-                    usage=(
-                        models.CompletionUsage(**response.get("usage"))
-                        if response.get("usage")
-                        else None
-                    ),
-                )
-            )
-            proxy_state.hello_requested = False
-            proxy_state.interactive_just_enabled = False
-            return response
 
-        key_name, api_key = (
-            next(iter(cfg["openrouter_api_keys"].items()))
-            if cfg["openrouter_api_keys"]
-            else (
-                "OPENROUTER_API_KEY",
-                cfg["openrouter_api_key"] or os.getenv("OPENROUTER_API_KEY"),
-            )
-        )
-        retry_at = http_request.app.state.rate_limits.get(
-            "openrouter", effective_model, key_name
-        )
-        if retry_at:
-            raise HTTPException(
-                status_code=429,
-                detail={
-                    "message": "Backend rate limited, retry later",
-                    "retry_after": int(retry_at - time.time()),
-                },
-            )
-        try:
-            response = await backend.chat_completions(
-                request_data=request_data,
-                processed_messages=processed_messages,
-                effective_model=effective_model,
-                openrouter_api_base_url=cfg["openrouter_api_base_url"],
-                openrouter_headers_provider=lambda n, k: get_openrouter_headers(cfg, k),
-                key_name=key_name,
-                api_key=api_key,
-                project=proxy_state.project,
-                prompt_redactor=http_request.app.state.api_key_redactor,
-            )
-        except HTTPException as e:
-            if e.status_code == 429:
-                delay = parse_retry_delay(e.detail)
-                if delay:
-                    http_request.app.state.rate_limits.set(
-                        "openrouter", effective_model, key_name, delay
-                    )
-            raise
+        def _keys_for(b_type: str) -> list[tuple[str, str]]:
+            if b_type == "gemini":
+                if cfg["gemini_api_keys"]:
+                    return list(cfg["gemini_api_keys"].items())
+                return [("GEMINI_API_KEY", cfg["gemini_api_key"] or os.getenv("GEMINI_API_KEY"))]
+            if cfg["openrouter_api_keys"]:
+                return list(cfg["openrouter_api_keys"].items())
+            return [("OPENROUTER_API_KEY", cfg["openrouter_api_key"] or os.getenv("OPENROUTER_API_KEY"))]
+
+        route = proxy_state.failover_routes.get(effective_model)
+        attempts: list[tuple[str, str, str, str]] = []
+        if route:
+            elems = [e for e in route.get("elements", [])]
+            policy = route.get("policy", "k")
+            if policy == "k" and elems:
+                b, m = elems[0].split(":", 1)
+                for kname, key in _keys_for(b):
+                    attempts.append((b, m, kname, key))
+            elif policy == "m":
+                for el in elems:
+                    b, m = el.split(":", 1)
+                    kname, key = _keys_for(b)[0]
+                    attempts.append((b, m, kname, key))
+            elif policy == "km":
+                for el in elems:
+                    b, m = el.split(":", 1)
+                    for kname, key in _keys_for(b):
+                        attempts.append((b, m, kname, key))
+            elif policy == "mk":
+                backends_used = {el.split(":", 1)[0] for el in elems}
+                key_map = {b: _keys_for(b) for b in backends_used}
+                max_len = max(len(v) for v in key_map.values()) if key_map else 0
+                for i in range(max_len):
+                    for el in elems:
+                        b, m = el.split(":", 1)
+                        if i < len(key_map[b]):
+                            kname, key = key_map[b][i]
+                            attempts.append((b, m, kname, key))
+        else:
+            attempts.append((backend_type, effective_model, _keys_for(backend_type)[0][0], _keys_for(backend_type)[0][1]))
+
+        last_error: HTTPException | None = None
+        response = None
+        used_backend = backend_type
+        used_model = effective_model
+        for b, m, kname, key in attempts:
+            try:
+                response = await _call_backend(b, m, kname, key)
+                used_backend = b
+                used_model = m
+                break
+            except HTTPException as e:
+                if e.status_code == 429:
+                    last_error = e
+                    continue
+                raise
+        else:
+            raise last_error if last_error else HTTPException(status_code=429, detail="all backends failed")
+
         if isinstance(response, StreamingResponse):
             session.add_interaction(
                 SessionInteraction(
                     prompt=raw_prompt,
                     handler="backend",
-                    backend="openrouter",
-                    model=effective_model,
+                    backend=used_backend,
+                    model=used_model,
                     project=proxy_state.project,
                     parameters=request_data.model_dump(exclude_unset=True),
                     response="<streaming>",
@@ -499,8 +490,8 @@ def build_app(cfg: Dict[str, Any] | None = None) -> FastAPI:
             SessionInteraction(
                 prompt=raw_prompt,
                 handler="backend",
-                backend="openrouter",
-                model=effective_model,
+                backend=used_backend,
+                model=used_model,
                 project=proxy_state.project,
                 parameters=request_data.model_dump(exclude_unset=True),
                 response=response.get("choices", [{}])[0]
