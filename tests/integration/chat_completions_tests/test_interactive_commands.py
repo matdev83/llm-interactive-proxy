@@ -9,6 +9,7 @@ from src.session import SessionManager
 def interactive_client():
     with TestClient(app) as c:
         c.app.state.session_manager = SessionManager(default_interactive_mode=True)  # type: ignore
+        c.app.state.functional_backends = {"openrouter", "gemini"}
         yield c
 
 def test_unknown_command_error(interactive_client: TestClient):
@@ -47,4 +48,16 @@ def test_set_backend_confirmation(interactive_client: TestClient):
     content = resp.json()["choices"][0]["message"]["content"]
     assert "backend set to gemini" in content
     assert "resp" in content
+
+
+def test_set_backend_nonfunctional(interactive_client: TestClient):
+    interactive_client.app.state.functional_backends = {"openrouter"}
+    with patch.object(app.state.openrouter_backend, 'chat_completions', new_callable=AsyncMock) as open_mock:
+        open_mock.return_value = {"choices": [{"message": {"content": "ok"}}]}
+        payload = {"model": "m", "messages": [{"role": "user", "content": "hi !/set(backend=gemini)"}]}
+        resp = interactive_client.post("/v1/chat/completions", json=payload)
+    assert resp.status_code == 200
+    open_mock.assert_called_once()
+    content = resp.json()["choices"][0]["message"]["content"].lower()
+    assert "backend gemini not functional" in content
 

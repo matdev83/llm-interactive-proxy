@@ -221,6 +221,8 @@ class TestProcessTextForCommands:
 
     def test_set_backend(self):
         state = ProxyState()
+        from src import main as app_main
+        app_main.app.state.functional_backends = {"openrouter", "gemini"}
         pattern = get_command_pattern("!/")
         text = "!/set(backend=gemini) hi"
         processed, found = _process_text_for_commands(text, state, pattern)

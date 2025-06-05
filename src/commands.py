@@ -70,13 +70,24 @@ class SetCommand(BaseCommand):
                 handled = True
         if isinstance(args.get("backend"), str):
             backend_val = args["backend"].strip().lower()
+            try:
+                from src import main as app_main
+                functional = getattr(app_main.app.state, "functional_backends", {"openrouter", "gemini"})
+            except Exception:
+                functional = {"openrouter", "gemini"}
+
             if backend_val not in {"openrouter", "gemini"}:
-                if state.interactive_mode:
-                    return CommandResult(
-                        self.name,
-                        False,
-                        f"backend {backend_val} not supported",
-                    )
+                return CommandResult(
+                    self.name,
+                    False,
+                    f"backend {backend_val} not supported",
+                )
+            if backend_val not in functional:
+                return CommandResult(
+                    self.name,
+                    False,
+                    f"backend {backend_val} not functional",
+                )
             state.set_override_backend(backend_val)
             handled = True
             messages.append(f"backend set to {backend_val}")

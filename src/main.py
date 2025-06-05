@@ -79,7 +79,7 @@ def _load_config() -> Dict[str, Any]:
         return default
 
     return {
-        "backend": os.getenv("LLM_BACKEND", "openrouter"),
+        "backend": os.getenv("LLM_BACKEND"),
         "openrouter_api_key": next(iter(openrouter_keys.values())) if openrouter_keys else None,
         "openrouter_api_keys": openrouter_keys,
         "openrouter_api_base_url": os.getenv(
@@ -136,12 +136,14 @@ def build_app(cfg: Dict[str, Any] | None = None) -> FastAPI:
             default_interactive_mode=cfg["interactive_mode"]
         )
         app.state.command_prefix = cfg["command_prefix"]
-        app.state.backend_type = cfg["backend"]
 
         openrouter_backend = OpenRouterBackend(client)
         gemini_backend = GeminiBackend(client)
         app.state.openrouter_backend = openrouter_backend
         app.state.gemini_backend = gemini_backend
+
+        openrouter_ok = False
+        gemini_ok = False
 
         if cfg.get("openrouter_api_keys"):
             key_name, api_key = next(iter(cfg["openrouter_api_keys"].items()))
@@ -151,6 +153,8 @@ def build_app(cfg: Dict[str, Any] | None = None) -> FastAPI:
                 key_name=key_name,
                 api_key=api_key,
             )
+            if openrouter_backend.get_available_models():
+                openrouter_ok = True
 
         if cfg.get("gemini_api_keys"):
             key_name, api_key = next(iter(cfg["gemini_api_keys"].items()))
@@ -159,8 +163,26 @@ def build_app(cfg: Dict[str, Any] | None = None) -> FastAPI:
                 key_name=key_name,
                 api_key=api_key,
             )
+            if gemini_backend.get_available_models():
+                gemini_ok = True
 
-        backend = gemini_backend if cfg["backend"] == "gemini" else openrouter_backend
+        functional = {name for name, ok in (("openrouter", openrouter_ok), ("gemini", gemini_ok)) if ok}
+        app.state.functional_backends = functional
+
+        backend_type = cfg.get("backend")
+        if backend_type:
+            if functional and backend_type not in functional:
+                raise ValueError(f"default backend {backend_type} is not functional")
+        else:
+            if len(functional) == 1:
+                backend_type = next(iter(functional))
+            elif len(functional) > 1:
+                raise ValueError("Multiple functional backends, specify --default-backend")
+            else:
+                backend_type = "openrouter"
+        app.state.backend_type = backend_type
+
+        backend = gemini_backend if backend_type == "gemini" else openrouter_backend
         app.state.backend = backend
 
         all_keys = list(cfg.get("openrouter_api_keys", {}).values()) + list(
@@ -565,9 +587,17 @@ app = build_app()
 def parse_cli_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Run the LLM proxy server")
     parser.add_argument(
-        "--backend",
+        "--default-backend",
+        dest="default_backend",
         choices=["openrouter", "gemini"],
-        default=os.getenv("LLM_BACKEND", "openrouter"),
+        default=os.getenv("LLM_BACKEND"),
+        help="Default backend when multiple backends are functional",
+    )
+    parser.add_argument(
+        "--backend",
+        dest="default_backend",
+        choices=["openrouter", "gemini"],
+        help=argparse.SUPPRESS,
     )
     parser.add_argument("--openrouter-api-key")
     parser.add_argument("--openrouter-api-base-url")
@@ -588,7 +618,7 @@ def parse_cli_args(argv: list[str] | None = None) -> argparse.Namespace:
 
 def apply_cli_args(args: argparse.Namespace) -> Dict[str, Any]:
     mappings = {
-        "backend": "LLM_BACKEND",
+        "default_backend": "LLM_BACKEND",
         "openrouter_api_key": "OPENROUTER_API_KEY",
         "openrouter_api_base_url": "OPENROUTER_API_BASE_URL",
         "gemini_api_key": "GEMINI_API_KEY",
