@@ -10,7 +10,7 @@ dependencies = [
     "uvicorn[standard]",
     "httpx",
     "python-dotenv",
-    "pydantic",
+    "pydantic>=2",
     "openai==1.84.0",
 ]
 requires-python = ">=3.10"
