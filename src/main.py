@@ -80,7 +80,9 @@ def _load_config() -> Dict[str, Any]:
 
     return {
         "backend": os.getenv("LLM_BACKEND"),
-        "openrouter_api_key": next(iter(openrouter_keys.values())) if openrouter_keys else None,
+        "openrouter_api_key": (
+            next(iter(openrouter_keys.values())) if openrouter_keys else None
+        ),
         "openrouter_api_keys": openrouter_keys,
         "openrouter_api_base_url": os.getenv(
             "OPENROUTER_API_BASE_URL", "https://openrouter.ai/api/v1"
@@ -166,7 +168,11 @@ def build_app(cfg: Dict[str, Any] | None = None) -> FastAPI:
             if gemini_backend.get_available_models():
                 gemini_ok = True
 
-        functional = {name for name, ok in (("openrouter", openrouter_ok), ("gemini", gemini_ok)) if ok}
+        functional = {
+            name
+            for name, ok in (("openrouter", openrouter_ok), ("gemini", gemini_ok))
+            if ok
+        }
         app.state.functional_backends = functional
 
         backend_type = cfg.get("backend")
@@ -177,7 +183,9 @@ def build_app(cfg: Dict[str, Any] | None = None) -> FastAPI:
             if len(functional) == 1:
                 backend_type = next(iter(functional))
             elif len(functional) > 1:
-                raise ValueError("Multiple functional backends, specify --default-backend")
+                raise ValueError(
+                    "Multiple functional backends, specify --default-backend"
+                )
             else:
                 backend_type = "openrouter"
         app.state.backend_type = backend_type
@@ -229,7 +237,9 @@ def build_app(cfg: Dict[str, Any] | None = None) -> FastAPI:
             elif backend_type == "gemini":
                 backend = http_request.app.state.gemini_backend
             else:
-                raise HTTPException(status_code=400, detail=f"unknown backend {backend_type}")
+                raise HTTPException(
+                    status_code=400, detail=f"unknown backend {backend_type}"
+                )
 
         parser = CommandParser(
             proxy_state,
@@ -246,7 +256,9 @@ def build_app(cfg: Dict[str, Any] | None = None) -> FastAPI:
             elif backend_type == "gemini":
                 backend = http_request.app.state.gemini_backend
             else:
-                raise HTTPException(status_code=400, detail=f"unknown backend {backend_type}")
+                raise HTTPException(
+                    status_code=400, detail=f"unknown backend {backend_type}"
+                )
         else:
             backend_type = http_request.app.state.backend_type
             if backend_type == "gemini":
@@ -336,7 +348,9 @@ def build_app(cfg: Dict[str, Any] | None = None) -> FastAPI:
 
         async def _call_backend(b_type: str, model: str, key_name: str, api_key: str):
             if b_type == "gemini":
-                retry_at = http_request.app.state.rate_limits.get("gemini", model, key_name)
+                retry_at = http_request.app.state.rate_limits.get(
+                    "gemini", model, key_name
+                )
                 if retry_at:
                     raise HTTPException(
                         status_code=429,
@@ -360,9 +374,13 @@ def build_app(cfg: Dict[str, Any] | None = None) -> FastAPI:
                     if e.status_code == 429:
                         delay = parse_retry_delay(e.detail)
                         if delay:
-                            http_request.app.state.rate_limits.set("gemini", model, key_name, delay)
+                            http_request.app.state.rate_limits.set(
+                                "gemini", model, key_name, delay
+                            )
                     raise
-            retry_at = http_request.app.state.rate_limits.get("openrouter", model, key_name)
+            retry_at = http_request.app.state.rate_limits.get(
+                "openrouter", model, key_name
+            )
             if retry_at:
                 raise HTTPException(
                     status_code=429,
@@ -377,7 +395,9 @@ def build_app(cfg: Dict[str, Any] | None = None) -> FastAPI:
                     processed_messages=processed_messages,
                     effective_model=model,
                     openrouter_api_base_url=cfg["openrouter_api_base_url"],
-                    openrouter_headers_provider=lambda n, k: get_openrouter_headers(cfg, k),
+                    openrouter_headers_provider=lambda n, k: get_openrouter_headers(
+                        cfg, k
+                    ),
                     key_name=key_name,
                     api_key=api_key,
                     project=proxy_state.project,
@@ -387,17 +407,29 @@ def build_app(cfg: Dict[str, Any] | None = None) -> FastAPI:
                 if e.status_code == 429:
                     delay = parse_retry_delay(e.detail)
                     if delay:
-                        http_request.app.state.rate_limits.set("openrouter", model, key_name, delay)
+                        http_request.app.state.rate_limits.set(
+                            "openrouter", model, key_name, delay
+                        )
                 raise
 
         def _keys_for(b_type: str) -> list[tuple[str, str]]:
             if b_type == "gemini":
                 if cfg["gemini_api_keys"]:
                     return list(cfg["gemini_api_keys"].items())
-                return [("GEMINI_API_KEY", cfg["gemini_api_key"] or os.getenv("GEMINI_API_KEY"))]
+                return [
+                    (
+                        "GEMINI_API_KEY",
+                        cfg["gemini_api_key"] or os.getenv("GEMINI_API_KEY"),
+                    )
+                ]
             if cfg["openrouter_api_keys"]:
                 return list(cfg["openrouter_api_keys"].items())
-            return [("OPENROUTER_API_KEY", cfg["openrouter_api_key"] or os.getenv("OPENROUTER_API_KEY"))]
+            return [
+                (
+                    "OPENROUTER_API_KEY",
+                    cfg["openrouter_api_key"] or os.getenv("OPENROUTER_API_KEY"),
+                )
+            ]
 
         route = proxy_state.failover_routes.get(effective_model)
         attempts: list[tuple[str, str, str, str]] = []
@@ -429,7 +461,14 @@ def build_app(cfg: Dict[str, Any] | None = None) -> FastAPI:
                             kname, key = key_map[b][i]
                             attempts.append((b, m, kname, key))
         else:
-            attempts.append((backend_type, effective_model, _keys_for(backend_type)[0][0], _keys_for(backend_type)[0][1]))
+            attempts.append(
+                (
+                    backend_type,
+                    effective_model,
+                    _keys_for(backend_type)[0][0],
+                    _keys_for(backend_type)[0][1],
+                )
+            )
 
         last_error: HTTPException | None = None
         response = None
@@ -447,7 +486,11 @@ def build_app(cfg: Dict[str, Any] | None = None) -> FastAPI:
                     continue
                 raise
         else:
-            raise last_error if last_error else HTTPException(status_code=429, detail="all backends failed")
+            raise (
+                last_error
+                if last_error
+                else HTTPException(status_code=429, detail="all backends failed")
+            )
 
         if isinstance(response, StreamingResponse):
             session.add_interaction(
@@ -475,16 +518,18 @@ def build_app(cfg: Dict[str, Any] | None = None) -> FastAPI:
                     .get("content", "")
                 )
                 response["choices"][0]["message"]["content"] = (
-                    "\n".join(prefix_parts) + "\n" + orig if orig else "\n".join(prefix_parts)
+                    "\n".join(prefix_parts) + "\n" + orig
+                    if orig
+                    else "\n".join(prefix_parts)
                 )
         elif show_banner:
             orig = (
-                response.get("choices", [{}])[0]
-                .get("message", {})
-                .get("content", "")
+                response.get("choices", [{}])[0].get("message", {}).get("content", "")
             )
             response["choices"][0]["message"]["content"] = (
-                _welcome_banner(session_id) + "\n" + orig if orig else _welcome_banner(session_id)
+                _welcome_banner(session_id) + "\n" + orig
+                if orig
+                else _welcome_banner(session_id)
             )
         session.add_interaction(
             SessionInteraction(
@@ -508,6 +553,17 @@ def build_app(cfg: Dict[str, Any] | None = None) -> FastAPI:
         proxy_state.interactive_just_enabled = False
         return response
 
+    @app.get("/models")
+    async def list_all_models(http_request: Request):
+        data = []
+        if "openrouter" in http_request.app.state.functional_backends:
+            for m in http_request.app.state.openrouter_backend.get_available_models():
+                data.append({"id": f"openrouter:{m}"})
+        if "gemini" in http_request.app.state.functional_backends:
+            for m in http_request.app.state.gemini_backend.get_available_models():
+                data.append({"id": f"gemini:{m}"})
+        return {"object": "list", "data": data}
+
     @app.get("/v1/models")
     async def list_models(http_request: Request):
         backend = http_request.app.state.backend
@@ -517,11 +573,16 @@ def build_app(cfg: Dict[str, Any] | None = None) -> FastAPI:
                 if cfg["gemini_api_keys"]
                 else ("GEMINI_API_KEY", cfg["gemini_api_key"])
             )
-            retry_at = http_request.app.state.rate_limits.get("gemini", "<list_models>", key_name)
+            retry_at = http_request.app.state.rate_limits.get(
+                "gemini", "<list_models>", key_name
+            )
             if retry_at:
                 raise HTTPException(
                     status_code=429,
-                    detail={"message": "Backend rate limited, retry later", "retry_after": int(retry_at - time.time())},
+                    detail={
+                        "message": "Backend rate limited, retry later",
+                        "retry_after": int(retry_at - time.time()),
+                    },
                 )
             try:
                 return await backend.list_models(
@@ -533,7 +594,9 @@ def build_app(cfg: Dict[str, Any] | None = None) -> FastAPI:
                 if e.status_code == 429:
                     delay = parse_retry_delay(e.detail)
                     if delay:
-                        http_request.app.state.rate_limits.set("gemini", "<list_models>", key_name, delay)
+                        http_request.app.state.rate_limits.set(
+                            "gemini", "<list_models>", key_name, delay
+                        )
                 raise
         key_name, api_key = (
             next(iter(cfg["openrouter_api_keys"].items()))
@@ -543,11 +606,16 @@ def build_app(cfg: Dict[str, Any] | None = None) -> FastAPI:
                 cfg["openrouter_api_key"] or os.getenv("OPENROUTER_API_KEY"),
             )
         )
-        retry_at = http_request.app.state.rate_limits.get("openrouter", "<list_models>", key_name)
+        retry_at = http_request.app.state.rate_limits.get(
+            "openrouter", "<list_models>", key_name
+        )
         if retry_at:
             raise HTTPException(
                 status_code=429,
-                detail={"message": "Backend rate limited, retry later", "retry_after": int(retry_at - time.time())},
+                detail={
+                    "message": "Backend rate limited, retry later",
+                    "retry_after": int(retry_at - time.time()),
+                },
             )
         try:
             return await backend.list_models(
@@ -560,7 +628,9 @@ def build_app(cfg: Dict[str, Any] | None = None) -> FastAPI:
             if e.status_code == 429:
                 delay = parse_retry_delay(e.detail)
                 if delay:
-                    http_request.app.state.rate_limits.set("openrouter", "<list_models>", key_name, delay)
+                    http_request.app.state.rate_limits.set(
+                        "openrouter", "<list_models>", key_name, delay
+                    )
             raise
 
     return app

@@ -10,6 +10,8 @@ This project provides an intercepting proxy server that is compatible with the O
 - **Dynamic Model Override** – commands like `!/set(model=...)` change the model for subsequent requests.
 - **Multiple Backends** – forward requests to OpenRouter or Google Gemini, chosen with `LLM_BACKEND`.
 - **Streaming and Non‑Streaming Support** (OpenRouter backend).
+- **Aggregated Model Listing** – the `/models` endpoint returns the union of all
+  models discovered from configured backends, prefixed with the backend name.
 - **Session History Tracking** – optional per-session logs using the `X-Session-ID` header.
 - **CLI Configuration** – command line flags can override environment variables for quick testing, including interactive mode.
 - **Configurable Interactive Mode** – enable or disable interactive mode by default via environment variable, CLI argument, or in-chat commands.
