@@ -50,6 +50,7 @@ def sample_processed_messages() -> List[models.ChatMessage]:
 
 
 @pytest.mark.asyncio
+@pytest.mark.httpx_mock()
 async def test_chat_completions_request_error(
     openrouter_backend: OpenRouterBackend,
     httpx_mock: HTTPXMock,

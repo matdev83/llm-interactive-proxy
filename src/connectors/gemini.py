@@ -3,7 +3,7 @@ from __future__ import annotations
 import httpx
 import json
 import logging
-from typing import Union, Dict, Any
+from typing import Union, Dict, Any, Optional
 
 from fastapi import HTTPException
 from src.models import ChatCompletionRequest
@@ -45,12 +45,18 @@ class GeminiBackend(LLMBackend):
         request_data: ChatCompletionRequest,
         processed_messages: list,
         effective_model: str,
-        gemini_api_base_url: str,
-        key_name: str,
-        api_key: str,
+        openrouter_api_base_url: Optional[str] = None,  # absorb unused param
+        openrouter_headers_provider: object = None,  # absorb unused param
+        key_name: Optional[str] = None,
+        api_key: Optional[str] = None,
         project: str | None = None,
         prompt_redactor: APIKeyRedactor | None = None,
-    ) -> Dict[str, Any]:
+        **kwargs
+    ) -> dict:
+        # Use gemini_api_base_url if provided, else fallback to openrouter_api_base_url for compatibility
+        gemini_api_base_url = openrouter_api_base_url or kwargs.get('gemini_api_base_url')
+        if not gemini_api_base_url or not api_key:
+            raise HTTPException(status_code=500, detail="Gemini API base URL and API key must be provided.")
         if request_data.stream:
             raise HTTPException(status_code=501, detail="Streaming not implemented for Gemini backend")
 
@@ -73,26 +79,22 @@ class GeminiBackend(LLMBackend):
         payload = {"contents": payload_contents}
         if request_data.extra_params:
             payload.update(request_data.extra_params)
-        if project is not None:
-            payload["project"] = project
+        # Do not add 'project' to payload for Gemini
 
         url = f"{gemini_api_base_url.rstrip('/')}/v1beta/models/{effective_model}:generateContent?key={api_key}"
         try:
             response = await self.client.post(url, json=payload)
-            response.raise_for_status()
+            if response.status_code >= 400:
+                try:
+                    error_detail = response.json()
+                except Exception:
+                    error_detail = response.text
+                raise HTTPException(status_code=response.status_code, detail=error_detail)
             return response.json()
-        except httpx.HTTPStatusError as e:
-            logger.error(
-                f"HTTP error from Gemini API: {e.response.status_code} - {e.response.text}",
-                exc_info=True,
-            )
-            raise HTTPException(status_code=e.response.status_code, detail=e.response.text)
         except httpx.RequestError as e:
             logger.error(f"Request error connecting to Gemini: {e}", exc_info=True)
             raise HTTPException(status_code=503, detail=f"Service unavailable: Could not connect to Gemini ({e})")
-        except Exception as e:
-            logger.error(f"Unexpected error in GeminiBackend.chat_completions: {e}", exc_info=True)
-            raise HTTPException(status_code=500, detail=str(e))
+        # Removed the broad 'except Exception as e' block here.
 
     async def list_models(
         self,
@@ -104,17 +106,14 @@ class GeminiBackend(LLMBackend):
         url = f"{gemini_api_base_url.rstrip('/')}/v1beta/models?key={api_key}"
         try:
             response = await self.client.get(url)
-            response.raise_for_status()
+            if response.status_code >= 400:
+                try:
+                    error_detail = response.json()
+                except Exception:
+                    error_detail = response.text
+                raise HTTPException(status_code=response.status_code, detail=error_detail)
             return response.json()
-        except httpx.HTTPStatusError as e:
-            logger.error(
-                f"HTTP error from Gemini API: {e.response.status_code} - {e.response.text}",
-                exc_info=True,
-            )
-            raise HTTPException(status_code=e.response.status_code, detail=e.response.text)
         except httpx.RequestError as e:
             logger.error(f"Request error connecting to Gemini: {e}", exc_info=True)
             raise HTTPException(status_code=503, detail=f"Service unavailable: Could not connect to Gemini ({e})")
-        except Exception as e:
-            logger.error(f"Unexpected error in GeminiBackend.list_models: {e}", exc_info=True)
-            raise HTTPException(status_code=500, detail=str(e))
+        # Removed the broad 'except Exception as e' block here.

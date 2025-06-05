@@ -20,8 +20,8 @@ class ProxyState:
     def set_override_model(
         self, backend: str, model_name: str, *, invalid: bool = False
     ) -> None:
-        logger.info(
-            f"Setting override model to: {backend}:{model_name} (invalid={invalid})"
+        logger.debug(
+            f"ProxyState.set_override_model called with: backend={backend}, model_name={model_name}, invalid={invalid}"
         )
         self.override_backend = backend
         self.override_model = model_name

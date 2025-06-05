@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Set # Add Set to imports
 
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
@@ -22,8 +22,14 @@ class BaseCommand:
         raise NotImplementedError
 
 
+from fastapi import FastAPI # Import FastAPI for type hinting
+
 class SetCommand(BaseCommand):
     name = "set"
+
+    def __init__(self, app: FastAPI, functional_backends: Set[str] | None = None): # Add app parameter
+        self.app = app # Store app
+        self.functional_backends = functional_backends or set()
 
     def _parse_bool(self, value: str) -> bool | None:
         val = value.strip().lower()
@@ -36,7 +42,35 @@ class SetCommand(BaseCommand):
     def execute(self, args: Dict[str, Any], state: 'ProxyState') -> CommandResult:
         messages: List[str] = []
         handled = False
-        if isinstance(args.get("model"), str):
+        backend_set_failed = False
+        # Backend set logic first, so we can skip model set if backend is not functional
+        if isinstance(args.get("backend"), str):
+            backend_val = args["backend"].strip().lower()
+            
+            if backend_val not in {"openrouter", "gemini"}:
+                return CommandResult(
+                    self.name,
+                    False,
+                    f"backend {backend_val} not supported",
+                )
+            
+            # Use self.functional_backends instead of app_main.app.state
+            if backend_val not in self.functional_backends:
+                # Do NOT set override_backend if not functional
+                state.unset_override_backend() # Ensure it's unset if it was previously set
+                backend_set_failed = True
+                return CommandResult(
+                    self.name,
+                    False,
+                    f"backend {backend_val} not functional",
+                )
+            
+            # Only set override_backend if functional and supported
+            state.set_override_backend(backend_val)
+            handled = True
+            messages.append(f"backend set to {backend_val}")
+        # Only allow model set if backend set did not fail
+        if not backend_set_failed and isinstance(args.get("model"), str):
             model_val = args["model"].strip()
             if ":" not in model_val:
                 return CommandResult(
@@ -48,8 +82,8 @@ class SetCommand(BaseCommand):
             backend_part = backend_part.lower()
 
             try:
-                from src import main as app_main
-                backend_obj = getattr(app_main.app.state, f"{backend_part}_backend", None)
+                # Use self.app.state instead of app_main.app.state
+                backend_obj = getattr(self.app.state, f"{backend_part}_backend", None)
             except Exception:
                 backend_obj = None
 
@@ -61,38 +95,15 @@ class SetCommand(BaseCommand):
                 state.set_override_model(backend_part, model_name)
                 handled = True
                 messages.append(f"model set to {backend_part}:{model_name}")
-            else:
-                if state.interactive_mode:
-                    return CommandResult(
-                        self.name,
-                        False,
-                        f"model {backend_part}:{model_name} not available",
-                    )
+            elif state.interactive_mode: # If model not available AND in interactive mode
+                return CommandResult(
+                    self.name,
+                    False,
+                    f"model {backend_part}:{model_name} not available",
+                )
+            else: # If model not available AND NOT in interactive mode
                 state.set_override_model(backend_part, model_name, invalid=True)
                 handled = True
-        if isinstance(args.get("backend"), str):
-            backend_val = args["backend"].strip().lower()
-            try:
-                from src import main as app_main
-                functional = getattr(app_main.app.state, "functional_backends", {"openrouter", "gemini"})
-            except Exception:
-                functional = {"openrouter", "gemini"}
-
-            if backend_val not in {"openrouter", "gemini"}:
-                return CommandResult(
-                    self.name,
-                    False,
-                    f"backend {backend_val} not supported",
-                )
-            if backend_val not in functional:
-                return CommandResult(
-                    self.name,
-                    False,
-                    f"backend {backend_val} not functional",
-                )
-            state.set_override_backend(backend_val)
-            handled = True
-            messages.append(f"backend set to {backend_val}")
         if isinstance(args.get("project"), str):
             state.set_project(args["project"])
             handled = True

@@ -1,8 +1,11 @@
 import pytest
-from unittest.mock import AsyncMock, patch
+import re # Import re
+import httpx # Import httpx
 from fastapi import HTTPException
+from pytest_httpx import HTTPXMock
 
-def test_rate_limit_memory(client):
+@pytest.mark.httpx_mock() # Revert to original decorator
+def test_rate_limit_memory(client, httpx_mock: HTTPXMock): # Removed monkeypatch fixture
     error_detail = {
         "error": {
             "code": 429,
@@ -14,14 +17,26 @@ def test_rate_limit_memory(client):
         }
     }
 
-    async def raise_429(*args, **kwargs):
-        raise HTTPException(status_code=429, detail=error_detail)
+    # Mock the Gemini responses using a callback to handle multiple requests
+    request_count = 0
+    def gemini_rate_limit_callback(request):
+        nonlocal request_count
+        request_count += 1
+        return httpx.Response(429, json=error_detail)
 
-    with patch.object(client.app.state.gemini_backend, 'chat_completions', new_callable=AsyncMock) as mock_method:
-        mock_method.side_effect = raise_429
-        payload = {"model": "gemini-1", "messages": [{"role": "user", "content": "hi"}]}
-        r1 = client.post("/v1/chat/completions", json=payload)
-        assert r1.status_code == 429
-        r2 = client.post("/v1/chat/completions", json=payload)
-        assert r2.status_code == 429
-        assert mock_method.call_count == 1
+    httpx_mock.add_callback(
+        gemini_rate_limit_callback,
+        url=re.compile(r"https://generativelanguage.googleapis.com/v1beta/models/gemini-1:generateContent.*"),
+        method="POST",
+    )
+
+    # Use a command to set the backend to gemini
+    set_backend_payload = {"model": "some-model", "messages": [{"role": "user", "content": "!/set(backend=gemini)"}]}
+    client.post("/v1/chat/completions", json=set_backend_payload)
+
+    payload = {"model": "gemini-1", "messages": [{"role": "user", "content": "hi"}]}
+    r1 = client.post("/v1/chat/completions", json=payload)
+    assert r1.status_code == 429
+    r2 = client.post("/v1/chat/completions", json=payload)
+    assert r2.status_code == 429
+    assert request_count == 1 # Proxy should remember rate limit and not hit backend again

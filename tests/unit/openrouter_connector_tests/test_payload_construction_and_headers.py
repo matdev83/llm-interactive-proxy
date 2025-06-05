@@ -50,6 +50,7 @@ def sample_processed_messages() -> List[models.ChatMessage]:
 
 
 @pytest.mark.asyncio
+@pytest.mark.usefixtures("openrouter_backend")
 async def test_payload_construction_and_headers(
     openrouter_backend: OpenRouterBackend,
     httpx_mock: HTTPXMock,

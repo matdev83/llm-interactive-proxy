@@ -4,8 +4,26 @@ from src.proxy_logic import (
     ProxyState
 )
 import src.models as models
+from unittest.mock import Mock
 
 class TestProcessCommandsInMessages:
+
+    @pytest.fixture(autouse=True)
+    def setup_mock_app(self):
+        # Create a mock app object with a state attribute and mock backends
+        mock_openrouter_backend = Mock()
+        mock_openrouter_backend.get_available_models.return_value = ["new-model", "text-only", "empty-message-model", "first-try", "second-try", "model-from-past", "full-command-message", "foo", "multi"]
+        
+        mock_gemini_backend = Mock()
+        mock_gemini_backend.get_available_models.return_value = ["gemini-model"]
+
+        mock_app_state = Mock()
+        mock_app_state.openrouter_backend = mock_openrouter_backend
+        mock_app_state.gemini_backend = mock_gemini_backend
+        mock_app_state.functional_backends = {"openrouter", "gemini"} # Add functional backends
+        
+        self.mock_app = Mock()
+        self.mock_app.state = mock_app_state
 
     def test_string_content_with_set_command(self):
         current_proxy_state = ProxyState()
@@ -13,7 +31,7 @@ class TestProcessCommandsInMessages:
             models.ChatMessage(role="user", content="Hello"),
             models.ChatMessage(role="user", content="Please use !/set(model=openrouter:new-model) for this query.")
         ]
-        processed_messages, processed = process_commands_in_messages(messages, current_proxy_state)
+        processed_messages, processed = process_commands_in_messages(messages, current_proxy_state, app=self.mock_app)
         assert processed
         assert len(processed_messages) == 2
         assert processed_messages[0].content == "Hello"
@@ -28,7 +46,7 @@ class TestProcessCommandsInMessages:
                 models.MessageContentPartImage(type="image_url", image_url=models.ImageURL(url="fake.jpg", detail=None))
             ])
         ]
-        processed_messages, processed = process_commands_in_messages(messages, current_proxy_state)
+        processed_messages, processed = process_commands_in_messages(messages, current_proxy_state, app=self.mock_app)
         assert not processed
         assert len(processed_messages) == 1
         assert isinstance(processed_messages[0].content, list)
@@ -49,7 +67,7 @@ class TestProcessCommandsInMessages:
                 models.MessageContentPartImage(type="image_url", image_url=models.ImageURL(url="fake.jpg", detail=None))
             ])
         ]
-        processed_messages, processed = process_commands_in_messages(messages, current_proxy_state)
+        processed_messages, processed = process_commands_in_messages(messages, current_proxy_state, app=self.mock_app)
         assert processed
         assert len(processed_messages) == 1
         assert isinstance(processed_messages[0].content, list)
@@ -66,7 +84,7 @@ class TestProcessCommandsInMessages:
                 models.MessageContentPartText(type="text", text="!/set(model=openrouter:empty-message-model)")
             ])
         ]
-        processed_messages, processed = process_commands_in_messages(messages, current_proxy_state)
+        processed_messages, processed = process_commands_in_messages(messages, current_proxy_state, app=self.mock_app)
         assert processed
         assert len(processed_messages) == 0
         assert current_proxy_state.override_model == "empty-message-model"
@@ -78,7 +96,7 @@ class TestProcessCommandsInMessages:
             models.ChatMessage(role="user", content="First message !/set(model=openrouter:first-try)"),
             models.ChatMessage(role="user", content="Second message !/set(model=openrouter:second-try)")
         ]
-        processed_messages, processed = process_commands_in_messages(messages, current_proxy_state)
+        processed_messages, processed = process_commands_in_messages(messages, current_proxy_state, app=self.mock_app)
         assert processed
         assert len(processed_messages) == 2
         assert processed_messages[0].content == "First message !/set(model=openrouter:first-try)"
@@ -92,7 +110,7 @@ class TestProcessCommandsInMessages:
             models.ChatMessage(role="user", content="First message with !/set(model=openrouter:model-from-past)"),
             models.ChatMessage(role="user", content="Second message, plain text.")
         ]
-        processed_messages, processed = process_commands_in_messages(messages, current_proxy_state)
+        processed_messages, processed = process_commands_in_messages(messages, current_proxy_state, app=self.mock_app)
         assert processed
         assert len(processed_messages) == 2
         assert processed_messages[0].content == "First message with"
@@ -106,14 +124,14 @@ class TestProcessCommandsInMessages:
             models.ChatMessage(role="user", content="How are you?")
         ]
         original_messages_copy = [m.model_copy(deep=True) for m in messages]
-        processed_messages, processed = process_commands_in_messages(messages, current_proxy_state)
+        processed_messages, processed = process_commands_in_messages(messages, current_proxy_state, app=self.mock_app)
         assert not processed
         assert processed_messages == original_messages_copy
         assert current_proxy_state.override_model is None
 
     def test_process_empty_messages_list(self):
         current_proxy_state = ProxyState()
-        processed_messages, processed = process_commands_in_messages([], current_proxy_state)
+        processed_messages, processed = process_commands_in_messages([], current_proxy_state, app=self.mock_app)
         assert not processed
         assert processed_messages == []
         assert current_proxy_state.override_model is None # Ensure state is not affected
@@ -123,7 +141,7 @@ class TestProcessCommandsInMessages:
         messages = [
             models.ChatMessage(role="user", content="!/set(model=openrouter:full-command-message)")
         ]
-        processed_messages, processed = process_commands_in_messages(messages, current_proxy_state)
+        processed_messages, processed = process_commands_in_messages(messages, current_proxy_state, app=self.mock_app)
         assert processed
         assert len(processed_messages) == 1
         assert processed_messages[0].content == ""
@@ -137,7 +155,7 @@ class TestProcessCommandsInMessages:
                 models.MessageContentPartImage(type="image_url", image_url=models.ImageURL(url="fake.jpg", detail=None))
             ])
         ]
-        processed_messages, processed = process_commands_in_messages(messages, current_proxy_state)
+        processed_messages, processed = process_commands_in_messages(messages, current_proxy_state, app=self.mock_app)
         assert not processed
         assert len(processed_messages) == 1
         assert isinstance(processed_messages[0].content, list)
@@ -155,7 +173,7 @@ class TestProcessCommandsInMessages:
         messages = [
             models.ChatMessage(role="user", content="Hello !/unknown(cmd) there")
         ]
-        processed_messages, processed = process_commands_in_messages(messages, current_proxy_state)
+        processed_messages, processed = process_commands_in_messages(messages, current_proxy_state, app=self.mock_app)
         assert processed
         assert len(processed_messages) == 1
         assert processed_messages[0].content == "Hello !/unknown(cmd) there"
@@ -169,6 +187,7 @@ class TestProcessCommandsInMessages:
         processed_messages, processed = process_commands_in_messages(
             messages,
             current_proxy_state,
+            app=self.mock_app, # Pass app here
             command_prefix="$$",
         )
         assert processed
@@ -183,7 +202,7 @@ class TestProcessCommandsInMessages:
                 content="Line1\n!/set(model=openrouter:multi)\nLine3",
             )
         ]
-        processed_messages, processed = process_commands_in_messages(messages, current_proxy_state)
+        processed_messages, processed = process_commands_in_messages(messages, current_proxy_state, app=self.mock_app)
         assert processed
         assert processed_messages[0].content == "Line1 Line3"
         assert current_proxy_state.override_model == "multi"
@@ -193,7 +212,7 @@ class TestProcessCommandsInMessages:
         messages = [
             models.ChatMessage(role="user", content="!/set(project=proj1) hi")
         ]
-        processed_messages, processed = process_commands_in_messages(messages, current_proxy_state)
+        processed_messages, processed = process_commands_in_messages(messages, current_proxy_state, app=self.mock_app)
         assert processed
         assert processed_messages[0].content == "hi"
         assert current_proxy_state.project == "proj1"
@@ -205,7 +224,7 @@ class TestProcessCommandsInMessages:
         messages = [
             models.ChatMessage(role="user", content="!/unset(model, project)")
         ]
-        processed_messages, processed = process_commands_in_messages(messages, current_proxy_state)
+        processed_messages, processed = process_commands_in_messages(messages, current_proxy_state, app=self.mock_app)
         assert processed
         assert len(processed_messages) == 1
         assert processed_messages[0].content == ""

@@ -1,122 +1,28 @@
 from __future__ import annotations
 
-import argparse
 import json
 import logging
-import os
 import time
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from typing import Any, Dict, Union
-from pathlib import Path
-import tomli
+
+logger = logging.getLogger(__name__)
 
 import httpx
-from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import StreamingResponse
 
 from src import models
 from src.proxy_logic import ProxyState
 from src.command_parser import CommandParser
-from src.constants import DEFAULT_COMMAND_PREFIX
 from src.session import SessionManager, SessionInteraction
 from src.connectors import OpenRouterBackend, GeminiBackend
 from src.security import APIKeyRedactor
 from src.rate_limit import RateLimitRegistry, parse_retry_delay
 
-
-def _load_project_metadata() -> tuple[str, str]:
-    pyproject = Path(__file__).resolve().parents[1] / "pyproject.toml"
-    try:
-        data = tomli.loads(pyproject.read_text())
-        meta = data.get("project", {})
-        return meta.get("name", "llm-interactive-proxy"), meta.get("version", "0.0.0")
-    except Exception:
-        return "llm-interactive-proxy", "0.0.0"
-
-
-# ---------------------------------------------------------------------------
-# Configuration helpers
-# ---------------------------------------------------------------------------
-
-
-def _collect_api_keys(base_name: str) -> Dict[str, str]:
-    """Collect API keys as a mapping of env var names to values."""
-
-    single_key = os.getenv(base_name)
-    numbered_keys = {}
-    for i in range(1, 21):
-        key = os.getenv(f"{base_name}_{i}")
-        if key:
-            numbered_keys[f"{base_name}_{i}"] = key
-
-    if single_key and numbered_keys:
-        raise ValueError(
-            f"Specify either {base_name} or {base_name}_<n> (1-20), not both"
-        )
-
-    if single_key:
-        return {base_name: single_key}
-
-    return numbered_keys
-
-
-def _load_config() -> Dict[str, Any]:
-    load_dotenv()
-
-    openrouter_keys = _collect_api_keys("OPENROUTER_API_KEY")
-    gemini_keys = _collect_api_keys("GEMINI_API_KEY")
-
-    def _str_to_bool(val: str | None, default: bool = False) -> bool:
-        if val is None:
-            return default
-        val = val.strip().lower()
-        if val in ("true", "1", "yes", "on"):
-            return True
-        if val in ("false", "0", "no", "off", "none"):
-            return False
-        return default
-
-    return {
-        "backend": os.getenv("LLM_BACKEND"),
-        "openrouter_api_key": next(iter(openrouter_keys.values()), None),
-        "openrouter_api_keys": openrouter_keys,
-        "openrouter_api_base_url": os.getenv(
-            "OPENROUTER_API_BASE_URL", "https://openrouter.ai/api/v1"
-        ),
-        "gemini_api_key": next(iter(gemini_keys.values()), None),
-        "gemini_api_keys": gemini_keys,
-        "gemini_api_base_url": os.getenv(
-            "GEMINI_API_BASE_URL", "https://generativelanguage.googleapis.com"
-        ),
-        "app_site_url": os.getenv("APP_SITE_URL", "http://localhost:8000"),
-        "app_x_title": os.getenv("APP_X_TITLE", "InterceptorProxy"),
-        "proxy_port": int(os.getenv("PROXY_PORT", "8000")),
-        "proxy_host": os.getenv("PROXY_HOST", "127.0.0.1"),
-        "proxy_timeout": int(
-            os.getenv("PROXY_TIMEOUT", os.getenv("OPENROUTER_TIMEOUT", "300"))
-        ),
-        "command_prefix": os.getenv("COMMAND_PREFIX", DEFAULT_COMMAND_PREFIX),
-        "interactive_mode": _str_to_bool(os.getenv("INTERACTIVE_MODE"), False),
-    }
-
-
-def get_openrouter_headers(cfg: Dict[str, Any], api_key: str) -> Dict[str, str]:
-    return {
-        "Authorization": f"Bearer {api_key}",
-        "Content-Type": "application/json",
-        "HTTP-Referer": cfg["app_site_url"],
-        "X-Title": cfg["app_x_title"],
-    }
-
-
-def _keys_for(cfg: Dict[str, Any], b_type: str) -> list[tuple[str, str]]:
-    if b_type == "gemini":
-        return list(cfg["gemini_api_keys"].items())
-    if b_type == "openrouter":
-        return list(cfg["openrouter_api_keys"].items())
-    return []
+from src.core.metadata import _load_project_metadata
+from src.core.config import _load_config, get_openrouter_headers, _keys_for
 
 
 # ---------------------------------------------------------------------------
@@ -254,8 +160,10 @@ def build_app(cfg: Dict[str, Any] | None = None) -> FastAPI:
 
         parser = CommandParser(
             proxy_state,
+            http_request.app, # Pass the app instance
             command_prefix=http_request.app.state.command_prefix,
             preserve_unknown=not proxy_state.interactive_mode,
+            functional_backends=http_request.app.state.functional_backends,
         )
         processed_messages, commands_processed = parser.process_messages(
             request_data.messages
@@ -426,7 +334,14 @@ def build_app(cfg: Dict[str, Any] | None = None) -> FastAPI:
         route = proxy_state.failover_routes.get(effective_model)
         attempts: list[tuple[str, str, str, str]] = []
         if route:
-            elems = [e for e in route.get("elements", [])]
+            # Defensive: ensure elements is a list if present, else empty list
+            elements = route.get("elements", [])
+            if isinstance(elements, dict):
+                elems = list(elements.values())
+            elif isinstance(elements, list):
+                elems = elements
+            else:
+                elems = []
             policy = route.get("policy", "k")
             if policy == "k" and elems:
                 b, m = elems[0].split(":", 1)
@@ -472,57 +387,87 @@ def build_app(cfg: Dict[str, Any] | None = None) -> FastAPI:
         response = None
         used_backend = backend_type
         used_model = effective_model
+        success = False
         for b, m, kname, key in attempts:
+            logger.debug(f"Attempting backend: {b}, model: {m}, key_name: {kname}")
             try:
                 response = await _call_backend(b, m, kname, key)
                 used_backend = b
                 used_model = m
+                success = True
+                logger.debug(f"Attempt successful for backend: {b}, model: {m}, key_name: {kname}")
                 break
             except HTTPException as e:
+                logger.debug(f"Attempt failed for backend: {b}, model: {m}, key_name: {kname} with HTTPException: {e.status_code} - {e.detail}")
                 if e.status_code == 429:
                     last_error = e
                     continue
                 raise
+        if not success:
+            error_msg = last_error.detail if last_error else "all backends failed"
+            status_code = last_error.status_code if last_error else 500 # Use last_error's status code, default to 500
+
+            # Always return a valid OpenAI-compatible response structure
+            response_content = {
+                "id": "error",
+                "object": "chat.completion",
+                "created": int(time.time()),
+                "model": effective_model,
+                "choices": [
+                    {
+                        "index": 0,
+                        "message": {
+                            "role": "assistant",
+                            "content": f"All backends failed: {error_msg}"
+                        },
+                        "finish_reason": "error"
+                    }
+                ],
+                "usage": {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},
+                "error": error_msg,
+            }
+            raise HTTPException(status_code=status_code, detail=response_content) # Raise HTTPException with correct status code
+
+        logging.debug(f"Response from _call_backend: {response}") # Added debug log
+
+        # At this point, response is expected to be a dictionary or StreamingResponse.
+        if isinstance(response, StreamingResponse):
+            session.add_interaction(
+                SessionInteraction(
+                    prompt=raw_prompt,
+                    handler="backend",
+                    backend=used_backend,
+                    model=used_model,
+                    project=proxy_state.project,
+                    parameters=request_data.model_dump(exclude_unset=True),
+                    response="<streaming>",
+                )
+            )
+            return response
+        if response is None:
+            backend_response: Dict[str, Any] = {}
         else:
-            raise (
-                last_error
-                if last_error
-                else HTTPException(status_code=429, detail="all backends failed")
-            )
+            backend_response: Dict[str, Any] = response # Changed to direct assignment
 
-        if isinstance(response, StreamingResponse):
-            session.add_interaction(
-                SessionInteraction(
-                    prompt=raw_prompt,
-                    handler="backend",
-                    backend=used_backend,
-                    model=used_model,
-                    project=proxy_state.project,
-                    parameters=request_data.model_dump(exclude_unset=True),
-                    response="<streaming>",
-                )
-            )
-            return response
-        
-        if isinstance(response, StreamingResponse):
-            session.add_interaction(
-                SessionInteraction(
-                    prompt=raw_prompt,
-                    handler="backend",
-                    backend=used_backend,
-                    model=used_model,
-                    project=proxy_state.project,
-                    parameters=request_data.model_dump(exclude_unset=True),
-                    response="<streaming>",
-                )
-            )
-            return response
-        
-        # At this point, response is expected to be a dictionary.
-        # Assign to a new variable with explicit type hint to help type checkers.
-        backend_response: Dict[str, Any] = response
+        logging.debug(f"Backend response before defensive check: {backend_response}")
+        logging.debug(f"Type of backend_response: {type(backend_response)}")
+        logging.debug(f"'choices' in backend_response: {'choices' in backend_response}")
+        logging.debug(f"backend_response.get('choices'): {backend_response.get('choices')}")
 
-        logging.debug(f"Backend response (non-streaming): {json.dumps(backend_response, indent=2)}")
+        # Defensive: ensure choices key exists for downstream code
+        if "choices" not in backend_response:
+            backend_response["choices"] = [
+                {
+                    "index": 0,
+                    "message": {"role": "assistant", "content": "(no response)"},
+                    "finish_reason": "error"
+                }
+            ]
+
+        if isinstance(backend_response, dict):
+            logging.debug(f"Backend response (non-streaming): {json.dumps(backend_response, indent=2)}")
+        else:
+            logging.debug(f"Backend response (non-streaming): {backend_response}") # Log as is if not a dict
 
         if proxy_state.interactive_mode:
             prefix_parts = []
@@ -541,15 +486,6 @@ def build_app(cfg: Dict[str, Any] | None = None) -> FastAPI:
                     if orig
                     else "\n".join(prefix_parts)
                 )
-        elif show_banner:
-            orig = (
-                backend_response.get("choices", [{}])[0].get("message", {}).get("content", "")
-            )
-            backend_response["choices"][0]["message"]["content"] = (
-                _welcome_banner(session_id) + "\n" + orig
-                if orig
-                else _welcome_banner(session_id)
-            )
         
         usage_data = backend_response.get("usage")
         session.add_interaction(
@@ -572,6 +508,7 @@ def build_app(cfg: Dict[str, Any] | None = None) -> FastAPI:
         )
         proxy_state.hello_requested = False
         proxy_state.interactive_just_enabled = False
+        logging.debug(f"Final backend_response: {backend_response}") # Added debug log
         return backend_response
 
     @app.get("/models")
@@ -659,75 +596,7 @@ def build_app(cfg: Dict[str, Any] | None = None) -> FastAPI:
 app = build_app()
 
 
-# ---------------------------------------------------------------------------
-# CLI utilities
-# ---------------------------------------------------------------------------
-
-
-def parse_cli_args(argv: list[str] | None = None) -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Run the LLM proxy server")
-    parser.add_argument(
-        "--default-backend",
-        dest="default_backend",
-        choices=["openrouter", "gemini"],
-        default=os.getenv("LLM_BACKEND"),
-        help="Default backend when multiple backends are functional",
-    )
-    parser.add_argument(
-        "--backend",
-        dest="default_backend",
-        choices=["openrouter", "gemini"],
-        help=argparse.SUPPRESS,
-    )
-    parser.add_argument("--openrouter-api-key")
-    parser.add_argument("--openrouter-api-base-url")
-    parser.add_argument("--gemini-api-key")
-    parser.add_argument("--gemini-api-base-url")
-    parser.add_argument("--host")
-    parser.add_argument("--port", type=int)
-    parser.add_argument("--timeout", type=int)
-    parser.add_argument("--command-prefix")
-    parser.add_argument(
-        "--interactive-mode",
-        action="store_true",
-        default=None,
-        help="Enable interactive mode by default for new sessions",
-    )
-    return parser.parse_args(argv)
-
-
-def apply_cli_args(args: argparse.Namespace) -> Dict[str, Any]:
-    mappings = {
-        "default_backend": "LLM_BACKEND",
-        "openrouter_api_key": "OPENROUTER_API_KEY",
-        "openrouter_api_base_url": "OPENROUTER_API_BASE_URL",
-        "gemini_api_key": "GEMINI_API_KEY",
-        "gemini_api_base_url": "GEMINI_API_BASE_URL",
-        "host": "PROXY_HOST",
-        "port": "PROXY_PORT",
-        "timeout": "PROXY_TIMEOUT",
-        "command_prefix": "COMMAND_PREFIX",
-        "interactive_mode": "INTERACTIVE_MODE",
-    }
-    for attr, env_name in mappings.items():
-        value = getattr(args, attr)
-        if value is not None:
-            os.environ[env_name] = str(value)
-    return _load_config()
-
-
-def main(argv: list[str] | None = None) -> None:
-    args = parse_cli_args(argv)
-    cfg = apply_cli_args(args)
-    logging.basicConfig(
-        level=logging.DEBUG,
-        format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-    )
-    app = build_app(cfg)
-    import uvicorn
-
-    uvicorn.run(app, host=cfg["proxy_host"], port=cfg["proxy_port"])
-
+from src.core.cli import main as cli_main
 
 if __name__ == "__main__":
-    main()
+    cli_main()

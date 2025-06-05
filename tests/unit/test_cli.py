@@ -1,13 +1,14 @@
 import os
-from src import main as app_main
 from src.constants import DEFAULT_COMMAND_PREFIX
+from src.core.cli import parse_cli_args, apply_cli_args
+from src.main import build_app as app_main_build_app # Import build_app from main.py
 
 
 def test_apply_cli_args_sets_env(monkeypatch):
     monkeypatch.delenv("GEMINI_API_KEY", raising=False)
     for i in range(1, 21):
         monkeypatch.delenv(f"GEMINI_API_KEY_{i}", raising=False)
-    args = app_main.parse_cli_args(
+    args = parse_cli_args(
         [
             "--default-backend",
             "gemini",
@@ -19,7 +20,7 @@ def test_apply_cli_args_sets_env(monkeypatch):
             "$/",
         ]
     )
-    cfg = app_main.apply_cli_args(args)
+    cfg = apply_cli_args(args)
     assert os.environ["LLM_BACKEND"] == "gemini"
     assert os.environ["GEMINI_API_KEY"] == "TESTKEY"
     assert os.environ["PROXY_PORT"] == "1234"
@@ -40,8 +41,8 @@ def test_cli_interactive_mode(monkeypatch):
     monkeypatch.delenv("GEMINI_API_KEY", raising=False)
     for i in range(1, 21):
         monkeypatch.delenv(f"GEMINI_API_KEY_{i}", raising=False)
-    args = app_main.parse_cli_args(["--interactive-mode"])
-    cfg = app_main.apply_cli_args(args)
+    args = parse_cli_args(["--interactive-mode"])
+    cfg = apply_cli_args(args)
     assert os.environ["INTERACTIVE_MODE"] == "True"
     assert cfg["interactive_mode"] is True
     monkeypatch.delenv("INTERACTIVE_MODE", raising=False)
@@ -54,7 +55,7 @@ def test_build_app_uses_env(monkeypatch):
     monkeypatch.setenv("LLM_BACKEND", "gemini")
     monkeypatch.setenv("GEMINI_API_KEY", "KEY")
     monkeypatch.setenv("COMMAND_PREFIX", "??/")
-    app = app_main.build_app()
+    app = app_main_build_app()
     from fastapi.testclient import TestClient
 
     with TestClient(app) as client:
@@ -68,7 +69,8 @@ def test_build_app_uses_interactive_env(monkeypatch):
     for i in range(1, 21):
         monkeypatch.delenv(f"GEMINI_API_KEY_{i}", raising=False)
     monkeypatch.setenv("INTERACTIVE_MODE", "true")
-    app = app_main.build_app()
+    monkeypatch.setenv("LLM_BACKEND", "openrouter") # Add this line
+    app = app_main_build_app()
     from fastapi.testclient import TestClient
 
     with TestClient(app) as client:
@@ -83,8 +85,6 @@ def test_default_command_prefix_from_env(monkeypatch):
     for i in range(1, 21):
         monkeypatch.delenv(f"GEMINI_API_KEY_{i}", raising=False)
         monkeypatch.delenv(f"OPENROUTER_API_KEY_{i}", raising=False)
-    args = app_main.parse_cli_args([])
-    cfg = app_main.apply_cli_args(args)
+    args = parse_cli_args([])
+    cfg = apply_cli_args(args)
     assert cfg["command_prefix"] == DEFAULT_COMMAND_PREFIX
-
-

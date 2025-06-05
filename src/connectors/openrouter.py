@@ -154,7 +154,14 @@ class OpenRouterBackend(LLMBackend):
                 response = await self.client.post(f"{openrouter_api_base_url}/chat/completions",
                                              json=openrouter_payload, headers=headers)
                 logger.debug(f"OpenRouter non-stream response status: {response.status_code}")
-                response.raise_for_status()
+                
+                # Manual status code check for compatibility with pytest_httpx mocks
+                if response.status_code >= 400:
+                    try:
+                        error_detail = response.json()
+                    except Exception:
+                        error_detail = response.text
+                    raise HTTPException(status_code=response.status_code, detail=error_detail)
 
                 response_json = response.json()
                 logger.debug(f"OpenRouter response JSON: {json.dumps(response_json, indent=2)}")
@@ -170,10 +177,8 @@ class OpenRouterBackend(LLMBackend):
         except httpx.RequestError as e:
             logger.error(f"Request error connecting to OpenRouter: {type(e).__name__} - {str(e)}", exc_info=True)
             raise HTTPException(status_code=503, detail=f"Service unavailable: Could not connect to OpenRouter ({str(e)})")
-        except Exception as e:
-            # This catches errors during the setup of the request or unexpected issues
-            logger.error(f"An unexpected error occurred in OpenRouterBackend.chat_completions: {type(e).__name__} - {str(e)}", exc_info=True)
-            raise HTTPException(status_code=500, detail=f"Internal server error in backend connector: {str(e)}")
+        # Removed the broad 'except Exception as e' block here.
+        # HTTPException and other unexpected errors will now propagate up.
 
     async def list_models(
         self,
@@ -187,7 +192,14 @@ class OpenRouterBackend(LLMBackend):
         headers = openrouter_headers_provider(key_name, api_key)
         try:
             response = await self.client.get(f"{openrouter_api_base_url}/models", headers=headers)
-            response.raise_for_status()
+            
+            if not response.is_success:
+                try:
+                    error_detail = response.json()
+                except json.JSONDecodeError:
+                    error_detail = response.text
+                raise HTTPException(status_code=response.status_code, detail=error_detail)
+            
             return response.json()
         except httpx.HTTPStatusError as e:
             logger.error(

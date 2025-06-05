@@ -25,9 +25,24 @@ async def openrouter_backend_fixture():
 
 @pytest.fixture
 def sample_request() -> models.ChatCompletionRequest:
-    return models.ChatCompletionRequest(model="m", messages=[models.ChatMessage(role="user", content="leak SECRET")])
+    return models.ChatCompletionRequest(
+        model="m",
+        messages=[models.ChatMessage(role="user", content="leak SECRET")],
+        temperature=None,
+        top_p=None,
+        n=None,
+        stream=False,
+        stop=None,
+        max_tokens=None,
+        presence_penalty=None,
+        frequency_penalty=None,
+        logit_bias=None,
+        user=None
+    )
 
 @pytest.mark.asyncio
+@pytest.mark.usefixtures("openrouter_backend")
+@pytest.mark.httpx_mock()
 async def test_prompt_redaction(openrouter_backend: OpenRouterBackend, httpx_mock: HTTPXMock, sample_request: models.ChatCompletionRequest):
     httpx_mock.add_response(status_code=200, json={"choices": [{"message": {"content": "ok"}}]})
     redactor = APIKeyRedactor(["SECRET"])
@@ -42,5 +57,6 @@ async def test_prompt_redaction(openrouter_backend: OpenRouterBackend, httpx_moc
         prompt_redactor=redactor,
     )
     request = httpx_mock.get_request()
+    assert request is not None # Add assertion to ensure request is not None
     payload = json.loads(request.content)
     assert payload["messages"][0]["content"] == "leak (API_KEY_HAS_BEEN_REDACTED)"

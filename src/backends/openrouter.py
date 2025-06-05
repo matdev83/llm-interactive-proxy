@@ -107,7 +107,4 @@ class OpenRouterBackend(LLMBackend):
         return resp.json()
 
     def get_available_models(self) -> list[str]:
-        # For now, return a hardcoded list of models for testing and initial functionality.
-        # In a real scenario, this might be populated from a cached list after a successful
-        # call to list_models, or from a configuration.
-        return ["model-a", "openrouter-model-b", "openrouter-model-c"]
+        return self.available_models
