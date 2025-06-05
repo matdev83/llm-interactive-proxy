@@ -1,30 +1,15 @@
 import pytest
 from unittest.mock import AsyncMock, patch
 
-from fastapi.testclient import TestClient
 from httpx import Response # For constructing mock client responses if needed by TestClient directly
 from starlette.responses import StreamingResponse # If we need to mock this directly
 from fastapi import HTTPException # Import HTTPException
 
-# Import the FastAPI app instance from your main application file
-# Adjust the import path according to your project structure.
-# Assuming your FastAPI app instance is named 'app' in 'src/main.py'
-from src.main import app, get_openrouter_headers # Import app and any direct dependencies for mocking
 import src.models as models # For constructing request payloads
-from src.session import SessionManager
-
-# Fixture to provide a TestClient instance
-@pytest.fixture
-def client(monkeypatch):
-    """TestClient with a dummy OpenRouter API key configured."""
-    monkeypatch.setenv("OPENROUTER_API_KEY", "FAKE_KEY")
-    with TestClient(app) as c:
-        c.app.state.session_manager = SessionManager()  # type: ignore[attr-defined]
-        yield c
 
 # --- Test Cases ---
 
-def test_basic_request_proxying_non_streaming(client: TestClient):
+def test_basic_request_proxying_non_streaming(client):
     mock_backend_response = {
         "id": "comp-123",
         "object": "chat.completion",
@@ -35,8 +20,8 @@ def test_basic_request_proxying_non_streaming(client: TestClient):
     }
 
     # Patch the 'chat_completions' method of the OpenRouterBackend instance
-    # that is stored in app.state.openrouter_backend
-    with patch.object(app.state.openrouter_backend, 'chat_completions', new_callable=AsyncMock) as mock_method:
+    # that is stored in client.app.state.openrouter_backend
+    with patch.object(client.app.state.openrouter_backend, 'chat_completions', new_callable=AsyncMock) as mock_method:
         mock_method.return_value = mock_backend_response
 
         payload = {
@@ -61,7 +46,7 @@ def test_basic_request_proxying_non_streaming(client: TestClient):
 
 
 @pytest.mark.asyncio # For using async capabilities if needed, though TestClient is sync
-async def test_basic_request_proxying_streaming(client: TestClient):
+async def test_basic_request_proxying_streaming(client):
     # Simulate a streaming response from the backend mock
     async def mock_stream_gen():
         yield b"data: chunk1\n\n"
@@ -71,7 +56,7 @@ async def test_basic_request_proxying_streaming(client: TestClient):
     # The backend's chat_completions method should return a StreamingResponse
     mock_streaming_response = StreamingResponse(mock_stream_gen(), media_type="text/event-stream")
 
-    with patch.object(app.state.openrouter_backend, 'chat_completions', new_callable=AsyncMock) as mock_method:
+    with patch.object(client.app.state.openrouter_backend, 'chat_completions', new_callable=AsyncMock) as mock_method:
         mock_method.return_value = mock_streaming_response
 
         payload = {

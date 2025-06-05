@@ -1,21 +1,8 @@
 import pytest
 from unittest.mock import AsyncMock, patch
-from fastapi.testclient import TestClient
 from fastapi import HTTPException
 
-from src import main as app_main
-
-@pytest.fixture
-def client(monkeypatch):
-    monkeypatch.setenv("LLM_BACKEND", "gemini")
-    monkeypatch.setenv("GEMINI_API_KEY", "KEY")
-    for i in range(1, 21):
-        monkeypatch.delenv(f"GEMINI_API_KEY_{i}", raising=False)
-    test_app = app_main.build_app()
-    with TestClient(test_app) as c:
-        yield c
-
-def test_rate_limit_memory(client: TestClient):
+def test_rate_limit_memory(client):
     error_detail = {
         "error": {
             "code": 429,

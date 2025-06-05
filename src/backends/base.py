@@ -33,3 +33,7 @@ class LLMBackend(ABC):
         self, *, extra_headers: Optional[Dict[str, str]] = None
     ) -> Dict:
         """Return a JSON description of available models."""
+
+    @abstractmethod
+    def get_available_models(self) -> list[str]:
+        """Return a list of model IDs that the backend claims to support."""

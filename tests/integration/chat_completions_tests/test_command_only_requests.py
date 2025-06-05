@@ -1,22 +1,13 @@
 import pytest
 from unittest.mock import AsyncMock, patch
 
-from fastapi.testclient import TestClient
 from httpx import Response
 from starlette.responses import StreamingResponse
 from fastapi import HTTPException
 
-from src.main import app, get_openrouter_headers
 import src.models as models
-from src.session import SessionManager
 
-@pytest.fixture
-def client():
-    with TestClient(app) as c:
-        c.app.state.session_manager = SessionManager()  # type: ignore
-        yield c
-
-def test_command_only_request_direct_response(client: TestClient):
+def test_command_only_request_direct_response(client):
     client.app.state.openrouter_backend.available_models = ["command-only-model"]
     payload = {
         "model": "some-model",

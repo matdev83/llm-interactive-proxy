@@ -1,27 +1,17 @@
 import pytest
 from unittest.mock import AsyncMock, patch
 
-from fastapi.testclient import TestClient
 from httpx import Response
 from starlette.responses import StreamingResponse
 from fastapi import HTTPException, FastAPI # Import FastAPI for type hinting
 
-from src.main import app, get_openrouter_headers
 import src.models as models
-from src.session import SessionManager
 # import src.main # No longer needed to access module-level proxy_state
 
-@pytest.fixture
-def client():
-    # Use TestClient and set a new ProxyState instance in app.state for each test
-    with TestClient(app) as c:
-        c.app.state.session_manager = SessionManager()  # type: ignore
-        yield c
-
-def test_set_model_command_integration(client: TestClient):
+def test_set_model_command_integration(client):
     mock_backend_response = {"choices": [{"message": {"content": "Model set and called."}}]}
 
-    with patch.object(app.state.openrouter_backend, 'chat_completions', new_callable=AsyncMock) as mock_method:
+    with patch.object(client.app.state.openrouter_backend, 'chat_completions', new_callable=AsyncMock) as mock_method:
         mock_method.return_value = mock_backend_response
 
         client.app.state.openrouter_backend.available_models = ["override-model"]
@@ -43,13 +33,13 @@ def test_set_model_command_integration(client: TestClient):
     assert call_args['processed_messages'][0].content == "Use this: Hello"
 
 
-def test_unset_model_command_integration(client: TestClient):
+def test_unset_model_command_integration(client):
     # Access proxy_state from the app state within the test client
     client.app.state.session_manager.get_session("default").proxy_state.set_override_model("openrouter", "initial-override")  # type: ignore
 
     mock_backend_response = {"choices": [{"message": {"content": "Model unset and called."}}]}
 
-    with patch.object(app.state.openrouter_backend, 'chat_completions', new_callable=AsyncMock) as mock_method:
+    with patch.object(client.app.state.openrouter_backend, 'chat_completions', new_callable=AsyncMock) as mock_method:
         mock_method.return_value = mock_backend_response
 
         client.app.state.openrouter_backend.available_models = ["another-model"]

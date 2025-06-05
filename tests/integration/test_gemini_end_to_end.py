@@ -20,8 +20,11 @@ from tests.conftest import ORIG_GEMINI_KEY as ORIG_KEY
 
 @pytest.fixture(autouse=True)
 def clean_env(monkeypatch):
+    # Ensure only Gemini is functional for these end-to-end tests
+    monkeypatch.setenv("LLM_BACKEND", "gemini")
     if ORIG_KEY:
         monkeypatch.setenv("GEMINI_API_KEY_1", ORIG_KEY)
+    monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
     yield
 
 

@@ -1,19 +1,9 @@
 import pytest
 from unittest.mock import AsyncMock, patch
-from fastapi.testclient import TestClient
 
-from src.main import app
-from src.session import SessionManager
 
-@pytest.fixture
-def interactive_client():
-    with TestClient(app) as c:
-        c.app.state.session_manager = SessionManager(default_interactive_mode=True)  # type: ignore
-        c.app.state.functional_backends = {"openrouter", "gemini"}
-        yield c
-
-def test_unknown_command_error(interactive_client: TestClient):
-    with patch.object(app.state.openrouter_backend, 'chat_completions', new_callable=AsyncMock) as mock_method:
+def test_unknown_command_error(interactive_client):
+    with patch.object(interactive_client.app.state.openrouter_backend, 'chat_completions', new_callable=AsyncMock) as mock_method:
         payload = {"model": "m", "messages": [{"role": "user", "content": "!/bad()"}]}
         resp = interactive_client.post("/v1/chat/completions", json=payload)
         mock_method.assert_not_called()
@@ -22,9 +12,9 @@ def test_unknown_command_error(interactive_client: TestClient):
     assert data["id"] == "proxy_cmd_processed"
     assert "unknown command" in data["choices"][0]["message"]["content"].lower()
 
-def test_set_command_confirmation(interactive_client: TestClient):
+def test_set_command_confirmation(interactive_client):
     mock_backend_response = {"choices": [{"message": {"content": "ok"}}]}
-    with patch.object(app.state.openrouter_backend, 'chat_completions', new_callable=AsyncMock) as mock_method:
+    with patch.object(interactive_client.app.state.openrouter_backend, 'chat_completions', new_callable=AsyncMock) as mock_method:
         mock_method.return_value = mock_backend_response
         interactive_client.app.state.openrouter_backend.available_models = ["foo"]
         payload = {"model": "m", "messages": [{"role": "user", "content": "hello !/set(model=openrouter:foo)"}]}
@@ -35,10 +25,10 @@ def test_set_command_confirmation(interactive_client: TestClient):
     assert "ok" in content
 
 
-def test_set_backend_confirmation(interactive_client: TestClient):
+def test_set_backend_confirmation(interactive_client):
     mock_backend_response = {"choices": [{"message": {"content": "resp"}}]}
-    with patch.object(app.state.gemini_backend, 'chat_completions', new_callable=AsyncMock) as gem_mock, \
-         patch.object(app.state.openrouter_backend, 'chat_completions', new_callable=AsyncMock) as open_mock:
+    with patch.object(interactive_client.app.state.gemini_backend, 'chat_completions', new_callable=AsyncMock) as gem_mock, \
+         patch.object(interactive_client.app.state.openrouter_backend, 'chat_completions', new_callable=AsyncMock) as open_mock:
         gem_mock.return_value = mock_backend_response
         payload = {"model": "m", "messages": [{"role": "user", "content": "hi !/set(backend=gemini)"}]}
         resp = interactive_client.post("/v1/chat/completions", json=payload)
@@ -50,9 +40,9 @@ def test_set_backend_confirmation(interactive_client: TestClient):
     assert "resp" in content
 
 
-def test_set_backend_nonfunctional(interactive_client: TestClient):
+def test_set_backend_nonfunctional(interactive_client):
     interactive_client.app.state.functional_backends = {"openrouter"}
-    with patch.object(app.state.openrouter_backend, 'chat_completions', new_callable=AsyncMock) as open_mock:
+    with patch.object(interactive_client.app.state.openrouter_backend, 'chat_completions', new_callable=AsyncMock) as open_mock:
         open_mock.return_value = {"choices": [{"message": {"content": "ok"}}]}
         payload = {"model": "m", "messages": [{"role": "user", "content": "hi !/set(backend=gemini)"}]}
         resp = interactive_client.post("/v1/chat/completions", json=payload)
@@ -60,4 +50,3 @@ def test_set_backend_nonfunctional(interactive_client: TestClient):
     open_mock.assert_called_once()
     content = resp.json()["choices"][0]["message"]["content"].lower()
     assert "backend gemini not functional" in content
-

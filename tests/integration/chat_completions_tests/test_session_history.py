@@ -1,21 +1,12 @@
 import pytest
 from unittest.mock import AsyncMock, patch
 
-from fastapi.testclient import TestClient
 from starlette.responses import StreamingResponse
 
-from src.main import app
 import src.models as models
-from src.session import SessionManager
 
-@pytest.fixture
-def client():
-    with TestClient(app) as c:
-        c.app.state.session_manager = SessionManager()  # type: ignore
-        yield c
-
-def test_session_records_proxy_and_backend_interactions(client: TestClient):
-    with patch.object(app.state.openrouter_backend, 'chat_completions', new_callable=AsyncMock) as mock_method:
+def test_session_records_proxy_and_backend_interactions(client):
+    with patch.object(client.app.state.openrouter_backend, 'chat_completions', new_callable=AsyncMock) as mock_method:
         mock_method.return_value = {
             'choices': [{'message': {'content': 'backend reply'}}],
             'usage': {'prompt_tokens': 1, 'completion_tokens': 2, 'total_tokens': 3}
@@ -42,11 +33,11 @@ def test_session_records_proxy_and_backend_interactions(client: TestClient):
     assert session.history[1].response == 'backend reply'
     assert session.history[1].usage.total_tokens == 3
 
-def test_session_records_streaming_placeholder(client: TestClient):
+def test_session_records_streaming_placeholder(client):
     async def gen():
         yield b'data: hi\n\n'
     stream_resp = StreamingResponse(gen(), media_type='text/event-stream')
-    with patch.object(app.state.openrouter_backend, 'chat_completions', new_callable=AsyncMock) as mock_method:
+    with patch.object(client.app.state.openrouter_backend, 'chat_completions', new_callable=AsyncMock) as mock_method:
         mock_method.return_value = stream_resp
         payload = {
             'model': 'model-a',

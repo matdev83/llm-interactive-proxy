@@ -41,25 +41,25 @@ def _load_project_metadata() -> tuple[str, str]:
 # ---------------------------------------------------------------------------
 
 
-def _collect_api_keys(base_name: str) -> Dict[str, str | None]:
+def _collect_api_keys(base_name: str) -> Dict[str, str]:
     """Collect API keys as a mapping of env var names to values."""
 
-    single = os.getenv(base_name)
-    numbered = {
-        f"{base_name}_{i}": os.getenv(f"{base_name}_{i}")
-        for i in range(1, 21)
-        if os.getenv(f"{base_name}_{i}")
-    }
+    single_key = os.getenv(base_name)
+    numbered_keys = {}
+    for i in range(1, 21):
+        key = os.getenv(f"{base_name}_{i}")
+        if key:
+            numbered_keys[f"{base_name}_{i}"] = key
 
-    if single and numbered:
+    if single_key and numbered_keys:
         raise ValueError(
             f"Specify either {base_name} or {base_name}_<n> (1-20), not both"
         )
 
-    if single:
-        return {base_name: single}
+    if single_key:
+        return {base_name: single_key}
 
-    return numbered
+    return numbered_keys
 
 
 def _load_config() -> Dict[str, Any]:
@@ -80,14 +80,12 @@ def _load_config() -> Dict[str, Any]:
 
     return {
         "backend": os.getenv("LLM_BACKEND"),
-        "openrouter_api_key": (
-            next(iter(openrouter_keys.values())) if openrouter_keys else None
-        ),
+        "openrouter_api_key": next(iter(openrouter_keys.values()), None),
         "openrouter_api_keys": openrouter_keys,
         "openrouter_api_base_url": os.getenv(
             "OPENROUTER_API_BASE_URL", "https://openrouter.ai/api/v1"
         ),
-        "gemini_api_key": next(iter(gemini_keys.values())) if gemini_keys else None,
+        "gemini_api_key": next(iter(gemini_keys.values()), None),
         "gemini_api_keys": gemini_keys,
         "gemini_api_base_url": os.getenv(
             "GEMINI_API_BASE_URL", "https://generativelanguage.googleapis.com"
@@ -111,6 +109,14 @@ def get_openrouter_headers(cfg: Dict[str, Any], api_key: str) -> Dict[str, str]:
         "HTTP-Referer": cfg["app_site_url"],
         "X-Title": cfg["app_x_title"],
     }
+
+
+def _keys_for(cfg: Dict[str, Any], b_type: str) -> list[tuple[str, str]]:
+    if b_type == "gemini":
+        return list(cfg["gemini_api_keys"].items())
+    if b_type == "openrouter":
+        return list(cfg["openrouter_api_keys"].items())
+    return []
 
 
 # ---------------------------------------------------------------------------
@@ -148,25 +154,30 @@ def build_app(cfg: Dict[str, Any] | None = None) -> FastAPI:
         gemini_ok = False
 
         if cfg.get("openrouter_api_keys"):
-            key_name, api_key = next(iter(cfg["openrouter_api_keys"].items()))
-            await openrouter_backend.initialize(
-                openrouter_api_base_url=cfg["openrouter_api_base_url"],
-                openrouter_headers_provider=lambda n, k: get_openrouter_headers(cfg, k),
-                key_name=key_name,
-                api_key=api_key,
-            )
-            if openrouter_backend.get_available_models():
-                openrouter_ok = True
+            openrouter_api_keys_list = list(cfg["openrouter_api_keys"].items())
+            if openrouter_api_keys_list:
+                key_name, api_key = openrouter_api_keys_list[0]
+                await openrouter_backend.initialize(
+                    openrouter_api_base_url=cfg["openrouter_api_base_url"],
+                    openrouter_headers_provider=lambda n, k: get_openrouter_headers(cfg, k),
+                    key_name=key_name,
+                    api_key=api_key,
+                )
+                # Check if models were successfully fetched during initialization
+                if openrouter_backend.get_available_models():
+                    openrouter_ok = True
 
         if cfg.get("gemini_api_keys"):
-            key_name, api_key = next(iter(cfg["gemini_api_keys"].items()))
-            await gemini_backend.initialize(
-                gemini_api_base_url=cfg["gemini_api_base_url"],
-                key_name=key_name,
-                api_key=api_key,
-            )
-            if gemini_backend.get_available_models():
-                gemini_ok = True
+            gemini_api_keys_list = list(cfg["gemini_api_keys"].items())
+            if gemini_api_keys_list:
+                key_name, api_key = gemini_api_keys_list[0]
+                await gemini_backend.initialize(
+                    gemini_api_base_url=cfg["gemini_api_base_url"],
+                    key_name=key_name,
+                    api_key=api_key,
+                )
+                if gemini_backend.get_available_models():
+                    gemini_ok = True
 
         functional = {
             name
@@ -412,25 +423,6 @@ def build_app(cfg: Dict[str, Any] | None = None) -> FastAPI:
                         )
                 raise
 
-        def _keys_for(b_type: str) -> list[tuple[str, str]]:
-            if b_type == "gemini":
-                if cfg["gemini_api_keys"]:
-                    return list(cfg["gemini_api_keys"].items())
-                return [
-                    (
-                        "GEMINI_API_KEY",
-                        cfg["gemini_api_key"] or os.getenv("GEMINI_API_KEY"),
-                    )
-                ]
-            if cfg["openrouter_api_keys"]:
-                return list(cfg["openrouter_api_keys"].items())
-            return [
-                (
-                    "OPENROUTER_API_KEY",
-                    cfg["openrouter_api_key"] or os.getenv("OPENROUTER_API_KEY"),
-                )
-            ]
-
         route = proxy_state.failover_routes.get(effective_model)
         attempts: list[tuple[str, str, str, str]] = []
         if route:
@@ -438,21 +430,21 @@ def build_app(cfg: Dict[str, Any] | None = None) -> FastAPI:
             policy = route.get("policy", "k")
             if policy == "k" and elems:
                 b, m = elems[0].split(":", 1)
-                for kname, key in _keys_for(b):
+                for kname, key in _keys_for(cfg, b): # Pass cfg
                     attempts.append((b, m, kname, key))
             elif policy == "m":
                 for el in elems:
                     b, m = el.split(":", 1)
-                    kname, key = _keys_for(b)[0]
+                    kname, key = _keys_for(cfg, b)[0] # Pass cfg
                     attempts.append((b, m, kname, key))
             elif policy == "km":
                 for el in elems:
                     b, m = el.split(":", 1)
-                    for kname, key in _keys_for(b):
+                    for kname, key in _keys_for(cfg, b): # Pass cfg
                         attempts.append((b, m, kname, key))
             elif policy == "mk":
                 backends_used = {el.split(":", 1)[0] for el in elems}
-                key_map = {b: _keys_for(b) for b in backends_used}
+                key_map = {b: _keys_for(cfg, b) for b in backends_used} # Pass cfg
                 max_len = max(len(v) for v in key_map.values()) if key_map else 0
                 for i in range(max_len):
                     for el in elems:
@@ -461,12 +453,18 @@ def build_app(cfg: Dict[str, Any] | None = None) -> FastAPI:
                             kname, key = key_map[b][i]
                             attempts.append((b, m, kname, key))
         else:
+            default_keys = _keys_for(cfg, backend_type) # Pass cfg
+            if not default_keys:
+                raise HTTPException(
+                    status_code=500,
+                    detail=f"No API keys configured for the default backend: {backend_type}",
+                )
             attempts.append(
                 (
                     backend_type,
                     effective_model,
-                    _keys_for(backend_type)[0][0],
-                    _keys_for(backend_type)[0][1],
+                    default_keys[0][0],
+                    default_keys[0][1],
                 )
             )
 
@@ -505,6 +503,27 @@ def build_app(cfg: Dict[str, Any] | None = None) -> FastAPI:
                 )
             )
             return response
+        
+        if isinstance(response, StreamingResponse):
+            session.add_interaction(
+                SessionInteraction(
+                    prompt=raw_prompt,
+                    handler="backend",
+                    backend=used_backend,
+                    model=used_model,
+                    project=proxy_state.project,
+                    parameters=request_data.model_dump(exclude_unset=True),
+                    response="<streaming>",
+                )
+            )
+            return response
+        
+        # At this point, response is expected to be a dictionary.
+        # Assign to a new variable with explicit type hint to help type checkers.
+        backend_response: Dict[str, Any] = response
+
+        logging.debug(f"Backend response (non-streaming): {json.dumps(backend_response, indent=2)}")
+
         if proxy_state.interactive_mode:
             prefix_parts = []
             if show_banner:
@@ -513,24 +532,26 @@ def build_app(cfg: Dict[str, Any] | None = None) -> FastAPI:
                 prefix_parts.append(confirmation_text)
             if prefix_parts:
                 orig = (
-                    response.get("choices", [{}])[0]
+                    backend_response.get("choices", [{}])[0]
                     .get("message", {})
                     .get("content", "")
                 )
-                response["choices"][0]["message"]["content"] = (
+                backend_response["choices"][0]["message"]["content"] = (
                     "\n".join(prefix_parts) + "\n" + orig
                     if orig
                     else "\n".join(prefix_parts)
                 )
         elif show_banner:
             orig = (
-                response.get("choices", [{}])[0].get("message", {}).get("content", "")
+                backend_response.get("choices", [{}])[0].get("message", {}).get("content", "")
             )
-            response["choices"][0]["message"]["content"] = (
+            backend_response["choices"][0]["message"]["content"] = (
                 _welcome_banner(session_id) + "\n" + orig
                 if orig
                 else _welcome_banner(session_id)
             )
+        
+        usage_data = backend_response.get("usage")
         session.add_interaction(
             SessionInteraction(
                 prompt=raw_prompt,
@@ -539,19 +560,19 @@ def build_app(cfg: Dict[str, Any] | None = None) -> FastAPI:
                 model=used_model,
                 project=proxy_state.project,
                 parameters=request_data.model_dump(exclude_unset=True),
-                response=response.get("choices", [{}])[0]
+                response=backend_response.get("choices", [{}])[0]
                 .get("message", {})
                 .get("content"),
                 usage=(
-                    models.CompletionUsage(**response.get("usage"))
-                    if response.get("usage")
+                    models.CompletionUsage(**usage_data)
+                    if isinstance(usage_data, dict)
                     else None
                 ),
             )
         )
         proxy_state.hello_requested = False
         proxy_state.interactive_just_enabled = False
-        return response
+        return backend_response
 
     @app.get("/models")
     async def list_all_models(http_request: Request):
@@ -567,12 +588,17 @@ def build_app(cfg: Dict[str, Any] | None = None) -> FastAPI:
     @app.get("/v1/models")
     async def list_models(http_request: Request):
         backend = http_request.app.state.backend
-        if http_request.app.state.backend_type == "gemini":
-            key_name, api_key = (
-                next(iter(cfg["gemini_api_keys"].items()))
-                if cfg["gemini_api_keys"]
-                else ("GEMINI_API_KEY", cfg["gemini_api_key"])
+        current_backend_type = http_request.app.state.backend_type
+        
+        keys_for_current_backend = _keys_for(cfg, current_backend_type) # Pass cfg
+        if not keys_for_current_backend:
+            raise HTTPException(
+                status_code=500,
+                detail=f"No API keys configured for the current backend: {current_backend_type}",
             )
+        key_name, api_key = keys_for_current_backend[0]
+
+        if current_backend_type == "gemini":
             retry_at = http_request.app.state.rate_limits.get(
                 "gemini", "<list_models>", key_name
             )
@@ -598,14 +624,7 @@ def build_app(cfg: Dict[str, Any] | None = None) -> FastAPI:
                             "gemini", "<list_models>", key_name, delay
                         )
                 raise
-        key_name, api_key = (
-            next(iter(cfg["openrouter_api_keys"].items()))
-            if cfg["openrouter_api_keys"]
-            else (
-                "OPENROUTER_API_KEY",
-                cfg["openrouter_api_key"] or os.getenv("OPENROUTER_API_KEY"),
-            )
-        )
+        # This part is for openrouter
         retry_at = http_request.app.state.rate_limits.get(
             "openrouter", "<list_models>", key_name
         )
