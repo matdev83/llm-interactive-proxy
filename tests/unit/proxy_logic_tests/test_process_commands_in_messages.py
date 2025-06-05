@@ -160,3 +160,17 @@ class TestProcessCommandsInMessages:
         assert len(processed_messages) == 1
         assert processed_messages[0].content == "Hello !/unknown(cmd) there"
         assert current_proxy_state.override_model is None
+
+    def test_custom_command_prefix(self):
+        current_proxy_state = ProxyState()
+        messages = [
+            models.ChatMessage(role="user", content="Hello $$set(model=foo)")
+        ]
+        processed_messages, processed = process_commands_in_messages(
+            messages,
+            current_proxy_state,
+            command_prefix="$$",
+        )
+        assert processed
+        assert processed_messages[0].content == "Hello"
+        assert current_proxy_state.override_model == "foo"

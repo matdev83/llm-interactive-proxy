@@ -35,6 +35,7 @@ def _load_config() -> Dict[str, Any]:
         "proxy_port": int(os.getenv("PROXY_PORT", "8000")),
         "proxy_host": os.getenv("PROXY_HOST", "0.0.0.0"),
         "proxy_timeout": int(os.getenv("PROXY_TIMEOUT", os.getenv("OPENROUTER_TIMEOUT", "300"))),
+        "command_prefix": os.getenv("COMMAND_PREFIX", "!/"),
     }
 
 
@@ -59,6 +60,7 @@ def build_app(cfg: Dict[str, Any] | None = None) -> FastAPI:
         client = httpx.AsyncClient(timeout=cfg["proxy_timeout"])
         app.state.httpx_client = client
         app.state.proxy_state = ProxyState()
+        app.state.command_prefix = cfg["command_prefix"]
         app.state.backend_type = cfg["backend"]
         if cfg["backend"] == "gemini":
             backend = GeminiBackend(client)
@@ -81,7 +83,11 @@ def build_app(cfg: Dict[str, Any] | None = None) -> FastAPI:
         backend = http_request.app.state.backend
         proxy_state: ProxyState = http_request.app.state.proxy_state
 
-        processed_messages, commands_processed = process_commands_in_messages(request_data.messages, proxy_state)
+        processed_messages, commands_processed = process_commands_in_messages(
+            request_data.messages,
+            proxy_state,
+            command_prefix=http_request.app.state.command_prefix,
+        )
 
         is_command_only = False
         if commands_processed and not any(
@@ -165,6 +171,7 @@ def parse_cli_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--host")
     parser.add_argument("--port", type=int)
     parser.add_argument("--timeout", type=int)
+    parser.add_argument("--command-prefix")
     return parser.parse_args(argv)
 
 
@@ -178,6 +185,7 @@ def apply_cli_args(args: argparse.Namespace) -> Dict[str, Any]:
         "host": "PROXY_HOST",
         "port": "PROXY_PORT",
         "timeout": "PROXY_TIMEOUT",
+        "command_prefix": "COMMAND_PREFIX",
     }
     for attr, env_name in mappings.items():
         value = getattr(args, attr)

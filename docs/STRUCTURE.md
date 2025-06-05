@@ -86,6 +86,7 @@ This directory contains the core logic of the proxy server.
     * Defines response models like `ChatCompletionChoiceMessage`, `ChatCompletionChoice`, `CompletionUsage`, and `CommandProcessedChatCompletionResponse`.
     * Ensures type safety and data validation for API interactions.
 
+<<<<<<< HEAD
 * **`src/proxy_logic.py`**:
   * **Role**: Implements the business logic for processing custom commands embedded in user messages.
   * **Responsibilities**:
@@ -93,6 +94,15 @@ This directory contains the core logic of the proxy server.
     * **`parse_arguments(args_str)`**: Parses command arguments from a string (e.g., `model=gpt-4`).
     * **`_process_text_for_commands(text_content, current_proxy_state)`**: A private helper function that identifies and processes commands within a single text string. It modifies the `ProxyState` and removes the command text from the message content.
     * **`process_commands_in_messages(messages, current_proxy_state)`**: The primary function that iterates through a list of `ChatMessage` objects, identifies and processes commands (typically in the last user message), and returns the modified message list and a flag indicating if any commands were processed. It handles both string and multimodal message content.
+=======
+*   **`src/proxy_logic.py`**:
+    *   **Role**: Implements the business logic for processing custom commands embedded in user messages.
+    *   **Responsibilities**:
+        *   **`ProxyState` Class**: Manages the dynamic state of the proxy, such as overriding the LLM model for subsequent requests. This state is typically tied to a session or request context.
+        *   **`parse_arguments(args_str)`**: Parses command arguments from a string (e.g., `model=gpt-4`).
+        *   **`_process_text_for_commands(text_content, current_proxy_state, command_pattern)`**: A private helper function that identifies and processes commands within a single text string using the provided regex pattern. It modifies the `ProxyState` and removes the command text from the message content.
+        *   **`process_commands_in_messages(messages, current_proxy_state, command_prefix='!/')`**: The primary function that iterates through a list of `ChatMessage` objects, identifies and processes commands (typically in the last user message), and returns the modified message list and a flag indicating if any commands were processed. It handles both string and multimodal message content. The `command_prefix` parameter controls which command syntax is recognized.
+>>>>>>> codex/make-command-prefix-configurable
 
 * **`src/backends/`**:
   * **Role**: Contains the abstract base class and concrete implementations for connecting to various LLM providers. This is where the core logic for interacting with different LLMs resides.

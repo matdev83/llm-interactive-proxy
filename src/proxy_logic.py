@@ -1,7 +1,7 @@
 import logging
 import re
 from typing import Optional, Tuple, List, Dict, Any
-import src.models as models # Import the models module directly using full path
+import src.models as models  # Import the models module directly using full path
 
 logger = logging.getLogger(__name__)
 
@@ -43,9 +43,17 @@ class ProxyState:
 
 # proxy_state = ProxyState() # Global instance for simplicity - this will be managed by FastAPI app.state
 
-# Command regex: !/command(arg1=val1, arg2=val2, ...)
-COMMAND_PATTERN = re.compile(r"!/(\w+)\(([^)]*)\)") # Allows empty args
-ARG_PATTERN = re.compile(r"(\w+)=([^,]+(?:,\s*\w+=[^,]+)*)") # Parses key=value, allows model names with '/'
+
+# ---------------------------------------------------------------------------
+# Command parsing helpers
+# ---------------------------------------------------------------------------
+
+def get_command_pattern(command_prefix: str) -> re.Pattern:
+    """Return a compiled regex pattern for proxy commands using the given prefix."""
+    prefix_escaped = re.escape(command_prefix)
+    return re.compile(rf"{prefix_escaped}(\w+)\(([^)]*)\)")  # Allows empty args
+
+ARG_PATTERN = re.compile(r"(\w+)=([^,]+(?:,\s*\w+=[^,]+)*)")  # Parses key=value, allows model names with '/'
 
 def parse_arguments(args_str: str) -> Dict[str, Any]:
     """
@@ -78,7 +86,11 @@ def parse_arguments(args_str: str) -> Dict[str, Any]:
             args[part.strip()] = True # Treat as a flag
     return args
 
-def _process_text_for_commands(text_content: str, current_proxy_state: "ProxyState") -> Tuple[str, bool]:
+def _process_text_for_commands(
+    text_content: str,
+    current_proxy_state: "ProxyState",
+    command_pattern: re.Pattern,
+) -> Tuple[str, bool]:
     """
     Helper to process commands within a single text string.
     Returns the modified text and a boolean indicating if commands were found.
@@ -88,7 +100,7 @@ def _process_text_for_commands(text_content: str, current_proxy_state: "ProxySta
     modified_text = text_content
 
     # Find all command matches
-    matches = list(COMMAND_PATTERN.finditer(text_content))
+    matches = list(command_pattern.finditer(text_content))
     
     # Process matches in reverse order to avoid issues with index shifts
     # when replacing parts of the string.
@@ -131,7 +143,11 @@ def _process_text_for_commands(text_content: str, current_proxy_state: "ProxySta
     return final_text, commands_found_in_text
 
 
-def process_commands_in_messages(messages: List[models.ChatMessage], current_proxy_state: "ProxyState") -> Tuple[List[models.ChatMessage], bool]:
+def process_commands_in_messages(
+    messages: List[models.ChatMessage],
+    current_proxy_state: "ProxyState",
+    command_prefix: str = "!/",
+) -> Tuple[List[models.ChatMessage], bool]:
     """
     Processes commands in messages. Checks the last message first.
     Returns the (potentially) modified messages list and a boolean indicating if any command was processed.
@@ -143,6 +159,7 @@ def process_commands_in_messages(messages: List[models.ChatMessage], current_pro
         return messages, False
     logger.debug(f"Processing messages for commands. Initial message count: {len(messages)}")
 
+    command_pattern = get_command_pattern(command_prefix)
     modified_messages = [msg.model_copy(deep=True) for msg in messages]
     any_command_processed_overall = False
 
@@ -154,7 +171,9 @@ def process_commands_in_messages(messages: List[models.ChatMessage], current_pro
 
         if isinstance(msg.content, str):
             logger.debug(f"Processing message index {i} (from end), current content (str): '{msg.content}'")
-            processed_text, commands_found = _process_text_for_commands(msg.content, current_proxy_state)
+            processed_text, commands_found = _process_text_for_commands(
+                msg.content, current_proxy_state, command_pattern
+            )
             if commands_found:
                 msg.content = processed_text
                 any_command_processed_overall = True
@@ -166,7 +185,9 @@ def process_commands_in_messages(messages: List[models.ChatMessage], current_pro
             for part_idx, part in enumerate(msg.content):
                 if isinstance(part, models.MessageContentPartText): # Use isinstance for type narrowing
                     logger.debug(f"Processing text part index {part_idx} in message {i}: '{part.text}'")
-                    processed_text, commands_found = _process_text_for_commands(part.text, current_proxy_state)
+                    processed_text, commands_found = _process_text_for_commands(
+                        part.text, current_proxy_state, command_pattern
+                    )
                     if commands_found:
                         part_level_command_found = True
                         any_command_processed_overall = True
