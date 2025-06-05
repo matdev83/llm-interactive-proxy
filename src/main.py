@@ -8,7 +8,7 @@ from contextlib import asynccontextmanager
 from datetime import datetime
 from typing import Any, Dict, Union
 from pathlib import Path
-import tomllib
+import tomli
 
 import httpx
 from dotenv import load_dotenv
@@ -26,7 +26,7 @@ from src.security import APIKeyRedactor
 def _load_project_metadata() -> tuple[str, str]:
     pyproject = Path(__file__).resolve().parents[1] / "pyproject.toml"
     try:
-        data = tomllib.loads(pyproject.read_text())
+        data = tomli.loads(pyproject.read_text())
         meta = data.get("project", {})
         return meta.get("name", "llm-interactive-proxy"), meta.get("version", "0.0.0")
     except Exception:
@@ -38,7 +38,7 @@ def _load_project_metadata() -> tuple[str, str]:
 # ---------------------------------------------------------------------------
 
 
-def _collect_api_keys(base_name: str) -> Dict[str, str]:
+def _collect_api_keys(base_name: str) -> Dict[str, str | None]:
     """Collect API keys as a mapping of env var names to values."""
 
     single = os.getenv(base_name)
