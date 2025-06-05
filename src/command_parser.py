@@ -1,10 +1,17 @@
 import logging
 import re
-from typing import Any, Dict, List, Tuple, Optional
+from typing import Any, Dict, List, Tuple
 
 import src.models as models
 from .proxy_logic import ProxyState
 from .constants import DEFAULT_COMMAND_PREFIX
+from .commands import (
+    BaseCommand,
+    CommandResult,
+    SetCommand,
+    UnsetCommand,
+    HelloCommand,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -42,63 +49,24 @@ def get_command_pattern(command_prefix: str) -> re.Pattern:
 class CommandParser:
     """Parse and apply proxy commands embedded in chat messages."""
 
-    def __init__(self, proxy_state: ProxyState, command_prefix: str = DEFAULT_COMMAND_PREFIX) -> None:
+    def __init__(
+        self,
+        proxy_state: ProxyState,
+        command_prefix: str = DEFAULT_COMMAND_PREFIX,
+        preserve_unknown: bool = True,
+    ) -> None:
         self.proxy_state = proxy_state
         self.command_prefix = command_prefix
+        self.preserve_unknown = preserve_unknown
         self.command_pattern = get_command_pattern(command_prefix)
-        self.handlers: Dict[str, callable] = {}
-        self.register_command("set", self._handle_set)
-        self.register_command("unset", self._handle_unset)
-        self.register_command("hello", self._handle_hello)
+        self.handlers: Dict[str, BaseCommand] = {}
+        self.register_command(SetCommand())
+        self.register_command(UnsetCommand())
+        self.register_command(HelloCommand())
+        self.results: List[CommandResult] = []
 
-    def _parse_bool(self, value: str) -> Optional[bool]:
-        val = value.strip().lower()
-        if val in ("true", "1", "yes", "on"):
-            return True
-        if val in ("false", "0", "no", "off", "none"):
-            return False
-        return None
-
-    def register_command(self, name: str, handler: callable) -> None:
-        self.handlers[name.lower()] = handler
-
-    # ------------------------------------------------------------------
-    # Default command handlers
-    # ------------------------------------------------------------------
-    def _handle_set(self, args: Dict[str, Any]) -> None:
-        handled = False
-        if "model" in args and isinstance(args["model"], str):
-            self.proxy_state.set_override_model(args["model"])
-            handled = True
-        if "project" in args and isinstance(args["project"], str):
-            self.proxy_state.set_project(args["project"])
-            handled = True
-        for key in ("interactive", "interactive-mode"):
-            if key in args and isinstance(args[key], str):
-                val = self._parse_bool(args[key])
-                if val is not None:
-                    self.proxy_state.set_interactive_mode(val)
-                    handled = True
-        if not handled:
-            logger.warning(
-                f"{self.command_prefix}set command found without valid arguments. No change to state."
-            )
-
-    def _handle_unset(self, args: Dict[str, Any]) -> None:
-        keys_to_unset = [k for k, v in args.items() if v is True]
-        if "model" in keys_to_unset:
-            self.proxy_state.unset_override_model()
-        if "project" in keys_to_unset:
-            self.proxy_state.unset_project()
-        if any(k in keys_to_unset for k in ("interactive", "interactive-mode")):
-            self.proxy_state.unset_interactive_mode()
-        if not keys_to_unset:
-            logger.warning(
-                f"{self.command_prefix}unset command should specify what to unset. No change to state."
-            )
-
-    def _handle_hello(self, args: Dict[str, Any]) -> None:
-        self.proxy_state.hello_requested = True
+    def register_command(self, command: BaseCommand) -> None:
+        self.handlers[command.name.lower()] = command
 
     # ------------------------------------------------------------------
     def process_text(self, text_content: str) -> Tuple[str, bool]:
@@ -124,10 +92,15 @@ class CommandParser:
             replacement = ""
             handler = self.handlers.get(command_name)
             if handler:
-                handler(args)
+                result = handler.execute(args, self.proxy_state)
+                self.results.append(result)
             else:
-                logger.warning(f"Unknown command: {command_name}. Keeping command text.")
-                replacement = command_full
+                logger.warning(f"Unknown command: {command_name}.")
+                self.results.append(
+                    CommandResult(command_name, False, f"unknown command: {command_name}")
+                )
+                if self.preserve_unknown:
+                    replacement = command_full
 
             modified_text = modified_text[: match.start()] + replacement + modified_text[match.end() :]
 
@@ -138,6 +111,7 @@ class CommandParser:
     def process_messages(
         self, messages: List[models.ChatMessage]
     ) -> Tuple[List[models.ChatMessage], bool]:
+        self.results.clear()
         if not messages:
             logger.debug("process_messages received empty messages list.")
             return messages, False

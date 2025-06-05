@@ -171,7 +171,9 @@ def build_app(cfg: Dict[str, Any] | None = None) -> FastAPI:
         proxy_state: ProxyState = session.proxy_state
 
         parser = CommandParser(
-            proxy_state, command_prefix=http_request.app.state.command_prefix
+            proxy_state,
+            command_prefix=http_request.app.state.command_prefix,
+            preserve_unknown=not proxy_state.interactive_mode,
         )
         processed_messages, commands_processed = parser.process_messages(
             request_data.messages
@@ -205,12 +207,19 @@ def build_app(cfg: Dict[str, Any] | None = None) -> FastAPI:
         ):
             is_command_only = True
 
+        confirmation_text = "\n".join(r.message for r in parser.results if r.message)
+
         if is_command_only:
-            response_text = (
-                _welcome_banner(session_id)
-                if show_banner
-                else "Proxy command processed. No query sent to LLM."
-            )
+            pieces = []
+            if proxy_state.interactive_mode and show_banner:
+                pieces.append(_welcome_banner(session_id))
+            elif show_banner:
+                pieces.append(_welcome_banner(session_id))
+            if confirmation_text:
+                pieces.append(confirmation_text)
+            if not pieces:
+                pieces.append("Proxy command processed. No query sent to LLM.")
+            response_text = "\n".join(pieces)
             session.add_interaction(
                 SessionInteraction(
                     prompt=raw_prompt,
@@ -289,7 +298,22 @@ def build_app(cfg: Dict[str, Any] | None = None) -> FastAPI:
                             "gemini", effective_model, key_name, delay
                         )
                 raise
-            if show_banner:
+            if proxy_state.interactive_mode:
+                prefix_parts = []
+                if show_banner:
+                    prefix_parts.append(_welcome_banner(session_id))
+                if confirmation_text:
+                    prefix_parts.append(confirmation_text)
+                if prefix_parts:
+                    orig = (
+                        response.get("choices", [{}])[0]
+                        .get("message", {})
+                        .get("content", "")
+                    )
+                    response["choices"][0]["message"]["content"] = (
+                        "\n".join(prefix_parts) + "\n" + orig if orig else "\n".join(prefix_parts)
+                    )
+            elif show_banner:
                 orig = (
                     response.get("choices", [{}])[0]
                     .get("message", {})
@@ -372,7 +396,22 @@ def build_app(cfg: Dict[str, Any] | None = None) -> FastAPI:
                 )
             )
             return response
-        if show_banner:
+        if proxy_state.interactive_mode:
+            prefix_parts = []
+            if show_banner:
+                prefix_parts.append(_welcome_banner(session_id))
+            if confirmation_text:
+                prefix_parts.append(confirmation_text)
+            if prefix_parts:
+                orig = (
+                    response.get("choices", [{}])[0]
+                    .get("message", {})
+                    .get("content", "")
+                )
+                response["choices"][0]["message"]["content"] = (
+                    "\n".join(prefix_parts) + "\n" + orig if orig else "\n".join(prefix_parts)
+                )
+        elif show_banner:
             orig = (
                 response.get("choices", [{}])[0]
                 .get("message", {})

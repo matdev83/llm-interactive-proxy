@@ -3,6 +3,7 @@ from src.proxy_logic import (
     _process_text_for_commands,
     ProxyState,
     get_command_pattern,
+    CommandParser,
 )
 
 class TestProcessTextForCommands:
@@ -190,4 +191,14 @@ class TestProcessTextForCommands:
         assert processed_text == "Greetings friend"
         assert found
         assert current_proxy_state.hello_requested is True
+
+    def test_unknown_command_removed_interactive(self):
+        state = ProxyState(interactive_mode=True)
+        parser = CommandParser(state, command_prefix="!/", preserve_unknown=False)
+        text = "Hi !/foo(bar=1)"
+        processed, found = parser.process_text(text)
+        assert found
+        assert processed == "Hi"
+        assert parser.results[0].success is False
+        assert "unknown command" in parser.results[0].message
 

@@ -26,7 +26,7 @@ def test_command_only_request_direct_response(client: TestClient):
     assert response.status_code == 200
     response_json = response.json()
     assert response_json["id"] == "proxy_cmd_processed"
-    assert "Proxy command processed" in response_json["choices"][0]["message"]["content"]
+    assert "model set to command-only-model" in response_json["choices"][0]["message"]["content"]
     assert response_json["model"] == "command-only-model"
 
     # The backend's chat_completions method should not be called in this scenario
