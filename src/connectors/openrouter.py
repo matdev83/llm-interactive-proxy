@@ -32,7 +32,9 @@ class OpenRouterBackend(LLMBackend):
         processed_messages: list,  # Messages after command processing
         effective_model: str,  # Model after considering override
         openrouter_api_base_url: str,
-        openrouter_headers_provider: Callable[[], Dict[str, str]],
+        openrouter_headers_provider: Callable[[str, str], Dict[str, str]],
+        key_name: str,
+        api_key: str,
         project: str | None = None,
     ) -> Union[StreamingResponse, Dict[str, Any]]:
         """
@@ -64,7 +66,7 @@ class OpenRouterBackend(LLMBackend):
         logger.info(f"Forwarding to OpenRouter. Effective model: {effective_model}. Stream: {request_data.stream}")
         logger.debug(f"Payload for OpenRouter: {json.dumps(openrouter_payload, indent=2)}")
 
-        headers = openrouter_headers_provider()
+        headers = openrouter_headers_provider(key_name, api_key)
 
         try:
             if request_data.stream:
@@ -141,10 +143,12 @@ class OpenRouterBackend(LLMBackend):
         self,
         *,
         openrouter_api_base_url: str,
-        openrouter_headers_provider: Callable[[], Dict[str, str]],
+        openrouter_headers_provider: Callable[[str, str], Dict[str, str]],
+        key_name: str,
+        api_key: str,
     ) -> Dict[str, Any]:
         """Fetch available models from OpenRouter."""
-        headers = openrouter_headers_provider()
+        headers = openrouter_headers_provider(key_name, api_key)
         try:
             response = await self.client.get(f"{openrouter_api_base_url}/models", headers=headers)
             response.raise_for_status()

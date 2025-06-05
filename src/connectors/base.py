@@ -24,7 +24,9 @@ class LLMBackend(abc.ABC):
         processed_messages: list,  # Messages after command processing
         effective_model: str,  # Model after considering override
         openrouter_api_base_url: str,  # This might need to be more generic if we have more backends
-        openrouter_headers_provider: Callable[[], Dict[str, str]],  # Same as above
+        openrouter_headers_provider: Callable[[str, str], Dict[str, str]],  # Same as above
+        key_name: str,
+        api_key: str,
         project: str | None = None,
     ) -> Union[StreamingResponse, Dict[str, Any]]:
         """
@@ -38,6 +40,8 @@ class LLMBackend(abc.ABC):
                                      (Will need generalization if supporting other backends)
             openrouter_headers_provider: A callable that returns a dictionary of headers
                                          required for OpenRouter API. (Needs generalization)
+            key_name: The environment variable name of the API key in use.
+            api_key: The secret value of the API key.
 
         Returns:
             A StreamingResponse if the request is for a stream, or a dictionary

@@ -24,7 +24,7 @@ def test_apply_cli_args_sets_env(monkeypatch):
     assert os.environ["PROXY_PORT"] == "1234"
     assert os.environ["COMMAND_PREFIX"] == "$/"
     assert cfg["backend"] == "gemini"
-    assert cfg["gemini_api_keys"] == ["TESTKEY"]
+    assert cfg["gemini_api_keys"] == {"GEMINI_API_KEY": "TESTKEY"}
     assert cfg["proxy_port"] == 1234
     assert cfg["command_prefix"] == "$/"
 

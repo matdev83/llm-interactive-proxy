@@ -14,9 +14,9 @@ from src.connectors.openrouter import OpenRouterBackend
 # Default OpenRouter settings for tests
 TEST_OPENROUTER_API_BASE_URL = "https://openrouter.ai/api/v1" # Real one for realistic requests
 
-def mock_get_openrouter_headers() -> Dict[str, str]:
+def mock_get_openrouter_headers(key_name: str, api_key: str) -> Dict[str, str]:
     return {
-        "Authorization": "Bearer FAKE_KEY",
+        "Authorization": f"Bearer {api_key}",
         "Content-Type": "application/json",
         "HTTP-Referer": "http://localhost:test",
         "X-Title": "TestProxy",
@@ -64,7 +64,9 @@ async def test_chat_completions_request_error(
                 processed_messages=sample_processed_messages,
                 effective_model="test-model",
                 openrouter_api_base_url=TEST_OPENROUTER_API_BASE_URL,
-                openrouter_headers_provider=mock_get_openrouter_headers
+                openrouter_headers_provider=mock_get_openrouter_headers,
+                key_name="OPENROUTER_API_KEY_1",
+                api_key="FAKE_KEY"
             )
 
     assert exc_info.value.status_code == 503 # Service Unavailable

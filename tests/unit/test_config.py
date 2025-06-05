@@ -10,7 +10,7 @@ def test_collect_single_gemini_key(monkeypatch):
     monkeypatch.setenv("GEMINI_API_KEY", "A")
     cfg = app_main._load_config()
     assert cfg["gemini_api_key"] == "A"
-    assert cfg["gemini_api_keys"] == ["A"]
+    assert cfg["gemini_api_keys"] == {"GEMINI_API_KEY": "A"}
 
 
 def test_collect_numbered_openrouter_keys(monkeypatch):
@@ -24,7 +24,10 @@ def test_collect_numbered_openrouter_keys(monkeypatch):
     monkeypatch.setenv("OPENROUTER_API_KEY_2", "K2")
     cfg = app_main._load_config()
     assert cfg["openrouter_api_key"] == "K1"
-    assert cfg["openrouter_api_keys"] == ["K1", "K2"]
+    assert cfg["openrouter_api_keys"] == {
+        "OPENROUTER_API_KEY_1": "K1",
+        "OPENROUTER_API_KEY_2": "K2",
+    }
 
 
 def test_conflicting_key_formats(monkeypatch):

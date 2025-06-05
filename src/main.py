@@ -25,15 +25,15 @@ from src.connectors import OpenRouterBackend, GeminiBackend
 # ---------------------------------------------------------------------------
 
 
-def _collect_api_keys(base_name: str) -> list[str]:
-    """Collect API keys either from a single env var or numbered variants."""
+def _collect_api_keys(base_name: str) -> Dict[str, str]:
+    """Collect API keys as a mapping of env var names to values."""
 
     single = os.getenv(base_name)
-    numbered = [
-        os.getenv(f"{base_name}_{i}")
+    numbered = {
+        f"{base_name}_{i}": os.getenv(f"{base_name}_{i}")
         for i in range(1, 21)
         if os.getenv(f"{base_name}_{i}")
-    ]
+    }
 
     if single and numbered:
         raise ValueError(
@@ -41,7 +41,7 @@ def _collect_api_keys(base_name: str) -> list[str]:
         )
 
     if single:
-        return [single]
+        return {base_name: single}
 
     return numbered
 
@@ -54,12 +54,12 @@ def _load_config() -> Dict[str, Any]:
 
     return {
         "backend": os.getenv("LLM_BACKEND", "openrouter"),
-        "openrouter_api_key": openrouter_keys[0] if openrouter_keys else None,
+        "openrouter_api_key": next(iter(openrouter_keys.values())) if openrouter_keys else None,
         "openrouter_api_keys": openrouter_keys,
         "openrouter_api_base_url": os.getenv(
             "OPENROUTER_API_BASE_URL", "https://openrouter.ai/api/v1"
         ),
-        "gemini_api_key": gemini_keys[0] if gemini_keys else None,
+        "gemini_api_key": next(iter(gemini_keys.values())) if gemini_keys else None,
         "gemini_api_keys": gemini_keys,
         "gemini_api_base_url": os.getenv(
             "GEMINI_API_BASE_URL", "https://generativelanguage.googleapis.com"
@@ -75,11 +75,9 @@ def _load_config() -> Dict[str, Any]:
     }
 
 
-def get_openrouter_headers(cfg: Dict[str, Any]) -> Dict[str, str]:
+def get_openrouter_headers(cfg: Dict[str, Any], api_key: str) -> Dict[str, str]:
     return {
-        "Authorization": (
-            f"Bearer {cfg['openrouter_api_key']}" if cfg["openrouter_api_key"] else ""
-        ),
+        "Authorization": f"Bearer {api_key}",
         "Content-Type": "application/json",
         "HTTP-Referer": cfg["app_site_url"],
         "X-Title": cfg["app_x_title"],
@@ -195,13 +193,19 @@ def build_app(cfg: Dict[str, Any] | None = None) -> FastAPI:
         effective_model = proxy_state.get_effective_model(request_data.model)
 
         if http_request.app.state.backend_type == "gemini":
+            key_name, api_key = (
+                next(iter(cfg["gemini_api_keys"].items()))
+                if cfg["gemini_api_keys"]
+                else ("GEMINI_API_KEY", cfg["gemini_api_key"])
+            )
             response = await backend.chat_completions(
                 request_data=request_data,
                 processed_messages=processed_messages,
                 effective_model=effective_model,
                 project=proxy_state.project,
                 gemini_api_base_url=cfg["gemini_api_base_url"],
-                gemini_api_key=cfg["gemini_api_key"],
+                key_name=key_name,
+                api_key=api_key,
             )
             session.add_interaction(
                 SessionInteraction(
@@ -223,12 +227,19 @@ def build_app(cfg: Dict[str, Any] | None = None) -> FastAPI:
             )
             return response
 
+        key_name, api_key = (
+            next(iter(cfg["openrouter_api_keys"].items()))
+            if cfg["openrouter_api_keys"]
+            else ("OPENROUTER_API_KEY", cfg["openrouter_api_key"])
+        )
         response = await backend.chat_completions(
             request_data=request_data,
             processed_messages=processed_messages,
             effective_model=effective_model,
             openrouter_api_base_url=cfg["openrouter_api_base_url"],
-            openrouter_headers_provider=lambda: get_openrouter_headers(cfg),
+            openrouter_headers_provider=lambda n, k: get_openrouter_headers(cfg, k),
+            key_name=key_name,
+            api_key=api_key,
             project=proxy_state.project,
         )
         if isinstance(response, StreamingResponse):
@@ -268,13 +279,26 @@ def build_app(cfg: Dict[str, Any] | None = None) -> FastAPI:
     async def list_models(http_request: Request):
         backend = http_request.app.state.backend
         if http_request.app.state.backend_type == "gemini":
+            key_name, api_key = (
+                next(iter(cfg["gemini_api_keys"].items()))
+                if cfg["gemini_api_keys"]
+                else ("GEMINI_API_KEY", cfg["gemini_api_key"])
+            )
             return await backend.list_models(
                 gemini_api_base_url=cfg["gemini_api_base_url"],
-                gemini_api_key=cfg["gemini_api_key"],
+                key_name=key_name,
+                api_key=api_key,
             )
+        key_name, api_key = (
+            next(iter(cfg["openrouter_api_keys"].items()))
+            if cfg["openrouter_api_keys"]
+            else ("OPENROUTER_API_KEY", cfg["openrouter_api_key"])
+        )
         return await backend.list_models(
             openrouter_api_base_url=cfg["openrouter_api_base_url"],
-            openrouter_headers_provider=lambda: get_openrouter_headers(cfg),
+            openrouter_headers_provider=lambda n, k: get_openrouter_headers(cfg, k),
+            key_name=key_name,
+            api_key=api_key,
         )
 
     return app

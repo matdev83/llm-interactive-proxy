@@ -15,7 +15,9 @@ from src.session import SessionManager
 
 # Fixture to provide a TestClient instance
 @pytest.fixture
-def client():
+def client(monkeypatch):
+    """TestClient with a dummy OpenRouter API key configured."""
+    monkeypatch.setenv("OPENROUTER_API_KEY", "FAKE_KEY")
     with TestClient(app) as c:
         c.app.state.session_manager = SessionManager()  # type: ignore[attr-defined]
         yield c
@@ -54,7 +56,8 @@ def test_basic_request_proxying_non_streaming(client: TestClient):
     assert call_args['effective_model'] == "gpt-3.5-turbo"
     assert len(call_args['processed_messages']) == 1
     assert call_args['processed_messages'][0].content == "Hello"
-    assert call_args['openrouter_headers_provider'] is not None # Check if provider was passed
+    assert call_args['key_name'].startswith("OPENROUTER_API_KEY")
+    assert call_args['api_key'] is not None
 
 
 @pytest.mark.asyncio # For using async capabilities if needed, though TestClient is sync
@@ -92,3 +95,5 @@ async def test_basic_request_proxying_streaming(client: TestClient):
     mock_method.assert_called_once()
     call_args = mock_method.call_args[1]
     assert call_args['request_data'].stream is True
+    assert call_args['key_name'].startswith("OPENROUTER_API_KEY")
+    assert call_args['api_key'] is not None

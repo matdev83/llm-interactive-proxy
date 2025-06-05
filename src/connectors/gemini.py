@@ -23,7 +23,8 @@ class GeminiBackend(LLMBackend):
         processed_messages: list,
         effective_model: str,
         gemini_api_base_url: str,
-        gemini_api_key: str,
+        key_name: str,
+        api_key: str,
         project: str | None = None,
     ) -> Dict[str, Any]:
         if request_data.stream:
@@ -47,7 +48,7 @@ class GeminiBackend(LLMBackend):
         if project is not None:
             payload["project"] = project
 
-        url = f"{gemini_api_base_url.rstrip('/')}/v1beta/models/{effective_model}:generateContent?key={gemini_api_key}"
+        url = f"{gemini_api_base_url.rstrip('/')}/v1beta/models/{effective_model}:generateContent?key={api_key}"
         try:
             response = await self.client.post(url, json=payload)
             response.raise_for_status()
@@ -65,8 +66,14 @@ class GeminiBackend(LLMBackend):
             logger.error(f"Unexpected error in GeminiBackend.chat_completions: {e}", exc_info=True)
             raise HTTPException(status_code=500, detail=str(e))
 
-    async def list_models(self, *, gemini_api_base_url: str, gemini_api_key: str) -> Dict[str, Any]:
-        url = f"{gemini_api_base_url.rstrip('/')}/v1beta/models?key={gemini_api_key}"
+    async def list_models(
+        self,
+        *,
+        gemini_api_base_url: str,
+        key_name: str,
+        api_key: str,
+    ) -> Dict[str, Any]:
+        url = f"{gemini_api_base_url.rstrip('/')}/v1beta/models?key={api_key}"
         try:
             response = await self.client.get(url)
             response.raise_for_status()
