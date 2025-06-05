@@ -14,7 +14,8 @@ This document describes the layout of the repository and the purpose of the main
 ├── src/
 │   ├── main.py              # Application factory and HTTP endpoints
 │   ├── models.py            # Pydantic models for API payloads
-│   ├── proxy_logic.py       # Command parsing and ProxyState
+│   ├── proxy_logic.py       # ProxyState class and re-exports
+│   ├── command_parser.py    # Command parsing utilities
 │   ├── session.py           # Simple in-memory session/history tracking
 │   ├── backends/            # Abstract base class for backends
 │   │   ├── __init__.py
@@ -59,7 +60,10 @@ This document describes the layout of the repository and the purpose of the main
 Creates the FastAPI application, loads configuration from environment variables or CLI arguments and exposes the OpenAI-compatible endpoints. During startup it initialises the selected backend connector (`openrouter` or `gemini`), sets up an `httpx.AsyncClient`, and stores a `SessionManager` for recording interactions.
 
 ### `src/proxy_logic.py`
-Contains the command parsing helpers and the `ProxyState` class. Commands are identified using a configurable prefix (default `!/`). Supported commands allow overriding or unsetting the target model for subsequent requests.
+Defines the `ProxyState` class and re-exports command parsing helpers.
+
+### `src/command_parser.py`
+Implements the `CommandParser` class used to detect and handle proxy commands. Commands are identified using a configurable prefix (default `!/`).
 
 ### `src/session.py`
 Defines `Session` and `SessionManager` used to keep simple per-session history of prompts and backend replies. Session IDs are supplied via the `X-Session-ID` HTTP header.

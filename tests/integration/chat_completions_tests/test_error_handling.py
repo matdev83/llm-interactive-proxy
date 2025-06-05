@@ -17,7 +17,7 @@ def client():
         yield c
 
 def test_empty_messages_after_processing_no_commands_bad_request(client: TestClient):
-    with patch('src.main.process_commands_in_messages') as mock_process_msg:
+    with patch('src.command_parser.CommandParser.process_messages') as mock_process_msg:
         mock_process_msg.return_value = ([], False)
 
         with patch.object(app.state.openrouter_backend, 'chat_completions', new_callable=AsyncMock) as mock_backend_call:

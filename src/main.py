@@ -14,7 +14,8 @@ from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import StreamingResponse
 
 from src import models
-from src.proxy_logic import process_commands_in_messages, ProxyState
+from src.proxy_logic import ProxyState
+from src.command_parser import CommandParser
 from src.session import SessionManager, SessionInteraction
 from src.connectors import OpenRouterBackend, GeminiBackend
 
@@ -130,10 +131,9 @@ def build_app(cfg: Dict[str, Any] | None = None) -> FastAPI:
         session = http_request.app.state.session_manager.get_session(session_id)
         proxy_state: ProxyState = session.proxy_state
 
-        processed_messages, commands_processed = process_commands_in_messages(
-            request_data.messages,
-            proxy_state,
-            command_prefix=http_request.app.state.command_prefix,
+        parser = CommandParser(proxy_state, command_prefix=http_request.app.state.command_prefix)
+        processed_messages, commands_processed = parser.process_messages(
+            request_data.messages
         )
 
         # derive the raw prompt from the last user message for history

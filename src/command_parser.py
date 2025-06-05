@@ -1,0 +1,184 @@
+import logging
+import re
+from typing import Any, Dict, List, Tuple
+
+import src.models as models
+from .proxy_logic import ProxyState
+
+logger = logging.getLogger(__name__)
+
+
+def parse_arguments(args_str: str) -> Dict[str, Any]:
+    """Parse a comma separated key=value string into a dictionary."""
+    logger.debug(f"Parsing arguments from string: '{args_str}'")
+    args: Dict[str, Any] = {}
+    if not args_str.strip():
+        logger.debug("Argument string is empty, returning empty dict.")
+        return args
+    for part in args_str.split(','):
+        if '=' in part:
+            key, value = part.split('=', 1)
+            value = value.strip()
+            if (
+                (value.startswith('"') and value.endswith('"'))
+                or (value.startswith("'") and value.endswith("'"))
+            ):
+                value = value[1:-1]
+            args[key.strip()] = value
+        else:
+            args[part.strip()] = True
+    return args
+
+
+def get_command_pattern(command_prefix: str) -> re.Pattern:
+    prefix_escaped = re.escape(command_prefix)
+    return re.compile(rf"{prefix_escaped}(\w+)\(([^)]*)\)")
+
+
+class CommandParser:
+    """Parse and apply proxy commands embedded in chat messages."""
+
+    def __init__(self, proxy_state: ProxyState, command_prefix: str = "!/") -> None:
+        self.proxy_state = proxy_state
+        self.command_prefix = command_prefix
+        self.command_pattern = get_command_pattern(command_prefix)
+        self.handlers: Dict[str, callable] = {}
+        self.register_command("set", self._handle_set)
+        self.register_command("unset", self._handle_unset)
+
+    def register_command(self, name: str, handler: callable) -> None:
+        self.handlers[name.lower()] = handler
+
+    # ------------------------------------------------------------------
+    # Default command handlers
+    # ------------------------------------------------------------------
+    def _handle_set(self, args: Dict[str, Any]) -> None:
+        if "model" in args and isinstance(args["model"], str):
+            self.proxy_state.set_override_model(args["model"])
+        if "project" in args and isinstance(args["project"], str):
+            self.proxy_state.set_project(args["project"])
+        if not any(k in args for k in ("model", "project")):
+            logger.warning("!/set command found without valid arguments. No change to state.")
+
+    def _handle_unset(self, args: Dict[str, Any]) -> None:
+        keys_to_unset = [k for k, v in args.items() if v is True]
+        if "model" in keys_to_unset:
+            self.proxy_state.unset_override_model()
+        if "project" in keys_to_unset:
+            self.proxy_state.unset_project()
+        if not keys_to_unset:
+            logger.warning("!/unset command should specify what to unset. No change to state.")
+
+    # ------------------------------------------------------------------
+    def process_text(self, text_content: str) -> Tuple[str, bool]:
+        logger.debug(f"Processing text for commands: '{text_content}'")
+        commands_found = False
+        modified_text = text_content
+
+        matches = list(self.command_pattern.finditer(text_content))
+        for match in reversed(matches):
+            commands_found = True
+            command_full = match.group(0)
+            command_name = match.group(1).lower()
+            args_str = match.group(2)
+            logger.debug(
+                f"Regex match: Full='{command_full}', Command='{command_name}', ArgsStr='{args_str}'"
+            )
+            args = parse_arguments(args_str)
+
+            replacement = ""
+            handler = self.handlers.get(command_name)
+            if handler:
+                handler(args)
+            else:
+                logger.warning(f"Unknown command: {command_name}. Keeping command text.")
+                replacement = command_full
+
+            modified_text = modified_text[: match.start()] + replacement + modified_text[match.end() :]
+
+        final_text = re.sub(r"\s+", " ", modified_text).strip()
+        logger.debug(f"Text after command processing and normalization: '{final_text}'")
+        return final_text, commands_found
+
+    def process_messages(
+        self, messages: List[models.ChatMessage]
+    ) -> Tuple[List[models.ChatMessage], bool]:
+        if not messages:
+            logger.debug("process_messages received empty messages list.")
+            return messages, False
+
+        modified_messages = [msg.model_copy(deep=True) for msg in messages]
+        any_command_processed = False
+
+        for i in range(len(modified_messages) - 1, -1, -1):
+            msg = modified_messages[i]
+            content_modified = False
+
+            if isinstance(msg.content, str):
+                processed_text, found = self.process_text(msg.content)
+                if found:
+                    msg.content = processed_text
+                    any_command_processed = True
+                    content_modified = True
+            elif isinstance(msg.content, list):
+                new_parts: List[models.MessageContentPart] = []
+                part_level_found = False
+                for part in msg.content:
+                    if isinstance(part, models.MessageContentPartText):
+                        processed_text, found = self.process_text(part.text)
+                        if found:
+                            part_level_found = True
+                            any_command_processed = True
+                        if processed_text.strip():
+                            new_parts.append(models.MessageContentPartText(type="text", text=processed_text))
+                        elif not found:
+                            new_parts.append(models.MessageContentPartText(type="text", text=processed_text))
+                    else:
+                        new_parts.append(part.model_copy(deep=True))
+                if part_level_found:
+                    msg.content = new_parts
+                    content_modified = True
+
+            if content_modified:
+                logger.info(
+                    f"Commands processed in message index {i} (from end). Role: {msg.role}. New content: '{msg.content}'"
+                )
+                break
+
+        final_messages: List[models.ChatMessage] = []
+        for msg in modified_messages:
+            if isinstance(msg.content, list) and not msg.content:
+                logger.info(
+                    f"Removing message (role: {msg.role}) as its multimodal content became empty after command processing."
+                )
+                continue
+            final_messages.append(msg)
+
+        if not final_messages and any_command_processed and messages:
+            logger.info(
+                "All messages were removed after command processing. This might indicate a command-only request."
+            )
+
+        logger.debug(
+            f"Finished processing messages. Final message count: {len(final_messages)}. Commands processed overall: {any_command_processed}"
+        )
+        return final_messages, any_command_processed
+
+
+# Convenience wrappers ----------------------------------------------
+
+def _process_text_for_commands(
+    text_content: str, current_proxy_state: ProxyState, command_pattern: re.Pattern
+) -> Tuple[str, bool]:
+    parser = CommandParser(current_proxy_state, command_prefix="")
+    parser.command_pattern = command_pattern
+    return parser.process_text(text_content)
+
+
+def process_commands_in_messages(
+    messages: List[models.ChatMessage],
+    current_proxy_state: ProxyState,
+    command_prefix: str = "!/",
+) -> Tuple[List[models.ChatMessage], bool]:
+    parser = CommandParser(current_proxy_state, command_prefix=command_prefix)
+    return parser.process_messages(messages)
