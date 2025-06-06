@@ -33,7 +33,7 @@ async def test_chat_completions_http_error_streaming(
         mock_response = httpx.Response(
             status_code=500,
             request=httpx.Request(method, url),
-            content=error_text_response.encode("utf-8"),
+            stream=httpx.ByteStream(error_text_response.encode("utf-8")),
             headers={"Content-Type": "text/plain"},
         )
 
@@ -43,9 +43,6 @@ async def test_chat_completions_http_error_streaming(
 
             async def __aexit__(self, exc_type, exc_val, exc_tb):
                 pass
-
-            async def aiter_bytes(self):
-                yield mock_response.content
 
         return MockAsyncStream()
 

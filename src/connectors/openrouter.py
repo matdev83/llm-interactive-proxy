@@ -119,23 +119,25 @@ class OpenRouterBackend(LLMBackend):
                             logger.debug("OpenRouter stream finished.")
                     except httpx.HTTPStatusError as e_stream:
                         logger.info("Caught httpx.HTTPStatusError in stream_generator")
-                        logger.error(f"HTTP error during OpenRouter stream: {e_stream.response.status_code} - {e_stream.response.content.decode('utf-8')}")
-                        # Yield an error message in SSE format for the client
-                        error_payload = {
-                            "error": {
-                                "message": f"OpenRouter stream error: {e_stream.response.status_code} - {e_stream.response.content.decode('utf-8')}",
-                                "type": "openrouter_error",
-                                "code": e_stream.response.status_code
-                            }
-                        }
+                        try:
+                            body_text = (
+                                await e_stream.response.aread()
+                            ).decode("utf-8")
+                        except Exception:
+                            body_text = ""
+                        logger.error(
+                            "HTTP error during OpenRouter stream: %s - %s",
+                            e_stream.response.status_code,
+                            body_text,
+                        )
                         # For streaming errors, raise HTTPException directly
-                        # This will be caught by the outer try-except block in chat_completions
-                        # and re-raised as an HTTPException by FastAPI
                         raise HTTPException(
                             status_code=e_stream.response.status_code,
-                            detail={"message": f"OpenRouter stream error: {e_stream.response.status_code} - {e_stream.response.content.decode('utf-8')}",
-                                    "type": "openrouter_error",
-                                    "code": e_stream.response.status_code}
+                            detail={
+                                "message": f"OpenRouter stream error: {e_stream.response.status_code} - {body_text}",
+                                "type": "openrouter_error",
+                                "code": e_stream.response.status_code,
+                            },
                         )
                     except Exception as e_gen:
                         logger.error(f"Error in stream generator: {e_gen}", exc_info=True)

@@ -146,7 +146,12 @@ class GeminiBackend(LLMBackend):
             payload.update(request_data.extra_params)
         # Do not add 'project' to payload for Gemini
 
-        base_url = f"{gemini_api_base_url.rstrip('/')}/v1beta/models/{effective_model}"
+        model_name = effective_model
+        if model_name.startswith("gemini:"):
+            model_name = model_name.split(":", 1)[1]
+        if model_name.startswith("models/"):
+            model_name = model_name.split("/", 1)[1]
+        base_url = f"{gemini_api_base_url.rstrip('/')}/v1beta/models/{model_name}"
 
         if request_data.stream:
             url = f"{base_url}:streamGenerateContent?key={api_key}"
@@ -176,13 +181,21 @@ class GeminiBackend(LLMBackend):
                         logger.info(
                             "Caught httpx.HTTPStatusError in Gemini stream_generator"
                         )
+                        try:
+                            body_text = (
+                                await e_stream.response.aread()
+                            ).decode("utf-8")
+                        except Exception:
+                            body_text = ""
                         logger.error(
-                            f"HTTP error during Gemini stream: {e_stream.response.status_code} - {e_stream.response.content.decode('utf-8')}"
+                            "HTTP error during Gemini stream: %s - %s",
+                            e_stream.response.status_code,
+                            body_text,
                         )
                         raise HTTPException(
                             status_code=e_stream.response.status_code,
                             detail={
-                                "message": f"Gemini stream error: {e_stream.response.status_code} - {e_stream.response.content.decode('utf-8')}",
+                                "message": f"Gemini stream error: {e_stream.response.status_code} - {body_text}",
                                 "type": "gemini_error",
                                 "code": e_stream.response.status_code,
                             },

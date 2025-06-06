@@ -49,11 +49,11 @@ async def test_chat_completions_http_error_streaming(
     sample_chat_request_data.stream = True
     error_text_response = "OpenRouter internal server error"
 
-    def mock_stream_method(self, method, url, **kwargs): # Not async def
+    def mock_stream_method(self, method, url, **kwargs):
         mock_response = httpx.Response(
             status_code=500,
             request=httpx.Request(method, url),
-            content=error_text_response.encode('utf-8'),
+            stream=httpx.ByteStream(error_text_response.encode("utf-8")),
             headers={"Content-Type": "text/plain"}
         )
         class MockAsyncStream:
@@ -61,8 +61,6 @@ async def test_chat_completions_http_error_streaming(
                 return mock_response
             async def __aexit__(self, exc_type, exc_val, exc_tb):
                 pass
-            async def aiter_bytes(self): # Add aiter_bytes for stream consumption
-                yield mock_response.content # Yield the content as bytes
         return MockAsyncStream()
 
     monkeypatch.setattr(httpx.AsyncClient, "stream", mock_stream_method)
