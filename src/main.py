@@ -684,10 +684,10 @@ def build_app(cfg: Dict[str, Any] | None = None, *, config_file: str | None = No
 
 
 # Create a default application instance for importers
-app = build_app()
-
-
-from src.core.cli import main as cli_main
+if __name__ != "__main__":
+    app = build_app()
 
 if __name__ == "__main__":
-    cli_main()
+    from src.core.cli import main as cli_main
+
+    cli_main(build_app_fn=build_app)
