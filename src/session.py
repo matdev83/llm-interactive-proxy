@@ -29,6 +29,7 @@ class Session(BaseModel):
     session_id: str
     proxy_state: ProxyState
     history: List[SessionInteraction] = Field(default_factory=list)
+    agent: Optional[str] = None
 
     def add_interaction(self, interaction: SessionInteraction) -> None:
         self.history.append(interaction)

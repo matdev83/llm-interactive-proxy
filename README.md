@@ -13,6 +13,7 @@ This project provides an intercepting proxy server that is compatible with the O
 - **Aggregated Model Listing** – the `/models` endpoint returns the union of all
   models discovered from configured backends, prefixed with the backend name.
 - **Session History Tracking** – optional per-session logs using the `X-Session-ID` header.
+- **Agent Detection** – recognizes popular coding agents and formats proxy responses accordingly.
 - **CLI Configuration** – command line flags can override environment variables for quick testing, including interactive mode.
 - **Persistent Configuration** – use `--config config/file.json` to save and reload failover routes and defaults across restarts.
 - **Configurable Interactive Mode** – enable or disable interactive mode by default via environment variable, CLI argument, or in-chat commands.

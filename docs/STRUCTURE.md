@@ -22,6 +22,7 @@ This document describes the layout of the repository and the purpose of the main
 │   ├── proxy_logic.py       # ProxyState class and re-exports
 │   ├── command_parser.py    # Command parsing utilities
 │   ├── session.py           # Simple in-memory session/history tracking
+│   ├── agents.py            # Agent detection and response helpers
 │   ├── security.py          # Client authentication and API key redaction
 │   └── connectors/          # Concrete connector implementations and LLMBackend interface
 │       ├── __init__.py

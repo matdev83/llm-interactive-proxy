@@ -20,6 +20,7 @@ from src import models
 from src.proxy_logic import ProxyState
 from src.command_parser import CommandParser
 from src.session import SessionManager, SessionInteraction
+from src.agents import detect_agent, wrap_proxy_message
 from src.connectors import OpenRouterBackend, GeminiBackend
 from src.security import APIKeyRedactor
 from src.rate_limit import RateLimitRegistry, parse_retry_delay
@@ -201,6 +202,18 @@ def build_app(cfg: Dict[str, Any] | None = None, *, config_file: str | None = No
         session = http_request.app.state.session_manager.get_session(session_id)
         proxy_state: ProxyState = session.proxy_state
 
+        if session.agent is None and request_data.messages:
+            first = request_data.messages[0]
+            if isinstance(first.content, str):
+                text = first.content
+            elif isinstance(first.content, list):
+                text = " ".join(
+                    p.text for p in first.content if isinstance(p, models.MessageContentPartText)
+                )
+            else:
+                text = ""
+            session.agent = detect_agent(text)
+
         if proxy_state.override_backend:
             backend_type = proxy_state.override_backend
             if proxy_state.invalid_override:
@@ -287,7 +300,7 @@ def build_app(cfg: Dict[str, Any] | None = None, *, config_file: str | None = No
                 pieces.append(confirmation_text)
             if not pieces:
                 pieces.append("Proxy command processed. No query sent to LLM.")
-            response_text = "\n".join(pieces)
+            response_text = wrap_proxy_message(session.agent, "\n".join(pieces))
             session.add_interaction(
                 SessionInteraction(
                     prompt=raw_prompt,
@@ -567,15 +580,14 @@ def build_app(cfg: Dict[str, Any] | None = None, *, config_file: str | None = No
             if confirmation_text:
                 prefix_parts.append(confirmation_text)
             if prefix_parts:
+                prefix_text = wrap_proxy_message(session.agent, "\n".join(prefix_parts))
                 orig = (
                     backend_response.get("choices", [{}])[0]
                     .get("message", {})
                     .get("content", "")
                 )
                 backend_response["choices"][0]["message"]["content"] = (
-                    "\n".join(prefix_parts) + "\n" + orig
-                    if orig
-                    else "\n".join(prefix_parts)
+                    prefix_text + "\n" + orig if orig else prefix_text
                 )
 
         usage_data = backend_response.get("usage")
