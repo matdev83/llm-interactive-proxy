@@ -6,7 +6,7 @@ from typing import Any, Dict
 import sys
 
 from src.core.config import _load_config
-from src.main import build_app # Temporarily import from src.main
+from typing import Callable, Optional
 
 
 def _check_privileges() -> None:
@@ -100,7 +100,10 @@ def apply_cli_args(args: argparse.Namespace) -> Dict[str, Any]:
     return _load_config()
 
 
-def main(argv: list[str] | None = None) -> None:
+def main(
+    argv: list[str] | None = None,
+    build_app_fn: Optional[Callable[[Dict[str, Any] | None], Any]] = None,
+) -> None:
     args = parse_cli_args(argv)
     cfg = apply_cli_args(args)
     logging.basicConfig(
@@ -120,5 +123,8 @@ def main(argv: list[str] | None = None) -> None:
             )
             raise SystemExit(1)
 
-    app = build_app(cfg, config_file=args.config_file)
+    if build_app_fn is None:
+        from src.main import build_app as build_app_fn
+
+    app = build_app_fn(cfg, config_file=args.config_file)
     uvicorn.run(app, host=cfg["proxy_host"], port=cfg["proxy_port"])
