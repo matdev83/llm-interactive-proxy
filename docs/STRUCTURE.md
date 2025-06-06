@@ -61,7 +61,7 @@ This document describes the layout of the repository and the purpose of the main
 
 ### `src/main.py`
 
-Creates the FastAPI application, loads configuration from environment variables or CLI arguments and exposes the OpenAI-compatible endpoints. During startup it initialises the selected backend connector (`openrouter` or `gemini`), sets up an `httpx.AsyncClient`, and stores a `SessionManager` for recording interactions.
+Creates the FastAPI application, loads configuration from environment variables or CLI arguments and exposes the OpenAI-compatible endpoints. During startup it initialises the selected backend connector (`openrouter` or `gemini`), sets up an `httpx.AsyncClient`, and stores a `SessionManager` for recording interactions. It also defines a welcome banner shown in interactive mode that lists the functional backends along with how many API keys and models were discovered for each.
 
 ### `src/proxy_logic.py`
 

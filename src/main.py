@@ -51,15 +51,29 @@ def build_app(cfg: Dict[str, Any] | None = None, *, config_file: str | None = No
 
     project_name, project_version = _load_project_metadata()
 
+    functional: set[str] = set()
+
     def _welcome_banner(session_id: str) -> str:
+        backend_info = []
+        if "openrouter" in functional:
+            keys = len(cfg.get("openrouter_api_keys", {}))
+            models = len(app.state.openrouter_backend.get_available_models())
+            backend_info.append(f"openrouter (K:{keys}, M:{models})")
+        if "gemini" in functional:
+            keys = len(cfg.get("gemini_api_keys", {}))
+            models = len(app.state.gemini_backend.get_available_models())
+            backend_info.append(f"gemini (K:{keys}, M:{models})")
+        backends_str = ", ".join(sorted(backend_info))
         return (
             f"Hello, this is {project_name} {project_version}\n"
             f"Session id: {session_id}\n"
+            f"Functional backends: {backends_str}\n"
             f"Type {cfg['command_prefix']}help for list of available commands"
         )
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
+        nonlocal functional
         client = httpx.AsyncClient(timeout=cfg["proxy_timeout"])
         app.state.httpx_client = client
         app.state.failover_routes = {}
