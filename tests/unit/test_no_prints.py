@@ -9,7 +9,7 @@ ALLOWED_FILES = {
 def test_no_print_statements():
     repo_root = pathlib.Path(__file__).resolve().parents[2]
     for path in repo_root.rglob('*.py'):
-        if 'tests' in path.parts or '.venv' in path.parts or 'site-packages' in path.parts:
+        if 'tests' in path.parts or '.venv' in path.parts or 'site-packages' in path.parts or '.git' in path.parts:
             continue
         if path in ALLOWED_FILES:
             continue
