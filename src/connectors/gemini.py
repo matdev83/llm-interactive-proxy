@@ -156,62 +156,47 @@ class GeminiBackend(LLMBackend):
         if request_data.stream:
             url = f"{base_url}:streamGenerateContent?key={api_key}"
             try:
+                request = self.client.build_request("POST", url, json=payload)
+                response = await self.client.send(request, stream=True)
+                if response.status_code >= 400:
+                    try:
+                        body_text = (await response.aread()).decode("utf-8")
+                    except Exception:
+                        body_text = ""
+                    logger.error(
+                        "HTTP error during Gemini stream: %s - %s",
+                        response.status_code,
+                        body_text,
+                    )
+                    raise HTTPException(
+                        status_code=response.status_code,
+                        detail={
+                            "message": f"Gemini stream error: {response.status_code} - {body_text}",
+                            "type": "gemini_error",
+                            "code": response.status_code,
+                        },
+                    )
 
-                async def stream_generator():
+                async def stream_generator() -> bytes:
                     buffer = ""
                     try:
-                        async with self.client.stream("POST", url, json=payload) as response:
-                            response.raise_for_status()
-                            async for chunk in response.aiter_text():
-                                buffer += chunk
-                                while "\n" in buffer:
-                                    line, buffer = buffer.split("\n", 1)
-                                    line = line.strip()
-                                    if not line:
-                                        continue
-                                    data = json.loads(line)
-                                    converted = self._convert_stream_chunk(data, effective_model)
-                                    yield f"data: {json.dumps(converted)}\n\n".encode()
+                        async for chunk in response.aiter_text():
+                            buffer += chunk
+                            while "\n" in buffer:
+                                line, buffer = buffer.split("\n", 1)
+                                line = line.strip()
+                                if not line:
+                                    continue
+                                data = json.loads(line)
+                                converted = self._convert_stream_chunk(data, effective_model)
+                                yield f"data: {json.dumps(converted)}\n\n".encode()
                         if buffer.strip():
                             data = json.loads(buffer.strip())
                             converted = self._convert_stream_chunk(data, effective_model)
                             yield f"data: {json.dumps(converted)}\n\n".encode()
                         yield b"data: [DONE]\n\n"
-                    except httpx.HTTPStatusError as e_stream:
-                        logger.info(
-                            "Caught httpx.HTTPStatusError in Gemini stream_generator"
-                        )
-                        try:
-                            body_text = (
-                                await e_stream.response.aread()
-                            ).decode("utf-8")
-                        except Exception:
-                            body_text = ""
-                        logger.error(
-                            "HTTP error during Gemini stream: %s - %s",
-                            e_stream.response.status_code,
-                            body_text,
-                        )
-                        raise HTTPException(
-                            status_code=e_stream.response.status_code,
-                            detail={
-                                "message": f"Gemini stream error: {e_stream.response.status_code} - {body_text}",
-                                "type": "gemini_error",
-                                "code": e_stream.response.status_code,
-                            },
-                        )
-                    except Exception as e_gen:
-                        logger.error(
-                            f"Error in Gemini stream generator: {e_gen}", exc_info=True
-                        )
-                        raise HTTPException(
-                            status_code=500,
-                            detail={
-                                "message": f"Proxy stream generator error: {str(e_gen)}",
-                                "type": "proxy_error",
-                                "code": "proxy_stream_error",
-                            },
-                        )
+                    finally:
+                        await response.aclose()
 
                 return StreamingResponse(stream_generator(), media_type="text/event-stream")
             except httpx.RequestError as e:
