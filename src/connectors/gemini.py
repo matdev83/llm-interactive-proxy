@@ -156,6 +156,9 @@ class GeminiBackend(LLMBackend):
             )
         payload_contents = []
         for msg in processed_messages:
+            if msg.role == "system":
+                # Gemini API does not support system role
+                continue
             if isinstance(msg.content, str):
                 text = msg.content
                 if prompt_redactor:
