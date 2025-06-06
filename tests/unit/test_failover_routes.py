@@ -41,3 +41,16 @@ class TestFailoverRoutes:
         parser.process_text("!/route-append(name=bar,gemini:model-c)")
         parser.process_text("!/route-list(name=bar)")
         assert state.list_route("bar") == ["gemini:model-c"]
+
+    def test_routes_are_server_wide(self):
+        shared = {}
+        state1 = ProxyState(failover_routes=shared)
+        parser1 = CommandParser(state1, self.mock_app, command_prefix="!/")
+        parser1.process_text("!/create-failover-route(name=r,policy=k)")
+        parser1.process_text("!/route-append(name=r,openrouter:model-a)")
+
+        state2 = ProxyState(interactive_mode=True, failover_routes=shared)
+        parser2 = CommandParser(state2, self.mock_app, command_prefix="!/")
+        assert state2.list_route("r") == ["openrouter:model-a"]
+        parser2.process_text("!/route-append(name=r,gemini:model-b)")
+        assert state1.list_route("r") == ["openrouter:model-a", "gemini:model-b"]

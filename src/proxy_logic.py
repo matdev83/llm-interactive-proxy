@@ -7,7 +7,11 @@ logger = logging.getLogger(__name__)
 class ProxyState:
     """Manages the state of the proxy, particularly model overrides."""
 
-    def __init__(self, interactive_mode: bool = False) -> None:
+    def __init__(
+        self,
+        interactive_mode: bool = False,
+        failover_routes: Optional[dict[str, dict[str, object]]] | None = None,
+    ) -> None:
         self.override_backend: Optional[str] = None
         self.override_model: Optional[str] = None
         self.invalid_override: bool = False
@@ -15,7 +19,9 @@ class ProxyState:
         self.interactive_mode: bool = interactive_mode
         self.interactive_just_enabled: bool = False
         self.hello_requested: bool = False
-        self.failover_routes: dict[str, dict[str, object]] = {}
+        self.failover_routes: dict[str, dict[str, object]] = (
+            failover_routes if failover_routes is not None else {}
+        )
 
     def set_override_model(
         self, backend: str, model_name: str, *, invalid: bool = False
@@ -106,7 +112,6 @@ class ProxyState:
         self.interactive_mode = False
         self.interactive_just_enabled = False
         self.hello_requested = False
-        self.failover_routes = {}
 
     def get_effective_model(self, requested_model: str) -> str:
         if self.override_model:

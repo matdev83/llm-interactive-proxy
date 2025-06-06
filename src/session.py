@@ -37,14 +37,22 @@ class Session(BaseModel):
 class SessionManager:
     """Manages Session instances keyed by session_id."""
 
-    def __init__(self, default_interactive_mode: bool = False) -> None:
+    def __init__(
+        self,
+        default_interactive_mode: bool = False,
+        failover_routes: Optional[dict[str, dict[str, object]]] | None = None,
+    ) -> None:
         self.sessions: Dict[str, Session] = {}
         self.default_interactive_mode = default_interactive_mode
+        self.failover_routes = failover_routes if failover_routes is not None else {}
 
     def get_session(self, session_id: str) -> Session:
         if session_id not in self.sessions:
             self.sessions[session_id] = Session(
                 session_id=session_id,
-                proxy_state=ProxyState(interactive_mode=self.default_interactive_mode),
+                proxy_state=ProxyState(
+                    interactive_mode=self.default_interactive_mode,
+                    failover_routes=self.failover_routes,
+                ),
             )
         return self.sessions[session_id]

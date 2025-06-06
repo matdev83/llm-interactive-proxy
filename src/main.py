@@ -46,8 +46,10 @@ def build_app(cfg: Dict[str, Any] | None = None) -> FastAPI:
     async def lifespan(app: FastAPI):
         client = httpx.AsyncClient(timeout=cfg["proxy_timeout"])
         app.state.httpx_client = client
+        app.state.failover_routes = {}
         app.state.session_manager = SessionManager(
-            default_interactive_mode=cfg["interactive_mode"]
+            default_interactive_mode=cfg["interactive_mode"],
+            failover_routes=app.state.failover_routes,
         )
         app.state.command_prefix = cfg["command_prefix"]
 
