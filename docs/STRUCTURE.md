@@ -12,6 +12,11 @@ This document describes the layout of the repository and the purpose of the main
 ├── docs/
 │   └── STRUCTURE.md         # (this file)
 ├── src/
+│   ├── core/                # Core application logic and utilities
+│   │   ├── cli.py           # CLI argument parsing and application startup
+│   │   ├── config.py        # Configuration loading and management
+│   │   ├── metadata.py      # Project metadata loading
+│   │   └── persistence.py   # Configuration persistence (save/load)
 │   ├── main.py              # Application factory and HTTP endpoints
 │   ├── models.py            # Pydantic models for API payloads
 │   ├── proxy_logic.py       # ProxyState class and re-exports
