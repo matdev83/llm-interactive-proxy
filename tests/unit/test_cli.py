@@ -3,6 +3,7 @@ import pytest
 from src.constants import DEFAULT_COMMAND_PREFIX
 from src.core.cli import parse_cli_args, apply_cli_args
 from src.main import build_app as app_main_build_app # Import build_app from main.py
+from fastapi import FastAPI # Import FastAPI for type hinting
 
 
 def test_apply_cli_args_sets_env(monkeypatch):
@@ -72,9 +73,9 @@ def test_build_app_uses_env(monkeypatch):
     from fastapi.testclient import TestClient
 
     with TestClient(app, headers={"Authorization": "Bearer test-proxy-key"}) as client:
-        assert client.app.state.backend_type == "gemini"
-        assert hasattr(client.app.state, "gemini_backend")
-        assert client.app.state.command_prefix == "??/"
+        assert app.state.backend_type == "gemini"
+        assert hasattr(app.state, "gemini_backend")
+        assert app.state.command_prefix == "??/"
 
 
 def test_build_app_uses_interactive_env(monkeypatch):
@@ -87,7 +88,7 @@ def test_build_app_uses_interactive_env(monkeypatch):
     from fastapi.testclient import TestClient
 
     with TestClient(app, headers={"Authorization": "Bearer test-proxy-key"}) as client:
-        session = client.app.state.session_manager.get_session("s1")  # type: ignore
+        session = app.state.session_manager.get_session("s1")
         assert session.proxy_state.interactive_mode is True
 
 
@@ -102,13 +103,30 @@ def test_default_command_prefix_from_env(monkeypatch):
     cfg = apply_cli_args(args)
     assert cfg["command_prefix"] == DEFAULT_COMMAND_PREFIX
 
+@pytest.mark.skipif(os.name == "nt", reason="Test for non-Windows systems")
 def test_check_privileges_root(monkeypatch):
     from src.core.cli import _check_privileges
     monkeypatch.setattr(os, "geteuid", lambda: 0, raising=False)
     with pytest.raises(SystemExit):
         _check_privileges()
 
+@pytest.mark.skipif(os.name == "nt", reason="Test for non-Windows systems")
 def test_check_privileges_non_root(monkeypatch):
     from src.core.cli import _check_privileges
     monkeypatch.setattr(os, "geteuid", lambda: 1000, raising=False)
+    _check_privileges()
+
+@pytest.mark.skipif(os.name != "nt", reason="Test for Windows systems")
+def test_check_privileges_admin_windows(monkeypatch):
+    from src.core.cli import _check_privileges
+    import ctypes
+    monkeypatch.setattr(ctypes.windll.shell32, "IsUserAnAdmin", lambda: 1, raising=False)
+    with pytest.raises(SystemExit):
+        _check_privileges()
+
+@pytest.mark.skipif(os.name != "nt", reason="Test for Windows systems")
+def test_check_privileges_non_admin_windows(monkeypatch):
+    from src.core.cli import _check_privileges
+    import ctypes
+    monkeypatch.setattr(ctypes.windll.shell32, "IsUserAnAdmin", lambda: 0, raising=False)
     _check_privileges()
