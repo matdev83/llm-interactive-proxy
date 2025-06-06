@@ -113,6 +113,12 @@ class SetCommand(BaseCommand):
                     state.set_interactive_mode(val)
                     handled = True
                     messages.append(f"interactive mode set to {val}")
+        if isinstance(args.get("redact-api-keys-in-prompts"), str):
+            val = self._parse_bool(args["redact-api-keys-in-prompts"])
+            if val is not None:
+                self.app.state.api_key_redaction_enabled = val
+                handled = True
+                messages.append(f"redact-api-keys-in-prompts set to {val}")
         if not handled:
             return CommandResult(self.name, False, "set: no valid parameters")
         return CommandResult(self.name, True, "; ".join(messages))
@@ -120,6 +126,9 @@ class SetCommand(BaseCommand):
 
 class UnsetCommand(BaseCommand):
     name = "unset"
+
+    def __init__(self, app: FastAPI | None = None) -> None:
+        self.app = app
 
     def execute(self, args: Dict[str, Any], state: 'ProxyState') -> CommandResult:
         messages: List[str] = []
@@ -136,6 +145,11 @@ class UnsetCommand(BaseCommand):
         if any(k in keys_to_unset for k in ("interactive", "interactive-mode")):
             state.unset_interactive_mode()
             messages.append("interactive mode unset")
+        if "redact-api-keys-in-prompts" in keys_to_unset and self.app:
+            self.app.state.api_key_redaction_enabled = (
+                self.app.state.default_api_key_redaction_enabled
+            )
+            messages.append("redact-api-keys-in-prompts unset")
         if not keys_to_unset or not messages:
             return CommandResult(self.name, False, "unset: nothing to do")
         return CommandResult(self.name, True, "; ".join(messages))

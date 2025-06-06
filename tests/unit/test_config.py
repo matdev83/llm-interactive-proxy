@@ -105,3 +105,10 @@ def test_openrouter_only(monkeypatch):
     cfg = app_main._load_config()
     assert cfg["gemini_api_keys"] == {}
     assert cfg["openrouter_api_key"] == "O"
+
+
+def test_redaction_env(monkeypatch):
+    monkeypatch.setenv("REDACT_API_KEYS_IN_PROMPTS", "false")
+    cfg = app_main._load_config()
+    assert cfg["redact_api_keys_in_prompts"] is False
+    monkeypatch.delenv("REDACT_API_KEYS_IN_PROMPTS", raising=False)

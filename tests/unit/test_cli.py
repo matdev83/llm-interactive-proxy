@@ -38,6 +38,18 @@ def test_apply_cli_args_sets_env(monkeypatch):
 
 def test_cli_interactive_mode(monkeypatch):
     monkeypatch.delenv("INTERACTIVE_MODE", raising=False)
+
+
+def test_cli_redaction_flag(monkeypatch):
+    monkeypatch.delenv("REDACT_API_KEYS_IN_PROMPTS", raising=False)
+    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+    for i in range(1, 21):
+        monkeypatch.delenv(f"GEMINI_API_KEY_{i}", raising=False)
+    args = parse_cli_args(["--disable-redact-api-keys-in-prompts"])
+    cfg = apply_cli_args(args)
+    assert os.environ["REDACT_API_KEYS_IN_PROMPTS"] == "false"
+    assert cfg["redact_api_keys_in_prompts"] is False
+    monkeypatch.delenv("REDACT_API_KEYS_IN_PROMPTS", raising=False)
     monkeypatch.delenv("GEMINI_API_KEY", raising=False)
     for i in range(1, 21):
         monkeypatch.delenv(f"GEMINI_API_KEY_{i}", raising=False)

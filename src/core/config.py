@@ -62,6 +62,9 @@ def _load_config() -> Dict[str, Any]:
         ),
         "command_prefix": os.getenv("COMMAND_PREFIX", DEFAULT_COMMAND_PREFIX),
         "interactive_mode": _str_to_bool(os.getenv("INTERACTIVE_MODE"), False),
+        "redact_api_keys_in_prompts": _str_to_bool(
+            os.getenv("REDACT_API_KEYS_IN_PROMPTS"), True
+        ),
     }
 
 

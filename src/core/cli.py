@@ -36,6 +36,12 @@ def parse_cli_args(argv: list[str] | None = None) -> argparse.Namespace:
         default=None,
         help="Enable interactive mode by default for new sessions",
     )
+    parser.add_argument(
+        "--disable-redact-api-keys-in-prompts",
+        action="store_true",
+        default=None,
+        help="Disable API key redaction in prompts",
+    )
     return parser.parse_args(argv)
 
 
@@ -56,6 +62,8 @@ def apply_cli_args(args: argparse.Namespace) -> Dict[str, Any]:
         value = getattr(args, attr)
         if value is not None:
             os.environ[env_name] = str(value)
+    if getattr(args, "disable_redact_api_keys_in_prompts", None):
+        os.environ["REDACT_API_KEYS_IN_PROMPTS"] = "false"
     return _load_config()
 
 

@@ -15,6 +15,7 @@ This project provides an intercepting proxy server that is compatible with the O
 - **Session History Tracking** – optional per-session logs using the `X-Session-ID` header.
 - **CLI Configuration** – command line flags can override environment variables for quick testing, including interactive mode.
 - **Configurable Interactive Mode** – enable or disable interactive mode by default via environment variable, CLI argument, or in-chat commands.
+- **Prompt API Key Redaction** – redact configured API keys from prompts. Enabled by default; can be turned off via the `--disable-redact-api-keys-in-prompts` CLI flag, environment variable, or commands.
 
 ## Getting Started
 
@@ -54,6 +55,9 @@ These instructions will get you a copy of the project up and running on your loc
     # Gemini backend keys follow the same pattern
     # GEMINI_API_KEY="your_gemini_api_key_here"
     # GEMINI_API_KEY_1="first_gemini_key"
+
+    # Enable or disable prompt redaction (default true)
+    # REDACT_API_KEYS_IN_PROMPTS="false"  # same as passing --disable-redact-api-keys-in-prompts
     ```
 
     Replace `"your_openrouter_api_key_here"` (or numbered variants) with your
@@ -114,6 +118,8 @@ You can embed special commands within your chat messages to control the proxy's 
 - `!/set(interactive=true|false|on|off)`: Enables or disables interactive mode for the current session.
     Example: `!/set(interactive=true)` to enable, `!/set(interactive=off)` to disable.
 - `!/unset(interactive)`: Resets interactive mode to its default setting (configured at startup).
+- `!/set(redact-api-keys-in-prompts=true|false)`: Enable or disable prompt API key redaction for all sessions.
+- `!/unset(redact-api-keys-in-prompts)`: Restore the default redaction behaviour.
 
 The proxy will process these commands, strip them from the message sent to the LLM, and adjust its behavior accordingly.
 

@@ -76,7 +76,7 @@ class CommandParser:
         self.functional_backends = functional_backends or set()
 
         self.register_command(SetCommand(app=self.app, functional_backends=self.functional_backends))
-        self.register_command(UnsetCommand())
+        self.register_command(UnsetCommand(app=self.app))
         self.register_command(HelloCommand())
         self.register_command(CreateFailoverRouteCommand())
         self.register_command(RouteAppendCommand())
