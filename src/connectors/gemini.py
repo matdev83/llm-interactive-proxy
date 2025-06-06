@@ -4,7 +4,7 @@ import httpx
 import json
 import logging
 import time
-from typing import Union, Dict, Any, Optional
+from typing import Union, Dict, Any, Optional, AsyncGenerator
 
 from fastapi import HTTPException
 from starlette.responses import StreamingResponse
@@ -144,7 +144,7 @@ class GeminiBackend(LLMBackend):
         project: str | None = None,
         prompt_redactor: APIKeyRedactor | None = None,
         **kwargs,
-    ) -> dict:
+    ) -> Union[dict, StreamingResponse]:
         # Use gemini_api_base_url if provided, else fallback to openrouter_api_base_url for compatibility
         gemini_api_base_url = openrouter_api_base_url or kwargs.get(
             "gemini_api_base_url"
@@ -193,6 +193,8 @@ class GeminiBackend(LLMBackend):
                         body_text = (await response.aread()).decode("utf-8")
                     except Exception:
                         body_text = ""
+                    finally:
+                        await response.aclose()
                     logger.error(
                         "HTTP error during Gemini stream: %s - %s",
                         response.status_code,
@@ -207,7 +209,7 @@ class GeminiBackend(LLMBackend):
                         },
                     )
 
-                async def stream_generator() -> bytes:
+                async def stream_generator() -> AsyncGenerator[bytes, None]:
                     buffer = ""
                     try:
                         async for chunk in response.aiter_text():

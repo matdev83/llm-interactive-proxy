@@ -2,6 +2,7 @@ import pytest
 import httpx
 from starlette.responses import StreamingResponse
 from fastapi import HTTPException
+from unittest.mock import AsyncMock
 
 import src.models as models
 from src.connectors.gemini import GeminiBackend
@@ -14,6 +15,16 @@ def sample_chat_request_data() -> models.ChatCompletionRequest:
     return models.ChatCompletionRequest(
         model="test-model",
         messages=[models.ChatMessage(role="user", content="Hello")],
+        temperature=None,
+        top_p=None,
+        n=None,
+        stream=False,
+        stop=None,
+        max_tokens=None,
+        presence_penalty=None,
+        frequency_penalty=None,
+        logit_bias=None,
+        user=None,
     )
 
 
@@ -29,13 +40,14 @@ async def test_chat_completions_http_error_streaming(
     sample_chat_request_data.stream = True
     error_text_response = "Gemini internal server error"
 
-    async def mock_send(self, request, **kwargs):
-        return httpx.Response(
-            status_code=500,
-            request=request,
-            content=error_text_response.encode("utf-8"),
-            headers={"Content-Type": "text/plain"},
-        )
+    mock_send = AsyncMock()
+    mock_send.return_value = httpx.Response(
+        status_code=500,
+        request=httpx.Request("POST", "http://test-url"),
+        content=error_text_response.encode("utf-8"),
+        headers={"Content-Type": "text/plain"},
+    )
+    mock_send.return_value.aclose = AsyncMock()
 
     monkeypatch.setattr(httpx.AsyncClient, "send", mock_send)
 
@@ -61,3 +73,4 @@ async def test_chat_completions_http_error_streaming(
     )
     assert detail.get("type") == "gemini_error"
     assert detail.get("code") == 500
+    assert mock_send.return_value.aclose.await_count == 1
