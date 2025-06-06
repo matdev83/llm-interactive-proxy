@@ -94,7 +94,6 @@ class GeminiBackend(LLMBackend):
         except httpx.RequestError as e:
             logger.error(f"Request error connecting to Gemini: {e}", exc_info=True)
             raise HTTPException(status_code=503, detail=f"Service unavailable: Could not connect to Gemini ({e})")
-        # Removed the broad 'except Exception as e' block here.
 
     async def list_models(
         self,
@@ -116,4 +115,3 @@ class GeminiBackend(LLMBackend):
         except httpx.RequestError as e:
             logger.error(f"Request error connecting to Gemini: {e}", exc_info=True)
             raise HTTPException(status_code=503, detail=f"Service unavailable: Could not connect to Gemini ({e})")
-        # Removed the broad 'except Exception as e' block here.

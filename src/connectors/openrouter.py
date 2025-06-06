@@ -175,9 +175,14 @@ class OpenRouterBackend(LLMBackend):
                 error_detail = e.response.text
             raise HTTPException(status_code=e.response.status_code, detail=error_detail)
         except httpx.RequestError as e:
-            logger.error(f"Request error connecting to OpenRouter: {type(e).__name__} - {str(e)}", exc_info=True)
-            raise HTTPException(status_code=503, detail=f"Service unavailable: Could not connect to OpenRouter ({str(e)})")
-        # Removed the broad 'except Exception as e' block here.
+            logger.error(
+                f"Request error connecting to OpenRouter: {type(e).__name__} - {str(e)}",
+                exc_info=True,
+            )
+            raise HTTPException(
+                status_code=503,
+                detail=f"Service unavailable: Could not connect to OpenRouter ({str(e)})",
+            )
         # HTTPException and other unexpected errors will now propagate up.
 
     async def list_models(

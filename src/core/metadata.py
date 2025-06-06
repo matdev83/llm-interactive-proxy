@@ -2,7 +2,7 @@ from pathlib import Path
 import tomli
 
 def _load_project_metadata() -> tuple[str, str]:
-    pyproject = Path(__file__).resolve().parents[2] / "pyproject.toml" # Changed parents[1] to parents[2]
+    pyproject = Path(__file__).resolve().parents[2] / "pyproject.toml"
     try:
         data = tomli.loads(pyproject.read_text())
         meta = data.get("project", {})

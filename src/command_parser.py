@@ -1,8 +1,6 @@
 import logging
 import re
-import logging
-import re
-from typing import Any, Dict, List, Tuple, Set # Add Set to imports
+from typing import Any, Dict, List, Tuple, Set
 
 import src.models as models
 from .constants import DEFAULT_COMMAND_PREFIX
@@ -56,7 +54,7 @@ def get_command_pattern(command_prefix: str) -> re.Pattern:
     )
 
 
-from fastapi import FastAPI # Import FastAPI for type hinting
+from fastapi import FastAPI
 
 class CommandParser:
     """Parse and apply proxy commands embedded in chat messages."""
@@ -64,20 +62,20 @@ class CommandParser:
     def __init__(
         self,
         proxy_state: ProxyState,
-        app: FastAPI, # Add app parameter
+        app: FastAPI,
         command_prefix: str = DEFAULT_COMMAND_PREFIX,
         preserve_unknown: bool = True,
         functional_backends: Set[str] | None = None,
     ) -> None:
         self.proxy_state = proxy_state
-        self.app = app # Store app
+        self.app = app
         self.command_prefix = command_prefix
         self.preserve_unknown = preserve_unknown
         self.command_pattern = get_command_pattern(command_prefix)
         self.handlers: Dict[str, BaseCommand] = {}
         self.functional_backends = functional_backends or set()
 
-        self.register_command(SetCommand(app=self.app, functional_backends=self.functional_backends)) # Pass app to SetCommand
+        self.register_command(SetCommand(app=self.app, functional_backends=self.functional_backends))
         self.register_command(UnsetCommand())
         self.register_command(HelloCommand())
         self.register_command(CreateFailoverRouteCommand())
@@ -204,12 +202,12 @@ def _process_text_for_commands(
     text_content: str,
     current_proxy_state: ProxyState,
     command_pattern: re.Pattern,
-    app: FastAPI, # Add app parameter
+    app: FastAPI,
     functional_backends: Set[str] | None = None,
 ) -> Tuple[str, bool]:
     parser = CommandParser(
         current_proxy_state,
-        app, # Pass app here
+        app,
         command_prefix="",
         functional_backends=functional_backends,
     )
@@ -220,13 +218,13 @@ def _process_text_for_commands(
 def process_commands_in_messages(
     messages: List[models.ChatMessage],
     current_proxy_state: ProxyState,
-    app: FastAPI, # Add app parameter
+    app: FastAPI,
     command_prefix: str = DEFAULT_COMMAND_PREFIX,
     functional_backends: Set[str] | None = None,
 ) -> Tuple[List[models.ChatMessage], bool]:
     parser = CommandParser(
         current_proxy_state,
-        app, # Pass app here
+        app,
         command_prefix=command_prefix,
         functional_backends=functional_backends,
     )

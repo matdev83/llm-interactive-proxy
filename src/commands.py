@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Dict, Any, List, Set # Add Set to imports
+from typing import Dict, Any, List, Set
 
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
@@ -22,13 +22,13 @@ class BaseCommand:
         raise NotImplementedError
 
 
-from fastapi import FastAPI # Import FastAPI for type hinting
+from fastapi import FastAPI
 
 class SetCommand(BaseCommand):
     name = "set"
 
-    def __init__(self, app: FastAPI, functional_backends: Set[str] | None = None): # Add app parameter
-        self.app = app # Store app
+    def __init__(self, app: FastAPI, functional_backends: Set[str] | None = None):
+        self.app = app
         self.functional_backends = functional_backends or set()
 
     def _parse_bool(self, value: str) -> bool | None:
@@ -54,7 +54,6 @@ class SetCommand(BaseCommand):
                     f"backend {backend_val} not supported",
                 )
             
-            # Use self.functional_backends instead of app_main.app.state
             if backend_val not in self.functional_backends:
                 # Do NOT set override_backend if not functional
                 state.unset_override_backend() # Ensure it's unset if it was previously set
@@ -82,7 +81,6 @@ class SetCommand(BaseCommand):
             backend_part = backend_part.lower()
 
             try:
-                # Use self.app.state instead of app_main.app.state
                 backend_obj = getattr(self.app.state, f"{backend_part}_backend", None)
             except Exception:
                 backend_obj = None
