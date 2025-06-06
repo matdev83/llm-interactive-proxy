@@ -6,11 +6,13 @@ import logging
 from typing import Union, Dict, Any, Optional
 
 from fastapi import HTTPException
+from starlette.responses import StreamingResponse
 from src.models import ChatCompletionRequest
 from src.connectors.base import LLMBackend
 from src.security import APIKeyRedactor
 
 logger = logging.getLogger(__name__)
+
 
 class GeminiBackend(LLMBackend):
     """LLMBackend implementation for Google's Gemini API."""
@@ -51,15 +53,17 @@ class GeminiBackend(LLMBackend):
         api_key: Optional[str] = None,
         project: str | None = None,
         prompt_redactor: APIKeyRedactor | None = None,
-        **kwargs
+        **kwargs,
     ) -> dict:
         # Use gemini_api_base_url if provided, else fallback to openrouter_api_base_url for compatibility
-        gemini_api_base_url = openrouter_api_base_url or kwargs.get('gemini_api_base_url')
+        gemini_api_base_url = openrouter_api_base_url or kwargs.get(
+            "gemini_api_base_url"
+        )
         if not gemini_api_base_url or not api_key:
-            raise HTTPException(status_code=500, detail="Gemini API base URL and API key must be provided.")
-        if request_data.stream:
-            raise HTTPException(status_code=501, detail="Streaming not implemented for Gemini backend")
-
+            raise HTTPException(
+                status_code=500,
+                detail="Gemini API base URL and API key must be provided.",
+            )
         payload_contents = []
         for msg in processed_messages:
             if isinstance(msg.content, str):
@@ -71,7 +75,11 @@ class GeminiBackend(LLMBackend):
                 parts = []
                 for part in msg.content:
                     data = part.model_dump(exclude_unset=True)
-                    if data.get("type") == "text" and "text" in data and prompt_redactor:
+                    if (
+                        data.get("type") == "text"
+                        and "text" in data
+                        and prompt_redactor
+                    ):
                         data["text"] = prompt_redactor.redact(data["text"])
                     parts.append(data)
             payload_contents.append({"role": msg.role, "parts": parts})
@@ -81,7 +89,59 @@ class GeminiBackend(LLMBackend):
             payload.update(request_data.extra_params)
         # Do not add 'project' to payload for Gemini
 
-        url = f"{gemini_api_base_url.rstrip('/')}/v1beta/models/{effective_model}:generateContent?key={api_key}"
+        base_url = f"{gemini_api_base_url.rstrip('/')}/v1beta/models/{effective_model}"
+
+        if request_data.stream:
+            url = f"{base_url}:streamGenerateContent?key={api_key}"
+            try:
+
+                async def stream_generator():
+                    try:
+                        async with self.client.stream(
+                            "POST", url, json=payload
+                        ) as response:
+                            response.raise_for_status()
+                            async for chunk in response.aiter_bytes():
+                                yield chunk
+                    except httpx.HTTPStatusError as e_stream:
+                        logger.info(
+                            "Caught httpx.HTTPStatusError in Gemini stream_generator"
+                        )
+                        logger.error(
+                            f"HTTP error during Gemini stream: {e_stream.response.status_code} - {e_stream.response.content.decode('utf-8')}"
+                        )
+                        raise HTTPException(
+                            status_code=e_stream.response.status_code,
+                            detail={
+                                "message": f"Gemini stream error: {e_stream.response.status_code} - {e_stream.response.content.decode('utf-8')}",
+                                "type": "gemini_error",
+                                "code": e_stream.response.status_code,
+                            },
+                        )
+                    except Exception as e_gen:
+                        logger.error(
+                            f"Error in Gemini stream generator: {e_gen}", exc_info=True
+                        )
+                        raise HTTPException(
+                            status_code=500,
+                            detail={
+                                "message": f"Proxy stream generator error: {str(e_gen)}",
+                                "type": "proxy_error",
+                                "code": "proxy_stream_error",
+                            },
+                        )
+
+                return StreamingResponse(
+                    stream_generator(), media_type="text/event-stream"
+                )
+            except httpx.RequestError as e:
+                logger.error(f"Request error connecting to Gemini: {e}", exc_info=True)
+                raise HTTPException(
+                    status_code=503,
+                    detail=f"Service unavailable: Could not connect to Gemini ({e})",
+                )
+
+        url = f"{base_url}:generateContent?key={api_key}"
         try:
             response = await self.client.post(url, json=payload)
             if response.status_code >= 400:
@@ -89,11 +149,16 @@ class GeminiBackend(LLMBackend):
                     error_detail = response.json()
                 except Exception:
                     error_detail = response.text
-                raise HTTPException(status_code=response.status_code, detail=error_detail)
+                raise HTTPException(
+                    status_code=response.status_code, detail=error_detail
+                )
             return response.json()
         except httpx.RequestError as e:
             logger.error(f"Request error connecting to Gemini: {e}", exc_info=True)
-            raise HTTPException(status_code=503, detail=f"Service unavailable: Could not connect to Gemini ({e})")
+            raise HTTPException(
+                status_code=503,
+                detail=f"Service unavailable: Could not connect to Gemini ({e})",
+            )
 
     async def list_models(
         self,
@@ -110,8 +175,13 @@ class GeminiBackend(LLMBackend):
                     error_detail = response.json()
                 except Exception:
                     error_detail = response.text
-                raise HTTPException(status_code=response.status_code, detail=error_detail)
+                raise HTTPException(
+                    status_code=response.status_code, detail=error_detail
+                )
             return response.json()
         except httpx.RequestError as e:
             logger.error(f"Request error connecting to Gemini: {e}", exc_info=True)
-            raise HTTPException(status_code=503, detail=f"Service unavailable: Could not connect to Gemini ({e})")
+            raise HTTPException(
+                status_code=503,
+                detail=f"Service unavailable: Could not connect to Gemini ({e})",
+            )
