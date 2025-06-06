@@ -114,6 +114,10 @@ def build_app(cfg: Dict[str, Any] | None = None) -> FastAPI:
             cfg.get("gemini_api_keys", {}).values()
         )
         app.state.api_key_redactor = APIKeyRedactor(all_keys)
+        app.state.default_api_key_redaction_enabled = cfg.get(
+            "redact_api_keys_in_prompts", True
+        )
+        app.state.api_key_redaction_enabled = app.state.default_api_key_redaction_enabled
         app.state.rate_limits = RateLimitRegistry()
         yield
         await client.aclose()
@@ -287,7 +291,11 @@ def build_app(cfg: Dict[str, Any] | None = None) -> FastAPI:
                         gemini_api_base_url=cfg["gemini_api_base_url"],
                         key_name=key_name,
                         api_key=api_key,
-                        prompt_redactor=http_request.app.state.api_key_redactor,
+                        prompt_redactor=(
+                            http_request.app.state.api_key_redactor
+                            if http_request.app.state.api_key_redaction_enabled
+                            else None
+                        ),
                     )
                 except HTTPException as e:
                     if e.status_code == 429:
@@ -320,7 +328,11 @@ def build_app(cfg: Dict[str, Any] | None = None) -> FastAPI:
                     key_name=key_name,
                     api_key=api_key,
                     project=proxy_state.project,
-                    prompt_redactor=http_request.app.state.api_key_redactor,
+                    prompt_redactor=(
+                        http_request.app.state.api_key_redactor
+                        if http_request.app.state.api_key_redaction_enabled
+                        else None
+                    ),
                 )
             except HTTPException as e:
                 if e.status_code == 429:

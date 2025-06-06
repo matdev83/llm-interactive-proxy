@@ -61,3 +61,47 @@ def test_set_backend_nonfunctional(interactive_client, httpx_mock: HTTPXMock):
     assert resp.status_code == 200
     content = resp.json()["choices"][0]["message"]["content"].lower()
     assert "backend gemini not functional" in content
+
+
+def test_set_redaction_flag(interactive_client):
+    mock_response = {"choices": [{"message": {"content": "ok"}}]}
+    with patch.object(interactive_client.app.state.openrouter_backend, "chat_completions", new_callable=AsyncMock) as mock_method:
+        mock_method.return_value = mock_response
+        payload = {
+            "model": "m",
+            "messages": [
+                {
+                    "role": "user",
+                    "content": "!/set(redact-api-keys-in-prompts=false) leak SECRET",
+                }
+            ],
+        }
+        resp = interactive_client.post("/v1/chat/completions", json=payload)
+    assert resp.status_code == 200
+    call_kwargs = mock_method.call_args.kwargs
+    assert call_kwargs["prompt_redactor"] is None
+    assert call_kwargs["processed_messages"][0].content == "leak SECRET"
+    content = resp.json()["choices"][0]["message"]["content"]
+    assert "redact-api-keys-in-prompts set to False" in content
+
+
+def test_unset_redaction_flag(interactive_client):
+    interactive_client.app.state.api_key_redaction_enabled = False
+    mock_response = {"choices": [{"message": {"content": "ok"}}]}
+    with patch.object(interactive_client.app.state.openrouter_backend, "chat_completions", new_callable=AsyncMock) as mock_method:
+        mock_method.return_value = mock_response
+        payload = {
+            "model": "m",
+            "messages": [
+                {
+                    "role": "user",
+                    "content": "!/unset(redact-api-keys-in-prompts) leak SECRET",
+                }
+            ],
+        }
+        resp = interactive_client.post("/v1/chat/completions", json=payload)
+    assert resp.status_code == 200
+    call_kwargs = mock_method.call_args.kwargs
+    assert call_kwargs["prompt_redactor"] is not None
+    content = resp.json()["choices"][0]["message"]["content"]
+    assert "redact-api-keys-in-prompts unset" in content

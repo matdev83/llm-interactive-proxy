@@ -25,7 +25,9 @@ class TestProcessTextForCommands:
         mock_app_state.openrouter_backend = mock_openrouter_backend
         mock_app_state.gemini_backend = mock_gemini_backend
         mock_app_state.functional_backends = {"openrouter", "gemini"} # Add functional backends
-        
+        mock_app_state.default_api_key_redaction_enabled = True
+        mock_app_state.api_key_redaction_enabled = True
+
         self.mock_app = Mock()
         self.mock_app.state = mock_app_state
 
@@ -264,3 +266,25 @@ class TestProcessTextForCommands:
         assert found
         assert processed == ""
         assert state.override_backend is None
+
+    def test_set_redact_api_keys_flag(self):
+        state = ProxyState()
+        pattern = get_command_pattern("!/")
+        text = "!/set(redact-api-keys-in-prompts=false)"
+        processed, found = _process_text_for_commands(text, state, pattern, app=self.mock_app)
+        assert processed == ""
+        assert found
+        assert self.mock_app.state.api_key_redaction_enabled is False
+
+    def test_unset_redact_api_keys_flag(self):
+        state = ProxyState()
+        self.mock_app.state.api_key_redaction_enabled = False
+        pattern = get_command_pattern("!/")
+        text = "!/unset(redact-api-keys-in-prompts)"
+        processed, found = _process_text_for_commands(text, state, pattern, app=self.mock_app)
+        assert processed == ""
+        assert found
+        assert (
+            self.mock_app.state.api_key_redaction_enabled
+            == self.mock_app.state.default_api_key_redaction_enabled
+        )
