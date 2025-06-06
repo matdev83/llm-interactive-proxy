@@ -8,7 +8,11 @@ from typing import Union, Dict, Any, Optional
 
 from fastapi import HTTPException
 from starlette.responses import StreamingResponse
-from src.models import ChatCompletionRequest
+from src.models import (
+    ChatCompletionRequest,
+    MessageContentPartText,
+    MessageContentPartImage,
+)
 from src.connectors.base import LLMBackend
 from src.security import APIKeyRedactor
 
@@ -99,6 +103,35 @@ class GeminiBackend(LLMBackend):
             },
         }
 
+    def _convert_part_for_gemini(
+        self, part: Union[MessageContentPartText, MessageContentPartImage], prompt_redactor: APIKeyRedactor | None
+    ) -> Dict[str, Any]:
+        """Convert a MessageContentPart into Gemini API format."""
+        if isinstance(part, MessageContentPartText):
+            text = part.text
+            if prompt_redactor:
+                text = prompt_redactor.redact(text)
+            return {"text": text}
+        if isinstance(part, MessageContentPartImage):
+            url = part.image_url.url
+            # Data URL -> inlineData
+            if url.startswith("data:"):
+                try:
+                    header, b64_data = url.split(",", 1)
+                    mime = header.split(";")[0][5:]
+                except Exception:
+                    mime = "application/octet-stream"
+                    b64_data = ""
+                return {"inlineData": {"mimeType": mime, "data": b64_data}}
+            # Otherwise treat as remote file URI
+            return {"fileData": {"mimeType": "application/octet-stream", "fileUri": url}}
+        data = part.model_dump(exclude_unset=True)
+        if data.get("type") == "text" and "text" in data:
+            if prompt_redactor:
+                data["text"] = prompt_redactor.redact(data["text"])
+            data.pop("type", None)
+        return data
+
     async def chat_completions(
         self,
         request_data: ChatCompletionRequest,
@@ -129,16 +162,10 @@ class GeminiBackend(LLMBackend):
                     text = prompt_redactor.redact(text)
                 parts = [{"text": text}]
             else:
-                parts = []
-                for part in msg.content:
-                    data = part.model_dump(exclude_unset=True)
-                    if (
-                        data.get("type") == "text"
-                        and "text" in data
-                        and prompt_redactor
-                    ):
-                        data["text"] = prompt_redactor.redact(data["text"])
-                    parts.append(data)
+                parts = [
+                    self._convert_part_for_gemini(part, prompt_redactor)
+                    for part in msg.content
+                ]
             payload_contents.append({"role": msg.role, "parts": parts})
 
         payload = {"contents": payload_contents}
