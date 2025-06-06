@@ -17,11 +17,7 @@ This document describes the layout of the repository and the purpose of the main
 │   ├── proxy_logic.py       # ProxyState class and re-exports
 │   ├── command_parser.py    # Command parsing utilities
 │   ├── session.py           # Simple in-memory session/history tracking
-│   ├── backends/            # Abstract base class for backends
-│   │   ├── __init__.py
-│   │   ├── base.py
-│   │   └── openrouter.py
-│   └── connectors/          # Concrete connector implementations
+│   └── connectors/          # Concrete connector implementations and LLMBackend interface
 │       ├── __init__.py
 │       ├── base.py          # LLMBackend interface
 │       ├── gemini.py        # Google Gemini connector
@@ -73,9 +69,9 @@ Implements the `CommandParser` class used to detect and handle proxy commands. C
 
 Defines `Session` and `SessionManager` used to keep simple per-session history of prompts and backend replies. Session IDs are supplied via the `X-Session-ID` HTTP header. The `SessionManager` can be configured with a default interactive mode for new sessions.
 
-### Connectors and Backends
+### Connectors
 
-`src/backends/` holds the abstract `LLMBackend` base class. Concrete implementations live under `src/connectors/`:
+The abstract `LLMBackend` base class and its concrete implementations live under `src/connectors/`:
 
 - `openrouter.py` forwards requests to the OpenRouter API and supports streaming.
 - `gemini.py` connects to Google Gemini (non-streaming only).
