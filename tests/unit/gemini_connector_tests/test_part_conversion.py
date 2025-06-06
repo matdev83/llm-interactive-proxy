@@ -20,6 +20,16 @@ async def test_text_part_type_removed(gemini_backend: GeminiBackend, httpx_mock:
     request_data = models.ChatCompletionRequest(
         model="test-model",
         messages=[models.ChatMessage(role="user", content=[models.MessageContentPartText(type="text", text="Hi")])],
+        temperature=None,
+        top_p=None,
+        n=None,
+        stream=False,
+        stop=None,
+        max_tokens=None,
+        presence_penalty=None,
+        frequency_penalty=None,
+        logit_bias=None,
+        user=None,
     )
     processed_messages = [
         models.ChatMessage(role="user", content=[models.MessageContentPartText(type="text", text="Hi")])
@@ -57,6 +67,16 @@ async def test_system_message_filtered(gemini_backend: GeminiBackend, httpx_mock
             models.ChatMessage(role="system", content="You are Roo"),
             models.ChatMessage(role="user", content="Hello"),
         ],
+        temperature=None,
+        top_p=None,
+        n=None,
+        stream=False,
+        stop=None,
+        max_tokens=None,
+        presence_penalty=None,
+        frequency_penalty=None,
+        logit_bias=None,
+        user=None,
     )
     processed_messages = [
         models.ChatMessage(role="system", content="You are Roo"),
