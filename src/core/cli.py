@@ -31,6 +31,12 @@ def parse_cli_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--timeout", type=int)
     parser.add_argument("--command-prefix")
     parser.add_argument(
+        "--config",
+        dest="config_file",
+        metavar="FILE",
+        help="Path to persistent configuration file",
+    )
+    parser.add_argument(
         "--interactive-mode",
         action="store_true",
         default=None,
@@ -74,5 +80,5 @@ def main(argv: list[str] | None = None) -> None:
         level=logging.DEBUG,
         format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
     )
-    app = build_app(cfg)
+    app = build_app(cfg, config_file=args.config_file)
     uvicorn.run(app, host=cfg["proxy_host"], port=cfg["proxy_port"])

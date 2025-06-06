@@ -30,7 +30,10 @@ from src.core.config import _load_config, get_openrouter_headers, _keys_for
 # ---------------------------------------------------------------------------
 
 
-def build_app(cfg: Dict[str, Any] | None = None) -> FastAPI:
+from src.core.persistence import ConfigManager
+
+
+def build_app(cfg: Dict[str, Any] | None = None, *, config_file: str | None = None) -> FastAPI:
     cfg = cfg or _load_config()
 
     project_name, project_version = _load_project_metadata()
@@ -126,6 +129,14 @@ def build_app(cfg: Dict[str, Any] | None = None) -> FastAPI:
             app.state.default_api_key_redaction_enabled
         )
         app.state.rate_limits = RateLimitRegistry()
+
+        if config_file:
+            app.state.config_manager = ConfigManager(app, config_file)
+            app.state.config_manager.load()
+        else:
+            app.state.config_manager = None
+
+        # ------------------------------------------------------------------
         yield
         await client.aclose()
 

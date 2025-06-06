@@ -14,6 +14,7 @@ This project provides an intercepting proxy server that is compatible with the O
   models discovered from configured backends, prefixed with the backend name.
 - **Session History Tracking** – optional per-session logs using the `X-Session-ID` header.
 - **CLI Configuration** – command line flags can override environment variables for quick testing, including interactive mode.
+- **Persistent Configuration** – use `--config config/file.json` to save and reload failover routes and defaults across restarts.
 - **Configurable Interactive Mode** – enable or disable interactive mode by default via environment variable, CLI argument, or in-chat commands.
 - **Prompt API Key Redaction** – redact configured API keys from prompts. Enabled by default; can be turned off via the `--disable-redact-api-keys-in-prompts` CLI flag, environment variable, or commands.
 
@@ -81,7 +82,7 @@ These instructions will get you a copy of the project up and running on your loc
 To start the proxy server, run the `main.py` script from the `src` directory:
 
 ```bash
-python src/main.py
+python src/main.py --config config/settings.json
 ```
 
 The server will typically start on `http://127.0.0.1:8000` (or as configured in your `.env` file). You should see log output indicating the server has started, e.g.:

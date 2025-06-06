@@ -70,6 +70,7 @@ class SetCommand(BaseCommand):
             state.set_override_backend(backend_val)
             handled = True
             messages.append(f"backend set to {backend_val}")
+        persistent_change = False
         if isinstance(args.get("default-backend"), str):
             backend_val = args["default-backend"].strip().lower()
 
@@ -94,6 +95,7 @@ class SetCommand(BaseCommand):
                 self.app.state.backend = self.app.state.openrouter_backend
             handled = True
             messages.append(f"default backend set to {backend_val}")
+            persistent_change = True
         # Only allow model set if backend set did not fail
         if not backend_set_failed and isinstance(args.get("model"), str):
             model_val = args["model"].strip()
@@ -139,14 +141,18 @@ class SetCommand(BaseCommand):
                     state.set_interactive_mode(val)
                     handled = True
                     messages.append(f"interactive mode set to {val}")
+                    persistent_change = True
         if isinstance(args.get("redact-api-keys-in-prompts"), str):
             val = self._parse_bool(args["redact-api-keys-in-prompts"])
             if val is not None:
                 self.app.state.api_key_redaction_enabled = val
                 handled = True
                 messages.append(f"redact-api-keys-in-prompts set to {val}")
+                persistent_change = True
         if not handled:
             return CommandResult(self.name, False, "set: no valid parameters")
+        if persistent_change and getattr(self.app.state, "config_manager", None):
+            self.app.state.config_manager.save()
         return CommandResult(self.name, True, "; ".join(messages))
 
 
@@ -158,6 +164,7 @@ class UnsetCommand(BaseCommand):
 
     def execute(self, args: Dict[str, Any], state: "ProxyState") -> CommandResult:
         messages: List[str] = []
+        persistent_change = False
         keys_to_unset = [k for k, v in args.items() if v is True]
         if "model" in keys_to_unset:
             state.unset_override_model()
@@ -174,19 +181,24 @@ class UnsetCommand(BaseCommand):
                 else:
                     self.app.state.backend = self.app.state.openrouter_backend
             messages.append("default-backend unset")
+            persistent_change = True
         if "project" in keys_to_unset:
             state.unset_project()
             messages.append("project unset")
         if any(k in keys_to_unset for k in ("interactive", "interactive-mode")):
             state.unset_interactive_mode()
             messages.append("interactive mode unset")
+            persistent_change = True
         if "redact-api-keys-in-prompts" in keys_to_unset and self.app:
             self.app.state.api_key_redaction_enabled = (
                 self.app.state.default_api_key_redaction_enabled
             )
             messages.append("redact-api-keys-in-prompts unset")
+            persistent_change = True
         if not keys_to_unset or not messages:
             return CommandResult(self.name, False, "unset: nothing to do")
+        if persistent_change and getattr(self.app.state, "config_manager", None):
+            self.app.state.config_manager.save()
         return CommandResult(self.name, True, "; ".join(messages))
 
 
@@ -199,6 +211,9 @@ class HelloCommand(BaseCommand):
 
 
 class _FailoverBase(BaseCommand):
+    def __init__(self, app: FastAPI) -> None:
+        self.app = app
+
     def _ensure_interactive(self, state: "ProxyState", messages: List[str]) -> None:
         if not state.interactive_mode:
             state.set_interactive_mode(True)
@@ -209,6 +224,9 @@ class _FailoverBase(BaseCommand):
 
 class CreateFailoverRouteCommand(_FailoverBase):
     name = "create-failover-route"
+
+    def __init__(self, app: FastAPI) -> None:
+        super().__init__(app)
 
     def execute(self, args: Dict[str, Any], state: "ProxyState") -> CommandResult:
         msgs: List[str] = []
@@ -221,11 +239,16 @@ class CreateFailoverRouteCommand(_FailoverBase):
             )
         state.create_failover_route(name, policy)
         msgs.append(f"failover route {name} created with policy {policy}")
+        if getattr(self.app.state, "config_manager", None):
+            self.app.state.config_manager.save()
         return CommandResult(self.name, True, "; ".join(msgs))
 
 
 class RouteAppendCommand(_FailoverBase):
     name = "route-append"
+
+    def __init__(self, app: FastAPI) -> None:
+        super().__init__(app)
 
     def execute(self, args: Dict[str, Any], state: "ProxyState") -> CommandResult:
         msgs: List[str] = []
@@ -241,11 +264,16 @@ class RouteAppendCommand(_FailoverBase):
                 continue
             state.append_route_element(name, e)
         msgs.append(f"elements appended to {name}")
+        if getattr(self.app.state, "config_manager", None):
+            self.app.state.config_manager.save()
         return CommandResult(self.name, True, "; ".join(msgs))
 
 
 class RoutePrependCommand(_FailoverBase):
     name = "route-prepend"
+
+    def __init__(self, app: FastAPI) -> None:
+        super().__init__(app)
 
     def execute(self, args: Dict[str, Any], state: "ProxyState") -> CommandResult:
         msgs: List[str] = []
@@ -261,11 +289,16 @@ class RoutePrependCommand(_FailoverBase):
                 continue
             state.prepend_route_element(name, e)
         msgs.append(f"elements prepended to {name}")
+        if getattr(self.app.state, "config_manager", None):
+            self.app.state.config_manager.save()
         return CommandResult(self.name, True, "; ".join(msgs))
 
 
 class DeleteFailoverRouteCommand(_FailoverBase):
     name = "delete-failover-route"
+
+    def __init__(self, app: FastAPI) -> None:
+        super().__init__(app)
 
     def execute(self, args: Dict[str, Any], state: "ProxyState") -> CommandResult:
         msgs: List[str] = []
@@ -275,11 +308,16 @@ class DeleteFailoverRouteCommand(_FailoverBase):
             return CommandResult(self.name, False, f"route {name} not found")
         state.delete_failover_route(name)
         msgs.append(f"failover route {name} deleted")
+        if getattr(self.app.state, "config_manager", None):
+            self.app.state.config_manager.save()
         return CommandResult(self.name, True, "; ".join(msgs))
 
 
 class RouteClearCommand(_FailoverBase):
     name = "route-clear"
+
+    def __init__(self, app: FastAPI) -> None:
+        super().__init__(app)
 
     def execute(self, args: Dict[str, Any], state: "ProxyState") -> CommandResult:
         msgs: List[str] = []
@@ -289,11 +327,16 @@ class RouteClearCommand(_FailoverBase):
             return CommandResult(self.name, False, f"route {name} not found")
         state.clear_route(name)
         msgs.append(f"route {name} cleared")
+        if getattr(self.app.state, "config_manager", None):
+            self.app.state.config_manager.save()
         return CommandResult(self.name, True, "; ".join(msgs))
 
 
 class ListFailoverRoutesCommand(_FailoverBase):
     name = "list-failover-routes"
+
+    def __init__(self, app: FastAPI) -> None:
+        super().__init__(app)
 
     def execute(self, args: Dict[str, Any], state: "ProxyState") -> CommandResult:
         msgs: List[str] = []
@@ -308,6 +351,9 @@ class ListFailoverRoutesCommand(_FailoverBase):
 
 class RouteListCommand(_FailoverBase):
     name = "route-list"
+
+    def __init__(self, app: FastAPI) -> None:
+        super().__init__(app)
 
     def execute(self, args: Dict[str, Any], state: ProxyState) -> CommandResult:
         msgs: List[str] = []

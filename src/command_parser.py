@@ -78,13 +78,13 @@ class CommandParser:
         self.register_command(SetCommand(app=self.app, functional_backends=self.functional_backends))
         self.register_command(UnsetCommand(app=self.app))
         self.register_command(HelloCommand())
-        self.register_command(CreateFailoverRouteCommand())
-        self.register_command(RouteAppendCommand())
-        self.register_command(RoutePrependCommand())
-        self.register_command(DeleteFailoverRouteCommand())
-        self.register_command(RouteClearCommand())
-        self.register_command(ListFailoverRoutesCommand())
-        self.register_command(RouteListCommand())
+        self.register_command(CreateFailoverRouteCommand(self.app))
+        self.register_command(RouteAppendCommand(self.app))
+        self.register_command(RoutePrependCommand(self.app))
+        self.register_command(DeleteFailoverRouteCommand(self.app))
+        self.register_command(RouteClearCommand(self.app))
+        self.register_command(ListFailoverRoutesCommand(self.app))
+        self.register_command(RouteListCommand(self.app))
         self.results: List[CommandResult] = []
 
     def register_command(self, command: BaseCommand) -> None:
