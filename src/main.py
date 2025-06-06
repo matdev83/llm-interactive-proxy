@@ -67,7 +67,9 @@ def build_app(cfg: Dict[str, Any] | None = None) -> FastAPI:
                 key_name, api_key = openrouter_api_keys_list[0]
                 await openrouter_backend.initialize(
                     openrouter_api_base_url=cfg["openrouter_api_base_url"],
-                    openrouter_headers_provider=lambda n, k: get_openrouter_headers(cfg, k),
+                    openrouter_headers_provider=lambda n, k: get_openrouter_headers(
+                        cfg, k
+                    ),
                     key_name=key_name,
                     api_key=api_key,
                 )
@@ -108,6 +110,7 @@ def build_app(cfg: Dict[str, Any] | None = None) -> FastAPI:
             else:
                 backend_type = "openrouter"
         app.state.backend_type = backend_type
+        app.state.initial_backend_type = backend_type
 
         backend = gemini_backend if backend_type == "gemini" else openrouter_backend
         app.state.backend = backend
@@ -119,7 +122,9 @@ def build_app(cfg: Dict[str, Any] | None = None) -> FastAPI:
         app.state.default_api_key_redaction_enabled = cfg.get(
             "redact_api_keys_in_prompts", True
         )
-        app.state.api_key_redaction_enabled = app.state.default_api_key_redaction_enabled
+        app.state.api_key_redaction_enabled = (
+            app.state.default_api_key_redaction_enabled
+        )
         app.state.rate_limits = RateLimitRegistry()
         yield
         await client.aclose()
@@ -166,7 +171,7 @@ def build_app(cfg: Dict[str, Any] | None = None) -> FastAPI:
 
         parser = CommandParser(
             proxy_state,
-            http_request.app, # Pass the app instance
+            http_request.app,  # Pass the app instance
             command_prefix=http_request.app.state.command_prefix,
             preserve_unknown=not proxy_state.interactive_mode,
             functional_backends=http_request.app.state.functional_backends,
@@ -359,7 +364,7 @@ def build_app(cfg: Dict[str, Any] | None = None) -> FastAPI:
             policy = route.get("policy", "k")
             if policy == "k" and elems:
                 b, m = elems[0].split(":", 1)
-                for kname, key in _keys_for(cfg, b): # Pass cfg
+                for kname, key in _keys_for(cfg, b):  # Pass cfg
                     attempts.append((b, m, kname, key))
             elif policy == "m":
                 for el in elems:
@@ -372,11 +377,11 @@ def build_app(cfg: Dict[str, Any] | None = None) -> FastAPI:
             elif policy == "km":
                 for el in elems:
                     b, m = el.split(":", 1)
-                    for kname, key in _keys_for(cfg, b): # Pass cfg
+                    for kname, key in _keys_for(cfg, b):  # Pass cfg
                         attempts.append((b, m, kname, key))
             elif policy == "mk":
                 backends_used = {el.split(":", 1)[0] for el in elems}
-                key_map = {b: _keys_for(cfg, b) for b in backends_used} # Pass cfg
+                key_map = {b: _keys_for(cfg, b) for b in backends_used}  # Pass cfg
                 max_len = max(len(v) for v in key_map.values()) if key_map else 0
                 for i in range(max_len):
                     for el in elems:
@@ -385,7 +390,7 @@ def build_app(cfg: Dict[str, Any] | None = None) -> FastAPI:
                             kname, key = key_map[b][i]
                             attempts.append((b, m, kname, key))
         else:
-            default_keys = _keys_for(cfg, backend_type) # Pass cfg
+            default_keys = _keys_for(cfg, backend_type)  # Pass cfg
             if not default_keys:
                 raise HTTPException(
                     status_code=500,
@@ -412,17 +417,23 @@ def build_app(cfg: Dict[str, Any] | None = None) -> FastAPI:
                 used_backend = b
                 used_model = m
                 success = True
-                logger.debug(f"Attempt successful for backend: {b}, model: {m}, key_name: {kname}")
+                logger.debug(
+                    f"Attempt successful for backend: {b}, model: {m}, key_name: {kname}"
+                )
                 break
             except HTTPException as e:
-                logger.debug(f"Attempt failed for backend: {b}, model: {m}, key_name: {kname} with HTTPException: {e.status_code} - {e.detail}")
+                logger.debug(
+                    f"Attempt failed for backend: {b}, model: {m}, key_name: {kname} with HTTPException: {e.status_code} - {e.detail}"
+                )
                 if e.status_code == 429:
                     last_error = e
                     continue
                 raise
         if not success:
             error_msg = last_error.detail if last_error else "all backends failed"
-            status_code = last_error.status_code if last_error else 500 # Use last_error's status code, default to 500
+            status_code = (
+                last_error.status_code if last_error else 500
+            )  # Use last_error's status code, default to 500
 
             # Always return a valid OpenAI-compatible response structure
             response_content = {
@@ -435,17 +446,23 @@ def build_app(cfg: Dict[str, Any] | None = None) -> FastAPI:
                         "index": 0,
                         "message": {
                             "role": "assistant",
-                            "content": f"All backends failed: {error_msg}"
+                            "content": f"All backends failed: {error_msg}",
                         },
-                        "finish_reason": "error"
+                        "finish_reason": "error",
                     }
                 ],
-                "usage": {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},
+                "usage": {
+                    "prompt_tokens": 0,
+                    "completion_tokens": 0,
+                    "total_tokens": 0,
+                },
                 "error": error_msg,
             }
-            raise HTTPException(status_code=status_code, detail=response_content) # Raise HTTPException with correct status code
+            raise HTTPException(
+                status_code=status_code, detail=response_content
+            )  # Raise HTTPException with correct status code
 
-        logging.debug(f"Response from _call_backend: {response}") # Added debug log
+        logging.debug(f"Response from _call_backend: {response}")  # Added debug log
 
         # At this point, response is expected to be a dictionary or StreamingResponse.
         if isinstance(response, StreamingResponse):
@@ -464,12 +481,14 @@ def build_app(cfg: Dict[str, Any] | None = None) -> FastAPI:
         if response is None:
             backend_response: Dict[str, Any] = {}
         else:
-            backend_response: Dict[str, Any] = response # Changed to direct assignment
+            backend_response: Dict[str, Any] = response  # Changed to direct assignment
 
         logging.debug(f"Backend response before defensive check: {backend_response}")
         logging.debug(f"Type of backend_response: {type(backend_response)}")
         logging.debug(f"'choices' in backend_response: {'choices' in backend_response}")
-        logging.debug(f"backend_response.get('choices'): {backend_response.get('choices')}")
+        logging.debug(
+            f"backend_response.get('choices'): {backend_response.get('choices')}"
+        )
 
         # Defensive: ensure choices key exists for downstream code
         if "choices" not in backend_response:
@@ -477,14 +496,18 @@ def build_app(cfg: Dict[str, Any] | None = None) -> FastAPI:
                 {
                     "index": 0,
                     "message": {"role": "assistant", "content": "(no response)"},
-                    "finish_reason": "error"
+                    "finish_reason": "error",
                 }
             ]
 
         if isinstance(backend_response, dict):
-            logging.debug(f"Backend response (non-streaming): {json.dumps(backend_response, indent=2)}")
+            logging.debug(
+                f"Backend response (non-streaming): {json.dumps(backend_response, indent=2)}"
+            )
         else:
-            logging.debug(f"Backend response (non-streaming): {backend_response}") # Log as is if not a dict
+            logging.debug(
+                f"Backend response (non-streaming): {backend_response}"
+            )  # Log as is if not a dict
 
         if proxy_state.interactive_mode:
             prefix_parts = []
@@ -503,7 +526,7 @@ def build_app(cfg: Dict[str, Any] | None = None) -> FastAPI:
                     if orig
                     else "\n".join(prefix_parts)
                 )
-        
+
         usage_data = backend_response.get("usage")
         session.add_interaction(
             SessionInteraction(
@@ -525,7 +548,7 @@ def build_app(cfg: Dict[str, Any] | None = None) -> FastAPI:
         )
         proxy_state.hello_requested = False
         proxy_state.interactive_just_enabled = False
-        logging.debug(f"Final backend_response: {backend_response}") # Added debug log
+        logging.debug(f"Final backend_response: {backend_response}")  # Added debug log
         return backend_response
 
     @app.get("/models")
@@ -543,8 +566,8 @@ def build_app(cfg: Dict[str, Any] | None = None) -> FastAPI:
     async def list_models(http_request: Request):
         backend = http_request.app.state.backend
         current_backend_type = http_request.app.state.backend_type
-        
-        keys_for_current_backend = _keys_for(cfg, current_backend_type) # Pass cfg
+
+        keys_for_current_backend = _keys_for(cfg, current_backend_type)  # Pass cfg
         if not keys_for_current_backend:
             raise HTTPException(
                 status_code=500,
