@@ -3,6 +3,7 @@ from __future__ import annotations
 import httpx
 import json
 import logging
+import time
 from typing import Union, Dict, Any, Optional
 
 from fastapi import HTTPException
@@ -41,6 +42,62 @@ class GeminiBackend(LLMBackend):
     def get_available_models(self) -> list[str]:
         """Return cached Gemini model names."""
         return list(self.available_models)
+
+    def _convert_stream_chunk(self, data: Dict[str, Any], model: str) -> Dict[str, Any]:
+        """Convert a Gemini streaming JSON chunk to OpenAI format."""
+        candidate = {}
+        text = ""
+        if data.get("candidates"):
+            candidate = data["candidates"][0] or {}
+            parts = candidate.get("content", {}).get("parts", [])
+            for part in parts:
+                if isinstance(part, dict) and "text" in part:
+                    text += part["text"]
+        finish = candidate.get("finishReason")
+        return {
+            "id": data.get("id", ""),
+            "object": "chat.completion.chunk",
+            "created": int(time.time()),
+            "model": model,
+            "choices": [
+                {
+                    "index": candidate.get("index", 0),
+                    "delta": {"content": text},
+                    "finish_reason": finish.lower() if isinstance(finish, str) else None,
+                }
+            ],
+        }
+
+    def _convert_full_response(self, data: Dict[str, Any], model: str) -> Dict[str, Any]:
+        """Convert a Gemini JSON response to OpenAI format."""
+        candidate = {}
+        text = ""
+        if data.get("candidates"):
+            candidate = data["candidates"][0] or {}
+            parts = candidate.get("content", {}).get("parts", [])
+            for part in parts:
+                if isinstance(part, dict) and "text" in part:
+                    text += part["text"]
+        finish = candidate.get("finishReason")
+        usage = data.get("usageMetadata", {})
+        return {
+            "id": data.get("id", ""),
+            "object": "chat.completion",
+            "created": int(time.time()),
+            "model": model,
+            "choices": [
+                {
+                    "index": candidate.get("index", 0),
+                    "message": {"role": "assistant", "content": text},
+                    "finish_reason": finish.lower() if isinstance(finish, str) else None,
+                }
+            ],
+            "usage": {
+                "prompt_tokens": usage.get("promptTokenCount", 0),
+                "completion_tokens": usage.get("candidatesTokenCount", 0),
+                "total_tokens": usage.get("totalTokenCount", 0),
+            },
+        }
 
     async def chat_completions(
         self,
@@ -96,13 +153,25 @@ class GeminiBackend(LLMBackend):
             try:
 
                 async def stream_generator():
+                    buffer = ""
                     try:
-                        async with self.client.stream(
-                            "POST", url, json=payload
-                        ) as response:
+                        async with self.client.stream("POST", url, json=payload) as response:
                             response.raise_for_status()
-                            async for chunk in response.aiter_bytes():
-                                yield chunk
+                            async for chunk in response.aiter_text():
+                                buffer += chunk
+                                while "\n" in buffer:
+                                    line, buffer = buffer.split("\n", 1)
+                                    line = line.strip()
+                                    if not line:
+                                        continue
+                                    data = json.loads(line)
+                                    converted = self._convert_stream_chunk(data, effective_model)
+                                    yield f"data: {json.dumps(converted)}\n\n".encode()
+                        if buffer.strip():
+                            data = json.loads(buffer.strip())
+                            converted = self._convert_stream_chunk(data, effective_model)
+                            yield f"data: {json.dumps(converted)}\n\n".encode()
+                        yield b"data: [DONE]\n\n"
                     except httpx.HTTPStatusError as e_stream:
                         logger.info(
                             "Caught httpx.HTTPStatusError in Gemini stream_generator"
@@ -131,9 +200,7 @@ class GeminiBackend(LLMBackend):
                             },
                         )
 
-                return StreamingResponse(
-                    stream_generator(), media_type="text/event-stream"
-                )
+                return StreamingResponse(stream_generator(), media_type="text/event-stream")
             except httpx.RequestError as e:
                 logger.error(f"Request error connecting to Gemini: {e}", exc_info=True)
                 raise HTTPException(
@@ -152,7 +219,8 @@ class GeminiBackend(LLMBackend):
                 raise HTTPException(
                     status_code=response.status_code, detail=error_detail
                 )
-            return response.json()
+            data = response.json()
+            return self._convert_full_response(data, effective_model)
         except httpx.RequestError as e:
             logger.error(f"Request error connecting to Gemini: {e}", exc_info=True)
             raise HTTPException(

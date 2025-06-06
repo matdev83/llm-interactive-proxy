@@ -40,16 +40,17 @@ async def test_chat_completions_streaming_success(
     sample_chat_request_data.stream = True
     effective_model = "gemini-1"
 
+    # Gemini returns plain JSON lines, not SSE
     stream_chunks = [
-        b'data: {"candidates": [{"content": {"parts": [{"text": "Hello"}]}}]}\n\n',
-        b"data: [DONE]\n\n",
+        b'{"candidates": [{"content": {"parts": [{"text": "Hello"}]}}]}\n',
+        b'{"candidates": [{"finishReason": "STOP"}]}\n',
     ]
     httpx_mock.add_response(
         url=f"{TEST_GEMINI_API_BASE_URL}/v1beta/models/{effective_model}:streamGenerateContent?key=FAKE_KEY",
         method="POST",
         stream=httpx.ByteStream(b"".join(stream_chunks)),
         status_code=200,
-        headers={"Content-Type": "text/event-stream"},
+        headers={"Content-Type": "application/json"},
     )
 
     response = await gemini_backend.chat_completions(
@@ -64,12 +65,15 @@ async def test_chat_completions_streaming_success(
 
     assert isinstance(response, StreamingResponse)
 
-    content = b""
+    chunks = []
     async for chunk in response.body_iterator:
-        content += chunk
+        chunks.append(chunk)
 
-    expected_content = b"".join(stream_chunks)
-    assert content == expected_content
+    joined = b"".join(chunks)
+    parts = joined.split(b"\n\n")
+    first = json.loads(parts[0][len(b"data: "):])
+    assert first["choices"][0]["delta"]["content"] == "Hello"
+    assert parts[-2] == b"data: [DONE]"
 
     request = httpx_mock.get_request()
     assert request is not None
