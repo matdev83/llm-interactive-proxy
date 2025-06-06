@@ -43,12 +43,19 @@ def build_app(cfg: Dict[str, Any] | None = None, *, config_file: str | None = No
     disable_auth = cfg.get("disable_auth", False)
     api_key = os.getenv("LLM_INTERACTIVE_PROXY_API_KEY")
     generated_key = False
-    if not api_key:
-        api_key = secrets.token_urlsafe(32)
-        generated_key = True
-        logger.warning("No client API key provided, generated one: %s", api_key)
-        if not any(isinstance(h, logging.StreamHandler) for h in logger.handlers):
-            sys.stdout.write(f"Generated client API key: {api_key}\n")
+    if not disable_auth:
+        if not api_key:
+            api_key = secrets.token_urlsafe(32)
+            generated_key = True
+            logger.warning(
+                "No client API key provided, generated one: %s", api_key
+            )
+            if not any(
+                isinstance(h, logging.StreamHandler) for h in logger.handlers
+            ):
+                sys.stdout.write(f"Generated client API key: {api_key}\n")
+    else:
+        api_key = api_key or None
 
     project_name, project_version = _load_project_metadata()
 
@@ -627,70 +634,15 @@ def build_app(cfg: Dict[str, Any] | None = None, *, config_file: str | None = No
 
     @app.get("/v1/models", dependencies=[Depends(verify_client_auth)])
     async def list_models(http_request: Request):
-        backend = http_request.app.state.backend
-        current_backend_type = http_request.app.state.backend_type
-
-        keys_for_current_backend = _keys_for(cfg, current_backend_type)  # Pass cfg
-        if not keys_for_current_backend:
-            raise HTTPException(
-                status_code=500,
-                detail=f"No API keys configured for the current backend: {current_backend_type}",
-            )
-        key_name, api_key = keys_for_current_backend[0]
-
-        if current_backend_type == "gemini":
-            retry_at = http_request.app.state.rate_limits.get(
-                "gemini", "<list_models>", key_name
-            )
-            if retry_at:
-                raise HTTPException(
-                    status_code=429,
-                    detail={
-                        "message": "Backend rate limited, retry later",
-                        "retry_after": int(retry_at - time.time()),
-                    },
-                )
-            try:
-                return await backend.list_models(
-                    gemini_api_base_url=cfg["gemini_api_base_url"],
-                    key_name=key_name,
-                    api_key=api_key,
-                )
-            except HTTPException as e:
-                if e.status_code == 429:
-                    delay = parse_retry_delay(e.detail)
-                    if delay:
-                        http_request.app.state.rate_limits.set(
-                            "gemini", "<list_models>", key_name, delay
-                        )
-                raise
-        # This part is for openrouter
-        retry_at = http_request.app.state.rate_limits.get(
-            "openrouter", "<list_models>", key_name
-        )
-        if retry_at:
-            raise HTTPException(
-                status_code=429,
-                detail={
-                    "message": "Backend rate limited, retry later",
-                    "retry_after": int(retry_at - time.time()),
-                },
-            )
-        try:
-            return await backend.list_models(
-                openrouter_api_base_url=cfg["openrouter_api_base_url"],
-                openrouter_headers_provider=lambda n, k: get_openrouter_headers(cfg, k),
-                key_name=key_name,
-                api_key=api_key,
-            )
-        except HTTPException as e:
-            if e.status_code == 429:
-                delay = parse_retry_delay(e.detail)
-                if delay:
-                    http_request.app.state.rate_limits.set(
-                        "openrouter", "<list_models>", key_name, delay
-                    )
-            raise
+        """Return cached models from all functional backends in OpenAI format."""
+        data = []
+        if "openrouter" in http_request.app.state.functional_backends:
+            for m in http_request.app.state.openrouter_backend.get_available_models():
+                data.append({"id": f"openrouter:{m}"})
+        if "gemini" in http_request.app.state.functional_backends:
+            for m in http_request.app.state.gemini_backend.get_available_models():
+                data.append({"id": f"gemini:{m}"})
+        return {"object": "list", "data": data}
 
     return app
 

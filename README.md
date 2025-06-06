@@ -10,8 +10,9 @@ This project provides an intercepting proxy server that is compatible with the O
 - **Dynamic Model Override** – commands like `!/set(model=...)` change the model for subsequent requests.
 - **Multiple Backends** – forward requests to OpenRouter or Google Gemini, chosen with `LLM_BACKEND`.
 - **Streaming and Non‑Streaming Support** for both OpenRouter and Gemini backends.
-- **Aggregated Model Listing** – the `/models` endpoint returns the union of all
-  models discovered from configured backends, prefixed with the backend name.
+- **Aggregated Model Listing** – the `/models` and `/v1/models` endpoints return
+  the union of all models discovered from configured backends, prefixed with the
+  backend name.
 - **Session History Tracking** – optional per-session logs using the `X-Session-ID` header.
 - **Agent Detection** – recognizes popular coding agents and formats proxy responses accordingly.
 - **CLI Configuration** – command line flags can override environment variables for quick testing, including interactive mode.
@@ -100,7 +101,8 @@ By default the server expects an API key from connecting clients. Set the key in
 the `LLM_INTERACTIVE_PROXY_API_KEY` environment variable or let the server
 generate one on startup. The value must be supplied in the `Authorization`
 header using the `Bearer <key>` scheme. Authentication can be disabled with the
-`--disable-auth` flag, but this is only allowed when binding to `127.0.0.1`.
+`--disable-auth` flag (only allowed when binding to `127.0.0.1`). When disabled,
+no client API key is generated or checked.
 
 ### Running Tests
 

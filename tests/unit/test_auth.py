@@ -30,3 +30,14 @@ def test_disable_auth(monkeypatch):
         assert resp.status_code != 401
     monkeypatch.delenv("LLM_INTERACTIVE_PROXY_API_KEY", raising=False)
     monkeypatch.delenv("DISABLE_AUTH", raising=False)
+
+
+def test_disable_auth_no_key_generated(monkeypatch):
+    monkeypatch.delenv("LLM_INTERACTIVE_PROXY_API_KEY", raising=False)
+    monkeypatch.setenv("DISABLE_AUTH", "true")
+    app = build_app()
+    assert app.state.client_api_key is None
+    with TestClient(app) as client:
+        resp = client.get("/v1/models")
+        assert resp.status_code == 200
+    monkeypatch.delenv("DISABLE_AUTH", raising=False)
