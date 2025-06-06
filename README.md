@@ -16,6 +16,7 @@ This project provides an intercepting proxy server that is compatible with the O
 - **CLI Configuration** – command line flags can override environment variables for quick testing, including interactive mode.
 - **Persistent Configuration** – use `--config config/file.json` to save and reload failover routes and defaults across restarts.
 - **Configurable Interactive Mode** – enable or disable interactive mode by default via environment variable, CLI argument, or in-chat commands.
+- **Interactive Welcome Banner** – shows functional backends with API key and model counts when interactive mode is enabled.
 - **Prompt API Key Redaction** – redact configured API keys from prompts. Enabled by default; can be turned off via the `--disable-redact-api-keys-in-prompts` CLI flag, environment variable, or commands.
 
 ## Getting Started

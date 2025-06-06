@@ -12,6 +12,9 @@ def test_banner_on_first_reply(interactive_client):
     content = resp.json()["choices"][0]["message"]["content"]
     assert "Hello, this is" in content
     assert "Session id" in content
+    assert "Functional backends:" in content
+    assert "openrouter (K:2, M:1)" in content
+    assert "gemini (K:1, M:1)" in content
     assert "backend" in content
     mock_method.assert_called_once()
 
@@ -24,4 +27,8 @@ def test_hello_command_returns_banner(interactive_client):
     assert resp.status_code == 200
     data = resp.json()
     assert data["id"] == "proxy_cmd_processed"
-    assert "Hello, this is" in data["choices"][0]["message"]["content"]
+    content = data["choices"][0]["message"]["content"]
+    assert "Hello, this is" in content
+    assert "Functional backends:" in content
+    assert "openrouter (K:2, M:1)" in content
+    assert "gemini (K:1, M:1)" in content
