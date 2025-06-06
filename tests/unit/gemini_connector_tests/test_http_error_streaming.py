@@ -29,41 +29,28 @@ async def test_chat_completions_http_error_streaming(
     sample_chat_request_data.stream = True
     error_text_response = "Gemini internal server error"
 
-    def mock_stream_method(self, method, url, **kwargs):
-        mock_response = httpx.Response(
+    async def mock_send(self, request, **kwargs):
+        return httpx.Response(
             status_code=500,
-            request=httpx.Request(method, url),
-            stream=httpx.ByteStream(error_text_response.encode("utf-8")),
+            request=request,
+            content=error_text_response.encode("utf-8"),
             headers={"Content-Type": "text/plain"},
         )
 
-        class MockAsyncStream:
-            async def __aenter__(self):
-                return mock_response
-
-            async def __aexit__(self, exc_type, exc_val, exc_tb):
-                pass
-
-        return MockAsyncStream()
-
-    monkeypatch.setattr(httpx.AsyncClient, "stream", mock_stream_method)
+    monkeypatch.setattr(httpx.AsyncClient, "send", mock_send)
 
     async with httpx.AsyncClient() as client:
         gemini_backend = GeminiBackend(client=client)
-        response = await gemini_backend.chat_completions(
-            request_data=sample_chat_request_data,
-            processed_messages=sample_processed_messages,
-            effective_model="test-model",
-            openrouter_api_base_url=TEST_GEMINI_API_BASE_URL,
-            openrouter_headers_provider=None,
-            key_name="GEMINI_API_KEY_1",
-            api_key="FAKE_KEY",
-        )
-        assert isinstance(response, StreamingResponse)
-
         with pytest.raises(HTTPException) as exc_info:
-            async for _ in response.body_iterator:
-                pass
+            await gemini_backend.chat_completions(
+                request_data=sample_chat_request_data,
+                processed_messages=sample_processed_messages,
+                effective_model="test-model",
+                openrouter_api_base_url=TEST_GEMINI_API_BASE_URL,
+                openrouter_headers_provider=None,
+                key_name="GEMINI_API_KEY_1",
+                api_key="FAKE_KEY",
+            )
 
     assert exc_info.value.status_code == 500
     detail = exc_info.value.detail
