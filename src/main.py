@@ -3,6 +3,9 @@ from __future__ import annotations
 import json
 import logging
 import time
+import os
+import secrets
+import sys
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from typing import Any, Dict, Union
@@ -10,7 +13,7 @@ from typing import Any, Dict, Union
 logger = logging.getLogger(__name__)
 
 import httpx
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, HTTPException, Request, Depends
 from fastapi.responses import StreamingResponse
 
 from src import models
@@ -35,6 +38,16 @@ from src.core.persistence import ConfigManager
 
 def build_app(cfg: Dict[str, Any] | None = None, *, config_file: str | None = None) -> FastAPI:
     cfg = cfg or _load_config()
+
+    disable_auth = cfg.get("disable_auth", False)
+    api_key = os.getenv("LLM_INTERACTIVE_PROXY_API_KEY")
+    generated_key = False
+    if not api_key:
+        api_key = secrets.token_urlsafe(32)
+        generated_key = True
+        logger.warning("No client API key provided, generated one: %s", api_key)
+        if not any(isinstance(h, logging.StreamHandler) for h in logger.handlers):
+            sys.stdout.write(f"Generated client API key: {api_key}\n")
 
     project_name, project_version = _load_project_metadata()
 
@@ -141,6 +154,18 @@ def build_app(cfg: Dict[str, Any] | None = None, *, config_file: str | None = No
         await client.aclose()
 
     app = FastAPI(lifespan=lifespan)
+    app.state.client_api_key = api_key
+    app.state.disable_auth = disable_auth
+
+    async def verify_client_auth(http_request: Request) -> None:
+        if http_request.app.state.disable_auth:
+            return
+        auth_header = http_request.headers.get("authorization")
+        if not auth_header or not auth_header.startswith("Bearer "):
+            raise HTTPException(status_code=401, detail="Unauthorized")
+        token = auth_header.split(" ", 1)[1]
+        if token != http_request.app.state.client_api_key:
+            raise HTTPException(status_code=401, detail="Unauthorized")
 
     @app.get("/")
     async def root():
@@ -151,6 +176,7 @@ def build_app(cfg: Dict[str, Any] | None = None, *, config_file: str | None = No
         response_model=Union[
             models.CommandProcessedChatCompletionResponse, Dict[str, Any]
         ],
+        dependencies=[Depends(verify_client_auth)],
     )
     async def chat_completions(
         request_data: models.ChatCompletionRequest, http_request: Request
@@ -562,7 +588,7 @@ def build_app(cfg: Dict[str, Any] | None = None, *, config_file: str | None = No
         logging.debug(f"Final backend_response: {backend_response}")  # Added debug log
         return backend_response
 
-    @app.get("/models")
+    @app.get("/models", dependencies=[Depends(verify_client_auth)])
     async def list_all_models(http_request: Request):
         data = []
         if "openrouter" in http_request.app.state.functional_backends:
@@ -573,7 +599,7 @@ def build_app(cfg: Dict[str, Any] | None = None, *, config_file: str | None = No
                 data.append({"id": f"gemini:{m}"})
         return {"object": "list", "data": data}
 
-    @app.get("/v1/models")
+    @app.get("/v1/models", dependencies=[Depends(verify_client_auth)])
     async def list_models(http_request: Request):
         backend = http_request.app.state.backend
         current_backend_type = http_request.app.state.backend_type

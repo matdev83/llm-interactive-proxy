@@ -9,7 +9,7 @@ def test_models_endpoint_lists_all(monkeypatch):
     monkeypatch.setenv("GEMINI_API_KEY_1", "K2") # Changed to numbered key
     monkeypatch.setenv("LLM_BACKEND", "openrouter")
     app = app_main.build_app()
-    with TestClient(app) as client:
+    with TestClient(app, headers={"Authorization": "Bearer test-proxy-key"}) as client:
         resp = client.get("/models")
         assert resp.status_code == 200
         ids = {m["id"] for m in resp.json()["data"]}

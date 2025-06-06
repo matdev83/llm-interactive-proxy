@@ -57,6 +57,7 @@ def configured_app():
     os.environ["OPENROUTER_API_KEY_1"] = "dummy-openrouter-key-1"
     os.environ["OPENROUTER_API_KEY_2"] = "dummy-openrouter-key-2" # Add a second key
     os.environ["GEMINI_API_KEY"] = "dummy-gemini-key"
+    os.environ["LLM_INTERACTIVE_PROXY_API_KEY"] = "test-proxy-key"
     os.environ["LLM_BACKEND"] = "openrouter" # Explicitly set a default backend
     # This will call _load_config internally, which will pick up the env vars
     app = build_app()
@@ -68,6 +69,8 @@ def configured_app():
         del os.environ["OPENROUTER_API_KEY_2"]
     if "GEMINI_API_KEY" in os.environ:
         del os.environ["GEMINI_API_KEY"]
+    if "LLM_INTERACTIVE_PROXY_API_KEY" in os.environ:
+        del os.environ["LLM_INTERACTIVE_PROXY_API_KEY"]
     if "LLM_BACKEND" in os.environ: # Clean up LLM_BACKEND
         del os.environ["LLM_BACKEND"]
 
@@ -75,6 +78,7 @@ def configured_app():
 def client(configured_app):
     """TestClient for the configured FastAPI app."""
     with TestClient(configured_app) as c:
+        c.headers.update({"Authorization": "Bearer test-proxy-key"})
         yield c
 
 @pytest.fixture(scope="session")
@@ -96,6 +100,7 @@ def configured_interactive_app():
     os.environ["OPENROUTER_API_KEY_2"] = "dummy-openrouter-key-2" # Add a second key
     os.environ["GEMINI_API_KEY"] = "dummy-gemini-key"
     os.environ["INTERACTIVE_MODE"] = "true"
+    os.environ["LLM_INTERACTIVE_PROXY_API_KEY"] = "test-proxy-key"
     os.environ["LLM_BACKEND"] = "openrouter" # Explicitly set a default backend
     app = build_app()
     yield app
@@ -110,11 +115,14 @@ def configured_interactive_app():
         del os.environ["INTERACTIVE_MODE"]
     if "LLM_BACKEND" in os.environ: # Clean up LLM_BACKEND
         del os.environ["LLM_BACKEND"]
+    if "LLM_INTERACTIVE_PROXY_API_KEY" in os.environ:
+        del os.environ["LLM_INTERACTIVE_PROXY_API_KEY"]
 
 @pytest.fixture
 def interactive_client(configured_interactive_app):
     """TestClient for the configured FastAPI app in interactive mode."""
     with TestClient(configured_interactive_app) as c:
+        c.headers.update({"Authorization": "Bearer test-proxy-key"})
         yield c
 
 

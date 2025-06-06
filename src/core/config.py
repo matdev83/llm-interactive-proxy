@@ -65,6 +65,7 @@ def _load_config() -> Dict[str, Any]:
         "redact_api_keys_in_prompts": _str_to_bool(
             os.getenv("REDACT_API_KEYS_IN_PROMPTS"), True
         ),
+        "disable_auth": _str_to_bool(os.getenv("DISABLE_AUTH"), False),
     }
 
 

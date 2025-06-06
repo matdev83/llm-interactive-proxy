@@ -55,7 +55,7 @@ def test_failover_missing_keys(monkeypatch, httpx_mock: HTTPXMock):
     from fastapi.testclient import TestClient
 
     app = app_main.build_app()
-    with TestClient(app) as client:
+    with TestClient(app, headers={"Authorization": "Bearer test-proxy-key"}) as client:
         client.post(
             "/v1/chat/completions",
             json={

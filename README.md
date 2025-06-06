@@ -57,6 +57,9 @@ These instructions will get you a copy of the project up and running on your loc
     # GEMINI_API_KEY="your_gemini_api_key_here"
     # GEMINI_API_KEY_1="first_gemini_key"
 
+    # Client API key for accessing this proxy
+    # LLM_INTERACTIVE_PROXY_API_KEY="choose_a_secret_key"
+
     # Enable or disable prompt redaction (default true)
     # REDACT_API_KEYS_IN_PROMPTS="false"  # same as passing --disable-redact-api-keys-in-prompts
     ```
@@ -90,6 +93,12 @@ The server will typically start on `http://127.0.0.1:8000` (or as configured in 
 `INFO:     Waiting for application startup.`
 `INFO:     Application startup complete.`
 `INFO:     Uvicorn running on http://127.0.0.1:8000 (Press CTRL+C to quit)`
+
+By default the server expects an API key from connecting clients. Set the key in
+the `LLM_INTERACTIVE_PROXY_API_KEY` environment variable or let the server
+generate one on startup. The value must be supplied in the `Authorization`
+header using the `Bearer <key>` scheme. Authentication can be disabled with the
+`--disable-auth` flag, but this is only allowed when binding to `127.0.0.1`.
 
 ### Running Tests
 

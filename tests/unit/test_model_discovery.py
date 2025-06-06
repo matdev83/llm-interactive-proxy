@@ -16,7 +16,7 @@ def test_openrouter_models_cached(monkeypatch):
     response = {"data": [{"id": "m1"}, {"id": "m2"}]}
     with patch.object(OpenRouterBackend, "list_models", new=AsyncMock(return_value=response)) as mock_list:
         app = app_main.build_app()
-        with TestClient(app) as client:
+        with TestClient(app, headers={"Authorization": "Bearer test-proxy-key"}) as client:
             assert client.app.state.openrouter_backend.get_available_models() == ["m1", "m2"]
             mock_list.assert_awaited_once()
 
@@ -33,7 +33,7 @@ def test_gemini_models_cached(monkeypatch):
     with patch.object(GeminiBackend, "list_models", new=AsyncMock(return_value=response)) as mock_list:
         app = app_main.build_app()
         from fastapi.testclient import TestClient
-        with TestClient(app) as client:
+        with TestClient(app, headers={"Authorization": "Bearer test-proxy-key"}) as client:
             assert client.app.state.gemini_backend.get_available_models() == ["g1"]
             mock_list.assert_awaited_once()
 
@@ -49,7 +49,7 @@ def test_auto_default_backend(monkeypatch):
     with patch.object(OpenRouterBackend, "list_models", new=AsyncMock(return_value=resp)):
         app = app_main.build_app()
         from fastapi.testclient import TestClient
-        with TestClient(app) as client:
+        with TestClient(app, headers={"Authorization": "Bearer test-proxy-key"}) as client:
             assert client.app.state.backend_type == "openrouter"
             assert client.app.state.functional_backends == {"openrouter"}
 
@@ -68,5 +68,5 @@ def test_multiple_backends_requires_arg(monkeypatch):
             app = app_main.build_app()
             from fastapi.testclient import TestClient
             with pytest.raises(ValueError):
-                with TestClient(app):
+                with TestClient(app, headers={"Authorization": "Bearer test-proxy-key"}):
                     pass

@@ -3,9 +3,27 @@ import os
 import logging
 import uvicorn
 from typing import Any, Dict
+import sys
 
 from src.core.config import _load_config
 from src.main import build_app # Temporarily import from src.main
+
+
+def _check_privileges() -> None:
+    """Refuse to run the server with elevated privileges."""
+    if os.name != "nt":
+        if hasattr(os, "geteuid") and os.geteuid() == 0:
+            raise SystemExit("Refusing to run as root user")
+    else:  # Windows
+        try:
+            import ctypes
+
+            if ctypes.windll.shell32.IsUserAnAdmin() != 0:
+                raise SystemExit(
+                    "Refusing to run with administrative privileges"
+                )
+        except Exception:
+            pass
 
 def parse_cli_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Run the LLM proxy server")
@@ -48,6 +66,12 @@ def parse_cli_args(argv: list[str] | None = None) -> argparse.Namespace:
         default=None,
         help="Disable API key redaction in prompts",
     )
+    parser.add_argument(
+        "--disable-auth",
+        action="store_true",
+        default=None,
+        help="Disable client API key authentication",
+    )
     return parser.parse_args(argv)
 
 
@@ -63,6 +87,7 @@ def apply_cli_args(args: argparse.Namespace) -> Dict[str, Any]:
         "timeout": "PROXY_TIMEOUT",
         "command_prefix": "COMMAND_PREFIX",
         "interactive_mode": "INTERACTIVE_MODE",
+        "disable_auth": "DISABLE_AUTH",
     }
     for attr, env_name in mappings.items():
         value = getattr(args, attr)
@@ -70,6 +95,8 @@ def apply_cli_args(args: argparse.Namespace) -> Dict[str, Any]:
             os.environ[env_name] = str(value)
     if getattr(args, "disable_redact_api_keys_in_prompts", None):
         os.environ["REDACT_API_KEYS_IN_PROMPTS"] = "false"
+    if getattr(args, "disable_auth", None):
+        os.environ["DISABLE_AUTH"] = "true"
     return _load_config()
 
 
@@ -80,5 +107,18 @@ def main(argv: list[str] | None = None) -> None:
         level=logging.DEBUG,
         format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
     )
+    _check_privileges()
+
+    if cfg.get("disable_auth"):
+        logging.warning("Client authentication is DISABLED")
+        if cfg.get("proxy_host") != "127.0.0.1":
+            logging.warning(
+                "Refusing to run with authentication disabled on non-localhost"
+            )
+            sys.stdout.write(
+                "Authentication disabled but host not 127.0.0.1. Aborting.\n"
+            )
+            raise SystemExit(1)
+
     app = build_app(cfg, config_file=args.config_file)
     uvicorn.run(app, host=cfg["proxy_host"], port=cfg["proxy_port"])

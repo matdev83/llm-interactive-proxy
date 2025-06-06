@@ -14,7 +14,7 @@ def test_save_and_load_persistent_config(tmp_path, monkeypatch):
     monkeypatch.setenv("GEMINI_API_KEY", "G")
     monkeypatch.setenv("LLM_BACKEND", "openrouter")
     app = build_app(config_file=str(cfg_path))
-    with TestClient(app) as client:
+    with TestClient(app, headers={"Authorization": "Bearer test-proxy-key"}) as client:
         client.app.state.failover_routes["r1"] = {"policy": "k", "elements": ["openrouter:model-a"]}
         client.app.state.session_manager.default_interactive_mode = True
         client.app.state.backend_type = "gemini"
@@ -28,7 +28,7 @@ def test_save_and_load_persistent_config(tmp_path, monkeypatch):
     assert data["redact_api_keys_in_prompts"] is False
 
     app2 = build_app(config_file=str(cfg_path))
-    with TestClient(app2) as client2:
+    with TestClient(app2, headers={"Authorization": "Bearer test-proxy-key"}) as client2:
         assert client2.app.state.backend_type == "gemini"
         assert client2.app.state.session_manager.default_interactive_mode is True
         assert client2.app.state.failover_routes["r1"]["elements"] == ["openrouter:model-a"]
@@ -45,6 +45,6 @@ def test_invalid_persisted_backend(tmp_path, monkeypatch):
     monkeypatch.delenv("GEMINI_API_KEY", raising=False)
     monkeypatch.setenv("LLM_BACKEND", "openrouter")
     app = build_app(config_file=str(cfg_path))
-    with TestClient(app) as client:
+    with TestClient(app, headers={"Authorization": "Bearer test-proxy-key"}) as client:
         assert client.app.state.backend_type == "openrouter"
 
