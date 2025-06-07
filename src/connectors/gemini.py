@@ -222,44 +222,39 @@ class GeminiBackend(LLMBackend):
                 async def stream_generator() -> AsyncGenerator[bytes, None]:
                     decoder = json.JSONDecoder()
                     buffer = ""
-                    in_array = False
                     try:
                         async for chunk in response.aiter_text():
                             buffer += chunk
-                            if not in_array:
-                                start = buffer.find("[")
-                                if start == -1:
-                                    buffer = buffer[-1:]
-                                    continue
-                                buffer = buffer[start + 1 :]
-                                in_array = True
                             while True:
-                                buffer = buffer.lstrip()
+                                buffer = buffer.lstrip() # Remove leading whitespace
                                 if not buffer:
-                                    break
-                                if buffer[0] == "]":
-                                    in_array = False
-                                    buffer = buffer[1:]
-                                    break
+                                    break # Nothing left in buffer
                                 try:
+                                    # Attempt to decode a JSON object from the buffer
                                     obj, idx = decoder.raw_decode(buffer)
                                 except json.JSONDecodeError:
+                                    # Not a complete JSON object yet, wait for more data
                                     break
-                                buffer = buffer[idx:].lstrip()
+                                # Successfully decoded, process the object
+                                if isinstance(obj, list): # Handle list of objects
+                                    for item in obj:
+                                        if isinstance(item, dict): # Ensure item is a dict
+                                            converted = self._convert_stream_chunk(
+                                                item, effective_model
+                                            )
+                                            yield f"data: {json.dumps(converted)}\n\n".encode()
+                                        else:
+                                            logger.warning(f"Unexpected item type in Gemini stream: {type(item)}")
+                                else: # obj is a dict
+                                    converted = self._convert_stream_chunk(
+                                        obj, effective_model
+                                    )
+                                    yield f"data: {json.dumps(converted)}\n\n".encode()
+                                # Advance the buffer past the decoded object
+                                buffer = buffer[idx:]
+                                # Handle potential comma separator if multiple objects are in an array
                                 if buffer.startswith(","):
                                     buffer = buffer[1:]
-                                converted = self._convert_stream_chunk(
-                                    obj, effective_model
-                                )
-                                yield f"data: {json.dumps(converted)}\n\n".encode()
-                        if buffer.strip() and buffer.strip() not in {"", "]"}:
-                            buf = buffer.strip().rstrip("]").rstrip(",")
-                            if buf:
-                                obj = json.loads(buf)
-                                converted = self._convert_stream_chunk(
-                                    obj, effective_model
-                                )
-                                yield f"data: {json.dumps(converted)}\n\n".encode()
                         yield b"data: [DONE]\n\n"
                     finally:
                         await response.aclose()
