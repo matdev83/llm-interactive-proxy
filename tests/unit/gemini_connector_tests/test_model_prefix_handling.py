@@ -43,11 +43,12 @@ async def test_chat_completions_model_prefix_handled(
         "usageMetadata": {"promptTokenCount": 1, "candidatesTokenCount": 1, "totalTokenCount": 2},
     }
     httpx_mock.add_response(
-        url=f"{TEST_GEMINI_API_BASE_URL}/v1beta/models/gemini-1:generateContent?key=FAKE_KEY",
+        url=f"{TEST_GEMINI_API_BASE_URL}/v1beta/models/gemini-1:generateContent",
         method="POST",
         json=mock_response_payload,
         status_code=200,
         headers={"Content-Type": "application/json"},
+        match_headers={"x-goog-api-key": "FAKE_KEY"},
     )
 
     response = await gemini_backend.chat_completions(
@@ -63,4 +64,5 @@ async def test_chat_completions_model_prefix_handled(
     assert isinstance(response, dict)
     request = httpx_mock.get_request()
     assert request is not None
-    assert str(request.url) == f"{TEST_GEMINI_API_BASE_URL}/v1beta/models/gemini-1:generateContent?key=FAKE_KEY"
+    assert str(request.url) == f"{TEST_GEMINI_API_BASE_URL}/v1beta/models/gemini-1:generateContent"
+    assert request.headers.get("x-goog-api-key") == "FAKE_KEY"

@@ -35,11 +35,12 @@ async def test_text_part_type_removed(gemini_backend: GeminiBackend, httpx_mock:
         models.ChatMessage(role="user", content=[models.MessageContentPartText(type="text", text="Hi")])
     ]
     httpx_mock.add_response(
-        url=f"{TEST_GEMINI_API_BASE_URL}/v1beta/models/test-model:generateContent?key=FAKE_KEY",
+        url=f"{TEST_GEMINI_API_BASE_URL}/v1beta/models/test-model:generateContent",
         method="POST",
         json={"candidates": [{"content": {"parts": [{"text": "ok"}]}}]},
         status_code=200,
         headers={"Content-Type": "application/json"},
+        match_headers={"x-goog-api-key": "FAKE_KEY"},
     )
 
     await gemini_backend.chat_completions(
@@ -54,6 +55,7 @@ async def test_text_part_type_removed(gemini_backend: GeminiBackend, httpx_mock:
 
     request = httpx_mock.get_request()
     assert request is not None
+    assert request.headers.get("x-goog-api-key") == "FAKE_KEY"
     payload = json.loads(request.content)
     part = payload["contents"][0]["parts"][0]
     assert part == {"text": "Hi"}
@@ -83,11 +85,12 @@ async def test_system_message_filtered(gemini_backend: GeminiBackend, httpx_mock
         models.ChatMessage(role="user", content="Hello"),
     ]
     httpx_mock.add_response(
-        url=f"{TEST_GEMINI_API_BASE_URL}/v1beta/models/test-model:generateContent?key=FAKE_KEY",
+        url=f"{TEST_GEMINI_API_BASE_URL}/v1beta/models/test-model:generateContent",
         method="POST",
         json={"candidates": [{"content": {"parts": [{"text": "ok"}]}}]},
         status_code=200,
         headers={"Content-Type": "application/json"},
+        match_headers={"x-goog-api-key": "FAKE_KEY"},
     )
 
     await gemini_backend.chat_completions(
@@ -102,6 +105,7 @@ async def test_system_message_filtered(gemini_backend: GeminiBackend, httpx_mock
 
     request = httpx_mock.get_request()
     assert request is not None
+    assert request.headers.get("x-goog-api-key") == "FAKE_KEY"
     payload = json.loads(request.content)
     assert len(payload["contents"]) == 1
     assert payload["contents"][0]["role"] == "user"
