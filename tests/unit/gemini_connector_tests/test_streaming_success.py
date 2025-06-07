@@ -47,11 +47,12 @@ async def test_chat_completions_streaming_success(
         b"]",
     ]
     httpx_mock.add_response(
-        url=f"{TEST_GEMINI_API_BASE_URL}/v1beta/models/{effective_model}:streamGenerateContent?key=FAKE_KEY",
+        url=f"{TEST_GEMINI_API_BASE_URL}/v1beta/models/{effective_model}:streamGenerateContent",
         method="POST",
         stream=httpx.ByteStream(b"".join(stream_chunks)),
         status_code=200,
         headers={"Content-Type": "application/json"},
+        match_headers={"x-goog-api-key": "FAKE_KEY"},
     )
 
     response = await gemini_backend.chat_completions(
@@ -78,6 +79,7 @@ async def test_chat_completions_streaming_success(
 
     request = httpx_mock.get_request()
     assert request is not None
+    assert request.headers.get("x-goog-api-key") == "FAKE_KEY"
     sent_payload = json.loads(request.content)
     assert sent_payload["contents"][0]["parts"][0]["text"] == "Hello"
     assert sent_payload.get("stream") is None

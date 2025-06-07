@@ -193,10 +193,14 @@ class GeminiBackend(LLMBackend):
             model_name = model_name.split("/", 1)[1]
         base_url = f"{gemini_api_base_url.rstrip('/')}/v1beta/models/{model_name}"
 
+        headers = {"x-goog-api-key": api_key}
+
         if request_data.stream:
-            url = f"{base_url}:streamGenerateContent?key={api_key}"
+            url = f"{base_url}:streamGenerateContent"
             try:
-                request = self.client.build_request("POST", url, json=payload)
+                request = self.client.build_request(
+                    "POST", url, json=payload, headers=headers
+                )
                 response = await self.client.send(request, stream=True)
                 if response.status_code >= 400:
                     try:
@@ -269,9 +273,9 @@ class GeminiBackend(LLMBackend):
                     detail=f"Service unavailable: Could not connect to Gemini ({e})",
                 )
 
-        url = f"{base_url}:generateContent?key={api_key}"
+        url = f"{base_url}:generateContent"
         try:
-            response = await self.client.post(url, json=payload)
+            response = await self.client.post(url, json=payload, headers=headers)
             if response.status_code >= 400:
                 try:
                     error_detail = response.json()
@@ -296,9 +300,10 @@ class GeminiBackend(LLMBackend):
         key_name: str,
         api_key: str,
     ) -> Dict[str, Any]:
-        url = f"{gemini_api_base_url.rstrip('/')}/v1beta/models?key={api_key}"
+        headers = {"x-goog-api-key": api_key}
+        url = f"{gemini_api_base_url.rstrip('/')}/v1beta/models"
         try:
-            response = await self.client.get(url)
+            response = await self.client.get(url, headers=headers)
             if response.status_code >= 400:
                 try:
                     error_detail = response.json()

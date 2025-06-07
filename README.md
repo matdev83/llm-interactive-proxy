@@ -59,6 +59,7 @@ These instructions will get you a copy of the project up and running on your loc
     # Gemini backend keys follow the same pattern
     # GEMINI_API_KEY="your_gemini_api_key_here"
     # GEMINI_API_KEY_1="first_gemini_key"
+    # Keys are sent using the `x-goog-api-key` header to avoid exposing them in URLs
 
     # Client API key for accessing this proxy
     # LLM_INTERACTIVE_PROXY_API_KEY="choose_a_secret_key"
