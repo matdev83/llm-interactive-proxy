@@ -67,12 +67,16 @@ class GeminiBackend(LLMBackend):
                 {
                     "index": candidate.get("index", 0),
                     "delta": {"content": text},
-                    "finish_reason": finish.lower() if isinstance(finish, str) else None,
+                    "finish_reason": (
+                        finish.lower() if isinstance(finish, str) else None
+                    ),
                 }
             ],
         }
 
-    def _convert_full_response(self, data: Dict[str, Any], model: str) -> Dict[str, Any]:
+    def _convert_full_response(
+        self, data: Dict[str, Any], model: str
+    ) -> Dict[str, Any]:
         """Convert a Gemini JSON response to OpenAI format."""
         candidate = {}
         text = ""
@@ -93,7 +97,9 @@ class GeminiBackend(LLMBackend):
                 {
                     "index": candidate.get("index", 0),
                     "message": {"role": "assistant", "content": text},
-                    "finish_reason": finish.lower() if isinstance(finish, str) else None,
+                    "finish_reason": (
+                        finish.lower() if isinstance(finish, str) else None
+                    ),
                 }
             ],
             "usage": {
@@ -104,7 +110,9 @@ class GeminiBackend(LLMBackend):
         }
 
     def _convert_part_for_gemini(
-        self, part: Union[MessageContentPartText, MessageContentPartImage], prompt_redactor: APIKeyRedactor | None
+        self,
+        part: Union[MessageContentPartText, MessageContentPartImage],
+        prompt_redactor: APIKeyRedactor | None,
     ) -> Dict[str, Any]:
         """Convert a MessageContentPart into Gemini API format."""
         if isinstance(part, MessageContentPartText):
@@ -124,7 +132,9 @@ class GeminiBackend(LLMBackend):
                     b64_data = ""
                 return {"inlineData": {"mimeType": mime, "data": b64_data}}
             # Otherwise treat as remote file URI
-            return {"fileData": {"mimeType": "application/octet-stream", "fileUri": url}}
+            return {
+                "fileData": {"mimeType": "application/octet-stream", "fileUri": url}
+            }
         data = part.model_dump(exclude_unset=True)
         if data.get("type") == "text" and "text" in data:
             if prompt_redactor:
@@ -210,27 +220,53 @@ class GeminiBackend(LLMBackend):
                     )
 
                 async def stream_generator() -> AsyncGenerator[bytes, None]:
+                    decoder = json.JSONDecoder()
                     buffer = ""
+                    in_array = False
                     try:
                         async for chunk in response.aiter_text():
                             buffer += chunk
-                            while "\n" in buffer:
-                                line, buffer = buffer.split("\n", 1)
-                                line = line.strip()
-                                if not line:
+                            if not in_array:
+                                start = buffer.find("[")
+                                if start == -1:
+                                    buffer = buffer[-1:]
                                     continue
-                                data = json.loads(line)
-                                converted = self._convert_stream_chunk(data, effective_model)
+                                buffer = buffer[start + 1 :]
+                                in_array = True
+                            while True:
+                                buffer = buffer.lstrip()
+                                if not buffer:
+                                    break
+                                if buffer[0] == "]":
+                                    in_array = False
+                                    buffer = buffer[1:]
+                                    break
+                                try:
+                                    obj, idx = decoder.raw_decode(buffer)
+                                except json.JSONDecodeError:
+                                    break
+                                buffer = buffer[idx:].lstrip()
+                                if buffer.startswith(","):
+                                    buffer = buffer[1:]
+                                converted = self._convert_stream_chunk(
+                                    obj, effective_model
+                                )
                                 yield f"data: {json.dumps(converted)}\n\n".encode()
-                        if buffer.strip():
-                            data = json.loads(buffer.strip())
-                            converted = self._convert_stream_chunk(data, effective_model)
-                            yield f"data: {json.dumps(converted)}\n\n".encode()
+                        if buffer.strip() and buffer.strip() not in {"", "]"}:
+                            buf = buffer.strip().rstrip("]").rstrip(",")
+                            if buf:
+                                obj = json.loads(buf)
+                                converted = self._convert_stream_chunk(
+                                    obj, effective_model
+                                )
+                                yield f"data: {json.dumps(converted)}\n\n".encode()
                         yield b"data: [DONE]\n\n"
                     finally:
                         await response.aclose()
 
-                return StreamingResponse(stream_generator(), media_type="text/event-stream")
+                return StreamingResponse(
+                    stream_generator(), media_type="text/event-stream"
+                )
             except httpx.RequestError as e:
                 logger.error(f"Request error connecting to Gemini: {e}", exc_info=True)
                 raise HTTPException(
