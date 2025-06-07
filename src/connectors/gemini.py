@@ -179,8 +179,16 @@ class GeminiBackend(LLMBackend):
                     self._convert_part_for_gemini(part, prompt_redactor)
                     for part in msg.content
                 ]
-            payload_contents.append({"role": msg.role, "parts": parts})
-
+            # Map roles to 'user' or 'model' as required by Gemini API
+            if msg.role == "user":
+                gemini_role = "user"
+            elif msg.role in ["tool", "function"]:
+                gemini_role = "user"
+                # For tool/function messages, wrap content in a tool_response part
+                parts = [{"text": f"tool_code: {json.dumps(msg.content)}", "tool_response": msg.content}]
+            else: # e.g., assistant
+                gemini_role = "model"
+            payload_contents.append({"role": gemini_role, "parts": parts})
         payload = {"contents": payload_contents}
         if request_data.extra_params:
             payload.update(request_data.extra_params)

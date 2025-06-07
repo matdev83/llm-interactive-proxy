@@ -127,8 +127,13 @@ class CommandParser:
             modified_text = modified_text[: match.start()] + replacement + modified_text[match.end() :]
 
         final_text = re.sub(r"\s+", " ", modified_text).strip()
+        final_text = self._strip_xml_tags(final_text) # Add this line
         logger.debug(f"Text after command processing and normalization: '{final_text}'")
         return final_text, commands_found
+
+    def _strip_xml_tags(self, text: str) -> str: # Add this function
+        """Removes XML-like tags from a string."""
+        return re.sub(r"<[^>]+>", "", text)
 
     def process_messages(
         self, messages: List[models.ChatMessage]
