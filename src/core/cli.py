@@ -77,6 +77,12 @@ def parse_cli_args(argv: list[str] | None = None) -> argparse.Namespace:
         default=None,
         help="Disable client API key authentication",
     )
+    parser.add_argument(
+        "--force-set-project",
+        action="store_true",
+        default=None,
+        help="Require project name to be set before sending prompts",
+    )
     return parser.parse_args(argv)
 
 
@@ -93,6 +99,7 @@ def apply_cli_args(args: argparse.Namespace) -> Dict[str, Any]:
         "command_prefix": "COMMAND_PREFIX",
         "interactive_mode": "INTERACTIVE_MODE",
         "disable_auth": "DISABLE_AUTH",
+        "force_set_project": "FORCE_SET_PROJECT",
     }
     for attr, env_name in mappings.items():
         value = getattr(args, attr)
@@ -102,6 +109,8 @@ def apply_cli_args(args: argparse.Namespace) -> Dict[str, Any]:
         os.environ["REDACT_API_KEYS_IN_PROMPTS"] = "false"
     if getattr(args, "disable_auth", None):
         os.environ["DISABLE_AUTH"] = "true"
+    if getattr(args, "force_set_project", None):
+        os.environ["FORCE_SET_PROJECT"] = "true"
     return _load_config()
 
 

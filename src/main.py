@@ -164,6 +164,7 @@ def build_app(cfg: Dict[str, Any] | None = None, *, config_file: str | None = No
             app.state.default_api_key_redaction_enabled
         )
         app.state.rate_limits = RateLimitRegistry()
+        app.state.force_set_project = cfg.get("force_set_project", False)
 
         if config_file:
             app.state.config_manager = ConfigManager(app, config_file)
@@ -343,6 +344,12 @@ def build_app(cfg: Dict[str, Any] | None = None, *, config_file: str | None = No
             raise HTTPException(
                 status_code=400,
                 detail="No messages provided in the request or messages became empty after processing.",
+            )
+
+        if http_request.app.state.force_set_project and proxy_state.project is None:
+            raise HTTPException(
+                status_code=400,
+                detail="Project name not set. Use !/set(project=<name>) before sending prompts.",
             )
 
         effective_model = proxy_state.get_effective_model(request_data.model)

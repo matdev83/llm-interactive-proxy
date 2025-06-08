@@ -112,3 +112,10 @@ def test_redaction_env(monkeypatch):
     cfg = app_main._load_config()
     assert cfg["redact_api_keys_in_prompts"] is False
     monkeypatch.delenv("REDACT_API_KEYS_IN_PROMPTS", raising=False)
+
+
+def test_force_set_project_env(monkeypatch):
+    monkeypatch.setenv("FORCE_SET_PROJECT", "true")
+    cfg = app_main._load_config()
+    assert cfg["force_set_project"] is True
+    monkeypatch.delenv("FORCE_SET_PROJECT", raising=False)
