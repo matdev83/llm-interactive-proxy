@@ -130,10 +130,11 @@ class SetCommand(BaseCommand):
             else:  # If model not available AND NOT in interactive mode
                 state.set_override_model(backend_part, model_name, invalid=True)
                 handled = True
-        if isinstance(args.get("project"), str):
-            state.set_project(args["project"])
+        project_val = args.get("project") or args.get("project-name")
+        if isinstance(project_val, str):
+            state.set_project(project_val)
             handled = True
-            messages.append(f"project set to {args['project']}")
+            messages.append(f"project set to {project_val}")
         for key in ("interactive", "interactive-mode"):
             if isinstance(args.get(key), str):
                 val = self._parse_bool(args[key])
@@ -182,7 +183,7 @@ class UnsetCommand(BaseCommand):
                     self.app.state.backend = self.app.state.openrouter_backend
             messages.append("default-backend unset")
             persistent_change = True
-        if "project" in keys_to_unset:
+        if any(k in keys_to_unset for k in ("project", "project-name")):
             state.unset_project()
             messages.append("project unset")
         if any(k in keys_to_unset for k in ("interactive", "interactive-mode")):

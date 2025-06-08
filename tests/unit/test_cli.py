@@ -61,6 +61,18 @@ def test_cli_redaction_flag(monkeypatch):
     monkeypatch.delenv("INTERACTIVE_MODE", raising=False)
 
 
+def test_cli_force_set_project(monkeypatch):
+    monkeypatch.delenv("FORCE_SET_PROJECT", raising=False)
+    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+    for i in range(1, 21):
+        monkeypatch.delenv(f"GEMINI_API_KEY_{i}", raising=False)
+    args = parse_cli_args(["--force-set-project"])
+    cfg = apply_cli_args(args)
+    assert os.environ["FORCE_SET_PROJECT"] == "true"
+    assert cfg["force_set_project"] is True
+    monkeypatch.delenv("FORCE_SET_PROJECT", raising=False)
+
+
 def test_cli_log_argument(tmp_path):
     args = parse_cli_args(["--log", str(tmp_path / "out.log")])
     assert args.log_file == str(tmp_path / "out.log")

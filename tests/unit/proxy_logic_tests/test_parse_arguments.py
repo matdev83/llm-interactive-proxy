@@ -51,3 +51,13 @@ class TestParseArguments:
         args_str = "project=myproject"
         expected = {"project": "myproject"}
         assert parse_arguments(args_str) == expected
+
+    def test_parse_project_name_alias_quotes(self):
+        args_str = "project-name='my project'"
+        expected = {"project-name": "my project"}
+        assert parse_arguments(args_str) == expected
+
+    def test_parse_project_name_alias_no_quotes(self):
+        args_str = "project-name=myproj"
+        expected = {"project-name": "myproj"}
+        assert parse_arguments(args_str) == expected
