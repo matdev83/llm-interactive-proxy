@@ -24,6 +24,8 @@ class BaseCommand:
 
 
 from fastapi import FastAPI
+from src.command_prefix import validate_command_prefix
+from src.constants import DEFAULT_COMMAND_PREFIX
 
 
 class SetCommand(BaseCommand):
@@ -134,7 +136,16 @@ class SetCommand(BaseCommand):
         if isinstance(project_val, str):
             state.set_project(project_val)
             handled = True
-            messages.append(f"project set to {project_val}")
+            messages.append(f"project set to {args['project']}")
+        if isinstance(args.get("command-prefix"), str):
+            prefix = args["command-prefix"].strip().strip("\n")
+            err = validate_command_prefix(prefix)
+            if err:
+                return CommandResult(self.name, False, f"invalid command prefix: {err}")
+            self.app.state.command_prefix = prefix
+            handled = True
+            messages.append(f"command prefix set to {prefix}")
+            persistent_change = True
         for key in ("interactive", "interactive-mode"):
             if isinstance(args.get(key), str):
                 val = self._parse_bool(args[key])
@@ -189,6 +200,10 @@ class UnsetCommand(BaseCommand):
         if any(k in keys_to_unset for k in ("interactive", "interactive-mode")):
             state.unset_interactive_mode()
             messages.append("interactive mode unset")
+            persistent_change = True
+        if "command-prefix" in keys_to_unset and self.app:
+            self.app.state.command_prefix = DEFAULT_COMMAND_PREFIX
+            messages.append("command prefix unset")
             persistent_change = True
         if "redact-api-keys-in-prompts" in keys_to_unset and self.app:
             self.app.state.api_key_redaction_enabled = (

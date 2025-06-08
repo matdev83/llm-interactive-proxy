@@ -1,8 +1,12 @@
 import os
+import logging
 from typing import Any, Dict
 from dotenv import load_dotenv
 
 from src.constants import DEFAULT_COMMAND_PREFIX
+from src.command_prefix import validate_command_prefix
+
+logger = logging.getLogger(__name__)
 
 def _collect_api_keys(base_name: str) -> Dict[str, str]:
     """Collect API keys as a mapping of env var names to values."""
@@ -41,6 +45,12 @@ def _load_config() -> Dict[str, Any]:
             return False
         return default
 
+    prefix = os.getenv("COMMAND_PREFIX", DEFAULT_COMMAND_PREFIX)
+    err = validate_command_prefix(prefix)
+    if err:
+        logger.warning("Invalid command prefix %s: %s, using default", prefix, err)
+        prefix = DEFAULT_COMMAND_PREFIX
+
     return {
         "backend": os.getenv("LLM_BACKEND"),
         "openrouter_api_key": next(iter(openrouter_keys.values()), None),
@@ -60,7 +70,7 @@ def _load_config() -> Dict[str, Any]:
         "proxy_timeout": int(
             os.getenv("PROXY_TIMEOUT", os.getenv("OPENROUTER_TIMEOUT", "300"))
         ),
-        "command_prefix": os.getenv("COMMAND_PREFIX", DEFAULT_COMMAND_PREFIX),
+        "command_prefix": prefix,
         "interactive_mode": _str_to_bool(os.getenv("INTERACTIVE_MODE"), False),
         "redact_api_keys_in_prompts": _str_to_bool(
             os.getenv("REDACT_API_KEYS_IN_PROMPTS"), True

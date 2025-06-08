@@ -21,6 +21,7 @@ class TestProcessCommandsInMessages:
         mock_app_state.openrouter_backend = mock_openrouter_backend
         mock_app_state.gemini_backend = mock_gemini_backend
         mock_app_state.functional_backends = {"openrouter", "gemini"} # Add functional backends
+        mock_app_state.command_prefix = "!/"
         
         self.mock_app = Mock()
         self.mock_app.state = mock_app_state
@@ -231,3 +232,25 @@ class TestProcessCommandsInMessages:
         assert "!/unset(model, project)" not in processed_messages[0].content
         assert current_proxy_state.override_model is None
         assert current_proxy_state.project is None
+
+    @pytest.mark.parametrize("variant", ["$/", "'$/'", '"$/"'])
+    def test_set_command_prefix_variants(self, variant):
+        current_proxy_state = ProxyState()
+        msg = models.ChatMessage(role="user", content=f"!/set(command-prefix={variant})")
+        processed_messages, processed = process_commands_in_messages([msg], current_proxy_state, app=self.mock_app)
+        assert processed
+        assert processed_messages[0].content == ""
+        assert self.mock_app.state.command_prefix == "$/"
+
+    def test_unset_command_prefix(self):
+        current_proxy_state = ProxyState()
+        msg_set = models.ChatMessage(role="user", content="!/set(command-prefix=~!)")
+        process_commands_in_messages([msg_set], current_proxy_state, app=self.mock_app)
+        assert self.mock_app.state.command_prefix == "~!"
+        msg_unset = models.ChatMessage(role="user", content="~!unset(command-prefix)")
+        processed_messages, processed = process_commands_in_messages([
+            msg_unset
+        ], current_proxy_state, app=self.mock_app, command_prefix="~!")
+        assert processed
+        assert processed_messages[0].content == ""
+        assert self.mock_app.state.command_prefix == "!/"
