@@ -4,20 +4,7 @@ from typing import Any, Dict, List, Tuple, Set
 
 import src.models as models
 from .constants import DEFAULT_COMMAND_PREFIX
-from .commands import (
-    BaseCommand,
-    CommandResult,
-    SetCommand,
-    UnsetCommand,
-    HelloCommand,
-    CreateFailoverRouteCommand,
-    RouteAppendCommand,
-    RoutePrependCommand,
-    DeleteFailoverRouteCommand,
-    RouteClearCommand,
-    ListFailoverRoutesCommand,
-    RouteListCommand,
-)
+from .commands import BaseCommand, CommandResult, create_command_instances
 
 logger = logging.getLogger(__name__)
 
@@ -49,7 +36,7 @@ from .proxy_logic import ProxyState
 def get_command_pattern(command_prefix: str) -> re.Pattern:
     prefix_escaped = re.escape(command_prefix)
     return re.compile(
-        rf"{prefix_escaped}(?: (?P<hello>hello)\b | (?P<cmd>[\w-]+)\((?P<args>[^)]*)\) )",
+        rf"{prefix_escaped}(?: (?P<bare>hello|help)(?!\()\b | (?P<cmd>[\w-]+)\((?P<args>[^)]*)\) )",
         re.VERBOSE,
     )
 
@@ -75,16 +62,8 @@ class CommandParser:
         self.handlers: Dict[str, BaseCommand] = {}
         self.functional_backends = functional_backends or set()
 
-        self.register_command(SetCommand(app=self.app, functional_backends=self.functional_backends))
-        self.register_command(UnsetCommand(app=self.app))
-        self.register_command(HelloCommand())
-        self.register_command(CreateFailoverRouteCommand(self.app))
-        self.register_command(RouteAppendCommand(self.app))
-        self.register_command(RoutePrependCommand(self.app))
-        self.register_command(DeleteFailoverRouteCommand(self.app))
-        self.register_command(RouteClearCommand(self.app))
-        self.register_command(ListFailoverRoutesCommand(self.app))
-        self.register_command(RouteListCommand(self.app))
+        for cmd in create_command_instances(self.app, self.functional_backends):
+            self.register_command(cmd)
         self.results: List[CommandResult] = []
 
     def register_command(self, command: BaseCommand) -> None:
@@ -100,8 +79,8 @@ class CommandParser:
         for match in reversed(matches):
             commands_found = True
             command_full = match.group(0)
-            if match.group("hello"):
-                command_name = "hello"
+            if match.group("bare"):
+                command_name = match.group("bare").lower()
                 args_str = ""
             else:
                 command_name = match.group("cmd").lower()
