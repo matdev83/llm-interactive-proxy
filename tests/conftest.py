@@ -126,13 +126,54 @@ def interactive_client(configured_interactive_app):
         yield c
 
 
+@pytest.fixture
+def configured_commands_disabled_app():
+    """App with interactive commands disabled."""
+    if "OPENROUTER_API_KEY" in os.environ:
+        del os.environ["OPENROUTER_API_KEY"]
+    if "GEMINI_API_KEY" in os.environ:
+        del os.environ["GEMINI_API_KEY"]
+    for i in range(1, 21):
+        if f"OPENROUTER_API_KEY_{i}" in os.environ:
+            del os.environ[f"OPENROUTER_API_KEY_{i}"]
+        if f"GEMINI_API_KEY_{i}" in os.environ:
+            del os.environ[f"GEMINI_API_KEY_{i}"]
+
+    os.environ["OPENROUTER_API_KEY_1"] = "dummy-openrouter-key-1"
+    os.environ["GEMINI_API_KEY"] = "dummy-gemini-key"
+    os.environ["DISABLE_INTERACTIVE_COMMANDS"] = "true"
+    os.environ["LLM_INTERACTIVE_PROXY_API_KEY"] = "test-proxy-key"
+    os.environ["LLM_BACKEND"] = "openrouter"
+    app = build_app()
+    yield app
+    for var in [
+        "OPENROUTER_API_KEY_1",
+        "GEMINI_API_KEY",
+        "DISABLE_INTERACTIVE_COMMANDS",
+        "LLM_BACKEND",
+    ]:
+        if var in os.environ:
+            del os.environ[var]
+
+
+@pytest.fixture
+def commands_disabled_client(configured_commands_disabled_app):
+    with TestClient(configured_commands_disabled_app) as c:
+        c.headers.update({"Authorization": "Bearer test-proxy-key"})
+        yield c
+
+
 # The clean_env fixture is no longer needed for global API keys as they are managed
 # within configured_app and configured_interactive_app.
 # It remains for LLM_BACKEND and numbered keys if individual tests set them.
 @pytest.fixture(autouse=True)
 def clean_env(monkeypatch):
+    if "LLM_INTERACTIVE_PROXY_API_KEY" not in os.environ:
+        os.environ["LLM_INTERACTIVE_PROXY_API_KEY"] = "test-proxy-key"
+    monkeypatch.delenv("DISABLE_INTERACTIVE_COMMANDS", raising=False)
     yield
     monkeypatch.delenv("LLM_BACKEND", raising=False)
+    monkeypatch.delenv("DISABLE_INTERACTIVE_COMMANDS", raising=False)
     for i in range(1, 21):
         monkeypatch.delenv(f"GEMINI_API_KEY_{i}", raising=False)
         monkeypatch.delenv(f"OPENROUTER_API_KEY_{i}", raising=False)

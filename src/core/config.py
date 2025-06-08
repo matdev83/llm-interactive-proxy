@@ -77,6 +77,9 @@ def _load_config() -> Dict[str, Any]:
         ),
         "disable_auth": _str_to_bool(os.getenv("DISABLE_AUTH"), False),
         "force_set_project": _str_to_bool(os.getenv("FORCE_SET_PROJECT"), False),
+        "disable_interactive_commands": _str_to_bool(
+            os.getenv("DISABLE_INTERACTIVE_COMMANDS"), False
+        ),
     }
 
 
