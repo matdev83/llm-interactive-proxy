@@ -111,6 +111,7 @@ def test_build_app_uses_env(monkeypatch):
         assert app.state.backend_type == "gemini"
         assert hasattr(app.state, "gemini_backend")
         assert app.state.command_prefix == "??/"
+    monkeypatch.delenv("COMMAND_PREFIX", raising=False)
 
 
 def test_build_app_uses_interactive_env(monkeypatch):
@@ -137,6 +138,20 @@ def test_default_command_prefix_from_env(monkeypatch):
     args = parse_cli_args([])
     cfg = apply_cli_args(args)
     assert cfg["command_prefix"] == DEFAULT_COMMAND_PREFIX
+
+
+@pytest.mark.parametrize(
+    "prefix",
+    ["!", "!!", "prefix with space", "12345678901"],
+)
+def test_invalid_command_prefix_cli(monkeypatch, prefix):
+    for i in range(1, 21):
+        monkeypatch.delenv(f"GEMINI_API_KEY_{i}", raising=False)
+    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+    args = parse_cli_args(["--command-prefix", prefix])
+    with pytest.raises(ValueError):
+        apply_cli_args(args)
+    monkeypatch.delenv("COMMAND_PREFIX", raising=False)
 
 
 @pytest.mark.skipif(os.name == "nt", reason="Test for non-Windows systems")

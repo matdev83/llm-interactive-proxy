@@ -4,6 +4,7 @@ import logging
 import uvicorn
 from typing import Any, Dict
 import sys
+from src.command_prefix import validate_command_prefix
 
 from src.core.config import _load_config
 from typing import Callable, Optional
@@ -105,6 +106,10 @@ def apply_cli_args(args: argparse.Namespace) -> Dict[str, Any]:
         value = getattr(args, attr)
         if value is not None:
             os.environ[env_name] = str(value)
+    if args.command_prefix is not None:
+        err = validate_command_prefix(str(args.command_prefix))
+        if err:
+            raise ValueError(f"Invalid command prefix: {err}")
     if getattr(args, "disable_redact_api_keys_in_prompts", None):
         os.environ["REDACT_API_KEYS_IN_PROMPTS"] = "false"
     if getattr(args, "disable_auth", None):

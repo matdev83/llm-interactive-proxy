@@ -19,6 +19,7 @@ def test_save_and_load_persistent_config(tmp_path, monkeypatch):
         client.app.state.session_manager.default_interactive_mode = True
         client.app.state.backend_type = "gemini"
         client.app.state.api_key_redaction_enabled = False
+        client.app.state.command_prefix = "$/"
         client.app.state.config_manager.save()
 
     data = json.loads(cfg_path.read_text())
@@ -26,6 +27,7 @@ def test_save_and_load_persistent_config(tmp_path, monkeypatch):
     assert data["interactive_mode"] is True
     assert data["failover_routes"]["r1"]["elements"] == ["openrouter:model-a"]
     assert data["redact_api_keys_in_prompts"] is False
+    assert data["command_prefix"] == "$/"
 
     app2 = build_app(config_file=str(cfg_path))
     with TestClient(app2, headers={"Authorization": "Bearer test-proxy-key"}) as client2:
@@ -33,6 +35,7 @@ def test_save_and_load_persistent_config(tmp_path, monkeypatch):
         assert client2.app.state.session_manager.default_interactive_mode is True
         assert client2.app.state.failover_routes["r1"]["elements"] == ["openrouter:model-a"]
         assert client2.app.state.api_key_redaction_enabled is False
+        assert client2.app.state.command_prefix == "$/"
 
 
 def test_invalid_persisted_backend(tmp_path, monkeypatch):

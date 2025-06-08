@@ -6,7 +6,7 @@ This project provides an intercepting proxy server that is compatible with the O
 
 - **OpenAI API Compatibility** – drop-in replacement for `/v1/chat/completions` and `/v1/models`.
 - **Request Interception and Command Parsing** – user messages can contain commands (default prefix `!/`) to change proxy behaviour.
-- **Configurable Command Prefix** via the `COMMAND_PREFIX` environment variable or CLI.
+- **Configurable Command Prefix** via the `COMMAND_PREFIX` environment variable, CLI, or in‑chat commands.
 - **Dynamic Model Override** – commands like `!/set(model=...)` change the model for subsequent requests.
 - **Multiple Backends** – forward requests to OpenRouter or Google Gemini, chosen with `LLM_BACKEND`.
 - **Streaming and Non‑Streaming Support** for both OpenRouter and Gemini backends.
@@ -138,6 +138,10 @@ You can embed special commands within your chat messages to control the proxy's 
 - `!/unset(interactive)`: Resets interactive mode to its default setting (configured at startup).
 - `!/set(redact-api-keys-in-prompts=true|false)`: Enable or disable prompt API key redaction for all sessions.
 - `!/unset(redact-api-keys-in-prompts)`: Restore the default redaction behaviour.
+- `!/set(command-prefix=prefix)`: Change the command prefix used by the proxy.
+- `!/unset(command-prefix)`: Reset the prefix back to `!/`.
+
+The command prefix must be 2-10 printable characters with no whitespace. If the prefix is exactly two characters, they cannot be the same.
 
 The proxy will process these commands, strip them from the message sent to the LLM, and adjust its behavior accordingly.
 

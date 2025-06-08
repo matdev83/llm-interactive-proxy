@@ -3,6 +3,8 @@ import logging
 from pathlib import Path
 from typing import Any, Dict
 
+from src.command_prefix import validate_command_prefix
+
 from fastapi import FastAPI
 
 logger = logging.getLogger(__name__)
@@ -79,12 +81,21 @@ class ConfigManager:
         for w in warnings:
             logger.warning(w)
 
+        prefix = data.get("command_prefix")
+        if isinstance(prefix, str):
+            err = validate_command_prefix(prefix)
+            if err:
+                logger.warning("invalid command prefix %s: %s", prefix, err)
+            else:
+                self.app.state.command_prefix = prefix
+
     def collect(self) -> Dict[str, Any]:
         return {
             "default_backend": self.app.state.backend_type,
             "interactive_mode": self.app.state.session_manager.default_interactive_mode,
             "failover_routes": self.app.state.failover_routes,
             "redact_api_keys_in_prompts": self.app.state.api_key_redaction_enabled,
+            "command_prefix": self.app.state.command_prefix,
         }
 
     def save(self) -> None:
