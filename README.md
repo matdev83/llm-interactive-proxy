@@ -143,6 +143,8 @@ The proxy will process these commands, strip them from the message sent to the L
 
 ## Project Structure
 
+For a detailed overview of the project structure and software development principles for agents, please refer to `AGENTS.md`.
+
 ```bash
 .
 ├── src/                  # Source code
