@@ -85,9 +85,15 @@ def build_app(cfg: Dict[str, Any] | None = None, *, config_file: str | None = No
         client = httpx.AsyncClient(timeout=cfg["proxy_timeout"])
         app.state.httpx_client = client
         app.state.failover_routes = {}
+        default_mode = (
+            False if cfg.get("disable_interactive_commands") else cfg["interactive_mode"]
+        )
         app.state.session_manager = SessionManager(
-            default_interactive_mode=cfg["interactive_mode"],
+            default_interactive_mode=default_mode,
             failover_routes=app.state.failover_routes,
+        )
+        app.state.disable_interactive_commands = cfg.get(
+            "disable_interactive_commands", False
         )
         app.state.command_prefix = cfg["command_prefix"]
 
@@ -241,16 +247,21 @@ def build_app(cfg: Dict[str, Any] | None = None, *, config_file: str | None = No
                     status_code=400, detail=f"unknown backend {backend_type}"
                 )
 
-        parser = CommandParser(
-            proxy_state,
-            http_request.app,  # Pass the app instance
-            command_prefix=http_request.app.state.command_prefix,
-            preserve_unknown=not proxy_state.interactive_mode,
-            functional_backends=http_request.app.state.functional_backends,
-        )
-        processed_messages, commands_processed = parser.process_messages(
-            request_data.messages
-        )
+        parser = None
+        if not http_request.app.state.disable_interactive_commands:
+            parser = CommandParser(
+                proxy_state,
+                http_request.app,
+                command_prefix=http_request.app.state.command_prefix,
+                preserve_unknown=not proxy_state.interactive_mode,
+                functional_backends=http_request.app.state.functional_backends,
+            )
+            processed_messages, commands_processed = parser.process_messages(
+                request_data.messages
+            )
+        else:
+            processed_messages = request_data.messages
+            commands_processed = False
         if proxy_state.override_backend:
             backend_type = proxy_state.override_backend
             if backend_type == "openrouter":
@@ -296,7 +307,11 @@ def build_app(cfg: Dict[str, Any] | None = None, *, config_file: str | None = No
         ):
             is_command_only = True
 
-        confirmation_text = "\n".join(r.message for r in parser.results if r.message)
+        confirmation_text = ""
+        if parser is not None:
+            confirmation_text = "\n".join(
+                r.message for r in parser.results if r.message
+            )
 
         if is_command_only:
             pieces = []

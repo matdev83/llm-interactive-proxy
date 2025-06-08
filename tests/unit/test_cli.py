@@ -63,6 +63,18 @@ def test_cli_redaction_flag(monkeypatch):
 
 def test_cli_force_set_project(monkeypatch):
     monkeypatch.delenv("FORCE_SET_PROJECT", raising=False)
+
+
+def test_cli_disable_interactive_commands(monkeypatch):
+    monkeypatch.delenv("DISABLE_INTERACTIVE_COMMANDS", raising=False)
+    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+    for i in range(1, 21):
+        monkeypatch.delenv(f"GEMINI_API_KEY_{i}", raising=False)
+    args = parse_cli_args(["--disable-interactive-commands"])
+    cfg = apply_cli_args(args)
+    assert os.environ["DISABLE_INTERACTIVE_COMMANDS"] == "true"
+    assert cfg["disable_interactive_commands"] is True
+    monkeypatch.delenv("DISABLE_INTERACTIVE_COMMANDS", raising=False)
     monkeypatch.delenv("GEMINI_API_KEY", raising=False)
     for i in range(1, 21):
         monkeypatch.delenv(f"GEMINI_API_KEY_{i}", raising=False)

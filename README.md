@@ -21,6 +21,7 @@ This project provides an intercepting proxy server that is compatible with the O
 - **Interactive Welcome Banner** – shows functional backends with API key and model counts when interactive mode is enabled.
 - **Prompt API Key Redaction** – redact configured API keys from prompts. Enabled by default; can be turned off via the `--disable-redact-api-keys-in-prompts` CLI flag, environment variable, or commands.
 - **File Logging** – provide `--log path/to/file` to write logs to a file instead of stderr.
+- **Disable Interactive Commands** – start the proxy with `--disable-interactive-commands` to ignore all in-chat commands.
 
 ## Getting Started
 
@@ -64,6 +65,9 @@ These instructions will get you a copy of the project up and running on your loc
 
     # Client API key for accessing this proxy
     # LLM_INTERACTIVE_PROXY_API_KEY="choose_a_secret_key"
+
+    # Disable all interactive commands
+    # DISABLE_INTERACTIVE_COMMANDS="true"  # same as passing --disable-interactive-commands
 
     # Enable or disable prompt redaction (default true)
     # REDACT_API_KEYS_IN_PROMPTS="false"  # same as passing --disable-redact-api-keys-in-prompts
@@ -128,7 +132,7 @@ Once the proxy server is running, you can configure your OpenAI-compatible clien
 
 ### Command Feature
 
-You can embed special commands within your chat messages to control the proxy's behavior. Commands are discovered dynamically and listed with `!/help`. A specific command can be inspected using `!/help(<command>)`. Common commands include:
+You can embed special commands within your chat messages to control the proxy's behavior. Commands are discovered dynamically and listed with `!/help`. A specific command can be inspected using `!/help(<command>)`. If the proxy was started with `--disable-interactive-commands`, these commands will be ignored. Common commands include:
 
 - `!/set(model=model_name)`: Overrides the model for the current session/request.
     Example: `Hello, please use !/set(model=mistralai/mistral-7b-instruct) for this conversation.`
