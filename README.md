@@ -158,8 +158,6 @@ For a detailed overview of the project structure and software development princi
 ├── .env.example          # Example environment variables (optional, if not in README)
 ├── .gitignore
 ├── README.md             # This file
-├── requirements.txt      # Main application dependencies
-├── requirements-dev.txt  # Development and test dependencies
 └── pyproject.toml        # Project metadata, build system config
 ```
 

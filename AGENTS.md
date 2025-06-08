@@ -33,8 +33,6 @@ All software development agents interacting with this codebase **MUST** adhere t
 ├── dev/                     # Development utilities
 │   ├── example_config.json
 │   └── test_client.py
-├── docs/
-│   └── STRUCTURE.md         # (This file was moved to AGENTS.md)
 ├── src/
 │   ├── core/                # Core application logic and utilities
 │   │   ├── cli.py           # CLI argument parsing and application startup
@@ -116,3 +114,26 @@ The abstract `LLMBackend` base class and its concrete implementations live under
 Integration tests cover request forwarding, command handling and session tracking. Unit tests validate the CLI utilities, command parsing logic and connector behaviour.
 
 This modular structure aims to keep backend specific code isolated while letting the FastAPI app orchestrate request processing and session management.
+
+## Testing and Debugging
+
+For effective testing and debugging of changes, especially those related to command-line argument parsing and application configuration, the `tests/unit/test_cli.py` script can be utilized. This script provides a dedicated test suite for the `src/core/cli.py` module, which handles CLI argument parsing and application startup.
+
+### How to Use `test_cli.py`
+
+You can run the tests within `test_cli.py` using `pytest`. To execute only these specific tests, navigate to the project root and run:
+
+```bash
+pytest tests/unit/test_cli.py
+```
+
+This will execute all tests defined in `test_cli.py`, allowing you to verify that CLI arguments are parsed and applied correctly, and that environment variables are set as expected.
+
+### Example Configuration Files
+
+The `dev/` directory contains example JSON configuration files that can be used to test various scenarios with the proxy. These files demonstrate how different settings (e.g., backend selection, API keys, command prefixes) can be configured. You can use these as a reference when developing or debugging:
+
+- `dev/example_config.json`: A general example configuration.
+- `dev/test_config.json`: Another example, potentially used for specific test cases.
+
+These configuration files can be loaded by the application to simulate different operational environments, which is particularly useful when testing the `cli.py` module's ability to correctly interpret and apply settings.
