@@ -136,7 +136,7 @@ class SetCommand(BaseCommand):
         if isinstance(project_val, str):
             state.set_project(project_val)
             handled = True
-            messages.append(f"project set to {args['project']}")
+            messages.append(f"project set to {project_val}")
         if isinstance(args.get("command-prefix"), str):
             prefix = args["command-prefix"].strip().strip("\n")
             err = validate_command_prefix(prefix)
