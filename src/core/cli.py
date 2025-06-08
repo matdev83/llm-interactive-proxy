@@ -19,11 +19,10 @@ def _check_privileges() -> None:
             import ctypes
 
             if ctypes.windll.shell32.IsUserAnAdmin() != 0:
-                raise SystemExit(
-                    "Refusing to run with administrative privileges"
-                )
+                raise SystemExit("Refusing to run with administrative privileges")
         except Exception:
             pass
+
 
 def parse_cli_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Run the LLM proxy server")
@@ -48,6 +47,12 @@ def parse_cli_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--port", type=int)
     parser.add_argument("--timeout", type=int)
     parser.add_argument("--command-prefix")
+    parser.add_argument(
+        "--log",
+        dest="log_file",
+        metavar="FILE",
+        help="Write logs to FILE",
+    )
     parser.add_argument(
         "--config",
         dest="config_file",
@@ -109,6 +114,7 @@ def main(
     logging.basicConfig(
         level=logging.DEBUG,
         format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+        filename=args.log_file,
     )
     _check_privileges()
 

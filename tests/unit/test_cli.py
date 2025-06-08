@@ -2,8 +2,7 @@ import os
 import pytest
 from src.constants import DEFAULT_COMMAND_PREFIX
 from src.core.cli import parse_cli_args, apply_cli_args
-from src.main import build_app as app_main_build_app # Import build_app from main.py
-from fastapi import FastAPI # Import FastAPI for type hinting
+from src.main import build_app as app_main_build_app  # Import build_app from main.py
 
 
 def test_apply_cli_args_sets_env(monkeypatch):
@@ -62,6 +61,30 @@ def test_cli_redaction_flag(monkeypatch):
     monkeypatch.delenv("INTERACTIVE_MODE", raising=False)
 
 
+def test_cli_log_argument(tmp_path):
+    args = parse_cli_args(["--log", str(tmp_path / "out.log")])
+    assert args.log_file == str(tmp_path / "out.log")
+
+
+def test_main_log_file(monkeypatch, tmp_path):
+    import src.core.cli as cli
+
+    log_file = tmp_path / "srv.log"
+
+    recorded = {}
+
+    def fake_basicConfig(**kwargs):
+        recorded.update(kwargs)
+
+    monkeypatch.setattr(cli.logging, "basicConfig", fake_basicConfig)
+    monkeypatch.setattr(cli.uvicorn, "run", lambda app, host, port: None)
+    monkeypatch.setattr(cli, "_check_privileges", lambda: None)
+
+    cli.main(["--log", str(log_file)])
+
+    assert recorded.get("filename") == str(log_file)
+
+
 def test_build_app_uses_env(monkeypatch):
     monkeypatch.delenv("GEMINI_API_KEY", raising=False)
     for i in range(1, 21):
@@ -83,7 +106,7 @@ def test_build_app_uses_interactive_env(monkeypatch):
     for i in range(1, 21):
         monkeypatch.delenv(f"GEMINI_API_KEY_{i}", raising=False)
     monkeypatch.setenv("INTERACTIVE_MODE", "true")
-    monkeypatch.setenv("LLM_BACKEND", "openrouter") # Add this line
+    monkeypatch.setenv("LLM_BACKEND", "openrouter")  # Add this line
     app = app_main_build_app()
     from fastapi.testclient import TestClient
 
@@ -103,30 +126,42 @@ def test_default_command_prefix_from_env(monkeypatch):
     cfg = apply_cli_args(args)
     assert cfg["command_prefix"] == DEFAULT_COMMAND_PREFIX
 
+
 @pytest.mark.skipif(os.name == "nt", reason="Test for non-Windows systems")
 def test_check_privileges_root(monkeypatch):
     from src.core.cli import _check_privileges
+
     monkeypatch.setattr(os, "geteuid", lambda: 0, raising=False)
     with pytest.raises(SystemExit):
         _check_privileges()
 
+
 @pytest.mark.skipif(os.name == "nt", reason="Test for non-Windows systems")
 def test_check_privileges_non_root(monkeypatch):
     from src.core.cli import _check_privileges
+
     monkeypatch.setattr(os, "geteuid", lambda: 1000, raising=False)
     _check_privileges()
+
 
 @pytest.mark.skipif(os.name != "nt", reason="Test for Windows systems")
 def test_check_privileges_admin_windows(monkeypatch):
     from src.core.cli import _check_privileges
     import ctypes
-    monkeypatch.setattr(ctypes.windll.shell32, "IsUserAnAdmin", lambda: 1, raising=False)
+
+    monkeypatch.setattr(
+        ctypes.windll.shell32, "IsUserAnAdmin", lambda: 1, raising=False
+    )
     with pytest.raises(SystemExit):
         _check_privileges()
+
 
 @pytest.mark.skipif(os.name != "nt", reason="Test for Windows systems")
 def test_check_privileges_non_admin_windows(monkeypatch):
     from src.core.cli import _check_privileges
     import ctypes
-    monkeypatch.setattr(ctypes.windll.shell32, "IsUserAnAdmin", lambda: 0, raising=False)
+
+    monkeypatch.setattr(
+        ctypes.windll.shell32, "IsUserAnAdmin", lambda: 0, raising=False
+    )
     _check_privileges()

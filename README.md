@@ -20,6 +20,7 @@ This project provides an intercepting proxy server that is compatible with the O
 - **Configurable Interactive Mode** – enable or disable interactive mode by default via environment variable, CLI argument, or in-chat commands.
 - **Interactive Welcome Banner** – shows functional backends with API key and model counts when interactive mode is enabled.
 - **Prompt API Key Redaction** – redact configured API keys from prompts. Enabled by default; can be turned off via the `--disable-redact-api-keys-in-prompts` CLI flag, environment variable, or commands.
+- **File Logging** – provide `--log path/to/file` to write logs to a file instead of stderr.
 
 ## Getting Started
 
@@ -91,6 +92,8 @@ To start the proxy server, run the `main.py` script from the `src` directory:
 ```bash
 python src/main.py --config config/settings.json
 ```
+
+Add `--log server.log` to write logs to a file.
 
 The server will typically start on `http://127.0.0.1:8000` (or as configured in your `.env` file). You should see log output indicating the server has started, e.g.:
 `INFO:     Started server process [xxxxx]`
