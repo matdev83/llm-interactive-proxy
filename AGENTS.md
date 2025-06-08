@@ -90,9 +90,18 @@ Creates the FastAPI application, loads configuration from environment variables 
 
 Defines the `ProxyState` class, which manages the current model override, project context, and interactive mode state. It also re-exports command parsing helpers.
 
+### `src/commands/`
+
+Contains individual command implementations. Each command file registers itself
+via a decorator so that new commands can be added without modifying the parser.
+The `!/help` command lists them dynamically along with their descriptions and
+examples.
+
 ### `src/command_parser.py`
 
-Implements the `CommandParser` class used to detect and handle proxy commands. Commands are identified using a configurable prefix (default `!/`).
+Implements the `CommandParser` class used to detect and handle proxy commands.
+Commands are identified using a configurable prefix (default `!/`). It loads all
+commands registered under `src/commands/` at runtime.
 
 ### `src/session.py`
 

@@ -128,7 +128,7 @@ Once the proxy server is running, you can configure your OpenAI-compatible clien
 
 ### Command Feature
 
-You can embed special commands within your chat messages to control the proxy's behavior. The primary command currently supported is:
+You can embed special commands within your chat messages to control the proxy's behavior. Commands are discovered dynamically and listed with `!/help`. A specific command can be inspected using `!/help(<command>)`. Common commands include:
 
 - `!/set(model=model_name)`: Overrides the model for the current session/request.
     Example: `Hello, please use !/set(model=mistralai/mistral-7b-instruct) for this conversation.`
@@ -140,6 +140,8 @@ You can embed special commands within your chat messages to control the proxy's 
 - `!/unset(redact-api-keys-in-prompts)`: Restore the default redaction behaviour.
 - `!/set(command-prefix=prefix)`: Change the command prefix used by the proxy.
 - `!/unset(command-prefix)`: Reset the prefix back to `!/`.
+- `!/help`: List all available commands.
+- `!/help(set)`: Show details for the `set` command.
 
 The command prefix must be 2-10 printable characters with no whitespace. If the prefix is exactly two characters, they cannot be the same.
 
