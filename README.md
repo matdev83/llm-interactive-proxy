@@ -167,4 +167,45 @@ For a detailed overview of the project structure and software development princi
 
 ## Contributing
 
-For planned work and future ideas see `ROADMAP.md` in the project root.
+We welcome contributions to this project! To contribute, please follow the typical fork-based workflow:
+
+1. **Fork the Repository**: Go to the project's GitHub page and click the "Fork" button. This creates a copy of the repository under your GitHub account.
+
+2. **Clone Your Fork**: Clone your forked repository to your local machine.
+
+    ```bash
+    git clone https://github.com/Ymatdev83/llm-interactive-proxy.git
+    cd llm-interactive-proxy
+    ```
+
+3. **Create a New Branch**: Before making any changes, create a new branch for your feature or bug fix.
+
+    ```bash
+    git checkout -b feature/your-feature-name
+    ```
+
+    Choose a descriptive branch name (e.g., `bugfix/fix-auth-issue`, `feature/add-new-command`).
+
+4. **Make Your Changes**: Implement your feature or fix the bug. Ensure your code adheres to the project's coding standards and includes relevant tests.
+
+5. **Commit Your Changes**: Commit your changes with a clear and concise commit message.
+
+    ```bash
+    git add .
+    git commit -m "feat: Add a new command for model override"
+    ```
+
+    Refer to conventional commit guidelines for commit message formatting.
+
+6. **Push to Your Fork**: Push your new branch and commits to your forked repository on GitHub.
+
+    ```bash
+    git push origin feature/your-feature-name
+    ```
+
+7. **Create a Pull Request (PR)**: Go to your forked repository on GitHub. You will see a "Compare & pull request" button. Click it, review your changes, and submit the pull request to the `main` branch of the original repository.
+
+    - Provide a clear title and description for your PR.
+    - Reference any related issues.
+    - Ensure all tests pass and address any feedback from maintainers.
+
