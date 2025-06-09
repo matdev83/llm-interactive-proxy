@@ -8,7 +8,7 @@ def test_session_manager_default_interactive():
 
 
 def test_session_manager_default_non_interactive():
-    mgr = SessionManager()
+    mgr = SessionManager(default_interactive_mode=False)
     session = mgr.get_session("y")
     assert session.proxy_state.interactive_mode is False
 

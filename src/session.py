@@ -1,11 +1,14 @@
 from __future__ import annotations
 
+import logging # Add logging import
 from typing import List, Dict, Optional, Any
 
 from pydantic import BaseModel, ConfigDict, Field
 
 from .proxy_logic import ProxyState
 import src.models as models
+
+logger = logging.getLogger(__name__) # Add logger definition
 
 
 class SessionInteraction(BaseModel):
@@ -40,7 +43,7 @@ class SessionManager:
 
     def __init__(
         self,
-        default_interactive_mode: bool = False,
+        default_interactive_mode: bool = True,
         failover_routes: Optional[dict[str, dict[str, object]]] | None = None,
     ) -> None:
         self.sessions: Dict[str, Session] = {}
@@ -56,4 +59,6 @@ class SessionManager:
                     failover_routes=self.failover_routes,
                 ),
             )
+            logger.info(f"Created new session: {session_id}")
+        logger.debug(f"Retrieving session: {session_id}, ProxyState ID: {id(self.sessions[session_id].proxy_state)}")
         return self.sessions[session_id]

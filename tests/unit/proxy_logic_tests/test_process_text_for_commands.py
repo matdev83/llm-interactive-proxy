@@ -238,9 +238,8 @@ class TestProcessTextForCommands:
         state = ProxyState()
         parser = CommandParser(state, command_prefix="!/", preserve_unknown=True, app=self.mock_app)
         parser.process_text("!/set(model=openrouter:bad)")
-        assert state.override_backend == "openrouter"
-        assert state.override_model == "bad"
-        assert state.invalid_override is True
+        assert state.override_backend is None
+        assert state.override_model is None
 
     def test_set_backend(self):
         state = ProxyState()

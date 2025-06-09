@@ -1,5 +1,5 @@
 import logging
-from typing import Optional
+from typing import Optional, List, Dict # Add Dict import
 
 logger = logging.getLogger(__name__)
 
@@ -9,8 +9,8 @@ class ProxyState:
 
     def __init__(
         self,
-        interactive_mode: bool = False,
-        failover_routes: Optional[dict[str, dict[str, object]]] | None = None,
+        interactive_mode: bool = True,
+        failover_routes: Optional[Dict[str, Dict[str, List[str]]]] = None,
     ) -> None:
         self.override_backend: Optional[str] = None
         self.override_model: Optional[str] = None
@@ -19,7 +19,7 @@ class ProxyState:
         self.interactive_mode: bool = interactive_mode
         self.interactive_just_enabled: bool = False
         self.hello_requested: bool = False
-        self.failover_routes: dict[str, dict[str, object]] = (
+        self.failover_routes: Dict[str, Dict[str, List[str]]] = (
             failover_routes if failover_routes is not None else {}
         )
 
@@ -35,7 +35,7 @@ class ProxyState:
 
     def set_override_backend(self, backend: str) -> None:
         """Override only the backend to use for this session."""
-        logger.info(f"Setting override backend to: {backend}")
+        logger.info(f"Setting override backend to: {backend} for ProxyState ID: {id(self)}")
         self.override_backend = backend
         self.override_model = None
         self.invalid_override = False

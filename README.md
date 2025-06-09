@@ -15,10 +15,9 @@ This project provides an intercepting proxy server that is compatible with the O
   backend name.
 - **Session History Tracking** – optional per-session logs using the `X-Session-ID` header.
 - **Agent Detection** – recognizes popular coding agents and formats proxy responses accordingly.
-- **CLI Configuration** – command line flags can override environment variables for quick testing, including interactive mode.
+- **CLI Configuration** – command line flags can override environment variables for quick testing. Interactive mode is enabled by default and can be disabled with `--disable-interactive-mode`.
 - **Persistent Configuration** – use `--config config/file.json` to save and reload failover routes and defaults across restarts.
-- **Configurable Interactive Mode** – enable or disable interactive mode by default via environment variable, CLI argument, or in-chat commands.
-- **Interactive Welcome Banner** – shows functional backends with API key and model counts when interactive mode is enabled.
+- **Interactive Mode** – enabled by default, can be disabled via `--disable-interactive-mode` flag, environment variable `DISABLE_INTERACTIVE_MODE=true`, or in-chat commands.
 - **Prompt API Key Redaction** – redact configured API keys from prompts. Enabled by default; can be turned off via the `--disable-redact-api-keys-in-prompts` CLI flag, environment variable, or commands.
 - **File Logging** – provide `--log path/to/file` to write logs to a file instead of stderr.
 - **Disable Interactive Commands** – start the proxy with `--disable-interactive-commands` to ignore all in-chat commands.
@@ -139,7 +138,6 @@ You can embed special commands within your chat messages to control the proxy's 
 - `!/unset(model)`: Clears any previously set model override.
 - `!/set(interactive=true|false|on|off)`: Enables or disables interactive mode for the current session.
     Example: `!/set(interactive=true)` to enable, `!/set(interactive=off)` to disable.
-- `!/unset(interactive)`: Resets interactive mode to its default setting (configured at startup).
 - `!/set(redact-api-keys-in-prompts=true|false)`: Enable or disable prompt API key redaction for all sessions.
 - `!/unset(redact-api-keys-in-prompts)`: Restore the default redaction behaviour.
 - `!/set(command-prefix=prefix)`: Change the command prefix used by the proxy.

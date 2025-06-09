@@ -61,10 +61,10 @@ def parse_cli_args(argv: list[str] | None = None) -> argparse.Namespace:
         help="Path to persistent configuration file",
     )
     parser.add_argument(
-        "--interactive-mode",
+        "--disable-interactive-mode",
         action="store_true",
         default=None,
-        help="Enable interactive mode by default for new sessions",
+        help="Disable interactive mode by default for new sessions",
     )
     parser.add_argument(
         "--disable-redact-api-keys-in-prompts",
@@ -104,7 +104,7 @@ def apply_cli_args(args: argparse.Namespace) -> Dict[str, Any]:
         "port": "PROXY_PORT",
         "timeout": "PROXY_TIMEOUT",
         "command_prefix": "COMMAND_PREFIX",
-        "interactive_mode": "INTERACTIVE_MODE",
+        "disable_interactive_mode": "DISABLE_INTERACTIVE_MODE",
         "disable_auth": "DISABLE_AUTH",
         "force_set_project": "FORCE_SET_PROJECT",
         "disable_interactive_commands": "DISABLE_INTERACTIVE_COMMANDS",

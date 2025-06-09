@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from typing import Dict, Any, List, Set
 
 from fastapi import FastAPI
@@ -11,6 +12,8 @@ from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from ..proxy_logic import ProxyState
+
+logger = logging.getLogger(__name__)
 
 
 @register_command
@@ -35,17 +38,20 @@ class SetCommand(BaseCommand):
         return None
 
     def execute(self, args: Dict[str, Any], state: "ProxyState") -> CommandResult:
+        logger.debug(f"SetCommand.execute called with args: {args}, functional_backends: {self.functional_backends}")
         messages: List[str] = []
         handled = False
         backend_set_failed = False
         if isinstance(args.get("backend"), str):
             backend_val = args["backend"].strip().lower()
+            logger.debug(f"SetCommand: Processing 'backend' argument: {backend_val}")
             if backend_val not in {"openrouter", "gemini"}:
                 return CommandResult(self.name, False, f"backend {backend_val} not supported")
             if backend_val not in self.functional_backends:
                 state.unset_override_backend()
                 backend_set_failed = True
                 return CommandResult(self.name, False, f"backend {backend_val} not functional")
+            logger.debug(f"SetCommand: About to call state.set_override_backend with {backend_val}")
             state.set_override_backend(backend_val)
             handled = True
             messages.append(f"backend set to {backend_val}")
@@ -62,6 +68,8 @@ class SetCommand(BaseCommand):
                     self.app.state.backend = self.app.state.gemini_backend
                 else:
                     self.app.state.backend = self.app.state.openrouter_backend
+                if getattr(self.app.state, "config_manager", None):
+                    self.app.state.config_manager.save()
             handled = True
             messages.append(f"default backend set to {backend_val}")
             persistent_change = True

@@ -73,10 +73,10 @@ def build_app(cfg: Dict[str, Any] | None = None, *, config_file: str | None = No
             backend_info.append(f"gemini (K:{keys}, M:{models})")
         backends_str = ", ".join(sorted(backend_info))
         return (
-            f"Hello, this is {project_name} {project_version}\n"
+            f"<thinking>Hello, this is {project_name} {project_version}\n"
             f"Session id: {session_id}\n"
             f"Functional backends: {backends_str}\n"
-            f"Type {cfg['command_prefix']}help for list of available commands"
+            f"Type {cfg['command_prefix']}help for list of available commands</thinking>"
         )
 
     @asynccontextmanager
@@ -259,6 +259,30 @@ def build_app(cfg: Dict[str, Any] | None = None, *, config_file: str | None = No
             processed_messages, commands_processed = parser.process_messages(
                 request_data.messages
             )
+            # Check for command errors and return them if any
+            if parser.results and any(not result.success for result in parser.results):
+                error_messages = [result.message for result in parser.results if not result.success]
+                return {
+                    "id": "proxy_cmd_processed",
+                    "object": "chat.completion",
+                    "created": int(time.time()),
+                    "model": request_data.model,
+                    "choices": [
+                        {
+                            "index": 0,
+                            "message": {
+                                "role": "assistant",
+                                "content": "; ".join(error_messages),
+                            },
+                            "finish_reason": "error",
+                        }
+                    ],
+                    "usage": {
+                        "prompt_tokens": 0,
+                        "completion_tokens": 0,
+                        "total_tokens": 0,
+                    },
+                }
         else:
             processed_messages = request_data.messages
             commands_processed = False
@@ -301,11 +325,19 @@ def build_app(cfg: Dict[str, Any] | None = None, *, config_file: str | None = No
                 )
 
         is_command_only = False
-        if commands_processed and not any(
-            (msg.content if isinstance(msg.content, str) else "").strip()
-            for msg in processed_messages
-        ):
-            is_command_only = True
+        if commands_processed:
+            if not processed_messages:
+                is_command_only = True
+            else:
+                last_msg = processed_messages[-1]
+                if isinstance(last_msg.content, str):
+                    is_command_only = not last_msg.content.strip()
+                elif isinstance(last_msg.content, list):
+                    is_command_only = not any(
+                        part.text.strip() 
+                        for part in last_msg.content 
+                        if isinstance(part, models.MessageContentPartText)
+                    )
 
         confirmation_text = ""
         if parser is not None:
@@ -383,7 +415,7 @@ def build_app(cfg: Dict[str, Any] | None = None, *, config_file: str | None = No
                         },
                     )
                 try:
-                    return await http_request.app.state.gemini_backend.chat_completions(
+                    result = await http_request.app.state.gemini_backend.chat_completions(
                         request_data=request_data,
                         processed_messages=processed_messages,
                         effective_model=model,
@@ -397,6 +429,8 @@ def build_app(cfg: Dict[str, Any] | None = None, *, config_file: str | None = No
                             else None
                         ),
                     )
+                    logger.debug(f"Result from Gemini backend chat_completions: {result}")
+                    return result
                 except HTTPException as e:
                     if e.status_code == 429:
                         delay = parse_retry_delay(e.detail)
@@ -417,7 +451,7 @@ def build_app(cfg: Dict[str, Any] | None = None, *, config_file: str | None = No
                     },
                 )
             try:
-                return await http_request.app.state.openrouter_backend.chat_completions(
+                result = await http_request.app.state.openrouter_backend.chat_completions(
                     request_data=request_data,
                     processed_messages=processed_messages,
                     effective_model=model,
@@ -434,6 +468,8 @@ def build_app(cfg: Dict[str, Any] | None = None, *, config_file: str | None = No
                         else None
                     ),
                 )
+                logger.debug(f"Result from OpenRouter backend chat_completions: {result}")
+                return result
             except HTTPException as e:
                 if e.status_code == 429:
                     delay = parse_retry_delay(e.detail)

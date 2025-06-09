@@ -37,13 +37,14 @@ class UnsetCommand(BaseCommand):
             state.unset_override_backend()
             messages.append("backend unset")
         if "default-backend" in keys_to_unset and self.app:
-            default_type = getattr(self.app.state, "initial_backend_type", None)
-            if default_type:
-                self.app.state.backend_type = default_type
-                if default_type == "gemini":
-                    self.app.state.backend = self.app.state.gemini_backend
-                else:
-                    self.app.state.backend = self.app.state.openrouter_backend
+            initial_type = getattr(self.app.state, "initial_backend_type", "openrouter")
+            self.app.state.backend_type = initial_type
+            if initial_type == "gemini":
+                self.app.state.backend = self.app.state.gemini_backend
+            else:
+                self.app.state.backend = self.app.state.openrouter_backend
+            if getattr(self.app.state, "config_manager", None):
+                self.app.state.config_manager.save()
             messages.append("default-backend unset")
             persistent_change = True
         if any(k in keys_to_unset for k in ("project", "project-name")):

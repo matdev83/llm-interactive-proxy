@@ -38,7 +38,12 @@ def test_apply_cli_args_sets_env(monkeypatch):
 
 
 def test_cli_interactive_mode(monkeypatch):
-    monkeypatch.delenv("INTERACTIVE_MODE", raising=False)
+    monkeypatch.delenv("DISABLE_INTERACTIVE_MODE", raising=False)
+    args = parse_cli_args(["--disable-interactive-mode"])
+    cfg = apply_cli_args(args)
+    assert os.environ["DISABLE_INTERACTIVE_MODE"] == "True"
+    assert cfg["interactive_mode"] is False
+    monkeypatch.delenv("DISABLE_INTERACTIVE_MODE", raising=False)
 
 
 def test_cli_redaction_flag(monkeypatch):
@@ -54,11 +59,10 @@ def test_cli_redaction_flag(monkeypatch):
     monkeypatch.delenv("GEMINI_API_KEY", raising=False)
     for i in range(1, 21):
         monkeypatch.delenv(f"GEMINI_API_KEY_{i}", raising=False)
-    args = parse_cli_args(["--interactive-mode"])
+    args = parse_cli_args(["--disable-interactive-mode"])
     cfg = apply_cli_args(args)
-    assert os.environ["INTERACTIVE_MODE"] == "True"
-    assert cfg["interactive_mode"] is True
-    monkeypatch.delenv("INTERACTIVE_MODE", raising=False)
+    assert os.environ["DISABLE_INTERACTIVE_MODE"] == "True"
+    assert cfg["interactive_mode"] is False
 
 
 def test_cli_force_set_project(monkeypatch):
@@ -130,8 +134,8 @@ def test_build_app_uses_interactive_env(monkeypatch):
     monkeypatch.delenv("GEMINI_API_KEY", raising=False)
     for i in range(1, 21):
         monkeypatch.delenv(f"GEMINI_API_KEY_{i}", raising=False)
-    monkeypatch.setenv("INTERACTIVE_MODE", "true")
-    monkeypatch.setenv("LLM_BACKEND", "openrouter")  # Add this line
+    monkeypatch.delenv("DISABLE_INTERACTIVE_MODE", raising=False)
+    monkeypatch.setenv("LLM_BACKEND", "openrouter")
     app = app_main_build_app()
     from fastapi.testclient import TestClient
 
