@@ -5,3 +5,4 @@ __pycache__
 .cline*
 dev/errors.txt
 logs/
+.aider.*
