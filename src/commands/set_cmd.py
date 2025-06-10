@@ -85,7 +85,17 @@ class SetCommand(BaseCommand):
                     backend_obj = getattr(self.app.state, f"{backend_part}_backend", None)
                 except Exception:
                     backend_obj = None
-            available = backend_obj.get_available_models() if backend_obj else []
+            available: List[str] = []
+            if backend_obj is not None:
+                try:
+                    available = list(getattr(backend_obj, "available_models", []))
+                except Exception:
+                    available = []
+                try:
+                    if not available:
+                        available = backend_obj.get_available_models()
+                except Exception:
+                    available = available or []
             if model_name in available:
                 state.set_override_model(backend_part, model_name)
                 handled = True

@@ -259,30 +259,6 @@ def build_app(cfg: Dict[str, Any] | None = None, *, config_file: str | None = No
             processed_messages, commands_processed = parser.process_messages(
                 request_data.messages
             )
-            # Check for command errors and return them if any
-            if parser.results and any(not result.success for result in parser.results):
-                error_messages = [result.message for result in parser.results if not result.success]
-                return {
-                    "id": "proxy_cmd_processed",
-                    "object": "chat.completion",
-                    "created": int(time.time()),
-                    "model": request_data.model,
-                    "choices": [
-                        {
-                            "index": 0,
-                            "message": {
-                                "role": "assistant",
-                                "content": "; ".join(error_messages),
-                            },
-                            "finish_reason": "error",
-                        }
-                    ],
-                    "usage": {
-                        "prompt_tokens": 0,
-                        "completion_tokens": 0,
-                        "total_tokens": 0,
-                    },
-                }
         else:
             processed_messages = request_data.messages
             commands_processed = False

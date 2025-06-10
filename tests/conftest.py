@@ -5,11 +5,8 @@ from unittest.mock import AsyncMock, patch # Added patch
 from src.connectors import OpenRouterBackend, GeminiBackend
 from src.main import build_app # Import build_app
 from starlette.testclient import TestClient # Import TestClient
-import httpx # Added httpx
 import src.main as app_main
-from fastapi import FastAPI
 from fastapi.testclient import TestClient
-from unittest.mock import patch, AsyncMock, MagicMock
 
 # Preserve original Gemini API key for integration tests
 ORIG_GEMINI_KEY = os.environ.get("GEMINI_API_KEY_1")
@@ -159,16 +156,6 @@ def pytest_sessionstart(session):
     # These patches will be applied to the classes themselves, affecting all instances
     patch.object(
         OpenRouterBackend,
-        "get_available_models",
-        lambda self: ["mock-openrouter-model-1", "mock-openrouter-model-2"],
-    ).start()
-    patch.object(
-        GeminiBackend,
-        "get_available_models",
-        lambda self: ["mock-gemini-model-1", "mock-gemini-model-2"],
-    ).start()
-    patch.object(
-        OpenRouterBackend,
         "list_models",
         AsyncMock(return_value={"data": [{"id": "mock-openrouter-model-1"}]}),
     ).start()
@@ -195,10 +182,8 @@ def apply_functional_backends(client):
 def mock_model_discovery():
     """Mock model discovery for all tests"""
     with (
-        patch.object(OpenRouterBackend, "list_models", new=AsyncMock(return_value={"data": [{"id": "m1"}, {"id": "m2"}]})),
-        patch.object(GeminiBackend, "list_models", new=AsyncMock(return_value={"models": [{"name": "g1"}]})),
-        patch.object(OpenRouterBackend, "get_available_models", return_value=["m1", "m2"]),
-        patch.object(GeminiBackend, "get_available_models", return_value=["g1"])
+        patch.object(OpenRouterBackend, "list_models", new=AsyncMock(return_value={"data": [{"id": "model-a"}]})),
+        patch.object(GeminiBackend, "list_models", new=AsyncMock(return_value={"models": [{"name": "model-a"}]}))
     ):
         yield
 

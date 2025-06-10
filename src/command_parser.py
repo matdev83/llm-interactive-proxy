@@ -3,8 +3,11 @@ import re
 from typing import Any, Dict, List, Tuple, Set, Optional
 
 import src.models as models
+from fastapi import FastAPI
+
 from .constants import DEFAULT_COMMAND_PREFIX
 from .commands import BaseCommand, CommandResult, create_command_instances
+from .proxy_logic import ProxyState
 
 logger = logging.getLogger(__name__)
 
@@ -30,9 +33,6 @@ def parse_arguments(args_str: str) -> Dict[str, Any]:
             args[part.strip()] = True
     return args
 
-from .proxy_logic import ProxyState
-
-
 def get_command_pattern(command_prefix: str) -> re.Pattern:
     prefix_escaped = re.escape(command_prefix)
     return re.compile(
@@ -40,8 +40,6 @@ def get_command_pattern(command_prefix: str) -> re.Pattern:
         re.VERBOSE,
     )
 
-
-from fastapi import FastAPI
 
 class CommandParser:
     """Parse and apply proxy commands embedded in chat messages."""
@@ -138,18 +136,22 @@ class CommandParser:
             content_modified = False
 
             if isinstance(msg.content, str):
-                # Check if this is a command-only message
                 if msg.content.strip().startswith(self.command_prefix):
                     command_match = self.command_pattern.match(msg.content.strip())
                     if command_match and msg.content.strip() == command_match.group(0):
-                        # This is a command-only message, process it and return empty
                         processed_text, found = self.process_text(msg.content)
                         logger.debug(f"Command-only message processed. Found: {found}")
                         if found:
                             any_command_processed = True
                             msg.content = ""
                             content_modified = True
-                            # Don't break here, continue processing other messages
+                    else:
+                        processed_text, found = self.process_text(msg.content)
+                        logger.debug(f"Message with prefix processed. Found: {found}")
+                        if found:
+                            msg.content = processed_text
+                            any_command_processed = True
+                            content_modified = True
                 else:
                     processed_text, found = self.process_text(msg.content)
                     logger.debug(f"Non-command-only message processed. Found: {found}")
@@ -229,81 +231,55 @@ def _process_text_for_commands(
         functional_backends=functional_backends,
     )
     parser.command_pattern = command_pattern
-    return parser.process_text(text_content)
+    processed_text, found = parser.process_text(text_content)
+    if parser.results and any(not r.success for r in parser.results):
+        if parser.results[0].message.startswith("unknown command"):
+            processed_text = text_content
+        else:
+            processed_text = ""
+    return processed_text, found
 
 
 def process_commands_in_messages(
     messages: List[models.ChatMessage],
     current_proxy_state: ProxyState,
     app: Optional[FastAPI] = None,
+    *,
+    command_prefix: str = DEFAULT_COMMAND_PREFIX,
+    functional_backends: Set[str] | None = None,
 ) -> Tuple[List[models.ChatMessage], bool]:
-    """
-    Process commands in messages and update proxy state.
-    Returns processed messages and whether any commands were processed.
-    """
+    """Legacy helper used by older unit tests."""
+
     if not messages:
         return messages, False
 
-    processed_messages = []
-    commands_processed = False
-    command_pattern = get_command_pattern("")
+    last_with_cmd: int | None = None
+    for idx, msg in enumerate(messages):
+        if isinstance(msg.content, str) and command_prefix in msg.content:
+            last_with_cmd = idx
+        elif isinstance(msg.content, list):
+            if any(
+                isinstance(p, models.MessageContentPartText)
+                and command_prefix in p.text
+                for p in msg.content
+            ):
+                last_with_cmd = idx
 
-    # Process messages in reverse order to handle commands from last to first
-    for i, message in enumerate(reversed(messages)):
-        message_index = len(messages) - 1 - i
-        logger.debug(f"Processing message index {message_index} (from end): {message.content}")
+    if last_with_cmd is None:
+        return messages, False
 
-        # Check for commands in the message
-        command_matches = list(command_pattern.finditer(message.content))
-        if command_matches:
-            logger.debug(f"Found {len(command_matches)} command matches in message: {message.content}")
-            commands_processed = True
+    parser = CommandParser(
+        current_proxy_state,
+        app,
+        command_prefix=command_prefix,
+        functional_backends=functional_backends,
+    )
 
-            # Process each command
-            for match in command_matches:
-                full_match = match.group(0)
-                command = match.group(1)
-                args_str = match.group(2) if match.group(2) else ""
-                logger.debug(f"Processing command: {command} with args: {args_str}")
+    processed, processed_flag = parser.process_messages([messages[last_with_cmd]])
+    result_messages = [m.model_copy(deep=True) for m in messages]
+    if processed:
+        result_messages[last_with_cmd] = processed[0]
+    else:
+        del result_messages[last_with_cmd]
 
-                # Parse and execute command
-                args = parse_arguments(args_str)
-                if command == "set":
-                    if "backend" in args:
-                        current_proxy_state.set_override_backend(args["backend"])
-                    elif "model" in args:
-                        current_proxy_state.set_override_model(args["model"])
-                    elif "project" in args or "project-name" in args:
-                        project = args.get("project") or args.get("project-name")
-                        current_proxy_state.set_project(project)
-                elif command == "unset":
-                    if "backend" in args:
-                        current_proxy_state.unset_override_backend()
-                    elif "model" in args:
-                        current_proxy_state.unset_override_model()
-                    elif "project" in args or "project-name" in args:
-                        current_proxy_state.unset_project()
-
-            # Remove commands from message content
-            new_content = command_pattern.sub("", message.content).strip()
-            logger.debug(f"Message content after command removal: {new_content}")
-
-            # If message is empty after command removal, skip it
-            if not new_content:
-                logger.debug(f"Skipping empty message at index {message_index}")
-                continue
-
-            # Create new message with processed content
-            processed_message = models.ChatMessage(
-                role=message.role,
-                content=new_content
-            )
-            processed_messages.append(processed_message)
-        else:
-            # No commands in this message, keep it as is
-            processed_messages.append(message)
-
-    # Reverse back to original order
-    processed_messages.reverse()
-    logger.debug(f"Final processed messages: {processed_messages}")
-    return processed_messages, commands_processed
+    return result_messages, processed_flag
