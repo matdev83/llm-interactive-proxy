@@ -87,7 +87,9 @@ class CommandParser:
         logger.debug( # E501: Wrapped log message
             f"Found {len(matches)} command matches for text: '{text_content}'"
         )
-        for match in reversed(matches):
+        # Process only the first match
+        if matches:
+            match = matches[0]
             commands_found = True
             command_full = match.group(0)
             if "bare" in match.groupdict() and match.group("bare"):
