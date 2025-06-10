@@ -16,4 +16,3 @@ def validate_command_prefix(prefix: str) -> str | None:
     if len(prefix) == 2 and prefix[0] == prefix[1]:
         return "two character prefixes cannot repeat the same character"
     return None
-

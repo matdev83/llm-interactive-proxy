@@ -1,15 +1,16 @@
+import logging  # Added logging
 import os
+from unittest.mock import AsyncMock, MagicMock, patch  # Added patch
+
+import httpx  # Added httpx
 import pytest
-import logging # Added logging
-from unittest.mock import AsyncMock, patch # Added patch
-from src.connectors import OpenRouterBackend, GeminiBackend
-from src.main import build_app # Import build_app
-from starlette.testclient import TestClient # Import TestClient
-import httpx # Added httpx
-import src.main as app_main
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
-from unittest.mock import patch, AsyncMock, MagicMock
+from starlette.testclient import TestClient  # Import TestClient
+
+import src.main as app_main
+from src.connectors import GeminiBackend, OpenRouterBackend
+from src.main import build_app  # Import build_app
 
 # Preserve original Gemini API key for integration tests
 ORIG_GEMINI_KEY = os.environ.get("GEMINI_API_KEY_1")
@@ -60,13 +61,15 @@ ORIG_GEMINI_KEY = os.environ.get("GEMINI_API_KEY_1")
 #     yield
 
 
-@pytest.fixture(scope="session") # Use session scope for app to avoid rebuilding for every test
-def configured_app(): # Removed monkeypatch as an argument
+@pytest.fixture(
+    scope="session"
+)  # Use session scope for app to avoid rebuilding for every test
+def configured_app():  # Removed monkeypatch as an argument
     """Fixture to provide a FastAPI app with configured backends for testing."""
     # Ensure no numbered API keys are present before setting base keys
-    if "OPENROUTER_API_KEY" in os.environ: # Delete unnumbered key
+    if "OPENROUTER_API_KEY" in os.environ:  # Delete unnumbered key
         del os.environ["OPENROUTER_API_KEY"]
-    if "GEMINI_API_KEY" in os.environ: # Delete unnumbered key
+    if "GEMINI_API_KEY" in os.environ:  # Delete unnumbered key
         del os.environ["GEMINI_API_KEY"]
     for i in range(1, 21):
         if f"OPENROUTER_API_KEY_{i}" in os.environ:
@@ -76,24 +79,25 @@ def configured_app(): # Removed monkeypatch as an argument
 
     # Manually set environment variables for the session-scoped app build
     os.environ["OPENROUTER_API_KEY_1"] = "dummy-openrouter-key-1"
-    os.environ["OPENROUTER_API_KEY_2"] = "dummy-openrouter-key-2" # Add a second key
+    os.environ["OPENROUTER_API_KEY_2"] = "dummy-openrouter-key-2"  # Add a second key
     os.environ["GEMINI_API_KEY"] = "dummy-gemini-key"
     os.environ["LLM_INTERACTIVE_PROXY_API_KEY"] = "test-proxy-key"
-    os.environ["LLM_BACKEND"] = "openrouter" # Explicitly set a default backend
+    os.environ["LLM_BACKEND"] = "openrouter"  # Explicitly set a default backend
     # This will call _load_config internally, which will pick up the env vars
     app = build_app()
     yield app
     # Clean up environment variables after the session
     if "OPENROUTER_API_KEY_1" in os.environ:
         del os.environ["OPENROUTER_API_KEY_1"]
-    if "OPENROUTER_API_KEY_2" in os.environ: # Clean up the second key
+    if "OPENROUTER_API_KEY_2" in os.environ:  # Clean up the second key
         del os.environ["OPENROUTER_API_KEY_2"]
     if "GEMINI_API_KEY" in os.environ:
         del os.environ["GEMINI_API_KEY"]
     if "LLM_INTERACTIVE_PROXY_API_KEY" in os.environ:
         del os.environ["LLM_INTERACTIVE_PROXY_API_KEY"]
-    if "LLM_BACKEND" in os.environ: # Clean up LLM_BACKEND
+    if "LLM_BACKEND" in os.environ:  # Clean up LLM_BACKEND
         del os.environ["LLM_BACKEND"]
+
 
 @pytest.fixture
 def client(configured_app):
@@ -102,13 +106,14 @@ def client(configured_app):
         c.headers.update({"Authorization": "Bearer test-proxy-key"})
         yield c
 
+
 @pytest.fixture(scope="session")
-def configured_interactive_app(): # Removed monkeypatch as an argument
+def configured_interactive_app():  # Removed monkeypatch as an argument
     """Fixture to provide a FastAPI app configured for interactive mode."""
     # Ensure no numbered API keys are present before setting base keys
-    if "OPENROUTER_API_KEY" in os.environ: # Delete unnumbered key
+    if "OPENROUTER_API_KEY" in os.environ:  # Delete unnumbered key
         del os.environ["OPENROUTER_API_KEY"]
-    if "GEMINI_API_KEY" in os.environ: # Delete unnumbered key
+    if "GEMINI_API_KEY" in os.environ:  # Delete unnumbered key
         del os.environ["GEMINI_API_KEY"]
     for i in range(1, 21):
         if f"OPENROUTER_API_KEY_{i}" in os.environ:
@@ -117,27 +122,28 @@ def configured_interactive_app(): # Removed monkeypatch as an argument
             del os.environ[f"GEMINI_API_KEY_{i}"]
 
     # Manually set environment variables for the session-scoped app build
-    os.environ["OPENROUTER_API_KEY_1"] = "dummy-openrouter-key-1" # Use numbered key
-    os.environ["OPENROUTER_API_KEY_2"] = "dummy-openrouter-key-2" # Add a second key
+    os.environ["OPENROUTER_API_KEY_1"] = "dummy-openrouter-key-1"  # Use numbered key
+    os.environ["OPENROUTER_API_KEY_2"] = "dummy-openrouter-key-2"  # Add a second key
     os.environ["GEMINI_API_KEY"] = "dummy-gemini-key"
     os.environ["DISABLE_INTERACTIVE_MODE"] = "false"  # Keep interactive mode enabled
     os.environ["LLM_INTERACTIVE_PROXY_API_KEY"] = "test-proxy-key"
-    os.environ["LLM_BACKEND"] = "openrouter" # Explicitly set a default backend
+    os.environ["LLM_BACKEND"] = "openrouter"  # Explicitly set a default backend
     app = build_app()
     yield app
     # Clean up environment variables after the session
     if "OPENROUTER_API_KEY_1" in os.environ:
         del os.environ["OPENROUTER_API_KEY_1"]
-    if "OPENROUTER_API_KEY_2" in os.environ: # Clean up the second key
+    if "OPENROUTER_API_KEY_2" in os.environ:  # Clean up the second key
         del os.environ["OPENROUTER_API_KEY_2"]
     if "GEMINI_API_KEY" in os.environ:
         del os.environ["GEMINI_API_KEY"]
     if "DISABLE_INTERACTIVE_MODE" in os.environ:
         del os.environ["DISABLE_INTERACTIVE_MODE"]
-    if "LLM_BACKEND" in os.environ: # Clean up LLM_BACKEND
+    if "LLM_BACKEND" in os.environ:  # Clean up LLM_BACKEND
         del os.environ["LLM_BACKEND"]
     if "LLM_INTERACTIVE_PROXY_API_KEY" in os.environ:
         del os.environ["LLM_INTERACTIVE_PROXY_API_KEY"]
+
 
 @pytest.fixture
 def interactive_client(configured_interactive_app):
@@ -146,14 +152,16 @@ def interactive_client(configured_interactive_app):
         c.headers.update({"Authorization": "Bearer test-proxy-key"})
         yield c
 
+
 def pytest_sessionstart(session):
     """
     Called after the Session object has been created and before performing collection and test runs.
     Used to apply patches that need to be in place for session-scoped fixtures.
     """
     from unittest.mock import AsyncMock, patch
+
     # Import the classes from where they are used in main.py
-    from src.main import OpenRouterBackend, GeminiBackend
+    from src.main import GeminiBackend, OpenRouterBackend
 
     # Apply patches for get_available_models and list_models
     # These patches will be applied to the classes themselves, affecting all instances
@@ -178,6 +186,7 @@ def pytest_sessionstart(session):
         AsyncMock(return_value={"models": [{"name": "mock-gemini-model-1"}]}),
     ).start()
 
+
 @pytest.fixture(autouse=True)
 def ensure_functional_backends():
     """Ensure functional_backends is set for all tests"""
@@ -185,29 +194,42 @@ def ensure_functional_backends():
         app_main.functional_backends = {"openrouter", "gemini"}
     yield
 
+
 @pytest.fixture(autouse=True)
 def apply_functional_backends(client):
     """Apply functional_backends to the test client's app"""
     client.app.state.functional_backends = {"openrouter", "gemini"}
     yield
 
+
 @pytest.fixture(autouse=True)
 def mock_model_discovery():
     """Mock model discovery for all tests"""
     with (
-        patch.object(OpenRouterBackend, "list_models", new=AsyncMock(return_value={"data": [{"id": "m1"}, {"id": "m2"}]})),
-        patch.object(GeminiBackend, "list_models", new=AsyncMock(return_value={"models": [{"name": "g1"}]})),
-        patch.object(OpenRouterBackend, "get_available_models", return_value=["m1", "m2"]),
-        patch.object(GeminiBackend, "get_available_models", return_value=["g1"])
+        patch.object(
+            OpenRouterBackend,
+            "list_models",
+            new=AsyncMock(return_value={"data": [{"id": "m1"}, {"id": "m2"}]}),
+        ),
+        patch.object(
+            GeminiBackend,
+            "list_models",
+            new=AsyncMock(return_value={"models": [{"name": "g1"}]}),
+        ),
+        patch.object(
+            OpenRouterBackend, "get_available_models", return_value=["m1", "m2"]
+        ),
+        patch.object(GeminiBackend, "get_available_models", return_value=["g1"]),
     ):
         yield
+
 
 def pytest_sessionfinish(session):
     """
     Called after whole test run finished, right before returning the exit status.
     Used to stop patches started in pytest_sessionstart.
     """
-    patch.stopall() # Call stopall() here
+    patch.stopall()  # Call stopall() here
 
 
 @pytest.fixture
@@ -270,9 +292,13 @@ def clean_env(monkeypatch):
         monkeypatch.delenv(f"GEMINI_API_KEY_{i}", raising=False)
         monkeypatch.delenv(f"OPENROUTER_API_KEY_{i}", raising=False)
 
+
 @pytest.fixture(autouse=True)
 def setup_logging():
     # Ensure logging is configured at DEBUG level for all tests
-    logging.basicConfig(level=logging.DEBUG, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
+    logging.basicConfig(
+        level=logging.DEBUG,
+        format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+    )
     # Set root logger level to DEBUG as well
     logging.getLogger().setLevel(logging.DEBUG)

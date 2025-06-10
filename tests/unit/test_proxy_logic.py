@@ -1,11 +1,14 @@
 import pytest
+
+from src.proxy_logic import (
+    ProxyState,
+)  # Keep ProxyState if TestParseArguments might need it, or remove if not
 from src.proxy_logic import (
     parse_arguments,
-    # _process_text_for_commands, # No longer used here
-    # process_commands_in_messages, # No longer used here
-    ProxyState # Keep ProxyState if TestParseArguments might need it, or remove if not
-)
+)  # _process_text_for_commands, # No longer used here; process_commands_in_messages, # No longer used here
+
 # from src.models import ChatMessage, MessageContentPart, MessageContentPartText, MessageContentPartImage, ImageURL # No longer used here
+
 
 class TestParseArguments:
     def test_parse_valid_arguments(self):
@@ -42,6 +45,7 @@ class TestParseArguments:
         args_str = "model=claude/opus, debug_mode"
         expected = {"model": "claude/opus", "debug_mode": True}
         assert parse_arguments(args_str) == expected
+
 
 # Removed TestProcessTextForCommands and TestProcessCommandsInMessages
 # as they are now in dedicated files:

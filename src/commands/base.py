@@ -1,12 +1,11 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Dict, Any, List, Set, Type, Optional
-
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Set, Type
 
 if TYPE_CHECKING:
     from fastapi import FastAPI
+
     from ..proxy_logic import ProxyState
 
 
@@ -29,7 +28,11 @@ class BaseCommand:
     # usage examples
     examples: List[str] = []
 
-    def __init__(self, app: Optional[FastAPI] = None, functional_backends: Optional[Set[str]] = None) -> None:
+    def __init__(
+        self,
+        app: Optional[FastAPI] = None,
+        functional_backends: Optional[Set[str]] = None,
+    ) -> None:
         self.app = app
         self.functional_backends = functional_backends or set()
 
@@ -47,7 +50,9 @@ def register_command(cls: Type[BaseCommand]) -> Type[BaseCommand]:
     return cls
 
 
-def create_command_instances(app: Optional[FastAPI], functional_backends: Optional[Set[str]] = None) -> List[BaseCommand]:
+def create_command_instances(
+    app: Optional[FastAPI], functional_backends: Optional[Set[str]] = None
+) -> List[BaseCommand]:
     """Instantiate all registered commands."""
     instances: List[BaseCommand] = []
     for cls in command_registry.values():

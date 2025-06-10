@@ -1,7 +1,9 @@
 import os
+
 import pytest
+
 from src.constants import DEFAULT_COMMAND_PREFIX
-from src.core.cli import parse_cli_args, apply_cli_args
+from src.core.cli import apply_cli_args, parse_cli_args
 from src.main import build_app as app_main_build_app  # Import build_app from main.py
 
 
@@ -189,8 +191,9 @@ def test_check_privileges_non_root(monkeypatch):
 
 @pytest.mark.skipif(os.name != "nt", reason="Test for Windows systems")
 def test_check_privileges_admin_windows(monkeypatch):
-    from src.core.cli import _check_privileges
     import ctypes
+
+    from src.core.cli import _check_privileges
 
     monkeypatch.setattr(
         ctypes.windll.shell32, "IsUserAnAdmin", lambda: 1, raising=False
@@ -201,8 +204,9 @@ def test_check_privileges_admin_windows(monkeypatch):
 
 @pytest.mark.skipif(os.name != "nt", reason="Test for Windows systems")
 def test_check_privileges_non_admin_windows(monkeypatch):
-    from src.core.cli import _check_privileges
     import ctypes
+
+    from src.core.cli import _check_privileges
 
     monkeypatch.setattr(
         ctypes.windll.shell32, "IsUserAnAdmin", lambda: 0, raising=False

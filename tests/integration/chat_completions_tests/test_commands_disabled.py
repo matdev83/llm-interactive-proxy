@@ -17,6 +17,8 @@ def test_commands_ignored(commands_disabled_client):
     assert resp.status_code == 200
     assert resp.json()["choices"][0]["message"]["content"] == "ok"
     call_args = mock_method.call_args.kwargs
-    assert call_args["processed_messages"][0].content == "hi !/set(model=openrouter:foo)"
+    assert (
+        call_args["processed_messages"][0].content == "hi !/set(model=openrouter:foo)"
+    )
     session = commands_disabled_client.app.state.session_manager.get_session("default")
     assert session.proxy_state.override_model is None

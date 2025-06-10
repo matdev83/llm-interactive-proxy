@@ -1,19 +1,23 @@
 import pytest
-import pytest
 from fastapi import HTTPException
 from pytest_httpx import HTTPXMock
+
 
 @pytest.mark.httpx_mock()
 def test_failover_key_rotation(client, httpx_mock: HTTPXMock):
     # create route
     payload = {
         "model": "dummy",
-        "messages": [{"role": "user", "content": "!/create-failover-route(name=r,policy=k)"}],
+        "messages": [
+            {"role": "user", "content": "!/create-failover-route(name=r,policy=k)"}
+        ],
     }
     client.post("/v1/chat/completions", json=payload)
     payload = {
         "model": "dummy",
-        "messages": [{"role": "user", "content": "!/route-append(name=r,openrouter:model-x)"}],
+        "messages": [
+            {"role": "user", "content": "!/route-append(name=r,openrouter:model-x)"}
+        ],
     }
     client.post("/v1/chat/completions", json=payload)
 
@@ -22,13 +26,13 @@ def test_failover_key_rotation(client, httpx_mock: HTTPXMock):
         url="https://openrouter.ai/api/v1/chat/completions",
         method="POST",
         status_code=429,
-        json={"detail": "limit"}
+        json={"detail": "limit"},
     )
     httpx_mock.add_response(
         url="https://openrouter.ai/api/v1/chat/completions",
         method="POST",
         status_code=200,
-        json={"choices": [{"message": {"content": "ok"}}]}
+        json={"choices": [{"message": {"content": "ok"}}]},
     )
 
     payload2 = {"model": "r", "messages": [{"role": "user", "content": "hi"}]}
@@ -51,8 +55,9 @@ def test_failover_missing_keys(monkeypatch, httpx_mock: HTTPXMock):
     monkeypatch.setenv("GEMINI_API_KEY", "G")
     monkeypatch.setenv("LLM_BACKEND", "gemini")
 
-    from src import main as app_main
     from fastapi.testclient import TestClient
+
+    from src import main as app_main
 
     app = app_main.build_app()
     with TestClient(app, headers={"Authorization": "Bearer test-proxy-key"}) as client:
@@ -61,7 +66,10 @@ def test_failover_missing_keys(monkeypatch, httpx_mock: HTTPXMock):
             json={
                 "model": "d",
                 "messages": [
-                    {"role": "user", "content": "!/create-failover-route(name=r,policy=m)"}
+                    {
+                        "role": "user",
+                        "content": "!/create-failover-route(name=r,policy=m)",
+                    }
                 ],
             },
         )
@@ -70,7 +78,10 @@ def test_failover_missing_keys(monkeypatch, httpx_mock: HTTPXMock):
             json={
                 "model": "d",
                 "messages": [
-                    {"role": "user", "content": "!/route-append(name=r,openrouter:model-x)"}
+                    {
+                        "role": "user",
+                        "content": "!/route-append(name=r,openrouter:model-x)",
+                    }
                 ],
             },
         )

@@ -1,18 +1,21 @@
-import pytest
-import httpx
 import json
-from typing import List, Dict, Any, Callable, Union
+from typing import Any, Callable, Dict, List, Union
 
-from starlette.responses import StreamingResponse
+import httpx
+import pytest
+import pytest_asyncio
 from fastapi import HTTPException
 from pytest_httpx import HTTPXMock
-import pytest_asyncio
+from starlette.responses import StreamingResponse
 
 import src.models as models
 from src.connectors.openrouter import OpenRouterBackend
 
 # Default OpenRouter settings for tests
-TEST_OPENROUTER_API_BASE_URL = "https://openrouter.ai/api/v1" # Real one for realistic requests
+TEST_OPENROUTER_API_BASE_URL = (
+    "https://openrouter.ai/api/v1"  # Real one for realistic requests
+)
+
 
 def mock_get_openrouter_headers(key_name: str, api_key: str) -> Dict[str, str]:
     return {
@@ -22,10 +25,12 @@ def mock_get_openrouter_headers(key_name: str, api_key: str) -> Dict[str, str]:
         "X-Title": "TestProxy",
     }
 
+
 @pytest_asyncio.fixture(name="openrouter_backend")
 async def openrouter_backend_fixture():
     async with httpx.AsyncClient() as client:
         yield OpenRouterBackend(client=client)
+
 
 @pytest.fixture
 def sample_chat_request_data() -> models.ChatCompletionRequest:
@@ -34,6 +39,7 @@ def sample_chat_request_data() -> models.ChatCompletionRequest:
         model="test-model",
         messages=[models.ChatMessage(role="user", content="Hello")],
     )
+
 
 @pytest.fixture
 def sample_processed_messages() -> List[models.ChatMessage]:
@@ -47,16 +53,18 @@ async def test_chat_completions_http_error_non_streaming(
     openrouter_backend: OpenRouterBackend,
     httpx_mock: HTTPXMock,
     sample_chat_request_data: models.ChatCompletionRequest,
-    sample_processed_messages: List[models.ChatMessage]
+    sample_processed_messages: List[models.ChatMessage],
 ):
     sample_chat_request_data.stream = False
-    error_payload = {"error": {"message": "Insufficient credits", "type": "billing_error"}}
+    error_payload = {
+        "error": {"message": "Insufficient credits", "type": "billing_error"}
+    }
 
     httpx_mock.add_response(
         url=f"{TEST_OPENROUTER_API_BASE_URL}/chat/completions",
         method="POST",
         json=error_payload,
-        status_code=402 # Payment Required
+        status_code=402,  # Payment Required
     )
 
     with pytest.raises(HTTPException) as exc_info:
@@ -67,7 +75,7 @@ async def test_chat_completions_http_error_non_streaming(
             openrouter_api_base_url=TEST_OPENROUTER_API_BASE_URL,
             openrouter_headers_provider=mock_get_openrouter_headers,
             key_name="OPENROUTER_API_KEY_1",
-            api_key="FAKE_KEY"
+            api_key="FAKE_KEY",
         )
 
     assert exc_info.value.status_code == 402

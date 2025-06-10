@@ -2,10 +2,10 @@ from __future__ import annotations
 
 import json
 import logging
-import time
 import os
 import secrets
 import sys
+import time
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from typing import Any, Dict, Union
@@ -13,31 +13,29 @@ from typing import Any, Dict, Union
 logger = logging.getLogger(__name__)
 
 import httpx
-from fastapi import FastAPI, HTTPException, Request, Depends
+from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.responses import StreamingResponse
 
 from src import models
-from src.proxy_logic import ProxyState
-from src.command_parser import CommandParser
-from src.session import SessionManager, SessionInteraction
 from src.agents import detect_agent, wrap_proxy_message
-from src.connectors import OpenRouterBackend, GeminiBackend
-from src.security import APIKeyRedactor
-from src.rate_limit import RateLimitRegistry, parse_retry_delay
-
+from src.command_parser import CommandParser
+from src.connectors import GeminiBackend, OpenRouterBackend
+from src.core.config import _keys_for, _load_config, get_openrouter_headers
 from src.core.metadata import _load_project_metadata
-from src.core.config import _load_config, get_openrouter_headers, _keys_for
-
+from src.core.persistence import ConfigManager
+from src.proxy_logic import ProxyState
+from src.rate_limit import RateLimitRegistry, parse_retry_delay
+from src.security import APIKeyRedactor
+from src.session import SessionInteraction, SessionManager
 
 # ---------------------------------------------------------------------------
 # Application factory
 # ---------------------------------------------------------------------------
 
 
-from src.core.persistence import ConfigManager
-
-
-def build_app(cfg: Dict[str, Any] | None = None, *, config_file: str | None = None) -> FastAPI:
+def build_app(
+    cfg: Dict[str, Any] | None = None, *, config_file: str | None = None
+) -> FastAPI:
     cfg = cfg or _load_config()
 
     disable_auth = cfg.get("disable_auth", False)
@@ -47,12 +45,8 @@ def build_app(cfg: Dict[str, Any] | None = None, *, config_file: str | None = No
         if not api_key:
             api_key = secrets.token_urlsafe(32)
             generated_key = True
-            logger.warning(
-                "No client API key provided, generated one: %s", api_key
-            )
-            if not any(
-                isinstance(h, logging.StreamHandler) for h in logger.handlers
-            ):
+            logger.warning("No client API key provided, generated one: %s", api_key)
+            if not any(isinstance(h, logging.StreamHandler) for h in logger.handlers):
                 sys.stdout.write(f"Generated client API key: {api_key}\n")
     else:
         api_key = api_key or None
@@ -86,7 +80,9 @@ def build_app(cfg: Dict[str, Any] | None = None, *, config_file: str | None = No
         app.state.httpx_client = client
         app.state.failover_routes = {}
         default_mode = (
-            False if cfg.get("disable_interactive_commands") else cfg["interactive_mode"]
+            False
+            if cfg.get("disable_interactive_commands")
+            else cfg["interactive_mode"]
         )
         app.state.session_manager = SessionManager(
             default_interactive_mode=default_mode,
@@ -222,7 +218,9 @@ def build_app(cfg: Dict[str, Any] | None = None, *, config_file: str | None = No
                 text = first.content
             elif isinstance(first.content, list):
                 text = " ".join(
-                    p.text for p in first.content if isinstance(p, models.MessageContentPartText)
+                    p.text
+                    for p in first.content
+                    if isinstance(p, models.MessageContentPartText)
                 )
             else:
                 text = ""
@@ -261,7 +259,9 @@ def build_app(cfg: Dict[str, Any] | None = None, *, config_file: str | None = No
             )
             # Check for command errors and return them if any
             if parser.results and any(not result.success for result in parser.results):
-                error_messages = [result.message for result in parser.results if not result.success]
+                error_messages = [
+                    result.message for result in parser.results if not result.success
+                ]
                 return {
                     "id": "proxy_cmd_processed",
                     "object": "chat.completion",
@@ -334,8 +334,8 @@ def build_app(cfg: Dict[str, Any] | None = None, *, config_file: str | None = No
                     is_command_only = not last_msg.content.strip()
                 elif isinstance(last_msg.content, list):
                     is_command_only = not any(
-                        part.text.strip() 
-                        for part in last_msg.content 
+                        part.text.strip()
+                        for part in last_msg.content
                         if isinstance(part, models.MessageContentPartText)
                     )
 
@@ -415,21 +415,25 @@ def build_app(cfg: Dict[str, Any] | None = None, *, config_file: str | None = No
                         },
                     )
                 try:
-                    result = await http_request.app.state.gemini_backend.chat_completions(
-                        request_data=request_data,
-                        processed_messages=processed_messages,
-                        effective_model=model,
-                        project=proxy_state.project,
-                        gemini_api_base_url=cfg["gemini_api_base_url"],
-                        key_name=key_name,
-                        api_key=api_key,
-                        prompt_redactor=(
-                            http_request.app.state.api_key_redactor
-                            if http_request.app.state.api_key_redaction_enabled
-                            else None
-                        ),
+                    result = (
+                        await http_request.app.state.gemini_backend.chat_completions(
+                            request_data=request_data,
+                            processed_messages=processed_messages,
+                            effective_model=model,
+                            project=proxy_state.project,
+                            gemini_api_base_url=cfg["gemini_api_base_url"],
+                            key_name=key_name,
+                            api_key=api_key,
+                            prompt_redactor=(
+                                http_request.app.state.api_key_redactor
+                                if http_request.app.state.api_key_redaction_enabled
+                                else None
+                            ),
+                        )
                     )
-                    logger.debug(f"Result from Gemini backend chat_completions: {result}")
+                    logger.debug(
+                        f"Result from Gemini backend chat_completions: {result}"
+                    )
                     return result
                 except HTTPException as e:
                     if e.status_code == 429:
@@ -451,24 +455,28 @@ def build_app(cfg: Dict[str, Any] | None = None, *, config_file: str | None = No
                     },
                 )
             try:
-                result = await http_request.app.state.openrouter_backend.chat_completions(
-                    request_data=request_data,
-                    processed_messages=processed_messages,
-                    effective_model=model,
-                    openrouter_api_base_url=cfg["openrouter_api_base_url"],
-                    openrouter_headers_provider=lambda n, k: get_openrouter_headers(
-                        cfg, k
-                    ),
-                    key_name=key_name,
-                    api_key=api_key,
-                    project=proxy_state.project,
-                    prompt_redactor=(
-                        http_request.app.state.api_key_redactor
-                        if http_request.app.state.api_key_redaction_enabled
-                        else None
-                    ),
+                result = (
+                    await http_request.app.state.openrouter_backend.chat_completions(
+                        request_data=request_data,
+                        processed_messages=processed_messages,
+                        effective_model=model,
+                        openrouter_api_base_url=cfg["openrouter_api_base_url"],
+                        openrouter_headers_provider=lambda n, k: get_openrouter_headers(
+                            cfg, k
+                        ),
+                        key_name=key_name,
+                        api_key=api_key,
+                        project=proxy_state.project,
+                        prompt_redactor=(
+                            http_request.app.state.api_key_redactor
+                            if http_request.app.state.api_key_redaction_enabled
+                            else None
+                        ),
+                    )
                 )
-                logger.debug(f"Result from OpenRouter backend chat_completions: {result}")
+                logger.debug(
+                    f"Result from OpenRouter backend chat_completions: {result}"
+                )
                 return result
             except HTTPException as e:
                 if e.status_code == 429:

@@ -1,9 +1,10 @@
-import pytest
-import httpx
 import json
-from starlette.responses import StreamingResponse
-from pytest_httpx import HTTPXMock
+
+import httpx
+import pytest
 import pytest_asyncio
+from pytest_httpx import HTTPXMock
+from starlette.responses import StreamingResponse
 
 import src.models as models
 from src.connectors.gemini import GeminiBackend

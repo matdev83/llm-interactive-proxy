@@ -1,9 +1,5 @@
 from .base import LLMBackend
-from .openrouter import OpenRouterBackend
 from .gemini import GeminiBackend
+from .openrouter import OpenRouterBackend
 
-__all__ = [
-    "LLMBackend",
-    "OpenRouterBackend",
-    "GeminiBackend"
-]
+__all__ = ["LLMBackend", "OpenRouterBackend", "GeminiBackend"]

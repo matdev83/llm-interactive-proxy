@@ -3,6 +3,7 @@ from typing import Iterable
 
 logger = logging.getLogger(__name__)
 
+
 class APIKeyRedactor:
     """Redact known API keys from user provided prompts."""
 
@@ -15,6 +16,10 @@ class APIKeyRedactor:
         redacted_text = text
         for key in self.api_keys:
             if key and key in redacted_text:
-                logger.warning("API key detected in prompt. Redacting before forwarding.")
-                redacted_text = redacted_text.replace(key, "(API_KEY_HAS_BEEN_REDACTED)")
+                logger.warning(
+                    "API key detected in prompt. Redacting before forwarding."
+                )
+                redacted_text = redacted_text.replace(
+                    key, "(API_KEY_HAS_BEEN_REDACTED)"
+                )
         return redacted_text

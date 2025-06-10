@@ -1,5 +1,7 @@
 import pytest
+
 from src.proxy_logic import parse_arguments
+
 
 class TestParseArguments:
     def test_parse_valid_arguments(self):

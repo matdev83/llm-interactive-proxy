@@ -1,10 +1,11 @@
 import logging
 import re
-from typing import Any, Dict, List, Tuple, Set, Optional
+from typing import Any, Dict, List, Optional, Set, Tuple
 
 import src.models as models
-from .constants import DEFAULT_COMMAND_PREFIX
+
 from .commands import BaseCommand, CommandResult, create_command_instances
+from .constants import DEFAULT_COMMAND_PREFIX
 
 logger = logging.getLogger(__name__)
 
@@ -16,19 +17,19 @@ def parse_arguments(args_str: str) -> Dict[str, Any]:
     if not args_str.strip():
         logger.debug("Argument string is empty, returning empty dict.")
         return args
-    for part in args_str.split(','):
-        if '=' in part:
-            key, value = part.split('=', 1)
+    for part in args_str.split(","):
+        if "=" in part:
+            key, value = part.split("=", 1)
             value = value.strip()
-            if (
-                (value.startswith('"') and value.endswith('"'))
-                or (value.startswith("'") and value.endswith("'"))
+            if (value.startswith('"') and value.endswith('"')) or (
+                value.startswith("'") and value.endswith("'")
             ):
                 value = value[1:-1]
             args[key.strip()] = value
         else:
             args[part.strip()] = True
     return args
+
 
 from .proxy_logic import ProxyState
 
@@ -42,6 +43,7 @@ def get_command_pattern(command_prefix: str) -> re.Pattern:
 
 
 from fastapi import FastAPI
+
 
 class CommandParser:
     """Parse and apply proxy commands embedded in chat messages."""
@@ -84,7 +86,7 @@ class CommandParser:
             if "bare" in match.groupdict() and match.group("bare"):
                 command_name = match.group("bare").lower()
                 args_str = ""
-            else: # It's a function-like command
+            else:  # It's a function-like command
                 command_name = match.group("cmd").lower()
                 args_str = match.group("args")
             logger.debug(
@@ -106,12 +108,18 @@ class CommandParser:
             else:
                 logger.warning(f"Unknown command: {command_name}.")
                 self.results.append(
-                    CommandResult(command_name, False, f"unknown command: {command_name}")
+                    CommandResult(
+                        command_name, False, f"unknown command: {command_name}"
+                    )
                 )
                 if self.preserve_unknown:
                     replacement = command_full
 
-            modified_text = modified_text[: match.start()] + replacement + modified_text[match.end() :]
+            modified_text = (
+                modified_text[: match.start()]
+                + replacement
+                + modified_text[match.end() :]
+            )
 
         final_text = re.sub(r"\s+", " ", modified_text).strip()
         final_text = self._strip_xml_tags(final_text)
@@ -167,9 +175,17 @@ class CommandParser:
                             part_level_found = True
                             any_command_processed = True
                         if processed_text.strip():
-                            new_parts.append(models.MessageContentPartText(type="text", text=processed_text))
+                            new_parts.append(
+                                models.MessageContentPartText(
+                                    type="text", text=processed_text
+                                )
+                            )
                         elif not found:
-                            new_parts.append(models.MessageContentPartText(type="text", text=processed_text))
+                            new_parts.append(
+                                models.MessageContentPartText(
+                                    type="text", text=processed_text
+                                )
+                            )
                     else:
                         new_parts.append(part.model_copy(deep=True))
                 if part_level_found:
@@ -191,7 +207,9 @@ class CommandParser:
             if isinstance(msg.content, str) and not msg.content.strip():
                 # Check if this was a command-only message
                 original_msg = messages[len(final_messages)]
-                if isinstance(original_msg.content, str) and original_msg.content.strip().startswith(self.command_prefix):
+                if isinstance(
+                    original_msg.content, str
+                ) and original_msg.content.strip().startswith(self.command_prefix):
                     # For command-only messages, we want to keep them in the list
                     # but with empty content to indicate they were processed
                     final_messages.append(msg)
@@ -214,6 +232,7 @@ class CommandParser:
 
 
 # Convenience wrappers ----------------------------------------------
+
 
 def _process_text_for_commands(
     text_content: str,
@@ -251,12 +270,16 @@ def process_commands_in_messages(
     # Process messages in reverse order to handle commands from last to first
     for i, message in enumerate(reversed(messages)):
         message_index = len(messages) - 1 - i
-        logger.debug(f"Processing message index {message_index} (from end): {message.content}")
+        logger.debug(
+            f"Processing message index {message_index} (from end): {message.content}"
+        )
 
         # Check for commands in the message
         command_matches = list(command_pattern.finditer(message.content))
         if command_matches:
-            logger.debug(f"Found {len(command_matches)} command matches in message: {message.content}")
+            logger.debug(
+                f"Found {len(command_matches)} command matches in message: {message.content}"
+            )
             commands_processed = True
 
             # Process each command
@@ -295,8 +318,7 @@ def process_commands_in_messages(
 
             # Create new message with processed content
             processed_message = models.ChatMessage(
-                role=message.role,
-                content=new_content
+                role=message.role, content=new_content
             )
             processed_messages.append(processed_message)
         else:

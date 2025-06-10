@@ -1,13 +1,13 @@
 import argparse
-import os
 import logging
-import uvicorn
-from typing import Any, Dict
+import os
 import sys
-from src.command_prefix import validate_command_prefix
+from typing import Any, Callable, Dict, Optional
 
+import uvicorn
+
+from src.command_prefix import validate_command_prefix
 from src.core.config import _load_config
-from typing import Callable, Optional
 
 
 def _check_privileges() -> None:

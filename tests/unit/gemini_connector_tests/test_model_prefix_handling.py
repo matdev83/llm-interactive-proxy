@@ -1,13 +1,15 @@
-import pytest
-import httpx
 import json
-from pytest_httpx import HTTPXMock
+
+import httpx
+import pytest
 import pytest_asyncio
+from pytest_httpx import HTTPXMock
 
 import src.models as models
 from src.connectors.gemini import GeminiBackend
 
 TEST_GEMINI_API_BASE_URL = "https://generativelanguage.googleapis.com"
+
 
 @pytest_asyncio.fixture(name="gemini_backend")
 async def gemini_backend_fixture():
@@ -40,7 +42,11 @@ async def test_chat_completions_model_prefix_handled(
 
     mock_response_payload = {
         "candidates": [{"content": {"parts": [{"text": "Hi"}]}}],
-        "usageMetadata": {"promptTokenCount": 1, "candidatesTokenCount": 1, "totalTokenCount": 2},
+        "usageMetadata": {
+            "promptTokenCount": 1,
+            "candidatesTokenCount": 1,
+            "totalTokenCount": 2,
+        },
     }
     httpx_mock.add_response(
         url=f"{TEST_GEMINI_API_BASE_URL}/v1beta/models/gemini-1:generateContent",
@@ -64,5 +70,8 @@ async def test_chat_completions_model_prefix_handled(
     assert isinstance(response, dict)
     request = httpx_mock.get_request()
     assert request is not None
-    assert str(request.url) == f"{TEST_GEMINI_API_BASE_URL}/v1beta/models/gemini-1:generateContent"
+    assert (
+        str(request.url)
+        == f"{TEST_GEMINI_API_BASE_URL}/v1beta/models/gemini-1:generateContent"
+    )
     assert request.headers.get("x-goog-api-key") == "FAKE_KEY"

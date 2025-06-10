@@ -1,19 +1,20 @@
 from __future__ import annotations
 
-import httpx
 import json
 import logging
 import time
-from typing import Union, Dict, Any, Optional, AsyncGenerator
+from typing import Any, AsyncGenerator, Dict, Optional, Union
 
+import httpx
 from fastapi import HTTPException
 from starlette.responses import StreamingResponse
+
+from src.connectors.base import LLMBackend
 from src.models import (
     ChatCompletionRequest,
-    MessageContentPartText,
     MessageContentPartImage,
+    MessageContentPartText,
 )
-from src.connectors.base import LLMBackend
 from src.security import APIKeyRedactor
 
 logger = logging.getLogger(__name__)
@@ -185,8 +186,13 @@ class GeminiBackend(LLMBackend):
             elif msg.role in ["tool", "function"]:
                 gemini_role = "user"
                 # For tool/function messages, wrap content in a tool_response part
-                parts = [{"text": f"tool_code: {json.dumps(msg.content)}", "tool_response": msg.content}]
-            else: # e.g., assistant
+                parts = [
+                    {
+                        "text": f"tool_code: {json.dumps(msg.content)}",
+                        "tool_response": msg.content,
+                    }
+                ]
+            else:  # e.g., assistant
                 gemini_role = "model"
             payload_contents.append({"role": gemini_role, "parts": parts})
         payload = {"contents": payload_contents}
@@ -238,9 +244,9 @@ class GeminiBackend(LLMBackend):
                         async for chunk in response.aiter_text():
                             buffer += chunk
                             while True:
-                                buffer = buffer.lstrip() # Remove leading whitespace
+                                buffer = buffer.lstrip()  # Remove leading whitespace
                                 if not buffer:
-                                    break # Nothing left in buffer
+                                    break  # Nothing left in buffer
                                 try:
                                     # Attempt to decode a JSON object from the buffer
                                     obj, idx = decoder.raw_decode(buffer)
@@ -248,16 +254,20 @@ class GeminiBackend(LLMBackend):
                                     # Not a complete JSON object yet, wait for more data
                                     break
                                 # Successfully decoded, process the object
-                                if isinstance(obj, list): # Handle list of objects
+                                if isinstance(obj, list):  # Handle list of objects
                                     for item in obj:
-                                        if isinstance(item, dict): # Ensure item is a dict
+                                        if isinstance(
+                                            item, dict
+                                        ):  # Ensure item is a dict
                                             converted = self._convert_stream_chunk(
                                                 item, effective_model
                                             )
                                             yield f"data: {json.dumps(converted)}\n\n".encode()
                                         else:
-                                            logger.warning(f"Unexpected item type in Gemini stream: {type(item)}")
-                                else: # obj is a dict
+                                            logger.warning(
+                                                f"Unexpected item type in Gemini stream: {type(item)}"
+                                            )
+                                else:  # obj is a dict
                                     converted = self._convert_stream_chunk(
                                         obj, effective_model
                                     )

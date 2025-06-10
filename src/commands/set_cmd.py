@@ -1,14 +1,12 @@
 from __future__ import annotations
 
 import logging
-from typing import Dict, Any, List, Set
+from typing import TYPE_CHECKING, Any, Dict, List, Set
 
 from fastapi import FastAPI
 
-from .base import BaseCommand, CommandResult, register_command
 from ..command_prefix import validate_command_prefix
-
-from typing import TYPE_CHECKING
+from .base import BaseCommand, CommandResult, register_command
 
 if TYPE_CHECKING:
     from ..proxy_logic import ProxyState
@@ -26,7 +24,9 @@ class SetCommand(BaseCommand):
         "!/set(interactive=true)",
     ]
 
-    def __init__(self, app: FastAPI | None = None, functional_backends: Set[str] | None = None) -> None:
+    def __init__(
+        self, app: FastAPI | None = None, functional_backends: Set[str] | None = None
+    ) -> None:
         super().__init__(app, functional_backends)
 
     def _parse_bool(self, value: str) -> bool | None:
@@ -38,7 +38,9 @@ class SetCommand(BaseCommand):
         return None
 
     def execute(self, args: Dict[str, Any], state: "ProxyState") -> CommandResult:
-        logger.debug(f"SetCommand.execute called with args: {args}, functional_backends: {self.functional_backends}")
+        logger.debug(
+            f"SetCommand.execute called with args: {args}, functional_backends: {self.functional_backends}"
+        )
         messages: List[str] = []
         handled = False
         backend_set_failed = False
@@ -46,12 +48,18 @@ class SetCommand(BaseCommand):
             backend_val = args["backend"].strip().lower()
             logger.debug(f"SetCommand: Processing 'backend' argument: {backend_val}")
             if backend_val not in {"openrouter", "gemini"}:
-                return CommandResult(self.name, False, f"backend {backend_val} not supported")
+                return CommandResult(
+                    self.name, False, f"backend {backend_val} not supported"
+                )
             if backend_val not in self.functional_backends:
                 state.unset_override_backend()
                 backend_set_failed = True
-                return CommandResult(self.name, False, f"backend {backend_val} not functional")
-            logger.debug(f"SetCommand: About to call state.set_override_backend with {backend_val}")
+                return CommandResult(
+                    self.name, False, f"backend {backend_val} not functional"
+                )
+            logger.debug(
+                f"SetCommand: About to call state.set_override_backend with {backend_val}"
+            )
             state.set_override_backend(backend_val)
             handled = True
             messages.append(f"backend set to {backend_val}")
@@ -59,9 +67,13 @@ class SetCommand(BaseCommand):
         if isinstance(args.get("default-backend"), str):
             backend_val = args["default-backend"].strip().lower()
             if backend_val not in {"openrouter", "gemini"}:
-                return CommandResult(self.name, False, f"backend {backend_val} not supported")
+                return CommandResult(
+                    self.name, False, f"backend {backend_val} not supported"
+                )
             if backend_val not in self.functional_backends:
-                return CommandResult(self.name, False, f"backend {backend_val} not functional")
+                return CommandResult(
+                    self.name, False, f"backend {backend_val} not functional"
+                )
             if self.app is not None:
                 self.app.state.backend_type = backend_val
                 if backend_val == "gemini":
@@ -76,13 +88,17 @@ class SetCommand(BaseCommand):
         if not backend_set_failed and isinstance(args.get("model"), str):
             model_val = args["model"].strip()
             if ":" not in model_val:
-                return CommandResult(self.name, False, "model must be specified as <backend>:<model>")
+                return CommandResult(
+                    self.name, False, "model must be specified as <backend>:<model>"
+                )
             backend_part, model_name = model_val.split(":", 1)
             backend_part = backend_part.lower()
             backend_obj = None
             if self.app is not None:
                 try:
-                    backend_obj = getattr(self.app.state, f"{backend_part}_backend", None)
+                    backend_obj = getattr(
+                        self.app.state, f"{backend_part}_backend", None
+                    )
                 except Exception:
                     backend_obj = None
             available = backend_obj.get_available_models() if backend_obj else []
@@ -99,7 +115,9 @@ class SetCommand(BaseCommand):
             else:
                 state.set_override_model(backend_part, model_name, invalid=True)
                 handled = True
-        if isinstance(args.get("project"), str) or isinstance(args.get("project-name"), str):
+        if isinstance(args.get("project"), str) or isinstance(
+            args.get("project-name"), str
+        ):
             name_val = str(args.get("project") or args.get("project-name"))
             state.set_project(name_val)
             handled = True
@@ -112,7 +130,10 @@ class SetCommand(BaseCommand):
                     handled = True
                     messages.append(f"interactive mode set to {val}")
                     persistent_change = True
-        if isinstance(args.get("redact-api-keys-in-prompts"), str) and self.app is not None:
+        if (
+            isinstance(args.get("redact-api-keys-in-prompts"), str)
+            and self.app is not None
+        ):
             val = self._parse_bool(args["redact-api-keys-in-prompts"])
             if val is not None:
                 self.app.state.api_key_redaction_enabled = val
@@ -130,6 +151,10 @@ class SetCommand(BaseCommand):
             persistent_change = True
         if not handled:
             return CommandResult(self.name, False, "set: no valid parameters")
-        if persistent_change and self.app is not None and getattr(self.app.state, "config_manager", None):
+        if (
+            persistent_change
+            and self.app is not None
+            and getattr(self.app.state, "config_manager", None)
+        ):
             self.app.state.config_manager.save()
         return CommandResult(self.name, True, "; ".join(messages))

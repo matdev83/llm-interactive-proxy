@@ -1,13 +1,11 @@
 from __future__ import annotations
 
-from typing import Dict, Any, List, Set
+from typing import TYPE_CHECKING, Any, Dict, List, Set
 
 from fastapi import FastAPI
 
-from .base import BaseCommand, CommandResult, register_command
 from ..constants import DEFAULT_COMMAND_PREFIX
-
-from typing import TYPE_CHECKING
+from .base import BaseCommand, CommandResult, register_command
 
 if TYPE_CHECKING:
     from ..proxy_logic import ProxyState
@@ -23,7 +21,9 @@ class UnsetCommand(BaseCommand):
         "!/unset(interactive)",
     ]
 
-    def __init__(self, app: FastAPI | None = None, functional_backends: Set[str] | None = None) -> None:
+    def __init__(
+        self, app: FastAPI | None = None, functional_backends: Set[str] | None = None
+    ) -> None:
         super().__init__(app, functional_backends)
 
     def execute(self, args: Dict[str, Any], state: "ProxyState") -> CommandResult:
@@ -59,11 +59,17 @@ class UnsetCommand(BaseCommand):
             messages.append("command prefix unset")
             persistent_change = True
         if "redact-api-keys-in-prompts" in keys_to_unset and self.app:
-            self.app.state.api_key_redaction_enabled = self.app.state.default_api_key_redaction_enabled
+            self.app.state.api_key_redaction_enabled = (
+                self.app.state.default_api_key_redaction_enabled
+            )
             messages.append("redact-api-keys-in-prompts unset")
             persistent_change = True
         if not keys_to_unset or not messages:
             return CommandResult(self.name, False, "unset: nothing to do")
-        if persistent_change and self.app and getattr(self.app.state, "config_manager", None):
+        if (
+            persistent_change
+            and self.app
+            and getattr(self.app.state, "config_manager", None)
+        ):
             self.app.state.config_manager.save()
         return CommandResult(self.name, True, "; ".join(messages))

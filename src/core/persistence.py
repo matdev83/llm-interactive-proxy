@@ -3,9 +3,9 @@ import logging
 from pathlib import Path
 from typing import Any, Dict
 
-from src.command_prefix import validate_command_prefix
-
 from fastapi import FastAPI
+
+from src.command_prefix import validate_command_prefix
 
 logger = logging.getLogger(__name__)
 
