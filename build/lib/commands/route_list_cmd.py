@@ -4,7 +4,7 @@ from typing import TYPE_CHECKING, Any, Dict, List, Set
 
 from fastapi import FastAPI
 
-from .base import BaseCommand, CommandResult, register_command
+from .base import CommandResult, register_command # Removed BaseCommand
 from .failover_base import FailoverBase
 
 if TYPE_CHECKING:

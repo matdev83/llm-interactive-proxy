@@ -128,19 +128,18 @@ class ProxyState:
 
 
 # Re-export command parsing helpers from the dedicated module for backward compatibility
-from .command_parser import (
-    CommandParser,
-    _process_text_for_commands,
-    get_command_pattern,
-    parse_arguments,
-    process_commands_in_messages,
-)
+# from .command_parser import (
+#     _process_text_for_commands,
+#     get_command_pattern,
+#     parse_arguments,
+#     process_commands_in_messages,
+# ) # Removed to break circular import
 
 __all__ = [
     "ProxyState",
-    "parse_arguments",
-    "get_command_pattern",
-    "_process_text_for_commands",
-    "process_commands_in_messages",
-    "CommandParser",
+    # "parse_arguments", # Removed to break circular import
+    # "get_command_pattern", # Removed to break circular import
+    # "_process_text_for_commands", # Removed to break circular import
+    # "process_commands_in_messages", # Removed to break circular import
+    # "CommandParser", # Removed to break circular import
 ]
