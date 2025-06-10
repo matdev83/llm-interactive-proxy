@@ -8,7 +8,7 @@ import abc
 # To make this file runnable standalone for now, we can use a forward reference or Any.
 from typing import TYPE_CHECKING, Any, Callable, Dict, Union
 
-import httpx
+# import httpx # F401: Removed
 from starlette.responses import StreamingResponse
 
 if TYPE_CHECKING:

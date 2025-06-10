@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, Dict, List, Set
+from typing import TYPE_CHECKING, Any, Dict # Removed List, Set
 
 from .base import BaseCommand, CommandResult, command_registry, register_command
 
