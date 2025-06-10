@@ -1,0 +1,3895 @@
+2025-06-10 17:58:20,916 - root - WARNING - Client authentication is DISABLED
+2025-06-10 17:58:20,921 - asyncio - DEBUG - Using proactor: IocpProactor
+INFO:     Started server process [23780]
+INFO:     Waiting for application startup.
+2025-06-10 17:58:20,997 - httpcore.connection - DEBUG - connect_tcp.started host='openrouter.ai' port=443 local_address=None timeout=300 socket_options=None
+2025-06-10 17:58:21,033 - httpcore.connection - DEBUG - connect_tcp.complete return_value=<httpcore._backends.anyio.AnyIOStream object at 0x000001CC8B844970>
+2025-06-10 17:58:21,033 - httpcore.connection - DEBUG - start_tls.started ssl_context=<ssl.SSLContext object at 0x000001CC8B8282C0> server_hostname='openrouter.ai' timeout=300
+2025-06-10 17:58:21,043 - httpcore.connection - DEBUG - start_tls.complete return_value=<httpcore._backends.anyio.AnyIOStream object at 0x000001CC8B80F820>
+2025-06-10 17:58:21,043 - httpcore.http11 - DEBUG - send_request_headers.started request=<Request [b'GET']>
+2025-06-10 17:58:21,043 - httpcore.http11 - DEBUG - send_request_headers.complete
+2025-06-10 17:58:21,044 - httpcore.http11 - DEBUG - send_request_body.started request=<Request [b'GET']>
+2025-06-10 17:58:21,044 - httpcore.http11 - DEBUG - send_request_body.complete
+2025-06-10 17:58:21,044 - httpcore.http11 - DEBUG - receive_response_headers.started request=<Request [b'GET']>
+2025-06-10 17:58:21,186 - httpcore.http11 - DEBUG - receive_response_headers.complete return_value=(b'HTTP/1.1', 200, b'OK', [(b'Date', b'Tue, 10 Jun 2025 15:58:21 GMT'), (b'Content-Type', b'application/json'), (b'Transfer-Encoding', b'chunked'), (b'Connection', b'keep-alive'), (b'Content-Encoding', b'gzip'), (b'Access-Control-Allow-Origin', b'*'), (b'Cdn-Cache-Control', b'max-age=300'), (b'Vary', b'Accept-Encoding'), (b'Server', b'cloudflare'), (b'Cf-Ray', b'94da11d529cf3bcb-WAW')])
+2025-06-10 17:58:21,186 - httpx - INFO - HTTP Request: GET https://openrouter.ai/api/v1/models "HTTP/1.1 200 OK"
+2025-06-10 17:58:21,187 - httpcore.http11 - DEBUG - receive_response_body.started request=<Request [b'GET']>
+2025-06-10 17:58:21,190 - httpcore.http11 - DEBUG - receive_response_body.complete
+2025-06-10 17:58:21,190 - httpcore.http11 - DEBUG - response_closed.started
+2025-06-10 17:58:21,191 - httpcore.http11 - DEBUG - response_closed.complete
+2025-06-10 17:58:21,195 - httpcore.connection - DEBUG - connect_tcp.started host='generativelanguage.googleapis.com' port=443 local_address=None timeout=300 socket_options=None
+2025-06-10 17:58:21,294 - httpcore.connection - DEBUG - connect_tcp.complete return_value=<httpcore._backends.anyio.AnyIOStream object at 0x000001CC8B890E80>
+2025-06-10 17:58:21,294 - httpcore.connection - DEBUG - start_tls.started ssl_context=<ssl.SSLContext object at 0x000001CC8B8282C0> server_hostname='generativelanguage.googleapis.com' timeout=300
+2025-06-10 17:58:21,316 - httpcore.connection - DEBUG - start_tls.complete return_value=<httpcore._backends.anyio.AnyIOStream object at 0x000001CC8B8918D0>
+2025-06-10 17:58:21,316 - httpcore.http11 - DEBUG - send_request_headers.started request=<Request [b'GET']>
+2025-06-10 17:58:21,316 - httpcore.http11 - DEBUG - send_request_headers.complete
+2025-06-10 17:58:21,316 - httpcore.http11 - DEBUG - send_request_body.started request=<Request [b'GET']>
+2025-06-10 17:58:21,316 - httpcore.http11 - DEBUG - send_request_body.complete
+2025-06-10 17:58:21,317 - httpcore.http11 - DEBUG - receive_response_headers.started request=<Request [b'GET']>
+2025-06-10 17:58:21,360 - httpcore.http11 - DEBUG - receive_response_headers.complete return_value=(b'HTTP/1.1', 200, b'OK', [(b'Content-Type', b'application/json; charset=UTF-8'), (b'Vary', b'Origin'), (b'Vary', b'X-Origin'), (b'Vary', b'Referer'), (b'Content-Encoding', b'gzip'), (b'Date', b'Tue, 10 Jun 2025 15:58:21 GMT'), (b'Server', b'scaffolding on HTTPServer2'), (b'X-XSS-Protection', b'0'), (b'X-Frame-Options', b'SAMEORIGIN'), (b'X-Content-Type-Options', b'nosniff'), (b'Server-Timing', b'gfet4t7; dur=40'), (b'Alt-Svc', b'h3=":443"; ma=2592000,h3-29=":443"; ma=2592000'), (b'Transfer-Encoding', b'chunked')])
+2025-06-10 17:58:21,360 - httpx - INFO - HTTP Request: GET https://generativelanguage.googleapis.com/v1beta/models "HTTP/1.1 200 OK"
+2025-06-10 17:58:21,360 - httpcore.http11 - DEBUG - receive_response_body.started request=<Request [b'GET']>
+2025-06-10 17:58:21,361 - httpcore.http11 - DEBUG - receive_response_body.complete
+2025-06-10 17:58:21,361 - httpcore.http11 - DEBUG - response_closed.started
+2025-06-10 17:58:21,361 - httpcore.http11 - DEBUG - response_closed.complete
+INFO:     Application startup complete.
+INFO:     Uvicorn running on http://127.0.0.1:8000 (Press CTRL+C to quit)
+2025-06-10 17:58:33,105 - src.session - INFO - Created new session: default
+2025-06-10 17:58:33,105 - src.session - DEBUG - Retrieving session: default, ProxyState ID: 1978026330192
+2025-06-10 17:58:33,105 - src.command_parser - DEBUG - Processing text for commands: '<task>
+!/hello
+</task>'
+2025-06-10 17:58:33,105 - src.command_parser - DEBUG - Found 1 command matches for text: '<task>
+!/hello
+</task>'
+2025-06-10 17:58:33,105 - src.command_parser - DEBUG - Regex match: Full='!/hello', Command='hello', ArgsStr=''
+2025-06-10 17:58:33,106 - src.command_parser - DEBUG - Parsing arguments from string: ''
+2025-06-10 17:58:33,106 - src.command_parser - DEBUG - Argument string is empty, returning empty dict.
+2025-06-10 17:58:33,106 - src.command_parser - DEBUG - Text after command processing and normalization: ' '
+2025-06-10 17:58:33,106 - src.command_parser - DEBUG - Processing text for commands: '<environment_details>
+# VSCode Visible Files
+
+
+# VSCode Open Tabs
+
+
+# Current Time
+6/10/2025, 5:58:32 PM (Europe/Warsaw, UTC+2:00)
+
+# Current Context Size (Tokens)
+(Not available)
+
+# Current Cost
+$0.00
+
+# Current Mode
+<slug>code</slug>
+<name>­čĺ╗ Code</name>
+<model>gemini:models/gemini-2.5-flash-preview-05-20</model>
+<role>You are Roo, a highly skilled software engineer with extensive knowledge in many programming languages, frameworks, design patterns, and best practices.</role>
+<custom_instructions>
+====
+
+USER'S CUSTOM INSTRUCTIONS
+
+The following additional instructions are provided by the user, and should be followed to the best of your ability without interfering with the TOOL USE guidelines.
+
+Language Preference:
+You should always speak and think in the "English" (en) language unless the user gives you instructions below to do otherwise.</custom_instructions>
+
+
+# Current Workspace Directory (c:/Users/Mateusz/source/repos/llm-interactive-proxy) Files
+.gitignore
+AGENTS.md
+pyproject.toml
+pytest.ini
+README.md
+build/lib/agents.py
+build/lib/command_parser.py
+build/lib/command_prefix.py
+build/lib/constants.py
+build/lib/main.py
+build/lib/models.py
+build/lib/proxy_logic.py
+build/lib/rate_limit.py
+build/lib/security.py
+build/lib/session.py
+build/lib/commands/__init__.py
+build/lib/commands/base.py
+build/lib/commands/create_failover_route_cmd.py
+build/lib/commands/delete_failover_route_cmd.py
+build/lib/commands/failover_base.py
+build/lib/commands/hello_cmd.py
+build/lib/commands/help_cmd.py
+build/lib/commands/list_failover_routes_cmd.py
+build/lib/commands/route_append_cmd.py
+build/lib/commands/route_clear_cmd.py
+build/lib/commands/route_list_cmd.py
+build/lib/commands/route_prepend_cmd.py
+build/lib/commands/set_cmd.py
+build/lib/commands/unset_cmd.py
+build/lib/connectors/__init__.py
+build/lib/connectors/base.py
+build/lib/connectors/gemini.py
+build/lib/connectors/openrouter.py
+build/lib/core/cli.py
+build/lib/core/config.py
+build/lib/core/metadata.py
+build/lib/core/persistence.py
+dev/
+dev/example_config.json
+dev/test_client.py
+dev/test_config.json
+dev/debug/debug1.log
+dev/debug/debug2.log
+docs/
+src/
+src/agents.py
+src/command_parser.py
+src/command_prefix.py
+src/constants.py
+src/main.py
+src/models.py
+src/proxy_logic.py
+src/rate_limit.py
+src/security.py
+src/session.py
+src/commands/__init__.py
+src/commands/base.py
+src/commands/create_failover_route_cmd.py
+src/commands/delete_failover_route_cmd.py
+src/commands/failover_base.py
+src/commands/hello_cmd.py
+src/commands/help_cmd.py
+src/commands/list_failover_routes_cmd.py
+src/commands/route_append_cmd.py
+src/commands/route_clear_cmd.py
+src/commands/route_list_cmd.py
+src/commands/route_prepend_cmd.py
+src/commands/set_cmd.py
+src/commands/unset_cmd.py
+src/connectors/__init__.py
+src/connectors/base.py
+src/connectors/gemini.py
+src/connectors/openrouter.py
+src/core/cli.py
+src/core/config.py
+src/core/metadata.py
+src/core/persistence.py
+tests/
+tests/__init__.py
+tests/conftest.py
+tests/integration/__init__.py
+tests/integration/test_gemini_end_to_end.py
+tests/integration/chat_completions_tests/test_agent_wrapping.py
+tests/integration/chat_completions_tests/test_backend_commands.py
+tests/integration/chat_completions_tests/test_basic_proxying.py
+tests/integration/chat_completions_tests/test_command_only_requests.py
+tests/integration/chat_completions_tests/test_commands_disabled.py
+tests/integration/chat_completions_tests/test_error_handling.py
+tests/integration/chat_completions_tests/test_failover.py
+tests/integration/chat_completions_tests/test_help_command.py
+tests/integration/chat_completions_tests/test_interactive_banner.py
+tests/integration/chat_completions_tests/test_interactive_commands.py
+tests/integration/chat_completions_tests/test_model_commands.py
+tests/integration/chat_completions_tests/test_project_commands.py
+tests/integration/chat_completions_tests/test_rate_limiting.py
+tests/integration/chat_completions_tests/test_session_history.py
+tests/unit/__init__.py
+tests/unit/test_agent_utils.py
+tests/unit/test_auth.py
+tests/unit/test_cli.py
+tests/unit/test_command_parser.py
+tests/unit/test_config_persistence.py
+tests/unit/test_config.py
+tests/unit/test_failover_routes.py
+tests/unit/test_model_discovery.py
+tests/unit/test_models_endpoint.py
+tests/unit/test_no_prints.py
+tests/unit/test_prompt_redaction.py
+tests/unit/test_proxy_logic.py
+tests/unit/test_session_manager.py
+tests/unit/gemini_connector_tests/__init__.py
+tests/unit/gemini_connector_tests/test_http_error_streaming.py
+tests/unit/gemini_connector_tests/test_model_prefix_handling.py
+tests/unit/gemini_connector_tests/test_part_conversion.py
+tests/unit/gemini_connector_tests/test_streaming_success.py
+tests/unit/openrouter_connector_tests/test_http_error_non_streaming.py
+tests/unit/openrouter_connector_tests/test_http_error_streaming.py
+tests/unit/openrouter_connector_tests/test_non_streaming_success.py
+tests/unit/openrouter_connector_tests/test_payload_construction_and_headers.py
+tests/unit/openrouter_connector_tests/test_redaction.py
+tests/unit/openrouter_connector_tests/test_request_error.py
+tests/unit/openrouter_connector_tests/test_streaming_success.py
+tests/unit/proxy_logic_tests/test_parse_arguments.py
+tests/unit/proxy_logic_tests/test_process_commands_in_messages.py
+tests/unit/proxy_logic_tests/test_process_text_for_commands.py
+</environment_details>'
+2025-06-10 17:58:33,106 - src.command_parser - DEBUG - Found 0 command matches for text: '<environment_details>
+# VSCode Visible Files
+
+
+# VSCode Open Tabs
+
+
+# Current Time
+6/10/2025, 5:58:32 PM (Europe/Warsaw, UTC+2:00)
+
+# Current Context Size (Tokens)
+(Not available)
+
+# Current Cost
+$0.00
+
+# Current Mode
+<slug>code</slug>
+<name>­čĺ╗ Code</name>
+<model>gemini:models/gemini-2.5-flash-preview-05-20</model>
+<role>You are Roo, a highly skilled software engineer with extensive knowledge in many programming languages, frameworks, design patterns, and best practices.</role>
+<custom_instructions>
+====
+
+USER'S CUSTOM INSTRUCTIONS
+
+The following additional instructions are provided by the user, and should be followed to the best of your ability without interfering with the TOOL USE guidelines.
+
+Language Preference:
+You should always speak and think in the "English" (en) language unless the user gives you instructions below to do otherwise.</custom_instructions>
+
+
+# Current Workspace Directory (c:/Users/Mateusz/source/repos/llm-interactive-proxy) Files
+.gitignore
+AGENTS.md
+pyproject.toml
+pytest.ini
+README.md
+build/lib/agents.py
+build/lib/command_parser.py
+build/lib/command_prefix.py
+build/lib/constants.py
+build/lib/main.py
+build/lib/models.py
+build/lib/proxy_logic.py
+build/lib/rate_limit.py
+build/lib/security.py
+build/lib/session.py
+build/lib/commands/__init__.py
+build/lib/commands/base.py
+build/lib/commands/create_failover_route_cmd.py
+build/lib/commands/delete_failover_route_cmd.py
+build/lib/commands/failover_base.py
+build/lib/commands/hello_cmd.py
+build/lib/commands/help_cmd.py
+build/lib/commands/list_failover_routes_cmd.py
+build/lib/commands/route_append_cmd.py
+build/lib/commands/route_clear_cmd.py
+build/lib/commands/route_list_cmd.py
+build/lib/commands/route_prepend_cmd.py
+build/lib/commands/set_cmd.py
+build/lib/commands/unset_cmd.py
+build/lib/connectors/__init__.py
+build/lib/connectors/base.py
+build/lib/connectors/gemini.py
+build/lib/connectors/openrouter.py
+build/lib/core/cli.py
+build/lib/core/config.py
+build/lib/core/metadata.py
+build/lib/core/persistence.py
+dev/
+dev/example_config.json
+dev/test_client.py
+dev/test_config.json
+dev/debug/debug1.log
+dev/debug/debug2.log
+docs/
+src/
+src/agents.py
+src/command_parser.py
+src/command_prefix.py
+src/constants.py
+src/main.py
+src/models.py
+src/proxy_logic.py
+src/rate_limit.py
+src/security.py
+src/session.py
+src/commands/__init__.py
+src/commands/base.py
+src/commands/create_failover_route_cmd.py
+src/commands/delete_failover_route_cmd.py
+src/commands/failover_base.py
+src/commands/hello_cmd.py
+src/commands/help_cmd.py
+src/commands/list_failover_routes_cmd.py
+src/commands/route_append_cmd.py
+src/commands/route_clear_cmd.py
+src/commands/route_list_cmd.py
+src/commands/route_prepend_cmd.py
+src/commands/set_cmd.py
+src/commands/unset_cmd.py
+src/connectors/__init__.py
+src/connectors/base.py
+src/connectors/gemini.py
+src/connectors/openrouter.py
+src/core/cli.py
+src/core/config.py
+src/core/metadata.py
+src/core/persistence.py
+tests/
+tests/__init__.py
+tests/conftest.py
+tests/integration/__init__.py
+tests/integration/test_gemini_end_to_end.py
+tests/integration/chat_completions_tests/test_agent_wrapping.py
+tests/integration/chat_completions_tests/test_backend_commands.py
+tests/integration/chat_completions_tests/test_basic_proxying.py
+tests/integration/chat_completions_tests/test_command_only_requests.py
+tests/integration/chat_completions_tests/test_commands_disabled.py
+tests/integration/chat_completions_tests/test_error_handling.py
+tests/integration/chat_completions_tests/test_failover.py
+tests/integration/chat_completions_tests/test_help_command.py
+tests/integration/chat_completions_tests/test_interactive_banner.py
+tests/integration/chat_completions_tests/test_interactive_commands.py
+tests/integration/chat_completions_tests/test_model_commands.py
+tests/integration/chat_completions_tests/test_project_commands.py
+tests/integration/chat_completions_tests/test_rate_limiting.py
+tests/integration/chat_completions_tests/test_session_history.py
+tests/unit/__init__.py
+tests/unit/test_agent_utils.py
+tests/unit/test_auth.py
+tests/unit/test_cli.py
+tests/unit/test_command_parser.py
+tests/unit/test_config_persistence.py
+tests/unit/test_config.py
+tests/unit/test_failover_routes.py
+tests/unit/test_model_discovery.py
+tests/unit/test_models_endpoint.py
+tests/unit/test_no_prints.py
+tests/unit/test_prompt_redaction.py
+tests/unit/test_proxy_logic.py
+tests/unit/test_session_manager.py
+tests/unit/gemini_connector_tests/__init__.py
+tests/unit/gemini_connector_tests/test_http_error_streaming.py
+tests/unit/gemini_connector_tests/test_model_prefix_handling.py
+tests/unit/gemini_connector_tests/test_part_conversion.py
+tests/unit/gemini_connector_tests/test_streaming_success.py
+tests/unit/openrouter_connector_tests/test_http_error_non_streaming.py
+tests/unit/openrouter_connector_tests/test_http_error_streaming.py
+tests/unit/openrouter_connector_tests/test_non_streaming_success.py
+tests/unit/openrouter_connector_tests/test_payload_construction_and_headers.py
+tests/unit/openrouter_connector_tests/test_redaction.py
+tests/unit/openrouter_connector_tests/test_request_error.py
+tests/unit/openrouter_connector_tests/test_streaming_success.py
+tests/unit/proxy_logic_tests/test_parse_arguments.py
+tests/unit/proxy_logic_tests/test_process_commands_in_messages.py
+tests/unit/proxy_logic_tests/test_process_text_for_commands.py
+</environment_details>'
+2025-06-10 17:58:33,106 - src.command_parser - DEBUG - Text after command processing and normalization: ''
+2025-06-10 17:58:33,106 - src.command_parser - INFO - Commands processed in message index 1 (from end). Role: user. New content: '[MessageContentPartText(type='text', text='')]'
+2025-06-10 17:58:33,106 - src.command_parser - DEBUG - Finished processing messages. Final message count: 2. Commands processed overall: True
+INFO:     127.0.0.1:19891 - "POST /v1/chat/completions HTTP/1.1" 200 OK
+2025-06-10 17:58:34,257 - src.session - DEBUG - Retrieving session: default, ProxyState ID: 1978026330192
+2025-06-10 17:58:34,257 - src.command_parser - DEBUG - Processing text for commands: '[ERROR] You did not use a tool in your previous response! Please retry with a tool use.
+
+# Reminder: Instructions for Tool Use
+
+Tool uses are formatted using XML-style tags. The tool name itself becomes the XML tag name. Each parameter is enclosed within its own set of tags. Here's the structure:
+
+<actual_tool_name>
+<parameter1_name>value1</parameter1_name>
+<parameter2_name>value2</parameter2_name>
+...
+</actual_tool_name>
+
+For example, to use the attempt_completion tool:
+
+<attempt_completion>
+<result>
+I have completed the task...
+</result>
+</attempt_completion>
+
+Always use the actual tool name as the XML tag name for proper parsing and execution.
+
+# Next Steps
+
+If you have completed the user's task, use the attempt_completion tool. 
+If you require additional information from the user, use the ask_followup_question tool. 
+Otherwise, if you have not completed the task and do not need additional information, then proceed with the next step of the task. 
+(This is an automated message, so do not respond to it conversationally.)'
+2025-06-10 17:58:34,257 - src.command_parser - DEBUG - Found 0 command matches for text: '[ERROR] You did not use a tool in your previous response! Please retry with a tool use.
+
+# Reminder: Instructions for Tool Use
+
+Tool uses are formatted using XML-style tags. The tool name itself becomes the XML tag name. Each parameter is enclosed within its own set of tags. Here's the structure:
+
+<actual_tool_name>
+<parameter1_name>value1</parameter1_name>
+<parameter2_name>value2</parameter2_name>
+...
+</actual_tool_name>
+
+For example, to use the attempt_completion tool:
+
+<attempt_completion>
+<result>
+I have completed the task...
+</result>
+</attempt_completion>
+
+Always use the actual tool name as the XML tag name for proper parsing and execution.
+
+# Next Steps
+
+If you have completed the user's task, use the attempt_completion tool. 
+If you require additional information from the user, use the ask_followup_question tool. 
+Otherwise, if you have not completed the task and do not need additional information, then proceed with the next step of the task. 
+(This is an automated message, so do not respond to it conversationally.)'
+2025-06-10 17:58:34,257 - src.command_parser - DEBUG - Text after command processing and normalization: '[ERROR] You did not use a tool in your previous response! Please retry with a tool use. # Reminder: Instructions for Tool Use Tool uses are formatted using XML-style tags. The tool name itself becomes the XML tag name. Each parameter is enclosed within its own set of tags. Here's the structure:  value1 value2 ...  For example, to use the attempt_completion tool:   I have completed the task...   Always use the actual tool name as the XML tag name for proper parsing and execution. # Next Steps If you have completed the user's task, use the attempt_completion tool. If you require additional information from the user, use the ask_followup_question tool. Otherwise, if you have not completed the task and do not need additional information, then proceed with the next step of the task. (This is an automated message, so do not respond to it conversationally.)'
+2025-06-10 17:58:34,257 - src.command_parser - DEBUG - Processing text for commands: '<environment_details>
+# VSCode Visible Files
+
+
+# VSCode Open Tabs
+
+
+# Current Time
+6/10/2025, 5:58:33 PM (Europe/Warsaw, UTC+2:00)
+
+# Current Context Size (Tokens)
+(Not available)
+
+# Current Cost
+$0.00
+
+# Current Mode
+<slug>code</slug>
+<name>­čĺ╗ Code</name>
+<model>gemini:models/gemini-2.5-flash-preview-05-20</model>
+<role>You are Roo, a highly skilled software engineer with extensive knowledge in many programming languages, frameworks, design patterns, and best practices.</role>
+<custom_instructions>
+====
+
+USER'S CUSTOM INSTRUCTIONS
+
+The following additional instructions are provided by the user, and should be followed to the best of your ability without interfering with the TOOL USE guidelines.
+
+Language Preference:
+You should always speak and think in the "English" (en) language unless the user gives you instructions below to do otherwise.</custom_instructions>
+</environment_details>'
+2025-06-10 17:58:34,257 - src.command_parser - DEBUG - Found 0 command matches for text: '<environment_details>
+# VSCode Visible Files
+
+
+# VSCode Open Tabs
+
+
+# Current Time
+6/10/2025, 5:58:33 PM (Europe/Warsaw, UTC+2:00)
+
+# Current Context Size (Tokens)
+(Not available)
+
+# Current Cost
+$0.00
+
+# Current Mode
+<slug>code</slug>
+<name>­čĺ╗ Code</name>
+<model>gemini:models/gemini-2.5-flash-preview-05-20</model>
+<role>You are Roo, a highly skilled software engineer with extensive knowledge in many programming languages, frameworks, design patterns, and best practices.</role>
+<custom_instructions>
+====
+
+USER'S CUSTOM INSTRUCTIONS
+
+The following additional instructions are provided by the user, and should be followed to the best of your ability without interfering with the TOOL USE guidelines.
+
+Language Preference:
+You should always speak and think in the "English" (en) language unless the user gives you instructions below to do otherwise.</custom_instructions>
+</environment_details>'
+2025-06-10 17:58:34,257 - src.command_parser - DEBUG - Text after command processing and normalization: ''
+2025-06-10 17:58:34,257 - src.command_parser - DEBUG - Processing text for commands: 'Failure: I did not provide a response.'
+2025-06-10 17:58:34,257 - src.command_parser - DEBUG - Found 0 command matches for text: 'Failure: I did not provide a response.'
+2025-06-10 17:58:34,257 - src.command_parser - DEBUG - Text after command processing and normalization: 'Failure: I did not provide a response.'
+2025-06-10 17:58:34,257 - src.command_parser - DEBUG - Non-command-only message (not starting with prefix) processed. Found: False
+2025-06-10 17:58:34,257 - src.command_parser - DEBUG - Processing text for commands: '<task>
+!/hello
+</task>'
+2025-06-10 17:58:34,257 - src.command_parser - DEBUG - Found 1 command matches for text: '<task>
+!/hello
+</task>'
+2025-06-10 17:58:34,257 - src.command_parser - DEBUG - Regex match: Full='!/hello', Command='hello', ArgsStr=''
+2025-06-10 17:58:34,257 - src.command_parser - DEBUG - Parsing arguments from string: ''
+2025-06-10 17:58:34,257 - src.command_parser - DEBUG - Argument string is empty, returning empty dict.
+2025-06-10 17:58:34,257 - src.command_parser - DEBUG - Text after command processing and normalization: ' '
+2025-06-10 17:58:34,257 - src.command_parser - DEBUG - Processing text for commands: '<environment_details>
+# VSCode Visible Files
+
+
+# VSCode Open Tabs
+
+
+# Current Time
+6/10/2025, 5:58:32 PM (Europe/Warsaw, UTC+2:00)
+
+# Current Context Size (Tokens)
+(Not available)
+
+# Current Cost
+$0.00
+
+# Current Mode
+<slug>code</slug>
+<name>­čĺ╗ Code</name>
+<model>gemini:models/gemini-2.5-flash-preview-05-20</model>
+<role>You are Roo, a highly skilled software engineer with extensive knowledge in many programming languages, frameworks, design patterns, and best practices.</role>
+<custom_instructions>
+====
+
+USER'S CUSTOM INSTRUCTIONS
+
+The following additional instructions are provided by the user, and should be followed to the best of your ability without interfering with the TOOL USE guidelines.
+
+Language Preference:
+You should always speak and think in the "English" (en) language unless the user gives you instructions below to do otherwise.</custom_instructions>
+
+
+# Current Workspace Directory (c:/Users/Mateusz/source/repos/llm-interactive-proxy) Files
+.gitignore
+AGENTS.md
+pyproject.toml
+pytest.ini
+README.md
+build/lib/agents.py
+build/lib/command_parser.py
+build/lib/command_prefix.py
+build/lib/constants.py
+build/lib/main.py
+build/lib/models.py
+build/lib/proxy_logic.py
+build/lib/rate_limit.py
+build/lib/security.py
+build/lib/session.py
+build/lib/commands/__init__.py
+build/lib/commands/base.py
+build/lib/commands/create_failover_route_cmd.py
+build/lib/commands/delete_failover_route_cmd.py
+build/lib/commands/failover_base.py
+build/lib/commands/hello_cmd.py
+build/lib/commands/help_cmd.py
+build/lib/commands/list_failover_routes_cmd.py
+build/lib/commands/route_append_cmd.py
+build/lib/commands/route_clear_cmd.py
+build/lib/commands/route_list_cmd.py
+build/lib/commands/route_prepend_cmd.py
+build/lib/commands/set_cmd.py
+build/lib/commands/unset_cmd.py
+build/lib/connectors/__init__.py
+build/lib/connectors/base.py
+build/lib/connectors/gemini.py
+build/lib/connectors/openrouter.py
+build/lib/core/cli.py
+build/lib/core/config.py
+build/lib/core/metadata.py
+build/lib/core/persistence.py
+dev/
+dev/example_config.json
+dev/test_client.py
+dev/test_config.json
+dev/debug/debug1.log
+dev/debug/debug2.log
+docs/
+src/
+src/agents.py
+src/command_parser.py
+src/command_prefix.py
+src/constants.py
+src/main.py
+src/models.py
+src/proxy_logic.py
+src/rate_limit.py
+src/security.py
+src/session.py
+src/commands/__init__.py
+src/commands/base.py
+src/commands/create_failover_route_cmd.py
+src/commands/delete_failover_route_cmd.py
+src/commands/failover_base.py
+src/commands/hello_cmd.py
+src/commands/help_cmd.py
+src/commands/list_failover_routes_cmd.py
+src/commands/route_append_cmd.py
+src/commands/route_clear_cmd.py
+src/commands/route_list_cmd.py
+src/commands/route_prepend_cmd.py
+src/commands/set_cmd.py
+src/commands/unset_cmd.py
+src/connectors/__init__.py
+src/connectors/base.py
+src/connectors/gemini.py
+src/connectors/openrouter.py
+src/core/cli.py
+src/core/config.py
+src/core/metadata.py
+src/core/persistence.py
+tests/
+tests/__init__.py
+tests/conftest.py
+tests/integration/__init__.py
+tests/integration/test_gemini_end_to_end.py
+tests/integration/chat_completions_tests/test_agent_wrapping.py
+tests/integration/chat_completions_tests/test_backend_commands.py
+tests/integration/chat_completions_tests/test_basic_proxying.py
+tests/integration/chat_completions_tests/test_command_only_requests.py
+tests/integration/chat_completions_tests/test_commands_disabled.py
+tests/integration/chat_completions_tests/test_error_handling.py
+tests/integration/chat_completions_tests/test_failover.py
+tests/integration/chat_completions_tests/test_help_command.py
+tests/integration/chat_completions_tests/test_interactive_banner.py
+tests/integration/chat_completions_tests/test_interactive_commands.py
+tests/integration/chat_completions_tests/test_model_commands.py
+tests/integration/chat_completions_tests/test_project_commands.py
+tests/integration/chat_completions_tests/test_rate_limiting.py
+tests/integration/chat_completions_tests/test_session_history.py
+tests/unit/__init__.py
+tests/unit/test_agent_utils.py
+tests/unit/test_auth.py
+tests/unit/test_cli.py
+tests/unit/test_command_parser.py
+tests/unit/test_config_persistence.py
+tests/unit/test_config.py
+tests/unit/test_failover_routes.py
+tests/unit/test_model_discovery.py
+tests/unit/test_models_endpoint.py
+tests/unit/test_no_prints.py
+tests/unit/test_prompt_redaction.py
+tests/unit/test_proxy_logic.py
+tests/unit/test_session_manager.py
+tests/unit/gemini_connector_tests/__init__.py
+tests/unit/gemini_connector_tests/test_http_error_streaming.py
+tests/unit/gemini_connector_tests/test_model_prefix_handling.py
+tests/unit/gemini_connector_tests/test_part_conversion.py
+tests/unit/gemini_connector_tests/test_streaming_success.py
+tests/unit/openrouter_connector_tests/test_http_error_non_streaming.py
+tests/unit/openrouter_connector_tests/test_http_error_streaming.py
+tests/unit/openrouter_connector_tests/test_non_streaming_success.py
+tests/unit/openrouter_connector_tests/test_payload_construction_and_headers.py
+tests/unit/openrouter_connector_tests/test_redaction.py
+tests/unit/openrouter_connector_tests/test_request_error.py
+tests/unit/openrouter_connector_tests/test_streaming_success.py
+tests/unit/proxy_logic_tests/test_parse_arguments.py
+tests/unit/proxy_logic_tests/test_process_commands_in_messages.py
+tests/unit/proxy_logic_tests/test_process_text_for_commands.py
+</environment_details>'
+2025-06-10 17:58:34,258 - src.command_parser - DEBUG - Found 0 command matches for text: '<environment_details>
+# VSCode Visible Files
+
+
+# VSCode Open Tabs
+
+
+# Current Time
+6/10/2025, 5:58:32 PM (Europe/Warsaw, UTC+2:00)
+
+# Current Context Size (Tokens)
+(Not available)
+
+# Current Cost
+$0.00
+
+# Current Mode
+<slug>code</slug>
+<name>­čĺ╗ Code</name>
+<model>gemini:models/gemini-2.5-flash-preview-05-20</model>
+<role>You are Roo, a highly skilled software engineer with extensive knowledge in many programming languages, frameworks, design patterns, and best practices.</role>
+<custom_instructions>
+====
+
+USER'S CUSTOM INSTRUCTIONS
+
+The following additional instructions are provided by the user, and should be followed to the best of your ability without interfering with the TOOL USE guidelines.
+
+Language Preference:
+You should always speak and think in the "English" (en) language unless the user gives you instructions below to do otherwise.</custom_instructions>
+
+
+# Current Workspace Directory (c:/Users/Mateusz/source/repos/llm-interactive-proxy) Files
+.gitignore
+AGENTS.md
+pyproject.toml
+pytest.ini
+README.md
+build/lib/agents.py
+build/lib/command_parser.py
+build/lib/command_prefix.py
+build/lib/constants.py
+build/lib/main.py
+build/lib/models.py
+build/lib/proxy_logic.py
+build/lib/rate_limit.py
+build/lib/security.py
+build/lib/session.py
+build/lib/commands/__init__.py
+build/lib/commands/base.py
+build/lib/commands/create_failover_route_cmd.py
+build/lib/commands/delete_failover_route_cmd.py
+build/lib/commands/failover_base.py
+build/lib/commands/hello_cmd.py
+build/lib/commands/help_cmd.py
+build/lib/commands/list_failover_routes_cmd.py
+build/lib/commands/route_append_cmd.py
+build/lib/commands/route_clear_cmd.py
+build/lib/commands/route_list_cmd.py
+build/lib/commands/route_prepend_cmd.py
+build/lib/commands/set_cmd.py
+build/lib/commands/unset_cmd.py
+build/lib/connectors/__init__.py
+build/lib/connectors/base.py
+build/lib/connectors/gemini.py
+build/lib/connectors/openrouter.py
+build/lib/core/cli.py
+build/lib/core/config.py
+build/lib/core/metadata.py
+build/lib/core/persistence.py
+dev/
+dev/example_config.json
+dev/test_client.py
+dev/test_config.json
+dev/debug/debug1.log
+dev/debug/debug2.log
+docs/
+src/
+src/agents.py
+src/command_parser.py
+src/command_prefix.py
+src/constants.py
+src/main.py
+src/models.py
+src/proxy_logic.py
+src/rate_limit.py
+src/security.py
+src/session.py
+src/commands/__init__.py
+src/commands/base.py
+src/commands/create_failover_route_cmd.py
+src/commands/delete_failover_route_cmd.py
+src/commands/failover_base.py
+src/commands/hello_cmd.py
+src/commands/help_cmd.py
+src/commands/list_failover_routes_cmd.py
+src/commands/route_append_cmd.py
+src/commands/route_clear_cmd.py
+src/commands/route_list_cmd.py
+src/commands/route_prepend_cmd.py
+src/commands/set_cmd.py
+src/commands/unset_cmd.py
+src/connectors/__init__.py
+src/connectors/base.py
+src/connectors/gemini.py
+src/connectors/openrouter.py
+src/core/cli.py
+src/core/config.py
+src/core/metadata.py
+src/core/persistence.py
+tests/
+tests/__init__.py
+tests/conftest.py
+tests/integration/__init__.py
+tests/integration/test_gemini_end_to_end.py
+tests/integration/chat_completions_tests/test_agent_wrapping.py
+tests/integration/chat_completions_tests/test_backend_commands.py
+tests/integration/chat_completions_tests/test_basic_proxying.py
+tests/integration/chat_completions_tests/test_command_only_requests.py
+tests/integration/chat_completions_tests/test_commands_disabled.py
+tests/integration/chat_completions_tests/test_error_handling.py
+tests/integration/chat_completions_tests/test_failover.py
+tests/integration/chat_completions_tests/test_help_command.py
+tests/integration/chat_completions_tests/test_interactive_banner.py
+tests/integration/chat_completions_tests/test_interactive_commands.py
+tests/integration/chat_completions_tests/test_model_commands.py
+tests/integration/chat_completions_tests/test_project_commands.py
+tests/integration/chat_completions_tests/test_rate_limiting.py
+tests/integration/chat_completions_tests/test_session_history.py
+tests/unit/__init__.py
+tests/unit/test_agent_utils.py
+tests/unit/test_auth.py
+tests/unit/test_cli.py
+tests/unit/test_command_parser.py
+tests/unit/test_config_persistence.py
+tests/unit/test_config.py
+tests/unit/test_failover_routes.py
+tests/unit/test_model_discovery.py
+tests/unit/test_models_endpoint.py
+tests/unit/test_no_prints.py
+tests/unit/test_prompt_redaction.py
+tests/unit/test_proxy_logic.py
+tests/unit/test_session_manager.py
+tests/unit/gemini_connector_tests/__init__.py
+tests/unit/gemini_connector_tests/test_http_error_streaming.py
+tests/unit/gemini_connector_tests/test_model_prefix_handling.py
+tests/unit/gemini_connector_tests/test_part_conversion.py
+tests/unit/gemini_connector_tests/test_streaming_success.py
+tests/unit/openrouter_connector_tests/test_http_error_non_streaming.py
+tests/unit/openrouter_connector_tests/test_http_error_streaming.py
+tests/unit/openrouter_connector_tests/test_non_streaming_success.py
+tests/unit/openrouter_connector_tests/test_payload_construction_and_headers.py
+tests/unit/openrouter_connector_tests/test_redaction.py
+tests/unit/openrouter_connector_tests/test_request_error.py
+tests/unit/openrouter_connector_tests/test_streaming_success.py
+tests/unit/proxy_logic_tests/test_parse_arguments.py
+tests/unit/proxy_logic_tests/test_process_commands_in_messages.py
+tests/unit/proxy_logic_tests/test_process_text_for_commands.py
+</environment_details>'
+2025-06-10 17:58:34,258 - src.command_parser - DEBUG - Text after command processing and normalization: ''
+2025-06-10 17:58:34,258 - src.command_parser - INFO - Commands processed in message index 1 (from end). Role: user. New content: '[MessageContentPartText(type='text', text='')]'
+2025-06-10 17:58:34,258 - src.command_parser - DEBUG - Finished processing messages. Final message count: 4. Commands processed overall: True
+INFO:     127.0.0.1:19892 - "POST /v1/chat/completions HTTP/1.1" 200 OK
+2025-06-10 17:58:35,416 - src.session - DEBUG - Retrieving session: default, ProxyState ID: 1978026330192
+2025-06-10 17:58:35,416 - src.command_parser - DEBUG - Processing text for commands: '[ERROR] You did not use a tool in your previous response! Please retry with a tool use.
+
+# Reminder: Instructions for Tool Use
+
+Tool uses are formatted using XML-style tags. The tool name itself becomes the XML tag name. Each parameter is enclosed within its own set of tags. Here's the structure:
+
+<actual_tool_name>
+<parameter1_name>value1</parameter1_name>
+<parameter2_name>value2</parameter2_name>
+...
+</actual_tool_name>
+
+For example, to use the attempt_completion tool:
+
+<attempt_completion>
+<result>
+I have completed the task...
+</result>
+</attempt_completion>
+
+Always use the actual tool name as the XML tag name for proper parsing and execution.
+
+# Next Steps
+
+If you have completed the user's task, use the attempt_completion tool. 
+If you require additional information from the user, use the ask_followup_question tool. 
+Otherwise, if you have not completed the task and do not need additional information, then proceed with the next step of the task. 
+(This is an automated message, so do not respond to it conversationally.)'
+2025-06-10 17:58:35,416 - src.command_parser - DEBUG - Found 0 command matches for text: '[ERROR] You did not use a tool in your previous response! Please retry with a tool use.
+
+# Reminder: Instructions for Tool Use
+
+Tool uses are formatted using XML-style tags. The tool name itself becomes the XML tag name. Each parameter is enclosed within its own set of tags. Here's the structure:
+
+<actual_tool_name>
+<parameter1_name>value1</parameter1_name>
+<parameter2_name>value2</parameter2_name>
+...
+</actual_tool_name>
+
+For example, to use the attempt_completion tool:
+
+<attempt_completion>
+<result>
+I have completed the task...
+</result>
+</attempt_completion>
+
+Always use the actual tool name as the XML tag name for proper parsing and execution.
+
+# Next Steps
+
+If you have completed the user's task, use the attempt_completion tool. 
+If you require additional information from the user, use the ask_followup_question tool. 
+Otherwise, if you have not completed the task and do not need additional information, then proceed with the next step of the task. 
+(This is an automated message, so do not respond to it conversationally.)'
+2025-06-10 17:58:35,416 - src.command_parser - DEBUG - Text after command processing and normalization: '[ERROR] You did not use a tool in your previous response! Please retry with a tool use. # Reminder: Instructions for Tool Use Tool uses are formatted using XML-style tags. The tool name itself becomes the XML tag name. Each parameter is enclosed within its own set of tags. Here's the structure:  value1 value2 ...  For example, to use the attempt_completion tool:   I have completed the task...   Always use the actual tool name as the XML tag name for proper parsing and execution. # Next Steps If you have completed the user's task, use the attempt_completion tool. If you require additional information from the user, use the ask_followup_question tool. Otherwise, if you have not completed the task and do not need additional information, then proceed with the next step of the task. (This is an automated message, so do not respond to it conversationally.)'
+2025-06-10 17:58:35,416 - src.command_parser - DEBUG - Processing text for commands: '<environment_details>
+# VSCode Visible Files
+
+
+# VSCode Open Tabs
+
+
+# Current Time
+6/10/2025, 5:58:34 PM (Europe/Warsaw, UTC+2:00)
+
+# Current Context Size (Tokens)
+(Not available)
+
+# Current Cost
+$0.00
+
+# Current Mode
+<slug>code</slug>
+<name>­čĺ╗ Code</name>
+<model>gemini:models/gemini-2.5-flash-preview-05-20</model>
+<role>You are Roo, a highly skilled software engineer with extensive knowledge in many programming languages, frameworks, design patterns, and best practices.</role>
+<custom_instructions>
+====
+
+USER'S CUSTOM INSTRUCTIONS
+
+The following additional instructions are provided by the user, and should be followed to the best of your ability without interfering with the TOOL USE guidelines.
+
+Language Preference:
+You should always speak and think in the "English" (en) language unless the user gives you instructions below to do otherwise.</custom_instructions>
+</environment_details>'
+2025-06-10 17:58:35,416 - src.command_parser - DEBUG - Found 0 command matches for text: '<environment_details>
+# VSCode Visible Files
+
+
+# VSCode Open Tabs
+
+
+# Current Time
+6/10/2025, 5:58:34 PM (Europe/Warsaw, UTC+2:00)
+
+# Current Context Size (Tokens)
+(Not available)
+
+# Current Cost
+$0.00
+
+# Current Mode
+<slug>code</slug>
+<name>­čĺ╗ Code</name>
+<model>gemini:models/gemini-2.5-flash-preview-05-20</model>
+<role>You are Roo, a highly skilled software engineer with extensive knowledge in many programming languages, frameworks, design patterns, and best practices.</role>
+<custom_instructions>
+====
+
+USER'S CUSTOM INSTRUCTIONS
+
+The following additional instructions are provided by the user, and should be followed to the best of your ability without interfering with the TOOL USE guidelines.
+
+Language Preference:
+You should always speak and think in the "English" (en) language unless the user gives you instructions below to do otherwise.</custom_instructions>
+</environment_details>'
+2025-06-10 17:58:35,416 - src.command_parser - DEBUG - Text after command processing and normalization: ''
+2025-06-10 17:58:35,416 - src.command_parser - DEBUG - Processing text for commands: 'Failure: I did not provide a response.'
+2025-06-10 17:58:35,417 - src.command_parser - DEBUG - Found 0 command matches for text: 'Failure: I did not provide a response.'
+2025-06-10 17:58:35,417 - src.command_parser - DEBUG - Text after command processing and normalization: 'Failure: I did not provide a response.'
+2025-06-10 17:58:35,417 - src.command_parser - DEBUG - Non-command-only message (not starting with prefix) processed. Found: False
+2025-06-10 17:58:35,417 - src.command_parser - DEBUG - Processing text for commands: '[ERROR] You did not use a tool in your previous response! Please retry with a tool use.
+
+# Reminder: Instructions for Tool Use
+
+Tool uses are formatted using XML-style tags. The tool name itself becomes the XML tag name. Each parameter is enclosed within its own set of tags. Here's the structure:
+
+<actual_tool_name>
+<parameter1_name>value1</parameter1_name>
+<parameter2_name>value2</parameter2_name>
+...
+</actual_tool_name>
+
+For example, to use the attempt_completion tool:
+
+<attempt_completion>
+<result>
+I have completed the task...
+</result>
+</attempt_completion>
+
+Always use the actual tool name as the XML tag name for proper parsing and execution.
+
+# Next Steps
+
+If you have completed the user's task, use the attempt_completion tool. 
+If you require additional information from the user, use the ask_followup_question tool. 
+Otherwise, if you have not completed the task and do not need additional information, then proceed with the next step of the task. 
+(This is an automated message, so do not respond to it conversationally.)'
+2025-06-10 17:58:35,417 - src.command_parser - DEBUG - Found 0 command matches for text: '[ERROR] You did not use a tool in your previous response! Please retry with a tool use.
+
+# Reminder: Instructions for Tool Use
+
+Tool uses are formatted using XML-style tags. The tool name itself becomes the XML tag name. Each parameter is enclosed within its own set of tags. Here's the structure:
+
+<actual_tool_name>
+<parameter1_name>value1</parameter1_name>
+<parameter2_name>value2</parameter2_name>
+...
+</actual_tool_name>
+
+For example, to use the attempt_completion tool:
+
+<attempt_completion>
+<result>
+I have completed the task...
+</result>
+</attempt_completion>
+
+Always use the actual tool name as the XML tag name for proper parsing and execution.
+
+# Next Steps
+
+If you have completed the user's task, use the attempt_completion tool. 
+If you require additional information from the user, use the ask_followup_question tool. 
+Otherwise, if you have not completed the task and do not need additional information, then proceed with the next step of the task. 
+(This is an automated message, so do not respond to it conversationally.)'
+2025-06-10 17:58:35,417 - src.command_parser - DEBUG - Text after command processing and normalization: '[ERROR] You did not use a tool in your previous response! Please retry with a tool use. # Reminder: Instructions for Tool Use Tool uses are formatted using XML-style tags. The tool name itself becomes the XML tag name. Each parameter is enclosed within its own set of tags. Here's the structure:  value1 value2 ...  For example, to use the attempt_completion tool:   I have completed the task...   Always use the actual tool name as the XML tag name for proper parsing and execution. # Next Steps If you have completed the user's task, use the attempt_completion tool. If you require additional information from the user, use the ask_followup_question tool. Otherwise, if you have not completed the task and do not need additional information, then proceed with the next step of the task. (This is an automated message, so do not respond to it conversationally.)'
+2025-06-10 17:58:35,417 - src.command_parser - DEBUG - Processing text for commands: '<environment_details>
+# VSCode Visible Files
+
+
+# VSCode Open Tabs
+
+
+# Current Time
+6/10/2025, 5:58:33 PM (Europe/Warsaw, UTC+2:00)
+
+# Current Context Size (Tokens)
+(Not available)
+
+# Current Cost
+$0.00
+
+# Current Mode
+<slug>code</slug>
+<name>­čĺ╗ Code</name>
+<model>gemini:models/gemini-2.5-flash-preview-05-20</model>
+<role>You are Roo, a highly skilled software engineer with extensive knowledge in many programming languages, frameworks, design patterns, and best practices.</role>
+<custom_instructions>
+====
+
+USER'S CUSTOM INSTRUCTIONS
+
+The following additional instructions are provided by the user, and should be followed to the best of your ability without interfering with the TOOL USE guidelines.
+
+Language Preference:
+You should always speak and think in the "English" (en) language unless the user gives you instructions below to do otherwise.</custom_instructions>
+</environment_details>'
+2025-06-10 17:58:35,417 - src.command_parser - DEBUG - Found 0 command matches for text: '<environment_details>
+# VSCode Visible Files
+
+
+# VSCode Open Tabs
+
+
+# Current Time
+6/10/2025, 5:58:33 PM (Europe/Warsaw, UTC+2:00)
+
+# Current Context Size (Tokens)
+(Not available)
+
+# Current Cost
+$0.00
+
+# Current Mode
+<slug>code</slug>
+<name>­čĺ╗ Code</name>
+<model>gemini:models/gemini-2.5-flash-preview-05-20</model>
+<role>You are Roo, a highly skilled software engineer with extensive knowledge in many programming languages, frameworks, design patterns, and best practices.</role>
+<custom_instructions>
+====
+
+USER'S CUSTOM INSTRUCTIONS
+
+The following additional instructions are provided by the user, and should be followed to the best of your ability without interfering with the TOOL USE guidelines.
+
+Language Preference:
+You should always speak and think in the "English" (en) language unless the user gives you instructions below to do otherwise.</custom_instructions>
+</environment_details>'
+2025-06-10 17:58:35,417 - src.command_parser - DEBUG - Text after command processing and normalization: ''
+2025-06-10 17:58:35,417 - src.command_parser - DEBUG - Processing text for commands: 'Failure: I did not provide a response.'
+2025-06-10 17:58:35,417 - src.command_parser - DEBUG - Found 0 command matches for text: 'Failure: I did not provide a response.'
+2025-06-10 17:58:35,417 - src.command_parser - DEBUG - Text after command processing and normalization: 'Failure: I did not provide a response.'
+2025-06-10 17:58:35,417 - src.command_parser - DEBUG - Non-command-only message (not starting with prefix) processed. Found: False
+2025-06-10 17:58:35,417 - src.command_parser - DEBUG - Processing text for commands: '<task>
+!/hello
+</task>'
+2025-06-10 17:58:35,417 - src.command_parser - DEBUG - Found 1 command matches for text: '<task>
+!/hello
+</task>'
+2025-06-10 17:58:35,417 - src.command_parser - DEBUG - Regex match: Full='!/hello', Command='hello', ArgsStr=''
+2025-06-10 17:58:35,417 - src.command_parser - DEBUG - Parsing arguments from string: ''
+2025-06-10 17:58:35,417 - src.command_parser - DEBUG - Argument string is empty, returning empty dict.
+2025-06-10 17:58:35,417 - src.command_parser - DEBUG - Text after command processing and normalization: ' '
+2025-06-10 17:58:35,417 - src.command_parser - DEBUG - Processing text for commands: '<environment_details>
+# VSCode Visible Files
+
+
+# VSCode Open Tabs
+
+
+# Current Time
+6/10/2025, 5:58:32 PM (Europe/Warsaw, UTC+2:00)
+
+# Current Context Size (Tokens)
+(Not available)
+
+# Current Cost
+$0.00
+
+# Current Mode
+<slug>code</slug>
+<name>­čĺ╗ Code</name>
+<model>gemini:models/gemini-2.5-flash-preview-05-20</model>
+<role>You are Roo, a highly skilled software engineer with extensive knowledge in many programming languages, frameworks, design patterns, and best practices.</role>
+<custom_instructions>
+====
+
+USER'S CUSTOM INSTRUCTIONS
+
+The following additional instructions are provided by the user, and should be followed to the best of your ability without interfering with the TOOL USE guidelines.
+
+Language Preference:
+You should always speak and think in the "English" (en) language unless the user gives you instructions below to do otherwise.</custom_instructions>
+
+
+# Current Workspace Directory (c:/Users/Mateusz/source/repos/llm-interactive-proxy) Files
+.gitignore
+AGENTS.md
+pyproject.toml
+pytest.ini
+README.md
+build/lib/agents.py
+build/lib/command_parser.py
+build/lib/command_prefix.py
+build/lib/constants.py
+build/lib/main.py
+build/lib/models.py
+build/lib/proxy_logic.py
+build/lib/rate_limit.py
+build/lib/security.py
+build/lib/session.py
+build/lib/commands/__init__.py
+build/lib/commands/base.py
+build/lib/commands/create_failover_route_cmd.py
+build/lib/commands/delete_failover_route_cmd.py
+build/lib/commands/failover_base.py
+build/lib/commands/hello_cmd.py
+build/lib/commands/help_cmd.py
+build/lib/commands/list_failover_routes_cmd.py
+build/lib/commands/route_append_cmd.py
+build/lib/commands/route_clear_cmd.py
+build/lib/commands/route_list_cmd.py
+build/lib/commands/route_prepend_cmd.py
+build/lib/commands/set_cmd.py
+build/lib/commands/unset_cmd.py
+build/lib/connectors/__init__.py
+build/lib/connectors/base.py
+build/lib/connectors/gemini.py
+build/lib/connectors/openrouter.py
+build/lib/core/cli.py
+build/lib/core/config.py
+build/lib/core/metadata.py
+build/lib/core/persistence.py
+dev/
+dev/example_config.json
+dev/test_client.py
+dev/test_config.json
+dev/debug/debug1.log
+dev/debug/debug2.log
+docs/
+src/
+src/agents.py
+src/command_parser.py
+src/command_prefix.py
+src/constants.py
+src/main.py
+src/models.py
+src/proxy_logic.py
+src/rate_limit.py
+src/security.py
+src/session.py
+src/commands/__init__.py
+src/commands/base.py
+src/commands/create_failover_route_cmd.py
+src/commands/delete_failover_route_cmd.py
+src/commands/failover_base.py
+src/commands/hello_cmd.py
+src/commands/help_cmd.py
+src/commands/list_failover_routes_cmd.py
+src/commands/route_append_cmd.py
+src/commands/route_clear_cmd.py
+src/commands/route_list_cmd.py
+src/commands/route_prepend_cmd.py
+src/commands/set_cmd.py
+src/commands/unset_cmd.py
+src/connectors/__init__.py
+src/connectors/base.py
+src/connectors/gemini.py
+src/connectors/openrouter.py
+src/core/cli.py
+src/core/config.py
+src/core/metadata.py
+src/core/persistence.py
+tests/
+tests/__init__.py
+tests/conftest.py
+tests/integration/__init__.py
+tests/integration/test_gemini_end_to_end.py
+tests/integration/chat_completions_tests/test_agent_wrapping.py
+tests/integration/chat_completions_tests/test_backend_commands.py
+tests/integration/chat_completions_tests/test_basic_proxying.py
+tests/integration/chat_completions_tests/test_command_only_requests.py
+tests/integration/chat_completions_tests/test_commands_disabled.py
+tests/integration/chat_completions_tests/test_error_handling.py
+tests/integration/chat_completions_tests/test_failover.py
+tests/integration/chat_completions_tests/test_help_command.py
+tests/integration/chat_completions_tests/test_interactive_banner.py
+tests/integration/chat_completions_tests/test_interactive_commands.py
+tests/integration/chat_completions_tests/test_model_commands.py
+tests/integration/chat_completions_tests/test_project_commands.py
+tests/integration/chat_completions_tests/test_rate_limiting.py
+tests/integration/chat_completions_tests/test_session_history.py
+tests/unit/__init__.py
+tests/unit/test_agent_utils.py
+tests/unit/test_auth.py
+tests/unit/test_cli.py
+tests/unit/test_command_parser.py
+tests/unit/test_config_persistence.py
+tests/unit/test_config.py
+tests/unit/test_failover_routes.py
+tests/unit/test_model_discovery.py
+tests/unit/test_models_endpoint.py
+tests/unit/test_no_prints.py
+tests/unit/test_prompt_redaction.py
+tests/unit/test_proxy_logic.py
+tests/unit/test_session_manager.py
+tests/unit/gemini_connector_tests/__init__.py
+tests/unit/gemini_connector_tests/test_http_error_streaming.py
+tests/unit/gemini_connector_tests/test_model_prefix_handling.py
+tests/unit/gemini_connector_tests/test_part_conversion.py
+tests/unit/gemini_connector_tests/test_streaming_success.py
+tests/unit/openrouter_connector_tests/test_http_error_non_streaming.py
+tests/unit/openrouter_connector_tests/test_http_error_streaming.py
+tests/unit/openrouter_connector_tests/test_non_streaming_success.py
+tests/unit/openrouter_connector_tests/test_payload_construction_and_headers.py
+tests/unit/openrouter_connector_tests/test_redaction.py
+tests/unit/openrouter_connector_tests/test_request_error.py
+tests/unit/openrouter_connector_tests/test_streaming_success.py
+tests/unit/proxy_logic_tests/test_parse_arguments.py
+tests/unit/proxy_logic_tests/test_process_commands_in_messages.py
+tests/unit/proxy_logic_tests/test_process_text_for_commands.py
+</environment_details>'
+2025-06-10 17:58:35,417 - src.command_parser - DEBUG - Found 0 command matches for text: '<environment_details>
+# VSCode Visible Files
+
+
+# VSCode Open Tabs
+
+
+# Current Time
+6/10/2025, 5:58:32 PM (Europe/Warsaw, UTC+2:00)
+
+# Current Context Size (Tokens)
+(Not available)
+
+# Current Cost
+$0.00
+
+# Current Mode
+<slug>code</slug>
+<name>­čĺ╗ Code</name>
+<model>gemini:models/gemini-2.5-flash-preview-05-20</model>
+<role>You are Roo, a highly skilled software engineer with extensive knowledge in many programming languages, frameworks, design patterns, and best practices.</role>
+<custom_instructions>
+====
+
+USER'S CUSTOM INSTRUCTIONS
+
+The following additional instructions are provided by the user, and should be followed to the best of your ability without interfering with the TOOL USE guidelines.
+
+Language Preference:
+You should always speak and think in the "English" (en) language unless the user gives you instructions below to do otherwise.</custom_instructions>
+
+
+# Current Workspace Directory (c:/Users/Mateusz/source/repos/llm-interactive-proxy) Files
+.gitignore
+AGENTS.md
+pyproject.toml
+pytest.ini
+README.md
+build/lib/agents.py
+build/lib/command_parser.py
+build/lib/command_prefix.py
+build/lib/constants.py
+build/lib/main.py
+build/lib/models.py
+build/lib/proxy_logic.py
+build/lib/rate_limit.py
+build/lib/security.py
+build/lib/session.py
+build/lib/commands/__init__.py
+build/lib/commands/base.py
+build/lib/commands/create_failover_route_cmd.py
+build/lib/commands/delete_failover_route_cmd.py
+build/lib/commands/failover_base.py
+build/lib/commands/hello_cmd.py
+build/lib/commands/help_cmd.py
+build/lib/commands/list_failover_routes_cmd.py
+build/lib/commands/route_append_cmd.py
+build/lib/commands/route_clear_cmd.py
+build/lib/commands/route_list_cmd.py
+build/lib/commands/route_prepend_cmd.py
+build/lib/commands/set_cmd.py
+build/lib/commands/unset_cmd.py
+build/lib/connectors/__init__.py
+build/lib/connectors/base.py
+build/lib/connectors/gemini.py
+build/lib/connectors/openrouter.py
+build/lib/core/cli.py
+build/lib/core/config.py
+build/lib/core/metadata.py
+build/lib/core/persistence.py
+dev/
+dev/example_config.json
+dev/test_client.py
+dev/test_config.json
+dev/debug/debug1.log
+dev/debug/debug2.log
+docs/
+src/
+src/agents.py
+src/command_parser.py
+src/command_prefix.py
+src/constants.py
+src/main.py
+src/models.py
+src/proxy_logic.py
+src/rate_limit.py
+src/security.py
+src/session.py
+src/commands/__init__.py
+src/commands/base.py
+src/commands/create_failover_route_cmd.py
+src/commands/delete_failover_route_cmd.py
+src/commands/failover_base.py
+src/commands/hello_cmd.py
+src/commands/help_cmd.py
+src/commands/list_failover_routes_cmd.py
+src/commands/route_append_cmd.py
+src/commands/route_clear_cmd.py
+src/commands/route_list_cmd.py
+src/commands/route_prepend_cmd.py
+src/commands/set_cmd.py
+src/commands/unset_cmd.py
+src/connectors/__init__.py
+src/connectors/base.py
+src/connectors/gemini.py
+src/connectors/openrouter.py
+src/core/cli.py
+src/core/config.py
+src/core/metadata.py
+src/core/persistence.py
+tests/
+tests/__init__.py
+tests/conftest.py
+tests/integration/__init__.py
+tests/integration/test_gemini_end_to_end.py
+tests/integration/chat_completions_tests/test_agent_wrapping.py
+tests/integration/chat_completions_tests/test_backend_commands.py
+tests/integration/chat_completions_tests/test_basic_proxying.py
+tests/integration/chat_completions_tests/test_command_only_requests.py
+tests/integration/chat_completions_tests/test_commands_disabled.py
+tests/integration/chat_completions_tests/test_error_handling.py
+tests/integration/chat_completions_tests/test_failover.py
+tests/integration/chat_completions_tests/test_help_command.py
+tests/integration/chat_completions_tests/test_interactive_banner.py
+tests/integration/chat_completions_tests/test_interactive_commands.py
+tests/integration/chat_completions_tests/test_model_commands.py
+tests/integration/chat_completions_tests/test_project_commands.py
+tests/integration/chat_completions_tests/test_rate_limiting.py
+tests/integration/chat_completions_tests/test_session_history.py
+tests/unit/__init__.py
+tests/unit/test_agent_utils.py
+tests/unit/test_auth.py
+tests/unit/test_cli.py
+tests/unit/test_command_parser.py
+tests/unit/test_config_persistence.py
+tests/unit/test_config.py
+tests/unit/test_failover_routes.py
+tests/unit/test_model_discovery.py
+tests/unit/test_models_endpoint.py
+tests/unit/test_no_prints.py
+tests/unit/test_prompt_redaction.py
+tests/unit/test_proxy_logic.py
+tests/unit/test_session_manager.py
+tests/unit/gemini_connector_tests/__init__.py
+tests/unit/gemini_connector_tests/test_http_error_streaming.py
+tests/unit/gemini_connector_tests/test_model_prefix_handling.py
+tests/unit/gemini_connector_tests/test_part_conversion.py
+tests/unit/gemini_connector_tests/test_streaming_success.py
+tests/unit/openrouter_connector_tests/test_http_error_non_streaming.py
+tests/unit/openrouter_connector_tests/test_http_error_streaming.py
+tests/unit/openrouter_connector_tests/test_non_streaming_success.py
+tests/unit/openrouter_connector_tests/test_payload_construction_and_headers.py
+tests/unit/openrouter_connector_tests/test_redaction.py
+tests/unit/openrouter_connector_tests/test_request_error.py
+tests/unit/openrouter_connector_tests/test_streaming_success.py
+tests/unit/proxy_logic_tests/test_parse_arguments.py
+tests/unit/proxy_logic_tests/test_process_commands_in_messages.py
+tests/unit/proxy_logic_tests/test_process_text_for_commands.py
+</environment_details>'
+2025-06-10 17:58:35,418 - src.command_parser - DEBUG - Text after command processing and normalization: ''
+2025-06-10 17:58:35,418 - src.command_parser - INFO - Commands processed in message index 1 (from end). Role: user. New content: '[MessageContentPartText(type='text', text='')]'
+2025-06-10 17:58:35,418 - src.command_parser - DEBUG - Finished processing messages. Final message count: 6. Commands processed overall: True
+INFO:     127.0.0.1:19893 - "POST /v1/chat/completions HTTP/1.1" 200 OK
+2025-06-10 17:58:46,755 - src.session - DEBUG - Retrieving session: default, ProxyState ID: 1978026330192
+2025-06-10 17:58:46,755 - src.command_parser - DEBUG - Processing text for commands: '[ERROR] You did not use a tool in your previous response! Please retry with a tool use.
+
+# Reminder: Instructions for Tool Use
+
+Tool uses are formatted using XML-style tags. The tool name itself becomes the XML tag name. Each parameter is enclosed within its own set of tags. Here's the structure:
+
+<actual_tool_name>
+<parameter1_name>value1</parameter1_name>
+<parameter2_name>value2</parameter2_name>
+...
+</actual_tool_name>
+
+For example, to use the attempt_completion tool:
+
+<attempt_completion>
+<result>
+I have completed the task...
+</result>
+</attempt_completion>
+
+Always use the actual tool name as the XML tag name for proper parsing and execution.
+
+# Next Steps
+
+If you have completed the user's task, use the attempt_completion tool. 
+If you require additional information from the user, use the ask_followup_question tool. 
+Otherwise, if you have not completed the task and do not need additional information, then proceed with the next step of the task. 
+(This is an automated message, so do not respond to it conversationally.)'
+2025-06-10 17:58:46,755 - src.command_parser - DEBUG - Found 0 command matches for text: '[ERROR] You did not use a tool in your previous response! Please retry with a tool use.
+
+# Reminder: Instructions for Tool Use
+
+Tool uses are formatted using XML-style tags. The tool name itself becomes the XML tag name. Each parameter is enclosed within its own set of tags. Here's the structure:
+
+<actual_tool_name>
+<parameter1_name>value1</parameter1_name>
+<parameter2_name>value2</parameter2_name>
+...
+</actual_tool_name>
+
+For example, to use the attempt_completion tool:
+
+<attempt_completion>
+<result>
+I have completed the task...
+</result>
+</attempt_completion>
+
+Always use the actual tool name as the XML tag name for proper parsing and execution.
+
+# Next Steps
+
+If you have completed the user's task, use the attempt_completion tool. 
+If you require additional information from the user, use the ask_followup_question tool. 
+Otherwise, if you have not completed the task and do not need additional information, then proceed with the next step of the task. 
+(This is an automated message, so do not respond to it conversationally.)'
+2025-06-10 17:58:46,756 - src.command_parser - DEBUG - Text after command processing and normalization: '[ERROR] You did not use a tool in your previous response! Please retry with a tool use. # Reminder: Instructions for Tool Use Tool uses are formatted using XML-style tags. The tool name itself becomes the XML tag name. Each parameter is enclosed within its own set of tags. Here's the structure:  value1 value2 ...  For example, to use the attempt_completion tool:   I have completed the task...   Always use the actual tool name as the XML tag name for proper parsing and execution. # Next Steps If you have completed the user's task, use the attempt_completion tool. If you require additional information from the user, use the ask_followup_question tool. Otherwise, if you have not completed the task and do not need additional information, then proceed with the next step of the task. (This is an automated message, so do not respond to it conversationally.)'
+2025-06-10 17:58:46,756 - src.command_parser - DEBUG - Processing text for commands: '<environment_details>
+# VSCode Visible Files
+
+
+# VSCode Open Tabs
+
+
+# Current Time
+6/10/2025, 5:58:46 PM (Europe/Warsaw, UTC+2:00)
+
+# Current Context Size (Tokens)
+(Not available)
+
+# Current Cost
+$0.00
+
+# Current Mode
+<slug>code</slug>
+<name>­čĺ╗ Code</name>
+<model>gemini:models/gemini-2.5-flash-preview-05-20</model>
+<role>You are Roo, a highly skilled software engineer with extensive knowledge in many programming languages, frameworks, design patterns, and best practices.</role>
+<custom_instructions>
+====
+
+USER'S CUSTOM INSTRUCTIONS
+
+The following additional instructions are provided by the user, and should be followed to the best of your ability without interfering with the TOOL USE guidelines.
+
+Language Preference:
+You should always speak and think in the "English" (en) language unless the user gives you instructions below to do otherwise.</custom_instructions>
+</environment_details>'
+2025-06-10 17:58:46,756 - src.command_parser - DEBUG - Found 0 command matches for text: '<environment_details>
+# VSCode Visible Files
+
+
+# VSCode Open Tabs
+
+
+# Current Time
+6/10/2025, 5:58:46 PM (Europe/Warsaw, UTC+2:00)
+
+# Current Context Size (Tokens)
+(Not available)
+
+# Current Cost
+$0.00
+
+# Current Mode
+<slug>code</slug>
+<name>­čĺ╗ Code</name>
+<model>gemini:models/gemini-2.5-flash-preview-05-20</model>
+<role>You are Roo, a highly skilled software engineer with extensive knowledge in many programming languages, frameworks, design patterns, and best practices.</role>
+<custom_instructions>
+====
+
+USER'S CUSTOM INSTRUCTIONS
+
+The following additional instructions are provided by the user, and should be followed to the best of your ability without interfering with the TOOL USE guidelines.
+
+Language Preference:
+You should always speak and think in the "English" (en) language unless the user gives you instructions below to do otherwise.</custom_instructions>
+</environment_details>'
+2025-06-10 17:58:46,756 - src.command_parser - DEBUG - Text after command processing and normalization: ''
+2025-06-10 17:58:46,756 - src.command_parser - DEBUG - Processing text for commands: 'Failure: I did not provide a response.'
+2025-06-10 17:58:46,756 - src.command_parser - DEBUG - Found 0 command matches for text: 'Failure: I did not provide a response.'
+2025-06-10 17:58:46,756 - src.command_parser - DEBUG - Text after command processing and normalization: 'Failure: I did not provide a response.'
+2025-06-10 17:58:46,756 - src.command_parser - DEBUG - Non-command-only message (not starting with prefix) processed. Found: False
+2025-06-10 17:58:46,756 - src.command_parser - DEBUG - Processing text for commands: '[ERROR] You did not use a tool in your previous response! Please retry with a tool use.
+
+# Reminder: Instructions for Tool Use
+
+Tool uses are formatted using XML-style tags. The tool name itself becomes the XML tag name. Each parameter is enclosed within its own set of tags. Here's the structure:
+
+<actual_tool_name>
+<parameter1_name>value1</parameter1_name>
+<parameter2_name>value2</parameter2_name>
+...
+</actual_tool_name>
+
+For example, to use the attempt_completion tool:
+
+<attempt_completion>
+<result>
+I have completed the task...
+</result>
+</attempt_completion>
+
+Always use the actual tool name as the XML tag name for proper parsing and execution.
+
+# Next Steps
+
+If you have completed the user's task, use the attempt_completion tool. 
+If you require additional information from the user, use the ask_followup_question tool. 
+Otherwise, if you have not completed the task and do not need additional information, then proceed with the next step of the task. 
+(This is an automated message, so do not respond to it conversationally.)'
+2025-06-10 17:58:46,756 - src.command_parser - DEBUG - Found 0 command matches for text: '[ERROR] You did not use a tool in your previous response! Please retry with a tool use.
+
+# Reminder: Instructions for Tool Use
+
+Tool uses are formatted using XML-style tags. The tool name itself becomes the XML tag name. Each parameter is enclosed within its own set of tags. Here's the structure:
+
+<actual_tool_name>
+<parameter1_name>value1</parameter1_name>
+<parameter2_name>value2</parameter2_name>
+...
+</actual_tool_name>
+
+For example, to use the attempt_completion tool:
+
+<attempt_completion>
+<result>
+I have completed the task...
+</result>
+</attempt_completion>
+
+Always use the actual tool name as the XML tag name for proper parsing and execution.
+
+# Next Steps
+
+If you have completed the user's task, use the attempt_completion tool. 
+If you require additional information from the user, use the ask_followup_question tool. 
+Otherwise, if you have not completed the task and do not need additional information, then proceed with the next step of the task. 
+(This is an automated message, so do not respond to it conversationally.)'
+2025-06-10 17:58:46,756 - src.command_parser - DEBUG - Text after command processing and normalization: '[ERROR] You did not use a tool in your previous response! Please retry with a tool use. # Reminder: Instructions for Tool Use Tool uses are formatted using XML-style tags. The tool name itself becomes the XML tag name. Each parameter is enclosed within its own set of tags. Here's the structure:  value1 value2 ...  For example, to use the attempt_completion tool:   I have completed the task...   Always use the actual tool name as the XML tag name for proper parsing and execution. # Next Steps If you have completed the user's task, use the attempt_completion tool. If you require additional information from the user, use the ask_followup_question tool. Otherwise, if you have not completed the task and do not need additional information, then proceed with the next step of the task. (This is an automated message, so do not respond to it conversationally.)'
+2025-06-10 17:58:46,756 - src.command_parser - DEBUG - Processing text for commands: '<environment_details>
+# VSCode Visible Files
+
+
+# VSCode Open Tabs
+
+
+# Current Time
+6/10/2025, 5:58:34 PM (Europe/Warsaw, UTC+2:00)
+
+# Current Context Size (Tokens)
+(Not available)
+
+# Current Cost
+$0.00
+
+# Current Mode
+<slug>code</slug>
+<name>­čĺ╗ Code</name>
+<model>gemini:models/gemini-2.5-flash-preview-05-20</model>
+<role>You are Roo, a highly skilled software engineer with extensive knowledge in many programming languages, frameworks, design patterns, and best practices.</role>
+<custom_instructions>
+====
+
+USER'S CUSTOM INSTRUCTIONS
+
+The following additional instructions are provided by the user, and should be followed to the best of your ability without interfering with the TOOL USE guidelines.
+
+Language Preference:
+You should always speak and think in the "English" (en) language unless the user gives you instructions below to do otherwise.</custom_instructions>
+</environment_details>'
+2025-06-10 17:58:46,756 - src.command_parser - DEBUG - Found 0 command matches for text: '<environment_details>
+# VSCode Visible Files
+
+
+# VSCode Open Tabs
+
+
+# Current Time
+6/10/2025, 5:58:34 PM (Europe/Warsaw, UTC+2:00)
+
+# Current Context Size (Tokens)
+(Not available)
+
+# Current Cost
+$0.00
+
+# Current Mode
+<slug>code</slug>
+<name>­čĺ╗ Code</name>
+<model>gemini:models/gemini-2.5-flash-preview-05-20</model>
+<role>You are Roo, a highly skilled software engineer with extensive knowledge in many programming languages, frameworks, design patterns, and best practices.</role>
+<custom_instructions>
+====
+
+USER'S CUSTOM INSTRUCTIONS
+
+The following additional instructions are provided by the user, and should be followed to the best of your ability without interfering with the TOOL USE guidelines.
+
+Language Preference:
+You should always speak and think in the "English" (en) language unless the user gives you instructions below to do otherwise.</custom_instructions>
+</environment_details>'
+2025-06-10 17:58:46,756 - src.command_parser - DEBUG - Text after command processing and normalization: ''
+2025-06-10 17:58:46,756 - src.command_parser - DEBUG - Processing text for commands: 'Failure: I did not provide a response.'
+2025-06-10 17:58:46,756 - src.command_parser - DEBUG - Found 0 command matches for text: 'Failure: I did not provide a response.'
+2025-06-10 17:58:46,756 - src.command_parser - DEBUG - Text after command processing and normalization: 'Failure: I did not provide a response.'
+2025-06-10 17:58:46,756 - src.command_parser - DEBUG - Non-command-only message (not starting with prefix) processed. Found: False
+2025-06-10 17:58:46,756 - src.command_parser - DEBUG - Processing text for commands: '[ERROR] You did not use a tool in your previous response! Please retry with a tool use.
+
+# Reminder: Instructions for Tool Use
+
+Tool uses are formatted using XML-style tags. The tool name itself becomes the XML tag name. Each parameter is enclosed within its own set of tags. Here's the structure:
+
+<actual_tool_name>
+<parameter1_name>value1</parameter1_name>
+<parameter2_name>value2</parameter2_name>
+...
+</actual_tool_name>
+
+For example, to use the attempt_completion tool:
+
+<attempt_completion>
+<result>
+I have completed the task...
+</result>
+</attempt_completion>
+
+Always use the actual tool name as the XML tag name for proper parsing and execution.
+
+# Next Steps
+
+If you have completed the user's task, use the attempt_completion tool. 
+If you require additional information from the user, use the ask_followup_question tool. 
+Otherwise, if you have not completed the task and do not need additional information, then proceed with the next step of the task. 
+(This is an automated message, so do not respond to it conversationally.)'
+2025-06-10 17:58:46,756 - src.command_parser - DEBUG - Found 0 command matches for text: '[ERROR] You did not use a tool in your previous response! Please retry with a tool use.
+
+# Reminder: Instructions for Tool Use
+
+Tool uses are formatted using XML-style tags. The tool name itself becomes the XML tag name. Each parameter is enclosed within its own set of tags. Here's the structure:
+
+<actual_tool_name>
+<parameter1_name>value1</parameter1_name>
+<parameter2_name>value2</parameter2_name>
+...
+</actual_tool_name>
+
+For example, to use the attempt_completion tool:
+
+<attempt_completion>
+<result>
+I have completed the task...
+</result>
+</attempt_completion>
+
+Always use the actual tool name as the XML tag name for proper parsing and execution.
+
+# Next Steps
+
+If you have completed the user's task, use the attempt_completion tool. 
+If you require additional information from the user, use the ask_followup_question tool. 
+Otherwise, if you have not completed the task and do not need additional information, then proceed with the next step of the task. 
+(This is an automated message, so do not respond to it conversationally.)'
+2025-06-10 17:58:46,756 - src.command_parser - DEBUG - Text after command processing and normalization: '[ERROR] You did not use a tool in your previous response! Please retry with a tool use. # Reminder: Instructions for Tool Use Tool uses are formatted using XML-style tags. The tool name itself becomes the XML tag name. Each parameter is enclosed within its own set of tags. Here's the structure:  value1 value2 ...  For example, to use the attempt_completion tool:   I have completed the task...   Always use the actual tool name as the XML tag name for proper parsing and execution. # Next Steps If you have completed the user's task, use the attempt_completion tool. If you require additional information from the user, use the ask_followup_question tool. Otherwise, if you have not completed the task and do not need additional information, then proceed with the next step of the task. (This is an automated message, so do not respond to it conversationally.)'
+2025-06-10 17:58:46,756 - src.command_parser - DEBUG - Processing text for commands: '<environment_details>
+# VSCode Visible Files
+
+
+# VSCode Open Tabs
+
+
+# Current Time
+6/10/2025, 5:58:33 PM (Europe/Warsaw, UTC+2:00)
+
+# Current Context Size (Tokens)
+(Not available)
+
+# Current Cost
+$0.00
+
+# Current Mode
+<slug>code</slug>
+<name>­čĺ╗ Code</name>
+<model>gemini:models/gemini-2.5-flash-preview-05-20</model>
+<role>You are Roo, a highly skilled software engineer with extensive knowledge in many programming languages, frameworks, design patterns, and best practices.</role>
+<custom_instructions>
+====
+
+USER'S CUSTOM INSTRUCTIONS
+
+The following additional instructions are provided by the user, and should be followed to the best of your ability without interfering with the TOOL USE guidelines.
+
+Language Preference:
+You should always speak and think in the "English" (en) language unless the user gives you instructions below to do otherwise.</custom_instructions>
+</environment_details>'
+2025-06-10 17:58:46,756 - src.command_parser - DEBUG - Found 0 command matches for text: '<environment_details>
+# VSCode Visible Files
+
+
+# VSCode Open Tabs
+
+
+# Current Time
+6/10/2025, 5:58:33 PM (Europe/Warsaw, UTC+2:00)
+
+# Current Context Size (Tokens)
+(Not available)
+
+# Current Cost
+$0.00
+
+# Current Mode
+<slug>code</slug>
+<name>­čĺ╗ Code</name>
+<model>gemini:models/gemini-2.5-flash-preview-05-20</model>
+<role>You are Roo, a highly skilled software engineer with extensive knowledge in many programming languages, frameworks, design patterns, and best practices.</role>
+<custom_instructions>
+====
+
+USER'S CUSTOM INSTRUCTIONS
+
+The following additional instructions are provided by the user, and should be followed to the best of your ability without interfering with the TOOL USE guidelines.
+
+Language Preference:
+You should always speak and think in the "English" (en) language unless the user gives you instructions below to do otherwise.</custom_instructions>
+</environment_details>'
+2025-06-10 17:58:46,757 - src.command_parser - DEBUG - Text after command processing and normalization: ''
+2025-06-10 17:58:46,757 - src.command_parser - DEBUG - Processing text for commands: 'Failure: I did not provide a response.'
+2025-06-10 17:58:46,757 - src.command_parser - DEBUG - Found 0 command matches for text: 'Failure: I did not provide a response.'
+2025-06-10 17:58:46,757 - src.command_parser - DEBUG - Text after command processing and normalization: 'Failure: I did not provide a response.'
+2025-06-10 17:58:46,757 - src.command_parser - DEBUG - Non-command-only message (not starting with prefix) processed. Found: False
+2025-06-10 17:58:46,757 - src.command_parser - DEBUG - Processing text for commands: '<task>
+!/hello
+</task>'
+2025-06-10 17:58:46,757 - src.command_parser - DEBUG - Found 1 command matches for text: '<task>
+!/hello
+</task>'
+2025-06-10 17:58:46,757 - src.command_parser - DEBUG - Regex match: Full='!/hello', Command='hello', ArgsStr=''
+2025-06-10 17:58:46,757 - src.command_parser - DEBUG - Parsing arguments from string: ''
+2025-06-10 17:58:46,757 - src.command_parser - DEBUG - Argument string is empty, returning empty dict.
+2025-06-10 17:58:46,757 - src.command_parser - DEBUG - Text after command processing and normalization: ' '
+2025-06-10 17:58:46,757 - src.command_parser - DEBUG - Processing text for commands: '<environment_details>
+# VSCode Visible Files
+
+
+# VSCode Open Tabs
+
+
+# Current Time
+6/10/2025, 5:58:32 PM (Europe/Warsaw, UTC+2:00)
+
+# Current Context Size (Tokens)
+(Not available)
+
+# Current Cost
+$0.00
+
+# Current Mode
+<slug>code</slug>
+<name>­čĺ╗ Code</name>
+<model>gemini:models/gemini-2.5-flash-preview-05-20</model>
+<role>You are Roo, a highly skilled software engineer with extensive knowledge in many programming languages, frameworks, design patterns, and best practices.</role>
+<custom_instructions>
+====
+
+USER'S CUSTOM INSTRUCTIONS
+
+The following additional instructions are provided by the user, and should be followed to the best of your ability without interfering with the TOOL USE guidelines.
+
+Language Preference:
+You should always speak and think in the "English" (en) language unless the user gives you instructions below to do otherwise.</custom_instructions>
+
+
+# Current Workspace Directory (c:/Users/Mateusz/source/repos/llm-interactive-proxy) Files
+.gitignore
+AGENTS.md
+pyproject.toml
+pytest.ini
+README.md
+build/lib/agents.py
+build/lib/command_parser.py
+build/lib/command_prefix.py
+build/lib/constants.py
+build/lib/main.py
+build/lib/models.py
+build/lib/proxy_logic.py
+build/lib/rate_limit.py
+build/lib/security.py
+build/lib/session.py
+build/lib/commands/__init__.py
+build/lib/commands/base.py
+build/lib/commands/create_failover_route_cmd.py
+build/lib/commands/delete_failover_route_cmd.py
+build/lib/commands/failover_base.py
+build/lib/commands/hello_cmd.py
+build/lib/commands/help_cmd.py
+build/lib/commands/list_failover_routes_cmd.py
+build/lib/commands/route_append_cmd.py
+build/lib/commands/route_clear_cmd.py
+build/lib/commands/route_list_cmd.py
+build/lib/commands/route_prepend_cmd.py
+build/lib/commands/set_cmd.py
+build/lib/commands/unset_cmd.py
+build/lib/connectors/__init__.py
+build/lib/connectors/base.py
+build/lib/connectors/gemini.py
+build/lib/connectors/openrouter.py
+build/lib/core/cli.py
+build/lib/core/config.py
+build/lib/core/metadata.py
+build/lib/core/persistence.py
+dev/
+dev/example_config.json
+dev/test_client.py
+dev/test_config.json
+dev/debug/debug1.log
+dev/debug/debug2.log
+docs/
+src/
+src/agents.py
+src/command_parser.py
+src/command_prefix.py
+src/constants.py
+src/main.py
+src/models.py
+src/proxy_logic.py
+src/rate_limit.py
+src/security.py
+src/session.py
+src/commands/__init__.py
+src/commands/base.py
+src/commands/create_failover_route_cmd.py
+src/commands/delete_failover_route_cmd.py
+src/commands/failover_base.py
+src/commands/hello_cmd.py
+src/commands/help_cmd.py
+src/commands/list_failover_routes_cmd.py
+src/commands/route_append_cmd.py
+src/commands/route_clear_cmd.py
+src/commands/route_list_cmd.py
+src/commands/route_prepend_cmd.py
+src/commands/set_cmd.py
+src/commands/unset_cmd.py
+src/connectors/__init__.py
+src/connectors/base.py
+src/connectors/gemini.py
+src/connectors/openrouter.py
+src/core/cli.py
+src/core/config.py
+src/core/metadata.py
+src/core/persistence.py
+tests/
+tests/__init__.py
+tests/conftest.py
+tests/integration/__init__.py
+tests/integration/test_gemini_end_to_end.py
+tests/integration/chat_completions_tests/test_agent_wrapping.py
+tests/integration/chat_completions_tests/test_backend_commands.py
+tests/integration/chat_completions_tests/test_basic_proxying.py
+tests/integration/chat_completions_tests/test_command_only_requests.py
+tests/integration/chat_completions_tests/test_commands_disabled.py
+tests/integration/chat_completions_tests/test_error_handling.py
+tests/integration/chat_completions_tests/test_failover.py
+tests/integration/chat_completions_tests/test_help_command.py
+tests/integration/chat_completions_tests/test_interactive_banner.py
+tests/integration/chat_completions_tests/test_interactive_commands.py
+tests/integration/chat_completions_tests/test_model_commands.py
+tests/integration/chat_completions_tests/test_project_commands.py
+tests/integration/chat_completions_tests/test_rate_limiting.py
+tests/integration/chat_completions_tests/test_session_history.py
+tests/unit/__init__.py
+tests/unit/test_agent_utils.py
+tests/unit/test_auth.py
+tests/unit/test_cli.py
+tests/unit/test_command_parser.py
+tests/unit/test_config_persistence.py
+tests/unit/test_config.py
+tests/unit/test_failover_routes.py
+tests/unit/test_model_discovery.py
+tests/unit/test_models_endpoint.py
+tests/unit/test_no_prints.py
+tests/unit/test_prompt_redaction.py
+tests/unit/test_proxy_logic.py
+tests/unit/test_session_manager.py
+tests/unit/gemini_connector_tests/__init__.py
+tests/unit/gemini_connector_tests/test_http_error_streaming.py
+tests/unit/gemini_connector_tests/test_model_prefix_handling.py
+tests/unit/gemini_connector_tests/test_part_conversion.py
+tests/unit/gemini_connector_tests/test_streaming_success.py
+tests/unit/openrouter_connector_tests/test_http_error_non_streaming.py
+tests/unit/openrouter_connector_tests/test_http_error_streaming.py
+tests/unit/openrouter_connector_tests/test_non_streaming_success.py
+tests/unit/openrouter_connector_tests/test_payload_construction_and_headers.py
+tests/unit/openrouter_connector_tests/test_redaction.py
+tests/unit/openrouter_connector_tests/test_request_error.py
+tests/unit/openrouter_connector_tests/test_streaming_success.py
+tests/unit/proxy_logic_tests/test_parse_arguments.py
+tests/unit/proxy_logic_tests/test_process_commands_in_messages.py
+tests/unit/proxy_logic_tests/test_process_text_for_commands.py
+</environment_details>'
+2025-06-10 17:58:46,757 - src.command_parser - DEBUG - Found 0 command matches for text: '<environment_details>
+# VSCode Visible Files
+
+
+# VSCode Open Tabs
+
+
+# Current Time
+6/10/2025, 5:58:32 PM (Europe/Warsaw, UTC+2:00)
+
+# Current Context Size (Tokens)
+(Not available)
+
+# Current Cost
+$0.00
+
+# Current Mode
+<slug>code</slug>
+<name>­čĺ╗ Code</name>
+<model>gemini:models/gemini-2.5-flash-preview-05-20</model>
+<role>You are Roo, a highly skilled software engineer with extensive knowledge in many programming languages, frameworks, design patterns, and best practices.</role>
+<custom_instructions>
+====
+
+USER'S CUSTOM INSTRUCTIONS
+
+The following additional instructions are provided by the user, and should be followed to the best of your ability without interfering with the TOOL USE guidelines.
+
+Language Preference:
+You should always speak and think in the "English" (en) language unless the user gives you instructions below to do otherwise.</custom_instructions>
+
+
+# Current Workspace Directory (c:/Users/Mateusz/source/repos/llm-interactive-proxy) Files
+.gitignore
+AGENTS.md
+pyproject.toml
+pytest.ini
+README.md
+build/lib/agents.py
+build/lib/command_parser.py
+build/lib/command_prefix.py
+build/lib/constants.py
+build/lib/main.py
+build/lib/models.py
+build/lib/proxy_logic.py
+build/lib/rate_limit.py
+build/lib/security.py
+build/lib/session.py
+build/lib/commands/__init__.py
+build/lib/commands/base.py
+build/lib/commands/create_failover_route_cmd.py
+build/lib/commands/delete_failover_route_cmd.py
+build/lib/commands/failover_base.py
+build/lib/commands/hello_cmd.py
+build/lib/commands/help_cmd.py
+build/lib/commands/list_failover_routes_cmd.py
+build/lib/commands/route_append_cmd.py
+build/lib/commands/route_clear_cmd.py
+build/lib/commands/route_list_cmd.py
+build/lib/commands/route_prepend_cmd.py
+build/lib/commands/set_cmd.py
+build/lib/commands/unset_cmd.py
+build/lib/connectors/__init__.py
+build/lib/connectors/base.py
+build/lib/connectors/gemini.py
+build/lib/connectors/openrouter.py
+build/lib/core/cli.py
+build/lib/core/config.py
+build/lib/core/metadata.py
+build/lib/core/persistence.py
+dev/
+dev/example_config.json
+dev/test_client.py
+dev/test_config.json
+dev/debug/debug1.log
+dev/debug/debug2.log
+docs/
+src/
+src/agents.py
+src/command_parser.py
+src/command_prefix.py
+src/constants.py
+src/main.py
+src/models.py
+src/proxy_logic.py
+src/rate_limit.py
+src/security.py
+src/session.py
+src/commands/__init__.py
+src/commands/base.py
+src/commands/create_failover_route_cmd.py
+src/commands/delete_failover_route_cmd.py
+src/commands/failover_base.py
+src/commands/hello_cmd.py
+src/commands/help_cmd.py
+src/commands/list_failover_routes_cmd.py
+src/commands/route_append_cmd.py
+src/commands/route_clear_cmd.py
+src/commands/route_list_cmd.py
+src/commands/route_prepend_cmd.py
+src/commands/set_cmd.py
+src/commands/unset_cmd.py
+src/connectors/__init__.py
+src/connectors/base.py
+src/connectors/gemini.py
+src/connectors/openrouter.py
+src/core/cli.py
+src/core/config.py
+src/core/metadata.py
+src/core/persistence.py
+tests/
+tests/__init__.py
+tests/conftest.py
+tests/integration/__init__.py
+tests/integration/test_gemini_end_to_end.py
+tests/integration/chat_completions_tests/test_agent_wrapping.py
+tests/integration/chat_completions_tests/test_backend_commands.py
+tests/integration/chat_completions_tests/test_basic_proxying.py
+tests/integration/chat_completions_tests/test_command_only_requests.py
+tests/integration/chat_completions_tests/test_commands_disabled.py
+tests/integration/chat_completions_tests/test_error_handling.py
+tests/integration/chat_completions_tests/test_failover.py
+tests/integration/chat_completions_tests/test_help_command.py
+tests/integration/chat_completions_tests/test_interactive_banner.py
+tests/integration/chat_completions_tests/test_interactive_commands.py
+tests/integration/chat_completions_tests/test_model_commands.py
+tests/integration/chat_completions_tests/test_project_commands.py
+tests/integration/chat_completions_tests/test_rate_limiting.py
+tests/integration/chat_completions_tests/test_session_history.py
+tests/unit/__init__.py
+tests/unit/test_agent_utils.py
+tests/unit/test_auth.py
+tests/unit/test_cli.py
+tests/unit/test_command_parser.py
+tests/unit/test_config_persistence.py
+tests/unit/test_config.py
+tests/unit/test_failover_routes.py
+tests/unit/test_model_discovery.py
+tests/unit/test_models_endpoint.py
+tests/unit/test_no_prints.py
+tests/unit/test_prompt_redaction.py
+tests/unit/test_proxy_logic.py
+tests/unit/test_session_manager.py
+tests/unit/gemini_connector_tests/__init__.py
+tests/unit/gemini_connector_tests/test_http_error_streaming.py
+tests/unit/gemini_connector_tests/test_model_prefix_handling.py
+tests/unit/gemini_connector_tests/test_part_conversion.py
+tests/unit/gemini_connector_tests/test_streaming_success.py
+tests/unit/openrouter_connector_tests/test_http_error_non_streaming.py
+tests/unit/openrouter_connector_tests/test_http_error_streaming.py
+tests/unit/openrouter_connector_tests/test_non_streaming_success.py
+tests/unit/openrouter_connector_tests/test_payload_construction_and_headers.py
+tests/unit/openrouter_connector_tests/test_redaction.py
+tests/unit/openrouter_connector_tests/test_request_error.py
+tests/unit/openrouter_connector_tests/test_streaming_success.py
+tests/unit/proxy_logic_tests/test_parse_arguments.py
+tests/unit/proxy_logic_tests/test_process_commands_in_messages.py
+tests/unit/proxy_logic_tests/test_process_text_for_commands.py
+</environment_details>'
+2025-06-10 17:58:46,757 - src.command_parser - DEBUG - Text after command processing and normalization: ''
+2025-06-10 17:58:46,757 - src.command_parser - INFO - Commands processed in message index 1 (from end). Role: user. New content: '[MessageContentPartText(type='text', text='')]'
+2025-06-10 17:58:46,757 - src.command_parser - DEBUG - Finished processing messages. Final message count: 8. Commands processed overall: True
+INFO:     127.0.0.1:19896 - "POST /v1/chat/completions HTTP/1.1" 200 OK
+2025-06-10 17:58:47,906 - src.session - DEBUG - Retrieving session: default, ProxyState ID: 1978026330192
+2025-06-10 17:58:47,906 - src.command_parser - DEBUG - Processing text for commands: '[ERROR] You did not use a tool in your previous response! Please retry with a tool use.
+
+# Reminder: Instructions for Tool Use
+
+Tool uses are formatted using XML-style tags. The tool name itself becomes the XML tag name. Each parameter is enclosed within its own set of tags. Here's the structure:
+
+<actual_tool_name>
+<parameter1_name>value1</parameter1_name>
+<parameter2_name>value2</parameter2_name>
+...
+</actual_tool_name>
+
+For example, to use the attempt_completion tool:
+
+<attempt_completion>
+<result>
+I have completed the task...
+</result>
+</attempt_completion>
+
+Always use the actual tool name as the XML tag name for proper parsing and execution.
+
+# Next Steps
+
+If you have completed the user's task, use the attempt_completion tool. 
+If you require additional information from the user, use the ask_followup_question tool. 
+Otherwise, if you have not completed the task and do not need additional information, then proceed with the next step of the task. 
+(This is an automated message, so do not respond to it conversationally.)'
+2025-06-10 17:58:47,906 - src.command_parser - DEBUG - Found 0 command matches for text: '[ERROR] You did not use a tool in your previous response! Please retry with a tool use.
+
+# Reminder: Instructions for Tool Use
+
+Tool uses are formatted using XML-style tags. The tool name itself becomes the XML tag name. Each parameter is enclosed within its own set of tags. Here's the structure:
+
+<actual_tool_name>
+<parameter1_name>value1</parameter1_name>
+<parameter2_name>value2</parameter2_name>
+...
+</actual_tool_name>
+
+For example, to use the attempt_completion tool:
+
+<attempt_completion>
+<result>
+I have completed the task...
+</result>
+</attempt_completion>
+
+Always use the actual tool name as the XML tag name for proper parsing and execution.
+
+# Next Steps
+
+If you have completed the user's task, use the attempt_completion tool. 
+If you require additional information from the user, use the ask_followup_question tool. 
+Otherwise, if you have not completed the task and do not need additional information, then proceed with the next step of the task. 
+(This is an automated message, so do not respond to it conversationally.)'
+2025-06-10 17:58:47,906 - src.command_parser - DEBUG - Text after command processing and normalization: '[ERROR] You did not use a tool in your previous response! Please retry with a tool use. # Reminder: Instructions for Tool Use Tool uses are formatted using XML-style tags. The tool name itself becomes the XML tag name. Each parameter is enclosed within its own set of tags. Here's the structure:  value1 value2 ...  For example, to use the attempt_completion tool:   I have completed the task...   Always use the actual tool name as the XML tag name for proper parsing and execution. # Next Steps If you have completed the user's task, use the attempt_completion tool. If you require additional information from the user, use the ask_followup_question tool. Otherwise, if you have not completed the task and do not need additional information, then proceed with the next step of the task. (This is an automated message, so do not respond to it conversationally.)'
+2025-06-10 17:58:47,907 - src.command_parser - DEBUG - Processing text for commands: '<environment_details>
+# VSCode Visible Files
+
+
+# VSCode Open Tabs
+
+
+# Current Time
+6/10/2025, 5:58:46 PM (Europe/Warsaw, UTC+2:00)
+
+# Current Context Size (Tokens)
+(Not available)
+
+# Current Cost
+$0.00
+
+# Current Mode
+<slug>code</slug>
+<name>­čĺ╗ Code</name>
+<model>gemini:models/gemini-2.5-flash-preview-05-20</model>
+<role>You are Roo, a highly skilled software engineer with extensive knowledge in many programming languages, frameworks, design patterns, and best practices.</role>
+<custom_instructions>
+====
+
+USER'S CUSTOM INSTRUCTIONS
+
+The following additional instructions are provided by the user, and should be followed to the best of your ability without interfering with the TOOL USE guidelines.
+
+Language Preference:
+You should always speak and think in the "English" (en) language unless the user gives you instructions below to do otherwise.</custom_instructions>
+</environment_details>'
+2025-06-10 17:58:47,907 - src.command_parser - DEBUG - Found 0 command matches for text: '<environment_details>
+# VSCode Visible Files
+
+
+# VSCode Open Tabs
+
+
+# Current Time
+6/10/2025, 5:58:46 PM (Europe/Warsaw, UTC+2:00)
+
+# Current Context Size (Tokens)
+(Not available)
+
+# Current Cost
+$0.00
+
+# Current Mode
+<slug>code</slug>
+<name>­čĺ╗ Code</name>
+<model>gemini:models/gemini-2.5-flash-preview-05-20</model>
+<role>You are Roo, a highly skilled software engineer with extensive knowledge in many programming languages, frameworks, design patterns, and best practices.</role>
+<custom_instructions>
+====
+
+USER'S CUSTOM INSTRUCTIONS
+
+The following additional instructions are provided by the user, and should be followed to the best of your ability without interfering with the TOOL USE guidelines.
+
+Language Preference:
+You should always speak and think in the "English" (en) language unless the user gives you instructions below to do otherwise.</custom_instructions>
+</environment_details>'
+2025-06-10 17:58:47,907 - src.command_parser - DEBUG - Text after command processing and normalization: ''
+2025-06-10 17:58:47,907 - src.command_parser - DEBUG - Processing text for commands: 'Failure: I did not provide a response.'
+2025-06-10 17:58:47,907 - src.command_parser - DEBUG - Found 0 command matches for text: 'Failure: I did not provide a response.'
+2025-06-10 17:58:47,907 - src.command_parser - DEBUG - Text after command processing and normalization: 'Failure: I did not provide a response.'
+2025-06-10 17:58:47,907 - src.command_parser - DEBUG - Non-command-only message (not starting with prefix) processed. Found: False
+2025-06-10 17:58:47,907 - src.command_parser - DEBUG - Processing text for commands: '[ERROR] You did not use a tool in your previous response! Please retry with a tool use.
+
+# Reminder: Instructions for Tool Use
+
+Tool uses are formatted using XML-style tags. The tool name itself becomes the XML tag name. Each parameter is enclosed within its own set of tags. Here's the structure:
+
+<actual_tool_name>
+<parameter1_name>value1</parameter1_name>
+<parameter2_name>value2</parameter2_name>
+...
+</actual_tool_name>
+
+For example, to use the attempt_completion tool:
+
+<attempt_completion>
+<result>
+I have completed the task...
+</result>
+</attempt_completion>
+
+Always use the actual tool name as the XML tag name for proper parsing and execution.
+
+# Next Steps
+
+If you have completed the user's task, use the attempt_completion tool. 
+If you require additional information from the user, use the ask_followup_question tool. 
+Otherwise, if you have not completed the task and do not need additional information, then proceed with the next step of the task. 
+(This is an automated message, so do not respond to it conversationally.)'
+2025-06-10 17:58:47,907 - src.command_parser - DEBUG - Found 0 command matches for text: '[ERROR] You did not use a tool in your previous response! Please retry with a tool use.
+
+# Reminder: Instructions for Tool Use
+
+Tool uses are formatted using XML-style tags. The tool name itself becomes the XML tag name. Each parameter is enclosed within its own set of tags. Here's the structure:
+
+<actual_tool_name>
+<parameter1_name>value1</parameter1_name>
+<parameter2_name>value2</parameter2_name>
+...
+</actual_tool_name>
+
+For example, to use the attempt_completion tool:
+
+<attempt_completion>
+<result>
+I have completed the task...
+</result>
+</attempt_completion>
+
+Always use the actual tool name as the XML tag name for proper parsing and execution.
+
+# Next Steps
+
+If you have completed the user's task, use the attempt_completion tool. 
+If you require additional information from the user, use the ask_followup_question tool. 
+Otherwise, if you have not completed the task and do not need additional information, then proceed with the next step of the task. 
+(This is an automated message, so do not respond to it conversationally.)'
+2025-06-10 17:58:47,907 - src.command_parser - DEBUG - Text after command processing and normalization: '[ERROR] You did not use a tool in your previous response! Please retry with a tool use. # Reminder: Instructions for Tool Use Tool uses are formatted using XML-style tags. The tool name itself becomes the XML tag name. Each parameter is enclosed within its own set of tags. Here's the structure:  value1 value2 ...  For example, to use the attempt_completion tool:   I have completed the task...   Always use the actual tool name as the XML tag name for proper parsing and execution. # Next Steps If you have completed the user's task, use the attempt_completion tool. If you require additional information from the user, use the ask_followup_question tool. Otherwise, if you have not completed the task and do not need additional information, then proceed with the next step of the task. (This is an automated message, so do not respond to it conversationally.)'
+2025-06-10 17:58:47,907 - src.command_parser - DEBUG - Processing text for commands: '<environment_details>
+# VSCode Visible Files
+
+
+# VSCode Open Tabs
+
+
+# Current Time
+6/10/2025, 5:58:46 PM (Europe/Warsaw, UTC+2:00)
+
+# Current Context Size (Tokens)
+(Not available)
+
+# Current Cost
+$0.00
+
+# Current Mode
+<slug>code</slug>
+<name>­čĺ╗ Code</name>
+<model>gemini:models/gemini-2.5-flash-preview-05-20</model>
+<role>You are Roo, a highly skilled software engineer with extensive knowledge in many programming languages, frameworks, design patterns, and best practices.</role>
+<custom_instructions>
+====
+
+USER'S CUSTOM INSTRUCTIONS
+
+The following additional instructions are provided by the user, and should be followed to the best of your ability without interfering with the TOOL USE guidelines.
+
+Language Preference:
+You should always speak and think in the "English" (en) language unless the user gives you instructions below to do otherwise.</custom_instructions>
+</environment_details>'
+2025-06-10 17:58:47,907 - src.command_parser - DEBUG - Found 0 command matches for text: '<environment_details>
+# VSCode Visible Files
+
+
+# VSCode Open Tabs
+
+
+# Current Time
+6/10/2025, 5:58:46 PM (Europe/Warsaw, UTC+2:00)
+
+# Current Context Size (Tokens)
+(Not available)
+
+# Current Cost
+$0.00
+
+# Current Mode
+<slug>code</slug>
+<name>­čĺ╗ Code</name>
+<model>gemini:models/gemini-2.5-flash-preview-05-20</model>
+<role>You are Roo, a highly skilled software engineer with extensive knowledge in many programming languages, frameworks, design patterns, and best practices.</role>
+<custom_instructions>
+====
+
+USER'S CUSTOM INSTRUCTIONS
+
+The following additional instructions are provided by the user, and should be followed to the best of your ability without interfering with the TOOL USE guidelines.
+
+Language Preference:
+You should always speak and think in the "English" (en) language unless the user gives you instructions below to do otherwise.</custom_instructions>
+</environment_details>'
+2025-06-10 17:58:47,907 - src.command_parser - DEBUG - Text after command processing and normalization: ''
+2025-06-10 17:58:47,907 - src.command_parser - DEBUG - Processing text for commands: 'Failure: I did not provide a response.'
+2025-06-10 17:58:47,907 - src.command_parser - DEBUG - Found 0 command matches for text: 'Failure: I did not provide a response.'
+2025-06-10 17:58:47,907 - src.command_parser - DEBUG - Text after command processing and normalization: 'Failure: I did not provide a response.'
+2025-06-10 17:58:47,907 - src.command_parser - DEBUG - Non-command-only message (not starting with prefix) processed. Found: False
+2025-06-10 17:58:47,907 - src.command_parser - DEBUG - Processing text for commands: '[ERROR] You did not use a tool in your previous response! Please retry with a tool use.
+
+# Reminder: Instructions for Tool Use
+
+Tool uses are formatted using XML-style tags. The tool name itself becomes the XML tag name. Each parameter is enclosed within its own set of tags. Here's the structure:
+
+<actual_tool_name>
+<parameter1_name>value1</parameter1_name>
+<parameter2_name>value2</parameter2_name>
+...
+</actual_tool_name>
+
+For example, to use the attempt_completion tool:
+
+<attempt_completion>
+<result>
+I have completed the task...
+</result>
+</attempt_completion>
+
+Always use the actual tool name as the XML tag name for proper parsing and execution.
+
+# Next Steps
+
+If you have completed the user's task, use the attempt_completion tool. 
+If you require additional information from the user, use the ask_followup_question tool. 
+Otherwise, if you have not completed the task and do not need additional information, then proceed with the next step of the task. 
+(This is an automated message, so do not respond to it conversationally.)'
+2025-06-10 17:58:47,907 - src.command_parser - DEBUG - Found 0 command matches for text: '[ERROR] You did not use a tool in your previous response! Please retry with a tool use.
+
+# Reminder: Instructions for Tool Use
+
+Tool uses are formatted using XML-style tags. The tool name itself becomes the XML tag name. Each parameter is enclosed within its own set of tags. Here's the structure:
+
+<actual_tool_name>
+<parameter1_name>value1</parameter1_name>
+<parameter2_name>value2</parameter2_name>
+...
+</actual_tool_name>
+
+For example, to use the attempt_completion tool:
+
+<attempt_completion>
+<result>
+I have completed the task...
+</result>
+</attempt_completion>
+
+Always use the actual tool name as the XML tag name for proper parsing and execution.
+
+# Next Steps
+
+If you have completed the user's task, use the attempt_completion tool. 
+If you require additional information from the user, use the ask_followup_question tool. 
+Otherwise, if you have not completed the task and do not need additional information, then proceed with the next step of the task. 
+(This is an automated message, so do not respond to it conversationally.)'
+2025-06-10 17:58:47,908 - src.command_parser - DEBUG - Text after command processing and normalization: '[ERROR] You did not use a tool in your previous response! Please retry with a tool use. # Reminder: Instructions for Tool Use Tool uses are formatted using XML-style tags. The tool name itself becomes the XML tag name. Each parameter is enclosed within its own set of tags. Here's the structure:  value1 value2 ...  For example, to use the attempt_completion tool:   I have completed the task...   Always use the actual tool name as the XML tag name for proper parsing and execution. # Next Steps If you have completed the user's task, use the attempt_completion tool. If you require additional information from the user, use the ask_followup_question tool. Otherwise, if you have not completed the task and do not need additional information, then proceed with the next step of the task. (This is an automated message, so do not respond to it conversationally.)'
+2025-06-10 17:58:47,908 - src.command_parser - DEBUG - Processing text for commands: '<environment_details>
+# VSCode Visible Files
+
+
+# VSCode Open Tabs
+
+
+# Current Time
+6/10/2025, 5:58:34 PM (Europe/Warsaw, UTC+2:00)
+
+# Current Context Size (Tokens)
+(Not available)
+
+# Current Cost
+$0.00
+
+# Current Mode
+<slug>code</slug>
+<name>­čĺ╗ Code</name>
+<model>gemini:models/gemini-2.5-flash-preview-05-20</model>
+<role>You are Roo, a highly skilled software engineer with extensive knowledge in many programming languages, frameworks, design patterns, and best practices.</role>
+<custom_instructions>
+====
+
+USER'S CUSTOM INSTRUCTIONS
+
+The following additional instructions are provided by the user, and should be followed to the best of your ability without interfering with the TOOL USE guidelines.
+
+Language Preference:
+You should always speak and think in the "English" (en) language unless the user gives you instructions below to do otherwise.</custom_instructions>
+</environment_details>'
+2025-06-10 17:58:47,908 - src.command_parser - DEBUG - Found 0 command matches for text: '<environment_details>
+# VSCode Visible Files
+
+
+# VSCode Open Tabs
+
+
+# Current Time
+6/10/2025, 5:58:34 PM (Europe/Warsaw, UTC+2:00)
+
+# Current Context Size (Tokens)
+(Not available)
+
+# Current Cost
+$0.00
+
+# Current Mode
+<slug>code</slug>
+<name>­čĺ╗ Code</name>
+<model>gemini:models/gemini-2.5-flash-preview-05-20</model>
+<role>You are Roo, a highly skilled software engineer with extensive knowledge in many programming languages, frameworks, design patterns, and best practices.</role>
+<custom_instructions>
+====
+
+USER'S CUSTOM INSTRUCTIONS
+
+The following additional instructions are provided by the user, and should be followed to the best of your ability without interfering with the TOOL USE guidelines.
+
+Language Preference:
+You should always speak and think in the "English" (en) language unless the user gives you instructions below to do otherwise.</custom_instructions>
+</environment_details>'
+2025-06-10 17:58:47,908 - src.command_parser - DEBUG - Text after command processing and normalization: ''
+2025-06-10 17:58:47,908 - src.command_parser - DEBUG - Processing text for commands: 'Failure: I did not provide a response.'
+2025-06-10 17:58:47,908 - src.command_parser - DEBUG - Found 0 command matches for text: 'Failure: I did not provide a response.'
+2025-06-10 17:58:47,908 - src.command_parser - DEBUG - Text after command processing and normalization: 'Failure: I did not provide a response.'
+2025-06-10 17:58:47,908 - src.command_parser - DEBUG - Non-command-only message (not starting with prefix) processed. Found: False
+2025-06-10 17:58:47,908 - src.command_parser - DEBUG - Processing text for commands: '[ERROR] You did not use a tool in your previous response! Please retry with a tool use.
+
+# Reminder: Instructions for Tool Use
+
+Tool uses are formatted using XML-style tags. The tool name itself becomes the XML tag name. Each parameter is enclosed within its own set of tags. Here's the structure:
+
+<actual_tool_name>
+<parameter1_name>value1</parameter1_name>
+<parameter2_name>value2</parameter2_name>
+...
+</actual_tool_name>
+
+For example, to use the attempt_completion tool:
+
+<attempt_completion>
+<result>
+I have completed the task...
+</result>
+</attempt_completion>
+
+Always use the actual tool name as the XML tag name for proper parsing and execution.
+
+# Next Steps
+
+If you have completed the user's task, use the attempt_completion tool. 
+If you require additional information from the user, use the ask_followup_question tool. 
+Otherwise, if you have not completed the task and do not need additional information, then proceed with the next step of the task. 
+(This is an automated message, so do not respond to it conversationally.)'
+2025-06-10 17:58:47,908 - src.command_parser - DEBUG - Found 0 command matches for text: '[ERROR] You did not use a tool in your previous response! Please retry with a tool use.
+
+# Reminder: Instructions for Tool Use
+
+Tool uses are formatted using XML-style tags. The tool name itself becomes the XML tag name. Each parameter is enclosed within its own set of tags. Here's the structure:
+
+<actual_tool_name>
+<parameter1_name>value1</parameter1_name>
+<parameter2_name>value2</parameter2_name>
+...
+</actual_tool_name>
+
+For example, to use the attempt_completion tool:
+
+<attempt_completion>
+<result>
+I have completed the task...
+</result>
+</attempt_completion>
+
+Always use the actual tool name as the XML tag name for proper parsing and execution.
+
+# Next Steps
+
+If you have completed the user's task, use the attempt_completion tool. 
+If you require additional information from the user, use the ask_followup_question tool. 
+Otherwise, if you have not completed the task and do not need additional information, then proceed with the next step of the task. 
+(This is an automated message, so do not respond to it conversationally.)'
+2025-06-10 17:58:47,908 - src.command_parser - DEBUG - Text after command processing and normalization: '[ERROR] You did not use a tool in your previous response! Please retry with a tool use. # Reminder: Instructions for Tool Use Tool uses are formatted using XML-style tags. The tool name itself becomes the XML tag name. Each parameter is enclosed within its own set of tags. Here's the structure:  value1 value2 ...  For example, to use the attempt_completion tool:   I have completed the task...   Always use the actual tool name as the XML tag name for proper parsing and execution. # Next Steps If you have completed the user's task, use the attempt_completion tool. If you require additional information from the user, use the ask_followup_question tool. Otherwise, if you have not completed the task and do not need additional information, then proceed with the next step of the task. (This is an automated message, so do not respond to it conversationally.)'
+2025-06-10 17:58:47,908 - src.command_parser - DEBUG - Processing text for commands: '<environment_details>
+# VSCode Visible Files
+
+
+# VSCode Open Tabs
+
+
+# Current Time
+6/10/2025, 5:58:33 PM (Europe/Warsaw, UTC+2:00)
+
+# Current Context Size (Tokens)
+(Not available)
+
+# Current Cost
+$0.00
+
+# Current Mode
+<slug>code</slug>
+<name>­čĺ╗ Code</name>
+<model>gemini:models/gemini-2.5-flash-preview-05-20</model>
+<role>You are Roo, a highly skilled software engineer with extensive knowledge in many programming languages, frameworks, design patterns, and best practices.</role>
+<custom_instructions>
+====
+
+USER'S CUSTOM INSTRUCTIONS
+
+The following additional instructions are provided by the user, and should be followed to the best of your ability without interfering with the TOOL USE guidelines.
+
+Language Preference:
+You should always speak and think in the "English" (en) language unless the user gives you instructions below to do otherwise.</custom_instructions>
+</environment_details>'
+2025-06-10 17:58:47,908 - src.command_parser - DEBUG - Found 0 command matches for text: '<environment_details>
+# VSCode Visible Files
+
+
+# VSCode Open Tabs
+
+
+# Current Time
+6/10/2025, 5:58:33 PM (Europe/Warsaw, UTC+2:00)
+
+# Current Context Size (Tokens)
+(Not available)
+
+# Current Cost
+$0.00
+
+# Current Mode
+<slug>code</slug>
+<name>­čĺ╗ Code</name>
+<model>gemini:models/gemini-2.5-flash-preview-05-20</model>
+<role>You are Roo, a highly skilled software engineer with extensive knowledge in many programming languages, frameworks, design patterns, and best practices.</role>
+<custom_instructions>
+====
+
+USER'S CUSTOM INSTRUCTIONS
+
+The following additional instructions are provided by the user, and should be followed to the best of your ability without interfering with the TOOL USE guidelines.
+
+Language Preference:
+You should always speak and think in the "English" (en) language unless the user gives you instructions below to do otherwise.</custom_instructions>
+</environment_details>'
+2025-06-10 17:58:47,908 - src.command_parser - DEBUG - Text after command processing and normalization: ''
+2025-06-10 17:58:47,908 - src.command_parser - DEBUG - Processing text for commands: 'Failure: I did not provide a response.'
+2025-06-10 17:58:47,908 - src.command_parser - DEBUG - Found 0 command matches for text: 'Failure: I did not provide a response.'
+2025-06-10 17:58:47,908 - src.command_parser - DEBUG - Text after command processing and normalization: 'Failure: I did not provide a response.'
+2025-06-10 17:58:47,908 - src.command_parser - DEBUG - Non-command-only message (not starting with prefix) processed. Found: False
+2025-06-10 17:58:47,908 - src.command_parser - DEBUG - Processing text for commands: '<task>
+!/hello
+</task>'
+2025-06-10 17:58:47,908 - src.command_parser - DEBUG - Found 1 command matches for text: '<task>
+!/hello
+</task>'
+2025-06-10 17:58:47,908 - src.command_parser - DEBUG - Regex match: Full='!/hello', Command='hello', ArgsStr=''
+2025-06-10 17:58:47,908 - src.command_parser - DEBUG - Parsing arguments from string: ''
+2025-06-10 17:58:47,908 - src.command_parser - DEBUG - Argument string is empty, returning empty dict.
+2025-06-10 17:58:47,908 - src.command_parser - DEBUG - Text after command processing and normalization: ' '
+2025-06-10 17:58:47,908 - src.command_parser - DEBUG - Processing text for commands: '<environment_details>
+# VSCode Visible Files
+
+
+# VSCode Open Tabs
+
+
+# Current Time
+6/10/2025, 5:58:32 PM (Europe/Warsaw, UTC+2:00)
+
+# Current Context Size (Tokens)
+(Not available)
+
+# Current Cost
+$0.00
+
+# Current Mode
+<slug>code</slug>
+<name>­čĺ╗ Code</name>
+<model>gemini:models/gemini-2.5-flash-preview-05-20</model>
+<role>You are Roo, a highly skilled software engineer with extensive knowledge in many programming languages, frameworks, design patterns, and best practices.</role>
+<custom_instructions>
+====
+
+USER'S CUSTOM INSTRUCTIONS
+
+The following additional instructions are provided by the user, and should be followed to the best of your ability without interfering with the TOOL USE guidelines.
+
+Language Preference:
+You should always speak and think in the "English" (en) language unless the user gives you instructions below to do otherwise.</custom_instructions>
+
+
+# Current Workspace Directory (c:/Users/Mateusz/source/repos/llm-interactive-proxy) Files
+.gitignore
+AGENTS.md
+pyproject.toml
+pytest.ini
+README.md
+build/lib/agents.py
+build/lib/command_parser.py
+build/lib/command_prefix.py
+build/lib/constants.py
+build/lib/main.py
+build/lib/models.py
+build/lib/proxy_logic.py
+build/lib/rate_limit.py
+build/lib/security.py
+build/lib/session.py
+build/lib/commands/__init__.py
+build/lib/commands/base.py
+build/lib/commands/create_failover_route_cmd.py
+build/lib/commands/delete_failover_route_cmd.py
+build/lib/commands/failover_base.py
+build/lib/commands/hello_cmd.py
+build/lib/commands/help_cmd.py
+build/lib/commands/list_failover_routes_cmd.py
+build/lib/commands/route_append_cmd.py
+build/lib/commands/route_clear_cmd.py
+build/lib/commands/route_list_cmd.py
+build/lib/commands/route_prepend_cmd.py
+build/lib/commands/set_cmd.py
+build/lib/commands/unset_cmd.py
+build/lib/connectors/__init__.py
+build/lib/connectors/base.py
+build/lib/connectors/gemini.py
+build/lib/connectors/openrouter.py
+build/lib/core/cli.py
+build/lib/core/config.py
+build/lib/core/metadata.py
+build/lib/core/persistence.py
+dev/
+dev/example_config.json
+dev/test_client.py
+dev/test_config.json
+dev/debug/debug1.log
+dev/debug/debug2.log
+docs/
+src/
+src/agents.py
+src/command_parser.py
+src/command_prefix.py
+src/constants.py
+src/main.py
+src/models.py
+src/proxy_logic.py
+src/rate_limit.py
+src/security.py
+src/session.py
+src/commands/__init__.py
+src/commands/base.py
+src/commands/create_failover_route_cmd.py
+src/commands/delete_failover_route_cmd.py
+src/commands/failover_base.py
+src/commands/hello_cmd.py
+src/commands/help_cmd.py
+src/commands/list_failover_routes_cmd.py
+src/commands/route_append_cmd.py
+src/commands/route_clear_cmd.py
+src/commands/route_list_cmd.py
+src/commands/route_prepend_cmd.py
+src/commands/set_cmd.py
+src/commands/unset_cmd.py
+src/connectors/__init__.py
+src/connectors/base.py
+src/connectors/gemini.py
+src/connectors/openrouter.py
+src/core/cli.py
+src/core/config.py
+src/core/metadata.py
+src/core/persistence.py
+tests/
+tests/__init__.py
+tests/conftest.py
+tests/integration/__init__.py
+tests/integration/test_gemini_end_to_end.py
+tests/integration/chat_completions_tests/test_agent_wrapping.py
+tests/integration/chat_completions_tests/test_backend_commands.py
+tests/integration/chat_completions_tests/test_basic_proxying.py
+tests/integration/chat_completions_tests/test_command_only_requests.py
+tests/integration/chat_completions_tests/test_commands_disabled.py
+tests/integration/chat_completions_tests/test_error_handling.py
+tests/integration/chat_completions_tests/test_failover.py
+tests/integration/chat_completions_tests/test_help_command.py
+tests/integration/chat_completions_tests/test_interactive_banner.py
+tests/integration/chat_completions_tests/test_interactive_commands.py
+tests/integration/chat_completions_tests/test_model_commands.py
+tests/integration/chat_completions_tests/test_project_commands.py
+tests/integration/chat_completions_tests/test_rate_limiting.py
+tests/integration/chat_completions_tests/test_session_history.py
+tests/unit/__init__.py
+tests/unit/test_agent_utils.py
+tests/unit/test_auth.py
+tests/unit/test_cli.py
+tests/unit/test_command_parser.py
+tests/unit/test_config_persistence.py
+tests/unit/test_config.py
+tests/unit/test_failover_routes.py
+tests/unit/test_model_discovery.py
+tests/unit/test_models_endpoint.py
+tests/unit/test_no_prints.py
+tests/unit/test_prompt_redaction.py
+tests/unit/test_proxy_logic.py
+tests/unit/test_session_manager.py
+tests/unit/gemini_connector_tests/__init__.py
+tests/unit/gemini_connector_tests/test_http_error_streaming.py
+tests/unit/gemini_connector_tests/test_model_prefix_handling.py
+tests/unit/gemini_connector_tests/test_part_conversion.py
+tests/unit/gemini_connector_tests/test_streaming_success.py
+tests/unit/openrouter_connector_tests/test_http_error_non_streaming.py
+tests/unit/openrouter_connector_tests/test_http_error_streaming.py
+tests/unit/openrouter_connector_tests/test_non_streaming_success.py
+tests/unit/openrouter_connector_tests/test_payload_construction_and_headers.py
+tests/unit/openrouter_connector_tests/test_redaction.py
+tests/unit/openrouter_connector_tests/test_request_error.py
+tests/unit/openrouter_connector_tests/test_streaming_success.py
+tests/unit/proxy_logic_tests/test_parse_arguments.py
+tests/unit/proxy_logic_tests/test_process_commands_in_messages.py
+tests/unit/proxy_logic_tests/test_process_text_for_commands.py
+</environment_details>'
+2025-06-10 17:58:47,909 - src.command_parser - DEBUG - Found 0 command matches for text: '<environment_details>
+# VSCode Visible Files
+
+
+# VSCode Open Tabs
+
+
+# Current Time
+6/10/2025, 5:58:32 PM (Europe/Warsaw, UTC+2:00)
+
+# Current Context Size (Tokens)
+(Not available)
+
+# Current Cost
+$0.00
+
+# Current Mode
+<slug>code</slug>
+<name>­čĺ╗ Code</name>
+<model>gemini:models/gemini-2.5-flash-preview-05-20</model>
+<role>You are Roo, a highly skilled software engineer with extensive knowledge in many programming languages, frameworks, design patterns, and best practices.</role>
+<custom_instructions>
+====
+
+USER'S CUSTOM INSTRUCTIONS
+
+The following additional instructions are provided by the user, and should be followed to the best of your ability without interfering with the TOOL USE guidelines.
+
+Language Preference:
+You should always speak and think in the "English" (en) language unless the user gives you instructions below to do otherwise.</custom_instructions>
+
+
+# Current Workspace Directory (c:/Users/Mateusz/source/repos/llm-interactive-proxy) Files
+.gitignore
+AGENTS.md
+pyproject.toml
+pytest.ini
+README.md
+build/lib/agents.py
+build/lib/command_parser.py
+build/lib/command_prefix.py
+build/lib/constants.py
+build/lib/main.py
+build/lib/models.py
+build/lib/proxy_logic.py
+build/lib/rate_limit.py
+build/lib/security.py
+build/lib/session.py
+build/lib/commands/__init__.py
+build/lib/commands/base.py
+build/lib/commands/create_failover_route_cmd.py
+build/lib/commands/delete_failover_route_cmd.py
+build/lib/commands/failover_base.py
+build/lib/commands/hello_cmd.py
+build/lib/commands/help_cmd.py
+build/lib/commands/list_failover_routes_cmd.py
+build/lib/commands/route_append_cmd.py
+build/lib/commands/route_clear_cmd.py
+build/lib/commands/route_list_cmd.py
+build/lib/commands/route_prepend_cmd.py
+build/lib/commands/set_cmd.py
+build/lib/commands/unset_cmd.py
+build/lib/connectors/__init__.py
+build/lib/connectors/base.py
+build/lib/connectors/gemini.py
+build/lib/connectors/openrouter.py
+build/lib/core/cli.py
+build/lib/core/config.py
+build/lib/core/metadata.py
+build/lib/core/persistence.py
+dev/
+dev/example_config.json
+dev/test_client.py
+dev/test_config.json
+dev/debug/debug1.log
+dev/debug/debug2.log
+docs/
+src/
+src/agents.py
+src/command_parser.py
+src/command_prefix.py
+src/constants.py
+src/main.py
+src/models.py
+src/proxy_logic.py
+src/rate_limit.py
+src/security.py
+src/session.py
+src/commands/__init__.py
+src/commands/base.py
+src/commands/create_failover_route_cmd.py
+src/commands/delete_failover_route_cmd.py
+src/commands/failover_base.py
+src/commands/hello_cmd.py
+src/commands/help_cmd.py
+src/commands/list_failover_routes_cmd.py
+src/commands/route_append_cmd.py
+src/commands/route_clear_cmd.py
+src/commands/route_list_cmd.py
+src/commands/route_prepend_cmd.py
+src/commands/set_cmd.py
+src/commands/unset_cmd.py
+src/connectors/__init__.py
+src/connectors/base.py
+src/connectors/gemini.py
+src/connectors/openrouter.py
+src/core/cli.py
+src/core/config.py
+src/core/metadata.py
+src/core/persistence.py
+tests/
+tests/__init__.py
+tests/conftest.py
+tests/integration/__init__.py
+tests/integration/test_gemini_end_to_end.py
+tests/integration/chat_completions_tests/test_agent_wrapping.py
+tests/integration/chat_completions_tests/test_backend_commands.py
+tests/integration/chat_completions_tests/test_basic_proxying.py
+tests/integration/chat_completions_tests/test_command_only_requests.py
+tests/integration/chat_completions_tests/test_commands_disabled.py
+tests/integration/chat_completions_tests/test_error_handling.py
+tests/integration/chat_completions_tests/test_failover.py
+tests/integration/chat_completions_tests/test_help_command.py
+tests/integration/chat_completions_tests/test_interactive_banner.py
+tests/integration/chat_completions_tests/test_interactive_commands.py
+tests/integration/chat_completions_tests/test_model_commands.py
+tests/integration/chat_completions_tests/test_project_commands.py
+tests/integration/chat_completions_tests/test_rate_limiting.py
+tests/integration/chat_completions_tests/test_session_history.py
+tests/unit/__init__.py
+tests/unit/test_agent_utils.py
+tests/unit/test_auth.py
+tests/unit/test_cli.py
+tests/unit/test_command_parser.py
+tests/unit/test_config_persistence.py
+tests/unit/test_config.py
+tests/unit/test_failover_routes.py
+tests/unit/test_model_discovery.py
+tests/unit/test_models_endpoint.py
+tests/unit/test_no_prints.py
+tests/unit/test_prompt_redaction.py
+tests/unit/test_proxy_logic.py
+tests/unit/test_session_manager.py
+tests/unit/gemini_connector_tests/__init__.py
+tests/unit/gemini_connector_tests/test_http_error_streaming.py
+tests/unit/gemini_connector_tests/test_model_prefix_handling.py
+tests/unit/gemini_connector_tests/test_part_conversion.py
+tests/unit/gemini_connector_tests/test_streaming_success.py
+tests/unit/openrouter_connector_tests/test_http_error_non_streaming.py
+tests/unit/openrouter_connector_tests/test_http_error_streaming.py
+tests/unit/openrouter_connector_tests/test_non_streaming_success.py
+tests/unit/openrouter_connector_tests/test_payload_construction_and_headers.py
+tests/unit/openrouter_connector_tests/test_redaction.py
+tests/unit/openrouter_connector_tests/test_request_error.py
+tests/unit/openrouter_connector_tests/test_streaming_success.py
+tests/unit/proxy_logic_tests/test_parse_arguments.py
+tests/unit/proxy_logic_tests/test_process_commands_in_messages.py
+tests/unit/proxy_logic_tests/test_process_text_for_commands.py
+</environment_details>'
+2025-06-10 17:58:47,909 - src.command_parser - DEBUG - Text after command processing and normalization: ''
+2025-06-10 17:58:47,909 - src.command_parser - INFO - Commands processed in message index 1 (from end). Role: user. New content: '[MessageContentPartText(type='text', text='')]'
+2025-06-10 17:58:47,909 - src.command_parser - DEBUG - Finished processing messages. Final message count: 10. Commands processed overall: True
+INFO:     127.0.0.1:19897 - "POST /v1/chat/completions HTTP/1.1" 200 OK
+2025-06-10 17:58:49,051 - src.session - DEBUG - Retrieving session: default, ProxyState ID: 1978026330192
+2025-06-10 17:58:49,051 - src.command_parser - DEBUG - Processing text for commands: '[ERROR] You did not use a tool in your previous response! Please retry with a tool use.
+
+# Reminder: Instructions for Tool Use
+
+Tool uses are formatted using XML-style tags. The tool name itself becomes the XML tag name. Each parameter is enclosed within its own set of tags. Here's the structure:
+
+<actual_tool_name>
+<parameter1_name>value1</parameter1_name>
+<parameter2_name>value2</parameter2_name>
+...
+</actual_tool_name>
+
+For example, to use the attempt_completion tool:
+
+<attempt_completion>
+<result>
+I have completed the task...
+</result>
+</attempt_completion>
+
+Always use the actual tool name as the XML tag name for proper parsing and execution.
+
+# Next Steps
+
+If you have completed the user's task, use the attempt_completion tool. 
+If you require additional information from the user, use the ask_followup_question tool. 
+Otherwise, if you have not completed the task and do not need additional information, then proceed with the next step of the task. 
+(This is an automated message, so do not respond to it conversationally.)'
+2025-06-10 17:58:49,051 - src.command_parser - DEBUG - Found 0 command matches for text: '[ERROR] You did not use a tool in your previous response! Please retry with a tool use.
+
+# Reminder: Instructions for Tool Use
+
+Tool uses are formatted using XML-style tags. The tool name itself becomes the XML tag name. Each parameter is enclosed within its own set of tags. Here's the structure:
+
+<actual_tool_name>
+<parameter1_name>value1</parameter1_name>
+<parameter2_name>value2</parameter2_name>
+...
+</actual_tool_name>
+
+For example, to use the attempt_completion tool:
+
+<attempt_completion>
+<result>
+I have completed the task...
+</result>
+</attempt_completion>
+
+Always use the actual tool name as the XML tag name for proper parsing and execution.
+
+# Next Steps
+
+If you have completed the user's task, use the attempt_completion tool. 
+If you require additional information from the user, use the ask_followup_question tool. 
+Otherwise, if you have not completed the task and do not need additional information, then proceed with the next step of the task. 
+(This is an automated message, so do not respond to it conversationally.)'
+2025-06-10 17:58:49,052 - src.command_parser - DEBUG - Text after command processing and normalization: '[ERROR] You did not use a tool in your previous response! Please retry with a tool use. # Reminder: Instructions for Tool Use Tool uses are formatted using XML-style tags. The tool name itself becomes the XML tag name. Each parameter is enclosed within its own set of tags. Here's the structure:  value1 value2 ...  For example, to use the attempt_completion tool:   I have completed the task...   Always use the actual tool name as the XML tag name for proper parsing and execution. # Next Steps If you have completed the user's task, use the attempt_completion tool. If you require additional information from the user, use the ask_followup_question tool. Otherwise, if you have not completed the task and do not need additional information, then proceed with the next step of the task. (This is an automated message, so do not respond to it conversationally.)'
+2025-06-10 17:58:49,052 - src.command_parser - DEBUG - Processing text for commands: '<environment_details>
+# VSCode Visible Files
+
+
+# VSCode Open Tabs
+
+
+# Current Time
+6/10/2025, 5:58:47 PM (Europe/Warsaw, UTC+2:00)
+
+# Current Context Size (Tokens)
+(Not available)
+
+# Current Cost
+$0.00
+
+# Current Mode
+<slug>code</slug>
+<name>­čĺ╗ Code</name>
+<model>gemini:models/gemini-2.5-flash-preview-05-20</model>
+<role>You are Roo, a highly skilled software engineer with extensive knowledge in many programming languages, frameworks, design patterns, and best practices.</role>
+<custom_instructions>
+====
+
+USER'S CUSTOM INSTRUCTIONS
+
+The following additional instructions are provided by the user, and should be followed to the best of your ability without interfering with the TOOL USE guidelines.
+
+Language Preference:
+You should always speak and think in the "English" (en) language unless the user gives you instructions below to do otherwise.</custom_instructions>
+</environment_details>'
+2025-06-10 17:58:49,052 - src.command_parser - DEBUG - Found 0 command matches for text: '<environment_details>
+# VSCode Visible Files
+
+
+# VSCode Open Tabs
+
+
+# Current Time
+6/10/2025, 5:58:47 PM (Europe/Warsaw, UTC+2:00)
+
+# Current Context Size (Tokens)
+(Not available)
+
+# Current Cost
+$0.00
+
+# Current Mode
+<slug>code</slug>
+<name>­čĺ╗ Code</name>
+<model>gemini:models/gemini-2.5-flash-preview-05-20</model>
+<role>You are Roo, a highly skilled software engineer with extensive knowledge in many programming languages, frameworks, design patterns, and best practices.</role>
+<custom_instructions>
+====
+
+USER'S CUSTOM INSTRUCTIONS
+
+The following additional instructions are provided by the user, and should be followed to the best of your ability without interfering with the TOOL USE guidelines.
+
+Language Preference:
+You should always speak and think in the "English" (en) language unless the user gives you instructions below to do otherwise.</custom_instructions>
+</environment_details>'
+2025-06-10 17:58:49,052 - src.command_parser - DEBUG - Text after command processing and normalization: ''
+2025-06-10 17:58:49,052 - src.command_parser - DEBUG - Processing text for commands: 'Failure: I did not provide a response.'
+2025-06-10 17:58:49,052 - src.command_parser - DEBUG - Found 0 command matches for text: 'Failure: I did not provide a response.'
+2025-06-10 17:58:49,052 - src.command_parser - DEBUG - Text after command processing and normalization: 'Failure: I did not provide a response.'
+2025-06-10 17:58:49,052 - src.command_parser - DEBUG - Non-command-only message (not starting with prefix) processed. Found: False
+2025-06-10 17:58:49,052 - src.command_parser - DEBUG - Processing text for commands: '[ERROR] You did not use a tool in your previous response! Please retry with a tool use.
+
+# Reminder: Instructions for Tool Use
+
+Tool uses are formatted using XML-style tags. The tool name itself becomes the XML tag name. Each parameter is enclosed within its own set of tags. Here's the structure:
+
+<actual_tool_name>
+<parameter1_name>value1</parameter1_name>
+<parameter2_name>value2</parameter2_name>
+...
+</actual_tool_name>
+
+For example, to use the attempt_completion tool:
+
+<attempt_completion>
+<result>
+I have completed the task...
+</result>
+</attempt_completion>
+
+Always use the actual tool name as the XML tag name for proper parsing and execution.
+
+# Next Steps
+
+If you have completed the user's task, use the attempt_completion tool. 
+If you require additional information from the user, use the ask_followup_question tool. 
+Otherwise, if you have not completed the task and do not need additional information, then proceed with the next step of the task. 
+(This is an automated message, so do not respond to it conversationally.)'
+2025-06-10 17:58:49,052 - src.command_parser - DEBUG - Found 0 command matches for text: '[ERROR] You did not use a tool in your previous response! Please retry with a tool use.
+
+# Reminder: Instructions for Tool Use
+
+Tool uses are formatted using XML-style tags. The tool name itself becomes the XML tag name. Each parameter is enclosed within its own set of tags. Here's the structure:
+
+<actual_tool_name>
+<parameter1_name>value1</parameter1_name>
+<parameter2_name>value2</parameter2_name>
+...
+</actual_tool_name>
+
+For example, to use the attempt_completion tool:
+
+<attempt_completion>
+<result>
+I have completed the task...
+</result>
+</attempt_completion>
+
+Always use the actual tool name as the XML tag name for proper parsing and execution.
+
+# Next Steps
+
+If you have completed the user's task, use the attempt_completion tool. 
+If you require additional information from the user, use the ask_followup_question tool. 
+Otherwise, if you have not completed the task and do not need additional information, then proceed with the next step of the task. 
+(This is an automated message, so do not respond to it conversationally.)'
+2025-06-10 17:58:49,052 - src.command_parser - DEBUG - Text after command processing and normalization: '[ERROR] You did not use a tool in your previous response! Please retry with a tool use. # Reminder: Instructions for Tool Use Tool uses are formatted using XML-style tags. The tool name itself becomes the XML tag name. Each parameter is enclosed within its own set of tags. Here's the structure:  value1 value2 ...  For example, to use the attempt_completion tool:   I have completed the task...   Always use the actual tool name as the XML tag name for proper parsing and execution. # Next Steps If you have completed the user's task, use the attempt_completion tool. If you require additional information from the user, use the ask_followup_question tool. Otherwise, if you have not completed the task and do not need additional information, then proceed with the next step of the task. (This is an automated message, so do not respond to it conversationally.)'
+2025-06-10 17:58:49,052 - src.command_parser - DEBUG - Processing text for commands: '<environment_details>
+# VSCode Visible Files
+
+
+# VSCode Open Tabs
+
+
+# Current Time
+6/10/2025, 5:58:46 PM (Europe/Warsaw, UTC+2:00)
+
+# Current Context Size (Tokens)
+(Not available)
+
+# Current Cost
+$0.00
+
+# Current Mode
+<slug>code</slug>
+<name>­čĺ╗ Code</name>
+<model>gemini:models/gemini-2.5-flash-preview-05-20</model>
+<role>You are Roo, a highly skilled software engineer with extensive knowledge in many programming languages, frameworks, design patterns, and best practices.</role>
+<custom_instructions>
+====
+
+USER'S CUSTOM INSTRUCTIONS
+
+The following additional instructions are provided by the user, and should be followed to the best of your ability without interfering with the TOOL USE guidelines.
+
+Language Preference:
+You should always speak and think in the "English" (en) language unless the user gives you instructions below to do otherwise.</custom_instructions>
+</environment_details>'
+2025-06-10 17:58:49,052 - src.command_parser - DEBUG - Found 0 command matches for text: '<environment_details>
+# VSCode Visible Files
+
+
+# VSCode Open Tabs
+
+
+# Current Time
+6/10/2025, 5:58:46 PM (Europe/Warsaw, UTC+2:00)
+
+# Current Context Size (Tokens)
+(Not available)
+
+# Current Cost
+$0.00
+
+# Current Mode
+<slug>code</slug>
+<name>­čĺ╗ Code</name>
+<model>gemini:models/gemini-2.5-flash-preview-05-20</model>
+<role>You are Roo, a highly skilled software engineer with extensive knowledge in many programming languages, frameworks, design patterns, and best practices.</role>
+<custom_instructions>
+====
+
+USER'S CUSTOM INSTRUCTIONS
+
+The following additional instructions are provided by the user, and should be followed to the best of your ability without interfering with the TOOL USE guidelines.
+
+Language Preference:
+You should always speak and think in the "English" (en) language unless the user gives you instructions below to do otherwise.</custom_instructions>
+</environment_details>'
+2025-06-10 17:58:49,052 - src.command_parser - DEBUG - Text after command processing and normalization: ''
+2025-06-10 17:58:49,052 - src.command_parser - DEBUG - Processing text for commands: 'Failure: I did not provide a response.'
+2025-06-10 17:58:49,052 - src.command_parser - DEBUG - Found 0 command matches for text: 'Failure: I did not provide a response.'
+2025-06-10 17:58:49,052 - src.command_parser - DEBUG - Text after command processing and normalization: 'Failure: I did not provide a response.'
+2025-06-10 17:58:49,052 - src.command_parser - DEBUG - Non-command-only message (not starting with prefix) processed. Found: False
+2025-06-10 17:58:49,052 - src.command_parser - DEBUG - Processing text for commands: '[ERROR] You did not use a tool in your previous response! Please retry with a tool use.
+
+# Reminder: Instructions for Tool Use
+
+Tool uses are formatted using XML-style tags. The tool name itself becomes the XML tag name. Each parameter is enclosed within its own set of tags. Here's the structure:
+
+<actual_tool_name>
+<parameter1_name>value1</parameter1_name>
+<parameter2_name>value2</parameter2_name>
+...
+</actual_tool_name>
+
+For example, to use the attempt_completion tool:
+
+<attempt_completion>
+<result>
+I have completed the task...
+</result>
+</attempt_completion>
+
+Always use the actual tool name as the XML tag name for proper parsing and execution.
+
+# Next Steps
+
+If you have completed the user's task, use the attempt_completion tool. 
+If you require additional information from the user, use the ask_followup_question tool. 
+Otherwise, if you have not completed the task and do not need additional information, then proceed with the next step of the task. 
+(This is an automated message, so do not respond to it conversationally.)'
+2025-06-10 17:58:49,052 - src.command_parser - DEBUG - Found 0 command matches for text: '[ERROR] You did not use a tool in your previous response! Please retry with a tool use.
+
+# Reminder: Instructions for Tool Use
+
+Tool uses are formatted using XML-style tags. The tool name itself becomes the XML tag name. Each parameter is enclosed within its own set of tags. Here's the structure:
+
+<actual_tool_name>
+<parameter1_name>value1</parameter1_name>
+<parameter2_name>value2</parameter2_name>
+...
+</actual_tool_name>
+
+For example, to use the attempt_completion tool:
+
+<attempt_completion>
+<result>
+I have completed the task...
+</result>
+</attempt_completion>
+
+Always use the actual tool name as the XML tag name for proper parsing and execution.
+
+# Next Steps
+
+If you have completed the user's task, use the attempt_completion tool. 
+If you require additional information from the user, use the ask_followup_question tool. 
+Otherwise, if you have not completed the task and do not need additional information, then proceed with the next step of the task. 
+(This is an automated message, so do not respond to it conversationally.)'
+2025-06-10 17:58:49,052 - src.command_parser - DEBUG - Text after command processing and normalization: '[ERROR] You did not use a tool in your previous response! Please retry with a tool use. # Reminder: Instructions for Tool Use Tool uses are formatted using XML-style tags. The tool name itself becomes the XML tag name. Each parameter is enclosed within its own set of tags. Here's the structure:  value1 value2 ...  For example, to use the attempt_completion tool:   I have completed the task...   Always use the actual tool name as the XML tag name for proper parsing and execution. # Next Steps If you have completed the user's task, use the attempt_completion tool. If you require additional information from the user, use the ask_followup_question tool. Otherwise, if you have not completed the task and do not need additional information, then proceed with the next step of the task. (This is an automated message, so do not respond to it conversationally.)'
+2025-06-10 17:58:49,052 - src.command_parser - DEBUG - Processing text for commands: '<environment_details>
+# VSCode Visible Files
+
+
+# VSCode Open Tabs
+
+
+# Current Time
+6/10/2025, 5:58:46 PM (Europe/Warsaw, UTC+2:00)
+
+# Current Context Size (Tokens)
+(Not available)
+
+# Current Cost
+$0.00
+
+# Current Mode
+<slug>code</slug>
+<name>­čĺ╗ Code</name>
+<model>gemini:models/gemini-2.5-flash-preview-05-20</model>
+<role>You are Roo, a highly skilled software engineer with extensive knowledge in many programming languages, frameworks, design patterns, and best practices.</role>
+<custom_instructions>
+====
+
+USER'S CUSTOM INSTRUCTIONS
+
+The following additional instructions are provided by the user, and should be followed to the best of your ability without interfering with the TOOL USE guidelines.
+
+Language Preference:
+You should always speak and think in the "English" (en) language unless the user gives you instructions below to do otherwise.</custom_instructions>
+</environment_details>'
+2025-06-10 17:58:49,052 - src.command_parser - DEBUG - Found 0 command matches for text: '<environment_details>
+# VSCode Visible Files
+
+
+# VSCode Open Tabs
+
+
+# Current Time
+6/10/2025, 5:58:46 PM (Europe/Warsaw, UTC+2:00)
+
+# Current Context Size (Tokens)
+(Not available)
+
+# Current Cost
+$0.00
+
+# Current Mode
+<slug>code</slug>
+<name>­čĺ╗ Code</name>
+<model>gemini:models/gemini-2.5-flash-preview-05-20</model>
+<role>You are Roo, a highly skilled software engineer with extensive knowledge in many programming languages, frameworks, design patterns, and best practices.</role>
+<custom_instructions>
+====
+
+USER'S CUSTOM INSTRUCTIONS
+
+The following additional instructions are provided by the user, and should be followed to the best of your ability without interfering with the TOOL USE guidelines.
+
+Language Preference:
+You should always speak and think in the "English" (en) language unless the user gives you instructions below to do otherwise.</custom_instructions>
+</environment_details>'
+2025-06-10 17:58:49,052 - src.command_parser - DEBUG - Text after command processing and normalization: ''
+2025-06-10 17:58:49,052 - src.command_parser - DEBUG - Processing text for commands: 'Failure: I did not provide a response.'
+2025-06-10 17:58:49,053 - src.command_parser - DEBUG - Found 0 command matches for text: 'Failure: I did not provide a response.'
+2025-06-10 17:58:49,053 - src.command_parser - DEBUG - Text after command processing and normalization: 'Failure: I did not provide a response.'
+2025-06-10 17:58:49,053 - src.command_parser - DEBUG - Non-command-only message (not starting with prefix) processed. Found: False
+2025-06-10 17:58:49,053 - src.command_parser - DEBUG - Processing text for commands: '[ERROR] You did not use a tool in your previous response! Please retry with a tool use.
+
+# Reminder: Instructions for Tool Use
+
+Tool uses are formatted using XML-style tags. The tool name itself becomes the XML tag name. Each parameter is enclosed within its own set of tags. Here's the structure:
+
+<actual_tool_name>
+<parameter1_name>value1</parameter1_name>
+<parameter2_name>value2</parameter2_name>
+...
+</actual_tool_name>
+
+For example, to use the attempt_completion tool:
+
+<attempt_completion>
+<result>
+I have completed the task...
+</result>
+</attempt_completion>
+
+Always use the actual tool name as the XML tag name for proper parsing and execution.
+
+# Next Steps
+
+If you have completed the user's task, use the attempt_completion tool. 
+If you require additional information from the user, use the ask_followup_question tool. 
+Otherwise, if you have not completed the task and do not need additional information, then proceed with the next step of the task. 
+(This is an automated message, so do not respond to it conversationally.)'
+2025-06-10 17:58:49,053 - src.command_parser - DEBUG - Found 0 command matches for text: '[ERROR] You did not use a tool in your previous response! Please retry with a tool use.
+
+# Reminder: Instructions for Tool Use
+
+Tool uses are formatted using XML-style tags. The tool name itself becomes the XML tag name. Each parameter is enclosed within its own set of tags. Here's the structure:
+
+<actual_tool_name>
+<parameter1_name>value1</parameter1_name>
+<parameter2_name>value2</parameter2_name>
+...
+</actual_tool_name>
+
+For example, to use the attempt_completion tool:
+
+<attempt_completion>
+<result>
+I have completed the task...
+</result>
+</attempt_completion>
+
+Always use the actual tool name as the XML tag name for proper parsing and execution.
+
+# Next Steps
+
+If you have completed the user's task, use the attempt_completion tool. 
+If you require additional information from the user, use the ask_followup_question tool. 
+Otherwise, if you have not completed the task and do not need additional information, then proceed with the next step of the task. 
+(This is an automated message, so do not respond to it conversationally.)'
+2025-06-10 17:58:49,053 - src.command_parser - DEBUG - Text after command processing and normalization: '[ERROR] You did not use a tool in your previous response! Please retry with a tool use. # Reminder: Instructions for Tool Use Tool uses are formatted using XML-style tags. The tool name itself becomes the XML tag name. Each parameter is enclosed within its own set of tags. Here's the structure:  value1 value2 ...  For example, to use the attempt_completion tool:   I have completed the task...   Always use the actual tool name as the XML tag name for proper parsing and execution. # Next Steps If you have completed the user's task, use the attempt_completion tool. If you require additional information from the user, use the ask_followup_question tool. Otherwise, if you have not completed the task and do not need additional information, then proceed with the next step of the task. (This is an automated message, so do not respond to it conversationally.)'
+2025-06-10 17:58:49,053 - src.command_parser - DEBUG - Processing text for commands: '<environment_details>
+# VSCode Visible Files
+
+
+# VSCode Open Tabs
+
+
+# Current Time
+6/10/2025, 5:58:34 PM (Europe/Warsaw, UTC+2:00)
+
+# Current Context Size (Tokens)
+(Not available)
+
+# Current Cost
+$0.00
+
+# Current Mode
+<slug>code</slug>
+<name>­čĺ╗ Code</name>
+<model>gemini:models/gemini-2.5-flash-preview-05-20</model>
+<role>You are Roo, a highly skilled software engineer with extensive knowledge in many programming languages, frameworks, design patterns, and best practices.</role>
+<custom_instructions>
+====
+
+USER'S CUSTOM INSTRUCTIONS
+
+The following additional instructions are provided by the user, and should be followed to the best of your ability without interfering with the TOOL USE guidelines.
+
+Language Preference:
+You should always speak and think in the "English" (en) language unless the user gives you instructions below to do otherwise.</custom_instructions>
+</environment_details>'
+2025-06-10 17:58:49,053 - src.command_parser - DEBUG - Found 0 command matches for text: '<environment_details>
+# VSCode Visible Files
+
+
+# VSCode Open Tabs
+
+
+# Current Time
+6/10/2025, 5:58:34 PM (Europe/Warsaw, UTC+2:00)
+
+# Current Context Size (Tokens)
+(Not available)
+
+# Current Cost
+$0.00
+
+# Current Mode
+<slug>code</slug>
+<name>­čĺ╗ Code</name>
+<model>gemini:models/gemini-2.5-flash-preview-05-20</model>
+<role>You are Roo, a highly skilled software engineer with extensive knowledge in many programming languages, frameworks, design patterns, and best practices.</role>
+<custom_instructions>
+====
+
+USER'S CUSTOM INSTRUCTIONS
+
+The following additional instructions are provided by the user, and should be followed to the best of your ability without interfering with the TOOL USE guidelines.
+
+Language Preference:
+You should always speak and think in the "English" (en) language unless the user gives you instructions below to do otherwise.</custom_instructions>
+</environment_details>'
+2025-06-10 17:58:49,053 - src.command_parser - DEBUG - Text after command processing and normalization: ''
+2025-06-10 17:58:49,053 - src.command_parser - DEBUG - Processing text for commands: 'Failure: I did not provide a response.'
+2025-06-10 17:58:49,053 - src.command_parser - DEBUG - Found 0 command matches for text: 'Failure: I did not provide a response.'
+2025-06-10 17:58:49,053 - src.command_parser - DEBUG - Text after command processing and normalization: 'Failure: I did not provide a response.'
+2025-06-10 17:58:49,053 - src.command_parser - DEBUG - Non-command-only message (not starting with prefix) processed. Found: False
+2025-06-10 17:58:49,053 - src.command_parser - DEBUG - Processing text for commands: '[ERROR] You did not use a tool in your previous response! Please retry with a tool use.
+
+# Reminder: Instructions for Tool Use
+
+Tool uses are formatted using XML-style tags. The tool name itself becomes the XML tag name. Each parameter is enclosed within its own set of tags. Here's the structure:
+
+<actual_tool_name>
+<parameter1_name>value1</parameter1_name>
+<parameter2_name>value2</parameter2_name>
+...
+</actual_tool_name>
+
+For example, to use the attempt_completion tool:
+
+<attempt_completion>
+<result>
+I have completed the task...
+</result>
+</attempt_completion>
+
+Always use the actual tool name as the XML tag name for proper parsing and execution.
+
+# Next Steps
+
+If you have completed the user's task, use the attempt_completion tool. 
+If you require additional information from the user, use the ask_followup_question tool. 
+Otherwise, if you have not completed the task and do not need additional information, then proceed with the next step of the task. 
+(This is an automated message, so do not respond to it conversationally.)'
+2025-06-10 17:58:49,053 - src.command_parser - DEBUG - Found 0 command matches for text: '[ERROR] You did not use a tool in your previous response! Please retry with a tool use.
+
+# Reminder: Instructions for Tool Use
+
+Tool uses are formatted using XML-style tags. The tool name itself becomes the XML tag name. Each parameter is enclosed within its own set of tags. Here's the structure:
+
+<actual_tool_name>
+<parameter1_name>value1</parameter1_name>
+<parameter2_name>value2</parameter2_name>
+...
+</actual_tool_name>
+
+For example, to use the attempt_completion tool:
+
+<attempt_completion>
+<result>
+I have completed the task...
+</result>
+</attempt_completion>
+
+Always use the actual tool name as the XML tag name for proper parsing and execution.
+
+# Next Steps
+
+If you have completed the user's task, use the attempt_completion tool. 
+If you require additional information from the user, use the ask_followup_question tool. 
+Otherwise, if you have not completed the task and do not need additional information, then proceed with the next step of the task. 
+(This is an automated message, so do not respond to it conversationally.)'
+2025-06-10 17:58:49,053 - src.command_parser - DEBUG - Text after command processing and normalization: '[ERROR] You did not use a tool in your previous response! Please retry with a tool use. # Reminder: Instructions for Tool Use Tool uses are formatted using XML-style tags. The tool name itself becomes the XML tag name. Each parameter is enclosed within its own set of tags. Here's the structure:  value1 value2 ...  For example, to use the attempt_completion tool:   I have completed the task...   Always use the actual tool name as the XML tag name for proper parsing and execution. # Next Steps If you have completed the user's task, use the attempt_completion tool. If you require additional information from the user, use the ask_followup_question tool. Otherwise, if you have not completed the task and do not need additional information, then proceed with the next step of the task. (This is an automated message, so do not respond to it conversationally.)'
+2025-06-10 17:58:49,053 - src.command_parser - DEBUG - Processing text for commands: '<environment_details>
+# VSCode Visible Files
+
+
+# VSCode Open Tabs
+
+
+# Current Time
+6/10/2025, 5:58:33 PM (Europe/Warsaw, UTC+2:00)
+
+# Current Context Size (Tokens)
+(Not available)
+
+# Current Cost
+$0.00
+
+# Current Mode
+<slug>code</slug>
+<name>­čĺ╗ Code</name>
+<model>gemini:models/gemini-2.5-flash-preview-05-20</model>
+<role>You are Roo, a highly skilled software engineer with extensive knowledge in many programming languages, frameworks, design patterns, and best practices.</role>
+<custom_instructions>
+====
+
+USER'S CUSTOM INSTRUCTIONS
+
+The following additional instructions are provided by the user, and should be followed to the best of your ability without interfering with the TOOL USE guidelines.
+
+Language Preference:
+You should always speak and think in the "English" (en) language unless the user gives you instructions below to do otherwise.</custom_instructions>
+</environment_details>'
+2025-06-10 17:58:49,053 - src.command_parser - DEBUG - Found 0 command matches for text: '<environment_details>
+# VSCode Visible Files
+
+
+# VSCode Open Tabs
+
+
+# Current Time
+6/10/2025, 5:58:33 PM (Europe/Warsaw, UTC+2:00)
+
+# Current Context Size (Tokens)
+(Not available)
+
+# Current Cost
+$0.00
+
+# Current Mode
+<slug>code</slug>
+<name>­čĺ╗ Code</name>
+<model>gemini:models/gemini-2.5-flash-preview-05-20</model>
+<role>You are Roo, a highly skilled software engineer with extensive knowledge in many programming languages, frameworks, design patterns, and best practices.</role>
+<custom_instructions>
+====
+
+USER'S CUSTOM INSTRUCTIONS
+
+The following additional instructions are provided by the user, and should be followed to the best of your ability without interfering with the TOOL USE guidelines.
+
+Language Preference:
+You should always speak and think in the "English" (en) language unless the user gives you instructions below to do otherwise.</custom_instructions>
+</environment_details>'
+2025-06-10 17:58:49,053 - src.command_parser - DEBUG - Text after command processing and normalization: ''
+2025-06-10 17:58:49,053 - src.command_parser - DEBUG - Processing text for commands: 'Failure: I did not provide a response.'
+2025-06-10 17:58:49,053 - src.command_parser - DEBUG - Found 0 command matches for text: 'Failure: I did not provide a response.'
+2025-06-10 17:58:49,053 - src.command_parser - DEBUG - Text after command processing and normalization: 'Failure: I did not provide a response.'
+2025-06-10 17:58:49,053 - src.command_parser - DEBUG - Non-command-only message (not starting with prefix) processed. Found: False
+2025-06-10 17:58:49,053 - src.command_parser - DEBUG - Processing text for commands: '<task>
+!/hello
+</task>'
+2025-06-10 17:58:49,053 - src.command_parser - DEBUG - Found 1 command matches for text: '<task>
+!/hello
+</task>'
+2025-06-10 17:58:49,053 - src.command_parser - DEBUG - Regex match: Full='!/hello', Command='hello', ArgsStr=''
+2025-06-10 17:58:49,053 - src.command_parser - DEBUG - Parsing arguments from string: ''
+2025-06-10 17:58:49,053 - src.command_parser - DEBUG - Argument string is empty, returning empty dict.
+2025-06-10 17:58:49,053 - src.command_parser - DEBUG - Text after command processing and normalization: ' '
+2025-06-10 17:58:49,053 - src.command_parser - DEBUG - Processing text for commands: '<environment_details>
+# VSCode Visible Files
+
+
+# VSCode Open Tabs
+
+
+# Current Time
+6/10/2025, 5:58:32 PM (Europe/Warsaw, UTC+2:00)
+
+# Current Context Size (Tokens)
+(Not available)
+
+# Current Cost
+$0.00
+
+# Current Mode
+<slug>code</slug>
+<name>­čĺ╗ Code</name>
+<model>gemini:models/gemini-2.5-flash-preview-05-20</model>
+<role>You are Roo, a highly skilled software engineer with extensive knowledge in many programming languages, frameworks, design patterns, and best practices.</role>
+<custom_instructions>
+====
+
+USER'S CUSTOM INSTRUCTIONS
+
+The following additional instructions are provided by the user, and should be followed to the best of your ability without interfering with the TOOL USE guidelines.
+
+Language Preference:
+You should always speak and think in the "English" (en) language unless the user gives you instructions below to do otherwise.</custom_instructions>
+
+
+# Current Workspace Directory (c:/Users/Mateusz/source/repos/llm-interactive-proxy) Files
+.gitignore
+AGENTS.md
+pyproject.toml
+pytest.ini
+README.md
+build/lib/agents.py
+build/lib/command_parser.py
+build/lib/command_prefix.py
+build/lib/constants.py
+build/lib/main.py
+build/lib/models.py
+build/lib/proxy_logic.py
+build/lib/rate_limit.py
+build/lib/security.py
+build/lib/session.py
+build/lib/commands/__init__.py
+build/lib/commands/base.py
+build/lib/commands/create_failover_route_cmd.py
+build/lib/commands/delete_failover_route_cmd.py
+build/lib/commands/failover_base.py
+build/lib/commands/hello_cmd.py
+build/lib/commands/help_cmd.py
+build/lib/commands/list_failover_routes_cmd.py
+build/lib/commands/route_append_cmd.py
+build/lib/commands/route_clear_cmd.py
+build/lib/commands/route_list_cmd.py
+build/lib/commands/route_prepend_cmd.py
+build/lib/commands/set_cmd.py
+build/lib/commands/unset_cmd.py
+build/lib/connectors/__init__.py
+build/lib/connectors/base.py
+build/lib/connectors/gemini.py
+build/lib/connectors/openrouter.py
+build/lib/core/cli.py
+build/lib/core/config.py
+build/lib/core/metadata.py
+build/lib/core/persistence.py
+dev/
+dev/example_config.json
+dev/test_client.py
+dev/test_config.json
+dev/debug/debug1.log
+dev/debug/debug2.log
+docs/
+src/
+src/agents.py
+src/command_parser.py
+src/command_prefix.py
+src/constants.py
+src/main.py
+src/models.py
+src/proxy_logic.py
+src/rate_limit.py
+src/security.py
+src/session.py
+src/commands/__init__.py
+src/commands/base.py
+src/commands/create_failover_route_cmd.py
+src/commands/delete_failover_route_cmd.py
+src/commands/failover_base.py
+src/commands/hello_cmd.py
+src/commands/help_cmd.py
+src/commands/list_failover_routes_cmd.py
+src/commands/route_append_cmd.py
+src/commands/route_clear_cmd.py
+src/commands/route_list_cmd.py
+src/commands/route_prepend_cmd.py
+src/commands/set_cmd.py
+src/commands/unset_cmd.py
+src/connectors/__init__.py
+src/connectors/base.py
+src/connectors/gemini.py
+src/connectors/openrouter.py
+src/core/cli.py
+src/core/config.py
+src/core/metadata.py
+src/core/persistence.py
+tests/
+tests/__init__.py
+tests/conftest.py
+tests/integration/__init__.py
+tests/integration/test_gemini_end_to_end.py
+tests/integration/chat_completions_tests/test_agent_wrapping.py
+tests/integration/chat_completions_tests/test_backend_commands.py
+tests/integration/chat_completions_tests/test_basic_proxying.py
+tests/integration/chat_completions_tests/test_command_only_requests.py
+tests/integration/chat_completions_tests/test_commands_disabled.py
+tests/integration/chat_completions_tests/test_error_handling.py
+tests/integration/chat_completions_tests/test_failover.py
+tests/integration/chat_completions_tests/test_help_command.py
+tests/integration/chat_completions_tests/test_interactive_banner.py
+tests/integration/chat_completions_tests/test_interactive_commands.py
+tests/integration/chat_completions_tests/test_model_commands.py
+tests/integration/chat_completions_tests/test_project_commands.py
+tests/integration/chat_completions_tests/test_rate_limiting.py
+tests/integration/chat_completions_tests/test_session_history.py
+tests/unit/__init__.py
+tests/unit/test_agent_utils.py
+tests/unit/test_auth.py
+tests/unit/test_cli.py
+tests/unit/test_command_parser.py
+tests/unit/test_config_persistence.py
+tests/unit/test_config.py
+tests/unit/test_failover_routes.py
+tests/unit/test_model_discovery.py
+tests/unit/test_models_endpoint.py
+tests/unit/test_no_prints.py
+tests/unit/test_prompt_redaction.py
+tests/unit/test_proxy_logic.py
+tests/unit/test_session_manager.py
+tests/unit/gemini_connector_tests/__init__.py
+tests/unit/gemini_connector_tests/test_http_error_streaming.py
+tests/unit/gemini_connector_tests/test_model_prefix_handling.py
+tests/unit/gemini_connector_tests/test_part_conversion.py
+tests/unit/gemini_connector_tests/test_streaming_success.py
+tests/unit/openrouter_connector_tests/test_http_error_non_streaming.py
+tests/unit/openrouter_connector_tests/test_http_error_streaming.py
+tests/unit/openrouter_connector_tests/test_non_streaming_success.py
+tests/unit/openrouter_connector_tests/test_payload_construction_and_headers.py
+tests/unit/openrouter_connector_tests/test_redaction.py
+tests/unit/openrouter_connector_tests/test_request_error.py
+tests/unit/openrouter_connector_tests/test_streaming_success.py
+tests/unit/proxy_logic_tests/test_parse_arguments.py
+tests/unit/proxy_logic_tests/test_process_commands_in_messages.py
+tests/unit/proxy_logic_tests/test_process_text_for_commands.py
+</environment_details>'
+2025-06-10 17:58:49,054 - src.command_parser - DEBUG - Found 0 command matches for text: '<environment_details>
+# VSCode Visible Files
+
+
+# VSCode Open Tabs
+
+
+# Current Time
+6/10/2025, 5:58:32 PM (Europe/Warsaw, UTC+2:00)
+
+# Current Context Size (Tokens)
+(Not available)
+
+# Current Cost
+$0.00
+
+# Current Mode
+<slug>code</slug>
+<name>­čĺ╗ Code</name>
+<model>gemini:models/gemini-2.5-flash-preview-05-20</model>
+<role>You are Roo, a highly skilled software engineer with extensive knowledge in many programming languages, frameworks, design patterns, and best practices.</role>
+<custom_instructions>
+====
+
+USER'S CUSTOM INSTRUCTIONS
+
+The following additional instructions are provided by the user, and should be followed to the best of your ability without interfering with the TOOL USE guidelines.
+
+Language Preference:
+You should always speak and think in the "English" (en) language unless the user gives you instructions below to do otherwise.</custom_instructions>
+
+
+# Current Workspace Directory (c:/Users/Mateusz/source/repos/llm-interactive-proxy) Files
+.gitignore
+AGENTS.md
+pyproject.toml
+pytest.ini
+README.md
+build/lib/agents.py
+build/lib/command_parser.py
+build/lib/command_prefix.py
+build/lib/constants.py
+build/lib/main.py
+build/lib/models.py
+build/lib/proxy_logic.py
+build/lib/rate_limit.py
+build/lib/security.py
+build/lib/session.py
+build/lib/commands/__init__.py
+build/lib/commands/base.py
+build/lib/commands/create_failover_route_cmd.py
+build/lib/commands/delete_failover_route_cmd.py
+build/lib/commands/failover_base.py
+build/lib/commands/hello_cmd.py
+build/lib/commands/help_cmd.py
+build/lib/commands/list_failover_routes_cmd.py
+build/lib/commands/route_append_cmd.py
+build/lib/commands/route_clear_cmd.py
+build/lib/commands/route_list_cmd.py
+build/lib/commands/route_prepend_cmd.py
+build/lib/commands/set_cmd.py
+build/lib/commands/unset_cmd.py
+build/lib/connectors/__init__.py
+build/lib/connectors/base.py
+build/lib/connectors/gemini.py
+build/lib/connectors/openrouter.py
+build/lib/core/cli.py
+build/lib/core/config.py
+build/lib/core/metadata.py
+build/lib/core/persistence.py
+dev/
+dev/example_config.json
+dev/test_client.py
+dev/test_config.json
+dev/debug/debug1.log
+dev/debug/debug2.log
+docs/
+src/
+src/agents.py
+src/command_parser.py
+src/command_prefix.py
+src/constants.py
+src/main.py
+src/models.py
+src/proxy_logic.py
+src/rate_limit.py
+src/security.py
+src/session.py
+src/commands/__init__.py
+src/commands/base.py
+src/commands/create_failover_route_cmd.py
+src/commands/delete_failover_route_cmd.py
+src/commands/failover_base.py
+src/commands/hello_cmd.py
+src/commands/help_cmd.py
+src/commands/list_failover_routes_cmd.py
+src/commands/route_append_cmd.py
+src/commands/route_clear_cmd.py
+src/commands/route_list_cmd.py
+src/commands/route_prepend_cmd.py
+src/commands/set_cmd.py
+src/commands/unset_cmd.py
+src/connectors/__init__.py
+src/connectors/base.py
+src/connectors/gemini.py
+src/connectors/openrouter.py
+src/core/cli.py
+src/core/config.py
+src/core/metadata.py
+src/core/persistence.py
+tests/
+tests/__init__.py
+tests/conftest.py
+tests/integration/__init__.py
+tests/integration/test_gemini_end_to_end.py
+tests/integration/chat_completions_tests/test_agent_wrapping.py
+tests/integration/chat_completions_tests/test_backend_commands.py
+tests/integration/chat_completions_tests/test_basic_proxying.py
+tests/integration/chat_completions_tests/test_command_only_requests.py
+tests/integration/chat_completions_tests/test_commands_disabled.py
+tests/integration/chat_completions_tests/test_error_handling.py
+tests/integration/chat_completions_tests/test_failover.py
+tests/integration/chat_completions_tests/test_help_command.py
+tests/integration/chat_completions_tests/test_interactive_banner.py
+tests/integration/chat_completions_tests/test_interactive_commands.py
+tests/integration/chat_completions_tests/test_model_commands.py
+tests/integration/chat_completions_tests/test_project_commands.py
+tests/integration/chat_completions_tests/test_rate_limiting.py
+tests/integration/chat_completions_tests/test_session_history.py
+tests/unit/__init__.py
+tests/unit/test_agent_utils.py
+tests/unit/test_auth.py
+tests/unit/test_cli.py
+tests/unit/test_command_parser.py
+tests/unit/test_config_persistence.py
+tests/unit/test_config.py
+tests/unit/test_failover_routes.py
+tests/unit/test_model_discovery.py
+tests/unit/test_models_endpoint.py
+tests/unit/test_no_prints.py
+tests/unit/test_prompt_redaction.py
+tests/unit/test_proxy_logic.py
+tests/unit/test_session_manager.py
+tests/unit/gemini_connector_tests/__init__.py
+tests/unit/gemini_connector_tests/test_http_error_streaming.py
+tests/unit/gemini_connector_tests/test_model_prefix_handling.py
+tests/unit/gemini_connector_tests/test_part_conversion.py
+tests/unit/gemini_connector_tests/test_streaming_success.py
+tests/unit/openrouter_connector_tests/test_http_error_non_streaming.py
+tests/unit/openrouter_connector_tests/test_http_error_streaming.py
+tests/unit/openrouter_connector_tests/test_non_streaming_success.py
+tests/unit/openrouter_connector_tests/test_payload_construction_and_headers.py
+tests/unit/openrouter_connector_tests/test_redaction.py
+tests/unit/openrouter_connector_tests/test_request_error.py
+tests/unit/openrouter_connector_tests/test_streaming_success.py
+tests/unit/proxy_logic_tests/test_parse_arguments.py
+tests/unit/proxy_logic_tests/test_process_commands_in_messages.py
+tests/unit/proxy_logic_tests/test_process_text_for_commands.py
+</environment_details>'
+2025-06-10 17:58:49,054 - src.command_parser - DEBUG - Text after command processing and normalization: ''
+2025-06-10 17:58:49,054 - src.command_parser - INFO - Commands processed in message index 1 (from end). Role: user. New content: '[MessageContentPartText(type='text', text='')]'
+2025-06-10 17:58:49,054 - src.command_parser - DEBUG - Finished processing messages. Final message count: 12. Commands processed overall: True
+INFO:     127.0.0.1:19898 - "POST /v1/chat/completions HTTP/1.1" 200 OK
