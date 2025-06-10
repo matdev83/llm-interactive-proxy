@@ -144,3 +144,67 @@ def test_command_only_request_direct_response_explicit_mock(mock_openrouter_comp
     session = client.app.state.session_manager.get_session("default")
     assert session.proxy_state.override_model == model_to_set
     assert session.proxy_state.override_backend == "openrouter"
+
+
+@patch('src.connectors.GeminiBackend.chat_completions', new_callable=AsyncMock)
+@patch('src.connectors.OpenRouterBackend.chat_completions', new_callable=AsyncMock)
+def test_hello_command_with_agent_prefix(mock_openrouter_completions, mock_gemini_completions, client):
+    """Test !/hello command with an agent prefix."""
+    payload = {
+        "model": "some-model",
+        "messages": [{"role": "user", "content": "Agent Prefix Text\n!/hello"}],
+    }
+    response = client.post("/v1/chat/completions", json=payload)
+
+    assert response.status_code == 200
+    response_json = response.json()
+    assert response_json["id"] == "proxy_cmd_processed"
+    content = response_json["choices"][0]["message"]["content"]
+    assert "Hello, this is" in content
+    assert "Functional backends:" in content
+    assert "Type !/help" in content
+
+    mock_openrouter_completions.assert_not_called()
+    mock_gemini_completions.assert_not_called()
+
+@patch('src.connectors.GeminiBackend.chat_completions', new_callable=AsyncMock)
+@patch('src.connectors.OpenRouterBackend.chat_completions', new_callable=AsyncMock)
+def test_hello_command_followed_by_text(mock_openrouter_completions, mock_gemini_completions, client):
+    """Test !/hello command followed by other text."""
+    payload = {
+        "model": "some-model",
+        "messages": [{"role": "user", "content": "!/hello\nSome more text from user"}],
+    }
+    response = client.post("/v1/chat/completions", json=payload)
+
+    assert response.status_code == 200
+    response_json = response.json()
+    assert response_json["id"] == "proxy_cmd_processed"
+    content = response_json["choices"][0]["message"]["content"]
+    assert "Hello, this is" in content
+    assert "Functional backends:" in content
+    assert "Type !/help" in content
+
+    mock_openrouter_completions.assert_not_called()
+    mock_gemini_completions.assert_not_called()
+
+@patch('src.connectors.GeminiBackend.chat_completions', new_callable=AsyncMock)
+@patch('src.connectors.OpenRouterBackend.chat_completions', new_callable=AsyncMock)
+def test_hello_command_with_prefix_and_suffix(mock_openrouter_completions, mock_gemini_completions, client):
+    """Test !/hello command with both prefix and suffix text."""
+    payload = {
+        "model": "some-model",
+        "messages": [{"role": "user", "content": "Agent Prefix\n!/hello\nFollow-up text"}],
+    }
+    response = client.post("/v1/chat/completions", json=payload)
+
+    assert response.status_code == 200
+    response_json = response.json()
+    assert response_json["id"] == "proxy_cmd_processed"
+    content = response_json["choices"][0]["message"]["content"]
+    assert "Hello, this is" in content
+    assert "Functional backends:" in content
+    assert "Type !/help" in content
+
+    mock_openrouter_completions.assert_not_called()
+    mock_gemini_completions.assert_not_called()
