@@ -350,3 +350,35 @@ class TestProcessCommandsInMessages:
         assert processed
         assert processed_messages[0].content == ""
         assert self.mock_app.state.command_prefix == "!/"
+
+    def test_command_with_agent_environment_details(self):
+        current_proxy_state = ProxyState()
+        msg = models.ChatMessage(
+            role="user",
+            content=(
+                "<task>\n!/hello\n</task>\n"
+                "# detail"
+            ),
+        )
+        processed_messages, processed = process_commands_in_messages(
+            [msg], current_proxy_state, app=self.mock_app
+        )
+        assert processed
+        assert processed_messages == []
+
+    def test_set_command_with_multiple_parameters_and_prefix(self):
+        current_proxy_state = ProxyState()
+        msg = models.ChatMessage(
+            role="user",
+            content=(
+                "# prefix line\n"
+                "!/set(model=openrouter:foo, project=bar)"
+            ),
+        )
+        processed_messages, processed = process_commands_in_messages(
+            [msg], current_proxy_state, app=self.mock_app
+        )
+        assert processed
+        assert processed_messages == []
+        assert current_proxy_state.override_model == "foo"
+        assert current_proxy_state.project == "bar"
