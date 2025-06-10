@@ -57,7 +57,7 @@ class CommandParser:
         app: FastAPI,
         command_prefix: str = DEFAULT_COMMAND_PREFIX,
         preserve_unknown: bool = True,
-        functional_backends: Set[str] | None = None, # Line length check (80)
+        functional_backends: Set[str] | None = None,  # Line length check (80)
     ) -> None:
         self.proxy_state = proxy_state
         self.app = app
@@ -83,11 +83,8 @@ class CommandParser:
         commands_found = False
         modified_text = text_content
 
-        matches = list(self.command_pattern.finditer(text_content))
-        logger.debug( # E501: Wrapped log message
-            f"Found {len(matches)} command matches for text: '{text_content}'"
-        )
-        for match in reversed(matches):
+        match = self.command_pattern.search(text_content)
+        if match:
             commands_found = True
             command_full = match.group(0)
             if "bare" in match.groupdict() and match.group("bare"):
@@ -96,7 +93,7 @@ class CommandParser:
             else:
                 command_name = match.group("cmd").lower()
                 args_str = match.group("args")
-            logger.debug( # E501: Wrapped log message
+            logger.debug(  # E501: Wrapped log message
                 f"Regex match: Full='{command_full}', Command='{command_name}', "
                 f"ArgsStr='{args_str}'"
             )
@@ -115,23 +112,23 @@ class CommandParser:
                 logger.warning(f"Unknown command: {command_name}.")
                 # E501: Wrapped CommandResult arguments
                 unknown_cmd_result = CommandResult(
-                    command_name,
-                    False,
-                    f"unknown command: {command_name}"
+                    command_name, False, f"unknown command: {command_name}"
                 )
                 self.results.append(unknown_cmd_result)
                 if self.preserve_unknown:
                     replacement = command_full
 
             modified_text = (
-                modified_text[: match.start()]
+                text_content[: match.start()]
                 + replacement
-                + modified_text[match.end() :]
+                + text_content[match.end() :]
             )
+        else:
+            modified_text = text_content
 
         final_text = re.sub(r"\s+", " ", modified_text).strip()
         final_text = self._clean_remaining_text(final_text)
-        logger.debug( # E501: Wrapped log message
+        logger.debug(  # E501: Wrapped log message
             f"Text after command processing and normalization: '{final_text}'"
         )
         return final_text, commands_found
@@ -161,9 +158,16 @@ class CommandParser:
             if not already_processed_commands_in_a_message:
                 if isinstance(msg.content, str):
                     if msg.content.strip().startswith(self.command_prefix):
-                        command_match = self.command_pattern.match(msg.content.strip())
-                        if command_match and msg.content.strip() == command_match.group(0):
-                            processed_text, found = self.process_text(msg.content)
+                        command_match = self.command_pattern.match(
+                            msg.content.strip()
+                        )
+                        if (
+                            command_match
+                            and msg.content.strip() == command_match.group(0)
+                        ):
+                            processed_text, found = self.process_text(
+                                msg.content
+                            )
                             logger.debug(
                                 f"Command-only message processed. Found: {found}"
                             )
@@ -173,7 +177,9 @@ class CommandParser:
                                 content_modified = True
                                 already_processed_commands_in_a_message = True
                         else:
-                            processed_text, found = self.process_text(msg.content)
+                            processed_text, found = self.process_text(
+                                msg.content
+                            )
                             logger.debug(
                                 f"Non-command-only message processed. Found: {found}"
                             )
@@ -199,8 +205,8 @@ class CommandParser:
                     for part_idx, part in enumerate(msg.content):
                         if isinstance(part, models.MessageContentPartText):
                             if not already_processed_commands_in_a_message:
-                                processed_text, found_in_part = self.process_text(
-                                    part.text
+                                processed_text, found_in_part = (
+                                    self.process_text(part.text)
                                 )
                                 if found_in_part:
                                     part_level_found_in_current_message = True
@@ -228,7 +234,7 @@ class CommandParser:
                         already_processed_commands_in_a_message = True
 
             if content_modified:
-                logger.info( # E501: Wrapped
+                logger.info(  # E501: Wrapped
                     f"Commands processed in message index {i} (from end). "
                     f"Role: {msg.role}. New content: '{msg.content}'"
                 )
@@ -245,7 +251,9 @@ class CommandParser:
                 original_msg = messages[len(final_messages)]
                 if isinstance(
                     original_msg.content, str
-                ) and original_msg.content.strip().startswith(self.command_prefix):
+                ) and original_msg.content.strip().startswith(
+                    self.command_prefix
+                ):
                     final_messages.append(msg)
                     continue
                 logger.info(
@@ -261,7 +269,7 @@ class CommandParser:
                 "This might indicate a command-only request."
             )
 
-        logger.debug( # E501: Wrapped
+        logger.debug(  # E501: Wrapped
             f"Finished processing messages. Final message count: "
             f"{len(final_messages)}. Commands processed overall: {any_command_processed}"
         )
@@ -295,10 +303,14 @@ def process_commands_in_messages(
         return messages, False
 
     functional_backends: Optional[Set[str]] = None
-    if app and hasattr(app, "state") and hasattr(app.state, "functional_backends"):
+    if (
+        app
+        and hasattr(app, "state")
+        and hasattr(app.state, "functional_backends")
+    ):
         functional_backends = app.state.functional_backends
     else:
-        logger.warning( # E501: Wrapped
+        logger.warning(  # E501: Wrapped
             "FastAPI app instance or functional_backends not available in "
             "app.state. CommandParser will be initialized without specific "
             "functional_backends."
