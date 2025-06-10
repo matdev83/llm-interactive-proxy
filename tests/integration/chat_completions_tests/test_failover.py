@@ -1,5 +1,5 @@
 import pytest
-from fastapi import HTTPException
+# from fastapi import HTTPException # F401: Removed
 from pytest_httpx import HTTPXMock
 
 

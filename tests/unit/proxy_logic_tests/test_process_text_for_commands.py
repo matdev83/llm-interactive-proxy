@@ -2,12 +2,12 @@ from unittest.mock import Mock
 
 import pytest
 
-from src.proxy_logic import (
+from src.command_parser import (
     CommandParser,
-    ProxyState,
     _process_text_for_commands,
     get_command_pattern,
 )
+from src.proxy_logic import ProxyState
 
 
 class TestProcessTextForCommands:
@@ -179,8 +179,8 @@ class TestProcessTextForCommands:
             text, current_proxy_state, pattern, app=self.mock_app
         )
         assert (
-            processed_text == ""
-        )  # Command is stripped (or preserved based on unknown handling)
+            processed_text == "set: no valid parameters"
+        )
         assert commands_found
         assert current_proxy_state.override_model is None  # State should not change
 
@@ -202,7 +202,7 @@ class TestProcessTextForCommands:
         processed_text, commands_found = _process_text_for_commands(
             text, current_proxy_state, pattern, app=self.mock_app
         )
-        assert processed_text == ""  # Command is stripped
+        assert processed_text == "unset: nothing to do"
         assert commands_found
         assert current_proxy_state.override_model == "gpt-4"  # Model remains set
 

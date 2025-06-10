@@ -71,13 +71,13 @@ def test_set_backend_confirmation(interactive_client):
 @pytest.mark.httpx_mock()
 def test_set_backend_nonfunctional(interactive_client, httpx_mock: HTTPXMock):
     interactive_client.app.state.functional_backends = {"openrouter"}
-    # Mock the OpenRouter response
-    httpx_mock.add_response(
-        url="https://openrouter.ai/api/v1/chat/completions",
-        method="POST",
-        json={"choices": [{"message": {"content": "ok"}}]},
-        status_code=200,
-    )
+    # No backend call is expected if the command fails due to non-functional backend.
+    # httpx_mock.add_response(
+    #     url="https://openrouter.ai/api/v1/chat/completions",
+    #     method="POST",
+    #     json={"choices": [{"message": {"content": "ok"}}]},
+    #     status_code=200,
+    # )
     payload = {
         "model": "m",
         "messages": [{"role": "user", "content": "hi !/set(backend=gemini)"}],

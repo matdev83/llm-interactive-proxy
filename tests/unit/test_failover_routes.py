@@ -2,7 +2,8 @@ from unittest.mock import Mock
 
 import pytest
 
-from src.proxy_logic import CommandParser, ProxyState
+from src.command_parser import CommandParser
+from src.proxy_logic import ProxyState
 
 
 class TestFailoverRoutes:

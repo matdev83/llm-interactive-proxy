@@ -1,12 +1,12 @@
 import logging  # Added logging
 import os
-from unittest.mock import AsyncMock, MagicMock, patch  # Added patch
+from unittest.mock import AsyncMock, patch # Removed MagicMock
 
-import httpx  # Added httpx
+# import httpx  # F401: Removed
 import pytest
-from fastapi import FastAPI
+# from fastapi import FastAPI # F401: Removed
 from fastapi.testclient import TestClient
-from starlette.testclient import TestClient  # Import TestClient
+# from starlette.testclient import TestClient  # F811: Removed duplicate/unused
 
 import src.main as app_main
 from src.connectors import GeminiBackend, OpenRouterBackend
@@ -15,61 +15,14 @@ from src.main import build_app  # Import build_app
 # Preserve original Gemini API key for integration tests
 ORIG_GEMINI_KEY = os.environ.get("GEMINI_API_KEY_1")
 
-# Removed os.environ.pop calls as they interfere with test setup.
-# Environment variables will be managed by monkeypatch fixtures.
-
-
-# Removed the autouse fixture as it will be applied within configured_app and configured_interactive_app
-# @pytest.fixture(autouse=True)
-# def mock_functional_backends_always_available(monkeypatch):
-#     """
-#     Ensures that get_available_models always returns a non-empty list for tests,
-#     making backends appear functional during app initialization.
-#     """
-#     monkeypatch.setattr(
-#         OpenRouterBackend,
-#         "get_available_models",
-#         lambda self: ["mock-openrouter-model-1", "mock-openrouter-model-2"],
-#     )
-#     monkeypatch.setattr(
-#         GeminiBackend,
-#         "get_available_models",
-#         lambda self: ["mock-gemini-model-1", "mock-gemini-model-2"],
-#     )
-#     # Also ensure list_models returns something for initialize to work
-#     monkeypatch.setattr(
-#         OpenRouterBackend,
-#         "list_models",
-#         AsyncMock(return_value={"data": [{"id": "mock-openrouter-model-1"}]}),
-#     )
-#     monkeypatch.setattr(
-#         GeminiBackend,
-#         "list_models",
-#         AsyncMock(return_value={"models": [{"name": "mock-gemini-model-1"}]}),
-#     )
-#     yield
-
-
-# @pytest.fixture(autouse=True) # Apply to all tests
-# def mock_httpx_client(monkeypatch):
-#     """Mocks httpx.AsyncClient to prevent actual network calls during tests."""
-#     mock_post = AsyncMock(return_value=httpx.Response(200, json={"mock_response": "ok"}))
-#     mock_get = AsyncMock(return_value=httpx.Response(200, json={"data": [{"id": "mock-model-a"}], "models": [{"name": "mock-model-b"}]}))
-
-#     monkeypatch.setattr(httpx.AsyncClient, "post", mock_post)
-#     monkeypatch.setattr(httpx.AsyncClient, "get", mock_get)
-#     yield
-
-
 @pytest.fixture(
     scope="session"
-)  # Use session scope for app to avoid rebuilding for every test
-def configured_app():  # Removed monkeypatch as an argument
+)
+def configured_app():
     """Fixture to provide a FastAPI app with configured backends for testing."""
-    # Ensure no numbered API keys are present before setting base keys
-    if "OPENROUTER_API_KEY" in os.environ:  # Delete unnumbered key
+    if "OPENROUTER_API_KEY" in os.environ:
         del os.environ["OPENROUTER_API_KEY"]
-    if "GEMINI_API_KEY" in os.environ:  # Delete unnumbered key
+    if "GEMINI_API_KEY" in os.environ:
         del os.environ["GEMINI_API_KEY"]
     for i in range(1, 21):
         if f"OPENROUTER_API_KEY_{i}" in os.environ:
@@ -77,25 +30,22 @@ def configured_app():  # Removed monkeypatch as an argument
         if f"GEMINI_API_KEY_{i}" in os.environ:
             del os.environ[f"GEMINI_API_KEY_{i}"]
 
-    # Manually set environment variables for the session-scoped app build
     os.environ["OPENROUTER_API_KEY_1"] = "dummy-openrouter-key-1"
-    os.environ["OPENROUTER_API_KEY_2"] = "dummy-openrouter-key-2"  # Add a second key
+    os.environ["OPENROUTER_API_KEY_2"] = "dummy-openrouter-key-2"
     os.environ["GEMINI_API_KEY"] = "dummy-gemini-key"
     os.environ["LLM_INTERACTIVE_PROXY_API_KEY"] = "test-proxy-key"
-    os.environ["LLM_BACKEND"] = "openrouter"  # Explicitly set a default backend
-    # This will call _load_config internally, which will pick up the env vars
+    os.environ["LLM_BACKEND"] = "openrouter"
     app = build_app()
     yield app
-    # Clean up environment variables after the session
     if "OPENROUTER_API_KEY_1" in os.environ:
         del os.environ["OPENROUTER_API_KEY_1"]
-    if "OPENROUTER_API_KEY_2" in os.environ:  # Clean up the second key
+    if "OPENROUTER_API_KEY_2" in os.environ:
         del os.environ["OPENROUTER_API_KEY_2"]
     if "GEMINI_API_KEY" in os.environ:
         del os.environ["GEMINI_API_KEY"]
     if "LLM_INTERACTIVE_PROXY_API_KEY" in os.environ:
         del os.environ["LLM_INTERACTIVE_PROXY_API_KEY"]
-    if "LLM_BACKEND" in os.environ:  # Clean up LLM_BACKEND
+    if "LLM_BACKEND" in os.environ:
         del os.environ["LLM_BACKEND"]
 
 
@@ -104,16 +54,23 @@ def client(configured_app):
     """TestClient for the configured FastAPI app."""
     with TestClient(configured_app) as c:
         c.headers.update({"Authorization": "Bearer test-proxy-key"})
+        # Ensure backend instances have their available_models populated by mocked list_models
+        # This step is crucial if initialize() is not automatically called or if tests need to ensure it.
+        # However, build_app() calls initialize, which uses mocked list_models.
+        # This explicit setting here acts as a default for tests if they don't further customize.
+        if hasattr(c.app.state, "openrouter_backend") and not c.app.state.openrouter_backend.available_models:
+            c.app.state.openrouter_backend.available_models = ["m1", "m2"]
+        if hasattr(c.app.state, "gemini_backend") and not c.app.state.gemini_backend.available_models:
+            c.app.state.gemini_backend.available_models = ["g1"]
         yield c
 
 
 @pytest.fixture(scope="session")
-def configured_interactive_app():  # Removed monkeypatch as an argument
+def configured_interactive_app():
     """Fixture to provide a FastAPI app configured for interactive mode."""
-    # Ensure no numbered API keys are present before setting base keys
-    if "OPENROUTER_API_KEY" in os.environ:  # Delete unnumbered key
+    if "OPENROUTER_API_KEY" in os.environ:
         del os.environ["OPENROUTER_API_KEY"]
-    if "GEMINI_API_KEY" in os.environ:  # Delete unnumbered key
+    if "GEMINI_API_KEY" in os.environ:
         del os.environ["GEMINI_API_KEY"]
     for i in range(1, 21):
         if f"OPENROUTER_API_KEY_{i}" in os.environ:
@@ -121,25 +78,23 @@ def configured_interactive_app():  # Removed monkeypatch as an argument
         if f"GEMINI_API_KEY_{i}" in os.environ:
             del os.environ[f"GEMINI_API_KEY_{i}"]
 
-    # Manually set environment variables for the session-scoped app build
-    os.environ["OPENROUTER_API_KEY_1"] = "dummy-openrouter-key-1"  # Use numbered key
-    os.environ["OPENROUTER_API_KEY_2"] = "dummy-openrouter-key-2"  # Add a second key
+    os.environ["OPENROUTER_API_KEY_1"] = "dummy-openrouter-key-1"
+    os.environ["OPENROUTER_API_KEY_2"] = "dummy-openrouter-key-2"
     os.environ["GEMINI_API_KEY"] = "dummy-gemini-key"
-    os.environ["DISABLE_INTERACTIVE_MODE"] = "false"  # Keep interactive mode enabled
+    os.environ["DISABLE_INTERACTIVE_MODE"] = "false"
     os.environ["LLM_INTERACTIVE_PROXY_API_KEY"] = "test-proxy-key"
-    os.environ["LLM_BACKEND"] = "openrouter"  # Explicitly set a default backend
+    os.environ["LLM_BACKEND"] = "openrouter"
     app = build_app()
     yield app
-    # Clean up environment variables after the session
     if "OPENROUTER_API_KEY_1" in os.environ:
         del os.environ["OPENROUTER_API_KEY_1"]
-    if "OPENROUTER_API_KEY_2" in os.environ:  # Clean up the second key
+    if "OPENROUTER_API_KEY_2" in os.environ:
         del os.environ["OPENROUTER_API_KEY_2"]
     if "GEMINI_API_KEY" in os.environ:
         del os.environ["GEMINI_API_KEY"]
     if "DISABLE_INTERACTIVE_MODE" in os.environ:
         del os.environ["DISABLE_INTERACTIVE_MODE"]
-    if "LLM_BACKEND" in os.environ:  # Clean up LLM_BACKEND
+    if "LLM_BACKEND" in os.environ:
         del os.environ["LLM_BACKEND"]
     if "LLM_INTERACTIVE_PROXY_API_KEY" in os.environ:
         del os.environ["LLM_INTERACTIVE_PROXY_API_KEY"]
@@ -150,31 +105,28 @@ def interactive_client(configured_interactive_app):
     """TestClient for the configured FastAPI app in interactive mode."""
     with TestClient(configured_interactive_app) as c:
         c.headers.update({"Authorization": "Bearer test-proxy-key"})
+        # Similar to client fixture, ensure defaults if not populated by initialize
+        if hasattr(c.app.state, "openrouter_backend") and not c.app.state.openrouter_backend.available_models:
+            c.app.state.openrouter_backend.available_models = ["m1", "m2"]
+        if hasattr(c.app.state, "gemini_backend") and not c.app.state.gemini_backend.available_models:
+            c.app.state.gemini_backend.available_models = ["g1"]
         yield c
 
 
 def pytest_sessionstart(session):
-    """
-    Called after the Session object has been created and before performing collection and test runs.
-    Used to apply patches that need to be in place for session-scoped fixtures.
-    """
     from unittest.mock import AsyncMock, patch
-
-    # Import the classes from where they are used in main.py
     from src.main import GeminiBackend, OpenRouterBackend
 
-    # Apply patches for get_available_models and list_models
-    # These patches will be applied to the classes themselves, affecting all instances
-    patch.object(
-        OpenRouterBackend,
-        "get_available_models",
-        lambda self: ["mock-openrouter-model-1", "mock-openrouter-model-2"],
-    ).start()
-    patch.object(
-        GeminiBackend,
-        "get_available_models",
-        lambda self: ["mock-gemini-model-1", "mock-gemini-model-2"],
-    ).start()
+    # patch.object(
+    #     OpenRouterBackend,
+    #     "get_available_models",
+    #     lambda self: ["mock-openrouter-model-1", "mock-openrouter-model-2"],
+    # ).start() # MODIFIED: Commented out
+    # patch.object(
+    #     GeminiBackend,
+    #     "get_available_models",
+    #     lambda self: ["mock-gemini-model-1", "mock-gemini-model-2"],
+    # ).start() # MODIFIED: Commented out
     patch.object(
         OpenRouterBackend,
         "list_models",
@@ -189,22 +141,19 @@ def pytest_sessionstart(session):
 
 @pytest.fixture(autouse=True)
 def ensure_functional_backends():
-    """Ensure functional_backends is set for all tests"""
     if not hasattr(app_main, "functional_backends"):
         app_main.functional_backends = {"openrouter", "gemini"}
     yield
 
 
 @pytest.fixture(autouse=True)
-def apply_functional_backends(client):
-    """Apply functional_backends to the test client's app"""
+def apply_functional_backends(client): # client fixture will run first
     client.app.state.functional_backends = {"openrouter", "gemini"}
     yield
 
 
 @pytest.fixture(autouse=True)
 def mock_model_discovery():
-    """Mock model discovery for all tests"""
     with (
         patch.object(
             OpenRouterBackend,
@@ -216,33 +165,20 @@ def mock_model_discovery():
             "list_models",
             new=AsyncMock(return_value={"models": [{"name": "g1"}]}),
         ),
-        patch.object(
-            OpenRouterBackend, "get_available_models", return_value=["m1", "m2"]
-        ),
-        patch.object(GeminiBackend, "get_available_models", return_value=["g1"]),
+        # patch.object(
+        #     OpenRouterBackend, "get_available_models", return_value=["m1", "m2"]
+        # ), # MODIFIED: Commented out
+        # patch.object(GeminiBackend, "get_available_models", return_value=["g1"]), # MODIFIED: Commented out
     ):
         yield
 
 
 def pytest_sessionfinish(session):
-    """
-    Called after whole test run finished, right before returning the exit status.
-    Used to stop patches started in pytest_sessionstart.
-    """
-    patch.stopall()  # Call stopall() here
-
-
-@pytest.fixture
-def interactive_client(configured_interactive_app):
-    """TestClient for the configured FastAPI app in interactive mode."""
-    with TestClient(configured_interactive_app) as c:
-        c.headers.update({"Authorization": "Bearer test-proxy-key"})
-        yield c
+    patch.stopall()
 
 
 @pytest.fixture
 def configured_commands_disabled_app():
-    """App with interactive commands disabled."""
     if "OPENROUTER_API_KEY" in os.environ:
         del os.environ["OPENROUTER_API_KEY"]
     if "GEMINI_API_KEY" in os.environ:
@@ -277,9 +213,6 @@ def commands_disabled_client(configured_commands_disabled_app):
         yield c
 
 
-# The clean_env fixture is no longer needed for global API keys as they are managed
-# within configured_app and configured_interactive_app.
-# It remains for LLM_BACKEND and numbered keys if individual tests set them.
 @pytest.fixture(autouse=True)
 def clean_env(monkeypatch):
     if "LLM_INTERACTIVE_PROXY_API_KEY" not in os.environ:
@@ -295,10 +228,10 @@ def clean_env(monkeypatch):
 
 @pytest.fixture(autouse=True)
 def setup_logging():
-    # Ensure logging is configured at DEBUG level for all tests
     logging.basicConfig(
         level=logging.DEBUG,
         format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
     )
-    # Set root logger level to DEBUG as well
     logging.getLogger().setLevel(logging.DEBUG)
+
+# Note: Removed duplicate interactive_client fixture definition

@@ -1,6 +1,6 @@
 from unittest.mock import AsyncMock, patch
 
-import pytest
+# import pytest # F401: Removed
 
 
 def test_cline_command_wrapping(client):

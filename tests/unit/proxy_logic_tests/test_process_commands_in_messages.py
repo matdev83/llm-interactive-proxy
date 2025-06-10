@@ -3,7 +3,8 @@ from unittest.mock import Mock
 import pytest
 
 import src.models as models
-from src.proxy_logic import ProxyState, process_commands_in_messages
+from src.command_parser import process_commands_in_messages
+from src.proxy_logic import ProxyState
 
 
 class TestProcessCommandsInMessages:

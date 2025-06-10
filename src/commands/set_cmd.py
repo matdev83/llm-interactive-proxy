@@ -93,6 +93,7 @@ class SetCommand(BaseCommand):
                 )
             backend_part, model_name = model_val.split(":", 1)
             backend_part = backend_part.lower()
+
             backend_obj = None
             if self.app is not None:
                 try:
@@ -101,7 +102,9 @@ class SetCommand(BaseCommand):
                     )
                 except Exception:
                     backend_obj = None
+
             available = backend_obj.get_available_models() if backend_obj else []
+
             if model_name in available:
                 state.set_override_model(backend_part, model_name)
                 handled = True
@@ -115,6 +118,7 @@ class SetCommand(BaseCommand):
             else:
                 state.set_override_model(backend_part, model_name, invalid=True)
                 handled = True
+
         if isinstance(args.get("project"), str) or isinstance(
             args.get("project-name"), str
         ):
