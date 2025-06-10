@@ -4,5 +4,4 @@ __pycache__
 *.egg-info
 .cline*
 dev/errors.txt
-logs/
-.aider.*
+logs/*
