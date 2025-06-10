@@ -3,9 +3,9 @@ import logging
 from pathlib import Path
 from typing import Any, Dict
 
-from src.command_prefix import validate_command_prefix
-
 from fastapi import FastAPI
+
+from src.command_prefix import validate_command_prefix
 
 logger = logging.getLogger(__name__)
 
@@ -37,7 +37,8 @@ class ConfigManager:
                     else self.app.state.openrouter_backend
                 )
             else:
-                warnings.append(f"default backend {backend} not functional")
+                # warnings.append(f"default backend {backend} not functional") # Keep or remove warning? For now, raise error.
+                raise ValueError(f"default backend {backend} is not functional")
 
         if isinstance(data.get("interactive_mode"), bool):
             self.app.state.session_manager.default_interactive_mode = data[

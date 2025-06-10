@@ -7,6 +7,7 @@ import sys
 import time
 
 import pytest
+from tests.conftest import ORIG_GEMINI_KEY as ORIG_KEY # E402: Moved here
 
 
 @pytest.fixture(autouse=True)
@@ -14,15 +15,15 @@ def patch_backend_discovery():
     # Override the autouse fixture from tests.conftest - we want real network calls
     yield
 
-
-from tests.conftest import ORIG_GEMINI_KEY as ORIG_KEY
+# Ensure the commented out version is not present if it was part of an error
+# from tests.conftest import ORIG_GEMINI_KEY as ORIG_KEY
 
 
 @pytest.fixture(autouse=True)
 def clean_env(monkeypatch):
     # Ensure only Gemini is functional for these end-to-end tests
     monkeypatch.setenv("LLM_BACKEND", "gemini")
-    if ORIG_KEY:
+    if ORIG_KEY: # ORIG_KEY is now defined due to the import above
         monkeypatch.setenv("GEMINI_API_KEY_1", ORIG_KEY)
     monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
     yield

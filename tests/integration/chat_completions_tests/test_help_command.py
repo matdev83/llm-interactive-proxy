@@ -4,7 +4,11 @@ from src.commands import command_registry
 
 
 def test_help_list_commands(interactive_client):
-    with patch.object(interactive_client.app.state.openrouter_backend, 'chat_completions', new_callable=AsyncMock) as mock_method:
+    with patch.object(
+        interactive_client.app.state.openrouter_backend,
+        "chat_completions",
+        new_callable=AsyncMock,
+    ) as mock_method:
         payload = {"model": "m", "messages": [{"role": "user", "content": "!/help"}]}
         resp = interactive_client.post("/v1/chat/completions", json=payload)
         mock_method.assert_not_called()
@@ -16,8 +20,15 @@ def test_help_list_commands(interactive_client):
 
 
 def test_help_specific_command(interactive_client):
-    with patch.object(interactive_client.app.state.openrouter_backend, 'chat_completions', new_callable=AsyncMock) as mock_method:
-        payload = {"model": "m", "messages": [{"role": "user", "content": "!/help(set)"}]}
+    with patch.object(
+        interactive_client.app.state.openrouter_backend,
+        "chat_completions",
+        new_callable=AsyncMock,
+    ) as mock_method:
+        payload = {
+            "model": "m",
+            "messages": [{"role": "user", "content": "!/help(set)"}],
+        }
         resp = interactive_client.post("/v1/chat/completions", json=payload)
         mock_method.assert_not_called()
     assert resp.status_code == 200

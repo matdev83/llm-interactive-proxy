@@ -1,18 +1,21 @@
-import pytest
-import httpx
 import json
-from typing import List, Dict, Any, Callable, Union
+from typing import Dict, List # Removed Any, Callable, Union
 
-from starlette.responses import StreamingResponse
-from fastapi import HTTPException
-from pytest_httpx import HTTPXMock
+import httpx
+import pytest
 import pytest_asyncio
+# from fastapi import HTTPException # F401: Removed
+from pytest_httpx import HTTPXMock
+# from starlette.responses import StreamingResponse # F401: Removed
 
 import src.models as models
 from src.connectors.openrouter import OpenRouterBackend
 
 # Default OpenRouter settings for tests
-TEST_OPENROUTER_API_BASE_URL = "https://openrouter.ai/api/v1" # Real one for realistic requests
+TEST_OPENROUTER_API_BASE_URL = (
+    "https://openrouter.ai/api/v1"  # Real one for realistic requests
+)
+
 
 def mock_get_openrouter_headers(key_name: str, api_key: str) -> Dict[str, str]:
     return {
@@ -22,10 +25,12 @@ def mock_get_openrouter_headers(key_name: str, api_key: str) -> Dict[str, str]:
         "X-Title": "TestProxy",
     }
 
+
 @pytest_asyncio.fixture(name="openrouter_backend")
 async def openrouter_backend_fixture():
     async with httpx.AsyncClient() as client:
         yield OpenRouterBackend(client=client)
+
 
 @pytest.fixture
 def sample_chat_request_data() -> models.ChatCompletionRequest:
@@ -35,8 +40,9 @@ def sample_chat_request_data() -> models.ChatCompletionRequest:
         messages=[models.ChatMessage(role="user", content="Hello")],
     )
 
+
 @pytest.fixture
-def sample_processed_messages() -> List[models.ChatMessage]:
+def sample_processed_messages() -> List[models.ChatMessage]: # This is unused in this specific file though
     return [models.ChatMessage(role="user", content="Hello")]
 
 
@@ -54,14 +60,22 @@ async def test_payload_construction_and_headers(
     processed_msgs = [
         models.ChatMessage(role="user", content="Hello"),
         models.ChatMessage(role="assistant", content="Hi there!"),
-        models.ChatMessage(role="user", content=[
-            models.MessageContentPartText(type="text", text="What is this?"),
-            models.MessageContentPartImage(type="image_url", image_url=models.ImageURL(url="data:...", detail=None))
-        ])
+        models.ChatMessage(
+            role="user",
+            content=[
+                models.MessageContentPartText(type="text", text="What is this?"),
+                models.MessageContentPartImage(
+                    type="image_url",
+                    image_url=models.ImageURL(url="data:...", detail=None),
+                ),
+            ],
+        ),
     ]
     effective_model = "some/model-name"
 
-    httpx_mock.add_response(status_code=200, json={"choices": [{"message": {"content": "ok"}}]})
+    httpx_mock.add_response(
+        status_code=200, json={"choices": [{"message": {"content": "ok"}}]}
+    )
 
     await openrouter_backend.chat_completions(
         request_data=sample_chat_request_data,
@@ -70,7 +84,7 @@ async def test_payload_construction_and_headers(
         openrouter_api_base_url=TEST_OPENROUTER_API_BASE_URL,
         openrouter_headers_provider=mock_get_openrouter_headers,
         key_name="OPENROUTER_API_KEY_1",
-        api_key="FAKE_KEY"
+        api_key="FAKE_KEY",
     )
 
     request = httpx_mock.get_request()

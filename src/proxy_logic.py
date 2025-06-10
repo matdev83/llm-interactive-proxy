@@ -1,5 +1,5 @@
 import logging
-from typing import Optional, List, Dict # Add Dict import
+from typing import Dict, List, Optional  # Add Dict import
 
 logger = logging.getLogger(__name__)
 
@@ -35,7 +35,9 @@ class ProxyState:
 
     def set_override_backend(self, backend: str) -> None:
         """Override only the backend to use for this session."""
-        logger.info(f"Setting override backend to: {backend} for ProxyState ID: {id(self)}")
+        logger.info(
+            f"Setting override backend to: {backend} for ProxyState ID: {id(self)}"
+        )
         self.override_backend = backend
         self.override_model = None
         self.invalid_override = False
@@ -126,19 +128,18 @@ class ProxyState:
 
 
 # Re-export command parsing helpers from the dedicated module for backward compatibility
-from .command_parser import (
-    parse_arguments,
-    get_command_pattern,
-    _process_text_for_commands,
-    process_commands_in_messages,
-    CommandParser,
-)
+# from .command_parser import (
+#     _process_text_for_commands,
+#     get_command_pattern,
+#     parse_arguments,
+#     process_commands_in_messages,
+# ) # Removed to break circular import
 
 __all__ = [
     "ProxyState",
-    "parse_arguments",
-    "get_command_pattern",
-    "_process_text_for_commands",
-    "process_commands_in_messages",
-    "CommandParser",
+    # "parse_arguments", # Removed to break circular import
+    # "get_command_pattern", # Removed to break circular import
+    # "_process_text_for_commands", # Removed to break circular import
+    # "process_commands_in_messages", # Removed to break circular import
+    # "CommandParser", # Removed to break circular import
 ]

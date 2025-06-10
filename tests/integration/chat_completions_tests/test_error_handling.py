@@ -1,20 +1,25 @@
-import pytest
 from unittest.mock import AsyncMock, patch
 
-from httpx import Response
-from starlette.responses import StreamingResponse
-from fastapi import HTTPException
+# import pytest # F401: Removed
+from fastapi import HTTPException # Used
+# from httpx import Response # F401: Removed
+# from starlette.responses import StreamingResponse # F401: Removed
 
-import src.models as models
+# import src.models as models # F401: Removed
+
 
 def test_empty_messages_after_processing_no_commands_bad_request(client):
-    with patch('src.command_parser.CommandParser.process_messages') as mock_process_msg:
+    with patch("src.command_parser.CommandParser.process_messages") as mock_process_msg:
         mock_process_msg.return_value = ([], False)
 
-        with patch.object(client.app.state.openrouter_backend, 'chat_completions', new_callable=AsyncMock) as mock_backend_call:
+        with patch.object(
+            client.app.state.openrouter_backend,
+            "chat_completions",
+            new_callable=AsyncMock,
+        ) as mock_backend_call:
             payload = {
                 "model": "some-model",
-                "messages": [{"role": "user", "content": "This will be ignored"}]
+                "messages": [{"role": "user", "content": "This will be ignored"}],
             }
             response = client.post("/v1/chat/completions", json=payload)
 
@@ -24,8 +29,12 @@ def test_empty_messages_after_processing_no_commands_bad_request(client):
 
 
 def test_get_openrouter_headers_no_api_key(client):
-    with patch.object(client.app.state.openrouter_backend, 'chat_completions', new_callable=AsyncMock) as mock_method:
-        mock_method.side_effect = HTTPException(status_code=500, detail="Simulated backend error due to bad headers")
+    with patch.object(
+        client.app.state.openrouter_backend, "chat_completions", new_callable=AsyncMock
+    ) as mock_method:
+        mock_method.side_effect = HTTPException(
+            status_code=500, detail="Simulated backend error due to bad headers"
+        )
 
         payload = {
             "model": "gpt-3.5-turbo",

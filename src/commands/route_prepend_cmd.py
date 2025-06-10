@@ -1,13 +1,11 @@
 from __future__ import annotations
 
-from typing import Dict, Any, List, Set
+from typing import TYPE_CHECKING, Any, Dict, List, Set
 
 from fastapi import FastAPI
 
-from .base import BaseCommand, CommandResult, register_command
+from .base import CommandResult, register_command # Removed BaseCommand
 from .failover_base import FailoverBase
-
-from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from ..proxy_logic import ProxyState
@@ -20,7 +18,9 @@ class RoutePrependCommand(FailoverBase):
     description = "Prepend elements to a failover route"
     examples = ["!/route-prepend(name=myroute,openrouter:model-a)"]
 
-    def __init__(self, app: FastAPI | None = None, functional_backends: Set[str] | None = None) -> None:
+    def __init__(
+        self, app: FastAPI | None = None, functional_backends: Set[str] | None = None
+    ) -> None:
         super().__init__(app=app, functional_backends=functional_backends)
 
     def execute(self, args: Dict[str, Any], state: "ProxyState") -> CommandResult:

@@ -1,10 +1,8 @@
 from __future__ import annotations
 
-from typing import Dict, Any, List, Set
+from typing import TYPE_CHECKING, Any, Dict # Removed List, Set
 
-from .base import BaseCommand, CommandResult, register_command, command_registry
-
-from typing import TYPE_CHECKING
+from .base import BaseCommand, CommandResult, command_registry, register_command
 
 if TYPE_CHECKING:
     from ..proxy_logic import ProxyState
@@ -24,7 +22,10 @@ class HelpCommand(BaseCommand):
             cmd_cls = command_registry.get(cmd_name)
             if not cmd_cls:
                 return CommandResult(self.name, False, f"unknown command: {cmd_name}")
-            parts = [f"{cmd_cls.name} - {cmd_cls.description}", f"format: {cmd_cls.format}"]
+            parts = [
+                f"{cmd_cls.name} - {cmd_cls.description}",
+                f"format: {cmd_cls.format}",
+            ]
             if cmd_cls.examples:
                 parts.append("examples: " + "; ".join(cmd_cls.examples))
             return CommandResult(self.name, True, "; ".join(parts))

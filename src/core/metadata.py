@@ -1,5 +1,7 @@
 from pathlib import Path
+
 import tomli
+
 
 def _load_project_metadata() -> tuple[str, str]:
     pyproject = Path(__file__).resolve().parents[2] / "pyproject.toml"
