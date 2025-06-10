@@ -1,6 +1,5 @@
 import json
 # import pathlib # F401: Removed Path
-from unittest.mock import patch
 
 import pytest
 from fastapi.testclient import TestClient

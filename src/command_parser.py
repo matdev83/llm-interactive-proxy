@@ -11,6 +11,11 @@ from .constants import DEFAULT_COMMAND_PREFIX
 
 logger = logging.getLogger(__name__)
 
+# Regex matching comment lines that should be ignored when detecting
+# command-only messages. This helps to strip agent-provided context such as
+# "# foo" lines that might precede a user command.
+COMMENT_LINE_PATTERN = re.compile(r"^\s*#[^\n]*\n?", re.MULTILINE)
+
 
 def parse_arguments(args_str: str) -> Dict[str, Any]:
     """Parse a comma separated key=value string into a dictionary."""
@@ -125,15 +130,17 @@ class CommandParser:
             )
 
         final_text = re.sub(r"\s+", " ", modified_text).strip()
-        final_text = self._strip_xml_tags(final_text)
+        final_text = self._clean_remaining_text(final_text)
         logger.debug( # E501: Wrapped log message
             f"Text after command processing and normalization: '{final_text}'"
         )
         return final_text, commands_found
 
-    def _strip_xml_tags(self, text: str) -> str:
-        """Removes XML-like tags from a string."""
-        return re.sub(r"<[^>]+>", "", text)
+    def _clean_remaining_text(self, text: str) -> str:
+        """Remove XML-like tags and comment lines from text."""
+        text = re.sub(r"<[^>]+>", "", text)
+        text = COMMENT_LINE_PATTERN.sub("", text)
+        return text
 
     def process_messages(
         self, messages: List[models.ChatMessage]

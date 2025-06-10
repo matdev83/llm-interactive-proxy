@@ -1,9 +1,7 @@
 from unittest.mock import AsyncMock, patch
 
-import pytest
 from starlette.responses import StreamingResponse
 
-import src.models as models
 
 
 def test_session_records_proxy_and_backend_interactions(client):

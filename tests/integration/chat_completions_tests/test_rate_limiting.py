@@ -2,7 +2,6 @@ import re  # Import re
 
 import httpx  # Import httpx
 import pytest
-from fastapi import HTTPException
 from pytest_httpx import HTTPXMock
 
 

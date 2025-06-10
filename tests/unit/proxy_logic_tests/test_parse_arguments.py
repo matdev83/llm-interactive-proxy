@@ -1,4 +1,3 @@
-import pytest
 
 from src.command_parser import parse_arguments
 

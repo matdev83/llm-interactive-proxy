@@ -1,10 +1,9 @@
 import json
-from typing import Any, Callable, Dict, List, Union
+from typing import Dict, List
 
 import httpx
 import pytest
 import pytest_asyncio
-from fastapi import HTTPException
 from pytest_httpx import HTTPXMock
 from starlette.responses import StreamingResponse
 

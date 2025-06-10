@@ -11,7 +11,6 @@ from typing import Any, Dict, Union
 
 # Moved imports to the top (E402 fix)
 import httpx # json is used for logging, will keep
-import json # Keep for logging
 from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.responses import StreamingResponse
 
@@ -686,9 +685,9 @@ def build_app(
 
     return app_instance
 
-app = build_app()
-
-if __name__ == "__main__":
+if __name__ != "__main__":
+    app = build_app()
+else:
     from src.core.cli import main as cli_main
 
     cli_main(build_app_fn=build_app)
