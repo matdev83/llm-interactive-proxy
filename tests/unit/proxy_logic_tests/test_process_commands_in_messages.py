@@ -1,4 +1,5 @@
 from unittest.mock import Mock
+import logging # Added for caplog fixture
 
 import pytest
 
@@ -115,15 +116,20 @@ class TestProcessCommandsInMessages:
         assert processed
         assert len(processed_messages) == 1
         assert isinstance(processed_messages[0].content, list)
-        assert len(processed_messages[0].content) == 1
+        # The text part had a command, so it's processed to empty and retained.
+        assert len(processed_messages[0].content) == 2
         assert isinstance(
-            processed_messages[0].content[0], models.MessageContentPartImage
+            processed_messages[0].content[0], models.MessageContentPartText
         )
-        assert processed_messages[0].content[0].type == "image_url"
-        assert processed_messages[0].content[0].image_url.url == "fake.jpg"
+        assert processed_messages[0].content[0].text == "" # Text part is now empty
+        assert isinstance(
+            processed_messages[0].content[1], models.MessageContentPartImage
+        )
+        assert processed_messages[0].content[1].type == "image_url"
+        assert processed_messages[0].content[1].image_url.url == "fake.jpg"
         assert current_proxy_state.override_model == "text-only"
 
-    def test_command_strips_message_to_empty_multimodal(self):
+    def test_command_strips_message_to_empty_multimodal(self, caplog):
         current_proxy_state = ProxyState()
         messages = [
             models.ChatMessage(
@@ -135,12 +141,23 @@ class TestProcessCommandsInMessages:
                 ],
             )
         ]
+        caplog.set_level(logging.INFO)
         processed_messages, processed = process_commands_in_messages(
             messages, current_proxy_state, app=self.mock_app
         )
         assert processed
-        assert len(processed_messages) == 0
+        # The message itself had a command, so it's retained even if its content list becomes effectively empty (contains an empty text part).
+        assert len(processed_messages) == 1
+        assert isinstance(processed_messages[0].content, list)
+        assert len(processed_messages[0].content) == 1 # The list contains one part
+        assert isinstance(processed_messages[0].content[0], models.MessageContentPartText)
+        assert processed_messages[0].content[0].text == "" # The text part is empty
         assert current_proxy_state.override_model == "empty-message-model"
+
+        assert any(
+            "Retaining message" in record.message and "empty-message-model" not in record.message # ensure it's the message retention log
+            for record in caplog.records if record.levelname == "INFO"
+        ), "Should log retention of empty message due to executed command."
 
     def test_command_in_earlier_message_not_processed_if_later_has_command(self):
         current_proxy_state = ProxyState()
@@ -350,3 +367,57 @@ class TestProcessCommandsInMessages:
         assert processed
         assert processed_messages[0].content == ""
         assert self.mock_app.state.command_prefix == "!/"
+
+    def test_message_with_command_becomes_empty_and_is_retained(self, caplog):
+        """
+        Tests that a message containing a command, which becomes empty after processing,
+        is retained in the final messages list. This verifies the fix in CommandParser.
+        """
+        from src.command_parser import CommandParser # Import locally for this test
+        from src.models import ChatMessage # Import locally
+
+        # Setup CommandParser instance directly
+        # The mock_app setup in the fixture should provide necessary state for commands
+        # like !/hello if they interact with app state.
+        # For !/hello, it primarily affects proxy_state.hello_requested.
+        current_proxy_state = ProxyState()
+        parser = CommandParser(
+            proxy_state=current_proxy_state,
+            app=self.mock_app, # Use the mock_app from the fixture
+            command_prefix="!/",
+            functional_backends=self.mock_app.state.functional_backends
+        )
+
+        # Input message that will become empty after !/hello is processed
+        # The <task> tags are removed by _strip_xml_tags called within process_text
+        messages = [ChatMessage(role="user", content="<task>\n!/hello\n</task>")]
+
+        caplog.set_level(logging.INFO) # To capture log messages
+
+        final_messages, processed = parser.process_messages(messages)
+
+        assert processed, "A command should have been processed."
+        assert len(final_messages) == 1, "The message should be retained."
+
+        # Check content based on how process_text and _strip_xml_tags work
+        # !/hello results in empty string from process_text
+        # <task></task> are stripped by _strip_xml_tags
+        # So the final content should be an empty string or whitespace.
+        assert final_messages[0].content.strip() == "", \
+            f"Message content should be empty, but was: '{final_messages[0].content}'"
+
+        assert any(
+        result.name == "hello" and result.success for result in parser.results
+        ), "The !/hello command should have been executed successfully."
+
+        # Check for the specific log message
+        assert any(
+            "Retaining message" in record.message and
+            "index 0" in record.message and
+            "role user" in record.message and
+            "executed command was processed in it" in record.message
+            for record in caplog.records if record.levelname == "INFO"
+        ), "Should log retention of empty message due to executed command."
+
+        # Verify proxy_state was affected by !/hello as expected
+        assert current_proxy_state.hello_requested, "ProxyState.hello_requested should be True after !/hello"

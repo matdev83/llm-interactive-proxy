@@ -42,14 +42,23 @@ def build_app(
 
     disable_auth = cfg.get("disable_auth", False)
     api_key = os.getenv("LLM_INTERACTIVE_PROXY_API_KEY")
+
     if not disable_auth:
-        if not api_key:
+        if not api_key: # If auth is enabled AND no key is provided via ENV
             api_key = secrets.token_urlsafe(32)
+            # This is the primary log message mentioned in the issue that should be conditional
             logger.warning("No client API key provided, generated one: %s", api_key)
+            # This secondary write to stdout is a fallback if no stream handlers are configured for the logger
             if not any(isinstance(h, logging.StreamHandler) for h in logger.handlers):
                 sys.stdout.write(f"Generated client API key: {api_key}\n")
-    else:
-        api_key = api_key or None
+        # else: api_key is already set from ENV, and auth is enabled - do nothing here
+    else: # Auth is disabled
+        # api_key will be its value from ENV (if set) or None (if not set).
+        # No generation or warning should occur here.
+        # The original `api_key = api_key or None` is fine, or simply:
+        if not api_key: # If auth is disabled and no key from ENV
+            api_key = None # Explicitly None, though it would be already
+        # else: api_key is from ENV, auth is disabled. Let it be.
 
     project_name, project_version = _load_project_metadata()
 

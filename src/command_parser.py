@@ -144,121 +144,106 @@ class CommandParser:
             return messages, False
 
         modified_messages = [msg.model_copy(deep=True) for msg in messages]
-        any_command_processed = False
-        already_processed_commands_in_a_message = False
+        any_command_processed_overall = False
+        # Tracks if a command was executed in the specific message at this index
+        message_had_executed_command = [False] * len(messages)
+        # Ensures commands are only processed from the last message block that contains them
+        already_executed_commands_in_a_message_sequence = False
 
         for i in range(len(modified_messages) - 1, -1, -1):
             msg = modified_messages[i]
-            content_modified = False
+            content_modified_this_iteration = False # Tracks if current msg was changed
 
-            if not already_processed_commands_in_a_message:
+            if not already_executed_commands_in_a_message_sequence:
+                command_found_in_current_message = False
                 if isinstance(msg.content, str):
-                    if msg.content.strip().startswith(self.command_prefix):
-                        command_match = self.command_pattern.match(msg.content.strip())
-                        if command_match and msg.content.strip() == command_match.group(0):
-                            processed_text, found = self.process_text(msg.content)
-                            logger.debug(
-                                f"Command-only message processed. Found: {found}"
-                            )
-                            if found:
-                                any_command_processed = True
-                                msg.content = ""
-                                content_modified = True
-                                already_processed_commands_in_a_message = True
-                        else:
-                            processed_text, found = self.process_text(msg.content)
-                            logger.debug(
-                                f"Non-command-only message processed. Found: {found}"
-                            )
-                            if found:
-                                msg.content = processed_text
-                                any_command_processed = True
-                                content_modified = True
-                                already_processed_commands_in_a_message = True
-                    else:
-                        processed_text, found = self.process_text(msg.content)
-                        logger.debug(
-                            "Non-command-only message (not starting with prefix) "
-                            f"processed. Found: {found}"
-                        )
-                        if found:
-                            msg.content = processed_text
-                            any_command_processed = True
-                            content_modified = True
-                            already_processed_commands_in_a_message = True
+                    # Process text for string content
+                    processed_text, found_command_in_str = self.process_text(msg.content)
+                    if found_command_in_str:
+                        command_found_in_current_message = True
+                        msg.content = processed_text
+                        content_modified_this_iteration = True
                 elif isinstance(msg.content, list):
+                    # Process text for list content (e.g., multimodal)
                     new_parts: List[models.MessageContentPart] = []
-                    part_level_found_in_current_message = False
+                    found_command_in_list_parts = False
                     for part_idx, part in enumerate(msg.content):
                         if isinstance(part, models.MessageContentPartText):
-                            if not already_processed_commands_in_a_message:
-                                processed_text, found_in_part = self.process_text(
-                                    part.text
-                                )
-                                if found_in_part:
-                                    part_level_found_in_current_message = True
-                                    any_command_processed = True
-                                if processed_text.strip():
-                                    new_parts.append(
-                                        models.MessageContentPartText(
-                                            type="text", text=processed_text
-                                        )
-                                    )
-                                elif not found_in_part:
-                                    new_parts.append(
-                                        models.MessageContentPartText(
-                                            type="text", text=processed_text
-                                        )
-                                    )
-                            else:
-                                new_parts.append(part.model_copy(deep=True))
+                            processed_text, found_in_part = self.process_text(part.text)
+                            if found_in_part:
+                                found_command_in_list_parts = True
+                            # Add part if it's not empty OR if it was originally empty and no command was in it (to preserve original empty parts)
+                            # If a command was found, processed_text might be empty, this is handled later by final_messages logic
+                            new_parts.append(models.MessageContentPartText(type="text", text=processed_text))
                         else:
                             new_parts.append(part.model_copy(deep=True))
 
-                    if part_level_found_in_current_message:
-                        msg.content = new_parts
-                        content_modified = True
-                        already_processed_commands_in_a_message = True
+                    if found_command_in_list_parts:
+                        command_found_in_current_message = True
+                        msg.content = new_parts # Update message content with processed parts
+                        content_modified_this_iteration = True
 
-            if content_modified:
-                logger.info( # E501: Wrapped
-                    f"Commands processed in message index {i} (from end). "
-                    f"Role: {msg.role}. New content: '{msg.content}'"
+                if command_found_in_current_message:
+                    any_command_processed_overall = True
+                    message_had_executed_command[i] = True # Mark command execution for this message index
+                    already_executed_commands_in_a_message_sequence = True # Stop processing earlier messages for commands
+                    logger.debug(
+                        f"Command processed in message index {i} (from end). Role: {msg.role}."
+                    )
+
+            if content_modified_this_iteration:
+                logger.info(
+                    f"Content modified for message index {i} (from end). Role: {msg.role}. New content: '{msg.content}'"
                 )
 
         final_messages: List[models.ChatMessage] = []
-        for msg in modified_messages:
-            if isinstance(msg.content, list) and not msg.content:
-                logger.info(
-                    f"Removing message (role: {msg.role}) as its multimodal "
-                    "content became empty after command processing."
-                )
-                continue
-            if isinstance(msg.content, str) and not msg.content.strip():
-                original_msg = messages[len(final_messages)]
-                if isinstance(
-                    original_msg.content, str
-                ) and original_msg.content.strip().startswith(self.command_prefix):
-                    final_messages.append(msg)
-                    continue
-                logger.info(
-                    f"Removing message (role: {msg.role}) as its content "
-                    "became empty after command processing."
-                )
-                continue
-            final_messages.append(msg)
+        for idx, msg in enumerate(modified_messages):
+            is_content_effectively_empty = False
+            if isinstance(msg.content, str):
+                is_content_effectively_empty = not msg.content.strip()
+            elif isinstance(msg.content, list):
+                if not msg.content:  # Empty list
+                    is_content_effectively_empty = True
+                else:
+                    all_parts_are_empty_text = True
+                    for part_item in msg.content:
+                        if isinstance(part_item, models.MessageContentPartText):
+                            if part_item.text.strip():
+                                all_parts_are_empty_text = False
+                                break
+                        else: # Non-text part means content is not effectively empty
+                            all_parts_are_empty_text = False
+                            break
+                    if all_parts_are_empty_text:
+                        is_content_effectively_empty = True
 
-        if not final_messages and any_command_processed and messages:
+            if is_content_effectively_empty:
+                if message_had_executed_command[idx]:
+                    logger.info(
+                        f"Retaining message (index {idx}, role {msg.role}) as empty/whitespace "
+                        "because an executed command was processed in it."
+                    )
+                    final_messages.append(msg)
+                else:
+                    logger.info(
+                        f"Removing message (index {idx}, role {msg.role}) as its content is "
+                        "empty/whitespace and no command was executed in it."
+                    )
+            else:
+                final_messages.append(msg)
+
+        if not final_messages and any_command_processed_overall and messages:
             logger.info(
-                "All messages were removed after command processing. "
-                "This might indicate a command-only request."
+                "All messages were removed after command processing, but commands were processed. "
+                "This implies all original messages led to empty content post-command execution "
+                "and none were marked for retention due to containing an executed command (which might be a bug if commands were expected to leave content)."
             )
 
-        logger.debug( # E501: Wrapped
-            f"Finished processing messages. Final message count: "
-            f"{len(final_messages)}. Commands processed overall: {any_command_processed}"
+        logger.debug(
+            f"Finished processing messages. Final message count: {len(final_messages)}. "
+            f"Commands processed overall: {any_command_processed_overall}"
         )
-        return final_messages, any_command_processed
+        return final_messages, any_command_processed_overall
 
 
 def _process_text_for_commands(
