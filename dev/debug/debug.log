@@ -1,60 +1,56 @@
-2025-06-10 17:07:52,837 - root - WARNING - Client authentication is DISABLED
-2025-06-10 17:07:52,843 - asyncio - DEBUG - Using proactor: IocpProactor
-INFO:     Started server process [25608]
-INFO:     Waiting for application startup.
-2025-06-10 17:07:52,924 - httpcore.connection - DEBUG - connect_tcp.started host='openrouter.ai' port=443 local_address=None timeout=300 socket_options=None
-2025-06-10 17:07:52,931 - httpcore.connection - DEBUG - connect_tcp.complete return_value=<httpcore._backends.anyio.AnyIOStream object at 0x000001B58C144970>
-2025-06-10 17:07:52,931 - httpcore.connection - DEBUG - start_tls.started ssl_context=<ssl.SSLContext object at 0x000001B58C1242C0> server_hostname='openrouter.ai' timeout=300
-2025-06-10 17:07:52,949 - httpcore.connection - DEBUG - start_tls.complete return_value=<httpcore._backends.anyio.AnyIOStream object at 0x000001B58C10F820>
-2025-06-10 17:07:52,950 - httpcore.http11 - DEBUG - send_request_headers.started request=<Request [b'GET']>
-2025-06-10 17:07:52,950 - httpcore.http11 - DEBUG - send_request_headers.complete
-2025-06-10 17:07:52,950 - httpcore.http11 - DEBUG - send_request_body.started request=<Request [b'GET']>
-2025-06-10 17:07:52,950 - httpcore.http11 - DEBUG - send_request_body.complete
-2025-06-10 17:07:52,950 - httpcore.http11 - DEBUG - receive_response_headers.started request=<Request [b'GET']>
-2025-06-10 17:07:53,169 - httpcore.http11 - DEBUG - receive_response_headers.complete return_value=(b'HTTP/1.1', 200, b'OK', [(b'Date', b'Tue, 10 Jun 2025 15:07:53 GMT'), (b'Content-Type', b'application/json'), (b'Transfer-Encoding', b'chunked'), (b'Connection', b'keep-alive'), (b'Content-Encoding', b'gzip'), (b'Access-Control-Allow-Origin', b'*'), (b'Cdn-Cache-Control', b'max-age=300'), (b'Vary', b'Accept-Encoding'), (b'Server', b'cloudflare'), (b'Cf-Ray', b'94d9c7e79803c012-WAW')])
-2025-06-10 17:07:53,170 - httpx - INFO - HTTP Request: GET https://openrouter.ai/api/v1/models "HTTP/1.1 200 OK"
-2025-06-10 17:07:53,170 - httpcore.http11 - DEBUG - receive_response_body.started request=<Request [b'GET']>
-2025-06-10 17:07:53,177 - httpcore.http11 - DEBUG - receive_response_body.complete
-2025-06-10 17:07:53,177 - httpcore.http11 - DEBUG - response_closed.started
-2025-06-10 17:07:53,177 - httpcore.http11 - DEBUG - response_closed.complete
-2025-06-10 17:07:53,181 - httpcore.connection - DEBUG - connect_tcp.started host='generativelanguage.googleapis.com' port=443 local_address=None timeout=300 socket_options=None
-2025-06-10 17:07:53,207 - httpcore.connection - DEBUG - connect_tcp.complete return_value=<httpcore._backends.anyio.AnyIOStream object at 0x000001B58C194E80>
-2025-06-10 17:07:53,207 - httpcore.connection - DEBUG - start_tls.started ssl_context=<ssl.SSLContext object at 0x000001B58C1242C0> server_hostname='generativelanguage.googleapis.com' timeout=300
-2025-06-10 17:07:53,228 - httpcore.connection - DEBUG - start_tls.complete return_value=<httpcore._backends.anyio.AnyIOStream object at 0x000001B58C1958D0>
-2025-06-10 17:07:53,229 - httpcore.http11 - DEBUG - send_request_headers.started request=<Request [b'GET']>
-2025-06-10 17:07:53,229 - httpcore.http11 - DEBUG - send_request_headers.complete
-2025-06-10 17:07:53,229 - httpcore.http11 - DEBUG - send_request_body.started request=<Request [b'GET']>
-2025-06-10 17:07:53,229 - httpcore.http11 - DEBUG - send_request_body.complete
-2025-06-10 17:07:53,229 - httpcore.http11 - DEBUG - receive_response_headers.started request=<Request [b'GET']>
-2025-06-10 17:07:53,381 - httpcore.http11 - DEBUG - receive_response_headers.complete return_value=(b'HTTP/1.1', 200, b'OK', [(b'Content-Type', b'application/json; charset=UTF-8'), (b'Vary', b'Origin'), (b'Vary', b'X-Origin'), (b'Vary', b'Referer'), (b'Content-Encoding', b'gzip'), (b'Date', b'Tue, 10 Jun 2025 15:07:53 GMT'), (b'Server', b'scaffolding on HTTPServer2'), (b'X-XSS-Protection', b'0'), (b'X-Frame-Options', b'SAMEORIGIN'), (b'X-Content-Type-Options', b'nosniff'), (b'Server-Timing', b'gfet4t7; dur=149'), (b'Alt-Svc', b'h3=":443"; ma=2592000,h3-29=":443"; ma=2592000'), (b'Transfer-Encoding', b'chunked')])
-2025-06-10 17:07:53,381 - httpx - INFO - HTTP Request: GET https://generativelanguage.googleapis.com/v1beta/models "HTTP/1.1 200 OK"
-2025-06-10 17:07:53,381 - httpcore.http11 - DEBUG - receive_response_body.started request=<Request [b'GET']>
-2025-06-10 17:07:53,382 - httpcore.http11 - DEBUG - receive_response_body.complete
-2025-06-10 17:07:53,382 - httpcore.http11 - DEBUG - response_closed.started
-2025-06-10 17:07:53,382 - httpcore.http11 - DEBUG - response_closed.complete
-INFO:     Application startup complete.
-INFO:     Uvicorn running on http://127.0.0.1:8000 (Press CTRL+C to quit)
-2025-06-10 17:08:03,270 - src.session - INFO - Created new session: default
-2025-06-10 17:08:03,270 - src.session - DEBUG - Retrieving session: default, ProxyState ID: 1879251535904
-2025-06-10 17:08:03,270 - src.command_parser - DEBUG - Processing text for commands: '<task>
+2025-06-10 21:37:50,449 - root - WARNING - Client authentication is DISABLED
+2025-06-10 21:37:50,454 - asyncio - DEBUG - Using proactor: IocpProactor
+2025-06-10 21:37:50,535 - httpcore.connection - DEBUG - connect_tcp.started host='openrouter.ai' port=443 local_address=None timeout=300 socket_options=None
+2025-06-10 21:37:50,548 - httpcore.connection - DEBUG - connect_tcp.complete return_value=<httpcore._backends.anyio.AnyIOStream object at 0x000001C0FDC4E710>
+2025-06-10 21:37:50,548 - httpcore.connection - DEBUG - start_tls.started ssl_context=<ssl.SSLContext object at 0x000001C0FDBD2DC0> server_hostname='openrouter.ai' timeout=300
+2025-06-10 21:37:50,558 - httpcore.connection - DEBUG - start_tls.complete return_value=<httpcore._backends.anyio.AnyIOStream object at 0x000001C0FDB51030>
+2025-06-10 21:37:50,558 - httpcore.http11 - DEBUG - send_request_headers.started request=<Request [b'GET']>
+2025-06-10 21:37:50,559 - httpcore.http11 - DEBUG - send_request_headers.complete
+2025-06-10 21:37:50,559 - httpcore.http11 - DEBUG - send_request_body.started request=<Request [b'GET']>
+2025-06-10 21:37:50,559 - httpcore.http11 - DEBUG - send_request_body.complete
+2025-06-10 21:37:50,559 - httpcore.http11 - DEBUG - receive_response_headers.started request=<Request [b'GET']>
+2025-06-10 21:37:50,699 - httpcore.http11 - DEBUG - receive_response_headers.complete return_value=(b'HTTP/1.1', 200, b'OK', [(b'Date', b'Tue, 10 Jun 2025 19:37:50 GMT'), (b'Content-Type', b'application/json'), (b'Transfer-Encoding', b'chunked'), (b'Connection', b'keep-alive'), (b'Content-Encoding', b'gzip'), (b'Access-Control-Allow-Origin', b'*'), (b'Cdn-Cache-Control', b'max-age=300'), (b'Vary', b'Accept-Encoding'), (b'Server', b'cloudflare'), (b'Cf-Ray', b'94db535a6d9bef93-WAW')])
+2025-06-10 21:37:50,700 - httpx - INFO - HTTP Request: GET https://openrouter.ai/api/v1/models "HTTP/1.1 200 OK"
+2025-06-10 21:37:50,700 - httpcore.http11 - DEBUG - receive_response_body.started request=<Request [b'GET']>
+2025-06-10 21:37:50,706 - httpcore.http11 - DEBUG - receive_response_body.complete
+2025-06-10 21:37:50,706 - httpcore.http11 - DEBUG - response_closed.started
+2025-06-10 21:37:50,706 - httpcore.http11 - DEBUG - response_closed.complete
+2025-06-10 21:37:50,710 - httpcore.connection - DEBUG - connect_tcp.started host='generativelanguage.googleapis.com' port=443 local_address=None timeout=300 socket_options=None
+2025-06-10 21:37:50,734 - httpcore.connection - DEBUG - connect_tcp.complete return_value=<httpcore._backends.anyio.AnyIOStream object at 0x000001C0FDCA9B40>
+2025-06-10 21:37:50,734 - httpcore.connection - DEBUG - start_tls.started ssl_context=<ssl.SSLContext object at 0x000001C0FDBD2DC0> server_hostname='generativelanguage.googleapis.com' timeout=300
+2025-06-10 21:37:50,758 - httpcore.connection - DEBUG - start_tls.complete return_value=<httpcore._backends.anyio.AnyIOStream object at 0x000001C0FDCAB6A0>
+2025-06-10 21:37:50,758 - httpcore.http11 - DEBUG - send_request_headers.started request=<Request [b'GET']>
+2025-06-10 21:37:50,758 - httpcore.http11 - DEBUG - send_request_headers.complete
+2025-06-10 21:37:50,758 - httpcore.http11 - DEBUG - send_request_body.started request=<Request [b'GET']>
+2025-06-10 21:37:50,758 - httpcore.http11 - DEBUG - send_request_body.complete
+2025-06-10 21:37:50,758 - httpcore.http11 - DEBUG - receive_response_headers.started request=<Request [b'GET']>
+2025-06-10 21:37:50,808 - httpcore.http11 - DEBUG - receive_response_headers.complete return_value=(b'HTTP/1.1', 200, b'OK', [(b'Content-Type', b'application/json; charset=UTF-8'), (b'Vary', b'Origin'), (b'Vary', b'X-Origin'), (b'Vary', b'Referer'), (b'Content-Encoding', b'gzip'), (b'Date', b'Tue, 10 Jun 2025 19:37:50 GMT'), (b'Server', b'scaffolding on HTTPServer2'), (b'X-XSS-Protection', b'0'), (b'X-Frame-Options', b'SAMEORIGIN'), (b'X-Content-Type-Options', b'nosniff'), (b'Server-Timing', b'gfet4t7; dur=47'), (b'Alt-Svc', b'h3=":443"; ma=2592000,h3-29=":443"; ma=2592000'), (b'Transfer-Encoding', b'chunked')])
+2025-06-10 21:37:50,809 - httpx - INFO - HTTP Request: GET https://generativelanguage.googleapis.com/v1beta/models "HTTP/1.1 200 OK"
+2025-06-10 21:37:50,809 - httpcore.http11 - DEBUG - receive_response_body.started request=<Request [b'GET']>
+2025-06-10 21:37:50,809 - httpcore.http11 - DEBUG - receive_response_body.complete
+2025-06-10 21:37:50,810 - httpcore.http11 - DEBUG - response_closed.started
+2025-06-10 21:37:50,810 - httpcore.http11 - DEBUG - response_closed.complete
+2025-06-10 21:38:29,976 - src.session - INFO - Created new session: default
+2025-06-10 21:38:29,976 - src.session - DEBUG - Retrieving session: default, ProxyState ID: 1928403576352
+2025-06-10 21:38:29,977 - src.command_parser - DEBUG - Processing text for commands: '<task>
 !/hello
 </task>'
-2025-06-10 17:08:03,271 - src.command_parser - DEBUG - Found 1 command matches for text: '<task>
+2025-06-10 21:38:29,977 - src.command_parser - DEBUG - Found 1 command matches for text: '<task>
 !/hello
 </task>'
-2025-06-10 17:08:03,271 - src.command_parser - DEBUG - Regex match: Full='!/hello', Command='hello', ArgsStr=''
-2025-06-10 17:08:03,271 - src.command_parser - DEBUG - Parsing arguments from string: ''
-2025-06-10 17:08:03,271 - src.command_parser - DEBUG - Argument string is empty, returning empty dict.
-2025-06-10 17:08:03,271 - src.command_parser - DEBUG - Text after command processing and normalization: ' '
-2025-06-10 17:08:03,271 - src.command_parser - DEBUG - Processing text for commands: '<environment_details>
+2025-06-10 21:38:29,977 - src.command_parser - DEBUG - Regex match: Full='!/hello', Command='hello', ArgsStr=''
+2025-06-10 21:38:29,977 - src.command_parser - DEBUG - Parsing arguments from string: ''
+2025-06-10 21:38:29,977 - src.command_parser - DEBUG - Argument string is empty, returning empty dict.
+2025-06-10 21:38:29,977 - src.command_parser - DEBUG - Text after command processing and normalization: ' '
+2025-06-10 21:38:29,977 - src.command_parser - DEBUG - Processing text for commands: '<environment_details>
 # VSCode Visible Files
-dev\debug\debug1.log
+..\..\..\..\..\response_f8d576e5-ac0f-449e-bc9f-3a0db7f3f081\0,..\..\..\..\..\response_f8d576e5-ac0f-449e-bc9f-3a0db7f3f081\0,..\..\..\..\..\response_f8d576e5-ac0f-449e-bc9f-3a0db7f3f081\0,..\..\..\..\..\response_9d8366de-ca3f-489e-98a6-b7e735c6faf7\0,..\..\..\..\..\response_9d8366de-ca3f-489e-98a6-b7e735c6faf7\tools-1
 
 # VSCode Open Tabs
-dev/debug/debug1.log
+
 
 # Current Time
-6/10/2025, 5:08:03 PM (Europe/Warsaw, UTC+2:00)
+6/10/2025, 9:38:29 PM (Europe/Warsaw, UTC+2:00)
 
 # Current Context Size (Tokens)
 (Not available)
@@ -64,7 +60,7 @@ $0.00
 
 # Current Mode
 <slug>code</slug>
-<name>­čĺ╗ Code</name>
+<name>\U0001f4bb Code</name>
 <model>gemini:models/gemini-2.5-flash-preview-05-20</model>
 <role>You are Roo, a highly skilled software engineer with extensive knowledge in many programming languages, frameworks, design patterns, and best practices.</role>
 <custom_instructions>
@@ -120,8 +116,8 @@ dev/
 dev/example_config.json
 dev/test_client.py
 dev/test_config.json
-dev/debug/debug1.log
-docs/
+dev/debug/debug.log
+logs/
 src/
 src/agents.py
 src/command_parser.py
@@ -178,6 +174,7 @@ tests/unit/__init__.py
 tests/unit/test_agent_utils.py
 tests/unit/test_auth.py
 tests/unit/test_cli.py
+tests/unit/test_command_parser.py
 tests/unit/test_config_persistence.py
 tests/unit/test_config.py
 tests/unit/test_failover_routes.py
@@ -203,15 +200,15 @@ tests/unit/proxy_logic_tests/test_parse_arguments.py
 tests/unit/proxy_logic_tests/test_process_commands_in_messages.py
 tests/unit/proxy_logic_tests/test_process_text_for_commands.py
 </environment_details>'
-2025-06-10 17:08:03,279 - src.command_parser - DEBUG - Found 0 command matches for text: '<environment_details>
+2025-06-10 21:38:29,977 - src.command_parser - DEBUG - Found 0 command matches for text: '<environment_details>
 # VSCode Visible Files
-dev\debug\debug1.log
+..\..\..\..\..\response_f8d576e5-ac0f-449e-bc9f-3a0db7f3f081\0,..\..\..\..\..\response_f8d576e5-ac0f-449e-bc9f-3a0db7f3f081\0,..\..\..\..\..\response_f8d576e5-ac0f-449e-bc9f-3a0db7f3f081\0,..\..\..\..\..\response_9d8366de-ca3f-489e-98a6-b7e735c6faf7\0,..\..\..\..\..\response_9d8366de-ca3f-489e-98a6-b7e735c6faf7\tools-1
 
 # VSCode Open Tabs
-dev/debug/debug1.log
+
 
 # Current Time
-6/10/2025, 5:08:03 PM (Europe/Warsaw, UTC+2:00)
+6/10/2025, 9:38:29 PM (Europe/Warsaw, UTC+2:00)
 
 # Current Context Size (Tokens)
 (Not available)
@@ -221,7 +218,7 @@ $0.00
 
 # Current Mode
 <slug>code</slug>
-<name>­čĺ╗ Code</name>
+<name>\U0001f4bb Code</name>
 <model>gemini:models/gemini-2.5-flash-preview-05-20</model>
 <role>You are Roo, a highly skilled software engineer with extensive knowledge in many programming languages, frameworks, design patterns, and best practices.</role>
 <custom_instructions>
@@ -277,8 +274,8 @@ dev/
 dev/example_config.json
 dev/test_client.py
 dev/test_config.json
-dev/debug/debug1.log
-docs/
+dev/debug/debug.log
+logs/
 src/
 src/agents.py
 src/command_parser.py
@@ -335,6 +332,7 @@ tests/unit/__init__.py
 tests/unit/test_agent_utils.py
 tests/unit/test_auth.py
 tests/unit/test_cli.py
+tests/unit/test_command_parser.py
 tests/unit/test_config_persistence.py
 tests/unit/test_config.py
 tests/unit/test_failover_routes.py
@@ -360,12 +358,11 @@ tests/unit/proxy_logic_tests/test_parse_arguments.py
 tests/unit/proxy_logic_tests/test_process_commands_in_messages.py
 tests/unit/proxy_logic_tests/test_process_text_for_commands.py
 </environment_details>'
-2025-06-10 17:08:03,279 - src.command_parser - DEBUG - Text after command processing and normalization: ''
-2025-06-10 17:08:03,280 - src.command_parser - INFO - Commands processed in message index 1 (from end). Role: user. New content: '[MessageContentPartText(type='text', text='')]'
-2025-06-10 17:08:03,280 - src.command_parser - DEBUG - Finished processing messages. Final message count: 2. Commands processed overall: True
-INFO:     127.0.0.1:18292 - "POST /v1/chat/completions HTTP/1.1" 200 OK
-2025-06-10 17:08:04,435 - src.session - DEBUG - Retrieving session: default, ProxyState ID: 1879251535904
-2025-06-10 17:08:04,435 - src.command_parser - DEBUG - Processing text for commands: '[ERROR] You did not use a tool in your previous response! Please retry with a tool use.
+2025-06-10 21:38:29,977 - src.command_parser - DEBUG - Text after command processing and normalization: ''
+2025-06-10 21:38:29,977 - src.command_parser - INFO - Commands processed in message index 1 (from end). Role: user. New content: '[MessageContentPartText(type='text', text='')]'
+2025-06-10 21:38:29,978 - src.command_parser - DEBUG - Finished processing messages. Final message count: 2. Commands processed overall: True
+2025-06-10 21:38:31,163 - src.session - DEBUG - Retrieving session: default, ProxyState ID: 1928403576352
+2025-06-10 21:38:31,163 - src.command_parser - DEBUG - Processing text for commands: '[ERROR] You did not use a tool in your previous response! Please retry with a tool use.
 
 # Reminder: Instructions for Tool Use
 
@@ -393,7 +390,7 @@ If you have completed the user's task, use the attempt_completion tool.
 If you require additional information from the user, use the ask_followup_question tool. 
 Otherwise, if you have not completed the task and do not need additional information, then proceed with the next step of the task. 
 (This is an automated message, so do not respond to it conversationally.)'
-2025-06-10 17:08:04,436 - src.command_parser - DEBUG - Found 0 command matches for text: '[ERROR] You did not use a tool in your previous response! Please retry with a tool use.
+2025-06-10 21:38:31,163 - src.command_parser - DEBUG - Found 0 command matches for text: '[ERROR] You did not use a tool in your previous response! Please retry with a tool use.
 
 # Reminder: Instructions for Tool Use
 
@@ -421,16 +418,16 @@ If you have completed the user's task, use the attempt_completion tool.
 If you require additional information from the user, use the ask_followup_question tool. 
 Otherwise, if you have not completed the task and do not need additional information, then proceed with the next step of the task. 
 (This is an automated message, so do not respond to it conversationally.)'
-2025-06-10 17:08:04,436 - src.command_parser - DEBUG - Text after command processing and normalization: '[ERROR] You did not use a tool in your previous response! Please retry with a tool use. # Reminder: Instructions for Tool Use Tool uses are formatted using XML-style tags. The tool name itself becomes the XML tag name. Each parameter is enclosed within its own set of tags. Here's the structure:  value1 value2 ...  For example, to use the attempt_completion tool:   I have completed the task...   Always use the actual tool name as the XML tag name for proper parsing and execution. # Next Steps If you have completed the user's task, use the attempt_completion tool. If you require additional information from the user, use the ask_followup_question tool. Otherwise, if you have not completed the task and do not need additional information, then proceed with the next step of the task. (This is an automated message, so do not respond to it conversationally.)'
-2025-06-10 17:08:04,436 - src.command_parser - DEBUG - Processing text for commands: '<environment_details>
+2025-06-10 21:38:31,163 - src.command_parser - DEBUG - Text after command processing and normalization: '[ERROR] You did not use a tool in your previous response! Please retry with a tool use. # Reminder: Instructions for Tool Use Tool uses are formatted using XML-style tags. The tool name itself becomes the XML tag name. Each parameter is enclosed within its own set of tags. Here's the structure:  value1 value2 ...  For example, to use the attempt_completion tool:   I have completed the task...   Always use the actual tool name as the XML tag name for proper parsing and execution. # Next Steps If you have completed the user's task, use the attempt_completion tool. If you require additional information from the user, use the ask_followup_question tool. Otherwise, if you have not completed the task and do not need additional information, then proceed with the next step of the task. (This is an automated message, so do not respond to it conversationally.)'
+2025-06-10 21:38:31,163 - src.command_parser - DEBUG - Processing text for commands: '<environment_details>
 # VSCode Visible Files
-dev\debug\debug1.log
+..\..\..\..\..\response_f8d576e5-ac0f-449e-bc9f-3a0db7f3f081\0,..\..\..\..\..\response_f8d576e5-ac0f-449e-bc9f-3a0db7f3f081\0,..\..\..\..\..\response_f8d576e5-ac0f-449e-bc9f-3a0db7f3f081\0,..\..\..\..\..\response_9d8366de-ca3f-489e-98a6-b7e735c6faf7\0,..\..\..\..\..\response_9d8366de-ca3f-489e-98a6-b7e735c6faf7\tools-1
 
 # VSCode Open Tabs
-dev/debug/debug1.log
+
 
 # Current Time
-6/10/2025, 5:08:03 PM (Europe/Warsaw, UTC+2:00)
+6/10/2025, 9:38:30 PM (Europe/Warsaw, UTC+2:00)
 
 # Current Context Size (Tokens)
 (Not available)
@@ -440,7 +437,7 @@ $0.00
 
 # Current Mode
 <slug>code</slug>
-<name>­čĺ╗ Code</name>
+<name>\U0001f4bb Code</name>
 <model>gemini:models/gemini-2.5-flash-preview-05-20</model>
 <role>You are Roo, a highly skilled software engineer with extensive knowledge in many programming languages, frameworks, design patterns, and best practices.</role>
 <custom_instructions>
@@ -453,15 +450,15 @@ The following additional instructions are provided by the user, and should be fo
 Language Preference:
 You should always speak and think in the "English" (en) language unless the user gives you instructions below to do otherwise.</custom_instructions>
 </environment_details>'
-2025-06-10 17:08:04,436 - src.command_parser - DEBUG - Found 0 command matches for text: '<environment_details>
+2025-06-10 21:38:31,163 - src.command_parser - DEBUG - Found 0 command matches for text: '<environment_details>
 # VSCode Visible Files
-dev\debug\debug1.log
+..\..\..\..\..\response_f8d576e5-ac0f-449e-bc9f-3a0db7f3f081\0,..\..\..\..\..\response_f8d576e5-ac0f-449e-bc9f-3a0db7f3f081\0,..\..\..\..\..\response_f8d576e5-ac0f-449e-bc9f-3a0db7f3f081\0,..\..\..\..\..\response_9d8366de-ca3f-489e-98a6-b7e735c6faf7\0,..\..\..\..\..\response_9d8366de-ca3f-489e-98a6-b7e735c6faf7\tools-1
 
 # VSCode Open Tabs
-dev/debug/debug1.log
+
 
 # Current Time
-6/10/2025, 5:08:03 PM (Europe/Warsaw, UTC+2:00)
+6/10/2025, 9:38:30 PM (Europe/Warsaw, UTC+2:00)
 
 # Current Context Size (Tokens)
 (Not available)
@@ -471,7 +468,7 @@ $0.00
 
 # Current Mode
 <slug>code</slug>
-<name>­čĺ╗ Code</name>
+<name>\U0001f4bb Code</name>
 <model>gemini:models/gemini-2.5-flash-preview-05-20</model>
 <role>You are Roo, a highly skilled software engineer with extensive knowledge in many programming languages, frameworks, design patterns, and best practices.</role>
 <custom_instructions>
@@ -484,30 +481,30 @@ The following additional instructions are provided by the user, and should be fo
 Language Preference:
 You should always speak and think in the "English" (en) language unless the user gives you instructions below to do otherwise.</custom_instructions>
 </environment_details>'
-2025-06-10 17:08:04,436 - src.command_parser - DEBUG - Text after command processing and normalization: ''
-2025-06-10 17:08:04,436 - src.command_parser - DEBUG - Processing text for commands: 'Failure: I did not provide a response.'
-2025-06-10 17:08:04,436 - src.command_parser - DEBUG - Found 0 command matches for text: 'Failure: I did not provide a response.'
-2025-06-10 17:08:04,436 - src.command_parser - DEBUG - Text after command processing and normalization: 'Failure: I did not provide a response.'
-2025-06-10 17:08:04,436 - src.command_parser - DEBUG - Non-command-only message (not starting with prefix) processed. Found: False
-2025-06-10 17:08:04,436 - src.command_parser - DEBUG - Processing text for commands: '<task>
+2025-06-10 21:38:31,163 - src.command_parser - DEBUG - Text after command processing and normalization: ''
+2025-06-10 21:38:31,163 - src.command_parser - DEBUG - Processing text for commands: 'Failure: I did not provide a response.'
+2025-06-10 21:38:31,163 - src.command_parser - DEBUG - Found 0 command matches for text: 'Failure: I did not provide a response.'
+2025-06-10 21:38:31,163 - src.command_parser - DEBUG - Text after command processing and normalization: 'Failure: I did not provide a response.'
+2025-06-10 21:38:31,163 - src.command_parser - DEBUG - Non-command-only message (not starting with prefix) processed. Found: False
+2025-06-10 21:38:31,163 - src.command_parser - DEBUG - Processing text for commands: '<task>
 !/hello
 </task>'
-2025-06-10 17:08:04,436 - src.command_parser - DEBUG - Found 1 command matches for text: '<task>
+2025-06-10 21:38:31,163 - src.command_parser - DEBUG - Found 1 command matches for text: '<task>
 !/hello
 </task>'
-2025-06-10 17:08:04,436 - src.command_parser - DEBUG - Regex match: Full='!/hello', Command='hello', ArgsStr=''
-2025-06-10 17:08:04,436 - src.command_parser - DEBUG - Parsing arguments from string: ''
-2025-06-10 17:08:04,436 - src.command_parser - DEBUG - Argument string is empty, returning empty dict.
-2025-06-10 17:08:04,436 - src.command_parser - DEBUG - Text after command processing and normalization: ' '
-2025-06-10 17:08:04,436 - src.command_parser - DEBUG - Processing text for commands: '<environment_details>
+2025-06-10 21:38:31,164 - src.command_parser - DEBUG - Regex match: Full='!/hello', Command='hello', ArgsStr=''
+2025-06-10 21:38:31,164 - src.command_parser - DEBUG - Parsing arguments from string: ''
+2025-06-10 21:38:31,164 - src.command_parser - DEBUG - Argument string is empty, returning empty dict.
+2025-06-10 21:38:31,164 - src.command_parser - DEBUG - Text after command processing and normalization: ' '
+2025-06-10 21:38:31,164 - src.command_parser - DEBUG - Processing text for commands: '<environment_details>
 # VSCode Visible Files
-dev\debug\debug1.log
+..\..\..\..\..\response_f8d576e5-ac0f-449e-bc9f-3a0db7f3f081\0,..\..\..\..\..\response_f8d576e5-ac0f-449e-bc9f-3a0db7f3f081\0,..\..\..\..\..\response_f8d576e5-ac0f-449e-bc9f-3a0db7f3f081\0,..\..\..\..\..\response_9d8366de-ca3f-489e-98a6-b7e735c6faf7\0,..\..\..\..\..\response_9d8366de-ca3f-489e-98a6-b7e735c6faf7\tools-1
 
 # VSCode Open Tabs
-dev/debug/debug1.log
+
 
 # Current Time
-6/10/2025, 5:08:03 PM (Europe/Warsaw, UTC+2:00)
+6/10/2025, 9:38:29 PM (Europe/Warsaw, UTC+2:00)
 
 # Current Context Size (Tokens)
 (Not available)
@@ -517,7 +514,7 @@ $0.00
 
 # Current Mode
 <slug>code</slug>
-<name>­čĺ╗ Code</name>
+<name>\U0001f4bb Code</name>
 <model>gemini:models/gemini-2.5-flash-preview-05-20</model>
 <role>You are Roo, a highly skilled software engineer with extensive knowledge in many programming languages, frameworks, design patterns, and best practices.</role>
 <custom_instructions>
@@ -573,8 +570,8 @@ dev/
 dev/example_config.json
 dev/test_client.py
 dev/test_config.json
-dev/debug/debug1.log
-docs/
+dev/debug/debug.log
+logs/
 src/
 src/agents.py
 src/command_parser.py
@@ -631,6 +628,7 @@ tests/unit/__init__.py
 tests/unit/test_agent_utils.py
 tests/unit/test_auth.py
 tests/unit/test_cli.py
+tests/unit/test_command_parser.py
 tests/unit/test_config_persistence.py
 tests/unit/test_config.py
 tests/unit/test_failover_routes.py
@@ -656,15 +654,15 @@ tests/unit/proxy_logic_tests/test_parse_arguments.py
 tests/unit/proxy_logic_tests/test_process_commands_in_messages.py
 tests/unit/proxy_logic_tests/test_process_text_for_commands.py
 </environment_details>'
-2025-06-10 17:08:04,436 - src.command_parser - DEBUG - Found 0 command matches for text: '<environment_details>
+2025-06-10 21:38:31,164 - src.command_parser - DEBUG - Found 0 command matches for text: '<environment_details>
 # VSCode Visible Files
-dev\debug\debug1.log
+..\..\..\..\..\response_f8d576e5-ac0f-449e-bc9f-3a0db7f3f081\0,..\..\..\..\..\response_f8d576e5-ac0f-449e-bc9f-3a0db7f3f081\0,..\..\..\..\..\response_f8d576e5-ac0f-449e-bc9f-3a0db7f3f081\0,..\..\..\..\..\response_9d8366de-ca3f-489e-98a6-b7e735c6faf7\0,..\..\..\..\..\response_9d8366de-ca3f-489e-98a6-b7e735c6faf7\tools-1
 
 # VSCode Open Tabs
-dev/debug/debug1.log
+
 
 # Current Time
-6/10/2025, 5:08:03 PM (Europe/Warsaw, UTC+2:00)
+6/10/2025, 9:38:29 PM (Europe/Warsaw, UTC+2:00)
 
 # Current Context Size (Tokens)
 (Not available)
@@ -674,7 +672,7 @@ $0.00
 
 # Current Mode
 <slug>code</slug>
-<name>­čĺ╗ Code</name>
+<name>\U0001f4bb Code</name>
 <model>gemini:models/gemini-2.5-flash-preview-05-20</model>
 <role>You are Roo, a highly skilled software engineer with extensive knowledge in many programming languages, frameworks, design patterns, and best practices.</role>
 <custom_instructions>
@@ -730,8 +728,8 @@ dev/
 dev/example_config.json
 dev/test_client.py
 dev/test_config.json
-dev/debug/debug1.log
-docs/
+dev/debug/debug.log
+logs/
 src/
 src/agents.py
 src/command_parser.py
@@ -788,6 +786,7 @@ tests/unit/__init__.py
 tests/unit/test_agent_utils.py
 tests/unit/test_auth.py
 tests/unit/test_cli.py
+tests/unit/test_command_parser.py
 tests/unit/test_config_persistence.py
 tests/unit/test_config.py
 tests/unit/test_failover_routes.py
@@ -813,29 +812,6 @@ tests/unit/proxy_logic_tests/test_parse_arguments.py
 tests/unit/proxy_logic_tests/test_process_commands_in_messages.py
 tests/unit/proxy_logic_tests/test_process_text_for_commands.py
 </environment_details>'
-2025-06-10 17:08:04,437 - src.command_parser - DEBUG - Text after command processing and normalization: ''
-2025-06-10 17:08:04,437 - src.command_parser - INFO - Commands processed in message index 1 (from end). Role: user. New content: '[MessageContentPartText(type='text', text='')]'
-2025-06-10 17:08:04,437 - src.command_parser - DEBUG - Finished processing messages. Final message count: 4. Commands processed overall: True
-2025-06-10 17:08:04,437 - __main__ - DEBUG - Attempting backend: gemini, model: gemini:models/gemini-2.5-flash-preview-05-20, key_name: GEMINI_API_KEY_1
-2025-06-10 17:08:04,437 - httpcore.connection - DEBUG - close.started
-2025-06-10 17:08:04,437 - httpcore.connection - DEBUG - close.complete
-2025-06-10 17:08:04,437 - httpcore.connection - DEBUG - close.started
-2025-06-10 17:08:04,437 - httpcore.connection - DEBUG - close.complete
-2025-06-10 17:08:04,438 - httpcore.connection - DEBUG - connect_tcp.started host='generativelanguage.googleapis.com' port=443 local_address=None timeout=300 socket_options=None
-2025-06-10 17:08:04,440 - httpcore.connection - DEBUG - connect_tcp.complete return_value=<httpcore._backends.anyio.AnyIOStream object at 0x000001B58C1ECB50>
-2025-06-10 17:08:04,440 - httpcore.connection - DEBUG - start_tls.started ssl_context=<ssl.SSLContext object at 0x000001B58C1242C0> server_hostname='generativelanguage.googleapis.com' timeout=300
-2025-06-10 17:08:04,462 - httpcore.connection - DEBUG - start_tls.complete return_value=<httpcore._backends.anyio.AnyIOStream object at 0x000001B58C197520>
-2025-06-10 17:08:04,462 - httpcore.http11 - DEBUG - send_request_headers.started request=<Request [b'POST']>
-2025-06-10 17:08:04,462 - httpcore.http11 - DEBUG - send_request_headers.complete
-2025-06-10 17:08:04,462 - httpcore.http11 - DEBUG - send_request_body.started request=<Request [b'POST']>
-2025-06-10 17:08:04,462 - httpcore.http11 - DEBUG - send_request_body.complete
-2025-06-10 17:08:04,462 - httpcore.http11 - DEBUG - receive_response_headers.started request=<Request [b'POST']>
-2025-06-10 17:08:05,703 - httpcore.http11 - DEBUG - receive_response_headers.complete return_value=(b'HTTP/1.1', 200, b'OK', [(b'Content-Type', b'application/json; charset=UTF-8'), (b'Vary', b'Origin'), (b'Vary', b'X-Origin'), (b'Vary', b'Referer'), (b'Content-Encoding', b'gzip'), (b'Date', b'Tue, 10 Jun 2025 15:08:05 GMT'), (b'Server', b'scaffolding on HTTPServer2'), (b'X-XSS-Protection', b'0'), (b'X-Frame-Options', b'SAMEORIGIN'), (b'X-Content-Type-Options', b'nosniff'), (b'Server-Timing', b'gfet4t7; dur=1238'), (b'Alt-Svc', b'h3=":443"; ma=2592000,h3-29=":443"; ma=2592000'), (b'Transfer-Encoding', b'chunked')])
-2025-06-10 17:08:05,703 - httpx - INFO - HTTP Request: POST https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-05-20:streamGenerateContent "HTTP/1.1 200 OK"
-2025-06-10 17:08:05,703 - __main__ - DEBUG - Result from Gemini backend chat_completions: <starlette.responses.StreamingResponse object at 0x000001B58C1955D0>
-2025-06-10 17:08:05,703 - __main__ - DEBUG - Attempt successful for backend: gemini, model: gemini:models/gemini-2.5-flash-preview-05-20, key_name: GEMINI_API_KEY_1
-INFO:     127.0.0.1:18293 - "POST /v1/chat/completions HTTP/1.1" 200 OK
-2025-06-10 17:08:05,703 - httpcore.http11 - DEBUG - receive_response_body.started request=<Request [b'POST']>
-2025-06-10 17:08:05,713 - httpcore.http11 - DEBUG - receive_response_body.complete
-2025-06-10 17:08:05,713 - httpcore.http11 - DEBUG - response_closed.started
-2025-06-10 17:08:05,713 - httpcore.http11 - DEBUG - response_closed.complete
+2025-06-10 21:38:31,164 - src.command_parser - DEBUG - Text after command processing and normalization: ''
+2025-06-10 21:38:31,164 - src.command_parser - INFO - Commands processed in message index 1 (from end). Role: user. New content: '[MessageContentPartText(type='text', text='')]'
+2025-06-10 21:38:31,164 - src.command_parser - DEBUG - Finished processing messages. Final message count: 4. Commands processed overall: True
