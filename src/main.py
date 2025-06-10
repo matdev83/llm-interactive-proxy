@@ -79,11 +79,12 @@ def build_app(
         backends_str = ", ".join(sorted(backend_info))
         # E501: Wrapped f-string
         banner_text = (
+            f"<attempt_completion>\n<result>\n"
             f"<thinking>Hello, this is {project_name} {project_version}\n"
             f"Session id: {session_id}\n"
             f"Functional backends: {backends_str}\n"
-            f"Type {cfg['command_prefix']}help for list of available "
-            "commands</thinking>"
+            f"Type {cfg['command_prefix']}help for list of available commands\n"
+            f"</result>\n</attempt_completion>\n"
         )
         return banner_text
 
