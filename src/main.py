@@ -347,7 +347,7 @@ def build_app(
                 r.message for r in parser.results if r.message
             )
 
-        if is_command_only:
+        if commands_processed: # MODIFIED_CONDITION
             pieces = []
             # Pass app_instance to _welcome_banner
             if proxy_state.interactive_mode and show_banner:

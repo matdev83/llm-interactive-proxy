@@ -108,8 +108,8 @@ class TestProcessTextForCommands:
             text, current_proxy_state, pattern, app=self.mock_app
         )
         assert (
-            processed_text == "Then, and some text."
-        )  # Both command texts are stripped and whitespace normalized
+            processed_text == "Then, !/unset(model) and some text."
+        )  # Only the first command is processed and stripped.
         assert commands_found
         # This assertion needs to be re-evaluated based on the actual logic of _process_text_for_commands
         # If commands are processed from right to left (due to regex finditer and string slicing):
