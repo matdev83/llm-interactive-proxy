@@ -628,7 +628,7 @@ def build_app(
         if proxy_state.interactive_mode:
             prefix_parts = []
             if show_banner:
-                pieces.append(_welcome_banner(http_request.app, session_id))
+                prefix_parts.append(_welcome_banner(http_request.app, session_id))
             if confirmation_text:
                 prefix_parts.append(confirmation_text)
             if prefix_parts:

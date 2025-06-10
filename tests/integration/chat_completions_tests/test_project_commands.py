@@ -9,7 +9,11 @@ def test_set_project_command_integration(client: TestClient):
         "model": "some-model",
         "messages": [{"role": "user", "content": "!/set(project=test-project) Hello"}],
     }
-    response = client.post("/v1/chat/completions", json=payload)
+    with patch.object(
+        client.app.state.openrouter_backend, "chat_completions", new_callable=AsyncMock
+    ) as mock_method:
+        mock_method.return_value = {"choices": [{"message": {"content": "ok"}}]}
+        response = client.post("/v1/chat/completions", json=payload)
     assert response.status_code == 200
     session = client.app.state.session_manager.get_session("default")
     assert session.proxy_state.project == "test-project"
@@ -23,7 +27,11 @@ def test_unset_project_command_integration(client: TestClient):
         "model": "some-model",
         "messages": [{"role": "user", "content": "!/unset(project) Settings cleared"}],
     }
-    response = client.post("/v1/chat/completions", json=payload)
+    with patch.object(
+        client.app.state.openrouter_backend, "chat_completions", new_callable=AsyncMock
+    ) as mock_method:
+        mock_method.return_value = {"choices": [{"message": {"content": "ok"}}]}
+        response = client.post("/v1/chat/completions", json=payload)
     assert response.status_code == 200
     assert session.proxy_state.project is None
 
@@ -35,7 +43,11 @@ def test_set_project_name_alias_integration(client: TestClient):
             {"role": "user", "content": "!/set(project-name=alias-project) Query"}
         ],
     }
-    response = client.post("/v1/chat/completions", json=payload)
+    with patch.object(
+        client.app.state.openrouter_backend, "chat_completions", new_callable=AsyncMock
+    ) as mock_method:
+        mock_method.return_value = {"choices": [{"message": {"content": "ok"}}]}
+        response = client.post("/v1/chat/completions", json=payload)
     assert response.status_code == 200
     session = client.app.state.session_manager.get_session("default")
     assert session.proxy_state.project == "alias-project"
@@ -51,7 +63,11 @@ def test_unset_project_name_alias_integration(client: TestClient):
             {"role": "user", "content": "!/unset(project-name) Settings reset"}
         ],
     }
-    response = client.post("/v1/chat/completions", json=payload)
+    with patch.object(
+        client.app.state.openrouter_backend, "chat_completions", new_callable=AsyncMock
+    ) as mock_method:
+        mock_method.return_value = {"choices": [{"message": {"content": "ok"}}]}
+        response = client.post("/v1/chat/completions", json=payload)
     assert response.status_code == 200
     assert session.proxy_state.project is None
 

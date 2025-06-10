@@ -1,6 +1,7 @@
 import os
 
 import pytest
+from fastapi.testclient import TestClient # Add import
 
 from src.constants import DEFAULT_COMMAND_PREFIX # Removed DEFAULT_PROXY_TIMEOUT
 from src.core.cli import apply_cli_args, parse_cli_args
@@ -130,11 +131,10 @@ def test_build_app_uses_env(monkeypatch):
     monkeypatch.setenv("GEMINI_API_KEY", "KEY")
     monkeypatch.setenv("COMMAND_PREFIX", "??/")
     app = app_main_build_app()
-    # from fastapi.testclient import TestClient # Import moved, client not used
-    # with TestClient(app, headers={"Authorization": "Bearer test-proxy-key"}) as client: # F841
-    assert app.state.backend_type == "gemini"
-    assert hasattr(app.state, "gemini_backend")
-    assert app.state.command_prefix == "??/"
+    with TestClient(app): # Ensure lifespan runs
+        assert app.state.backend_type == "gemini"
+        assert hasattr(app.state, "gemini_backend")
+        assert app.state.command_prefix == "??/"
     monkeypatch.delenv("COMMAND_PREFIX", raising=False)
 
 
@@ -145,10 +145,9 @@ def test_build_app_uses_interactive_env(monkeypatch):
     monkeypatch.delenv("DISABLE_INTERACTIVE_MODE", raising=False)
     monkeypatch.setenv("LLM_BACKEND", "openrouter")
     app = app_main_build_app()
-    # from fastapi.testclient import TestClient # Import moved, client not used
-    # with TestClient(app, headers={"Authorization": "Bearer test-proxy-key"}) as client: # F841
-    session = app.state.session_manager.get_session("s1")
-    assert session.proxy_state.interactive_mode is True
+    with TestClient(app): # Ensure lifespan runs
+        session = app.state.session_manager.get_session("s1")
+        assert session.proxy_state.interactive_mode is True
 
 
 def test_default_command_prefix_from_env(monkeypatch):

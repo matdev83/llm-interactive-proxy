@@ -158,12 +158,12 @@ def mock_model_discovery():
         patch.object(
             OpenRouterBackend,
             "list_models",
-            new=AsyncMock(return_value={"data": [{"id": "m1"}, {"id": "m2"}]}),
+            new=AsyncMock(return_value={"data": [{"id": "m1"}, {"id": "m2"}, {"id": "model-a"}]}),
         ),
         patch.object(
             GeminiBackend,
             "list_models",
-            new=AsyncMock(return_value={"models": [{"name": "g1"}]}),
+            new=AsyncMock(return_value={"models": [{"name": "g1"}, {"name": "model-a"}]}),
         ),
         # patch.object(
         #     OpenRouterBackend, "get_available_models", return_value=["m1", "m2"]
@@ -224,6 +224,8 @@ def clean_env(monkeypatch):
     for i in range(1, 21):
         monkeypatch.delenv(f"GEMINI_API_KEY_{i}", raising=False)
         monkeypatch.delenv(f"OPENROUTER_API_KEY_{i}", raising=False)
+    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+    monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
 
 
 @pytest.fixture(autouse=True)

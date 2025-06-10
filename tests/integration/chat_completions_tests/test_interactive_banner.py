@@ -18,8 +18,8 @@ def test_banner_on_first_reply(interactive_client):
     assert "Hello, this is" in content
     assert "Session id" in content
     assert "Functional backends:" in content
-    assert "openrouter (K:2, M:2)" in content
-    assert "gemini (K:1, M:1)" in content
+    assert "openrouter (K:2, M:3)" in content
+    assert "gemini (K:1, M:2)" in content
     assert "backend" in content
     mock_method.assert_called_once()
 
@@ -39,5 +39,5 @@ def test_hello_command_returns_banner(interactive_client):
     content = data["choices"][0]["message"]["content"]
     assert "Hello, this is" in content
     assert "Functional backends:" in content
-    assert "openrouter (K:2, M:2)" in content
-    assert "gemini (K:1, M:1)" in content
+    assert "openrouter (K:2, M:3)" in content
+    assert "gemini (K:1, M:2)" in content
