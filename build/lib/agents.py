@@ -1,5 +1,5 @@
 import re
-from typing import Optional
+from typing import Optional, List
 
 
 def detect_agent(prompt: str) -> Optional[str]:
@@ -14,10 +14,13 @@ def detect_agent(prompt: str) -> Optional[str]:
 
 
 def wrap_proxy_message(agent: Optional[str], text: str) -> str:
-    if not text:
+    if not text: # Keep this check
         return text
-    if agent in {"cline", "roocode"}:
-        return f"[Proxy Result]\n\n{text}"
+
+    # The Cline/RooCode block is removed.
+    # if agent in {"cline", "roocode"}:
+    #     return f"[Proxy Result]\n\n{text}"
+
     if agent == "aider":
         lines = text.splitlines()
         patch = ["*** Begin Patch", "*** Add File: PROXY_OUTPUT.txt"]
@@ -25,3 +28,17 @@ def wrap_proxy_message(agent: Optional[str], text: str) -> str:
         patch.append("*** End Patch")
         return "\n".join(patch)
     return text
+
+
+def format_command_response_for_agent(content_lines: List[str], agent: Optional[str]) -> str:
+    joined_content = "\n".join(content_lines)
+
+    if agent in {"cline", "roocode"}:
+        # Ensure the XML structure and newlines match the target format precisely
+        return (
+            f"<attempt_completion>\n<result>\n"
+            f"<thinking>{joined_content}\n</thinking>\n"
+            f"</result>\n</attempt_completion>\n"
+        )
+    else:
+        return joined_content
