@@ -7,10 +7,11 @@ import sys
 import time
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
-from typing import Any, Dict, Union
+from typing import Any, Dict, Union, AsyncIterator
 
 # Moved imports to the top (E402 fix)
-import httpx # json is used for logging, will keep
+import httpx
+import json
 from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.responses import StreamingResponse
 
@@ -89,7 +90,9 @@ def build_app(
         return banner_text
 
     @asynccontextmanager
-    async def lifespan(app_param: FastAPI): # Renamed 'app' to 'app_param' to avoid confusion
+    async def lifespan(
+        app_param: FastAPI,
+    ):  # Renamed 'app' to 'app_param' to avoid confusion
         nonlocal functional
 
         client_httpx = httpx.AsyncClient(timeout=cfg["proxy_timeout"])
@@ -154,9 +157,7 @@ def build_app(
         backend_type = cfg.get("backend")
         if backend_type:
             if functional and backend_type not in functional:
-                raise ValueError(
-                    f"default backend {backend_type} is not functional"
-                )
+                raise ValueError(f"default backend {backend_type} is not functional")
         else:
             if len(functional) == 1:
                 backend_type = next(iter(functional))
@@ -236,7 +237,8 @@ def build_app(
             elif isinstance(first.content, list):
                 # E501: Wrapped list comprehension
                 text = " ".join(
-                    p.text for p in first.content
+                    p.text
+                    for p in first.content
                     if isinstance(p, models.MessageContentPartText)
                 )
             else:
@@ -257,7 +259,7 @@ def build_app(
                 }
                 raise HTTPException(status_code=400, detail=detail_msg)
             if current_backend_type not in {"openrouter", "gemini"}:
-                 raise HTTPException(
+                raise HTTPException(
                     status_code=400, detail=f"unknown backend {current_backend_type}"
                 )
 
@@ -283,14 +285,16 @@ def build_app(
                     "object": "chat.completion",
                     "created": int(time.time()),
                     "model": request_data.model,
-                    "choices": [{
-                        "index": 0,
-                        "message": {
-                            "role": "assistant",
-                            "content": "; ".join(error_messages),
-                        },
-                        "finish_reason": "error",
-                    }],
+                    "choices": [
+                        {
+                            "index": 0,
+                            "message": {
+                                "role": "assistant",
+                                "content": "; ".join(error_messages),
+                            },
+                            "finish_reason": "error",
+                        }
+                    ],
                     "usage": {
                         "prompt_tokens": 0,
                         "completion_tokens": 0,
@@ -338,7 +342,8 @@ def build_app(
                 elif isinstance(last_msg.content, list):
                     # E501: Wrapped comprehension
                     is_command_only = not any(
-                        part.text.strip() for part in last_msg.content
+                        part.text.strip()
+                        for part in last_msg.content
                         if isinstance(part, models.MessageContentPartText)
                     )
 
@@ -371,20 +376,49 @@ def build_app(
             )
             proxy_state.hello_requested = False
             proxy_state.interactive_just_enabled = False
+            if request_data.stream:
+
+                async def stream_gen() -> AsyncIterator[bytes]:
+                    chunk = {
+                        "id": "proxy_cmd_processed",
+                        "object": "chat.completion.chunk",
+                        "created": int(datetime.now(timezone.utc).timestamp()),
+                        "model": proxy_state.get_effective_model(request_data.model),
+                        "choices": [
+                            {
+                                "index": 0,
+                                "delta": {
+                                    "role": "assistant",
+                                    "content": response_text,
+                                },
+                                "finish_reason": "stop",
+                            }
+                        ],
+                    }
+                    yield f"data: {json.dumps(chunk)}\n\n".encode("utf-8")
+                    yield b"data: [DONE]\n\n"
+
+                return StreamingResponse(stream_gen(), media_type="text/event-stream")
+
             return models.CommandProcessedChatCompletionResponse(
                 id="proxy_cmd_processed",
                 object="chat.completion",
                 created=int(datetime.now(timezone.utc).timestamp()),
                 model=proxy_state.get_effective_model(request_data.model),
-                choices=[models.ChatCompletionChoice(
-                    index=0,
-                    message=models.ChatCompletionChoiceMessage(
-                        role="assistant", content=response_text,
-                    ),
-                    finish_reason="stop",
-                )],
+                choices=[
+                    models.ChatCompletionChoice(
+                        index=0,
+                        message=models.ChatCompletionChoiceMessage(
+                            role="assistant",
+                            content=response_text,
+                        ),
+                        finish_reason="stop",
+                    )
+                ],
                 usage=models.CompletionUsage(
-                    prompt_tokens=0, completion_tokens=0, total_tokens=0
+                    prompt_tokens=0,
+                    completion_tokens=0,
+                    total_tokens=0,
                 ),
             )
 
@@ -456,7 +490,7 @@ def build_app(
                 "openrouter", model_str, key_name_str
             )
             if retry_at:
-                detail_dict = { # E501
+                detail_dict = {  # E501
                     "message": "Backend rate limited, retry later",
                     "retry_after": int(retry_at - time.time()),
                 }
@@ -584,23 +618,31 @@ def build_app(
                     continue
                 raise
         if not success:
-            error_msg_detail = last_error.detail if last_error else "all backends failed"
-            status_code_to_return = (
-                last_error.status_code if last_error else 500
+            error_msg_detail = (
+                last_error.detail if last_error else "all backends failed"
             )
+            status_code_to_return = last_error.status_code if last_error else 500
             # E501: Wrapped dict
             response_content = {
-                "id": "error", "object": "chat.completion",
-                "created": int(time.time()), "model": effective_model,
-                "choices": [{
-                    "index": 0,
-                    "message": {
-                        "role": "assistant",
-                        "content": f"All backends failed: {error_msg_detail}"
-                    },
-                    "finish_reason": "error"
-                }],
-                "usage": {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},
+                "id": "error",
+                "object": "chat.completion",
+                "created": int(time.time()),
+                "model": effective_model,
+                "choices": [
+                    {
+                        "index": 0,
+                        "message": {
+                            "role": "assistant",
+                            "content": f"All backends failed: {error_msg_detail}",
+                        },
+                        "finish_reason": "error",
+                    }
+                ],
+                "usage": {
+                    "prompt_tokens": 0,
+                    "completion_tokens": 0,
+                    "total_tokens": 0,
+                },
                 "error": error_msg_detail,
             }
             raise HTTPException(
@@ -610,19 +652,28 @@ def build_app(
         if isinstance(response_from_backend, StreamingResponse):
             session.add_interaction(
                 SessionInteraction(
-                    prompt=raw_prompt, handler="backend", backend=used_backend,
-                    model=used_model, project=proxy_state.project,
+                    prompt=raw_prompt,
+                    handler="backend",
+                    backend=used_backend,
+                    model=used_model,
+                    project=proxy_state.project,
                     parameters=request_data.model_dump(exclude_unset=True),
                     response="<streaming>",
                 )
             )
             return response_from_backend
 
-        backend_response_dict: Dict[str, Any] = response_from_backend if isinstance(response_from_backend, dict) else {}
+        backend_response_dict: Dict[str, Any] = (
+            response_from_backend if isinstance(response_from_backend, dict) else {}
+        )
 
         if "choices" not in backend_response_dict:
             backend_response_dict["choices"] = [
-                {"index": 0, "message": {"role": "assistant", "content": "(no response)"}, "finish_reason": "error"}
+                {
+                    "index": 0,
+                    "message": {"role": "assistant", "content": "(no response)"},
+                    "finish_reason": "error",
+                }
             ]
 
         if proxy_state.interactive_mode:
@@ -632,7 +683,9 @@ def build_app(
             if confirmation_text:
                 prefix_parts.append(confirmation_text)
             if prefix_parts:
-                prefix_text_str = wrap_proxy_message(session.agent, "\n".join(prefix_parts))
+                prefix_text_str = wrap_proxy_message(
+                    session.agent, "\n".join(prefix_parts)
+                )
                 orig_content = (
                     backend_response_dict.get("choices", [{}])[0]
                     .get("message", {})
@@ -640,21 +693,27 @@ def build_app(
                 )
                 # E501: Wrapped assignment
                 backend_response_dict["choices"][0]["message"]["content"] = (
-                    f"{prefix_text_str}\n{orig_content}" if orig_content
+                    f"{prefix_text_str}\n{orig_content}"
+                    if orig_content
                     else prefix_text_str
                 )
 
         usage_data = backend_response_dict.get("usage")
         session.add_interaction(
             SessionInteraction(
-                prompt=raw_prompt, handler="backend", backend=used_backend,
-                model=used_model, project=proxy_state.project,
+                prompt=raw_prompt,
+                handler="backend",
+                backend=used_backend,
+                model=used_model,
+                project=proxy_state.project,
                 parameters=request_data.model_dump(exclude_unset=True),
                 response=backend_response_dict.get("choices", [{}])[0]
-                .get("message", {}).get("content"),
+                .get("message", {})
+                .get("content"),
                 usage=(
                     models.CompletionUsage(**usage_data)
-                    if isinstance(usage_data, dict) else None
+                    if isinstance(usage_data, dict)
+                    else None
                 ),
             )
         )
@@ -685,6 +744,7 @@ def build_app(
         return {"object": "list", "data": data}
 
     return app_instance
+
 
 if __name__ != "__main__":
     app = build_app()
