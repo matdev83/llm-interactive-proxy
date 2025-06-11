@@ -63,29 +63,38 @@ def build_app(
     # by _welcome_banner if it's not shadowed.
     # The cleanest is to pass app to _welcome_banner.
 
-    def _welcome_banner(current_app: FastAPI, session_id: str) -> str:
+    def _welcome_banner(session_agent: Optional[str], current_app: FastAPI, session_id: str) -> str:
+        project_name = current_app.state.project_metadata["name"]
+        project_version = current_app.state.project_metadata["version"]
         backend_info = []
-        if "openrouter" in functional:
+        # Use current_app.state.functional_backends instead of 'functional' from closure
+        if "openrouter" in current_app.state.functional_backends:
             keys = len(cfg.get("openrouter_api_keys", {}))
-            # Use current_app passed as argument
             models_list = current_app.state.openrouter_backend.get_available_models()
             models_count = len(models_list)
             backend_info.append(f"openrouter (K:{keys}, M:{models_count})")
-        if "gemini" in functional:
+        if "gemini" in current_app.state.functional_backends:
             keys = len(cfg.get("gemini_api_keys", {}))
+            # Ensure gemini_backend is accessed via current_app.state
             models_list = current_app.state.gemini_backend.get_available_models()
             models_count = len(models_list)
             backend_info.append(f"gemini (K:{keys}, M:{models_count})")
         backends_str = ", ".join(sorted(backend_info))
-        # E501: Wrapped f-string
-        banner_text = (
-            f"<thinking>Hello, this is {project_name} {project_version}\n"
-            f"Session id: {session_id}\n"
-            f"Functional backends: {backends_str}\n"
-            f"Type {cfg['command_prefix']}help for list of available "
-            "commands</thinking>"
-        )
-        return banner_text
+        banner_lines = [
+            f"Hello, this is {project_name} {project_version}",
+            f"Session id: {session_id}",
+            f"Functional backends: {backends_str}",
+            f"Type {cfg['command_prefix']}help for list of available commands"
+        ]
+        if session_agent in {"cline", "roocode"}:
+            return "\n".join(banner_lines)
+        else:
+            thinking_content = "\n".join(banner_lines)
+            return (
+                f"<attempt_completion>\n<result>\n"
+                f"<thinking>{thinking_content}\n</thinking>\n"
+                f"</result>\n</attempt_completion>\n"
+            )
 
     @asynccontextmanager
     async def lifespan(app_param: FastAPI): # Renamed 'app' to 'app_param' to avoid confusion
@@ -197,6 +206,7 @@ def build_app(
         await client_httpx.aclose()
 
     app_instance = FastAPI(lifespan=lifespan)
+    app_instance.state.project_metadata = {"name": project_name, "version": project_version}
     app_instance.state.client_api_key = api_key
     app_instance.state.disable_auth = disable_auth
 
@@ -351,9 +361,9 @@ def build_app(
             pieces = []
             # Pass app_instance to _welcome_banner
             if proxy_state.interactive_mode and show_banner:
-                pieces.append(_welcome_banner(http_request.app, session_id))
+                pieces.append(_welcome_banner(session.agent, http_request.app, session_id))
             elif show_banner:
-                pieces.append(_welcome_banner(http_request.app, session_id))
+                pieces.append(_welcome_banner(session.agent, http_request.app, session_id))
             if confirmation_text:
                 pieces.append(confirmation_text)
             if not pieces:
@@ -627,7 +637,7 @@ def build_app(
         if proxy_state.interactive_mode:
             prefix_parts = []
             if show_banner:
-                prefix_parts.append(_welcome_banner(http_request.app, session_id))
+                prefix_parts.append(_welcome_banner(session.agent, http_request.app, session_id))
             if confirmation_text:
                 prefix_parts.append(confirmation_text)
             if prefix_parts:

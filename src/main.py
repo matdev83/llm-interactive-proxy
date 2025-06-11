@@ -15,7 +15,7 @@ from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.responses import StreamingResponse
 
 from src import models
-from src.agents import detect_agent, wrap_proxy_message
+from src.agents import detect_agent, wrap_proxy_message, format_command_response_for_agent
 from src.command_parser import CommandParser
 from src.connectors import GeminiBackend, OpenRouterBackend
 from src.core.config import _keys_for, _load_config, get_openrouter_headers
@@ -64,29 +64,29 @@ def build_app(
     # The cleanest is to pass app to _welcome_banner.
 
     def _welcome_banner(current_app: FastAPI, session_id: str) -> str:
+        project_name = current_app.state.project_metadata["name"]
+        project_version = current_app.state.project_metadata["version"]
         backend_info = []
-        if "openrouter" in functional:
+        # Use current_app.state.functional_backends instead of 'functional' from closure
+        if "openrouter" in current_app.state.functional_backends:
             keys = len(cfg.get("openrouter_api_keys", {}))
-            # Use current_app passed as argument
             models_list = current_app.state.openrouter_backend.get_available_models()
             models_count = len(models_list)
             backend_info.append(f"openrouter (K:{keys}, M:{models_count})")
-        if "gemini" in functional:
+        if "gemini" in current_app.state.functional_backends:
             keys = len(cfg.get("gemini_api_keys", {}))
+            # Ensure gemini_backend is accessed via current_app.state
             models_list = current_app.state.gemini_backend.get_available_models()
             models_count = len(models_list)
             backend_info.append(f"gemini (K:{keys}, M:{models_count})")
         backends_str = ", ".join(sorted(backend_info))
-        # E501: Wrapped f-string
-        banner_text = (
-            f"<attempt_completion>\n<result>\n"
-            f"<thinking>Hello, this is {project_name} {project_version}\n"
-            f"Session id: {session_id}\n"
-            f"Functional backends: {backends_str}\n"
-            f"Type {cfg['command_prefix']}help for list of available commands\n"
-            f"</result>\n</attempt_completion>\n"
-        )
-        return banner_text
+        banner_lines = [
+            f"Hello, this is {project_name} {project_version}",
+            f"Session id: {session_id}",
+            f"Functional backends: {backends_str}",
+            f"Type {cfg['command_prefix']}help for list of available commands"
+        ]
+        return "\n".join(banner_lines)
 
     @asynccontextmanager
     async def lifespan(app_param: FastAPI): # Renamed 'app' to 'app_param' to avoid confusion
@@ -198,6 +198,7 @@ def build_app(
         await client_httpx.aclose()
 
     app_instance = FastAPI(lifespan=lifespan)
+    app_instance.state.project_metadata = {"name": project_name, "version": project_version}
     app_instance.state.client_api_key = api_key
     app_instance.state.disable_auth = disable_auth
 
@@ -349,17 +350,25 @@ def build_app(
             )
 
         if commands_processed:
-            pieces = []
-            # Pass app_instance to _welcome_banner
+            content_lines_for_agent = []
             if proxy_state.interactive_mode and show_banner:
-                pieces.append(_welcome_banner(http_request.app, session_id))
-            elif show_banner:
-                pieces.append(_welcome_banner(http_request.app, session_id))
+                banner_content = _welcome_banner(http_request.app, session_id)
+                content_lines_for_agent.extend(banner_content.splitlines())
+            elif show_banner: # This condition might need review, but keeping its logic.
+                banner_content = _welcome_banner(http_request.app, session_id)
+                content_lines_for_agent.extend(banner_content.splitlines())
+
             if confirmation_text:
-                pieces.append(confirmation_text)
-            if not pieces:
-                pieces.append("Proxy command processed. No query sent to LLM.")
-            response_text = wrap_proxy_message(session.agent, "\n".join(pieces))
+                content_lines_for_agent.extend(confirmation_text.splitlines())
+
+            if not content_lines_for_agent:
+                content_lines_for_agent = ["Proxy command processed. No query sent to LLM."]
+
+            formatted_agent_response = format_command_response_for_agent(content_lines_for_agent, session.agent)
+            response_text = wrap_proxy_message(session.agent, formatted_agent_response)
+
+            # The rest of the block (session.add_interaction, return models.CommandProcessedChatCompletionResponse)
+            # uses this final response_text.
             session.add_interaction(
                 SessionInteraction(
                     prompt=raw_prompt,
