@@ -20,7 +20,8 @@ def _check_privileges() -> None:
             import ctypes
 
             if ctypes.windll.shell32.IsUserAnAdmin() != 0:
-                raise SystemExit("Refusing to run with administrative privileges")
+                raise SystemExit(
+                    "Refusing to run with administrative privileges")
         except Exception:
             pass
 

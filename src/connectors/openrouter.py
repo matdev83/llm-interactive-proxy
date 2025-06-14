@@ -133,7 +133,8 @@ class OpenRouterBackend(LLMBackend):
                                 yield chunk
                             logger.debug("OpenRouter stream finished.")
                     except httpx.HTTPStatusError as e_stream:
-                        logger.info("Caught httpx.HTTPStatusError in stream_generator")
+                        logger.info(
+                            "Caught httpx.HTTPStatusError in stream_generator")
                         try:
                             body_text = (await e_stream.response.aread()).decode(
                                 "utf-8"
@@ -156,9 +157,10 @@ class OpenRouterBackend(LLMBackend):
                         )
                     except Exception as e_gen:
                         logger.error(
-                            f"Error in stream generator: {e_gen}", exc_info=True
-                        )
-                        # For unexpected errors in generator, raise HTTPException
+                            f"Error in stream generator: {e_gen}",
+                            exc_info=True)
+                        # For unexpected errors in generator, raise
+                        # HTTPException
                         raise HTTPException(
                             status_code=500,
                             detail={
@@ -183,7 +185,8 @@ class OpenRouterBackend(LLMBackend):
                     f"OpenRouter non-stream response status: {response.status_code}"
                 )
 
-                # Manual status code check for compatibility with pytest_httpx mocks
+                # Manual status code check for compatibility with pytest_httpx
+                # mocks
                 if response.status_code >= 400:
                     try:
                         error_detail = response.json()
@@ -208,7 +211,9 @@ class OpenRouterBackend(LLMBackend):
                 error_detail = e.response.json()
             except json.JSONDecodeError:
                 error_detail = e.response.text
-            raise HTTPException(status_code=e.response.status_code, detail=error_detail)
+            raise HTTPException(
+                status_code=e.response.status_code,
+                detail=error_detail)
         except httpx.RequestError as e:
             logger.error(
                 f"Request error connecting to OpenRouter: {type(e).__name__} - {str(e)}",
@@ -254,7 +259,9 @@ class OpenRouterBackend(LLMBackend):
                 error_detail = e.response.json()
             except json.JSONDecodeError:
                 error_detail = e.response.text
-            raise HTTPException(status_code=e.response.status_code, detail=error_detail)
+            raise HTTPException(
+                status_code=e.response.status_code,
+                detail=error_detail)
         except httpx.RequestError as e:
             logger.error(
                 f"Request error connecting to OpenRouter: {type(e).__name__} - {str(e)}",

@@ -12,11 +12,16 @@ class RateLimitRegistry:
         self._until: Dict[Tuple[str, str, str], float] = {}
 
     def set(
-        self, backend: str, model: str | None, key_name: str, delay_seconds: float
-    ) -> None:
-        self._until[(backend, model or "", key_name)] = time.time() + delay_seconds
+            self,
+            backend: str,
+            model: str | None,
+            key_name: str,
+            delay_seconds: float) -> None:
+        self._until[(backend, model or "", key_name)
+                    ] = time.time() + delay_seconds
 
-    def get(self, backend: str, model: str | None, key_name: str) -> Optional[float]:
+    def get(self, backend: str, model: str | None,
+            key_name: str) -> Optional[float]:
         key = (backend, model or "", key_name)
         ts = self._until.get(key)
         if ts is None:

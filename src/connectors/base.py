@@ -5,7 +5,8 @@ import abc
 # Assuming ChatCompletionRequest is defined in models.py or a similar location
 # from ...models import ChatCompletionRequest # Placeholder if models is outside src
 # For now, let's assume ChatCompletionRequest will be imported where it's used or defined later.
-# To make this file runnable standalone for now, we can use a forward reference or Any.
+# To make this file runnable standalone for now, we can use a forward
+# reference or Any.
 from typing import TYPE_CHECKING, Any, Callable, Dict, Union
 
 # import httpx # F401: Removed
@@ -30,7 +31,8 @@ class LLMBackend(abc.ABC):
         request_data: "ChatCompletionRequest",
         processed_messages: list,  # Messages after command processing
         effective_model: str,  # Model after considering override
-        openrouter_api_base_url: str,  # This might need to be more generic if we have more backends
+        # This might need to be more generic if we have more backends
+        openrouter_api_base_url: str,
         openrouter_headers_provider: Callable[
             [str, str], Dict[str, str]
         ],  # Same as above
