@@ -14,7 +14,8 @@ class MessageContentPartText(BaseModel):
 class ImageURL(BaseModel):
     """Specifies the URL and optional detail for an image in a multimodal message."""
 
-    url: str  # Should be a data URI (e.g., "data:image/jpeg;base64,...") or public URL
+    # Should be a data URI (e.g., "data:image/jpeg;base64,...") or public URL
+    url: str
     detail: Optional[str] = Field(None, examples=["auto", "low", "high"])
 
 
@@ -41,7 +42,8 @@ class ChatMessage(BaseModel):
     content: Union[str, List[MessageContentPart]]
     name: Optional[str] = None
     # tool_calls: Optional[List[Any]] = None # Future extension for tool/function calling
-    # tool_call_id: Optional[str] = None   # Future extension for tool/function calling
+    # tool_call_id: Optional[str] = None   # Future extension for
+    # tool/function calling
 
 
 class ChatCompletionRequest(BaseModel):
@@ -91,7 +93,8 @@ class ChatCompletionRequest(BaseModel):
         description="A unique identifier representing your end-user, which can help OpenAI monitor and detect abuse.",
     )
     extra_params: Optional[Dict[str, Any]] = None
-    # Add other OpenAI parameters as needed, e.g., functions, tool_choice, tools
+    # Add other OpenAI parameters as needed, e.g., functions, tool_choice,
+    # tools
 
 
 class ChatCompletionChoiceMessage(BaseModel):

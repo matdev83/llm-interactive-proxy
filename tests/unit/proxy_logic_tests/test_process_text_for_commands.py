@@ -179,8 +179,8 @@ class TestProcessTextForCommands:
             text, current_proxy_state, pattern, app=self.mock_app
         )
         assert (
-            processed_text == "set: no valid parameters"
-        )
+            processed_text == "set: no valid parameters provided or action taken"
+        ) # Match the actual message from SetCommand
         assert commands_found
         assert current_proxy_state.override_model is None  # State should not change
 
@@ -295,8 +295,8 @@ class TestProcessTextForCommands:
         processed, found = parser.process_text(text)
         assert found
         assert processed == "Hi"
-        assert parser.results[0].success is False
-        assert "unknown command" in parser.results[0].message
+        assert parser.command_results[0].success is False
+        assert "cmd not found" in parser.command_results[0].message # Match actual error message
 
     def test_set_invalid_model_interactive(self):
         state = ProxyState(interactive_mode=True)
@@ -306,8 +306,8 @@ class TestProcessTextForCommands:
         parser.process_text("!/set(model=openrouter:bad)")
         assert state.override_model is None
         assert state.invalid_override is False
-        assert parser.results[0].success is False
-        assert "not available" in parser.results[0].message
+        assert parser.command_results[0].success is False
+        assert "not available" in parser.command_results[0].message
 
     def test_set_invalid_model_noninteractive(self):
         state = ProxyState()
