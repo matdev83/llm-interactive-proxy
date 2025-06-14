@@ -36,7 +36,8 @@ class BaseCommand:
         self.app = app
         self.functional_backends = functional_backends or set()
 
-    def execute(self, args: Dict[str, Any], state: "ProxyState") -> CommandResult:
+    def execute(self, args: Dict[str, Any],
+                state: "ProxyState") -> CommandResult:
         raise NotImplementedError
 
 
