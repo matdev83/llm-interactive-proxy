@@ -16,7 +16,7 @@ def test_unknown_command_error(interactive_client):
     assert resp.status_code == 200
     data = resp.json()
     assert data["id"] == "proxy_cmd_processed"
-    assert "unknown command" in data["choices"][0]["message"]["content"].lower()
+    assert "cmd not found" in data["choices"][0]["message"]["content"].lower()
 
 
 @patch('src.connectors.OpenRouterBackend.chat_completions', new_callable=AsyncMock)

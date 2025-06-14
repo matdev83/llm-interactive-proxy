@@ -15,38 +15,50 @@ from src.main import build_app  # Import build_app
 # Preserve original Gemini API key for integration tests
 ORIG_GEMINI_KEY = os.environ.get("GEMINI_API_KEY_1")
 
-@pytest.fixture(
-    scope="session"
-)
+def _clear_specific_api_key_env_vars():
+    """Clears common API key environment variables used in tests."""
+    # Clear general keys
+    os.environ.pop("OPENROUTER_API_KEY", None)
+    os.environ.pop("GEMINI_API_KEY", None)
+    # Clear numbered keys
+    for i in range(1, 21):
+        os.environ.pop(f"OPENROUTER_API_KEY_{i}", None)
+        os.environ.pop(f"GEMINI_API_KEY_{i}", None)
+
+def _set_env_vars(vars_to_set: dict) -> dict:
+    """Sets environment variables and returns their original values for teardown."""
+    original_values = {}
+    for k, v in vars_to_set.items():
+        original_values[k] = os.environ.get(k)
+        os.environ[k] = v
+    return original_values
+
+def _restore_env_vars(original_values: dict):
+    """Restores environment variables to their original state."""
+    for k, v_orig in original_values.items():
+        if v_orig is None:
+            os.environ.pop(k, None)
+        else:
+            os.environ[k] = v_orig
+
+@pytest.fixture(scope="session")
 def configured_app():
     """Fixture to provide a FastAPI app with configured backends for testing."""
-    if "OPENROUTER_API_KEY" in os.environ:
-        del os.environ["OPENROUTER_API_KEY"]
-    if "GEMINI_API_KEY" in os.environ:
-        del os.environ["GEMINI_API_KEY"]
-    for i in range(1, 21):
-        if f"OPENROUTER_API_KEY_{i}" in os.environ:
-            del os.environ[f"OPENROUTER_API_KEY_{i}"]
-        if f"GEMINI_API_KEY_{i}" in os.environ:
-            del os.environ[f"GEMINI_API_KEY_{i}"]
+    _clear_specific_api_key_env_vars()
 
-    os.environ["OPENROUTER_API_KEY_1"] = "dummy-openrouter-key-1"
-    os.environ["OPENROUTER_API_KEY_2"] = "dummy-openrouter-key-2"
-    os.environ["GEMINI_API_KEY"] = "dummy-gemini-key"
-    os.environ["LLM_INTERACTIVE_PROXY_API_KEY"] = "test-proxy-key"
-    os.environ["LLM_BACKEND"] = "openrouter"
+    vars_to_set_for_test = {
+        "OPENROUTER_API_KEY_1": "dummy-openrouter-key-1",
+        "OPENROUTER_API_KEY_2": "dummy-openrouter-key-2",
+        "GEMINI_API_KEY": "dummy-gemini-key",
+        "LLM_INTERACTIVE_PROXY_API_KEY": "test-proxy-key",
+        "LLM_BACKEND": "openrouter",
+    }
+    original_env = _set_env_vars(vars_to_set_for_test)
+
     app = build_app()
     yield app
-    if "OPENROUTER_API_KEY_1" in os.environ:
-        del os.environ["OPENROUTER_API_KEY_1"]
-    if "OPENROUTER_API_KEY_2" in os.environ:
-        del os.environ["OPENROUTER_API_KEY_2"]
-    if "GEMINI_API_KEY" in os.environ:
-        del os.environ["GEMINI_API_KEY"]
-    if "LLM_INTERACTIVE_PROXY_API_KEY" in os.environ:
-        del os.environ["LLM_INTERACTIVE_PROXY_API_KEY"]
-    if "LLM_BACKEND" in os.environ:
-        del os.environ["LLM_BACKEND"]
+
+    _restore_env_vars(original_env)
 
 
 @pytest.fixture
@@ -68,36 +80,22 @@ def client(configured_app):
 @pytest.fixture(scope="session")
 def configured_interactive_app():
     """Fixture to provide a FastAPI app configured for interactive mode."""
-    if "OPENROUTER_API_KEY" in os.environ:
-        del os.environ["OPENROUTER_API_KEY"]
-    if "GEMINI_API_KEY" in os.environ:
-        del os.environ["GEMINI_API_KEY"]
-    for i in range(1, 21):
-        if f"OPENROUTER_API_KEY_{i}" in os.environ:
-            del os.environ[f"OPENROUTER_API_KEY_{i}"]
-        if f"GEMINI_API_KEY_{i}" in os.environ:
-            del os.environ[f"GEMINI_API_KEY_{i}"]
+    _clear_specific_api_key_env_vars()
 
-    os.environ["OPENROUTER_API_KEY_1"] = "dummy-openrouter-key-1"
-    os.environ["OPENROUTER_API_KEY_2"] = "dummy-openrouter-key-2"
-    os.environ["GEMINI_API_KEY"] = "dummy-gemini-key"
-    os.environ["DISABLE_INTERACTIVE_MODE"] = "false"
-    os.environ["LLM_INTERACTIVE_PROXY_API_KEY"] = "test-proxy-key"
-    os.environ["LLM_BACKEND"] = "openrouter"
+    vars_to_set_for_test = {
+        "OPENROUTER_API_KEY_1": "dummy-openrouter-key-1",
+        "OPENROUTER_API_KEY_2": "dummy-openrouter-key-2",
+        "GEMINI_API_KEY": "dummy-gemini-key",
+        "DISABLE_INTERACTIVE_MODE": "false",
+        "LLM_INTERACTIVE_PROXY_API_KEY": "test-proxy-key",
+        "LLM_BACKEND": "openrouter",
+    }
+    original_env = _set_env_vars(vars_to_set_for_test)
+
     app = build_app()
     yield app
-    if "OPENROUTER_API_KEY_1" in os.environ:
-        del os.environ["OPENROUTER_API_KEY_1"]
-    if "OPENROUTER_API_KEY_2" in os.environ:
-        del os.environ["OPENROUTER_API_KEY_2"]
-    if "GEMINI_API_KEY" in os.environ:
-        del os.environ["GEMINI_API_KEY"]
-    if "DISABLE_INTERACTIVE_MODE" in os.environ:
-        del os.environ["DISABLE_INTERACTIVE_MODE"]
-    if "LLM_BACKEND" in os.environ:
-        del os.environ["LLM_BACKEND"]
-    if "LLM_INTERACTIVE_PROXY_API_KEY" in os.environ:
-        del os.environ["LLM_INTERACTIVE_PROXY_API_KEY"]
+
+    _restore_env_vars(original_env)
 
 
 @pytest.fixture
@@ -179,31 +177,24 @@ def pytest_sessionfinish(session):
 
 @pytest.fixture
 def configured_commands_disabled_app():
-    if "OPENROUTER_API_KEY" in os.environ:
-        del os.environ["OPENROUTER_API_KEY"]
-    if "GEMINI_API_KEY" in os.environ:
-        del os.environ["GEMINI_API_KEY"]
-    for i in range(1, 21):
-        if f"OPENROUTER_API_KEY_{i}" in os.environ:
-            del os.environ[f"OPENROUTER_API_KEY_{i}"]
-        if f"GEMINI_API_KEY_{i}" in os.environ:
-            del os.environ[f"GEMINI_API_KEY_{i}"]
+    _clear_specific_api_key_env_vars()
 
-    os.environ["OPENROUTER_API_KEY_1"] = "dummy-openrouter-key-1"
-    os.environ["GEMINI_API_KEY"] = "dummy-gemini-key"
-    os.environ["DISABLE_INTERACTIVE_COMMANDS"] = "true"
-    os.environ["LLM_INTERACTIVE_PROXY_API_KEY"] = "test-proxy-key"
-    os.environ["LLM_BACKEND"] = "openrouter"
+    vars_to_set_for_test = {
+        "OPENROUTER_API_KEY_1": "dummy-openrouter-key-1",
+        "GEMINI_API_KEY": "dummy-gemini-key",
+        "DISABLE_INTERACTIVE_COMMANDS": "true",
+        "LLM_INTERACTIVE_PROXY_API_KEY": "test-proxy-key", # Already set by clean_env but good to be explicit
+        "LLM_BACKEND": "openrouter",
+    }
+    original_env = _set_env_vars(vars_to_set_for_test)
+
     app = build_app()
     yield app
-    for var in [
-        "OPENROUTER_API_KEY_1",
-        "GEMINI_API_KEY",
-        "DISABLE_INTERACTIVE_COMMANDS",
-        "LLM_BACKEND",
-    ]:
-        if var in os.environ:
-            del os.environ[var]
+
+    _restore_env_vars(original_env)
+    # Explicitly clear DISABLE_INTERACTIVE_COMMANDS as it's specific to this fixture's purpose
+    # and might not be in original_env if not set before.
+    os.environ.pop("DISABLE_INTERACTIVE_COMMANDS", None)
 
 
 @pytest.fixture

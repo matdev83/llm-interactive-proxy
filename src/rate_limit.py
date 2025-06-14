@@ -32,26 +32,58 @@ class RateLimitRegistry:
         return ts
 
 
+def _find_retry_delay_in_details(details_list: list) -> Optional[float]:
+    """Iterates through a list of detail items to find and parse RetryInfo."""
+    # This check can be removed if the caller ensures details_list is always a list.
+    # However, keeping it makes the helper more robust.
+    if not isinstance(details_list, list):
+        return None
+
+    for item in details_list:
+        if not isinstance(item, dict):
+            continue
+
+        if not item.get("@type", "").endswith("RetryInfo"):
+            continue
+
+        delay_str = item.get("retryDelay")
+        if not isinstance(delay_str, str) or not delay_str.endswith("s"):
+            continue
+
+        try:
+            return float(delay_str[:-1])
+        except ValueError:
+            pass # Malformed delay string in this item, try next
+
+    return None
+
+
 def parse_retry_delay(detail: object) -> Optional[float]:
     """Parse retry delay (seconds) from backend 429 error details."""
-    data: object = detail
+    data_dict: Optional[Dict[str, Any]] = None
     if isinstance(detail, str):
         try:
-            data = json.loads(detail)
-        except Exception:
+            loaded_json = json.loads(detail)
+            if isinstance(loaded_json, dict):
+                data_dict = loaded_json
+            else: # Loaded JSON is not a dictionary
+                return None
+        except json.JSONDecodeError: # Catch specific error
             return None
-    if isinstance(data, dict):
-        err = data.get("error", data)
-        details = err.get("details") if isinstance(err, dict) else None
-        if isinstance(details, list):
-            for item in details:
-                if isinstance(item, dict) and item.get("@type", "").endswith(
-                    "RetryInfo"
-                ):
-                    delay = item.get("retryDelay")
-                    if isinstance(delay, str) and delay.endswith("s"):
-                        try:
-                            return float(delay[:-1])
-                        except ValueError:
-                            pass
-    return None
+    elif isinstance(detail, dict):
+        data_dict = detail
+
+    if not data_dict:
+        return None
+
+    err_obj = data_dict.get("error", data_dict)
+    if not isinstance(err_obj, dict):
+        return None
+
+    details = err_obj.get("details")
+    # _find_retry_delay_in_details will handle if details is None or not a list,
+    # but explicit check here keeps parse_retry_delay cleaner about what it passes.
+    if not isinstance(details, list):
+        return None
+
+    return _find_retry_delay_in_details(details)
