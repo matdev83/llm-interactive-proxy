@@ -4,7 +4,7 @@ from typing import TYPE_CHECKING, Any, Dict, List, Set
 
 from fastapi import FastAPI
 
-from .base import CommandResult, register_command # Removed BaseCommand
+from .base import CommandResult, register_command  # Removed BaseCommand
 from .failover_base import FailoverBase
 
 if TYPE_CHECKING:
@@ -18,12 +18,12 @@ class DeleteFailoverRouteCommand(FailoverBase):
     description = "Delete an existing failover route"
     examples = ["!/delete-failover-route(name=myroute)"]
 
-    def __init__(
-        self, app: FastAPI | None = None, functional_backends: Set[str] | None = None
-    ) -> None:
+    def __init__(self, app: FastAPI | None = None,
+                 functional_backends: Set[str] | None = None) -> None:
         super().__init__(app=app, functional_backends=functional_backends)
 
-    def execute(self, args: Dict[str, Any], state: "ProxyState") -> CommandResult:
+    def execute(self, args: Dict[str, Any],
+                state: "ProxyState") -> CommandResult:
         msgs: List[str] = []
         self._ensure_interactive(state, msgs)
         name = args.get("name")
@@ -31,6 +31,7 @@ class DeleteFailoverRouteCommand(FailoverBase):
             return CommandResult(self.name, False, f"route {name} not found")
         state.delete_failover_route(name)
         msgs.append(f"failover route {name} deleted")
-        if self.app is not None and getattr(self.app.state, "config_manager", None):
+        if self.app is not None and getattr(
+                self.app.state, "config_manager", None):
             self.app.state.config_manager.save()
         return CommandResult(self.name, True, "; ".join(msgs))

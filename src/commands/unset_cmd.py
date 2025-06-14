@@ -21,12 +21,12 @@ class UnsetCommand(BaseCommand):
         "!/unset(interactive)",
     ]
 
-    def __init__(
-        self, app: FastAPI | None = None, functional_backends: Set[str] | None = None
-    ) -> None:
+    def __init__(self, app: FastAPI | None = None,
+                 functional_backends: Set[str] | None = None) -> None:
         super().__init__(app, functional_backends)
 
-    def execute(self, args: Dict[str, Any], state: "ProxyState") -> CommandResult:
+    def execute(self, args: Dict[str, Any],
+                state: "ProxyState") -> CommandResult:
         messages: List[str] = []
         persistent_change = False
         keys_to_unset = [k for k, v in args.items() if v is True]
@@ -37,7 +37,10 @@ class UnsetCommand(BaseCommand):
             state.unset_override_backend()
             messages.append("backend unset")
         if "default-backend" in keys_to_unset and self.app:
-            initial_type = getattr(self.app.state, "initial_backend_type", "openrouter")
+            initial_type = getattr(
+                self.app.state,
+                "initial_backend_type",
+                "openrouter")
             self.app.state.backend_type = initial_type
             if initial_type == "gemini":
                 self.app.state.backend = self.app.state.gemini_backend
@@ -50,7 +53,10 @@ class UnsetCommand(BaseCommand):
         if any(k in keys_to_unset for k in ("project", "project-name")):
             state.unset_project()
             messages.append("project unset")
-        if any(k in keys_to_unset for k in ("interactive", "interactive-mode")):
+        if any(
+            k in keys_to_unset for k in (
+                "interactive",
+                "interactive-mode")):
             state.unset_interactive_mode()
             messages.append("interactive mode unset")
             persistent_change = True

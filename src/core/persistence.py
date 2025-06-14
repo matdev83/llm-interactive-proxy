@@ -37,8 +37,10 @@ class ConfigManager:
                     else self.app.state.openrouter_backend
                 )
             else:
-                # warnings.append(f"default backend {backend} not functional") # Keep or remove warning? For now, raise error.
-                raise ValueError(f"default backend {backend} is not functional")
+                # warnings.append(f"default backend {backend} not functional")
+                # # Keep or remove warning? For now, raise error.
+                raise ValueError(
+                    f"default backend {backend} is not functional")
 
         if isinstance(data.get("interactive_mode"), bool):
             self.app.state.session_manager.default_interactive_mode = data[
@@ -68,7 +70,8 @@ class ConfigManager:
                                 f"route {name} element {elem} backend not functional"
                             )
                             continue
-                        backend_obj = getattr(self.app.state, f"{b}_backend", None)
+                        backend_obj = getattr(
+                            self.app.state, f"{b}_backend", None)
                         if backend_obj and model in backend_obj.get_available_models():
                             valid_elems.append(elem)
                         else:
