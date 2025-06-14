@@ -48,7 +48,8 @@ class GeminiBackend(LLMBackend):
         """Return cached Gemini model names."""
         return list(self.available_models)
 
-    def _convert_stream_chunk(self, data: Dict[str, Any], model: str) -> Dict[str, Any]:
+    def _convert_stream_chunk(
+            self, data: Dict[str, Any], model: str) -> Dict[str, Any]:
         """Convert a Gemini streaming JSON chunk to OpenAI format."""
         candidate = {}
         text = ""
@@ -134,8 +135,9 @@ class GeminiBackend(LLMBackend):
                 return {"inlineData": {"mimeType": mime, "data": b64_data}}
             # Otherwise treat as remote file URI
             return {
-                "fileData": {"mimeType": "application/octet-stream", "fileUri": url}
-            }
+                "fileData": {
+                    "mimeType": "application/octet-stream",
+                    "fileUri": url}}
         data = part.model_dump(exclude_unset=True)
         if data.get("type") == "text" and "text" in data:
             if prompt_redactor:
@@ -156,7 +158,8 @@ class GeminiBackend(LLMBackend):
         prompt_redactor: APIKeyRedactor | None = None,
         **kwargs,
     ) -> Union[dict, StreamingResponse]:
-        # Use gemini_api_base_url if provided, else fallback to openrouter_api_base_url for compatibility
+        # Use gemini_api_base_url if provided, else fallback to
+        # openrouter_api_base_url for compatibility
         gemini_api_base_url = openrouter_api_base_url or kwargs.get(
             "gemini_api_base_url"
         )
@@ -185,7 +188,8 @@ class GeminiBackend(LLMBackend):
                 gemini_role = "user"
             elif msg.role in ["tool", "function"]:
                 gemini_role = "user"
-                # For tool/function messages, wrap content in a tool_response part
+                # For tool/function messages, wrap content in a tool_response
+                # part
                 parts = [
                     {
                         "text": f"tool_code: {json.dumps(msg.content)}",
@@ -248,20 +252,22 @@ class GeminiBackend(LLMBackend):
                                 if not buffer:
                                     break  # Nothing left in buffer
                                 try:
-                                    # Attempt to decode a JSON object from the buffer
+                                    # Attempt to decode a JSON object from the
+                                    # buffer
                                     obj, idx = decoder.raw_decode(buffer)
                                 except json.JSONDecodeError:
-                                    # Not a complete JSON object yet, wait for more data
+                                    # Not a complete JSON object yet, wait for
+                                    # more data
                                     break
                                 # Successfully decoded, process the object
-                                if isinstance(obj, list):  # Handle list of objects
+                                if isinstance(
+                                        obj, list):  # Handle list of objects
                                     for item in obj:
                                         if isinstance(
                                             item, dict
                                         ):  # Ensure item is a dict
                                             converted = self._convert_stream_chunk(
-                                                item, effective_model
-                                            )
+                                                item, effective_model)
                                             yield f"data: {json.dumps(converted)}\n\n".encode()
                                         else:
                                             logger.warning(
@@ -274,7 +280,8 @@ class GeminiBackend(LLMBackend):
                                     yield f"data: {json.dumps(converted)}\n\n".encode()
                                 # Advance the buffer past the decoded object
                                 buffer = buffer[idx:]
-                                # Handle potential comma separator if multiple objects are in an array
+                                # Handle potential comma separator if multiple
+                                # objects are in an array
                                 if buffer.startswith(","):
                                     buffer = buffer[1:]
                         yield b"data: [DONE]\n\n"
@@ -285,7 +292,9 @@ class GeminiBackend(LLMBackend):
                     stream_generator(), media_type="text/event-stream"
                 )
             except httpx.RequestError as e:
-                logger.error(f"Request error connecting to Gemini: {e}", exc_info=True)
+                logger.error(
+                    f"Request error connecting to Gemini: {e}",
+                    exc_info=True)
                 raise HTTPException(
                     status_code=503,
                     detail=f"Service unavailable: Could not connect to Gemini ({e})",
@@ -305,7 +314,9 @@ class GeminiBackend(LLMBackend):
             data = response.json()
             return self._convert_full_response(data, effective_model)
         except httpx.RequestError as e:
-            logger.error(f"Request error connecting to Gemini: {e}", exc_info=True)
+            logger.error(
+                f"Request error connecting to Gemini: {e}",
+                exc_info=True)
             raise HTTPException(
                 status_code=503,
                 detail=f"Service unavailable: Could not connect to Gemini ({e})",
@@ -332,7 +343,9 @@ class GeminiBackend(LLMBackend):
                 )
             return response.json()
         except httpx.RequestError as e:
-            logger.error(f"Request error connecting to Gemini: {e}", exc_info=True)
+            logger.error(
+                f"Request error connecting to Gemini: {e}",
+                exc_info=True)
             raise HTTPException(
                 status_code=503,
                 detail=f"Service unavailable: Could not connect to Gemini ({e})",

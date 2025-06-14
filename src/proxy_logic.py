@@ -76,7 +76,7 @@ class ProxyState:
         self.interactive_mode = False
         self.interactive_just_enabled = False
 
-    # Failover route management -------------------------------------------------
+    # Failover route management ----------------------------------------------
     def create_failover_route(self, name: str, policy: str) -> None:
         self.failover_routes[name] = {"policy": policy, "elements": []}
 
@@ -89,15 +89,18 @@ class ProxyState:
             route["elements"] = []
 
     def append_route_element(self, name: str, element: str) -> None:
-        route = self.failover_routes.setdefault(name, {"policy": "k", "elements": []})
+        route = self.failover_routes.setdefault(
+            name, {"policy": "k", "elements": []})
         route.setdefault("elements", []).append(element)
 
     def prepend_route_element(self, name: str, element: str) -> None:
-        route = self.failover_routes.setdefault(name, {"policy": "k", "elements": []})
+        route = self.failover_routes.setdefault(
+            name, {"policy": "k", "elements": []})
         route.setdefault("elements", []).insert(0, element)
 
     def list_routes(self) -> dict[str, str]:
-        return {n: r.get("policy", "") for n, r in self.failover_routes.items()}
+        return {n: r.get("policy", "")
+                for n, r in self.failover_routes.items()}
 
     def list_route(self, name: str) -> list[str]:
         route = self.failover_routes.get(name)

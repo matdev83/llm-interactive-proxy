@@ -26,13 +26,12 @@ def parse_arguments(args_str: str) -> Dict[str, Any]:
         return args
     for part in args_str.split(","):
         if "=" in part:
-            key, value = part.split("=", 1)
-            value = value.strip()
-            if (value.startswith('"') and value.endswith('"')) or (
-                value.startswith("'") and value.endswith("'")
-            ):
-                value = value[1:-1]
-            args[key.strip()] = value
+            key, param_value = part.split("=", 1)
+            param_value = param_value.strip()
+            if (param_value.startswith('"') and param_value.endswith('"')) or \
+               (param_value.startswith("'") and param_value.endswith("'")):
+                param_value = param_value[1:-1]
+            args[key.strip()] = param_value
         else:
             args[part.strip()] = True
     return args
@@ -40,7 +39,6 @@ def parse_arguments(args_str: str) -> Dict[str, Any]:
 
 def get_command_pattern(command_prefix: str) -> re.Pattern:
     prefix_escaped = re.escape(command_prefix)
-    # E501: Split pattern string for readability
     pattern_string = (
         rf"{prefix_escaped}(?:(?P<bare>hello|help)(?!\()\b|"
         r"(?P<cmd>[\w-]+)\((?P<args>[^)]*)\))"
@@ -57,7 +55,7 @@ class CommandParser:
         app: FastAPI,
         command_prefix: str = DEFAULT_COMMAND_PREFIX,
         preserve_unknown: bool = True,
-        functional_backends: Set[str] | None = None, # Line length check (80)
+        functional_backends: Set[str] | None = None,
     ) -> None:
         self.proxy_state = proxy_state
         self.app = app
@@ -67,27 +65,26 @@ class CommandParser:
         self.handlers: Dict[str, BaseCommand] = {}
         self.functional_backends = functional_backends or set()
 
-        # E501: Wrapped create_command_instances arguments
         for cmd_instance in create_command_instances(
             self.app, self.functional_backends
         ):
             self.register_command(cmd_instance)
-        self.results: List[CommandResult] = []
+        self.command_results: List[CommandResult] = []
 
     def register_command(self, command: BaseCommand) -> None:
         self.handlers[command.name.lower()] = command
 
-    # ------------------------------------------------------------------
     def process_text(self, text_content: str) -> Tuple[str, bool]:
         logger.debug(f"Processing text for commands: '{text_content}'")
         commands_found = False
         modified_text = text_content
 
         matches = list(self.command_pattern.finditer(text_content))
-        logger.debug( # E501: Wrapped log message
-            f"Found {len(matches)} command matches for text: '{text_content}'"
+        logger.debug(
+            "Found %s command matches for text: '%s'",
+            len(matches),
+            text_content,
         )
-        # Process only the first match
         if matches:
             match = matches[0]
             commands_found = True
@@ -98,176 +95,240 @@ class CommandParser:
             else:
                 command_name = match.group("cmd").lower()
                 args_str = match.group("args")
-            logger.debug( # E501: Wrapped log message
-                f"Regex match: Full='{command_full}', Command='{command_name}', "
-                f"ArgsStr='{args_str}'"
+            logger.debug(
+                "Regex match: Full='%s', Command='%s', ArgsStr='%s'",
+                command_full,
+                command_name,
+                args_str,
             )
             args = parse_arguments(args_str)
 
             replacement = ""
-            handler = self.handlers.get(command_name)
-            if handler:
-                result = handler.execute(args, self.proxy_state)
-                self.results.append(result)
-                if not result.success:
-                    return result.message, True
+            command_handler = self.handlers.get(command_name)
+            if command_handler:
+                execution_result = command_handler.execute(
+                    args, self.proxy_state
+                )
+                self.command_results.append(execution_result)
+                if not execution_result.success:
+                    return execution_result.message, True
                 if text_content.strip() == command_full.strip():
-                    return "", True
+                    return "", True  # Command-only message, content becomes empty
             else:
                 logger.warning(f"Unknown command: {command_name}.")
-                # E501: Wrapped CommandResult arguments
+                error_message = f"cmd not found: {command_name}"
                 unknown_cmd_result = CommandResult(
-                    command_name,
-                    False,
-                    f"unknown command: {command_name}"
+                    name=command_name,  # Changed from command_name
+                    success=False,
+                    message=error_message,
                 )
-                self.results.append(unknown_cmd_result)
+                self.command_results.append(unknown_cmd_result)
                 if self.preserve_unknown:
                     replacement = command_full
 
+            # Only replace the first command occurrence
             modified_text = (
-                modified_text[: match.start()]
-                + replacement
-                + modified_text[match.end() :]
+                modified_text[:match.start()] +
+                replacement +
+                modified_text[match.end():]
             )
 
         final_text = re.sub(r"\s+", " ", modified_text).strip()
         final_text = self._clean_remaining_text(final_text)
-        logger.debug( # E501: Wrapped log message
-            f"Text after command processing and normalization: '{final_text}'"
+        logger.debug(
+            "Text after command processing and normalization: '%s'", final_text
         )
         return final_text, commands_found
 
     def _clean_remaining_text(self, text: str) -> str:
-        """Remove XML-like tags and comment lines from text."""
         text = re.sub(r"<[^>]+>", "", text)
         text = COMMENT_LINE_PATTERN.sub("", text)
         return text
 
+    def _handle_string_content(
+        self,
+        msg_content: str,
+    ) -> Tuple[str, bool, bool]:
+        original_content = msg_content
+        processed_text, command_found = self.process_text(original_content)
+
+        content_modified = False
+        if command_found:
+            original_content_stripped = original_content.strip()
+            is_prefix_match = original_content_stripped.startswith(
+                self.command_prefix)
+            command_pattern_match = None
+            if is_prefix_match:
+                command_pattern_match = self.command_pattern.match(
+                    original_content_stripped)
+
+            is_full_command_match_condition = False
+            if command_pattern_match:
+                is_full_command_match_condition = (
+                    original_content_stripped == command_pattern_match.group(0)
+                )
+
+            if is_prefix_match and command_pattern_match and \
+               is_full_command_match_condition and processed_text == "":
+                content_modified = True
+            elif processed_text != original_content:
+                content_modified = True
+
+        return processed_text, command_found, content_modified
+
+    def _process_single_part(
+        self,
+        part: models.MessageContentPart,
+    ) -> Tuple[Optional[models.MessageContentPart], bool]:
+        """Processes a single part of a message."""
+        if not isinstance(part, models.MessageContentPartText):
+            return part.model_copy(deep=True), False
+
+        processed_text, found_in_part = self.process_text(part.text)
+
+        if found_in_part:
+            return models.MessageContentPartText(
+                type="text", text=processed_text
+            ), True
+
+        if processed_text.strip():
+            return models.MessageContentPartText(
+                type="text", text=processed_text
+            ), False
+
+        return None, False
+
+    def _handle_list_content(
+        self,
+        msg_content_list: List[models.MessageContentPart],
+    ) -> Tuple[List[models.MessageContentPart], bool, bool]:
+        new_parts: List[models.MessageContentPart] = []
+        any_command_found_in_list = False
+        list_was_modified = False
+
+        if not msg_content_list:
+            return [], False, False
+
+        for original_part in msg_content_list:
+            processed_part, command_found = self._process_single_part(original_part)
+
+            if command_found:
+                any_command_found_in_list = True
+
+            if processed_part is not None:
+                new_parts.append(processed_part)
+
+            if command_found or \
+               (processed_part is None and original_part is not None) or \
+               (processed_part is not None and original_part != processed_part):
+                list_was_modified = True
+
+        if not new_parts and any_command_found_in_list:
+            return [], True, True
+
+        if len(new_parts) != len(msg_content_list) and not any_command_found_in_list:
+            list_was_modified = True
+
+        return new_parts, any_command_found_in_list, list_was_modified
+
     def process_messages(
         self, messages: List[models.ChatMessage]
     ) -> Tuple[List[models.ChatMessage], bool]:
-        self.results.clear()
+        self.command_results.clear()
         if not messages:
             logger.debug("process_messages received empty messages list.")
             return messages, False
 
         modified_messages = [msg.model_copy(deep=True) for msg in messages]
-        any_command_processed = False
-        already_processed_commands_in_a_message = False
+        overall_commands_processed = False
+        last_message_had_command_processed = False
 
-        for i in range(len(modified_messages) - 1, -1, -1):
-            msg = modified_messages[i]
-            content_modified = False
+        for message_idx in range(len(modified_messages) - 1, -1, -1):
+            msg = modified_messages[message_idx]
+            current_msg_content_modified = False
+            current_msg_command_found = False
 
-            if not already_processed_commands_in_a_message:
-                if isinstance(msg.content, str):
-                    if msg.content.strip().startswith(self.command_prefix):
-                        command_match = self.command_pattern.match(msg.content.strip())
-                        if command_match and msg.content.strip() == command_match.group(0):
-                            processed_text, found = self.process_text(msg.content)
-                            logger.debug(
-                                f"Command-only message processed. Found: {found}"
-                            )
-                            if found:
-                                any_command_processed = True
-                                msg.content = ""
-                                content_modified = True
-                                already_processed_commands_in_a_message = True
-                        else:
-                            processed_text, found = self.process_text(msg.content)
-                            logger.debug(
-                                f"Non-command-only message processed. Found: {found}"
-                            )
-                            if found:
-                                msg.content = processed_text
-                                any_command_processed = True
-                                content_modified = True
-                                already_processed_commands_in_a_message = True
-                    else:
-                        processed_text, found = self.process_text(msg.content)
-                        logger.debug(
-                            "Non-command-only message (not starting with prefix) "
-                            f"processed. Found: {found}"
-                        )
-                        if found:
-                            msg.content = processed_text
-                            any_command_processed = True
-                            content_modified = True
-                            already_processed_commands_in_a_message = True
-                elif isinstance(msg.content, list):
-                    new_parts: List[models.MessageContentPart] = []
-                    part_level_found_in_current_message = False
-                    for part_idx, part in enumerate(msg.content):
-                        if isinstance(part, models.MessageContentPartText):
-                            if not already_processed_commands_in_a_message:
-                                processed_text, found_in_part = self.process_text(
-                                    part.text
-                                )
-                                if found_in_part:
-                                    part_level_found_in_current_message = True
-                                    any_command_processed = True
-                                if processed_text.strip():
-                                    new_parts.append(
-                                        models.MessageContentPartText(
-                                            type="text", text=processed_text
-                                        )
-                                    )
-                                elif not found_in_part:
-                                    new_parts.append(
-                                        models.MessageContentPartText(
-                                            type="text", text=processed_text
-                                        )
-                                    )
-                            else:
-                                new_parts.append(part.model_copy(deep=True))
-                        else:
-                            new_parts.append(part.model_copy(deep=True))
+            if last_message_had_command_processed:
+                continue
 
-                    if part_level_found_in_current_message:
-                        msg.content = new_parts
-                        content_modified = True
-                        already_processed_commands_in_a_message = True
+            if isinstance(msg.content, str):
+                str_content, str_found, str_modified = self._handle_string_content(
+                    msg.content,
+                )
+                msg.content = str_content
+                current_msg_content_modified = str_modified
+                current_msg_command_found = str_found
+            elif isinstance(msg.content, list):
+                list_content, list_found, list_modified = self._handle_list_content(
+                    msg.content,
+                )
+                msg.content = list_content
+                current_msg_content_modified = list_modified
+                current_msg_command_found = list_found
 
-            if content_modified:
-                logger.info( # E501: Wrapped
-                    f"Commands processed in message index {i} (from end). "
-                    f"Role: {msg.role}. New content: '{msg.content}'"
+            if current_msg_command_found:
+                overall_commands_processed = True
+                last_message_had_command_processed = True
+
+            if current_msg_content_modified:
+                logger.info(
+                    "Content modified in message index %s (from end). Role: %s.",
+                    message_idx,
+                    msg.role,
                 )
 
         final_messages: List[models.ChatMessage] = []
-        for msg in modified_messages:
-            if isinstance(msg.content, list) and not msg.content:
+        for original_msg_idx, msg in enumerate(modified_messages):
+            is_empty_list_content = isinstance(msg.content, list) and not any(
+                (isinstance(
+                    part, models.MessageContentPartText) and part.text.strip()) or
+                not isinstance(part, models.MessageContentPartText)
+                for part in msg.content
+            )
+            is_empty_str_content = isinstance(
+                msg.content, str) and not msg.content.strip()
+
+            if is_empty_list_content:
                 logger.info(
-                    f"Removing message (role: {msg.role}) as its multimodal "
-                    "content became empty after command processing."
+                    "Removing message (role: %s) as its list content "
+                    "became effectively empty after command processing.",
+                    msg.role,
                 )
                 continue
-            if isinstance(msg.content, str) and not msg.content.strip():
-                original_msg = messages[len(final_messages)]
-                if isinstance(
-                    original_msg.content, str
-                ) and original_msg.content.strip().startswith(self.command_prefix):
-                    final_messages.append(msg)
+
+            if is_empty_str_content:
+                original_msg = messages[original_msg_idx]
+                is_original_purely_command = False
+                if isinstance(original_msg.content, str):
+                    command_match = self.command_pattern.match(
+                        original_msg.content.strip())
+                    if command_match and \
+                       original_msg.content.strip() == command_match.group(0):
+                        is_original_purely_command = True
+
+                if not is_original_purely_command:
+                    logger.info(
+                        "Removing message (role: %s) as its string content "
+                        "became empty and was not a pure command.",
+                        msg.role,
+                    )
                     continue
-                logger.info(
-                    f"Removing message (role: {msg.role}) as its content "
-                    "became empty after command processing."
-                )
-                continue
+
             final_messages.append(msg)
 
-        if not final_messages and any_command_processed and messages:
+        if not final_messages and overall_commands_processed and messages:
             logger.info(
                 "All messages were removed after command processing. "
                 "This might indicate a command-only request."
             )
 
-        logger.debug( # E501: Wrapped
-            f"Finished processing messages. Final message count: "
-            f"{len(final_messages)}. Commands processed overall: {any_command_processed}"
+        logger.debug(
+            "Finished processing messages. Final message count: %s. "
+            "Commands processed overall: %s",
+            len(final_messages),
+            overall_commands_processed,
         )
-        return final_messages, any_command_processed
+        return final_messages, overall_commands_processed
 
 
 def _process_text_for_commands(
@@ -297,13 +358,17 @@ def process_commands_in_messages(
         return messages, False
 
     functional_backends: Optional[Set[str]] = None
-    if app and hasattr(app, "state") and hasattr(app.state, "functional_backends"):
+    if app and hasattr(
+            app,
+            "state") and hasattr(
+            app.state,
+            "functional_backends"):
         functional_backends = app.state.functional_backends
     else:
-        logger.warning( # E501: Wrapped
+        logger.warning(
             "FastAPI app instance or functional_backends not available in "
             "app.state. CommandParser will be initialized without specific "
-            "functional_backends."
+            "functional_backends.",
         )
 
     parser = CommandParser(

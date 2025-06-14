@@ -10,7 +10,7 @@ from datetime import datetime, timezone
 from typing import Any, Dict, Union
 
 # Moved imports to the top (E402 fix)
-import httpx # json is used for logging, will keep
+import httpx  # json is used for logging, will keep
 from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.responses import StreamingResponse
 
@@ -44,8 +44,11 @@ def build_app(
     if not disable_auth:
         if not api_key:
             api_key = secrets.token_urlsafe(32)
-            logger.warning("No client API key provided, generated one: %s", api_key)
-            if not any(isinstance(h, logging.StreamHandler) for h in logger.handlers):
+            logger.warning(
+                "No client API key provided, generated one: %s",
+                api_key)
+            if not any(isinstance(h, logging.StreamHandler)
+                       for h in logger.handlers):
                 sys.stdout.write(f"Generated client API key: {api_key}\n")
     else:
         api_key = api_key or None
@@ -67,7 +70,8 @@ def build_app(
         project_name = current_app.state.project_metadata["name"]
         project_version = current_app.state.project_metadata["version"]
         backend_info = []
-        # Use current_app.state.functional_backends instead of 'functional' from closure
+        # Use current_app.state.functional_backends instead of 'functional'
+        # from closure
         if "openrouter" in current_app.state.functional_backends:
             keys = len(cfg.get("openrouter_api_keys", {}))
             models_list = current_app.state.openrouter_backend.get_available_models()
@@ -89,7 +93,8 @@ def build_app(
         return "\n".join(banner_lines)
 
     @asynccontextmanager
-    async def lifespan(app_param: FastAPI): # Renamed 'app' to 'app_param' to avoid confusion
+    # Renamed 'app' to 'app_param' to avoid confusion
+    async def lifespan(app_param: FastAPI):
         nonlocal functional
 
         client_httpx = httpx.AsyncClient(timeout=cfg["proxy_timeout"])
@@ -189,7 +194,8 @@ def build_app(
         app_param.state.force_set_project = cfg.get("force_set_project", False)
 
         if config_file:
-            app_param.state.config_manager = ConfigManager(app_param, config_file)
+            app_param.state.config_manager = ConfigManager(
+                app_param, config_file)
             app_param.state.config_manager.load()
         else:
             app_param.state.config_manager = None
@@ -198,7 +204,8 @@ def build_app(
         await client_httpx.aclose()
 
     app_instance = FastAPI(lifespan=lifespan)
-    app_instance.state.project_metadata = {"name": project_name, "version": project_version}
+    app_instance.state.project_metadata = {
+        "name": project_name, "version": project_version}
     app_instance.state.client_api_key = api_key
     app_instance.state.disable_auth = disable_auth
 
@@ -227,7 +234,8 @@ def build_app(
         request_data: models.ChatCompletionRequest, http_request: Request
     ):
         session_id = http_request.headers.get("x-session-id", "default")
-        session = http_request.app.state.session_manager.get_session(session_id)
+        session = http_request.app.state.session_manager.get_session(
+            session_id)
         proxy_state: ProxyState = session.proxy_state
 
         if session.agent is None and request_data.messages:
@@ -258,9 +266,9 @@ def build_app(
                 }
                 raise HTTPException(status_code=400, detail=detail_msg)
             if current_backend_type not in {"openrouter", "gemini"}:
-                 raise HTTPException(
-                    status_code=400, detail=f"unknown backend {current_backend_type}"
-                )
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"unknown backend {current_backend_type}")
 
         parser = None
         if not http_request.app.state.disable_interactive_commands:
@@ -274,10 +282,10 @@ def build_app(
             processed_messages, commands_processed = parser.process_messages(
                 request_data.messages
             )
-            if parser.results and any(not result.success for result in parser.results):
+            if parser.command_results and any(
+                    not result.success for result in parser.command_results):
                 error_messages = [
-                    result.message for result in parser.results if not result.success
-                ]
+                    result.message for result in parser.command_results if not result.success]
                 # E501: Wrapped dict
                 return {
                     "id": "proxy_cmd_processed",
@@ -328,17 +336,16 @@ def build_app(
                     if isinstance(part, models.MessageContentPartText)
                 )
 
-        is_command_only = False
         if commands_processed:
             if not processed_messages:
-                is_command_only = True
+                pass
             else:
                 last_msg = processed_messages[-1]
                 if isinstance(last_msg.content, str):
-                    is_command_only = not last_msg.content.strip()
+                    not last_msg.content.strip()
                 elif isinstance(last_msg.content, list):
                     # E501: Wrapped comprehension
-                    is_command_only = not any(
+                    not any(
                         part.text.strip() for part in last_msg.content
                         if isinstance(part, models.MessageContentPartText)
                     )
@@ -346,7 +353,7 @@ def build_app(
         confirmation_text = ""
         if parser is not None:
             confirmation_text = "\n".join(
-                r.message for r in parser.results if r.message
+                r.message for r in parser.command_results if r.message
             )
 
         if commands_processed:
@@ -354,7 +361,7 @@ def build_app(
             if proxy_state.interactive_mode and show_banner:
                 banner_content = _welcome_banner(http_request.app, session_id)
                 content_lines_for_agent.extend(banner_content.splitlines())
-            elif show_banner: # This condition might need review, but keeping its logic.
+            elif show_banner:  # This condition might need review, but keeping its logic.
                 banner_content = _welcome_banner(http_request.app, session_id)
                 content_lines_for_agent.extend(banner_content.splitlines())
 
@@ -362,10 +369,13 @@ def build_app(
                 content_lines_for_agent.extend(confirmation_text.splitlines())
 
             if not content_lines_for_agent:
-                content_lines_for_agent = ["Proxy command processed. No query sent to LLM."]
+                content_lines_for_agent = [
+                    "Proxy command processed. No query sent to LLM."]
 
-            formatted_agent_response = format_command_response_for_agent(content_lines_for_agent, session.agent)
-            response_text = wrap_proxy_message(session.agent, formatted_agent_response)
+            formatted_agent_response = format_command_response_for_agent(
+                content_lines_for_agent, session.agent)
+            response_text = wrap_proxy_message(
+                session.agent, formatted_agent_response)
 
             # The rest of the block (session.add_interaction, return models.CommandProcessedChatCompletionResponse)
             # uses this final response_text.
@@ -465,7 +475,7 @@ def build_app(
                 "openrouter", model_str, key_name_str
             )
             if retry_at:
-                detail_dict = { # E501
+                detail_dict = {  # E501
                     "message": "Backend rate limited, retry later",
                     "retry_after": int(retry_at - time.time()),
                 }
@@ -534,7 +544,8 @@ def build_app(
             elif policy == "mk":
                 backends_used = {el.split(":", 1)[0] for el in elems}
                 key_map = {b: _keys_for(cfg, b) for b in backends_used}
-                max_len = max(len(v) for v in key_map.values()) if key_map else 0
+                max_len = max(len(v)
+                              for v in key_map.values()) if key_map else 0
                 for i in range(max_len):
                     for el in elems:
                         b, m = el.split(":", 1)
@@ -579,15 +590,13 @@ def build_app(
                 success = True
                 logger.debug(
                     f"Attempt successful for backend: {b_attempt}, model: {m_attempt}, "
-                    f"key_name: {kname_attempt}"
-                )
+                    f"key_name: {kname_attempt}")
                 break
             except HTTPException as e:
                 logger.debug(
                     f"Attempt failed for backend: {b_attempt}, model: {m_attempt}, "
                     f"key_name: {kname_attempt} with HTTPException: {e.status_code} "
-                    f"- {e.detail}"
-                )
+                    f"- {e.detail}")
                 if e.status_code == 429:
                     last_error = e
                     continue
@@ -627,21 +636,25 @@ def build_app(
             )
             return response_from_backend
 
-        backend_response_dict: Dict[str, Any] = response_from_backend if isinstance(response_from_backend, dict) else {}
+        backend_response_dict: Dict[str, Any] = response_from_backend if isinstance(
+            response_from_backend, dict) else {}
 
         if "choices" not in backend_response_dict:
-            backend_response_dict["choices"] = [
-                {"index": 0, "message": {"role": "assistant", "content": "(no response)"}, "finish_reason": "error"}
-            ]
+            backend_response_dict["choices"] = [{"index": 0, "message": {
+                "role": "assistant", "content": "(no response)"}, "finish_reason": "error"}]
 
         if proxy_state.interactive_mode:
             prefix_parts = []
             if show_banner:
-                prefix_parts.append(_welcome_banner(http_request.app, session_id))
+                prefix_parts.append(
+                    _welcome_banner(
+                        http_request.app,
+                        session_id))
             if confirmation_text:
                 prefix_parts.append(confirmation_text)
             if prefix_parts:
-                prefix_text_str = wrap_proxy_message(session.agent, "\n".join(prefix_parts))
+                prefix_text_str = wrap_proxy_message(
+                    session.agent, "\n".join(prefix_parts))
                 orig_content = (
                     backend_response_dict.get("choices", [{}])[0]
                     .get("message", {})
@@ -694,6 +707,7 @@ def build_app(
         return {"object": "list", "data": data}
 
     return app_instance
+
 
 if __name__ != "__main__":
     app = build_app()
