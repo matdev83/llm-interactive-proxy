@@ -379,6 +379,7 @@ class TestProcessCommandsInMessages:
             [msg], current_proxy_state, app=self.mock_app
         )
         assert processed
-        assert processed_messages == []
+        assert len(processed_messages) == 1 # Message should be retained as empty
+        assert processed_messages[0].content == "" # Content becomes empty
         assert current_proxy_state.override_model == "foo"
         assert current_proxy_state.project == "bar"

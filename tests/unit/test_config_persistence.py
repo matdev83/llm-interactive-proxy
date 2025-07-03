@@ -84,5 +84,5 @@ def test_invalid_persisted_backend(tmp_path, monkeypatch):
     with pytest.raises(ValueError) as excinfo:
         with TestClient(app):
             pass # Context manager needs a body
-    assert "default backend non_existent_backend is not functional" in str(excinfo.value)
+        assert "Default backend 'non_existent_backend' is not in functional_backends." in str(excinfo.value)
     monkeypatch.delenv("OPENROUTER_API_KEY_1", raising=False) # Clean up
