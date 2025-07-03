@@ -669,10 +669,6 @@ def build_app(cfg: Dict[str, Any] | None = None, *, config_file: str | None = No
     return app
 
 
-# Create a default application instance for importers
-if __name__ != "__main__":
-    app = build_app()
-
 if __name__ == "__main__":
     from src.core.cli import main as cli_main
 
