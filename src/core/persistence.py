@@ -1,7 +1,7 @@
 import json
 import logging
 from pathlib import Path
-from typing import Any, Dict
+from typing import Any, Dict, Optional, Tuple # Added Optional and Tuple
 
 from fastapi import FastAPI
 
@@ -25,70 +25,98 @@ class ConfigManager:
             return
         self.apply(data)
 
-    def apply(self, data: Dict[str, Any]) -> None:
-        warnings: list[str] = []
-        backend = data.get("default_backend")
-        if isinstance(backend, str):
-            if backend in self.app.state.functional_backends:
-                self.app.state.backend_type = backend
+    def _apply_default_backend(self, backend_value: Any) -> None:
+        if isinstance(backend_value, str):
+            if backend_value in self.app.state.functional_backends:
+                self.app.state.backend_type = backend_value
                 self.app.state.backend = (
                     self.app.state.gemini_backend
-                    if backend == "gemini"
+                    if backend_value == "gemini"
                     else self.app.state.openrouter_backend
                 )
             else:
-                # warnings.append(f"default backend {backend} not functional") # Keep or remove warning? For now, raise error.
-                raise ValueError(f"default backend {backend} is not functional")
+                raise ValueError(
+                    f"Default backend '{backend_value}' is not in functional_backends."
+                )
 
-        if isinstance(data.get("interactive_mode"), bool):
-            self.app.state.session_manager.default_interactive_mode = data[
-                "interactive_mode"
-            ]
+    def _apply_interactive_mode(self, mode_value: Any) -> None:
+        if isinstance(mode_value, bool):
+            self.app.state.session_manager.default_interactive_mode = mode_value
 
-        if isinstance(data.get("redact_api_keys_in_prompts"), bool):
-            val = data["redact_api_keys_in_prompts"]
-            self.app.state.api_key_redaction_enabled = val
-            self.app.state.default_api_key_redaction_enabled = val
+    def _apply_redact_api_keys(self, redact_value: Any) -> None:
+        if isinstance(redact_value, bool):
+            self.app.state.api_key_redaction_enabled = redact_value
+            self.app.state.default_api_key_redaction_enabled = redact_value
 
-        froutes = data.get("failover_routes")
-        if isinstance(froutes, dict):
-            for name, route in froutes.items():
-                if not isinstance(route, dict):
-                    continue
-                policy = route.get("policy", "k")
-                elems = route.get("elements", [])
-                valid_elems: list[str] = []
-                if isinstance(elems, list):
-                    for elem in elems:
-                        if not isinstance(elem, str) or ":" not in elem:
-                            continue
-                        b, model = elem.split(":", 1)
-                        if b not in self.app.state.functional_backends:
-                            warnings.append(
-                                f"route {name} element {elem} backend not functional"
-                            )
-                            continue
-                        backend_obj = getattr(self.app.state, f"{b}_backend", None)
-                        if backend_obj and model in backend_obj.get_available_models():
-                            valid_elems.append(elem)
-                        else:
-                            warnings.append(
-                                f"route {name} element {elem} model not available"
-                            )
-                self.app.state.failover_routes[name] = {
-                    "policy": policy,
-                    "elements": valid_elems,
-                }
-        for w in warnings:
-            logger.warning(w)
-
-        prefix = data.get("command_prefix")
-        if isinstance(prefix, str):
-            err = validate_command_prefix(prefix)
+    def _apply_command_prefix(self, prefix_value: Any) -> None:
+        if isinstance(prefix_value, str):
+            err = validate_command_prefix(prefix_value)
             if err:
-                logger.warning("invalid command prefix %s: %s", prefix, err)
+                logger.warning("Invalid command_prefix in config '%s': %s", prefix_value, err)
             else:
-                self.app.state.command_prefix = prefix
+                self.app.state.command_prefix = prefix_value
+
+    def _parse_and_validate_failover_element(self, elem_str: Any, route_name: str) -> Tuple[Optional[str], Optional[str]]:
+        """Parses and validates a single failover element string.
+        Returns (valid_element_string, warning_message_if_any).
+        """
+        if not isinstance(elem_str, str) or ":" not in elem_str:
+            return None, f"Invalid element format '{elem_str}' in route '{route_name}', skipping."
+
+        backend_name, model_name = elem_str.split(":", 1)
+        if backend_name not in self.app.state.functional_backends:
+            return None, f"Backend '{backend_name}' in route '{route_name}' element '{elem_str}' is not functional, skipping."
+
+        backend_instance = getattr(self.app.state, f"{backend_name}_backend", None)
+        if not backend_instance or model_name not in backend_instance.get_available_models():
+            return None, f"Model '{model_name}' for backend '{backend_name}' in route '{route_name}' element '{elem_str}' is not available, skipping."
+
+        return elem_str, None # Valid element, no warning
+
+    def _apply_failover_routes(self, froutes_value: Any) -> list[str]:
+        warnings: list[str] = []
+        if not isinstance(froutes_value, dict):
+            return warnings
+
+        for name, route_config in froutes_value.items():
+            if not isinstance(route_config, dict):
+                warnings.append(f"Failover route '{name}' config is not a dictionary, skipping.")
+                continue
+
+            policy = route_config.get("policy", "k")
+            elements_config = route_config.get("elements", [])
+            valid_elements: list[str] = []
+
+            if not isinstance(elements_config, list):
+                warnings.append(f"Elements for failover route '{name}' is not a list, skipping elements.")
+            else:
+                for elem_str in elements_config:
+                    valid_element, warning = self._parse_and_validate_failover_element(elem_str, name)
+                    if warning:
+                        warnings.append(warning)
+                    if valid_element:
+                        valid_elements.append(valid_element)
+
+            self.app.state.failover_routes[name] = {
+                "policy": policy,
+                "elements": valid_elements,
+            }
+        return warnings
+
+    def apply(self, data: Dict[str, Any]) -> None:
+        all_warnings: list[str] = []
+
+        self._apply_default_backend(data.get("default_backend"))
+        self._apply_interactive_mode(data.get("interactive_mode"))
+        self._apply_redact_api_keys(data.get("redact_api_keys_in_prompts"))
+
+        failover_warnings = self._apply_failover_routes(data.get("failover_routes"))
+        all_warnings.extend(failover_warnings)
+
+        self._apply_command_prefix(data.get("command_prefix"))
+
+        for w in all_warnings:
+            logger.warning(w)
 
     def collect(self) -> Dict[str, Any]:
         return {

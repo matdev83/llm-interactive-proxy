@@ -50,7 +50,10 @@ def _load_config() -> Dict[str, Any]:
     prefix = os.getenv("COMMAND_PREFIX", DEFAULT_COMMAND_PREFIX)
     err = validate_command_prefix(prefix)
     if err:
-        logger.warning("Invalid command prefix %s: %s, using default", prefix, err)
+        logger.warning(
+            "Invalid command prefix %s: %s, using default",
+            prefix,
+            err)
         prefix = DEFAULT_COMMAND_PREFIX
 
     return {
@@ -87,7 +90,8 @@ def _load_config() -> Dict[str, Any]:
     }
 
 
-def get_openrouter_headers(cfg: Dict[str, Any], api_key: str) -> Dict[str, str]:
+def get_openrouter_headers(
+        cfg: Dict[str, Any], api_key: str) -> Dict[str, str]:
     return {
         "Authorization": f"Bearer {api_key}",
         "Content-Type": "application/json",
