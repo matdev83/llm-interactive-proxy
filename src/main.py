@@ -708,8 +708,6 @@ def build_app(
 
     return app_instance
 
-if __name__ != "__main__":
-    app = build_app()
-else:
+if __name__ == "__main__":
     from src.core.cli import main as cli_main
     cli_main(build_app_fn=build_app)
