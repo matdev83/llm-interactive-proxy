@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import asyncio
 import os
 import secrets
 import sys
@@ -579,54 +580,87 @@ def build_app(
         used_backend = current_backend_type
         used_model = effective_model
         success = False
-        for b_attempt, m_attempt, kname_attempt, key_attempt in attempts:
-            logger.debug(
-                f"Attempting backend: {b_attempt}, model: {m_attempt}, "
-                f"key_name: {kname_attempt}"
-            )
-            try:
-                response_from_backend = await _call_backend(
-                    b_attempt, m_attempt, kname_attempt, key_attempt
+        while not success:
+            earliest_retry: float | None = None
+            attempted_any = False
+            for b_attempt, m_attempt, kname_attempt, key_attempt in attempts:
+                logger.debug(
+                    f"Attempting backend: {b_attempt}, model: {m_attempt}, key_name: {kname_attempt}"
                 )
-                used_backend = b_attempt
-                used_model = m_attempt
-                success = True
-                logger.debug(
-                    f"Attempt successful for backend: {b_attempt}, model: {m_attempt}, "
-                    f"key_name: {kname_attempt}")
-                break
-            except HTTPException as e:
-                logger.debug(
-                    f"Attempt failed for backend: {b_attempt}, model: {m_attempt}, "
-                    f"key_name: {kname_attempt} with HTTPException: {e.status_code} "
-                    f"- {e.detail}")
-                if e.status_code == 429:
-                    last_error = e
+                retry_ts = http_request.app.state.rate_limits.get(
+                    b_attempt, m_attempt, kname_attempt
+                )
+                if retry_ts:
+                    earliest_retry = (
+                        retry_ts
+                        if earliest_retry is None or retry_ts < earliest_retry
+                        else earliest_retry
+                    )
+                    last_error = HTTPException(
+                        status_code=429,
+                        detail={"message": "Backend rate limited", "retry_after": int(retry_ts - time.time())},
+                    )
                     continue
-                raise
-        if not success:
-            error_msg_detail = last_error.detail if last_error else "all backends failed"
-            status_code_to_return = (
-                last_error.status_code if last_error else 500
-            )
-            # E501: Wrapped dict
-            response_content = {
-                "id": "error", "object": "chat.completion",
-                "created": int(time.time()), "model": effective_model,
-                "choices": [{
-                    "index": 0,
-                    "message": {
-                        "role": "assistant",
-                        "content": f"All backends failed: {error_msg_detail}"
-                    },
-                    "finish_reason": "error"
-                }],
-                "usage": {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},
-                "error": error_msg_detail,
-            }
-            raise HTTPException(
-                status_code=status_code_to_return, detail=response_content
-            )
+                try:
+                    attempted_any = True
+                    response_from_backend = await _call_backend(
+                        b_attempt, m_attempt, kname_attempt, key_attempt
+                    )
+                    used_backend = b_attempt
+                    used_model = m_attempt
+                    success = True
+                    logger.debug(
+                        f"Attempt successful for backend: {b_attempt}, model: {m_attempt}, key_name: {kname_attempt}"
+                    )
+                    break
+                except HTTPException as e:
+                    logger.debug(
+                        f"Attempt failed for backend: {b_attempt}, model: {m_attempt}, key_name: {kname_attempt} with HTTPException: {e.status_code} - {e.detail}"
+                    )
+                    if e.status_code == 429:
+                        delay = parse_retry_delay(e.detail)
+                        if delay:
+                            http_request.app.state.rate_limits.set(
+                                b_attempt, m_attempt, kname_attempt, delay
+                            )
+                            retry_at = time.time() + delay
+                            earliest_retry = (
+                                retry_at if earliest_retry is None or retry_at < earliest_retry else earliest_retry
+                            )
+                        last_error = e
+                        attempted_any = True
+                        continue
+                    raise
+            if not success:
+                if earliest_retry is None:
+                    error_msg_detail = last_error.detail if last_error else "all backends failed"
+                    status_code_to_return = last_error.status_code if last_error else 500
+                    response_content = {
+                        "id": "error",
+                        "object": "chat.completion",
+                        "created": int(time.time()),
+                        "model": effective_model,
+                        "choices": [
+                            {
+                                "index": 0,
+                                "message": {
+                                    "role": "assistant",
+                                    "content": f"All backends failed: {error_msg_detail}",
+                                },
+                                "finish_reason": "error",
+                            }
+                        ],
+                        "usage": {
+                            "prompt_tokens": 0,
+                            "completion_tokens": 0,
+                            "total_tokens": 0,
+                        },
+                        "error": error_msg_detail,
+                    }
+                    raise HTTPException(status_code=status_code_to_return, detail=response_content)
+                if not attempted_any:
+                    raise HTTPException(status_code=429, detail={"message": "Backend rate limited", "retry_after": int(earliest_retry - time.time())})
+                await asyncio.sleep(max(0, earliest_retry - time.time()))
 
         if isinstance(response_from_backend, StreamingResponse):
             session.add_interaction(
