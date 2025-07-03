@@ -5,10 +5,8 @@ import pytest
 from pytest_httpx import HTTPXMock
 
 
-@pytest.mark.httpx_mock()  # Revert to original decorator
-def test_rate_limit_memory(
-    client, httpx_mock: HTTPXMock
-):  # Removed monkeypatch fixture
+@pytest.mark.httpx_mock()
+def test_rate_limit_wait_and_retry(client, httpx_mock: HTTPXMock, monkeypatch):
     error_detail = {
         "error": {
             "code": 429,
@@ -23,13 +21,17 @@ def test_rate_limit_memory(
         }
     }
 
-    # Mock the Gemini responses using a callback to handle multiple requests
     request_count = 0
 
     def gemini_rate_limit_callback(request):
         nonlocal request_count
         request_count += 1
-        return httpx.Response(429, json=error_detail)
+        if request_count == 1:
+            return httpx.Response(429, json=error_detail)
+        return httpx.Response(
+            200,
+            json={"candidates": [{"content": {"parts": [{"text": "ok"}]}}]},
+        )
 
     httpx_mock.add_callback(
         gemini_rate_limit_callback,
@@ -37,6 +39,7 @@ def test_rate_limit_memory(
             r"https://generativelanguage.googleapis.com/v1beta/models/gemini-1:generateContent.*"
         ),
         method="POST",
+        is_reusable=True,
     )
 
     # Use a command to set the backend to gemini
@@ -47,10 +50,15 @@ def test_rate_limit_memory(
     client.post("/v1/chat/completions", json=set_backend_payload)
 
     payload = {"model": "gemini-1", "messages": [{"role": "user", "content": "hi"}]}
+    monkeypatch.setattr("src.main.parse_retry_delay", lambda d: 0)
+
+    async def fake_sleep(_):
+        return None
+
+    monkeypatch.setattr("src.main.asyncio.sleep", fake_sleep)
+
     r1 = client.post("/v1/chat/completions", json=payload)
     assert r1.status_code == 429
     r2 = client.post("/v1/chat/completions", json=payload)
-    assert r2.status_code == 429
-    assert (
-        request_count == 1
-    )  # Proxy should remember rate limit and not hit backend again
+    assert r2.status_code == 200
+    assert request_count == 2

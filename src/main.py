@@ -7,6 +7,7 @@ import sys
 import time
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
+import asyncio
 from typing import Any, Dict, Union
 
 # Moved imports to the top (E402 fix)
@@ -574,54 +575,79 @@ def build_app(
                 )
             )
 
-        last_error: HTTPException | None = None
-        response_from_backend = None
-        used_backend = current_backend_type
-        used_model = effective_model
-        success = False
-        for b_attempt, m_attempt, kname_attempt, key_attempt in attempts:
-            logger.debug(
-                f"Attempting backend: {b_attempt}, model: {m_attempt}, "
-                f"key_name: {kname_attempt}"
-            )
-            try:
-                response_from_backend = await _call_backend(
-                    b_attempt, m_attempt, kname_attempt, key_attempt
+        while True:
+            last_error: HTTPException | None = None
+            response_from_backend = None
+            used_backend = current_backend_type
+            used_model = effective_model
+            success = False
+            earliest_retry: float | None = None
+            for b_attempt, m_attempt, kname_attempt, key_attempt in attempts:
+                logger.debug(
+                    f"Attempting backend: {b_attempt}, model: {m_attempt}, "
+                    f"key_name: {kname_attempt}"
                 )
-                used_backend = b_attempt
-                used_model = m_attempt
-                success = True
-                logger.debug(
-                    f"Attempt successful for backend: {b_attempt}, model: {m_attempt}, "
-                    f"key_name: {kname_attempt}")
+                try:
+                    response_from_backend = await _call_backend(
+                        b_attempt, m_attempt, kname_attempt, key_attempt
+                    )
+                    used_backend = b_attempt
+                    used_model = m_attempt
+                    success = True
+                    logger.debug(
+                        f"Attempt successful for backend: {b_attempt}, model: {m_attempt}, "
+                        f"key_name: {kname_attempt}")
+                    break
+                except HTTPException as e:
+                    logger.debug(
+                        f"Attempt failed for backend: {b_attempt}, model: {m_attempt}, "
+                        f"key_name: {kname_attempt} with HTTPException: {e.status_code} "
+                        f"- {e.detail}")
+                    if e.status_code == 429:
+                        last_error = e
+                        retry_ts = http_request.app.state.rate_limits.get(
+                            b_attempt, m_attempt, kname_attempt
+                        )
+                        if retry_ts and (
+                            earliest_retry is None or retry_ts < earliest_retry
+                        ):
+                            earliest_retry = retry_ts
+                        continue
+                    raise
+            if success:
                 break
-            except HTTPException as e:
-                logger.debug(
-                    f"Attempt failed for backend: {b_attempt}, model: {m_attempt}, "
-                    f"key_name: {kname_attempt} with HTTPException: {e.status_code} "
-                    f"- {e.detail}")
-                if e.status_code == 429:
-                    last_error = e
+
+            if last_error and last_error.status_code == 429:
+                if earliest_retry is None:
+                    earliest_retry = http_request.app.state.rate_limits.next_available()
+                if earliest_retry:
+                    wait_time = max(0.0, earliest_retry - time.time())
+                    if wait_time > 0:
+                        await asyncio.sleep(wait_time)
                     continue
-                raise
-        if not success:
+
             error_msg_detail = last_error.detail if last_error else "all backends failed"
-            status_code_to_return = (
-                last_error.status_code if last_error else 500
-            )
-            # E501: Wrapped dict
+            status_code_to_return = last_error.status_code if last_error else 500
             response_content = {
-                "id": "error", "object": "chat.completion",
-                "created": int(time.time()), "model": effective_model,
-                "choices": [{
-                    "index": 0,
-                    "message": {
-                        "role": "assistant",
-                        "content": f"All backends failed: {error_msg_detail}"
-                    },
-                    "finish_reason": "error"
-                }],
-                "usage": {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},
+                "id": "error",
+                "object": "chat.completion",
+                "created": int(time.time()),
+                "model": effective_model,
+                "choices": [
+                    {
+                        "index": 0,
+                        "message": {
+                            "role": "assistant",
+                            "content": f"All backends failed: {error_msg_detail}",
+                        },
+                        "finish_reason": "error",
+                    }
+                ],
+                "usage": {
+                    "prompt_tokens": 0,
+                    "completion_tokens": 0,
+                    "total_tokens": 0,
+                },
                 "error": error_msg_detail,
             }
             raise HTTPException(

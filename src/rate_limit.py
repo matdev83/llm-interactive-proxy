@@ -31,6 +31,18 @@ class RateLimitRegistry:
             return None
         return ts
 
+    def next_available(self) -> Optional[float]:
+        """Return the earliest retry timestamp among all tracked limits."""
+        now = time.time()
+        earliest: float | None = None
+        for key, ts in list(self._until.items()):
+            if now >= ts:
+                del self._until[key]
+                continue
+            if earliest is None or ts < earliest:
+                earliest = ts
+        return earliest
+
 
 def _find_retry_delay_in_details(details_list: list) -> Optional[float]:
     """Iterates through a list of detail items to find and parse RetryInfo."""
