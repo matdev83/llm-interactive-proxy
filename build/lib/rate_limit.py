@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 import time
-from typing import Dict, Optional, Tuple
+from typing import Dict, Optional, Tuple, Any
 
 
 class RateLimitRegistry:

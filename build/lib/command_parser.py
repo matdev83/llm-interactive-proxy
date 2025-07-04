@@ -187,55 +187,66 @@ class CommandParser:
         processed_text, found_in_part = self.process_text(part.text)
 
         if found_in_part:
-            return models.MessageContentPartText(
-                type="text", text=processed_text
-            ), True
+            if not processed_text.strip(): # Command processed AND resulted in empty text
+                return None, True  # Drop the part, but signal command was handled
+            return models.MessageContentPartText(type="text", text=processed_text), True
 
-        if processed_text.strip():
-            return models.MessageContentPartText(
-                type="text", text=processed_text
-            ), False
+        # No command found in this part
+        if processed_text.strip(): # If text remains (e.g. from cleaning non-command text)
+            return models.MessageContentPartText(type="text", text=processed_text), False
 
-        return None, False
+        return None, False # No command, and text is empty
 
     def _handle_list_content(
         self,
         msg_content_list: List[models.MessageContentPart],
     ) -> Tuple[List[models.MessageContentPart], bool, bool]:
         new_parts: List[models.MessageContentPart] = []
-        any_command_found = False
-        list_actually_changed = False # Tracks if the content of the list itself changed
+        any_command_found_overall = False # Tracks if any command was found in any part of this list
+        list_actually_changed = False
+
+        command_processed_within_this_list = False # Flag for this specific list processing pass
 
         if not msg_content_list:
             return [], False, False
 
+        new_parts: List[models.MessageContentPart] = [] # Initialize new_parts here
         original_parts_copy = [part.model_copy(deep=True) for part in msg_content_list]
 
-        for i, original_part in enumerate(original_parts_copy):
-            processed_part, command_found_in_this_part = self._process_single_part(original_part)
 
-            if command_found_in_this_part:
-                any_command_found = True
+        for original_part in original_parts_copy: # Iterate over copy
+            processed_part_current_iteration: Optional[models.MessageContentPart] = None
+            command_found_in_this_specific_part = False
 
-            if processed_part is not None:
-                new_parts.append(processed_part)
+            if not command_processed_within_this_list:
+                # If no command has been processed yet in this list, try to process this part
+                processed_part_current_iteration, command_found_in_this_specific_part = \
+                    self._process_single_part(original_part)
 
-        # Determine if the list actually changed
+                if command_found_in_this_specific_part:
+                    any_command_found_overall = True # Mark that a command was found somewhere in this list
+                    command_processed_within_this_list = True # Stop processing further parts for commands
+            else:
+                # A command was already found and processed in a previous part of this list.
+                # Add this part as is (it's a copy from original_parts_copy).
+                processed_part_current_iteration = original_part
+
+            if processed_part_current_iteration is not None:
+                new_parts.append(processed_part_current_iteration)
+
+        # Determine if the list's content actually changed by comparing new_parts with original_parts_copy
         if len(new_parts) != len(original_parts_copy):
             list_actually_changed = True
         else:
             for i in range(len(new_parts)):
-                # Pydantic models compared by value
-                if new_parts[i] != original_parts_copy[i]:
+                if new_parts[i] != original_parts_copy[i]: # Assumes MessageContentPart has __eq__
                     list_actually_changed = True
                     break
 
-        # The third boolean indicates if the calling code should consider this a "modification"
-        # for the purpose of updating message content. This is true if a command was found
-        # (implying an attempt to modify) OR if the list's content genuinely changed.
-        should_consider_modified = any_command_found or list_actually_changed
+        # should_consider_modified is True if a command was found OR the list content changed.
+        should_consider_modified = any_command_found_overall or list_actually_changed
 
-        return new_parts, any_command_found, should_consider_modified
+        return new_parts, any_command_found_overall, should_consider_modified
 
     def _is_content_effectively_empty(self, content: Any) -> bool:
         """Checks if message content is effectively empty after processing."""
@@ -282,6 +293,82 @@ class CommandParser:
 
         # Remove comments and strip whitespace for accurate command pattern matching
         return COMMENT_LINE_PATTERN.sub("", text_to_check).strip()
+
+    def _execute_commands_in_target_message(
+            self,
+            target_idx: int,
+            modified_messages: List[models.ChatMessage]
+        ) -> bool:
+        """Processes commands in the specified message and updates it.
+        Returns True if a command was found and an attempt to execute it was made.
+        """
+        msg_to_process = modified_messages[target_idx]
+        processed_content = None
+        command_found_in_target_msg = False
+        content_modified_by_cmd = False # Tracks if the content was actually changed by the command
+
+        original_content_for_comparison = msg_to_process.content # Hold for comparison if not str/list
+
+        if isinstance(msg_to_process.content, str):
+            processed_content, command_found_in_target_msg, content_modified_by_cmd = \
+                self._handle_string_content(msg_to_process.content)
+        elif isinstance(msg_to_process.content, list):
+            processed_content, command_found_in_target_msg, content_modified_by_cmd = \
+                self._handle_list_content(msg_to_process.content)
+
+        if command_found_in_target_msg:
+            # Update content only if it was actually modified by the command processing
+            # and processed_content is not None (it could be None if list content became empty)
+            if content_modified_by_cmd and processed_content is not None:
+                msg_to_process.content = processed_content
+                logger.info(
+                    "Content modified by command in message index %s. Role: %s.",
+                    target_idx,
+                    msg_to_process.role,
+                )
+            elif content_modified_by_cmd and processed_content is None and isinstance(original_content_for_comparison, list):
+                # This case handles when a list content is entirely consumed by a command, resulting in None (empty list)
+                msg_to_process.content = [] # Ensure it's an empty list
+                logger.info(
+                    "List content removed by command in message index %s. Role: %s.",
+                    target_idx,
+                    msg_to_process.role,
+                )
+
+            return True # A command was found and an attempt to execute it was made.
+        return False
+
+    def _filter_empty_messages(
+            self,
+            processed_messages: List[models.ChatMessage],
+            original_messages: List[models.ChatMessage]
+        ) -> List[models.ChatMessage]:
+        """Filters out messages that became empty, unless they were purely commands."""
+        final_messages: List[models.ChatMessage] = []
+        for original_msg_idx, current_msg_state in enumerate(processed_messages):
+            is_empty = self._is_content_effectively_empty(current_msg_state.content)
+
+            if is_empty:
+                original_content = original_messages[original_msg_idx].content
+                if not self._is_original_purely_command(original_content):
+                    logger.info(
+                        "Removing message (role: %s, index: %s) as its content "
+                        "became effectively empty after command processing and was not a pure command.",
+                        current_msg_state.role,
+                        original_msg_idx
+                    )
+                    continue
+                else:
+                    # Pure command became empty. Retain it, ensuring content is canonical empty.
+                    current_msg_state.content = [] if isinstance(original_content, list) else ""
+                    logger.info(
+                        "Retaining message (role: %s, index: %s) as transformed empty content "
+                        "because it was originally a pure command.",
+                        current_msg_state.role,
+                        original_msg_idx
+                    )
+            final_messages.append(current_msg_state)
+        return final_messages
 
     def process_messages(
         self, messages: List[models.ChatMessage]
