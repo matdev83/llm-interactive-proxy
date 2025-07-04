@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Dict, Any, List, Set
+from typing import Dict, Any, List, Set, Callable # Added Callable
 
 from fastapi import FastAPI
 
@@ -42,11 +42,11 @@ class SetCommand(BaseCommand):
                 return False, CommandResult(self.name, False, f"backend {backend_val} not supported")
             if self.functional_backends is not None and backend_val not in self.functional_backends:
                 state.unset_override_backend() # Ensure it's unset if previously set
-                return True, CommandResult(self.name, False, f"backend {backend_val} not functional") # backend_set_failed = True
+                return True, CommandResult(self.name, False, f"backend {backend_val} not functional") # Indicates it was handled, but resulted in a "not functional" state.
             state.set_override_backend(backend_val)
             messages.append(f"backend set to {backend_val}")
-            return False, None # Not failed, no immediate return
-        return False, None # Not handled or no failure
+            return True, None # Successfully set and functional
+        return False, None # Not handled (key not present or not a string) or no failure if key not 'backend'
 
     def _handle_default_backend_setting(self, args: Dict[str, Any], messages: List[str]) -> tuple[bool, CommandResult | None]:
         """Handles the 'default-backend' setting."""
@@ -97,36 +97,36 @@ class SetCommand(BaseCommand):
         return False, None
 
 
-    def _handle_project_setting(self, args: Dict[str, Any], state: "ProxyState", messages: List[str]) -> bool:
-        """Handles 'project' or 'project-name' setting."""
+    def _handle_project_setting(self, args: Dict[str, Any], state: "ProxyState", messages: List[str]) -> tuple[bool, bool, CommandResult | None]:
+        """Handles 'project' or 'project-name' setting. Returns (handled, persistent_change, error_result)."""
         project_arg = args.get("project") or args.get("project-name")
         if isinstance(project_arg, str):
             name_val = project_arg.strip()
             state.set_project(name_val)
             messages.append(f"project set to {name_val}")
-            return True
-        return False
+            return True, False, None # handled, not persistent for config saving, no error
+        return False, False, None
 
-    def _handle_interactive_mode_setting(self, args: Dict[str, Any], state: "ProxyState", messages: List[str]) -> tuple[bool, bool]:
-        """Handles 'interactive' or 'interactive-mode' setting. Returns (handled, persistent_change)."""
+    def _handle_interactive_mode_setting(self, args: Dict[str, Any], state: "ProxyState", messages: List[str]) -> tuple[bool, bool, CommandResult | None]:
+        """Handles 'interactive' or 'interactive-mode' setting. Returns (handled, persistent_change, error_result)."""
         for key in ("interactive", "interactive-mode"):
             if isinstance(args.get(key), str):
                 val = self._parse_bool(args[key])
                 if val is not None:
                     state.set_interactive_mode(val)
                     messages.append(f"interactive mode set to {val}")
-                    return True, True # handled, persistent_change
-        return False, False
+                    return True, True, None # handled, persistent_change, no error
+        return False, False, None
 
-    def _handle_redact_api_keys_setting(self, args: Dict[str, Any], messages: List[str]) -> tuple[bool, bool]:
-        """Handles 'redact-api-keys-in-prompts'. Returns (handled, persistent_change)."""
+    def _handle_redact_api_keys_setting(self, args: Dict[str, Any], messages: List[str]) -> tuple[bool, bool, CommandResult | None]:
+        """Handles 'redact-api-keys-in-prompts'. Returns (handled, persistent_change, error_result)."""
         if isinstance(args.get("redact-api-keys-in-prompts"), str) and self.app is not None:
             val = self._parse_bool(args["redact-api-keys-in-prompts"])
             if val is not None:
                 self.app.state.api_key_redaction_enabled = val
                 messages.append(f"API key redaction in prompts set to {val}")
-                return True, True # handled, persistent_change
-        return False, False
+                return True, True, None # handled, persistent_change, no error
+        return False, False, None
 
     def _handle_command_prefix_setting(self, args: Dict[str, Any], messages: List[str]) -> tuple[bool, bool, CommandResult | None]:
         """Handles 'command-prefix'. Returns (handled, persistent_change, error_result)."""
@@ -140,42 +140,130 @@ class SetCommand(BaseCommand):
             return True, True, None # handled, persistent_change, no error
         return False, False, None
 
+    # Type alias for handler functions
+    # Handler returns: (key_was_present_and_handled, persistent_change, error_result_or_none)
+    # The 'backend_set_failed' is passed as a mutable list of one boolean to allow modification by the handler.
+    GeneralSettingHandler = Callable[[Dict[str, Any], "ProxyState", List[str], List[bool]], tuple[bool, bool, CommandResult | None]]
+
+    def _backend_setting_handler(self, args: Dict[str, Any], state: "ProxyState", messages: List[str], backend_set_failed_ref: List[bool]) -> tuple[bool, bool, CommandResult | None]:
+        if "backend" not in args:
+            return False, False, None
+        handled, cmd_result = self._handle_backend_setting(args, state, messages)
+        if cmd_result: # This implies a failure message
+            backend_set_failed_ref[0] = True # Mark as failed if there's a command result
+            return True, False, cmd_result # Handled (attempted), not persistent, error
+        # If _handle_backend_setting returns (False, None), it means backend was valid but not functional (e.g. not in functional_backends)
+        # If it returns (True, None) it means it was set.
+        # The original logic: `backend_set_failed = not handled` (where handled was the first element of the tuple from _handle_backend_setting)
+        # The `handled` from `_handle_backend_setting` means "backend was set successfully and is functional"
+        # So, if `not handled` (from _handle_backend_setting), then backend_set_failed should be true.
+        # The `_handle_backend_setting` returns (True, None) for success, (False, CommandResult) for "not supported", (True, CommandResult) for "not functional".
+        # Let's adjust _handle_backend_setting's return for clarity or handle it here.
+        # Current _handle_backend_setting:
+        #   - Returns (False, CommandResult) if backend_val not supported.
+        #   - Returns (True, CommandResult) if backend_val not functional. (Here, backend_set_failed should be true)
+        #   - Returns (False, None) if successfully set. (This seems inverted, should be True, None for success)
+        # Let's assume _handle_backend_setting: (success_flag, result_or_none)
+        # If success_flag is False AND result_or_none is a CommandResult -> hard failure, return result
+        # If success_flag is True AND result_or_none is a CommandResult -> soft failure (e.g. not functional), backend_set_failed = True
+        # If success_flag is True AND result_or_none is None -> success, backend_set_failed = False
+        #
+        # Re-reading _handle_backend_setting:
+        #   - `return False, CommandResult(self.name, False, f"backend {backend_val} not supported")` -> Error
+        #   - `return True, CommandResult(self.name, False, f"backend {backend_val} not functional")` -> Error, backend_set_failed = True
+        #   - `return False, None` -> Success. This is confusing. Let's make its first return True for success.
+        # For now, I'll stick to the current _handle_backend_setting logic and derive backend_set_failed here.
+        # If cmd_result is None, it means success.
+        # Original: backend_set_failed, cmd_result = self._handle_backend_setting(args, state, messages)
+        # if cmd_result: return cmd_result. `backend_set_failed` was the first item.
+        # Let's simplify: _handle_backend_setting should return (CommandResult | None, was_functional_if_set_attempted)
+        # No, let's just use the existing structure and set backend_set_failed based on cmd_result.
+        # If cmd_result is not None, it's a failure of some sort.
+        # If cmd_result is CommandResult with success=False, then backend_set_failed=True.
+        if cmd_result is None: # Success
+             backend_set_failed_ref[0] = False
+        else: # Some error occurred
+            backend_set_failed_ref[0] = True
+
+        return True, False, cmd_result # Handled (attempted), not persistent, optional error
+
+    def _default_backend_setting_handler(self, args: Dict[str, Any], _state: "ProxyState", messages: List[str], _bsf: List[bool]) -> tuple[bool, bool, CommandResult | None]:
+        if "default-backend" not in args:
+            return False, False, None
+        persistent, cmd_result = self._handle_default_backend_setting(args, messages)
+        return True, persistent, cmd_result # Handled (attempted), persistent flag from method, optional error
+
+    def _model_setting_handler(self, args: Dict[str, Any], state: "ProxyState", messages: List[str], backend_set_failed_ref: List[bool]) -> tuple[bool, bool, CommandResult | None]:
+        if "model" not in args:
+            return False, False, None
+        handled_model, cmd_result = self._handle_model_setting(args, state, messages, backend_set_failed_ref[0])
+        return handled_model, False, cmd_result # Model is session-specific, not persistent
+
+    def _project_setting_handler(self, args: Dict[str, Any], state: "ProxyState", messages: List[str], _bsf: List[bool]) -> tuple[bool, bool, CommandResult | None]:
+        if not (args.get("project") or args.get("project-name")):
+            return False, False, None
+        return self._handle_project_setting(args, state, messages)
+
+    def _interactive_mode_setting_handler(self, args: Dict[str, Any], state: "ProxyState", messages: List[str], _bsf: List[bool]) -> tuple[bool, bool, CommandResult | None]:
+        if not (args.get("interactive") or args.get("interactive-mode")):
+            return False, False, None
+        return self._handle_interactive_mode_setting(args, state, messages)
+
+    def _redact_api_keys_setting_handler(self, args: Dict[str, Any], _state: "ProxyState", messages: List[str], _bsf: List[bool]) -> tuple[bool, bool, CommandResult | None]:
+        if "redact-api-keys-in-prompts" not in args:
+            return False, False, None
+        # Adapt NoState to GeneralSettingHandler signature
+        return self._handle_redact_api_keys_setting(args, messages)
+
+    def _command_prefix_setting_handler(self, args: Dict[str, Any], _state: "ProxyState", messages: List[str], _bsf: List[bool]) -> tuple[bool, bool, CommandResult | None]:
+        if "command-prefix" not in args:
+            return False, False, None
+        # Adapt NoState to GeneralSettingHandler signature
+        return self._handle_command_prefix_setting(args, messages)
+
+
     def execute(self, args: Dict[str, Any], state: "ProxyState") -> CommandResult:
         messages: List[str] = []
-        any_handled = False
+        any_arg_processed = False # Tracks if any argument key led to a handler being called
         persistent_change_made = False
+        backend_set_failed_ref = [False] # Use a list to pass by reference
 
-        backend_set_failed, cmd_result = self._handle_backend_setting(args, state, messages)
-        if cmd_result: return cmd_result
-        if args.get("backend") is not None: any_handled = True
+        # Order matters: backend -> default-backend -> model -> others
+        # Each handler now takes `backend_set_failed_ref`
+        setting_handlers: List[self.GeneralSettingHandler] = [
+            self._backend_setting_handler,
+            self._default_backend_setting_handler,
+            self._model_setting_handler,
+            self._project_setting_handler,
+            self._interactive_mode_setting_handler,
+            self._redact_api_keys_setting_handler,
+            self._command_prefix_setting_handler,
+        ]
 
-        persistent, cmd_result = self._handle_default_backend_setting(args, messages)
-        if cmd_result: return cmd_result
-        if persistent: persistent_change_made = True
-        if args.get("default-backend") is not None: any_handled = True
+        for handler_method in setting_handlers:
+            # The handler itself will check if its relevant key(s) are in args
+            # This allows handlers to manage aliases like "project" and "project-name"
+            key_present_and_handled, persistent_current, cmd_result = handler_method(args, state, messages, backend_set_failed_ref)
 
-        handled_model, cmd_result = self._handle_model_setting(args, state, messages, backend_set_failed)
-        if cmd_result: return cmd_result
-        if handled_model: any_handled = True
+            if cmd_result: # An error occurred and was returned by the handler
+                return cmd_result
 
-        if self._handle_project_setting(args, state, messages):
-            any_handled = True
-            # Project setting is not considered persistent for config saving here, it's session-specific.
+            if key_present_and_handled:
+                any_arg_processed = True # Mark that at least one arg group was processed
+                if persistent_current:
+                    persistent_change_made = True
 
-        handled_interactive, persistent_interactive = self._handle_interactive_mode_setting(args, state, messages)
-        if handled_interactive: any_handled = True
-        if persistent_interactive: persistent_change_made = True
+        # Check if any arg in the original args dict was actually processed by a handler.
+        # This is a bit tricky because handlers now self-determine if they should run.
+        # A simpler check: if messages list is empty AND no persistent change AND no specific early exit,
+        # it might mean no known args were provided.
+        # The any_arg_processed flag should correctly capture if any handler found its key.
 
-        handled_redact, persistent_redact = self._handle_redact_api_keys_setting(args, messages)
-        if handled_redact: any_handled = True
-        if persistent_redact: persistent_change_made = True
-
-        handled_prefix, persistent_prefix, cmd_result = self._handle_command_prefix_setting(args, messages)
-        if cmd_result: return cmd_result
-        if handled_prefix: any_handled = True
-        if persistent_prefix: persistent_change_made = True
-
-        if not any_handled:
+        if not any_arg_processed and args: # args is not empty, but nothing was handled
+             # This condition means that 'args' contained keys, but none of them were recognized by any handlers.
+             # We need to ensure that if args is empty, we don't show this.
+             # The previous `if not any_handled:` was based on `args.get("key") is not None` checks.
+             # Now, `any_arg_processed` is more accurate.
             return CommandResult(self.name, False, "set: no valid or recognized parameters provided")
 
         if persistent_change_made and self.app is not None and hasattr(self.app.state, "config_manager") and self.app.state.config_manager:

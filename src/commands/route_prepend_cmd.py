@@ -4,7 +4,7 @@ from typing import Dict, Any, List, Set
 
 from fastapi import FastAPI
 
-from .base import BaseCommand, CommandResult, register_command
+from .base import CommandResult, register_command # Removed BaseCommand
 from .failover_base import FailoverBase
 
 from typing import TYPE_CHECKING
@@ -32,7 +32,7 @@ class RoutePrependCommand(FailoverBase):
         elements = [k for k in args.keys() if k != "name"]
         if not elements:
             return CommandResult(self.name, False, "no route elements specified")
-        for e in reversed(elements):
+        for e in reversed(elements): # Iterate reversed to prepend in specified order
             if ":" not in e:
                 continue
             state.prepend_route_element(name, e)

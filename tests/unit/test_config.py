@@ -1,4 +1,4 @@
-import os
+# import os # F401: os imported but unused
 import pytest
 from src import main as app_main
 

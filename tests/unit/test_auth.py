@@ -1,4 +1,4 @@
-import os
+# import os # F401: os imported but unused
 from fastapi.testclient import TestClient
 from src.main import build_app
 
@@ -27,7 +27,7 @@ def test_disable_auth(monkeypatch):
     app = build_app()
     with TestClient(app) as client:
         resp = client.get("/v1/models")
-        assert resp.status_code != 401
+        assert resp.status_code != 401 # Should be 200 if auth disabled
     monkeypatch.delenv("LLM_INTERACTIVE_PROXY_API_KEY", raising=False)
     monkeypatch.delenv("DISABLE_AUTH", raising=False)
 
@@ -36,7 +36,7 @@ def test_disable_auth_no_key_generated(monkeypatch):
     monkeypatch.delenv("LLM_INTERACTIVE_PROXY_API_KEY", raising=False)
     monkeypatch.setenv("DISABLE_AUTH", "true")
     app = build_app()
-    assert app.state.client_api_key is None
+    assert app.state.client_api_key is None # Key should be None if auth is disabled and no key was set
     with TestClient(app) as client:
         resp = client.get("/v1/models")
         assert resp.status_code == 200

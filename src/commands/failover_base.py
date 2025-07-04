@@ -4,7 +4,7 @@ from typing import List
 
 from fastapi import FastAPI
 
-from .base import BaseCommand, CommandResult
+from .base import BaseCommand # Removed CommandResult
 
 from typing import TYPE_CHECKING
 

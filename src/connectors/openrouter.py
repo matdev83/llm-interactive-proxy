@@ -51,6 +51,16 @@ class OpenRouterBackend(LLMBackend):
         """Return the list of cached model identifiers."""
         return list(self.available_models)
 
+    def _redact_message_content(self, msg_dict: Dict[str, Any], redactor: APIKeyRedactor) -> None:
+        """Redacts content within a message dictionary in-place."""
+        content = msg_dict.get("content")
+        if isinstance(content, str):
+            msg_dict["content"] = redactor.redact(content)
+        elif isinstance(content, list):  # Multimodal content
+            for part in content:
+                if isinstance(part, dict) and part.get("type") == "text" and "text" in part:
+                    part["text"] = redactor.redact(part["text"])
+
     def _prepare_openrouter_payload(
         self,
         request_data: ChatCompletionRequest,
@@ -68,12 +78,7 @@ class OpenRouterBackend(LLMBackend):
 
         if prompt_redactor:
             for msg_dict in dict_messages:
-                if isinstance(msg_dict.get("content"), str):
-                    msg_dict["content"] = prompt_redactor.redact(msg_dict["content"])
-                elif isinstance(msg_dict.get("content"), list): # Multimodal content
-                    for part in msg_dict["content"]:
-                        if isinstance(part, dict) and part.get("type") == "text" and "text" in part:
-                            part["text"] = prompt_redactor.redact(part["text"])
+                self._redact_message_content(msg_dict, prompt_redactor)
 
         payload["messages"] = dict_messages
 
@@ -134,9 +139,9 @@ class OpenRouterBackend(LLMBackend):
         # response.raise_for_status() could be used here too, but manual check for pytest_httpx
         if response.status_code >= 400:
             try:
-                error_detail = response.json()
+                _error_detail = response.json() # Prefixed, as it's not directly used before raising
             except json.JSONDecodeError: # pragma: no cover
-                error_detail = response.text
+                _error_detail = response.text # Prefixed
             # This will be caught by the main try-except in chat_completions if not caught here
             # For clarity, we can raise it directly.
             raise httpx.HTTPStatusError(message=f"Error response {response.status_code} while requesting {response.request.url!r}.", request=response.request, response=response)

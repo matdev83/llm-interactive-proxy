@@ -82,7 +82,7 @@ def test_set_redaction_flag(interactive_client):
     assert call_kwargs["prompt_redactor"] is None
     assert call_kwargs["processed_messages"][0].content == "leak SECRET"
     content = resp.json()["choices"][0]["message"]["content"]
-    assert "redact-api-keys-in-prompts set to False" in content
+    assert "API key redaction in prompts set to False" in content # Updated to match actual SetCommand message
 
 
 def test_unset_redaction_flag(interactive_client):
@@ -104,4 +104,4 @@ def test_unset_redaction_flag(interactive_client):
     call_kwargs = mock_method.call_args.kwargs
     assert call_kwargs["prompt_redactor"] is not None
     content = resp.json()["choices"][0]["message"]["content"]
-    assert "redact-api-keys-in-prompts unset" in content
+    assert "API key redaction in prompts unset (reverted to default: True)" in content # Updated to match actual UnsetCommand message

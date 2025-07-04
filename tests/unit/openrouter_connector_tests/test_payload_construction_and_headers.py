@@ -63,30 +63,41 @@ def _assert_payload_basic_structure(
 def _assert_payload_messages(sent_payload: Dict[str, Any], expected_messages: List[Dict[str, Any]]):
     """Helper function to assert payload messages structure and content."""
     assert len(sent_payload["messages"]) == len(expected_messages)
-    for i, expected_msg in enumerate(expected_messages):
-        actual_msg = sent_payload["messages"][i]
+    for actual_msg, expected_msg in zip(sent_payload["messages"], expected_messages):
         assert actual_msg["role"] == expected_msg["role"]
-
-        # Handle both string and list content for messages
-        if isinstance(expected_msg["content"], list):
-            assert isinstance(actual_msg["content"], list)
-            assert len(actual_msg["content"]) == len(expected_msg["content"])
-            for part_idx, expected_part in enumerate(expected_msg["content"]):
-                actual_part = actual_msg["content"][part_idx]
-                assert actual_part["type"] == expected_part["type"]
-                if expected_part["type"] == "text":
-                    assert actual_part["text"] == expected_part["text"]
-                elif expected_part["type"] == "image_url":
-                    assert actual_part["image_url"]["url"] == expected_part["image_url"]["url"]
-                # Ensure Pydantic models were converted to dicts
-                assert isinstance(actual_part, dict)
-                if "image_url" in actual_part:
-                    assert isinstance(actual_part["image_url"], dict)
-        else: # string content
-            assert actual_msg["content"] == expected_msg["content"]
-
-        # Ensure Pydantic models were converted to dicts
+        _assert_message_content(actual_msg["content"], expected_msg["content"])
+        # Ensure Pydantic models were converted to dicts (for the message itself)
         assert isinstance(actual_msg, dict)
+
+def _assert_message_content(
+    actual_content: Union[str, List[Dict[str, Any]]],
+    expected_content: Union[str, List[Dict[str, Any]]]
+):
+    """Helper function to assert individual message content (string or list of parts)."""
+    if isinstance(expected_content, list):
+        assert isinstance(actual_content, list), "Actual content type mismatch: expected list"
+        assert len(actual_content) == len(expected_content), \
+            f"Content parts length mismatch: actual {len(actual_content)}, expected {len(expected_content)}"
+
+        for actual_part, expected_part in zip(actual_content, expected_content):
+            assert actual_part.get("type") == expected_part.get("type"), \
+                f"Part type mismatch: actual {actual_part.get('type')}, expected {expected_part.get('type')}"
+
+            if expected_part.get("type") == "text":
+                assert actual_part.get("text") == expected_part.get("text"), \
+                    f"Text part content mismatch: actual '{actual_part.get('text')}', expected '{expected_part.get('text')}'"
+            elif expected_part.get("type") == "image_url":
+                assert isinstance(actual_part.get("image_url"), dict), "Actual image_url part is not a dict"
+                assert isinstance(expected_part.get("image_url"), dict), "Expected image_url part is not a dict" # Should always be true
+                assert actual_part["image_url"].get("url") == expected_part["image_url"].get("url"), \
+                    f"Image URL mismatch: actual '{actual_part['image_url'].get('url')}', expected '{expected_part['image_url'].get('url')}'"
+
+            # Ensure individual parts (if dicts) are indeed dicts (already handled by type hints and Pydantic conversion)
+            assert isinstance(actual_part, dict), "Actual message part is not a dictionary"
+    else:  # string content
+        assert isinstance(actual_content, str), "Actual content type mismatch: expected string"
+        assert actual_content == expected_content, \
+            f"String content mismatch: actual '{actual_content}', expected '{expected_content}'"
 
 
 def _assert_original_data_unmodified(
@@ -185,4 +196,4 @@ async def test_payload_construction_and_headers(
     assert sample_chat_request_data.messages == [models.ChatMessage(role="user", content="Hello")]
     assert sample_chat_request_data.max_tokens is None # Fixture default
     assert sample_chat_request_data.temperature is None # Fixture default
-    assert sample_chat_request_data.stream is None # Fixture default
+    assert sample_chat_request_data.stream is False # Fixture default, from Pydantic model

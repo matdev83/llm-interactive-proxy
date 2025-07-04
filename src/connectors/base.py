@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import abc
 from typing import Union, Dict, Any, Callable
-import httpx
+# import httpx # Removed unused import
 from starlette.responses import StreamingResponse
 # Assuming ChatCompletionRequest is defined in models.py or a similar location
 # from ...models import ChatCompletionRequest # Placeholder if models is outside src

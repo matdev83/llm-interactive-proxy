@@ -142,49 +142,58 @@ class GeminiBackend(LLMBackend):
             data.pop("type", None)
         return data
 
-    def _prepare_gemini_payload(
+    def _convert_messages_to_gemini_format( # Renamed this method
         self,
-        processed_messages: list,
-        request_data: ChatCompletionRequest,
+        processed_messages: list, # List of ChatMessage
+        # request_data: ChatCompletionRequest, # Removed unused parameter
         prompt_redactor: APIKeyRedactor | None,
-    ) -> Dict[str, Any]:
-        """Constructs the payload for the Gemini API."""
-        payload_contents = []
+    ) -> List[Dict[str, Any]]:
+        """Converts a list of ChatMessage objects to Gemini's 'contents' format."""
+        gemini_messages = []
         for msg in processed_messages:
-            if msg.role == "system": # Gemini API does not support system role
+            if msg.role == "system":  # Gemini API does not support system role
                 continue
 
+            current_parts = []
             if isinstance(msg.content, str):
                 text = msg.content
-                if prompt_redactor: # pragma: no cover
+                if prompt_redactor:  # pragma: no cover
                     text = prompt_redactor.redact(text)
-                parts = [{"text": text}]
-            else: # msg.content is a list of MessageContentPart
-                parts = [
+                current_parts = [{"text": text}]
+            else:  # msg.content is a list of MessageContentPart
+                current_parts = [
                     self._convert_part_for_gemini(part, prompt_redactor)
                     for part in msg.content
                 ]
 
             # Map roles to 'user' or 'model'
-            if msg.role == "user":
-                gemini_role = "user"
-            elif msg.role in ["tool", "function"]: # pragma: no cover
-                # This part seems specific and might need more context if tool/function calls are fully supported
-                gemini_role = "user"
-                # Ensure content is serializable if it's complex
+            gemini_role = "user" if msg.role == "user" else "model"
+
+            # Special handling for tool/function roles if needed (simplified here)
+            if msg.role in ["tool", "function"]: # pragma: no cover
+                gemini_role = "user" # Or map to a specific Gemini tool role if available
                 try:
                     tool_content_str = json.dumps(msg.content)
                 except TypeError: # pragma: no cover
-                    tool_content_str = str(msg.content) # Fallback
-                parts = [{"text": f"tool_code: {tool_content_str}", "tool_response": msg.content}]
+                    tool_content_str = str(msg.content)
+                # This part might need adjustment based on actual Gemini tool usage patterns
+                current_parts = [{"text": f"tool_code: {tool_content_str}", "tool_response": msg.content}]
 
-            else:  # e.g., assistant, and potentially others if mapped
-                gemini_role = "model"
 
-            payload_contents.append({"role": gemini_role, "parts": parts})
+            gemini_messages.append({"role": gemini_role, "parts": current_parts})
+        return gemini_messages
+
+    def _prepare_gemini_payload(
+        self,
+        processed_messages: list, # List of ChatMessage
+        request_data: ChatCompletionRequest,
+        prompt_redactor: APIKeyRedactor | None,
+    ) -> Dict[str, Any]:
+        """Constructs the payload for the Gemini API."""
+        payload_contents = self._convert_messages_to_gemini_format(processed_messages, prompt_redactor) # Removed request_data
 
         payload = {"contents": payload_contents}
-        if request_data.extra_params: # pragma: no cover
+        if request_data.extra_params:  # pragma: no cover
             payload.update(request_data.extra_params)
         return payload
 

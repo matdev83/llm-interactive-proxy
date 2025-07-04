@@ -119,7 +119,7 @@ def test_build_app_uses_env(monkeypatch):
     app = app_main_build_app()
     from fastapi.testclient import TestClient
 
-    with TestClient(app, headers={"Authorization": "Bearer test-proxy-key"}) as client:
+    with TestClient(app, headers={"Authorization": "Bearer test-proxy-key"}) as _:
         assert app.state.backend_type == "gemini"
         assert hasattr(app.state, "gemini_backend")
         assert app.state.command_prefix == "??/"
@@ -135,7 +135,7 @@ def test_build_app_uses_interactive_env(monkeypatch):
     app = app_main_build_app()
     from fastapi.testclient import TestClient
 
-    with TestClient(app, headers={"Authorization": "Bearer test-proxy-key"}) as client:
+    with TestClient(app, headers={"Authorization": "Bearer test-proxy-key"}) as _:
         session = app.state.session_manager.get_session("s1")
         assert session.proxy_state.interactive_mode is True
 

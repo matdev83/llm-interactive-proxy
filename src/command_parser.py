@@ -1,10 +1,12 @@
 import logging
 import re
-from typing import Any, Dict, List, Tuple, Set
+from typing import Any, Dict, List, Tuple, Set, Union # Added Union
+from fastapi import FastAPI # Moved up
 
 import src.models as models
 from .constants import DEFAULT_COMMAND_PREFIX
 from .commands import BaseCommand, CommandResult, create_command_instances
+from .proxy_logic import ProxyState # Moved up
 
 logger = logging.getLogger(__name__)
 
@@ -115,8 +117,8 @@ class CommandParser:
         return re.sub(r"<[^>]+>", "", text)
 
     def _process_single_message_content(
-        self, content: models.MessageContent
-    ) -> Tuple[models.MessageContent, bool, bool]:
+        self, content: Union[str, List[models.MessageContentPart]]
+    ) -> Tuple[Union[str, List[models.MessageContentPart]], bool, bool]:
         """
         Processes a single message's content (str or list of parts) for commands.
         Returns: (processed_content, command_found_in_this_content, content_became_empty)
@@ -155,42 +157,44 @@ class CommandParser:
 
         modified_messages = [msg.model_copy(deep=True) for msg in messages]
         any_command_processed_overall = False
+        processed_message_idx = -1
+        processed_message_became_empty = False
 
-        # Iterate from the last message to the first
+        # Iterate from the last message to the first to find and process commands
         for i in range(len(modified_messages) - 1, -1, -1):
-            msg = modified_messages[i]
+            msg_being_processed = modified_messages[i]
 
-            processed_content, command_found_in_msg, _ = self._process_single_message_content(msg.content)
+            processed_content, command_found, became_empty = \
+                self._process_single_message_content(msg_being_processed.content)
 
-            if command_found_in_msg:
-                msg.content = processed_content
+            if command_found:
+                modified_messages[i].content = processed_content  # Update the copy
                 any_command_processed_overall = True
+                processed_message_idx = i
+                processed_message_became_empty = became_empty
+
                 logger.info(
-                    f"Commands processed in message index {i} (0-indexed, from start of original list). Role: {msg.role}. New content: '{msg.content}'"
+                    f"Commands processed in message index {i} (0-indexed, from start of original list). "
+                    f"Role: {modified_messages[i].role}. Content became empty: {became_empty}. "
+                    f"New content: '{modified_messages[i].content}'"
                 )
                 # Once a command is processed in a message, stop further processing in earlier messages
                 break
 
-        # Filter out messages that have become empty (only if commands were processed in them)
-        # or messages that were initially non-empty but became empty due to command processing.
         final_messages: List[models.ChatMessage] = []
-        for msg in modified_messages:
-            is_empty_str_content = isinstance(msg.content, str) and not msg.content.strip()
-            is_empty_list_content = isinstance(msg.content, list) and not msg.content
-
-            # We only remove a message if it's empty AND a command was processed in *some* message.
-            # This prevents removing messages that were already empty if no commands were found anywhere.
-            if (is_empty_str_content or is_empty_list_content) and any_command_processed_overall:
-                 # We need to be more precise: only remove if THIS message became empty due to a command.
-                 # The `_process_single_message_content` could return a flag for this.
-                 # For now, if any command was processed and message is empty, it's a candidate for removal.
-                 # A simpler check: if content is empty after potential processing.
-                if not msg.content: # Covers empty string and empty list
+        if not any_command_processed_overall:
+            # No commands found anywhere, return all (copied) messages
+            final_messages = modified_messages
+        else:
+            # A command was processed. Filter out the processed message if it became empty.
+            for i in range(len(modified_messages)):
+                if i == processed_message_idx and processed_message_became_empty:
                     logger.info(
-                        f"Removing message (role: {msg.role}) as its content became empty after command processing."
+                        f"Removing message (role: {modified_messages[i].role}, index: {i}) "
+                        "as its content became empty after command processing."
                     )
                     continue
-            final_messages.append(msg)
+                final_messages.append(modified_messages[i])
 
         if not final_messages and any_command_processed_overall and messages: # Original messages list was not empty
             logger.info(

@@ -10,23 +10,23 @@ from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from typing import Any, Dict, Union
 
+import httpx # Moved up
+from fastapi import FastAPI, HTTPException, Request, Depends # Moved up
+from fastapi.responses import StreamingResponse # Moved up
+
+from src import models # Moved up
+from src.proxy_logic import ProxyState # Moved up
+from src.command_parser import CommandParser # Moved up
+from src.session import SessionManager, SessionInteraction # Moved up
+from src.agents import detect_agent, wrap_proxy_message # Moved up
+from src.connectors import OpenRouterBackend, GeminiBackend # Moved up
+from src.security import APIKeyRedactor # Moved up
+from src.rate_limit import RateLimitRegistry, parse_retry_delay # Moved up
+from src.core.metadata import _load_project_metadata # Moved up
+from src.core.config import _load_config, get_openrouter_headers, _keys_for # Moved up
+from src.core.persistence import ConfigManager # Moved up
+
 logger = logging.getLogger(__name__)
-
-import httpx
-from fastapi import FastAPI, HTTPException, Request, Depends
-from fastapi.responses import StreamingResponse
-
-from src import models
-from src.proxy_logic import ProxyState
-from src.command_parser import CommandParser
-from src.session import SessionManager, SessionInteraction
-from src.agents import detect_agent, wrap_proxy_message
-from src.connectors import OpenRouterBackend, GeminiBackend
-from src.security import APIKeyRedactor
-from src.rate_limit import RateLimitRegistry, parse_retry_delay
-
-from src.core.metadata import _load_project_metadata
-from src.core.config import _load_config, get_openrouter_headers, _keys_for
 
 
 # ---------------------------------------------------------------------------
@@ -34,19 +34,16 @@ from src.core.config import _load_config, get_openrouter_headers, _keys_for
 # ---------------------------------------------------------------------------
 
 
-from src.core.persistence import ConfigManager
-
-
 def build_app(cfg: Dict[str, Any] | None = None, *, config_file: str | None = None) -> FastAPI:
     cfg = cfg or _load_config()
 
     disable_auth = cfg.get("disable_auth", False)
     api_key = os.getenv("LLM_INTERACTIVE_PROXY_API_KEY")
-    generated_key = False
+    # generated_key = False # F841: Unused local variable
     if not disable_auth:
         if not api_key:
             api_key = secrets.token_urlsafe(32)
-            generated_key = True
+            # generated_key = True # F841: Unused local variable
             logger.warning(
                 "No client API key provided, generated one: %s", api_key
             )
@@ -65,12 +62,12 @@ def build_app(cfg: Dict[str, Any] | None = None, *, config_file: str | None = No
         backend_info = []
         if "openrouter" in functional:
             keys = len(cfg.get("openrouter_api_keys", {}))
-            models = len(app.state.openrouter_backend.get_available_models())
-            backend_info.append(f"openrouter (K:{keys}, M:{models})")
+            models_count = len(app.state.openrouter_backend.get_available_models())
+            backend_info.append(f"openrouter (K:{keys}, M:{models_count})")
         if "gemini" in functional:
             keys = len(cfg.get("gemini_api_keys", {}))
-            models = len(app.state.gemini_backend.get_available_models())
-            backend_info.append(f"gemini (K:{keys}, M:{models})")
+            models_count = len(app.state.gemini_backend.get_available_models())
+            backend_info.append(f"gemini (K:{keys}, M:{models_count})")
         backends_str = ", ".join(sorted(backend_info))
         return (
             f"Hello, this is {project_name} {project_version}\n"
@@ -108,14 +105,14 @@ def build_app(cfg: Dict[str, Any] | None = None, *, config_file: str | None = No
         if cfg.get("openrouter_api_keys"):
             openrouter_api_keys_list = list(cfg["openrouter_api_keys"].items())
             if openrouter_api_keys_list:
-                key_name, api_key = openrouter_api_keys_list[0]
+                key_name, current_api_key = openrouter_api_keys_list[0]
                 await openrouter_backend.initialize(
                     openrouter_api_base_url=cfg["openrouter_api_base_url"],
                     openrouter_headers_provider=lambda n, k: get_openrouter_headers(
                         cfg, k
                     ),
                     key_name=key_name,
-                    api_key=api_key,
+                    api_key=current_api_key,
                 )
                 # Check if models were successfully fetched during initialization
                 if openrouter_backend.get_available_models():
@@ -124,11 +121,11 @@ def build_app(cfg: Dict[str, Any] | None = None, *, config_file: str | None = No
         if cfg.get("gemini_api_keys"):
             gemini_api_keys_list = list(cfg["gemini_api_keys"].items())
             if gemini_api_keys_list:
-                key_name, api_key = gemini_api_keys_list[0]
+                key_name, current_api_key = gemini_api_keys_list[0]
                 await gemini_backend.initialize(
                     gemini_api_base_url=cfg["gemini_api_base_url"],
                     key_name=key_name,
-                    api_key=api_key,
+                    api_key=current_api_key,
                 )
                 if gemini_backend.get_available_models():
                     gemini_ok = True
@@ -140,24 +137,24 @@ def build_app(cfg: Dict[str, Any] | None = None, *, config_file: str | None = No
         }
         app.state.functional_backends = functional
 
-        backend_type = cfg.get("backend")
-        if backend_type:
-            if functional and backend_type not in functional:
-                raise ValueError(f"default backend {backend_type} is not functional")
+        backend_type_str = cfg.get("backend")
+        if backend_type_str:
+            if functional and backend_type_str not in functional:
+                raise ValueError(f"default backend {backend_type_str} is not functional")
         else:
             if len(functional) == 1:
-                backend_type = next(iter(functional))
+                backend_type_str = next(iter(functional))
             elif len(functional) > 1:
                 raise ValueError(
                     "Multiple functional backends, specify --default-backend"
                 )
             else:
-                backend_type = "openrouter"
-        app.state.backend_type = backend_type
-        app.state.initial_backend_type = backend_type
+                backend_type_str = "openrouter" # Default if no functional backends (e.g. for testing)
+        app.state.backend_type = backend_type_str
+        app.state.initial_backend_type = backend_type_str
 
-        backend = gemini_backend if backend_type == "gemini" else openrouter_backend
-        app.state.backend = backend
+        app.state.backend = gemini_backend if backend_type_str == "gemini" else openrouter_backend
+
 
         all_keys = list(cfg.get("openrouter_api_keys", {}).values()) + list(
             cfg.get("gemini_api_keys", {}).values()
@@ -210,8 +207,8 @@ def build_app(cfg: Dict[str, Any] | None = None, *, config_file: str | None = No
     async def chat_completions(
         request_data: models.ChatCompletionRequest, http_request: Request
     ):
-        backend_type = http_request.app.state.backend_type
-        backend = http_request.app.state.backend
+        # backend_type = http_request.app.state.backend_type # F841: Unused (re-assigned below)
+        # backend = http_request.app.state.backend # F841: Unused (re-assigned below)
         session_id = http_request.headers.get("x-session-id", "default")
         session = http_request.app.state.session_manager.get_session(session_id)
         proxy_state: ProxyState = session.proxy_state
@@ -228,8 +225,11 @@ def build_app(cfg: Dict[str, Any] | None = None, *, config_file: str | None = No
                 text = ""
             session.agent = detect_agent(text)
 
+        current_backend_type = "" # Initialize to avoid potential UnboundLocalError if not set by logic below
+        current_backend_obj = None
+
         if proxy_state.override_backend:
-            backend_type = proxy_state.override_backend
+            current_backend_type = proxy_state.override_backend
             if proxy_state.invalid_override:
                 raise HTTPException(
                     status_code=400,
@@ -238,14 +238,18 @@ def build_app(cfg: Dict[str, Any] | None = None, *, config_file: str | None = No
                         "model": f"{proxy_state.override_backend}:{proxy_state.override_model}",
                     },
                 )
-            if backend_type == "openrouter":
-                backend = http_request.app.state.openrouter_backend
-            elif backend_type == "gemini":
-                backend = http_request.app.state.gemini_backend
-            else:
+            if current_backend_type == "openrouter":
+                current_backend_obj = http_request.app.state.openrouter_backend
+            elif current_backend_type == "gemini":
+                current_backend_obj = http_request.app.state.gemini_backend
+            else: # Should not happen if override_backend is validated by set command
                 raise HTTPException(
-                    status_code=400, detail=f"unknown backend {backend_type}"
+                    status_code=400, detail=f"unknown backend {current_backend_type}"
                 )
+        else:
+            current_backend_type = http_request.app.state.backend_type
+            current_backend_obj = http_request.app.state.backend
+
 
         parser = None
         if not http_request.app.state.disable_interactive_commands:
@@ -262,22 +266,19 @@ def build_app(cfg: Dict[str, Any] | None = None, *, config_file: str | None = No
         else:
             processed_messages = request_data.messages
             commands_processed = False
+
+        # Re-evaluate backend after commands, as they might change it
         if proxy_state.override_backend:
-            backend_type = proxy_state.override_backend
-            if backend_type == "openrouter":
-                backend = http_request.app.state.openrouter_backend
-            elif backend_type == "gemini":
-                backend = http_request.app.state.gemini_backend
-            else:
-                raise HTTPException(
-                    status_code=400, detail=f"unknown backend {backend_type}"
-                )
+            current_backend_type = proxy_state.override_backend
+            if current_backend_type == "openrouter":
+                current_backend_obj = http_request.app.state.openrouter_backend
+            elif current_backend_type == "gemini":
+                current_backend_obj = http_request.app.state.gemini_backend
+            # No else needed here, as invalid_override check happened before command processing
         else:
-            backend_type = http_request.app.state.backend_type
-            if backend_type == "gemini":
-                backend = http_request.app.state.gemini_backend
-            else:
-                backend = http_request.app.state.openrouter_backend
+            current_backend_type = http_request.app.state.backend_type
+            current_backend_obj = http_request.app.state.backend # This is the global default
+
         show_banner = False
         if proxy_state.interactive_mode:
             if not session.history:
@@ -317,11 +318,11 @@ def build_app(cfg: Dict[str, Any] | None = None, *, config_file: str | None = No
             pieces = []
             if proxy_state.interactive_mode and show_banner:
                 pieces.append(_welcome_banner(session_id))
-            elif show_banner:
+            elif show_banner: # show_banner implies interactive_mode or hello_requested
                 pieces.append(_welcome_banner(session_id))
             if confirmation_text:
                 pieces.append(confirmation_text)
-            if not pieces:
+            if not pieces: # Default if no banner and no confirmation
                 pieces.append("Proxy command processed. No query sent to LLM.")
             response_text = wrap_proxy_message(session.agent, "\n".join(pieces))
             session.add_interaction(
@@ -369,44 +370,18 @@ def build_app(cfg: Dict[str, Any] | None = None, *, config_file: str | None = No
 
         effective_model = proxy_state.get_effective_model(request_data.model)
 
-        async def _call_backend(b_type: str, model: str, key_name: str, api_key: str):
+        async def _call_backend(b_type: str, model_to_call: str, key_name_to_use: str, api_key_to_use: str):
+            target_backend_obj = None
             if b_type == "gemini":
-                retry_at = http_request.app.state.rate_limits.get(
-                    "gemini", model, key_name
-                )
-                if retry_at:
-                    raise HTTPException(
-                        status_code=429,
-                        detail={
-                            "message": "Backend rate limited, retry later",
-                            "retry_after": int(retry_at - time.time()),
-                        },
-                    )
-                try:
-                    return await http_request.app.state.gemini_backend.chat_completions(
-                        request_data=request_data,
-                        processed_messages=processed_messages,
-                        effective_model=model,
-                        project=proxy_state.project,
-                        gemini_api_base_url=cfg["gemini_api_base_url"],
-                        key_name=key_name,
-                        api_key=api_key,
-                        prompt_redactor=(
-                            http_request.app.state.api_key_redactor
-                            if http_request.app.state.api_key_redaction_enabled
-                            else None
-                        ),
-                    )
-                except HTTPException as e:
-                    if e.status_code == 429:
-                        delay = parse_retry_delay(e.detail)
-                        if delay:
-                            http_request.app.state.rate_limits.set(
-                                "gemini", model, key_name, delay
-                            )
-                    raise
+                target_backend_obj = http_request.app.state.gemini_backend
+            elif b_type == "openrouter":
+                target_backend_obj = http_request.app.state.openrouter_backend
+            else: # Should not be reached if inputs are validated
+                raise ValueError(f"Invalid backend type in _call_backend: {b_type}")
+
+
             retry_at = http_request.app.state.rate_limits.get(
-                "openrouter", model, key_name
+                b_type, model_to_call, key_name_to_use
             )
             if retry_at:
                 raise HTTPException(
@@ -417,21 +392,31 @@ def build_app(cfg: Dict[str, Any] | None = None, *, config_file: str | None = No
                     },
                 )
             try:
-                return await http_request.app.state.openrouter_backend.chat_completions(
-                    request_data=request_data,
-                    processed_messages=processed_messages,
-                    effective_model=model,
-                    openrouter_api_base_url=cfg["openrouter_api_base_url"],
-                    openrouter_headers_provider=lambda n, k: get_openrouter_headers(
-                        cfg, k
-                    ),
-                    key_name=key_name,
-                    api_key=api_key,
-                    project=proxy_state.project,
-                    prompt_redactor=(
+                # Common arguments for both backends
+                common_args = {
+                    "request_data": request_data,
+                    "processed_messages": processed_messages,
+                    "effective_model": model_to_call, # Pass the specific model for this attempt
+                    "project": proxy_state.project,
+                    "key_name": key_name_to_use,
+                    "api_key": api_key_to_use,
+                    "prompt_redactor": (
                         http_request.app.state.api_key_redactor
                         if http_request.app.state.api_key_redaction_enabled
                         else None
+                    ),
+                }
+                if b_type == "gemini":
+                    return await target_backend_obj.chat_completions(
+                        **common_args,
+                        gemini_api_base_url=cfg["gemini_api_base_url"],
+                    )
+                # else openrouter
+                return await target_backend_obj.chat_completions(
+                    **common_args,
+                    openrouter_api_base_url=cfg["openrouter_api_base_url"],
+                    openrouter_headers_provider=lambda n, k: get_openrouter_headers(
+                        cfg, k
                     ),
                 )
             except HTTPException as e:
@@ -439,168 +424,166 @@ def build_app(cfg: Dict[str, Any] | None = None, *, config_file: str | None = No
                     delay = parse_retry_delay(e.detail)
                     if delay:
                         http_request.app.state.rate_limits.set(
-                            "openrouter", model, key_name, delay
+                            b_type, model_to_call, key_name_to_use, delay
                         )
                 raise
+
 
         route = proxy_state.failover_routes.get(effective_model)
         attempts: list[tuple[str, str, str, str]] = []
         if route:
-            # Defensive: ensure elements is a list if present, else empty list
             elements = route.get("elements", [])
-            if isinstance(elements, dict):
-                elems = list(elements.values())
+            if isinstance(elements, dict): # Compatibility with older config
+                elems_list = list(elements.values())
             elif isinstance(elements, list):
-                elems = elements
+                elems_list = elements
             else:
-                elems = []
-            policy = route.get("policy", "k")
-            if policy == "k" and elems:
-                b, m = elems[0].split(":", 1)
-                for kname, key in _keys_for(cfg, b):  # Pass cfg
-                    attempts.append((b, m, kname, key))
+                elems_list = []
+
+            policy = route.get("policy", "k") # Default to 'k' (known good)
+
+            if policy == "k" and elems_list:
+                b, m = elems_list[0].split(":", 1)
+                for kname, key_val in _keys_for(cfg, b):
+                    attempts.append((b, m, kname, key_val))
             elif policy == "m":
-                for el in elems:
-                    b, m = el.split(":", 1)
-                    keys = _keys_for(cfg, b)
-                    if not keys:
+                for el_str in elems_list:
+                    b, m = el_str.split(":", 1)
+                    keys_for_b = _keys_for(cfg, b)
+                    if not keys_for_b:
                         continue
-                    kname, key = keys[0]
-                    attempts.append((b, m, kname, key))
+                    kname, key_val = keys_for_b[0] # Use first key for this backend
+                    attempts.append((b, m, kname, key_val))
             elif policy == "km":
-                for el in elems:
-                    b, m = el.split(":", 1)
-                    for kname, key in _keys_for(cfg, b):  # Pass cfg
-                        attempts.append((b, m, kname, key))
+                for el_str in elems_list:
+                    b, m = el_str.split(":", 1)
+                    for kname, key_val in _keys_for(cfg, b):
+                        attempts.append((b, m, kname, key_val))
             elif policy == "mk":
-                backends_used = {el.split(":", 1)[0] for el in elems}
-                key_map = {b: _keys_for(cfg, b) for b in backends_used}  # Pass cfg
-                max_len = max(len(v) for v in key_map.values()) if key_map else 0
-                for i in range(max_len):
-                    for el in elems:
-                        b, m = el.split(":", 1)
-                        if i < len(key_map[b]):
-                            kname, key = key_map[b][i]
-                            attempts.append((b, m, kname, key))
-        else:
-            default_keys = _keys_for(cfg, backend_type)  # Pass cfg
+                backends_used_in_route = {el.split(":", 1)[0] for el in elems_list}
+                key_map_for_route = {b_str: _keys_for(cfg, b_str) for b_str in backends_used_in_route}
+                max_keys_len = max(len(v) for v in key_map_for_route.values()) if key_map_for_route else 0
+                for i in range(max_keys_len):
+                    for el_str in elems_list:
+                        b, m = el_str.split(":", 1)
+                        if i < len(key_map_for_route[b]):
+                            kname, key_val = key_map_for_route[b][i]
+                            attempts.append((b, m, kname, key_val))
+        else: # No specific route for effective_model, use default behavior
+            default_keys = _keys_for(cfg, current_backend_type)
             if not default_keys:
                 raise HTTPException(
                     status_code=500,
-                    detail=f"No API keys configured for the default backend: {backend_type}",
+                    detail=f"No API keys configured for the backend: {current_backend_type}",
                 )
-            attempts.append(
-                (
-                    backend_type,
-                    effective_model,
-                    default_keys[0][0],
-                    default_keys[0][1],
-                )
-            )
+            # Attempt with all keys for the current_backend_type and effective_model
+            for kname, key_val in default_keys:
+                 attempts.append((current_backend_type, effective_model, kname, key_val))
+
 
         last_error: HTTPException | None = None
-        response = None
-        used_backend = backend_type
-        used_model = effective_model
+        response_from_backend = None
+        used_backend_type = current_backend_type
+        used_model_name = effective_model
         success = False
-        for b, m, kname, key in attempts:
-            logger.debug(f"Attempting backend: {b}, model: {m}, key_name: {kname}")
+
+        for b_attempt, m_attempt, kname_attempt, key_attempt in attempts:
+            logger.debug(f"Attempting backend: {b_attempt}, model: {m_attempt}, key_name: {kname_attempt}")
             try:
-                response = await _call_backend(b, m, kname, key)
-                used_backend = b
-                used_model = m
+                response_from_backend = await _call_backend(b_attempt, m_attempt, kname_attempt, key_attempt)
+                used_backend_type = b_attempt
+                used_model_name = m_attempt
                 success = True
                 logger.debug(
-                    f"Attempt successful for backend: {b}, model: {m}, key_name: {kname}"
+                    f"Attempt successful for backend: {b_attempt}, model: {m_attempt}, key_name: {kname_attempt}"
                 )
                 break
             except HTTPException as e:
                 logger.debug(
-                    f"Attempt failed for backend: {b}, model: {m}, key_name: {kname} with HTTPException: {e.status_code} - {e.detail}"
+                    f"Attempt failed for backend: {b_attempt}, model: {m_attempt}, key_name: {kname_attempt} with HTTPException: {e.status_code} - {e.detail}"
                 )
-                if e.status_code == 429:
-                    last_error = e
+                last_error = e # Store last error
+                if e.status_code == 429: # If rate limited, continue to next attempt
                     continue
+                # For other errors (400, 401, 500 from backend), re-raise immediately as they are likely not recoverable by trying other keys/models in the route
                 raise
+
         if not success:
-            error_msg = last_error.detail if last_error else "all backends failed"
-            status_code = (
-                last_error.status_code if last_error else 500
-            )  # Use last_error's status code, default to 500
+            # If all attempts failed, raise the last encountered error or a generic one
+            error_to_raise = last_error if last_error else HTTPException(status_code=503, detail="All backend attempts failed.")
 
-            # Always return a valid OpenAI-compatible response structure
-            response_content = {
-                "id": "error",
-                "object": "chat.completion",
-                "created": int(time.time()),
-                "model": effective_model,
-                "choices": [
-                    {
-                        "index": 0,
-                        "message": {
-                            "role": "assistant",
-                            "content": f"All backends failed: {error_msg}",
-                        },
-                        "finish_reason": "error",
-                    }
-                ],
-                "usage": {
-                    "prompt_tokens": 0,
-                    "completion_tokens": 0,
-                    "total_tokens": 0,
-                },
-                "error": error_msg,
-            }
-            raise HTTPException(
-                status_code=status_code, detail=response_content
-            )  # Raise HTTPException with correct status code
+            # Ensure the error detail is a dict for OpenAI compatibility if it's not already
+            detail_content = error_to_raise.detail
+            if not isinstance(detail_content, dict):
+                detail_content = {"message": str(detail_content), "type": "proxy_error"}
 
-        logging.debug(f"Response from _call_backend: {response}")  # Added debug log
+            # Construct a valid OpenAI-like error response if not already one
+            if not ("choices" in detail_content and "model" in detail_content):
+                 final_error_detail = {
+                    "id": "error_proxy_exhausted",
+                    "object": "chat.completion",
+                    "created": int(time.time()),
+                    "model": effective_model, # The model initially requested or resolved before routing
+                    "choices": [
+                        {
+                            "index": 0,
+                            "message": {
+                                "role": "assistant",
+                                "content": detail_content.get("message", "All backend attempts failed."),
+                            },
+                            "finish_reason": "error",
+                        }
+                    ],
+                    "usage": {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},
+                    "error": detail_content # Include original or constructed error detail
+                }
+            else:
+                final_error_detail = detail_content # It's already an OpenAI-like error structure
 
-        # At this point, response is expected to be a dictionary or StreamingResponse.
-        if isinstance(response, StreamingResponse):
+            raise HTTPException(status_code=error_to_raise.status_code, detail=final_error_detail)
+
+
+        logging.debug(f"Response from _call_backend: {response_from_backend}")
+
+        if isinstance(response_from_backend, StreamingResponse):
             session.add_interaction(
                 SessionInteraction(
                     prompt=raw_prompt,
                     handler="backend",
-                    backend=used_backend,
-                    model=used_model,
+                    backend=used_backend_type,
+                    model=used_model_name,
                     project=proxy_state.project,
                     parameters=request_data.model_dump(exclude_unset=True),
                     response="<streaming>",
                 )
             )
-            return response
-        if response is None:
-            backend_response: Dict[str, Any] = {}
-        else:
-            backend_response: Dict[str, Any] = response  # Changed to direct assignment
+            # Apply banner to streaming response if needed
+            if proxy_state.interactive_mode and (show_banner or confirmation_text):
+                # This requires a more complex handling for prepending to streams
+                # For now, we might skip banner for streams or find a way to inject it.
+                # Simplest: log that banner was skipped for stream.
+                logger.info("Interactive banner/confirmation skipped for streaming response.")
+            return response_from_backend
 
-        logging.debug(f"Backend response before defensive check: {backend_response}")
-        logging.debug(f"Type of backend_response: {type(backend_response)}")
-        logging.debug(f"'choices' in backend_response: {'choices' in backend_response}")
-        logging.debug(
-            f"backend_response.get('choices'): {backend_response.get('choices')}"
-        )
+        # Non-streaming response (should be a dict)
+        backend_response_dict: Dict[str, Any] = response_from_backend if isinstance(response_from_backend, dict) else {}
 
-        # Defensive: ensure choices key exists for downstream code
-        if "choices" not in backend_response:
-            backend_response["choices"] = [
+        logging.debug(f"Backend response before defensive check: {backend_response_dict}")
+        logging.debug(f"Type of backend_response_dict: {type(backend_response_dict)}")
+
+        if "choices" not in backend_response_dict or not backend_response_dict["choices"]:
+            backend_response_dict["choices"] = [
                 {
                     "index": 0,
-                    "message": {"role": "assistant", "content": "(no response)"},
+                    "message": {"role": "assistant", "content": "(no valid response choices from backend)"},
                     "finish_reason": "error",
                 }
             ]
+        if "message" not in backend_response_dict["choices"][0]:
+             backend_response_dict["choices"][0]["message"] = {"role": "assistant", "content": "(backend choice missing message)"}
+        if "content" not in backend_response_dict["choices"][0]["message"]:
+             backend_response_dict["choices"][0]["message"]["content"] = "(backend choice missing content)"
 
-        if isinstance(backend_response, dict):
-            logging.debug(
-                f"Backend response (non-streaming): {json.dumps(backend_response, indent=2)}"
-            )
-        else:
-            logging.debug(
-                f"Backend response (non-streaming): {backend_response}"
-            )  # Log as is if not a dict
 
         if proxy_state.interactive_mode:
             prefix_parts = []
@@ -610,27 +593,21 @@ def build_app(cfg: Dict[str, Any] | None = None, *, config_file: str | None = No
                 prefix_parts.append(confirmation_text)
             if prefix_parts:
                 prefix_text = wrap_proxy_message(session.agent, "\n".join(prefix_parts))
-                orig = (
-                    backend_response.get("choices", [{}])[0]
-                    .get("message", {})
-                    .get("content", "")
-                )
-                backend_response["choices"][0]["message"]["content"] = (
-                    prefix_text + "\n" + orig if orig else prefix_text
+                orig_content = backend_response_dict["choices"][0]["message"].get("content", "")
+                backend_response_dict["choices"][0]["message"]["content"] = (
+                    f"{prefix_text}\n{orig_content}" if orig_content else prefix_text
                 )
 
-        usage_data = backend_response.get("usage")
+        usage_data = backend_response_dict.get("usage")
         session.add_interaction(
             SessionInteraction(
                 prompt=raw_prompt,
                 handler="backend",
-                backend=used_backend,
-                model=used_model,
+                backend=used_backend_type,
+                model=used_model_name,
                 project=proxy_state.project,
                 parameters=request_data.model_dump(exclude_unset=True),
-                response=backend_response.get("choices", [{}])[0]
-                .get("message", {})
-                .get("content"),
+                response=backend_response_dict["choices"][0]["message"].get("content"),
                 usage=(
                     models.CompletionUsage(**usage_data)
                     if isinstance(usage_data, dict)
@@ -640,30 +617,37 @@ def build_app(cfg: Dict[str, Any] | None = None, *, config_file: str | None = No
         )
         proxy_state.hello_requested = False
         proxy_state.interactive_just_enabled = False
-        logging.debug(f"Final backend_response: {backend_response}")  # Added debug log
-        return backend_response
+        logging.debug(f"Final backend_response_dict: {backend_response_dict}")
+        return backend_response_dict
 
     @app.get("/models", dependencies=[Depends(verify_client_auth)])
     async def list_all_models(http_request: Request):
         data = []
         if "openrouter" in http_request.app.state.functional_backends:
             for m in http_request.app.state.openrouter_backend.get_available_models():
-                data.append({"id": f"openrouter:{m}"})
+                data.append({"id": f"openrouter:{m}"}) # Use model "id" from openrouter
         if "gemini" in http_request.app.state.functional_backends:
             for m in http_request.app.state.gemini_backend.get_available_models():
-                data.append({"id": f"gemini:{m}"})
+                data.append({"id": f"gemini:{m}"}) # Use model "id" from gemini
         return {"object": "list", "data": data}
 
     @app.get("/v1/models", dependencies=[Depends(verify_client_auth)])
-    async def list_models(http_request: Request):
+    async def list_models_v1(http_request: Request): # Renamed to avoid conflict if routes merge
         """Return cached models from all functional backends in OpenAI format."""
         data = []
-        if "openrouter" in http_request.app.state.functional_backends:
-            for m in http_request.app.state.openrouter_backend.get_available_models():
-                data.append({"id": f"openrouter:{m}"})
-        if "gemini" in http_request.app.state.functional_backends:
-            for m in http_request.app.state.gemini_backend.get_available_models():
-                data.append({"id": f"gemini:{m}"})
+        # Ensure functional_backends is populated
+        functional_b = http_request.app.state.functional_backends if hasattr(http_request.app.state, 'functional_backends') else []
+
+        if "openrouter" in functional_b:
+            openrouter_models = http_request.app.state.openrouter_backend.get_available_models()
+            for m_id in openrouter_models: # Assuming get_available_models returns list of strings (model IDs)
+                data.append({"id": f"openrouter:{m_id}", "object": "model", "owned_by": "openrouter"})
+
+        if "gemini" in functional_b:
+            gemini_models = http_request.app.state.gemini_backend.get_available_models()
+            for m_id in gemini_models: # Assuming get_available_models returns list of strings (model IDs)
+                data.append({"id": f"gemini:{m_id}", "object": "model", "owned_by": "google"})
+
         return {"object": "list", "data": data}
 
     return app
