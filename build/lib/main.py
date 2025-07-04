@@ -341,14 +341,17 @@ def build_app(
                 pass
             else:
                 last_msg = processed_messages[-1]
-                if isinstance(last_msg.content, str):
-                    not last_msg.content.strip()
-                elif isinstance(last_msg.content, list):
-                    # E501: Wrapped comprehension
-                    not any(
-                        part.text.strip() for part in last_msg.content
-                        if isinstance(part, models.MessageContentPartText)
-                    )
+                # The following lines were causing a Pylance warning "Expression value is unused".
+                # They were evaluating a boolean expression but not using the result.
+                # Removed them as they were effectively no-ops.
+                # if isinstance(last_msg.content, str):
+                #     not last_msg.content.strip()
+                # elif isinstance(last_msg.content, list):
+                #     # E501: Wrapped comprehension
+                #     not any(
+                #         part.text.strip() for part in last_msg.content
+                #         if isinstance(part, models.MessageContentPartText)
+                #     )
 
         confirmation_text = ""
         if parser is not None:
@@ -708,10 +711,6 @@ def build_app(
 
     return app_instance
 
-
-if __name__ != "__main__":
-    app = build_app()
-else:
+if __name__ == "__main__":
     from src.core.cli import main as cli_main
-
     cli_main(build_app_fn=build_app)

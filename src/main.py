@@ -698,16 +698,13 @@ def build_app(
                 data.append({"id": f"gemini:{m}"})
         return {"object": "list", "data": data}
 
-    @app_instance.get("/v1/models", dependencies=[Depends(verify_client_auth)])
-    async def list_models(http_request: Request):
-        data = []
-        if "openrouter" in http_request.app.state.functional_backends:
-            for m in http_request.app.state.openrouter_backend.get_available_models():
-                data.append({"id": f"openrouter:{m}"})
-        if "gemini" in http_request.app.state.functional_backends:
-            for m in http_request.app.state.gemini_backend.get_available_models():
-                data.append({"id": f"gemini:{m}"})
-        return {"object": "list", "data": data}
+    # Alias /v1/models to /models
+    app_instance.router.add_api_route(
+        "/v1/models",
+        list_all_models,
+        methods=["GET"],
+        dependencies=[Depends(verify_client_auth)],
+    )
 
     return app_instance
 
