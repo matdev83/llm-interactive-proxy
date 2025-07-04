@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, Dict, List, Optional, Set, Type
+from typing import TYPE_CHECKING, Any, List, Mapping, Optional, Set, Type
 
 if TYPE_CHECKING:
     from fastapi import FastAPI
@@ -36,13 +36,13 @@ class BaseCommand:
         self.app = app
         self.functional_backends = functional_backends or set()
 
-    def execute(self, args: Dict[str, Any],
+    def execute(self, args: Mapping[str, Any],
                 state: "ProxyState") -> CommandResult:
         raise NotImplementedError
 
 
 # Registry -----------------------------------------------------------------
-command_registry: Dict[str, Type[BaseCommand]] = {}
+command_registry: Mapping[str, Type[BaseCommand]] = {}
 
 
 def register_command(cls: Type[BaseCommand]) -> Type[BaseCommand]:

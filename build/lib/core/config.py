@@ -1,5 +1,6 @@
 import logging
 import os
+import sys
 from typing import Any, Dict
 
 from dotenv import load_dotenv
@@ -20,10 +21,13 @@ def _collect_api_keys(base_name: str) -> Dict[str, str]:
         if key:
             numbered_keys[f"{base_name}_{i}"] = key
 
+
+
     if single_key and numbered_keys:
-        raise ValueError(
-            f"Specify either {base_name} or {base_name}_<n> (1-20), not both"
-        )
+        logger.warning(
+            "Both %s and %s_<n> environment variables are set. Prioritizing %s_<n> and ignoring %s.",
+            base_name, base_name, base_name, base_name)
+        return numbered_keys
 
     if single_key:
         return {base_name: single_key}
