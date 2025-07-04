@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, Dict  # Removed List, Set
+from typing import TYPE_CHECKING, Any, Mapping  # Removed List, Set
 
 from .base import BaseCommand, CommandResult, command_registry, register_command
 
@@ -15,7 +15,7 @@ class HelpCommand(BaseCommand):
     description = "Show available commands or details for a single command"
     examples = ["!/help", "!/help(set)"]
 
-    def execute(self, args: Dict[str, Any],
+    def execute(self, args: Mapping[str, Any],
                 state: "ProxyState") -> CommandResult:
         if args:
             # assume first argument name is the command
