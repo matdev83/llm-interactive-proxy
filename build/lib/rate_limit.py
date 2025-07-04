@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 import time
-from typing import Dict, Optional, Tuple, Any
+from typing import Any, Dict, Iterable, Optional, Tuple
 
 
 class RateLimitRegistry:
@@ -30,6 +30,17 @@ class RateLimitRegistry:
             del self._until[key]
             return None
         return ts
+
+    def earliest(self, combos: Iterable[Tuple[str, str, str]] | None = None) -> Optional[float]:
+        """Return the earliest retry timestamp for the given combinations."""
+        items = (
+            ((b, m or "", k), self._until.get((b, m or "", k)))
+            for b, m, k in (combos or [])
+        ) if combos else self._until.items()
+        valid_times = [t for _, t in items if t is not None]
+        if not valid_times:
+            return None
+        return min(valid_times)
 
 
 def _find_retry_delay_in_details(details_list: list) -> Optional[float]:
@@ -66,10 +77,18 @@ def parse_retry_delay(detail: object) -> Optional[float]:
             loaded_json = json.loads(detail)
             if isinstance(loaded_json, dict):
                 data_dict = loaded_json
-            else: # Loaded JSON is not a dictionary
+            else:
                 return None
-        except json.JSONDecodeError: # Catch specific error
-            return None
+        except json.JSONDecodeError:
+            start = detail.find("{")
+            end = detail.rfind("}")
+            if start != -1 and end != -1 and end > start:
+                try:
+                    data_dict = json.loads(detail[start : end + 1])
+                except json.JSONDecodeError:
+                    return None
+            else:
+                return None
     elif isinstance(detail, dict):
         data_dict = detail
 
