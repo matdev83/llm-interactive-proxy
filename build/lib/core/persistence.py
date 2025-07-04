@@ -1,7 +1,7 @@
 import json
 import logging
 from pathlib import Path
-from typing import Any, Dict
+from typing import Any, Dict, Optional, Tuple # Added Optional and Tuple
 
 from fastapi import FastAPI
 

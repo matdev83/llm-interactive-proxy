@@ -195,40 +195,6 @@ class GeminiBackend(LLMBackend):
             payload_contents.append({"role": gemini_role, "parts": parts})
         return payload_contents
 
-    async def chat_completions(
-        self,
-        request_data: ChatCompletionRequest,
-        processed_messages: list,
-        effective_model: str,
-        openrouter_api_base_url: Optional[str] = None,  # absorb unused param
-        openrouter_headers_provider: object = None,  # absorb unused param
-        key_name: Optional[str] = None,
-        api_key: Optional[str] = None,
-        project: str | None = None,
-        prompt_redactor: APIKeyRedactor | None = None,
-        **kwargs,
-    ) -> Union[dict, StreamingResponse]:
-        gemini_api_base_url = openrouter_api_base_url or kwargs.get(
-            "gemini_api_base_url"
-        )
-        if not gemini_api_base_url or not api_key:
-            raise HTTPException(
-                status_code=500,
-                detail="Gemini API base URL and API key must be provided.",
-            )
-
-        payload_contents = self._prepare_gemini_contents(
-            processed_messages, prompt_redactor
-        )
-        payload = {"contents": payload_contents}
-        if request_data.extra_params:
-            payload.update(request_data.extra_params)
-
-        model_name = effective_model
-        if model_name.startswith("gemini:"):
-            model_name = model_name.split(":", 1)[1]
-        if model_name.startswith("models/"):
-            model_name = model_name.split("/", 1)[1]
     async def _handle_gemini_streaming_response(
         self,
         base_url: str,
