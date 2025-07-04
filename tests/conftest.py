@@ -44,21 +44,24 @@ def _restore_env_vars(original_values: dict):
 @pytest.fixture(scope="session")
 def configured_app():
     """Fixture to provide a FastAPI app with configured backends for testing."""
-    _clear_specific_api_key_env_vars()
+    from unittest.mock import patch
+    
+    with patch('src.core.config.load_dotenv'):
+        _clear_specific_api_key_env_vars()
 
-    vars_to_set_for_test = {
-        "OPENROUTER_API_KEY_1": "dummy-openrouter-key-1",
-        "OPENROUTER_API_KEY_2": "dummy-openrouter-key-2",
-        "GEMINI_API_KEY": "dummy-gemini-key",
-        "LLM_INTERACTIVE_PROXY_API_KEY": "test-proxy-key",
-        "LLM_BACKEND": "openrouter",
-    }
-    original_env = _set_env_vars(vars_to_set_for_test)
+        vars_to_set_for_test = {
+            "OPENROUTER_API_KEY_1": "dummy-openrouter-key-1",
+            "OPENROUTER_API_KEY_2": "dummy-openrouter-key-2",
+            "GEMINI_API_KEY": "dummy-gemini-key",  # Use single key to match test expectations (K:1)
+            "LLM_INTERACTIVE_PROXY_API_KEY": "test-proxy-key",
+            "LLM_BACKEND": "openrouter",
+        }
+        original_env = _set_env_vars(vars_to_set_for_test)
 
-    app = build_app()
-    yield app
+        app = build_app()
+        yield app
 
-    _restore_env_vars(original_env)
+        _restore_env_vars(original_env)
 
 
 @pytest.fixture
@@ -80,22 +83,25 @@ def client(configured_app):
 @pytest.fixture(scope="session")
 def configured_interactive_app():
     """Fixture to provide a FastAPI app configured for interactive mode."""
-    _clear_specific_api_key_env_vars()
+    from unittest.mock import patch
+    
+    with patch('src.core.config.load_dotenv'):
+        _clear_specific_api_key_env_vars()
 
-    vars_to_set_for_test = {
-        "OPENROUTER_API_KEY_1": "dummy-openrouter-key-1",
-        "OPENROUTER_API_KEY_2": "dummy-openrouter-key-2",
-        "GEMINI_API_KEY": "dummy-gemini-key",
-        "DISABLE_INTERACTIVE_MODE": "false",
-        "LLM_INTERACTIVE_PROXY_API_KEY": "test-proxy-key",
-        "LLM_BACKEND": "openrouter",
-    }
-    original_env = _set_env_vars(vars_to_set_for_test)
+        vars_to_set_for_test = {
+            "OPENROUTER_API_KEY_1": "dummy-openrouter-key-1",
+            "OPENROUTER_API_KEY_2": "dummy-openrouter-key-2",
+            "GEMINI_API_KEY": "dummy-gemini-key",  # Use single key to match test expectations (K:1)
+            "DISABLE_INTERACTIVE_MODE": "false",
+            "LLM_INTERACTIVE_PROXY_API_KEY": "test-proxy-key",
+            "LLM_BACKEND": "openrouter",
+        }
+        original_env = _set_env_vars(vars_to_set_for_test)
 
-    app = build_app()
-    yield app
+        app = build_app()
+        yield app
 
-    _restore_env_vars(original_env)
+        _restore_env_vars(original_env)
 
 
 @pytest.fixture
@@ -104,16 +110,20 @@ def interactive_client(configured_interactive_app):
     with TestClient(configured_interactive_app) as c:
         c.headers.update({"Authorization": "Bearer test-proxy-key"})
         # Similar to client fixture, ensure defaults if not populated by initialize
+        # Set models to match test expectations: gemini (K:1, M:2), openrouter (K:2, M:3)
         if hasattr(c.app.state, "openrouter_backend") and not c.app.state.openrouter_backend.available_models:
-            c.app.state.openrouter_backend.available_models = ["m1", "m2"]
+            c.app.state.openrouter_backend.available_models = ["m1", "m2", "m3"]
         if hasattr(c.app.state, "gemini_backend") and not c.app.state.gemini_backend.available_models:
-            c.app.state.gemini_backend.available_models = ["g1"]
+            c.app.state.gemini_backend.available_models = ["g1", "g2"]
         yield c
 
 
 def pytest_sessionstart(session):
     from unittest.mock import AsyncMock, patch
     from src.main import GeminiBackend, OpenRouterBackend
+    
+    # Clear environment variables at session start to avoid conflicts
+    _clear_specific_api_key_env_vars()
 
     # patch.object(
     #     OpenRouterBackend,
@@ -177,24 +187,27 @@ def pytest_sessionfinish(session):
 
 @pytest.fixture
 def configured_commands_disabled_app():
-    _clear_specific_api_key_env_vars()
+    from unittest.mock import patch
+    
+    with patch('src.core.config.load_dotenv'):
+        _clear_specific_api_key_env_vars()
 
-    vars_to_set_for_test = {
-        "OPENROUTER_API_KEY_1": "dummy-openrouter-key-1",
-        "GEMINI_API_KEY": "dummy-gemini-key",
-        "DISABLE_INTERACTIVE_COMMANDS": "true",
-        "LLM_INTERACTIVE_PROXY_API_KEY": "test-proxy-key", # Already set by clean_env but good to be explicit
-        "LLM_BACKEND": "openrouter",
-    }
-    original_env = _set_env_vars(vars_to_set_for_test)
+        vars_to_set_for_test = {
+            "OPENROUTER_API_KEY_1": "dummy-openrouter-key-1",
+            "GEMINI_API_KEY": "dummy-gemini-key",  # Use single key to match test expectations (K:1)
+            "DISABLE_INTERACTIVE_COMMANDS": "true",
+            "LLM_INTERACTIVE_PROXY_API_KEY": "test-proxy-key", # Already set by clean_env but good to be explicit
+            "LLM_BACKEND": "openrouter",
+        }
+        original_env = _set_env_vars(vars_to_set_for_test)
 
-    app = build_app()
-    yield app
+        app = build_app()
+        yield app
 
-    _restore_env_vars(original_env)
-    # Explicitly clear DISABLE_INTERACTIVE_COMMANDS as it's specific to this fixture's purpose
-    # and might not be in original_env if not set before.
-    os.environ.pop("DISABLE_INTERACTIVE_COMMANDS", None)
+        _restore_env_vars(original_env)
+        # Explicitly clear DISABLE_INTERACTIVE_COMMANDS as it's specific to this fixture's purpose
+        # and might not be in original_env if not set before.
+        os.environ.pop("DISABLE_INTERACTIVE_COMMANDS", None)
 
 
 @pytest.fixture
@@ -206,17 +219,31 @@ def commands_disabled_client(configured_commands_disabled_app):
 
 @pytest.fixture(autouse=True)
 def clean_env(monkeypatch):
-    if "LLM_INTERACTIVE_PROXY_API_KEY" not in os.environ:
-        os.environ["LLM_INTERACTIVE_PROXY_API_KEY"] = "test-proxy-key"
-    monkeypatch.delenv("DISABLE_INTERACTIVE_COMMANDS", raising=False)
-    yield
-    monkeypatch.delenv("LLM_BACKEND", raising=False)
-    monkeypatch.delenv("DISABLE_INTERACTIVE_COMMANDS", raising=False)
-    for i in range(1, 21):
-        monkeypatch.delenv(f"GEMINI_API_KEY_{i}", raising=False)
-        monkeypatch.delenv(f"OPENROUTER_API_KEY_{i}", raising=False)
-    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
-    monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
+    from unittest.mock import patch
+    
+    # Mock load_dotenv to prevent it from loading the .env file during tests
+    with patch('src.core.config.load_dotenv'):
+        # Store original values for restoration
+        original_values = {}
+        
+        # Clean up before the test - store originals and set to None
+        for i in range(1, 21):
+            for base in ["GEMINI_API_KEY", "OPENROUTER_API_KEY"]:
+                key = f"{base}_{i}"
+                original_values[key] = os.environ.get(key)
+                monkeypatch.delenv(key, raising=False)
+        
+        for base in ["GEMINI_API_KEY", "OPENROUTER_API_KEY", "LLM_BACKEND", "DISABLE_INTERACTIVE_COMMANDS"]:
+            original_values[base] = os.environ.get(base)
+            monkeypatch.delenv(base, raising=False)
+        
+        # Set the proxy key if not already set
+        if "LLM_INTERACTIVE_PROXY_API_KEY" not in os.environ:
+            monkeypatch.setenv("LLM_INTERACTIVE_PROXY_API_KEY", "test-proxy-key")
+        
+        yield
+        
+        # Clean up after the test - monkeypatch should handle restoration automatically
 
 
 @pytest.fixture(autouse=True)

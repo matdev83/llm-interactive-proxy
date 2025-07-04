@@ -742,8 +742,10 @@ def build_app(
 
     return app_instance
 
-app = build_app()
-
+# Only create the app instance when the module is run directly, not when imported
 if __name__ == "__main__":
     from src.core.cli import main as cli_main
     cli_main(build_app_fn=build_app)
+else:
+    # For testing and other imports, create app on demand
+    app = None
