@@ -34,12 +34,26 @@ def test_collect_numbered_openrouter_keys(monkeypatch):
     assert not cfg["gemini_api_keys"]
 
 
-def test_conflicting_key_formats(monkeypatch):
+def test_conflicting_key_formats(monkeypatch, caplog):
+    # Clean slate for this test
+    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+    monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
+    for i in range(1, 21):
+        monkeypatch.delenv(f"GEMINI_API_KEY_{i}", raising=False)
+        monkeypatch.delenv(f"OPENROUTER_API_KEY_{i}", raising=False)
+
     monkeypatch.setenv("OPENROUTER_API_KEY", "base_key")
     monkeypatch.setenv("OPENROUTER_API_KEY_1", "numbered_key")
-    with pytest.raises(ValueError) as excinfo:
-        _load_config()
-    assert "Specify either OPENROUTER_API_KEY or OPENROUTER_API_KEY_<n>" in str(excinfo.value)
+    
+    cfg = _load_config()
+    
+    # Should prioritize numbered keys and issue a warning
+    assert cfg["openrouter_api_keys"] == {"OPENROUTER_API_KEY_1": "numbered_key"}
+    assert "OPENROUTER_API_KEY" not in cfg["openrouter_api_keys"]
+    
+    # Check that a warning was logged
+    assert "Both OPENROUTER_API_KEY and OPENROUTER_API_KEY_<n> environment variables are set" in caplog.text
+    assert "Prioritizing OPENROUTER_API_KEY_<n> and ignoring OPENROUTER_API_KEY" in caplog.text
 
 
 def test_no_api_keys(monkeypatch):
