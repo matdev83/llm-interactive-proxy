@@ -39,19 +39,93 @@ def sample_chat_request_data() -> models.ChatCompletionRequest:
 def sample_processed_messages() -> List[models.ChatMessage]:
     return [models.ChatMessage(role="user", content="Hello")]
 
+def _assert_headers(request: httpx.Request, expected_api_key: str = "FAKE_KEY"):
+    """Helper function to assert request headers."""
+    assert request.headers["Authorization"] == f"Bearer {expected_api_key}"
+    assert request.headers["Content-Type"] == "application/json"
+    assert request.headers["HTTP-Referer"] == "http://localhost:test"
+    assert request.headers["X-Title"] == "TestProxy"
+
+def _assert_payload_basic_structure(
+    sent_payload: Dict[str, Any],
+    effective_model: str,
+    request_data: models.ChatCompletionRequest
+):
+    """Helper function to assert basic payload structure."""
+    assert sent_payload["model"] == effective_model
+    assert sent_payload["max_tokens"] == request_data.max_tokens
+    assert sent_payload["temperature"] == request_data.temperature
+    assert sent_payload.get("stream") == request_data.stream # Handles if stream is None or False
+    # Ensure only specified fields from request_data are passed (exclude_unset=True behavior)
+    assert "n" not in sent_payload
+    assert "logit_bias" not in sent_payload
+
+def _assert_payload_messages(sent_payload: Dict[str, Any], expected_messages: List[Dict[str, Any]]):
+    """Helper function to assert payload messages structure and content."""
+    assert len(sent_payload["messages"]) == len(expected_messages)
+    for i, expected_msg in enumerate(expected_messages):
+        actual_msg = sent_payload["messages"][i]
+        assert actual_msg["role"] == expected_msg["role"]
+
+        # Handle both string and list content for messages
+        if isinstance(expected_msg["content"], list):
+            assert isinstance(actual_msg["content"], list)
+            assert len(actual_msg["content"]) == len(expected_msg["content"])
+            for part_idx, expected_part in enumerate(expected_msg["content"]):
+                actual_part = actual_msg["content"][part_idx]
+                assert actual_part["type"] == expected_part["type"]
+                if expected_part["type"] == "text":
+                    assert actual_part["text"] == expected_part["text"]
+                elif expected_part["type"] == "image_url":
+                    assert actual_part["image_url"]["url"] == expected_part["image_url"]["url"]
+                # Ensure Pydantic models were converted to dicts
+                assert isinstance(actual_part, dict)
+                if "image_url" in actual_part:
+                    assert isinstance(actual_part["image_url"], dict)
+        else: # string content
+            assert actual_msg["content"] == expected_msg["content"]
+
+        # Ensure Pydantic models were converted to dicts
+        assert isinstance(actual_msg, dict)
+
+
+def _assert_original_data_unmodified(
+    original_request_data: models.ChatCompletionRequest,
+    modified_request_data: models.ChatCompletionRequest,
+    original_processed_msgs: List[models.ChatMessage],
+    modified_processed_msgs: List[models.ChatMessage]
+):
+    """Helper function to assert original data passed to function was not mutated."""
+    # Check that the objects passed into chat_completions are not the same as the originals
+    # if they were copied, or that they are unchanged if passed by reference.
+    # Pydantic models are immutable by default unless configured otherwise,
+    # but .model_copy(deep=True) ensures we are working with distinct objects.
+
+    assert original_request_data.model == modified_request_data.model
+    assert original_request_data.messages == modified_request_data.messages
+    assert original_request_data.max_tokens == modified_request_data.max_tokens
+    assert original_request_data.temperature == modified_request_data.temperature
+    assert original_request_data.stream == modified_request_data.stream
+
+    assert len(original_processed_msgs) == len(modified_processed_msgs)
+    for i in range(len(original_processed_msgs)):
+        assert original_processed_msgs[i] == modified_processed_msgs[i]
 
 @pytest.mark.asyncio
 @pytest.mark.usefixtures("openrouter_backend")
 async def test_payload_construction_and_headers(
     openrouter_backend: OpenRouterBackend,
     httpx_mock: HTTPXMock,
-    sample_chat_request_data: models.ChatCompletionRequest,
+    sample_chat_request_data: models.ChatCompletionRequest, # This is the base fixture
 ):
-    sample_chat_request_data.stream = False
-    sample_chat_request_data.max_tokens = 100
-    sample_chat_request_data.temperature = 0.7
+    # --- Test Data Setup ---
+    # Create a deep copy of the fixture to modify for this specific test
+    request_data_for_this_test = sample_chat_request_data.model_copy(deep=True)
+    request_data_for_this_test.stream = False
+    request_data_for_this_test.max_tokens = 100
+    request_data_for_this_test.temperature = 0.7
 
-    processed_msgs = [
+    processed_msgs_for_this_test = [
         models.ChatMessage(role="user", content="Hello"),
         models.ChatMessage(role="assistant", content="Hi there!"),
         models.ChatMessage(role="user", content=[
@@ -60,65 +134,55 @@ async def test_payload_construction_and_headers(
         ])
     ]
     effective_model = "some/model-name"
+    api_key_to_use = "FAKE_KEY_FOR_THIS_TEST"
+
+    # Store snapshots of the data *before* it's passed to the function, to check for mutation
+    request_data_snapshot = request_data_for_this_test.model_copy(deep=True)
+    processed_msgs_snapshot = [m.model_copy(deep=True) for m in processed_msgs_for_this_test]
 
     httpx_mock.add_response(status_code=200, json={"choices": [{"message": {"content": "ok"}}]})
 
+    # --- API Call ---
     await openrouter_backend.chat_completions(
-        request_data=sample_chat_request_data,
-        processed_messages=processed_msgs,
+        request_data=request_data_for_this_test,
+        processed_messages=processed_msgs_for_this_test,
         effective_model=effective_model,
         openrouter_api_base_url=TEST_OPENROUTER_API_BASE_URL,
         openrouter_headers_provider=mock_get_openrouter_headers,
-        key_name="OPENROUTER_API_KEY_1",
-        api_key="FAKE_KEY"
+        key_name="OPENROUTER_API_KEY_1", # This key_name is used by mock_get_openrouter_headers
+        api_key=api_key_to_use
     )
 
+    # --- Assertions ---
     request = httpx_mock.get_request()
     assert request is not None
 
-    # Check headers
-    assert request.headers["Authorization"] == "Bearer FAKE_KEY"
-    assert request.headers["Content-Type"] == "application/json"
-    assert request.headers["HTTP-Referer"] == "http://localhost:test"
-    assert request.headers["X-Title"] == "TestProxy"
+    _assert_headers(request, expected_api_key=api_key_to_use)
 
-    # Check payload
     sent_payload = json.loads(request.content)
-    assert sent_payload["model"] == effective_model
-    assert sent_payload["max_tokens"] == 100
-    assert sent_payload["temperature"] == 0.7
-    assert not sent_payload["stream"]
+    _assert_payload_basic_structure(sent_payload, effective_model, request_data_for_this_test)
 
-    # Check messages format
-    assert len(sent_payload["messages"]) == 3
-    assert sent_payload["messages"][0]["role"] == "user"
-    assert sent_payload["messages"][0]["content"] == "Hello"
-    assert sent_payload["messages"][1]["role"] == "assistant"
-    assert sent_payload["messages"][1]["content"] == "Hi there!"
-    assert sent_payload["messages"][2]["role"] == "user"
-    assert isinstance(sent_payload["messages"][2]["content"], list)
-    assert sent_payload["messages"][2]["content"][0]["type"] == "text"
-    assert sent_payload["messages"][2]["content"][0]["text"] == "What is this?"
-    assert sent_payload["messages"][2]["content"][1]["type"] == "image_url"
-    assert sent_payload["messages"][2]["content"][1]["image_url"]["url"] == "data:..."
+    expected_messages_in_payload = [
+        {"role": "user", "content": "Hello"},
+        {"role": "assistant", "content": "Hi there!"},
+        {"role": "user", "content": [
+            {"type": "text", "text": "What is this?"},
+            {"type": "image_url", "image_url": {"url": "data:..."}}
+        ]}
+    ]
+    _assert_payload_messages(sent_payload, expected_messages_in_payload)
 
-    # Ensure Pydantic models were converted to dicts
-    assert isinstance(sent_payload["messages"][0], dict)
-    assert isinstance(sent_payload["messages"][2]["content"][0], dict)
-    assert isinstance(sent_payload["messages"][2]["content"][1], dict)
-    assert isinstance(sent_payload["messages"][2]["content"][1]["image_url"], dict)
+    # Check that the original data objects passed to the function were not mutated
+    _assert_original_data_unmodified(
+        request_data_snapshot,
+        request_data_for_this_test,
+        processed_msgs_snapshot,
+        processed_msgs_for_this_test
+    )
 
-    # Ensure only specified fields from request_data are passed (exclude_unset=True)
-    assert "n" not in sent_payload
-    assert "logit_bias" not in sent_payload
-
-    # Check if original request_data was not modified (important due to model_dump)
+    # Additionally, ensure the original fixture was not modified by any operations above
     assert sample_chat_request_data.model == "test-model"
-    assert sample_chat_request_data.messages[0].content == "Hello"
-    assert sample_chat_request_data.max_tokens == 100
-
-    # The connector receives 'processed_messages' which are already Pydantic models.
-    # It then dumps them to dicts for the payload.
-    assert isinstance(processed_msgs[0], models.ChatMessage)
-    assert isinstance(processed_msgs[2].content[0], models.MessageContentPartText)
-    assert isinstance(processed_msgs[2].content[1], models.MessageContentPart)
+    assert sample_chat_request_data.messages == [models.ChatMessage(role="user", content="Hello")]
+    assert sample_chat_request_data.max_tokens is None # Fixture default
+    assert sample_chat_request_data.temperature is None # Fixture default
+    assert sample_chat_request_data.stream is None # Fixture default

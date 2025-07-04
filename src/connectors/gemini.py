@@ -142,164 +142,177 @@ class GeminiBackend(LLMBackend):
             data.pop("type", None)
         return data
 
-    async def chat_completions(
+    def _prepare_gemini_payload(
         self,
-        request_data: ChatCompletionRequest,
         processed_messages: list,
-        effective_model: str,
-        openrouter_api_base_url: Optional[str] = None,  # absorb unused param
-        openrouter_headers_provider: object = None,  # absorb unused param
-        key_name: Optional[str] = None,
-        api_key: Optional[str] = None,
-        project: str | None = None,
-        prompt_redactor: APIKeyRedactor | None = None,
-        **kwargs,
-    ) -> Union[dict, StreamingResponse]:
-        # Use gemini_api_base_url if provided, else fallback to openrouter_api_base_url for compatibility
-        gemini_api_base_url = openrouter_api_base_url or kwargs.get(
-            "gemini_api_base_url"
-        )
-        if not gemini_api_base_url or not api_key:
-            raise HTTPException(
-                status_code=500,
-                detail="Gemini API base URL and API key must be provided.",
-            )
+        request_data: ChatCompletionRequest,
+        prompt_redactor: APIKeyRedactor | None,
+    ) -> Dict[str, Any]:
+        """Constructs the payload for the Gemini API."""
         payload_contents = []
         for msg in processed_messages:
-            if msg.role == "system":
-                # Gemini API does not support system role
+            if msg.role == "system": # Gemini API does not support system role
                 continue
+
             if isinstance(msg.content, str):
                 text = msg.content
-                if prompt_redactor:
+                if prompt_redactor: # pragma: no cover
                     text = prompt_redactor.redact(text)
                 parts = [{"text": text}]
-            else:
+            else: # msg.content is a list of MessageContentPart
                 parts = [
                     self._convert_part_for_gemini(part, prompt_redactor)
                     for part in msg.content
                 ]
-            # Map roles to 'user' or 'model' as required by Gemini API
+
+            # Map roles to 'user' or 'model'
             if msg.role == "user":
                 gemini_role = "user"
-            elif msg.role in ["tool", "function"]:
+            elif msg.role in ["tool", "function"]: # pragma: no cover
+                # This part seems specific and might need more context if tool/function calls are fully supported
                 gemini_role = "user"
-                # For tool/function messages, wrap content in a tool_response part
-                parts = [{"text": f"tool_code: {json.dumps(msg.content)}", "tool_response": msg.content}]
-            else: # e.g., assistant
+                # Ensure content is serializable if it's complex
+                try:
+                    tool_content_str = json.dumps(msg.content)
+                except TypeError: # pragma: no cover
+                    tool_content_str = str(msg.content) # Fallback
+                parts = [{"text": f"tool_code: {tool_content_str}", "tool_response": msg.content}]
+
+            else:  # e.g., assistant, and potentially others if mapped
                 gemini_role = "model"
+
             payload_contents.append({"role": gemini_role, "parts": parts})
+
         payload = {"contents": payload_contents}
-        if request_data.extra_params:
+        if request_data.extra_params: # pragma: no cover
             payload.update(request_data.extra_params)
-        # Do not add 'project' to payload for Gemini
+        return payload
 
-        model_name = effective_model
-        if model_name.startswith("gemini:"):
-            model_name = model_name.split(":", 1)[1]
-        if model_name.startswith("models/"):
-            model_name = model_name.split("/", 1)[1]
-        base_url = f"{gemini_api_base_url.rstrip('/')}/v1beta/models/{model_name}"
+    async def _handle_gemini_streaming_request(
+        self,
+        url: str,
+        payload: Dict[str, Any],
+        headers: Dict[str, str],
+        effective_model: str,
+    ) -> StreamingResponse:
+        """Handles the streaming request to Gemini."""
+        try:
+            request = self.client.build_request("POST", url, json=payload, headers=headers)
+            response = await self.client.send(request, stream=True)
 
-        headers = {"x-goog-api-key": api_key}
-
-        if request_data.stream:
-            url = f"{base_url}:streamGenerateContent"
-            try:
-                request = self.client.build_request(
-                    "POST", url, json=payload, headers=headers
-                )
-                response = await self.client.send(request, stream=True)
-                if response.status_code >= 400:
-                    try:
-                        body_text = (await response.aread()).decode("utf-8")
-                    except Exception:
-                        body_text = ""
-                    finally:
-                        await response.aclose()
-                    logger.error(
-                        "HTTP error during Gemini stream: %s - %s",
-                        response.status_code,
-                        body_text,
-                    )
-                    raise HTTPException(
-                        status_code=response.status_code,
-                        detail={
-                            "message": f"Gemini stream error: {response.status_code} - {body_text}",
-                            "type": "gemini_error",
-                            "code": response.status_code,
-                        },
-                    )
-
-                async def stream_generator() -> AsyncGenerator[bytes, None]:
-                    decoder = json.JSONDecoder()
-                    buffer = ""
-                    try:
-                        async for chunk in response.aiter_text():
-                            buffer += chunk
-                            while True:
-                                buffer = buffer.lstrip() # Remove leading whitespace
-                                if not buffer:
-                                    break # Nothing left in buffer
-                                try:
-                                    # Attempt to decode a JSON object from the buffer
-                                    obj, idx = decoder.raw_decode(buffer)
-                                except json.JSONDecodeError:
-                                    # Not a complete JSON object yet, wait for more data
-                                    break
-                                # Successfully decoded, process the object
-                                if isinstance(obj, list): # Handle list of objects
-                                    for item in obj:
-                                        if isinstance(item, dict): # Ensure item is a dict
-                                            converted = self._convert_stream_chunk(
-                                                item, effective_model
-                                            )
-                                            yield f"data: {json.dumps(converted)}\n\n".encode()
-                                        else:
-                                            logger.warning(f"Unexpected item type in Gemini stream: {type(item)}")
-                                else: # obj is a dict
-                                    converted = self._convert_stream_chunk(
-                                        obj, effective_model
-                                    )
-                                    yield f"data: {json.dumps(converted)}\n\n".encode()
-                                # Advance the buffer past the decoded object
-                                buffer = buffer[idx:]
-                                # Handle potential comma separator if multiple objects are in an array
-                                if buffer.startswith(","):
-                                    buffer = buffer[1:]
-                        yield b"data: [DONE]\n\n"
-                    finally:
-                        await response.aclose()
-
-                return StreamingResponse(
-                    stream_generator(), media_type="text/event-stream"
-                )
-            except httpx.RequestError as e:
-                logger.error(f"Request error connecting to Gemini: {e}", exc_info=True)
+            if response.status_code >= 400:
+                body_text = ""
+                try:
+                    body_text = (await response.aread()).decode("utf-8")
+                except Exception: # pragma: no cover
+                    pass # Keep body_text empty
+                finally:
+                    await response.aclose()
+                logger.error("HTTP error during Gemini stream: %s - %s", response.status_code, body_text)
                 raise HTTPException(
-                    status_code=503,
-                    detail=f"Service unavailable: Could not connect to Gemini ({e})",
+                    status_code=response.status_code,
+                    detail={"message": f"Gemini stream error: {response.status_code} - {body_text}", "type": "gemini_error", "code": response.status_code},
                 )
 
-        url = f"{base_url}:generateContent"
+            async def stream_generator() -> AsyncGenerator[bytes, None]:
+                decoder = json.JSONDecoder()
+                buffer = ""
+                try:
+                    async for chunk in response.aiter_text():
+                        buffer += chunk
+                        while True:
+                            buffer = buffer.lstrip()
+                            if not buffer: break
+                            try:
+                                obj, idx = decoder.raw_decode(buffer)
+                            except json.JSONDecodeError: break # More data needed
+
+                            items_to_process = obj if isinstance(obj, list) else [obj]
+                            for item in items_to_process:
+                                if isinstance(item, dict):
+                                    converted = self._convert_stream_chunk(item, effective_model)
+                                    yield f"data: {json.dumps(converted)}\n\n".encode()
+                                else: # pragma: no cover
+                                    logger.warning(f"Unexpected item type in Gemini stream: {type(item)}")
+
+                            buffer = buffer[idx:]
+                            if buffer.startswith(","): # pragma: no cover
+                                buffer = buffer[1:]
+                    yield b"data: [DONE]\n\n"
+                finally:
+                    await response.aclose()
+
+            return StreamingResponse(stream_generator(), media_type="text/event-stream")
+
+        except httpx.RequestError as e: # pragma: no cover
+            logger.error(f"Request error connecting to Gemini stream: {e}", exc_info=True)
+            raise HTTPException(status_code=503, detail=f"Service unavailable: Could not connect to Gemini ({e})")
+
+    async def _handle_gemini_non_streaming_request(
+        self,
+        url: str,
+        payload: Dict[str, Any],
+        headers: Dict[str, str],
+        effective_model: str,
+    ) -> Dict[str, Any]:
+        """Handles the non-streaming request to Gemini."""
         try:
             response = await self.client.post(url, json=payload, headers=headers)
             if response.status_code >= 400:
                 try:
                     error_detail = response.json()
-                except Exception:
+                except Exception: # pragma: no cover
                     error_detail = response.text
-                raise HTTPException(
-                    status_code=response.status_code, detail=error_detail
-                )
+                raise HTTPException(status_code=response.status_code, detail=error_detail)
+
             data = response.json()
             return self._convert_full_response(data, effective_model)
-        except httpx.RequestError as e:
+
+        except httpx.RequestError as e: # pragma: no cover
             logger.error(f"Request error connecting to Gemini: {e}", exc_info=True)
-            raise HTTPException(
-                status_code=503,
-                detail=f"Service unavailable: Could not connect to Gemini ({e})",
-            )
+            raise HTTPException(status_code=503, detail=f"Service unavailable: Could not connect to Gemini ({e})")
+
+    async def chat_completions(
+        self,
+        request_data: ChatCompletionRequest,
+        processed_messages: list,
+        effective_model: str,
+        openrouter_api_base_url: Optional[str] = None,
+        openrouter_headers_provider: object = None, # Unused by Gemini directly
+        key_name: Optional[str] = None, # Unused by Gemini directly
+        api_key: Optional[str] = None,
+        project: str | None = None, # Unused by Gemini payload
+        prompt_redactor: APIKeyRedactor | None = None,
+        **kwargs,
+    ) -> Union[dict, StreamingResponse]:
+        gemini_api_base_url = openrouter_api_base_url or kwargs.get("gemini_api_base_url")
+        if not gemini_api_base_url or not api_key:
+            raise HTTPException(status_code=500, detail="Gemini API base URL and API key must be provided.")
+
+        payload = self._prepare_gemini_payload(processed_messages, request_data, prompt_redactor)
+
+        model_name = effective_model
+        if model_name.startswith("gemini:"): # pragma: no cover
+            model_name = model_name.split(":", 1)[1]
+        if model_name.startswith("models/"): # pragma: no cover
+            # This is the expected format e.g. models/gemini-pro
+            pass # model_name = model_name.split("/", 1)[1] - No, keep "models/"
+        else:
+            # Assume it's a short name like "gemini-pro" and prepend "models/"
+            model_name = f"models/{model_name}"
+
+
+        # Correctly construct base_url without :generateContent or :streamGenerateContent yet
+        # It should be like: https://generativelanguage.googleapis.com/v1beta/models/gemini-pro
+        base_api_url = f"{gemini_api_base_url.rstrip('/')}/v1beta/{model_name}"
+        headers = {"x-goog-api-key": api_key, "Content-Type": "application/json"}
+
+        if request_data.stream:
+            stream_url = f"{base_api_url}:streamGenerateContent"
+            return await self._handle_gemini_streaming_request(stream_url, payload, headers, effective_model)
+
+        non_stream_url = f"{base_api_url}:generateContent"
+        return await self._handle_gemini_non_streaming_request(non_stream_url, payload, headers, effective_model)
 
     async def list_models(
         self,

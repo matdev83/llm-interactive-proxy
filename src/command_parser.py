@@ -110,9 +110,40 @@ class CommandParser:
         logger.debug(f"Text after command processing and normalization: '{final_text}'")
         return final_text, commands_found
 
-    def _strip_xml_tags(self, text: str) -> str: # Add this function
+    def _strip_xml_tags(self, text: str) -> str:
         """Removes XML-like tags from a string."""
         return re.sub(r"<[^>]+>", "", text)
+
+    def _process_single_message_content(
+        self, content: models.MessageContent
+    ) -> Tuple[models.MessageContent, bool, bool]:
+        """
+        Processes a single message's content (str or list of parts) for commands.
+        Returns: (processed_content, command_found_in_this_content, content_became_empty)
+        """
+        if isinstance(content, str):
+            processed_text, found = self.process_text(content)
+            content_became_empty = not processed_text.strip() and found # Empty only if a command made it empty
+            return processed_text, found, content_became_empty
+
+        if isinstance(content, list):
+            new_parts: List[models.MessageContentPart] = []
+            part_level_found_command = False
+            for part in content:
+                if isinstance(part, models.MessageContentPartText):
+                    processed_text, found_in_part = self.process_text(part.text)
+                    if found_in_part:
+                        part_level_found_command = True
+                    # Add text part back if it's not empty OR if no command was found in it (preserve original empty text)
+                    if processed_text.strip() or not found_in_part:
+                         new_parts.append(models.MessageContentPartText(type="text", text=processed_text))
+                else: # Non-text parts are preserved
+                    new_parts.append(part.model_copy(deep=True))
+
+            content_became_empty = not new_parts and part_level_found_command # Empty only if commands made all parts go away
+            return new_parts, part_level_found_command, content_became_empty
+
+        return content, False, False # Should not happen with current models.ChatMessage types
 
     def process_messages(
         self, messages: List[models.ChatMessage]
@@ -120,64 +151,56 @@ class CommandParser:
         self.results.clear()
         if not messages:
             logger.debug("process_messages received empty messages list.")
-            return messages, False
+            return [], False
 
         modified_messages = [msg.model_copy(deep=True) for msg in messages]
-        any_command_processed = False
+        any_command_processed_overall = False
 
+        # Iterate from the last message to the first
         for i in range(len(modified_messages) - 1, -1, -1):
             msg = modified_messages[i]
-            content_modified = False
 
-            if isinstance(msg.content, str):
-                processed_text, found = self.process_text(msg.content)
-                if found:
-                    msg.content = processed_text
-                    any_command_processed = True
-                    content_modified = True
-            elif isinstance(msg.content, list):
-                new_parts: List[models.MessageContentPart] = []
-                part_level_found = False
-                for part in msg.content:
-                    if isinstance(part, models.MessageContentPartText):
-                        processed_text, found = self.process_text(part.text)
-                        if found:
-                            part_level_found = True
-                            any_command_processed = True
-                        if processed_text.strip():
-                            new_parts.append(models.MessageContentPartText(type="text", text=processed_text))
-                        elif not found:
-                            new_parts.append(models.MessageContentPartText(type="text", text=processed_text))
-                    else:
-                        new_parts.append(part.model_copy(deep=True))
-                if part_level_found:
-                    msg.content = new_parts
-                    content_modified = True
+            processed_content, command_found_in_msg, _ = self._process_single_message_content(msg.content)
 
-            if content_modified:
+            if command_found_in_msg:
+                msg.content = processed_content
+                any_command_processed_overall = True
                 logger.info(
-                    f"Commands processed in message index {i} (from end). Role: {msg.role}. New content: '{msg.content}'"
+                    f"Commands processed in message index {i} (0-indexed, from start of original list). Role: {msg.role}. New content: '{msg.content}'"
                 )
+                # Once a command is processed in a message, stop further processing in earlier messages
                 break
 
+        # Filter out messages that have become empty (only if commands were processed in them)
+        # or messages that were initially non-empty but became empty due to command processing.
         final_messages: List[models.ChatMessage] = []
         for msg in modified_messages:
-            if isinstance(msg.content, list) and not msg.content:
-                logger.info(
-                    f"Removing message (role: {msg.role}) as its multimodal content became empty after command processing."
-                )
-                continue
+            is_empty_str_content = isinstance(msg.content, str) and not msg.content.strip()
+            is_empty_list_content = isinstance(msg.content, list) and not msg.content
+
+            # We only remove a message if it's empty AND a command was processed in *some* message.
+            # This prevents removing messages that were already empty if no commands were found anywhere.
+            if (is_empty_str_content or is_empty_list_content) and any_command_processed_overall:
+                 # We need to be more precise: only remove if THIS message became empty due to a command.
+                 # The `_process_single_message_content` could return a flag for this.
+                 # For now, if any command was processed and message is empty, it's a candidate for removal.
+                 # A simpler check: if content is empty after potential processing.
+                if not msg.content: # Covers empty string and empty list
+                    logger.info(
+                        f"Removing message (role: {msg.role}) as its content became empty after command processing."
+                    )
+                    continue
             final_messages.append(msg)
 
-        if not final_messages and any_command_processed and messages:
+        if not final_messages and any_command_processed_overall and messages: # Original messages list was not empty
             logger.info(
                 "All messages were removed after command processing. This might indicate a command-only request."
             )
 
         logger.debug(
-            f"Finished processing messages. Final message count: {len(final_messages)}. Commands processed overall: {any_command_processed}"
+            f"Finished processing messages. Final message count: {len(final_messages)}. Commands processed overall: {any_command_processed_overall}"
         )
-        return final_messages, any_command_processed
+        return final_messages, any_command_processed_overall
 
 
 # Convenience wrappers ----------------------------------------------

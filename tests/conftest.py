@@ -13,6 +13,28 @@ ORIG_GEMINI_KEY = os.environ.get("GEMINI_API_KEY_1")
 # Removed os.environ.pop calls as they interfere with test setup.
 # Environment variables will be managed by monkeypatch fixtures.
 
+def _clear_api_env_vars():
+    """Clears common API environment variables."""
+    if "OPENROUTER_API_KEY" in os.environ:
+        del os.environ["OPENROUTER_API_KEY"]
+    if "GEMINI_API_KEY" in os.environ:
+        del os.environ["GEMINI_API_KEY"]
+    for i in range(1, 21): # Max 20 numbered keys as per current logic
+        if f"OPENROUTER_API_KEY_{i}" in os.environ:
+            del os.environ[f"OPENROUTER_API_KEY_{i}"]
+        if f"GEMINI_API_KEY_{i}" in os.environ:
+            del os.environ[f"GEMINI_API_KEY_{i}"]
+
+def _setup_env_vars(env_config: dict):
+    """Sets environment variables from a dictionary."""
+    for key, value in env_config.items():
+        os.environ[key] = value
+
+def _cleanup_env_vars(env_config: dict):
+    """Cleans up environment variables listed in a dictionary."""
+    for key in env_config:
+        if key in os.environ:
+            del os.environ[key]
 
 @pytest.fixture(autouse=True)
 def patch_backend_discovery(monkeypatch):
@@ -42,37 +64,21 @@ def patch_backend_discovery(monkeypatch):
 @pytest.fixture(scope="session") # Use session scope for app to avoid rebuilding for every test
 def configured_app():
     """Fixture to provide a FastAPI app with configured backends for testing."""
-    # Ensure no numbered API keys are present before setting base keys
-    if "OPENROUTER_API_KEY" in os.environ: # Delete unnumbered key
-        del os.environ["OPENROUTER_API_KEY"]
-    if "GEMINI_API_KEY" in os.environ: # Delete unnumbered key
-        del os.environ["GEMINI_API_KEY"]
-    for i in range(1, 21):
-        if f"OPENROUTER_API_KEY_{i}" in os.environ:
-            del os.environ[f"OPENROUTER_API_KEY_{i}"]
-        if f"GEMINI_API_KEY_{i}" in os.environ:
-            del os.environ[f"GEMINI_API_KEY_{i}"]
+    _clear_api_env_vars()
 
-    # Manually set environment variables for the session-scoped app build
-    os.environ["OPENROUTER_API_KEY_1"] = "dummy-openrouter-key-1"
-    os.environ["OPENROUTER_API_KEY_2"] = "dummy-openrouter-key-2" # Add a second key
-    os.environ["GEMINI_API_KEY"] = "dummy-gemini-key"
-    os.environ["LLM_INTERACTIVE_PROXY_API_KEY"] = "test-proxy-key"
-    os.environ["LLM_BACKEND"] = "openrouter" # Explicitly set a default backend
-    # This will call _load_config internally, which will pick up the env vars
+    env_vars_to_set = {
+        "OPENROUTER_API_KEY_1": "dummy-openrouter-key-1",
+        "OPENROUTER_API_KEY_2": "dummy-openrouter-key-2",
+        "GEMINI_API_KEY": "dummy-gemini-key",
+        "LLM_INTERACTIVE_PROXY_API_KEY": "test-proxy-key",
+        "LLM_BACKEND": "openrouter"
+    }
+    _setup_env_vars(env_vars_to_set)
+
     app = build_app()
     yield app
-    # Clean up environment variables after the session
-    if "OPENROUTER_API_KEY_1" in os.environ:
-        del os.environ["OPENROUTER_API_KEY_1"]
-    if "OPENROUTER_API_KEY_2" in os.environ: # Clean up the second key
-        del os.environ["OPENROUTER_API_KEY_2"]
-    if "GEMINI_API_KEY" in os.environ:
-        del os.environ["GEMINI_API_KEY"]
-    if "LLM_INTERACTIVE_PROXY_API_KEY" in os.environ:
-        del os.environ["LLM_INTERACTIVE_PROXY_API_KEY"]
-    if "LLM_BACKEND" in os.environ: # Clean up LLM_BACKEND
-        del os.environ["LLM_BACKEND"]
+
+    _cleanup_env_vars(env_vars_to_set)
 
 @pytest.fixture
 def client(configured_app):
@@ -84,39 +90,23 @@ def client(configured_app):
 @pytest.fixture(scope="session")
 def configured_interactive_app():
     """Fixture to provide a FastAPI app configured for interactive mode."""
-    # Ensure no numbered API keys are present before setting base keys
-    if "OPENROUTER_API_KEY" in os.environ: # Delete unnumbered key
-        del os.environ["OPENROUTER_API_KEY"]
-    if "GEMINI_API_KEY" in os.environ: # Delete unnumbered key
-        del os.environ["GEMINI_API_KEY"]
-    for i in range(1, 21):
-        if f"OPENROUTER_API_KEY_{i}" in os.environ:
-            del os.environ[f"OPENROUTER_API_KEY_{i}"]
-        if f"GEMINI_API_KEY_{i}" in os.environ:
-            del os.environ[f"GEMINI_API_KEY_{i}"]
+    _clear_api_env_vars()
 
-    # Manually set environment variables for the session-scoped app build
-    os.environ["OPENROUTER_API_KEY_1"] = "dummy-openrouter-key-1" # Use numbered key
-    os.environ["OPENROUTER_API_KEY_2"] = "dummy-openrouter-key-2" # Add a second key
-    os.environ["GEMINI_API_KEY"] = "dummy-gemini-key"
-    os.environ["INTERACTIVE_MODE"] = "true"
-    os.environ["LLM_INTERACTIVE_PROXY_API_KEY"] = "test-proxy-key"
-    os.environ["LLM_BACKEND"] = "openrouter" # Explicitly set a default backend
+    env_vars_to_set = {
+        "OPENROUTER_API_KEY_1": "dummy-openrouter-key-1",
+        "OPENROUTER_API_KEY_2": "dummy-openrouter-key-2",
+        "GEMINI_API_KEY": "dummy-gemini-key",
+        "INTERACTIVE_MODE": "true",
+        "LLM_INTERACTIVE_PROXY_API_KEY": "test-proxy-key",
+        "LLM_BACKEND": "openrouter"
+    }
+    _setup_env_vars(env_vars_to_set)
+
     app = build_app()
     yield app
-    # Clean up environment variables after the session
-    if "OPENROUTER_API_KEY_1" in os.environ:
-        del os.environ["OPENROUTER_API_KEY_1"]
-    if "OPENROUTER_API_KEY_2" in os.environ: # Clean up the second key
-        del os.environ["OPENROUTER_API_KEY_2"]
-    if "GEMINI_API_KEY" in os.environ:
-        del os.environ["GEMINI_API_KEY"]
-    if "INTERACTIVE_MODE" in os.environ:
-        del os.environ["INTERACTIVE_MODE"]
-    if "LLM_BACKEND" in os.environ: # Clean up LLM_BACKEND
-        del os.environ["LLM_BACKEND"]
-    if "LLM_INTERACTIVE_PROXY_API_KEY" in os.environ:
-        del os.environ["LLM_INTERACTIVE_PROXY_API_KEY"]
+
+    _cleanup_env_vars(env_vars_to_set)
+
 
 @pytest.fixture
 def interactive_client(configured_interactive_app):
@@ -129,31 +119,21 @@ def interactive_client(configured_interactive_app):
 @pytest.fixture
 def configured_commands_disabled_app():
     """App with interactive commands disabled."""
-    if "OPENROUTER_API_KEY" in os.environ:
-        del os.environ["OPENROUTER_API_KEY"]
-    if "GEMINI_API_KEY" in os.environ:
-        del os.environ["GEMINI_API_KEY"]
-    for i in range(1, 21):
-        if f"OPENROUTER_API_KEY_{i}" in os.environ:
-            del os.environ[f"OPENROUTER_API_KEY_{i}"]
-        if f"GEMINI_API_KEY_{i}" in os.environ:
-            del os.environ[f"GEMINI_API_KEY_{i}"]
+    _clear_api_env_vars()
 
-    os.environ["OPENROUTER_API_KEY_1"] = "dummy-openrouter-key-1"
-    os.environ["GEMINI_API_KEY"] = "dummy-gemini-key"
-    os.environ["DISABLE_INTERACTIVE_COMMANDS"] = "true"
-    os.environ["LLM_INTERACTIVE_PROXY_API_KEY"] = "test-proxy-key"
-    os.environ["LLM_BACKEND"] = "openrouter"
+    env_vars_to_set = {
+        "OPENROUTER_API_KEY_1": "dummy-openrouter-key-1",
+        "GEMINI_API_KEY": "dummy-gemini-key",
+        "DISABLE_INTERACTIVE_COMMANDS": "true",
+        "LLM_INTERACTIVE_PROXY_API_KEY": "test-proxy-key", # Ensure proxy key is set
+        "LLM_BACKEND": "openrouter"
+    }
+    _setup_env_vars(env_vars_to_set)
+
     app = build_app()
     yield app
-    for var in [
-        "OPENROUTER_API_KEY_1",
-        "GEMINI_API_KEY",
-        "DISABLE_INTERACTIVE_COMMANDS",
-        "LLM_BACKEND",
-    ]:
-        if var in os.environ:
-            del os.environ[var]
+
+    _cleanup_env_vars(env_vars_to_set)
 
 
 @pytest.fixture

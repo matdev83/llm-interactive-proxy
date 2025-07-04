@@ -25,9 +25,7 @@ class ConfigManager:
             return
         self.apply(data)
 
-    def apply(self, data: Dict[str, Any]) -> None:
-        warnings: list[str] = []
-        backend = data.get("default_backend")
+    def _apply_default_backend(self, backend: Any, warnings: list[str]) -> None:
         if isinstance(backend, str):
             if backend in self.app.state.functional_backends:
                 self.app.state.backend_type = backend
@@ -37,57 +35,82 @@ class ConfigManager:
                     else self.app.state.openrouter_backend
                 )
             else:
-                warnings.append(f"default backend {backend} not functional")
+                warnings.append(f"Configured default backend '{backend}' is not functional.")
 
-        if isinstance(data.get("interactive_mode"), bool):
-            self.app.state.session_manager.default_interactive_mode = data[
-                "interactive_mode"
-            ]
+    def _apply_interactive_mode(self, mode: Any) -> None:
+        if isinstance(mode, bool):
+            self.app.state.session_manager.default_interactive_mode = mode
 
-        if isinstance(data.get("redact_api_keys_in_prompts"), bool):
-            val = data["redact_api_keys_in_prompts"]
-            self.app.state.api_key_redaction_enabled = val
-            self.app.state.default_api_key_redaction_enabled = val
+    def _apply_redact_api_keys(self, redact: Any) -> None:
+        if isinstance(redact, bool):
+            self.app.state.api_key_redaction_enabled = redact
+            self.app.state.default_api_key_redaction_enabled = redact # Persisted value becomes the new default
 
-        froutes = data.get("failover_routes")
-        if isinstance(froutes, dict):
-            for name, route in froutes.items():
-                if not isinstance(route, dict):
-                    continue
-                policy = route.get("policy", "k")
-                elems = route.get("elements", [])
-                valid_elems: list[str] = []
-                if isinstance(elems, list):
-                    for elem in elems:
-                        if not isinstance(elem, str) or ":" not in elem:
-                            continue
-                        b, model = elem.split(":", 1)
-                        if b not in self.app.state.functional_backends:
-                            warnings.append(
-                                f"route {name} element {elem} backend not functional"
-                            )
-                            continue
-                        backend_obj = getattr(self.app.state, f"{b}_backend", None)
-                        if backend_obj and model in backend_obj.get_available_models():
-                            valid_elems.append(elem)
-                        else:
-                            warnings.append(
-                                f"route {name} element {elem} model not available"
-                            )
-                self.app.state.failover_routes[name] = {
-                    "policy": policy,
-                    "elements": valid_elems,
-                }
-        for w in warnings:
-            logger.warning(w)
+    def _apply_single_failover_route_element(self, elem_str: str, route_name: str, warnings: list[str]) -> str | None:
+        if not isinstance(elem_str, str) or ":" not in elem_str:
+            warnings.append(f"Route '{route_name}' element '{elem_str}' is invalid format (expected backend:model).")
+            return None
 
-        prefix = data.get("command_prefix")
+        backend_name, model_name = elem_str.split(":", 1)
+        if backend_name not in self.app.state.functional_backends:
+            warnings.append(f"Route '{route_name}' element '{elem_str}' backend '{backend_name}' is not functional.")
+            return None
+
+        backend_obj = getattr(self.app.state, f"{backend_name}_backend", None)
+        if not backend_obj or model_name not in backend_obj.get_available_models(): # pragma: no cover
+            warnings.append(f"Route '{route_name}' element '{elem_str}' model '{model_name}' is not available for backend '{backend_name}'.")
+            return None
+        return elem_str
+
+
+    def _apply_failover_routes(self, froutes: Any, warnings: list[str]) -> None:
+        if not isinstance(froutes, dict):
+            return
+
+        for name, route_data in froutes.items():
+            if not isinstance(route_data, dict):
+                warnings.append(f"Failover route '{name}' data is not a dictionary, skipping.")
+                continue
+
+            policy = route_data.get("policy", "k") # Default to 'k' (known good) or some other sensible default
+            elements_data = route_data.get("elements", [])
+
+            valid_elements: list[str] = []
+            if isinstance(elements_data, list):
+                for elem_str in elements_data:
+                    valid_elem = self._apply_single_failover_route_element(elem_str, name, warnings)
+                    if valid_elem:
+                        valid_elements.append(valid_elem)
+            else:
+                warnings.append(f"Failover route '{name}' elements is not a list, skipping elements.")
+
+            self.app.state.failover_routes[name] = {
+                "policy": policy,
+                "elements": valid_elements,
+            }
+            if not valid_elements and elements_data: # If original elements were there but none were valid
+                 warnings.append(f"Failover route '{name}' had elements defined, but none were valid or available.")
+
+
+    def _apply_command_prefix(self, prefix: Any, warnings: list[str]) -> None:
         if isinstance(prefix, str):
             err = validate_command_prefix(prefix)
             if err:
-                logger.warning("invalid command prefix %s: %s", prefix, err)
+                warnings.append(f"Invalid command prefix '{prefix}' from config: {err}")
             else:
                 self.app.state.command_prefix = prefix
+
+    def apply(self, data: Dict[str, Any]) -> None:
+        warnings: list[str] = []
+
+        self._apply_default_backend(data.get("default_backend"), warnings)
+        self._apply_interactive_mode(data.get("interactive_mode"))
+        self._apply_redact_api_keys(data.get("redact_api_keys_in_prompts"))
+        self._apply_failover_routes(data.get("failover_routes"), warnings)
+        self._apply_command_prefix(data.get("command_prefix"), warnings)
+
+        for w in warnings:
+            logger.warning(w)
 
     def collect(self) -> Dict[str, Any]:
         return {
