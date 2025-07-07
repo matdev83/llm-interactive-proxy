@@ -72,6 +72,7 @@ def _load_config() -> Dict[str, Any]:
         "gemini_api_base_url": os.getenv(
             "GEMINI_API_BASE_URL", "https://generativelanguage.googleapis.com"
         ),
+        "gemini_cli_mcp_server_url": os.getenv("GEMINI_CLI_MCP_SERVER_URL"),
         "app_site_url": os.getenv("APP_SITE_URL", "http://localhost:8000"),
         "app_x_title": os.getenv("APP_X_TITLE", "InterceptorProxy"),
         "proxy_port": int(os.getenv("PROXY_PORT", "8000")),

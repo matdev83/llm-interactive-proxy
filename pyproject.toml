@@ -15,6 +15,7 @@ dependencies = [
     "tomli",
     "typer",
     "rich",
+    "mcp",
 ]
 requires-python = ">=3.10"
 readme = "README.md"
