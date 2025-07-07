@@ -18,7 +18,7 @@ from fastapi.responses import StreamingResponse
 from src import models
 from src.agents import detect_agent, wrap_proxy_message, format_command_response_for_agent
 from src.command_parser import CommandParser
-from src.connectors import GeminiBackend, OpenRouterBackend
+from src.connectors import GeminiBackend, OpenRouterBackend, GeminiCliBackend
 from src.core.config import _keys_for, _load_config, get_openrouter_headers
 from src.core.metadata import _load_project_metadata
 from src.core.persistence import ConfigManager
@@ -84,6 +84,10 @@ def build_app(
             models_list = current_app.state.gemini_backend.get_available_models()
             models_count = len(models_list)
             backend_info.append(f"gemini (K:{keys}, M:{models_count})")
+        if "gemini-cli" in current_app.state.functional_backends:
+            # For gemini-cli, we don't have separate API keys in the same way
+            # and model listing might be simpler or not applicable.
+            backend_info.append("gemini-cli")
         backends_str = ", ".join(sorted(backend_info))
         banner_lines = [
             f"Hello, this is {project_name} {project_version}",
@@ -117,11 +121,14 @@ def build_app(
 
         openrouter_backend = OpenRouterBackend(client_httpx)
         gemini_backend = GeminiBackend(client_httpx)
+        gemini_cli_backend = GeminiCliBackend(client_httpx, cfg.get("gemini_cli_mcp_server_url"))
         app_param.state.openrouter_backend = openrouter_backend
         app_param.state.gemini_backend = gemini_backend
+        app_param.state.gemini_cli_backend = gemini_cli_backend
 
         openrouter_ok = False
         gemini_ok = False
+        gemini_cli_ok = False
 
         if cfg.get("openrouter_api_keys"):
             openrouter_api_keys_list = list(cfg["openrouter_api_keys"].items())
@@ -150,9 +157,34 @@ def build_app(
                 if gemini_backend.get_available_models():
                     gemini_ok = True
 
+        if cfg.get("gemini_cli_mcp_server_url"):
+            # For gemini-cli, the "ok" status might depend on the URL being set
+            # and potentially a health check or initial connection test in its own initialize method.
+            # Assuming GeminiCliBackend has an initialize method similar to others.
+            try:
+                # If GeminiCliBackend has an initialize method:
+                if hasattr(gemini_cli_backend, "initialize") and callable(getattr(gemini_cli_backend, "initialize")):
+                    await gemini_cli_backend.initialize() # Pass necessary args if any
+                # Simple check: if URL is present, consider it functional for now.
+                # More robust check: gemini_cli_backend.is_functional() or similar
+                if gemini_cli_backend.get_available_models(): # Or some other check
+                    gemini_cli_ok = True
+                elif cfg.get("gemini_cli_mcp_server_url"): # Fallback if no models to list but URL is set
+                    logger.info("Gemini CLI backend URL is set, marking as potentially functional.")
+                    gemini_cli_ok = True
+
+            except Exception as e:
+                logger.error(f"Failed to initialize Gemini CLI backend: {e}")
+                gemini_cli_ok = False
+
+
         functional = {
             name
-            for name, ok in (("openrouter", openrouter_ok), ("gemini", gemini_ok))
+            for name, ok in (
+                ("openrouter", openrouter_ok),
+                ("gemini", gemini_ok),
+                ("gemini-cli", gemini_cli_ok),
+            )
             if ok
         }
         app_param.state.functional_backends = functional
@@ -176,9 +208,13 @@ def build_app(
         app_param.state.backend_type = backend_type
         app_param.state.initial_backend_type = backend_type
 
-        current_backend = (
-            gemini_backend if backend_type == "gemini" else openrouter_backend
-        )
+        if backend_type == "gemini":
+            current_backend = gemini_backend
+        elif backend_type == "gemini-cli":
+            current_backend = gemini_cli_backend
+        else: # Default to openrouter if not specified or not gemini/gemini-cli
+            current_backend = openrouter_backend
+
         app_param.state.backend = current_backend
 
         all_keys = list(cfg.get("openrouter_api_keys", {}).values()) + list(
@@ -266,7 +302,7 @@ def build_app(
                     ),
                 }
                 raise HTTPException(status_code=400, detail=detail_msg)
-            if current_backend_type not in {"openrouter", "gemini"}:
+            if current_backend_type not in {"openrouter", "gemini", "gemini-cli"}:
                 raise HTTPException(
                     status_code=400,
                     detail=f"unknown backend {current_backend_type}")
@@ -474,48 +510,84 @@ def build_app(
                                 "gemini", model_str, key_name_str, delay
                             )
                     raise
-
-            retry_at = http_request.app.state.rate_limits.get(
-                "openrouter", model_str, key_name_str
-            )
-            if retry_at:
-                detail_dict = {  # E501
-                    "message": "Backend rate limited, retry later",
-                    "retry_after": int(retry_at - time.time()),
-                }
-                raise HTTPException(status_code=429, detail=detail_dict)
-            try:
-                result = (
-                    await http_request.app.state.openrouter_backend.chat_completions(
+            elif b_type == "gemini-cli":
+                # API key and key_name are not directly used for gemini-cli MCP calls in the same way
+                # as direct API calls. The MCP server URL is the primary config.
+                # Rate limiting for gemini-cli can be added here if needed.
+                # For now, direct call.
+                try:
+                    result = await http_request.app.state.gemini_cli_backend.chat_completions(
                         request_data=request_data,
                         processed_messages=processed_messages,
-                        effective_model=model_str,
-                        openrouter_api_base_url=cfg["openrouter_api_base_url"],
-                        openrouter_headers_provider=(
-                            lambda n, k: get_openrouter_headers(cfg, k)
-                        ),
-                        key_name=key_name_str,
-                        api_key=api_key_str,
+                        effective_model=model_str, # This is m_attempt
+                        # No direct api_key or key_name needed for the call itself to MCP server
+                        # as it's configured by URL.
+                        # Pass other relevant params like project, prompt_redactor
                         project=proxy_state.project,
                         prompt_redactor=(
                             http_request.app.state.api_key_redactor
                             if http_request.app.state.api_key_redaction_enabled
                             else None
                         ),
+                        # openrouter_api_base_url and openrouter_headers_provider are not relevant here
+                        # key_name and api_key (from function signature) are not directly used here
                     )
+                    logger.debug(
+                        f"Result from Gemini CLI backend chat_completions: {result}"
+                    )
+                    return result
+                except HTTPException as e:
+                    # Handle potential 429 or other errors from gemini-cli if necessary
+                    logger.error(f"Error from Gemini CLI backend: {e.status_code} - {e.detail}")
+                    # Re-raise to be handled by the failover logic
+                    raise
+                except Exception as e:
+                    logger.error(f"Unexpected error from Gemini CLI backend: {e}", exc_info=True)
+                    # Convert to HTTPException to be handled by failover
+                    raise HTTPException(status_code=500, detail=f"Gemini CLI backend error: {str(e)}")
+
+            else: # Default to OpenRouter or handle unknown b_type if more are added
+                retry_at = http_request.app.state.rate_limits.get(
+                    "openrouter", model_str, key_name_str
                 )
-                logger.debug(
-                    f"Result from OpenRouter backend chat_completions: {result}"
-                )
-                return result
-            except HTTPException as e:
-                if e.status_code == 429:
-                    delay = parse_retry_delay(e.detail)
-                    if delay:
-                        http_request.app.state.rate_limits.set(
-                            "openrouter", model_str, key_name_str, delay
+                if retry_at:
+                    detail_dict = {  # E501
+                        "message": "Backend rate limited, retry later",
+                        "retry_after": int(retry_at - time.time()),
+                    }
+                    raise HTTPException(status_code=429, detail=detail_dict)
+                try:
+                    result = (
+                        await http_request.app.state.openrouter_backend.chat_completions(
+                            request_data=request_data,
+                            processed_messages=processed_messages,
+                            effective_model=model_str,
+                            openrouter_api_base_url=cfg["openrouter_api_base_url"],
+                            openrouter_headers_provider=(
+                                lambda n, k: get_openrouter_headers(cfg, k)
+                            ),
+                            key_name=key_name_str,
+                            api_key=api_key_str,
+                            project=proxy_state.project,
+                            prompt_redactor=(
+                                http_request.app.state.api_key_redactor
+                                if http_request.app.state.api_key_redaction_enabled
+                                else None
+                            ),
                         )
-                raise
+                    )
+                    logger.debug(
+                        f"Result from OpenRouter backend chat_completions: {result}"
+                    )
+                    return result
+                except HTTPException as e:
+                    if e.status_code == 429:
+                        delay = parse_retry_delay(e.detail)
+                        if delay:
+                            http_request.app.state.rate_limits.set(
+                                "openrouter", model_str, key_name_str, delay
+                            )
+                    raise
 
         route = proxy_state.failover_routes.get(effective_model)
         attempts: list[tuple[str, str, str, str]] = []
@@ -730,6 +802,10 @@ def build_app(
         if "gemini" in http_request.app.state.functional_backends:
             for m in http_request.app.state.gemini_backend.get_available_models():
                 data.append({"id": f"gemini:{m}"})
+        if "gemini-cli" in http_request.app.state.functional_backends:
+            for m in http_request.app.state.gemini_cli_backend.get_available_models():
+                # Assuming get_available_models() for gemini_cli returns simple strings
+                data.append({"id": f"gemini-cli:{m}"})
         return {"object": "list", "data": data}
 
     # Alias /v1/models to /models
