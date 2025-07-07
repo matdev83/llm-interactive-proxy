@@ -8,9 +8,10 @@ This project provides an intercepting proxy server that is compatible with the O
 - **Request Interception and Command Parsing** – user messages can contain commands (default prefix `!/`) to change proxy behaviour.
 - **Configurable Command Prefix** – via the `COMMAND_PREFIX` environment variable, CLI, or in‑chat commands.
 - **Dynamic Model Override** – commands like `!/set(model=...)` change the model for subsequent requests.
-- **Multiple Backends** – forward requests to OpenRouter or Google Gemini, chosen with `LLM_BACKEND`.
-- **Streaming and Non‑Streaming Support** – for both OpenRouter and Gemini backends.
-- **Aggregated Model Listing** – the `/models` and `/v1/models` endpoints return the union of all models discovered from configured backends, prefixed with the backend name.
+- **Multiple Backends** – forward requests to OpenRouter, Google Gemini, or a Gemini CLI MCP Tool instance. Chosen with `LLM_BACKEND`.
+- **Gemini CLI MCP Tool Support** - Route requests to a local `gemini-mcp-tool` instance, allowing interaction with Gemini models via its CLI capabilities through the Model Context Protocol.
+- **Streaming and Non‑Streaming Support** – for OpenRouter and Gemini backends. Initial support for Gemini CLI backend is non-streaming for MCP tool interaction, but returns results in a streaming-compatible way if requested by client.
+- **Aggregated Model Listing** – the `/models` and `/v1/models` endpoints return the union of all models discovered from configured backends, prefixed with the backend name (e.g., `openrouter:model_name`, `gemini:model_name`, `gemini-cli:model_name`).
 - **Session History Tracking** – optional per-session logs using the `X-Session-ID` header.
 - **Agent Detection** – recognizes popular coding agents and formats proxy responses accordingly.
 - **CLI Configuration** – command line flags can override environment variables for quick testing.
@@ -55,6 +56,10 @@ These instructions will get you a copy of the project up and running on your loc
     # GEMINI_API_KEY="your_gemini_api_key_here"
     # GEMINI_API_KEY_1="first_gemini_key"
     # Keys are sent using the `x-goog-api-key` header to avoid exposing them in URLs
+
+    # Gemini CLI MCP Tool backend (no API key needed here, just the server URL)
+    # Ensure gemini-mcp-tool is running and accessible at this URL.
+    # GEMINI_CLI_MCP_SERVER_URL="http://localhost:3000/mcp" # Example URL, adjust if your tool runs elsewhere
 
     # Client API key for accessing this proxy
     # LLM_INTERACTIVE_PROXY_API_KEY="choose_a_secret_key"
@@ -107,11 +112,12 @@ no client API key is generated or checked.
 
 The proxy server can be configured using the following command-line arguments:
 
-- `--default-backend {openrouter,gemini}`: Sets the default backend when multiple backends are functional.
+- `--default-backend {openrouter,gemini,gemini-cli}`: Sets the default backend when multiple backends are functional.
 - `--openrouter-api-key <key>`: Specifies the OpenRouter API key.
 - `--openrouter-api-base-url <url>`: Specifies the OpenRouter API base URL.
 - `--gemini-api-key <key>`: Specifies the Gemini API key.
 - `--gemini-api-base-url <url>`: Specifies the Gemini API base URL.
+- `--gemini-cli-mcp-server-url <url>`: Specifies the URL for the Gemini CLI MCP Tool server.
 - `--host <host>`: Specifies the host address to bind the server to (default: `127.0.0.1`).
 - `--port <port>`: Specifies the port to listen on (default: `8000`).
 - `--timeout <seconds>`: Sets the timeout for requests in seconds.
@@ -153,12 +159,13 @@ You can embed special commands within your chat messages to control the proxy's 
     Example: `!/help(set)`
 - `!/set(model=backend:model_name)`: Overrides the model for the current session/request.
     Example: `Hello, please use !/set(model=openrouter:mistralai/mistral-7b-instruct) for this conversation.`
+    Note: For `gemini-cli` backend, the model specified (e.g., `gemini-cli:gemini-pro`) is passed to the `ask-gemini` tool if supported.
 - `!/unset(model)`: Clears any previously set model override.
-- `!/set(backend=openrouter|gemini)`: Overrides the backend for the current session/request.
-    Example: `!/set(backend=gemini)`
+- `!/set(backend=openrouter|gemini|gemini-cli)`: Overrides the backend for the current session/request.
+    Example: `!/set(backend=gemini-cli)`
 - `!/unset(backend)`: Unsets the overridden backend.
-- `!/set(default-backend=openrouter|gemini)`: Sets the default backend persistently.
-    Example: `!/set(default-backend=openrouter)`
+- `!/set(default-backend=openrouter|gemini|gemini-cli)`: Sets the default backend persistently.
+    Example: `!/set(default-backend=gemini-cli)`
 - `!/unset(default-backend)`: Unsets the default backend, restoring initial configuration.
 - `!/set(project=project_name)` or `!/set(project-name=project_name)`: Sets the project name for the current session.
     Example: `!/set(project=my-project)`
