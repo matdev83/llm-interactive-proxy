@@ -15,6 +15,8 @@ dependencies = [
     "tomli",
     "typer",
     "rich",
+    "llm-accounting",
+    "tiktoken",
 ]
 requires-python = ">=3.10"
 readme = "README.md"

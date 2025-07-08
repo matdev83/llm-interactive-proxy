@@ -12,7 +12,7 @@ This project provides an intercepting proxy server that is compatible with the O
 
 - **💎 Gemini CLI Gateway** – Expose Gemini models with their generous free allowances as standard OpenAI/OpenRouter endpoints. Route calls from any application that doesn't natively support Gemini through the Gemini CLI app instead of the API endpoint, unlocking free access to powerful models.
 
-- **📊 Usage Logging & Audit Trail** – Comprehensive session tracking and audit logs help you monitor usage patterns, debug issues, and maintain compliance. Track which models are being used, by whom, and when.
+- **📊 Comprehensive Usage Logging & Audit Trail** – Full LLM accounting integration tracks all API calls with detailed metrics including token usage, costs, execution times, and user attribution. Persistent database storage with REST API endpoints for usage statistics and audit reports. Perfect for compliance, cost monitoring, and usage analytics.
 
 ## Features
 
@@ -176,6 +176,31 @@ The proxy server can be configured using the following command-line arguments:
 - `--disable-auth`: Disables client API key authentication (only allowed when binding to `127.0.0.1`).
 - `--force-set-project`: Requires a project name to be set before sending prompts.
 - `--disable-interactive-commands`: Disables all in-chat command processing.
+
+### Usage Tracking and Analytics
+
+The proxy includes comprehensive LLM usage tracking powered by the `llm-accounting` package. All API calls are automatically logged with detailed metrics.
+
+#### Usage Endpoints
+
+- **`GET /usage/stats`** - Get usage statistics and analytics
+  - Query parameters: `days` (default: 30), `backend`, `project`, `username`
+  - Returns aggregated usage data, costs, and model rankings
+
+- **`GET /usage/recent`** - Get recent usage entries
+  - Query parameters: `limit` (default: 100)
+  - Returns detailed log of recent API calls with full metadata
+
+#### Tracked Metrics
+
+- Token usage (prompt, completion, total)
+- Execution time and costs
+- Backend and model information
+- User and project attribution
+- Session tracking
+- Timestamp and caller information
+
+All data is stored persistently in a local SQLite database and can be exported for compliance or analytics purposes.
 
 ### Running Tests
 

@@ -8,7 +8,7 @@ import sys
 import time
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
-from typing import Any, Dict, Union
+from typing import Any, Dict, Union, Optional
 
 # Moved imports to the top (E402 fix)
 import httpx  # json is used for logging, will keep
@@ -27,6 +27,7 @@ from src.proxy_logic import ProxyState
 from src.rate_limit import RateLimitRegistry, parse_retry_delay
 from src.security import APIKeyRedactor
 from src.session import SessionInteraction, SessionManager
+from src.llm_accounting_utils import track_llm_request, get_usage_stats, get_audit_logs, get_llm_accounting
 
 logger = logging.getLogger(__name__)
 
@@ -461,113 +462,155 @@ def build_app(
         async def _call_backend(
             b_type: str, model_str: str, key_name_str: str, api_key_str: str
         ):
-            if b_type == "gemini":
-                retry_at = http_request.app.state.rate_limits.get(
-                    "gemini", model_str, key_name_str
-                )
-                if retry_at:
-                    # E501: Wrapped dict
-                    detail_dict = {
-                        "message": "Backend rate limited, retry later",
-                        "retry_after": int(retry_at - time.time()),
-                    }
-                    raise HTTPException(status_code=429, detail=detail_dict)
-                try:
-                    result = (
-                        await http_request.app.state.gemini_backend.chat_completions(
+            # Extract username from request headers or use default
+            username = http_request.headers.get("X-User-ID", "anonymous")
+            
+            async with track_llm_request(
+                model=model_str,
+                backend=b_type,
+                messages=processed_messages,
+                username=username,
+                project=proxy_state.project,
+                session=session_id,
+                caller_name=f"{b_type}_backend"
+            ) as tracker:
+                if b_type == "gemini":
+                    retry_at = http_request.app.state.rate_limits.get(
+                        "gemini", model_str, key_name_str
+                    )
+                    if retry_at:
+                        # E501: Wrapped dict
+                        detail_dict = {
+                            "message": "Backend rate limited, retry later",
+                            "retry_after": int(retry_at - time.time()),
+                        }
+                        raise HTTPException(status_code=429, detail=detail_dict)
+                    try:
+                        backend_result = (
+                            await http_request.app.state.gemini_backend.chat_completions(
+                                request_data=request_data,
+                                processed_messages=processed_messages,
+                                effective_model=model_str,
+                                project=proxy_state.project,
+                                gemini_api_base_url=cfg["gemini_api_base_url"],
+                                key_name=key_name_str,
+                                api_key=api_key_str,
+                                prompt_redactor=(
+                                    http_request.app.state.api_key_redactor
+                                    if http_request.app.state.api_key_redaction_enabled
+                                    else None
+                                ),
+                            )
+                        )
+                        
+                        if isinstance(backend_result, tuple):
+                            result, response_headers = backend_result
+                            tracker.set_response(result)
+                            tracker.set_response_headers(response_headers)
+                        else:
+                            # Streaming response
+                            result = backend_result
+                            tracker.set_response(result)
+                        
+                        logger.debug(
+                            f"Result from Gemini backend chat_completions: {result}"
+                        )
+                        return result
+                    except HTTPException as e:
+                        if e.status_code == 429:
+                            delay = parse_retry_delay(e.detail)
+                            if delay:
+                                http_request.app.state.rate_limits.set(
+                                    "gemini", model_str, key_name_str, delay
+                                )
+                        raise
+                elif b_type == "gemini-cli-direct":
+                    # Direct Gemini CLI calls - no API keys needed
+                    try:
+                        backend_result = await http_request.app.state.gemini_cli_direct_backend.chat_completions(
                             request_data=request_data,
                             processed_messages=processed_messages,
                             effective_model=model_str,
                             project=proxy_state.project,
-                            gemini_api_base_url=cfg["gemini_api_base_url"],
-                            key_name=key_name_str,
-                            api_key=api_key_str,
                             prompt_redactor=(
                                 http_request.app.state.api_key_redactor
                                 if http_request.app.state.api_key_redaction_enabled
                                 else None
                             ),
                         )
-                    )
-                    logger.debug(
-                        f"Result from Gemini backend chat_completions: {result}"
-                    )
-                    return result
-                except HTTPException as e:
-                    if e.status_code == 429:
-                        delay = parse_retry_delay(e.detail)
-                        if delay:
-                            http_request.app.state.rate_limits.set(
-                                "gemini", model_str, key_name_str, delay
-                            )
-                    raise
-            elif b_type == "gemini-cli-direct":
-                # Direct Gemini CLI calls - no API keys needed
-                try:
-                    result = await http_request.app.state.gemini_cli_direct_backend.chat_completions(
-                        request_data=request_data,
-                        processed_messages=processed_messages,
-                        effective_model=model_str,
-                        project=proxy_state.project,
-                        prompt_redactor=(
-                            http_request.app.state.api_key_redactor
-                            if http_request.app.state.api_key_redaction_enabled
-                            else None
-                        ),
-                    )
-                    logger.debug(
-                        f"Result from Gemini CLI Direct backend chat_completions: {result}"
-                    )
-                    return result
-                except HTTPException as e:
-                    logger.error(f"Error from Gemini CLI Direct backend: {e.status_code} - {e.detail}")
-                    raise
-                except Exception as e:
-                    logger.error(f"Unexpected error from Gemini CLI Direct backend: {e}", exc_info=True)
-                    raise HTTPException(status_code=500, detail=f"Gemini CLI Direct backend error: {str(e)}")
+                        
+                        if isinstance(backend_result, tuple):
+                            result, response_headers = backend_result
+                            tracker.set_response(result)
+                            tracker.set_response_headers(response_headers)
+                        else:
+                            # Streaming response
+                            result = backend_result
+                            tracker.set_response(result)
+                        
+                        logger.debug(
+                            f"Result from Gemini CLI Direct backend chat_completions: {result}"
+                        )
+                        return result
+                    except HTTPException as e:
+                        logger.error(f"Error from Gemini CLI Direct backend: {e.status_code} - {e.detail}")
+                        raise
+                    except Exception as e:
+                        logger.error(f"Unexpected error from Gemini CLI Direct backend: {e}", exc_info=True)
+                        raise HTTPException(status_code=500, detail=f"Gemini CLI Direct backend error: {str(e)}")
 
-            else: # Default to OpenRouter or handle unknown b_type if more are added
-                retry_at = http_request.app.state.rate_limits.get(
-                    "openrouter", model_str, key_name_str
-                )
-                if retry_at:
-                    detail_dict = {  # E501
-                        "message": "Backend rate limited, retry later",
-                        "retry_after": int(retry_at - time.time()),
-                    }
-                    raise HTTPException(status_code=429, detail=detail_dict)
-                try:
-                    result = (
-                        await http_request.app.state.openrouter_backend.chat_completions(
-                            request_data=request_data,
-                            processed_messages=processed_messages,
-                            effective_model=model_str,
-                            openrouter_api_base_url=cfg["openrouter_api_base_url"],
-                            openrouter_headers_provider=(
-                                lambda n, k: get_openrouter_headers(cfg, k)
-                            ),
-                            key_name=key_name_str,
-                            api_key=api_key_str,
-                            project=proxy_state.project,
-                            prompt_redactor=(
-                                http_request.app.state.api_key_redactor
-                                if http_request.app.state.api_key_redaction_enabled
-                                else None
-                            ),
-                        )
+                else: # Default to OpenRouter or handle unknown b_type if more are added
+                    retry_at = http_request.app.state.rate_limits.get(
+                        "openrouter", model_str, key_name_str
                     )
-                    logger.debug(
-                        f"Result from OpenRouter backend chat_completions: {result}"
-                    )
-                    return result
-                except HTTPException as e:
-                    if e.status_code == 429:
-                        delay = parse_retry_delay(e.detail)
-                        if delay:
-                            http_request.app.state.rate_limits.set(
-                                "openrouter", model_str, key_name_str, delay
+                    if retry_at:
+                        detail_dict = {  # E501
+                            "message": "Backend rate limited, retry later",
+                            "retry_after": int(retry_at - time.time()),
+                        }
+                        raise HTTPException(status_code=429, detail=detail_dict)
+                    try:
+                        backend_result = (
+                            await http_request.app.state.openrouter_backend.chat_completions(
+                                request_data=request_data,
+                                processed_messages=processed_messages,
+                                effective_model=model_str,
+                                openrouter_api_base_url=cfg["openrouter_api_base_url"],
+                                openrouter_headers_provider=(
+                                    lambda n, k: get_openrouter_headers(cfg, k)
+                                ),
+                                key_name=key_name_str,
+                                api_key=api_key_str,
+                                project=proxy_state.project,
+                                prompt_redactor=(
+                                    http_request.app.state.api_key_redactor
+                                    if http_request.app.state.api_key_redaction_enabled
+                                    else None
+                                ),
                             )
-                    raise
+                        )
+                        
+                        if isinstance(backend_result, tuple):
+                            result, response_headers = backend_result
+                            tracker.set_response(result)
+                            tracker.set_response_headers(response_headers)
+                        else:
+                            # Streaming response
+                            result = backend_result
+                            tracker.set_response(result)
+                        
+                        logger.debug(
+                            f"Result from OpenRouter backend chat_completions: {result}"
+                        )
+                        return result
+                    except HTTPException as e:
+                        if e.status_code == 429:
+                            delay = parse_retry_delay(e.detail)
+                            if delay:
+                                http_request.app.state.rate_limits.set(
+                                    "openrouter", model_str, key_name_str, delay
+                                )
+                        raise
 
         route = proxy_state.failover_routes.get(effective_model)
         attempts: list[tuple[str, str, str, str]] = []
@@ -775,26 +818,126 @@ def build_app(
 
     @app_instance.get("/models", dependencies=[Depends(verify_client_auth)])
     async def list_all_models(http_request: Request):
-        data = []
-        if "openrouter" in http_request.app.state.functional_backends:
-            for m in http_request.app.state.openrouter_backend.get_available_models():
-                data.append({"id": f"openrouter:{m}"})
-        if "gemini" in http_request.app.state.functional_backends:
-            for m in http_request.app.state.gemini_backend.get_available_models():
-                data.append({"id": f"gemini:{m}"})
-        if "gemini-cli-direct" in http_request.app.state.functional_backends:
-            for m in http_request.app.state.gemini_cli_direct_backend.get_available_models():
-                # Assuming get_available_models() for gemini_cli_direct returns simple strings
-                data.append({"id": f"gemini-cli-direct:{m}"})
-        return {"object": "list", "data": data}
+        """List all available models from all backends."""
+        all_models = []
+        for backend_name in ["openrouter", "gemini", "gemini-cli-direct"]:
+            backend = getattr(http_request.app.state, f"{backend_name}_backend", None)
+            if backend and hasattr(backend, "get_available_models"):
+                models = backend.get_available_models()
+                for model in models:
+                    all_models.append({
+                        "id": f"{backend_name}:{model}",
+                        "object": "model",
+                        "owned_by": backend_name,
+                    })
+        return {"object": "list", "data": all_models}
 
-    # Alias /v1/models to /models
-    app_instance.router.add_api_route(
-        "/v1/models",
-        list_all_models,
-        methods=["GET"],
-        dependencies=[Depends(verify_client_auth)],
-    )
+    @app_instance.get("/v1/models", dependencies=[Depends(verify_client_auth)])
+    async def list_all_models_v1(http_request: Request):
+        """OpenAI-compatible models endpoint."""
+        return await list_all_models(http_request)
+
+    @app_instance.get("/usage/stats", dependencies=[Depends(verify_client_auth)])
+    async def get_usage_statistics(
+        http_request: Request,
+        days: int = 30,
+        backend: Optional[str] = None,
+        project: Optional[str] = None,
+        username: Optional[str] = None,
+    ):
+        """Get usage statistics from the LLM accounting system."""
+        try:
+            stats = get_usage_stats(
+                days=days,
+                backend=backend,
+                project=project,
+                username=username,
+            )
+            return {
+                "object": "usage_stats",
+                "data": stats,
+            }
+        except Exception as e:
+            logger.error(f"Failed to get usage statistics: {e}")
+            raise HTTPException(status_code=500, detail=f"Failed to get usage statistics: {str(e)}")
+
+    @app_instance.get("/usage/recent", dependencies=[Depends(verify_client_auth)])
+    async def get_recent_usage(
+        http_request: Request,
+        limit: int = 100,
+    ):
+        """Get recent usage entries from the LLM accounting system."""
+        try:
+            accounting = get_llm_accounting()
+            recent_entries = accounting.tail(n=limit)
+            
+            return {
+                "object": "usage_entries",
+                "data": [
+                    {
+                        "id": entry.id,
+                        "model": entry.model,
+                        "prompt_tokens": entry.prompt_tokens,
+                        "completion_tokens": entry.completion_tokens,
+                        "total_tokens": entry.total_tokens,
+                        "cost": entry.cost,
+                        "execution_time": entry.execution_time,
+                        "timestamp": entry.timestamp.isoformat() if entry.timestamp else None,
+                        "username": entry.username,
+                        "project": entry.project,
+                        "session": entry.session,
+                        "caller_name": entry.caller_name,
+                    }
+                    for entry in recent_entries
+                ],
+            }
+        except Exception as e:
+            logger.error(f"Failed to get recent usage: {e}")
+            raise HTTPException(status_code=500, detail=f"Failed to get recent usage: {str(e)}")
+
+    @app_instance.get("/audit/logs", dependencies=[Depends(verify_client_auth)])
+    async def get_audit_logs_endpoint(
+        http_request: Request,
+        limit: int = 100,
+        username: Optional[str] = None,
+        start_date: Optional[str] = None,
+        end_date: Optional[str] = None,
+    ):
+        """Get audit log entries with full prompt/response content for compliance monitoring."""
+        try:
+            from datetime import datetime
+            
+            # Parse date strings if provided
+            start_dt = None
+            end_dt = None
+            if start_date:
+                try:
+                    start_dt = datetime.fromisoformat(start_date.replace('Z', '+00:00'))
+                except ValueError:
+                    raise HTTPException(status_code=400, detail="Invalid start_date format, use ISO format")
+            if end_date:
+                try:
+                    end_dt = datetime.fromisoformat(end_date.replace('Z', '+00:00'))
+                except ValueError:
+                    raise HTTPException(status_code=400, detail="Invalid end_date format, use ISO format")
+            
+            audit_logs = get_audit_logs(
+                start_date=start_dt,
+                end_date=end_dt,
+                username=username,
+                limit=limit,
+            )
+            
+            return {
+                "object": "audit_logs",
+                "data": audit_logs,
+                "total": len(audit_logs),
+            }
+        except HTTPException:
+            raise
+        except Exception as e:
+            logger.error(f"Failed to get audit logs: {e}")
+            raise HTTPException(status_code=500, detail=f"Failed to get audit logs: {str(e)}")
 
     return app_instance
 
