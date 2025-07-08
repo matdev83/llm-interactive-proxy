@@ -120,6 +120,19 @@ class CompletionUsage(BaseModel):
     total_tokens: int
 
 
+class ChatCompletionResponse(BaseModel):
+    """
+    Represents a standard chat completion response, conforming to OpenAI's structure.
+    """
+
+    id: str
+    object: str = "chat.completion"
+    created: int
+    model: str
+    choices: List[ChatCompletionChoice]
+    usage: Optional[CompletionUsage] = None
+
+
 class CommandProcessedChatCompletionResponse(BaseModel):
     """
     Represents a simplified chat completion response for command-only requests,

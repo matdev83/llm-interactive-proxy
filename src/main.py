@@ -28,6 +28,11 @@ from src.rate_limit import RateLimitRegistry, parse_retry_delay
 from src.security import APIKeyRedactor
 from src.session import SessionInteraction, SessionManager
 from src.llm_accounting_utils import track_llm_request, get_usage_stats, get_audit_logs, get_llm_accounting
+from src.gemini_models import GenerateContentRequest, GenerateContentResponse, ListModelsResponse
+from src.gemini_converters import (
+    gemini_to_openai_request, openai_to_gemini_response, openai_to_gemini_stream_chunk,
+    extract_model_from_gemini_path, is_streaming_request, openai_models_to_gemini_models
+)
 
 logger = logging.getLogger(__name__)
 
@@ -247,6 +252,27 @@ def build_app(
         token = auth_header.split(" ", 1)[1]
         if token != http_request.app.state.client_api_key:
             raise HTTPException(status_code=401, detail="Unauthorized")
+
+    async def verify_gemini_auth(http_request: Request) -> None:
+        """Verify Gemini API authentication via x-goog-api-key header."""
+        if http_request.app.state.disable_auth:
+            return
+        
+        # Check for Gemini-style API key in x-goog-api-key header
+        api_key_header = http_request.headers.get("x-goog-api-key")
+        if api_key_header:
+            # For Gemini API compatibility, accept the API key directly
+            if api_key_header == http_request.app.state.client_api_key:
+                return
+        
+        # Fallback to standard Bearer token authentication
+        auth_header = http_request.headers.get("authorization")
+        if auth_header and auth_header.startswith("Bearer "):
+            token = auth_header.split(" ", 1)[1]
+            if token == http_request.app.state.client_api_key:
+                return
+        
+        raise HTTPException(status_code=401, detail="Unauthorized")
 
     @app_instance.get("/")
     async def root():
@@ -836,6 +862,165 @@ def build_app(
     async def list_all_models_v1(http_request: Request):
         """OpenAI-compatible models endpoint."""
         return await list_all_models(http_request)
+
+    # Gemini API Compatibility Endpoints
+    @app_instance.get("/v1beta/models", dependencies=[Depends(verify_gemini_auth)])
+    async def list_gemini_models(http_request: Request):
+        """Gemini API compatible models listing endpoint."""
+        # Get all available models from backends
+        all_models = []
+        for backend_name in ["openrouter", "gemini", "gemini-cli-direct"]:
+            backend = getattr(http_request.app.state, f"{backend_name}_backend", None)
+            if backend and hasattr(backend, "get_available_models"):
+                models = backend.get_available_models()
+                for model in models:
+                    all_models.append({
+                        "id": f"{backend_name}:{model}",
+                        "object": "model",
+                        "owned_by": backend_name,
+                    })
+        
+        # Convert to Gemini format
+        gemini_models_response = openai_models_to_gemini_models(all_models)
+        return gemini_models_response.model_dump(exclude_none=True, by_alias=True)
+
+    def _parse_model_backend(model: str, default_backend: str) -> tuple[str, str]:
+        """Parse model string to extract backend and actual model name.
+        
+        Args:
+            model: Model string like "openrouter:gpt-4" or "gemini:gemini-pro" or just "gpt-4"
+            default_backend: Default backend to use if no prefix is specified
+            
+        Returns:
+            Tuple of (backend_type, model_name)
+        """
+        if ":" in model:
+            backend, model_name = model.split(":", 1)
+            return backend, model_name
+        else:
+            # Default to the provided default backend if no prefix
+            return default_backend, model
+
+    @app_instance.post("/v1beta/models/{model}:generateContent", dependencies=[Depends(verify_gemini_auth)])
+    async def gemini_generate_content(
+        model: str,
+        request_data: GenerateContentRequest,
+        http_request: Request
+    ):
+        """Gemini API compatible content generation endpoint (non-streaming)."""
+        # Parse the model to determine backend
+        backend_type, actual_model = _parse_model_backend(model, http_request.app.state.backend_type)
+        
+        # Convert Gemini request to OpenAI format
+        openai_request = gemini_to_openai_request(request_data, actual_model)
+        openai_request.stream = False
+        
+        # Use the existing chat_completions logic by calling it with the converted request
+        # We need to temporarily modify the request path to match OpenAI format
+        original_url = http_request.url
+        new_url_str = str(http_request.url).replace(
+            f"/v1beta/models/{model}:generateContent", 
+            "/v1/chat/completions"
+        )
+        from starlette.datastructures import URL
+        http_request._url = URL(new_url_str)
+        
+        # Temporarily override the backend type for this request
+        original_backend_type = http_request.app.state.backend_type
+        http_request.app.state.backend_type = backend_type
+        
+        try:
+            # Call the existing chat_completions endpoint
+            openai_response = await chat_completions(openai_request, http_request)
+            
+            # Convert response back to Gemini format
+            if isinstance(openai_response, dict):
+                # Handle direct dict response (like error responses)
+                if "choices" in openai_response:
+                    # Convert successful response
+                    from src.models import ChatCompletionResponse
+                    openai_resp_obj = ChatCompletionResponse(**openai_response)
+                    gemini_response = openai_to_gemini_response(openai_resp_obj)
+                    return gemini_response.model_dump(exclude_none=True, by_alias=True)
+                else:
+                    # Pass through error responses
+                    return openai_response
+            else:
+                # Handle model object response
+                gemini_response = openai_to_gemini_response(openai_response)
+                return gemini_response.model_dump(exclude_none=True, by_alias=True)
+        finally:
+            # Restore original URL and backend type
+            http_request._url = original_url
+            http_request.app.state.backend_type = original_backend_type
+
+    @app_instance.post("/v1beta/models/{model}:streamGenerateContent", dependencies=[Depends(verify_gemini_auth)])
+    async def gemini_stream_generate_content(
+        model: str,
+        request_data: GenerateContentRequest,
+        http_request: Request
+    ):
+        """Gemini API compatible streaming content generation endpoint."""
+        # Parse the model to determine backend
+        backend_type, actual_model = _parse_model_backend(model, http_request.app.state.backend_type)
+        
+        # Convert Gemini request to OpenAI format
+        openai_request = gemini_to_openai_request(request_data, actual_model)
+        openai_request.stream = True
+        
+        # Use the existing chat_completions logic by calling it with the converted request
+        # We need to temporarily modify the request path to match OpenAI format
+        original_url = http_request.url
+        new_url_str = str(http_request.url).replace(
+            f"/v1beta/models/{model}:streamGenerateContent", 
+            "/v1/chat/completions"
+        )
+        from starlette.datastructures import URL
+        http_request._url = URL(new_url_str)
+        
+        # Temporarily override the backend type for this request
+        original_backend_type = http_request.app.state.backend_type
+        http_request.app.state.backend_type = backend_type
+        
+        try:
+            # Call the existing chat_completions endpoint
+            openai_response = await chat_completions(openai_request, http_request)
+            
+            # If we get a StreamingResponse, convert the chunks to Gemini format
+            if isinstance(openai_response, StreamingResponse):
+                async def convert_stream():
+                    async for chunk in openai_response.body_iterator:
+                        if isinstance(chunk, bytes):
+                            chunk_str = chunk.decode('utf-8')
+                        else:
+                            chunk_str = str(chunk)
+                        
+                        # Convert OpenAI chunk to Gemini format
+                        gemini_chunk = openai_to_gemini_stream_chunk(chunk_str)
+                        yield gemini_chunk.encode('utf-8')
+                
+                return StreamingResponse(
+                    convert_stream(),
+                    media_type="text/plain",
+                    headers={"Content-Type": "text/plain; charset=utf-8"}
+                )
+            else:
+                # Handle non-streaming response (shouldn't happen for streaming endpoint)
+                if isinstance(openai_response, dict):
+                    if "choices" in openai_response:
+                        from src.models import ChatCompletionResponse
+                        openai_resp_obj = ChatCompletionResponse(**openai_response)
+                        gemini_response = openai_to_gemini_response(openai_resp_obj)
+                        return gemini_response.model_dump(exclude_none=True, by_alias=True)
+                    else:
+                        return openai_response
+                else:
+                    gemini_response = openai_to_gemini_response(openai_response)
+                    return gemini_response.model_dump(exclude_none=True, by_alias=True)
+        finally:
+            # Restore original URL and backend type
+            http_request._url = original_url
+            http_request.app.state.backend_type = original_backend_type
 
     @app_instance.get("/usage/stats", dependencies=[Depends(verify_client_auth)])
     async def get_usage_statistics(
