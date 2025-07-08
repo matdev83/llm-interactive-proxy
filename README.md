@@ -2,16 +2,28 @@
 
 This project provides an intercepting proxy server that is compatible with the OpenAI API. It allows for modification of requests and responses, command execution within chat messages, and model overriding. The proxy can forward requests to **OpenRouter.ai** or **Google Gemini**, selectable at run time.
 
+## 🚀 KILLER FEATURES
+
+- **🔄 Automated API Key Rotation** – Use multiple accounts' "free tier" allowances to combine them into one powerful cumulative pool of free tiers. Configure multiple API keys and let the proxy automatically rotate between them to maximize your usage limits.
+
+- **🎯 Override Model Name** – Force any application to use the model of your choice, regardless of what the application originally requested. Perfect for redirecting expensive model calls to cheaper alternatives or testing different models without modifying your applications.
+
+- **🛡️ Failover Routing** – Define intelligent rules to automatically switch to other backend/model combinations if the original model has temporary problems or gets rate limited. Never let API failures stop your workflow.
+
+- **💎 Gemini CLI Gateway** – Expose Gemini models with their generous free allowances as standard OpenAI/OpenRouter endpoints. Route calls from any application that doesn't natively support Gemini through the Gemini CLI app instead of the API endpoint, unlocking free access to powerful models.
+
+- **📊 Usage Logging & Audit Trail** – Comprehensive session tracking and audit logs help you monitor usage patterns, debug issues, and maintain compliance. Track which models are being used, by whom, and when.
+
 ## Features
 
 - **OpenAI API Compatibility** – drop-in replacement for `/v1/chat/completions` and `/v1/models`.
 - **Request Interception and Command Parsing** – user messages can contain commands (default prefix `!/`) to change proxy behaviour.
 - **Configurable Command Prefix** – via the `COMMAND_PREFIX` environment variable, CLI, or in‑chat commands.
 - **Dynamic Model Override** – commands like `!/set(model=...)` change the model for subsequent requests.
-- **Multiple Backends** – forward requests to OpenRouter, Google Gemini, or a Gemini CLI MCP Tool instance. Chosen with `LLM_BACKEND`.
-- **Gemini CLI MCP Tool Support** - Route requests to a local `gemini-mcp-tool` instance, allowing interaction with Gemini models via its CLI capabilities through the Model Context Protocol.
-- **Streaming and Non‑Streaming Support** – for OpenRouter and Gemini backends. Initial support for Gemini CLI backend is non-streaming for MCP tool interaction, but returns results in a streaming-compatible way if requested by client.
-- **Aggregated Model Listing** – the `/models` and `/v1/models` endpoints return the union of all models discovered from configured backends, prefixed with the backend name (e.g., `openrouter:model_name`, `gemini:model_name`, `gemini-cli:model_name`).
+- **Multiple Backends** – forward requests to OpenRouter, Google Gemini, or Gemini CLI Direct. Chosen with `LLM_BACKEND`.
+- **Gemini CLI Direct Support** - Route requests directly to the system-installed Gemini CLI application, providing access to Gemini models without requiring API keys.
+- **Streaming and Non‑Streaming Support** – for OpenRouter and Gemini backends. Gemini CLI Direct backend supports both streaming and non-streaming responses.
+- **Aggregated Model Listing** – the `/models` and `/v1/models` endpoints return the union of all models discovered from configured backends, prefixed with the backend name (e.g., `openrouter:model_name`, `gemini:model_name`, `gemini-cli-direct:model_name`).
 - **Session History Tracking** – optional per-session logs using the `X-Session-ID` header.
 - **Agent Detection** – recognizes popular coding agents and formats proxy responses accordingly.
 - **CLI Configuration** – command line flags can override environment variables for quick testing.
@@ -25,6 +37,7 @@ These instructions will get you a copy of the project up and running on your loc
 
 - Python 3.8+
 - `pip` for installing Python packages
+- **For Gemini CLI Direct backend**: [Google Gemini CLI](https://github.com/google-gemini/gemini-cli) installed system-wide and authenticated
 
 ### Installation
 
@@ -57,9 +70,8 @@ These instructions will get you a copy of the project up and running on your loc
     # GEMINI_API_KEY_1="first_gemini_key"
     # Keys are sent using the `x-goog-api-key` header to avoid exposing them in URLs
 
-    # Gemini CLI MCP Tool backend (no API key needed here, just the server URL)
-    # Ensure gemini-mcp-tool is running and accessible at this URL.
-    # GEMINI_CLI_MCP_SERVER_URL="http://localhost:3000/mcp" # Example URL, adjust if your tool runs elsewhere
+    # Gemini CLI Direct backend (no configuration needed)
+    # Uses system-installed Gemini CLI - ensure 'gemini auth' has been run first
 
     # Client API key for accessing this proxy
     # LLM_INTERACTIVE_PROXY_API_KEY="choose_a_secret_key"
@@ -87,6 +99,41 @@ These instructions will get you a copy of the project up and running on your loc
     pip install -r requirements-dev.txt
     ```
 
+### Gemini CLI Direct Backend Setup
+
+The Gemini CLI Direct backend allows you to use Google's Gemini models directly through the system-installed Gemini CLI application, without requiring API keys. This backend provides an alternative way to access Gemini models.
+
+#### Prerequisites for Gemini CLI Direct
+
+1. **Install Google Gemini CLI**: Follow the installation instructions from the [official Gemini CLI repository](https://github.com/google-gemini/gemini-cli).
+
+2. **Add to PATH**: Ensure the `gemini` executable is available in your system's PATH. You can verify this by running:
+    ```bash
+    gemini --version
+    ```
+
+3. **Authenticate (One-time setup)**: Before using the Gemini CLI with this proxy, you must authenticate it:
+    ```bash
+    gemini auth
+    ```
+    Follow the prompts to complete the authentication process. This is a one-time operation that stores your credentials locally.
+
+#### Using Gemini CLI Direct Backend
+
+Once the Gemini CLI is installed and authenticated, you can use the `gemini-cli-direct` backend:
+
+- **Set as default backend**: Use `--default-backend gemini-cli-direct` when starting the proxy
+- **Set via environment**: `LLM_BACKEND=gemini-cli-direct`
+- **Switch in-chat**: Use `!/set(backend=gemini-cli-direct)` in your messages
+
+The Gemini CLI Direct backend:
+- **No API keys required** - Uses your authenticated Gemini CLI session
+- **Direct CLI integration** - Communicates directly with the `gemini` command
+- **Supports streaming and non-streaming** - Full compatibility with OpenAI API clients
+- **Available models**: `gemini-cli-direct:gemini-2.5-pro`, `gemini-cli-direct:gemini-1.5-pro`, `gemini-cli-direct:gemini-2.0-flash-exp`, `gemini-cli-direct:gemini-pro`
+
+**Note**: The Gemini CLI Direct backend uses the default model configured in your Gemini CLI installation and does not pass model selection parameters to the CLI.
+
 ### Running the Proxy Server
 
 To start the proxy server, run the `main.py` script from the `src` directory:
@@ -112,12 +159,12 @@ no client API key is generated or checked.
 
 The proxy server can be configured using the following command-line arguments:
 
-- `--default-backend {openrouter,gemini,gemini-cli}`: Sets the default backend when multiple backends are functional.
+- `--default-backend {openrouter,gemini,gemini-cli-direct}`: Sets the default backend when multiple backends are functional.
 - `--openrouter-api-key <key>`: Specifies the OpenRouter API key.
 - `--openrouter-api-base-url <url>`: Specifies the OpenRouter API base URL.
 - `--gemini-api-key <key>`: Specifies the Gemini API key.
 - `--gemini-api-base-url <url>`: Specifies the Gemini API base URL.
-- `--gemini-cli-mcp-server-url <url>`: Specifies the URL for the Gemini CLI MCP Tool server.
+
 - `--host <host>`: Specifies the host address to bind the server to (default: `127.0.0.1`).
 - `--port <port>`: Specifies the port to listen on (default: `8000`).
 - `--timeout <seconds>`: Sets the timeout for requests in seconds.
@@ -159,13 +206,13 @@ You can embed special commands within your chat messages to control the proxy's 
     Example: `!/help(set)`
 - `!/set(model=backend:model_name)`: Overrides the model for the current session/request.
     Example: `Hello, please use !/set(model=openrouter:mistralai/mistral-7b-instruct) for this conversation.`
-    Note: For `gemini-cli` backend, the model specified (e.g., `gemini-cli:gemini-pro`) is passed to the `ask-gemini` tool if supported.
+    Note: For `gemini-cli-direct` backend, the model specified (e.g., `gemini-cli-direct:gemini-pro`) is ignored as the backend uses the default Gemini CLI model.
 - `!/unset(model)`: Clears any previously set model override.
-- `!/set(backend=openrouter|gemini|gemini-cli)`: Overrides the backend for the current session/request.
-    Example: `!/set(backend=gemini-cli)`
+- `!/set(backend=openrouter|gemini|gemini-cli-direct)`: Overrides the backend for the current session/request.
+    Example: `!/set(backend=gemini-cli-direct)`
 - `!/unset(backend)`: Unsets the overridden backend.
-- `!/set(default-backend=openrouter|gemini|gemini-cli)`: Sets the default backend persistently.
-    Example: `!/set(default-backend=gemini-cli)`
+- `!/set(default-backend=openrouter|gemini|gemini-cli-direct)`: Sets the default backend persistently.
+    Example: `!/set(default-backend=gemini-cli-direct)`
 - `!/unset(default-backend)`: Unsets the default backend, restoring initial configuration.
 - `!/set(project=project_name)` or `!/set(project-name=project_name)`: Sets the project name for the current session.
     Example: `!/set(project=my-project)`
