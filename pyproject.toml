@@ -43,6 +43,7 @@ dev = [
     "pytest-httpx",
     "ruff",
     "black",
+    "google-genai",  # Official Google Gemini API client for integration tests
 ]
 
 [build-system]

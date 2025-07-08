@@ -17,6 +17,7 @@ This project provides an intercepting proxy server that is compatible with the O
 ## Features
 
 - **OpenAI API Compatibility** – drop-in replacement for `/v1/chat/completions` and `/v1/models`.
+- **Gemini API Compatibility** – native Google Gemini API endpoints (`/v1beta/models` and `/v1beta/models/{model}:generateContent`) with full compatibility for the official `google-genai` client library.
 - **Request Interception and Command Parsing** – user messages can contain commands (default prefix `!/`) to change proxy behaviour.
 - **Configurable Command Prefix** – via the `COMMAND_PREFIX` environment variable, CLI, or in‑chat commands.
 - **Dynamic Model Override** – commands like `!/set(model=...)` change the model for subsequent requests.
@@ -216,9 +217,102 @@ Some integration tests communicate with the real Gemini backend. Provide the key
 runtime using the environment variable `GEMINI_API_KEY_1`. The tests read this variable
 on startup and no API keys are stored in the repository.
 
+The test suite includes comprehensive integration tests for Gemini API compatibility using the official `google-genai` client library, ensuring full compatibility with real Gemini API clients.
+
 ## Usage
 
 Once the proxy server is running, you can configure your OpenAI-compatible client applications to point to the proxy's address (e.g., `http://localhost:8000/v1`) instead of the official OpenAI API base URL.
+
+### Gemini API Compatibility
+
+The proxy also provides native Google Gemini API endpoints, allowing you to use the official `google-genai` client library directly with the proxy. This enables access to all configured backends (OpenRouter, Gemini, Gemini CLI Direct) through the Gemini API interface.
+
+#### Using the Official Google Gemini Client
+
+Install the official Google Gemini client library:
+
+```bash
+pip install google-genai
+```
+
+Then use it with the proxy:
+
+```python
+from google import genai
+from google.genai import types as genai_types
+
+# Create client pointing to the proxy
+client = genai.Client(
+    api_key="your-proxy-api-key",
+    http_options=genai_types.HttpOptions(
+        base_url="http://localhost:8000"  # Your proxy URL
+    )
+)
+
+# List available models (from all backends)
+models = client.models.list()
+for model in models.models:
+    print(f"Model: {model.name}")
+
+# Generate content using any backend
+response = client.models.generate_content(
+    model="openrouter:gpt-4",  # Use OpenRouter backend
+    contents=[
+        genai_types.Content(
+            parts=[genai_types.Part(text="Hello, how are you?")],
+            role="user"
+        )
+    ]
+)
+print(response.text)
+
+# Or use Gemini backend
+response = client.models.generate_content(
+    model="gemini:gemini-pro",  # Use Gemini backend
+    contents=[
+        genai_types.Content(
+            parts=[genai_types.Part(text="Explain quantum computing")],
+            role="user"
+        )
+    ]
+)
+print(response.text)
+```
+
+#### Gemini API Endpoints
+
+The proxy provides these Gemini-compatible endpoints:
+
+- **`GET /v1beta/models`** - List all available models from all backends in Gemini format
+- **`POST /v1beta/models/{model}:generateContent`** - Generate content (non-streaming)
+- **`POST /v1beta/models/{model}:streamGenerateContent`** - Generate content (streaming)
+
+#### Authentication
+
+Use the same authentication as the OpenAI endpoints, but with the `x-goog-api-key` header:
+
+```bash
+curl -X POST "http://localhost:8000/v1beta/models/openrouter:gpt-4:generateContent" \
+  -H "x-goog-api-key: your-proxy-api-key" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "contents": [
+      {
+        "parts": [{"text": "Hello, world!"}],
+        "role": "user"
+      }
+    ]
+  }'
+```
+
+#### Backend Routing
+
+Model names can include backend prefixes to route to specific backends:
+
+- `openrouter:gpt-4` - Routes to OpenRouter backend
+- `gemini:gemini-pro` - Routes to Gemini backend  
+- `gemini-cli-direct:gemini-1.5-pro` - Routes to Gemini CLI Direct backend
+- `gpt-4` - Uses default backend (no prefix)
 
 ### Command Feature
 
