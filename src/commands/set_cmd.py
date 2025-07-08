@@ -42,7 +42,7 @@ class SetCommand(BaseCommand):
             return False, None, False
 
         backend_val = backend_arg.strip().lower()
-        if backend_val not in {"openrouter", "gemini"}:
+        if backend_val not in {"openrouter", "gemini", "gemini-cli-direct"}:
             return True, CommandResult(self.name, False, f"backend {backend_val} not supported"), False
 
         # Check against functional_backends ONLY if a list of functional_backends is provided
@@ -59,7 +59,7 @@ class SetCommand(BaseCommand):
             return False, None, False
 
         backend_val = backend_arg.strip().lower()
-        if backend_val not in {"openrouter", "gemini"}:
+        if backend_val not in {"openrouter", "gemini", "gemini-cli-direct"}:
             return True, CommandResult(self.name, False, f"default-backend {backend_val} not supported"), False
 
         if self.functional_backends is not None and backend_val not in self.functional_backends:

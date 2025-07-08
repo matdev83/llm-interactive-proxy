@@ -72,7 +72,6 @@ def _load_config() -> Dict[str, Any]:
         "gemini_api_base_url": os.getenv(
             "GEMINI_API_BASE_URL", "https://generativelanguage.googleapis.com"
         ),
-        "gemini_cli_mcp_server_url": os.getenv("GEMINI_CLI_MCP_SERVER_URL"),
         "app_site_url": os.getenv("APP_SITE_URL", "http://localhost:8000"),
         "app_x_title": os.getenv("APP_X_TITLE", "InterceptorProxy"),
         "proxy_port": int(os.getenv("PROXY_PORT", "8000")),
@@ -110,4 +109,8 @@ def _keys_for(cfg: Dict[str, Any], b_type: str) -> list[tuple[str, str]]:
         return list(cfg["gemini_api_keys"].items())
     if b_type == "openrouter":
         return list(cfg["openrouter_api_keys"].items())
+    if b_type == "gemini-cli-direct":
+        # gemini-cli-direct backend doesn't need API keys - it calls Gemini CLI directly
+        # Return a dummy key to satisfy the API key check
+        return [("gemini-cli-direct", "no-key-needed")]
     return []

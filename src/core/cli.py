@@ -31,14 +31,14 @@ def parse_cli_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument(
         "--default-backend",
         dest="default_backend",
-        choices=["openrouter", "gemini"],
+        choices=["openrouter", "gemini", "gemini-cli-direct"],
         default=os.getenv("LLM_BACKEND"),
         help="Default backend when multiple backends are functional",
     )
     parser.add_argument(
         "--backend",
         dest="default_backend",
-        choices=["openrouter", "gemini"],
+        choices=["openrouter", "gemini", "gemini-cli-direct"],
         help=argparse.SUPPRESS,
     )
     parser.add_argument("--openrouter-api-key")
