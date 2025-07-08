@@ -1,0 +1,10 @@
+{
+  "model": "gemini",
+  "messages": [
+    {
+      "role": "user",
+      "content": "Say hello in one word"
+    }
+  ],
+  "max_tokens": 10
+} 

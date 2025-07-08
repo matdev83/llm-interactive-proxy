@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 import logging
 import time
-from typing import Any, AsyncGenerator, Dict, Optional, Union
+from typing import Any, AsyncGenerator, Dict, Optional, Union, Tuple
 
 import httpx
 from fastapi import HTTPException
@@ -294,7 +294,7 @@ class GeminiBackend(LLMBackend):
         project: str | None = None,
         prompt_redactor: APIKeyRedactor | None = None,
         **kwargs,
-    ) -> Union[dict, StreamingResponse]:
+    ) -> Union[Tuple[dict, Dict[str, str]], StreamingResponse]:
         gemini_api_base_url = openrouter_api_base_url or kwargs.get(
             "gemini_api_base_url"
         )
@@ -325,9 +325,10 @@ class GeminiBackend(LLMBackend):
                 base_api_url, payload, headers, effective_model
             )
 
-        return await self._handle_gemini_non_streaming_response(
+        response_json, response_headers = await self._handle_gemini_non_streaming_response(
             base_api_url, payload, headers, effective_model
         )
+        return response_json, response_headers
 
     async def _handle_gemini_non_streaming_response(
         self,
@@ -335,7 +336,7 @@ class GeminiBackend(LLMBackend):
         payload: dict,
         headers: dict,
         effective_model: str,
-    ) -> dict:
+    ) -> Tuple[dict, Dict[str, str]]:
         url = f"{base_url}:generateContent"
         try:
             response = await self.client.post(url, json=payload, headers=headers)
@@ -348,7 +349,9 @@ class GeminiBackend(LLMBackend):
                     status_code=response.status_code, detail=error_detail
                 )
             data = response.json()
-            return self._convert_full_response(data, effective_model)
+            response_headers = dict(response.headers)
+            logger.debug(f"Gemini response headers: {response_headers}")
+            return self._convert_full_response(data, effective_model), response_headers
         except httpx.RequestError as e:
             logger.error(
                 f"Request error connecting to Gemini: {e}", exc_info=True)

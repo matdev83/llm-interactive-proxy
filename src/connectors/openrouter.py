@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 import logging
-from typing import Any, Callable, Dict, Union
+from typing import Any, Callable, Dict, Union, Tuple
 
 import httpx
 from fastapi import HTTPException  # Required for raising HTTP exceptions
@@ -84,6 +84,9 @@ class OpenRouterBackend(LLMBackend):
         if project is not None:
             payload["project"] = project
 
+        # Always request usage information for billing tracking
+        payload["usage"] = {"include": True}
+
         if prompt_redactor:
             for msg_payload in payload["messages"]:
                 original_content = msg_payload.get("content")
@@ -101,7 +104,7 @@ class OpenRouterBackend(LLMBackend):
         api_key: str,
         project: str | None = None,
         prompt_redactor: APIKeyRedactor | None = None,
-    ) -> Union[StreamingResponse, Dict[str, Any]]:
+    ) -> Union[StreamingResponse, Tuple[Dict[str, Any], Dict[str, str]]]:
 
         openrouter_payload = self._prepare_openrouter_payload(
             request_data,
@@ -127,9 +130,10 @@ class OpenRouterBackend(LLMBackend):
                     api_url, openrouter_payload, headers
                 )
             else:  # Non-streaming request
-                return await self._handle_openrouter_non_streaming_response(
+                response_json, response_headers = await self._handle_openrouter_non_streaming_response(
                     api_url, openrouter_payload, headers
                 )
+                return response_json, response_headers
         except httpx.HTTPStatusError as e:
             logger.error(
                 f"HTTP error from OpenRouter: {e.response.status_code} - {e.response.text}",
@@ -155,7 +159,7 @@ class OpenRouterBackend(LLMBackend):
 
     async def _handle_openrouter_non_streaming_response(
         self, url: str, payload: Dict[str, Any], headers: Dict[str, str]
-    ) -> Dict[str, Any]:
+    ) -> Tuple[Dict[str, Any], Dict[str, str]]:
         logger.debug("Initiating non-streaming request to OpenRouter.")
         response = await self.client.post(url, json=payload, headers=headers)
         logger.debug(f"OpenRouter non-stream response status: {response.status_code}")
@@ -170,8 +174,10 @@ class OpenRouterBackend(LLMBackend):
             )
 
         response_json = response.json()
+        response_headers = dict(response.headers)
         logger.debug(f"OpenRouter response JSON: {json.dumps(response_json, indent=2)}")
-        return response_json
+        logger.debug(f"OpenRouter response headers: {response_headers}")
+        return response_json, response_headers
 
     async def _handle_openrouter_streaming_response(
         self, url: str, payload: Dict[str, Any], headers: Dict[str, str]

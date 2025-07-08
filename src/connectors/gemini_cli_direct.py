@@ -7,7 +7,7 @@ import logging
 import os
 import subprocess
 import sys
-from typing import Dict, Any, Optional, AsyncGenerator, Union, TYPE_CHECKING
+from typing import Dict, Any, Optional, AsyncGenerator, Union, TYPE_CHECKING, Tuple
 import secrets
 
 from .base import LLMBackend
@@ -233,7 +233,7 @@ class GeminiCliDirectConnector(LLMBackend):
         project: Optional[str] = None,
         prompt_redactor: Optional["APIKeyRedactor"] = None,
         **kwargs
-    ) -> Union[Dict[str, Any], StreamingResponse]:
+    ) -> Union[Tuple[Dict[str, Any], Dict[str, str]], StreamingResponse]:
         """Handle chat completions using direct Gemini CLI"""
         
         try:
@@ -287,10 +287,17 @@ class GeminiCliDirectConnector(LLMBackend):
                 }
             }
             
+            # Create dummy headers since CLI doesn't provide real headers
+            dummy_headers = {
+                "content-type": "application/json",
+                "x-gemini-cli-direct": "true",
+                "x-gemini-cli-version": "1.0.0"
+            }
+            
             if request_data.stream:
                 return self._create_streaming_response(response)
             else:
-                return response
+                return response, dummy_headers
                 
         except Exception as e:
             logger.error(f"Error in chat_completions: {e}")
