@@ -56,3 +56,6 @@ pip-log.txt
 
 # Project-specific ignores (already present)
 dev/
+.dev/
+.cursor/
+data/
