@@ -142,8 +142,11 @@ def test_build_app_uses_interactive_env(monkeypatch):
     monkeypatch.delenv("GEMINI_API_KEY", raising=False)
     for i in range(1, 21):
         monkeypatch.delenv(f"GEMINI_API_KEY_{i}", raising=False)
+        monkeypatch.delenv(f"OPENROUTER_API_KEY_{i}", raising=False)
+    monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
     monkeypatch.delenv("DISABLE_INTERACTIVE_MODE", raising=False)
-    monkeypatch.setenv("LLM_BACKEND", "openrouter")
+    # Use gemini-cli-direct backend since it doesn't require API keys
+    monkeypatch.setenv("LLM_BACKEND", "gemini-cli-direct")
     app = app_main_build_app()
     with TestClient(app): # Ensure lifespan runs
         session = app.state.session_manager.get_session("s1")
