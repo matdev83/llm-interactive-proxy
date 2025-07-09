@@ -109,14 +109,17 @@ The Gemini CLI Direct backend allows you to use Google's Gemini models directly 
 1. **Install Google Gemini CLI**: Follow the installation instructions from the [official Gemini CLI repository](https://github.com/google-gemini/gemini-cli).
 
 2. **Add to PATH**: Ensure the `gemini` executable is available in your system's PATH. You can verify this by running:
+
     ```bash
     gemini --version
     ```
 
 3. **Authenticate (One-time setup)**: Before using the Gemini CLI with this proxy, you must authenticate it:
+
     ```bash
     gemini auth
     ```
+
     Follow the prompts to complete the authentication process. This is a one-time operation that stores your credentials locally.
 
 #### Using Gemini CLI Direct Backend
@@ -128,6 +131,7 @@ Once the Gemini CLI is installed and authenticated, you can use the `gemini-cli-
 - **Switch in-chat**: Use `!/set(backend=gemini-cli-direct)` in your messages
 
 The Gemini CLI Direct backend:
+
 - **No API keys required** - Uses your authenticated Gemini CLI session
 - **Direct CLI integration** - Communicates directly with the `gemini` command
 - **Supports streaming and non-streaming** - Full compatibility with OpenAI API clients
@@ -318,7 +322,7 @@ Model names can include backend prefixes to route to specific backends:
 
 You can embed special commands within your chat messages to control the proxy's behavior. Commands are discovered dynamically and listed with `!/help`. A specific command can be inspected using `!/help(<command>)`. If the proxy was started with `--disable-interactive-commands`, these commands will be ignored.
 
-#### Available In-Chat Commands:
+#### Available In-Chat Commands
 
 - `!/help`: List all available commands.
 - `!/help(<command>)`: Show details for a specific command.
@@ -349,10 +353,10 @@ You can embed special commands within your chat messages to control the proxy's 
 - `!/create-failover-route(name=<name>,policy=k|m|km|mk)`: Create a new failover route with given policy.
     Example: `!/create-failover-route(name=myroute,policy=k)`
     Policies:
-    - `k` (Keys Failover): Fixed model, cycles through all available API keys for the backend.
-    - `m` (Models Failover): Cycles through models, using the first API key for each backend.
-    - `km` (Keys then Models Failover): For each model, cycles through all available API keys before moving to the next model.
-    - `mk` (Models then Keys - Round-Robin): Interleaves attempts across models and their API keys, providing a form of round-robin distribution.
+  - `k` (Keys Failover): Fixed model, cycles through all available API keys for the backend.
+  - `m` (Models Failover): Cycles through models, using the first API key for each backend.
+  - `km` (Keys then Models Failover): For each model, cycles through all available API keys before moving to the next model.
+  - `mk` (Models then Keys - Round-Robin): Interleaves attempts across models and their API keys, providing a form of round-robin distribution.
 - `!/delete-failover-route(name=<name>)`: Delete an existing failover route.
     Example: `!/delete-failover-route(name=myroute)`
 - `!/list-failover-routes`: List configured failover routes.
@@ -365,6 +369,12 @@ You can embed special commands within your chat messages to control the proxy's 
     Example: `!/route-prepend(name=myroute,openrouter:model-a)`
 - `!/route-clear(name=<route>)`: Remove all elements from a failover route.
     Example: `!/route-clear(name=myroute)`
+- `!/oneoff(backend/model)` or `!/one-off(backend/model)`: Sets a one-time override for the backend and model for the next request only.
+    Example: `!/oneoff(gemini/gemini-pro)` or `!/one-off(openrouter/gpt-4)`
+    Usage patterns:
+  - **Command-only**: Send `!/oneoff(backend/model)` alone, then follow with your prompt in the next message
+  - **Command+prompt**: Send `!/oneoff(backend/model)` followed by your prompt in the same message
+    The override is automatically cleared after the single request is processed.
 
 The command prefix must be 2-10 printable characters with no whitespace. If the prefix is exactly two characters, they cannot be the same.
 
@@ -378,23 +388,21 @@ The proxy's runtime configuration is determined by a hierarchy of settings, allo
 
 The proxy loads its configuration from the following sources, in order of precedence (later sources override earlier ones):
 
-1.  **Default Values**: Hardcoded defaults within the application (e.g., `proxy_port` defaults to `8000`).
-2.  **Environment Variables**: Values loaded from the system environment or a `.env` file in the project root. This is the primary way to set API keys and general runtime parameters.
-    *   **`.env` file**: A file named `.env` in the project's root directory is automatically loaded at startup. This is ideal for managing sensitive information like API keys and for setting common parameters without modifying system-wide environment variables. An example is provided in `.env.example`.
-3.  **CLI Arguments**: Command-line arguments provided when starting `main.py`. These arguments override corresponding environment variables and default values, useful for one-off testing or specific deployments.
-4.  **Persistent Configuration File**: A JSON file specified by the `--config` CLI argument (e.g., `--config config/file.json`). This file is used to persist dynamic settings like failover routes and other in-chat command modifications across proxy restarts.
+1. **Default Values**: Hardcoded defaults within the application (e.g., `proxy_port` defaults to `8000`).
+2. **Environment Variables**: Values loaded from the system environment or a `.env` file in the project root. This is the primary way to set API keys and general runtime parameters.
+    - **`.env` file**: A file named `.env` in the project's root directory is automatically loaded at startup. This is ideal for managing sensitive information like API keys and for setting common parameters without modifying system-wide environment variables. An example is provided in `.env.example`.
+3. **CLI Arguments**: Command-line arguments provided when starting `main.py`. These arguments override corresponding environment variables and default values, useful for one-off testing or specific deployments.
+4. **Persistent Configuration File**: A JSON file specified by the `--config` CLI argument (e.g., `--config config/file.json`). This file is used to persist dynamic settings like failover routes and other in-chat command modifications across proxy restarts.
 
 ### Persistent Configuration File
 
 The `--config FILE` CLI argument points to a JSON file that the proxy uses to save and load certain runtime configurations. This is particularly useful for:
 
--   **Failover Routes**: Routes created or modified using in-chat commands (e.g., `!/create-failover-route`, `!/route-append`) are saved to this file.
--   **Default Backend**: Changes made via `!/set(default-backend=...)` are persisted.
--   **Other Dynamic Settings**: Any other settings that can be modified via in-chat commands and are designed for persistence.
+- **Failover Routes**: Routes created or modified using in-chat commands (e.g., `!/create-failover-route`, `!/route-append`) are saved to this file.
+- **Default Backend**: Changes made via `!/set(default-backend=...)` are persisted.
+- **Other Dynamic Settings**: Any other settings that can be modified via in-chat commands and are designed for persistence.
 
 This file allows you to maintain your dynamic routing and default preferences across server restarts without needing to re-enter commands or set environment variables. The file is automatically updated by the proxy when relevant commands are executed.
-
-## Routing Policies Explained
 
 ## Routing Policies Explained
 
@@ -410,35 +418,35 @@ Failover routing allows you to define a sequence of backend/model/key combinatio
 
 Failover routes are configured using the `!/create-failover-route` command, specifying a `name` and a `policy`. The `policy` determines how the list of attempts is constructed from the route's elements.
 
-#### Failover Policy Details:
+#### Failover Policy Details
 
--   **`k` (Keys Failover)**:
-    *   **Description**: This policy is designed for a single target model but with multiple API keys for its backend. It will attempt to use the specified model, cycling through all available API keys for that backend until a successful response is received.
-    *   **Use Case**: Maximizing usage of a specific model by leveraging multiple API key allowances (e.g., free tiers).
-    *   **Example**: If a route `myroute` is defined with `policy=k` and elements `["openrouter:gpt-4"]`, and you have `OPENROUTER_API_KEY_1`, `OPENROUTER_API_KEY_2`, the proxy will first try `openrouter:gpt-4` with `OPENROUTER_API_KEY_1`. If that fails, it will try `openrouter:gpt-4` with `OPENROUTER_API_KEY_2`, and so on.
+- **`k` (Keys Failover)**:
+  - **Description**: This policy is designed for a single target model but with multiple API keys for its backend. It will attempt to use the specified model, cycling through all available API keys for that backend until a successful response is received.
+  - **Use Case**: Maximizing usage of a specific model by leveraging multiple API key allowances (e.g., free tiers).
+  - **Example**: If a route `myroute` is defined with `policy=k` and elements `["openrouter:gpt-4"]`, and you have `OPENROUTER_API_KEY_1`, `OPENROUTER_API_KEY_2`, the proxy will first try `openrouter:gpt-4` with `OPENROUTER_API_KEY_1`. If that fails, it will try `openrouter:gpt-4` with `OPENROUTER_API_KEY_2`, and so on.
 
--   **`m` (Models Failover)**:
-    *   **Description**: This policy allows you to define a sequence of different `backend:model` pairs. For each backend in the sequence, it will attempt to use only its *first* configured API key. If an attempt fails, it moves to the next `backend:model` pair in the route.
-    *   **Use Case**: Prioritizing certain models or backends, then falling back to alternatives if the primary options are unavailable.
-    *   **Example**: If `myroute` has `policy=m` and elements `["openrouter:gpt-4", "gemini:gemini-pro"]`, the proxy will first try `openrouter:gpt-4` with `OPENROUTER_API_KEY_1`. If that fails, it will then try `gemini:gemini-pro` with `GEMINI_API_KEY_1`.
+- **`m` (Models Failover)**:
+  - **Description**: This policy allows you to define a sequence of different `backend:model` pairs. For each backend in the sequence, it will attempt to use only its *first* configured API key. If an attempt fails, it moves to the next `backend:model` pair in the route.
+  - **Use Case**: Prioritizing certain models or backends, then falling back to alternatives if the primary options are unavailable.
+  - **Example**: If `myroute` has `policy=m` and elements `["openrouter:gpt-4", "gemini:gemini-pro"]`, the proxy will first try `openrouter:gpt-4` with `OPENROUTER_API_KEY_1`. If that fails, it will then try `gemini:gemini-pro` with `GEMINI_API_KEY_1`.
 
--   **`km` (Keys then Models Failover)**:
-    *   **Description**: This policy combines `k` and `m`. For each `backend:model` pair specified in the route, the proxy will first attempt to use *all* available API keys for that specific backend. Only after exhausting all keys for the current `backend:model` pair will it move to the next `backend:model` pair in the route.
-    *   **Use Case**: Ensuring maximum utilization of all available keys for a primary model before considering alternative models.
-    *   **Example**: If `myroute` has `policy=km` and elements `["openrouter:gpt-4", "gemini:gemini-pro"]`, and OpenRouter has `OR_KEY_1, OR_KEY_2`, while Gemini has `GM_KEY_1`, the proxy will try:
-        1.  `openrouter:gpt-4` with `OR_KEY_1`
-        2.  `openrouter:gpt-4` with `OR_KEY_2` (if 1 fails)
-        3.  `gemini:gemini-pro` with `GM_KEY_1` (if 2 fails)
+- **`km` (Keys then Models Failover)**:
+  - **Description**: This policy combines `k` and `m`. For each `backend:model` pair specified in the route, the proxy will first attempt to use *all* available API keys for that specific backend. Only after exhausting all keys for the current `backend:model` pair will it move to the next `backend:model` pair in the route.
+  - **Use Case**: Ensuring maximum utilization of all available keys for a primary model before considering alternative models.
+  - **Example**: If `myroute` has `policy=km` and elements `["openrouter:gpt-4", "gemini:gemini-pro"]`, and OpenRouter has `OR_KEY_1, OR_KEY_2`, while Gemini has `GM_KEY_1`, the proxy will try:
+        1. `openrouter:gpt-4` with `OR_KEY_1`
+        2. `openrouter:gpt-4` with `OR_KEY_2` (if 1 fails)
+        3. `gemini:gemini-pro` with `GM_KEY_1` (if 2 fails)
 
--   **`mk` (Models then Keys - Round-Robin Distribution)**:
-    *   **Description**: This policy provides a form of round-robin distribution across available API keys for *multiple* backends/models. It constructs an interleaved sequence of attempts by cycling through the API keys for each backend listed in the route elements. This helps distribute the load more evenly across your available credentials.
-    *   **Use Case**: Load balancing requests across multiple API keys and backends to prevent hitting rate limits on a single key or backend, or to distribute costs.
-    *   **Example**: If `myroute` has `policy=mk` and elements `["openrouter:gpt-4", "gemini:gemini-pro"]`, and OpenRouter has keys `OR_KEY_1, OR_KEY_2`, and Gemini has `GM_KEY_1, GM_KEY_2, GM_KEY_3`, the proxy will try:
-        1.  `openrouter:gpt-4` with `OR_KEY_1`
-        2.  `gemini:gemini-pro` with `GM_KEY_1`
-        3.  `openrouter:gpt-4` with `OR_KEY_2` (if available)
-        4.  `gemini:gemini-pro` with `GM_KEY_2` (if available)
-        5.  `gemini:gemini-pro` with `GM_KEY_3` (if available, OpenRouter has no more keys at this index)
+- **`mk` (Models then Keys - Round-Robin Distribution)**:
+  - **Description**: This policy provides a form of round-robin distribution across available API keys for *multiple* backends/models. It constructs an interleaved sequence of attempts by cycling through the API keys for each backend listed in the route elements. This helps distribute the load more evenly across your available credentials.
+  - **Use Case**: Load balancing requests across multiple API keys and backends to prevent hitting rate limits on a single key or backend, or to distribute costs.
+  - **Example**: If `myroute` has `policy=mk` and elements `["openrouter:gpt-4", "gemini:gemini-pro"]`, and OpenRouter has keys `OR_KEY_1, OR_KEY_2`, and Gemini has `GM_KEY_1, GM_KEY_2, GM_KEY_3`, the proxy will try:
+        1. `openrouter:gpt-4` with `OR_KEY_1`
+        2. `gemini:gemini-pro` with `GM_KEY_1`
+        3. `openrouter:gpt-4` with `OR_KEY_2` (if available)
+        4. `gemini:gemini-pro` with `GM_KEY_2` (if available)
+        5. `gemini:gemini-pro` with `GM_KEY_3` (if available, OpenRouter has no more keys at this index)
         This ensures that requests are distributed across the available keys for each backend in a cyclical manner, providing a more balanced load.
 
 ## Project Structure

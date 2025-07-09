@@ -461,8 +461,18 @@ def process_commands_in_messages(
     final_messages, commands_processed = parser.process_messages(messages)
 
     # If a one-off command was just used, clear it after processing the request.
+    # Clear oneoff route after any message processing where oneoff is set,
+    # except when it's a pure command-only message (single message with empty content after command processing)
     if current_proxy_state.oneoff_backend or current_proxy_state.oneoff_model:
-        if not (len(final_messages) == 0 and commands_processed):
+        # Check if this is a pure command-only message: single message with empty content and commands were processed
+        is_pure_command_only = (
+            len(final_messages) == 1 and
+            commands_processed and
+            final_messages[0].content.strip() == ""
+        )
+
+        if not is_pure_command_only:
+            # This is either a command+prompt message or a follow-up prompt after command-only
             current_proxy_state.clear_oneoff_route()
 
     return final_messages, commands_processed

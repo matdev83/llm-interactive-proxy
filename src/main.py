@@ -25,7 +25,7 @@ from src.core.metadata import _load_project_metadata
 from src.core.persistence import ConfigManager
 from src.proxy_logic import ProxyState
 from src.rate_limit import RateLimitRegistry, parse_retry_delay
-from src.security import APIKeyRedactor
+from src.security import APIKeyRedactor, ProxyCommandFilter
 from src.session import SessionInteraction, SessionManager
 from src.llm_accounting_utils import track_llm_request, get_usage_stats, get_audit_logs, get_llm_accounting
 from src.gemini_models import GenerateContentRequest, GenerateContentResponse, ListModelsResponse
@@ -224,6 +224,10 @@ def build_app(
         app_param.state.api_key_redaction_enabled = (
             app_param.state.default_api_key_redaction_enabled
         )
+
+        # Initialize emergency command filter
+        app_param.state.command_filter = ProxyCommandFilter(cfg["command_prefix"])
+
         app_param.state.rate_limits = RateLimitRegistry()
         app_param.state.force_set_project = cfg.get("force_set_project", False)
 
@@ -257,21 +261,21 @@ def build_app(
         """Verify Gemini API authentication via x-goog-api-key header."""
         if http_request.app.state.disable_auth:
             return
-        
+
         # Check for Gemini-style API key in x-goog-api-key header
         api_key_header = http_request.headers.get("x-goog-api-key")
         if api_key_header:
             # For Gemini API compatibility, accept the API key directly
             if api_key_header == http_request.app.state.client_api_key:
                 return
-        
+
         # Fallback to standard Bearer token authentication
         auth_header = http_request.headers.get("authorization")
         if auth_header and auth_header.startswith("Bearer "):
             token = auth_header.split(" ", 1)[1]
             if token == http_request.app.state.client_api_key:
                 return
-        
+
         raise HTTPException(status_code=401, detail="Unauthorized")
 
     @app_instance.get("/")
@@ -490,7 +494,7 @@ def build_app(
         ):
             # Extract username from request headers or use default
             username = http_request.headers.get("X-User-ID", "anonymous")
-            
+
             async with track_llm_request(
                 model=model_str,
                 backend=b_type,
@@ -526,9 +530,10 @@ def build_app(
                                     if http_request.app.state.api_key_redaction_enabled
                                     else None
                                 ),
+                                command_filter=http_request.app.state.command_filter,
                             )
                         )
-                        
+
                         if isinstance(backend_result, tuple):
                             result, response_headers = backend_result
                             tracker.set_response(result)
@@ -537,7 +542,7 @@ def build_app(
                             # Streaming response
                             result = backend_result
                             tracker.set_response(result)
-                        
+
                         logger.debug(
                             f"Result from Gemini backend chat_completions: {result}"
                         )
@@ -563,8 +568,9 @@ def build_app(
                                 if http_request.app.state.api_key_redaction_enabled
                                 else None
                             ),
+                            command_filter=http_request.app.state.command_filter,
                         )
-                        
+
                         if isinstance(backend_result, tuple):
                             result, response_headers = backend_result
                             tracker.set_response(result)
@@ -573,7 +579,7 @@ def build_app(
                             # Streaming response
                             result = backend_result
                             tracker.set_response(result)
-                        
+
                         logger.debug(
                             f"Result from Gemini CLI Direct backend chat_completions: {result}"
                         )
@@ -613,9 +619,10 @@ def build_app(
                                     if http_request.app.state.api_key_redaction_enabled
                                     else None
                                 ),
+                                command_filter=http_request.app.state.command_filter,
                             )
                         )
-                        
+
                         if isinstance(backend_result, tuple):
                             result, response_headers = backend_result
                             tracker.set_response(result)
@@ -624,7 +631,7 @@ def build_app(
                             # Streaming response
                             result = backend_result
                             tracker.set_response(result)
-                        
+
                         logger.debug(
                             f"Result from OpenRouter backend chat_completions: {result}"
                         )
@@ -880,7 +887,7 @@ def build_app(
                             "object": "model",
                             "owned_by": backend_name,
                         })
-            
+
             # Convert to Gemini format
             gemini_models_response = openai_models_to_gemini_models(all_models)
             return gemini_models_response.model_dump(exclude_none=True, by_alias=True)
@@ -890,11 +897,11 @@ def build_app(
 
     def _parse_model_backend(model: str, default_backend: str) -> tuple[str, str]:
         """Parse model string to extract backend and actual model name.
-        
+
         Args:
             model: Model string like "openrouter:gpt-4" or "gemini:gemini-pro" or just "gpt-4"
             default_backend: Default backend to use if no prefix is specified
-            
+
         Returns:
             Tuple of (backend_type, model_name)
         """
@@ -914,29 +921,29 @@ def build_app(
         """Gemini API compatible content generation endpoint (non-streaming)."""
         # Parse the model to determine backend
         backend_type, actual_model = _parse_model_backend(model, http_request.app.state.backend_type)
-        
+
         # Convert Gemini request to OpenAI format
         openai_request = gemini_to_openai_request(request_data, actual_model)
         openai_request.stream = False
-        
+
         # Use the existing chat_completions logic by calling it with the converted request
         # We need to temporarily modify the request path to match OpenAI format
         original_url = http_request.url
         new_url_str = str(http_request.url).replace(
-            f"/v1beta/models/{model}:generateContent", 
+            f"/v1beta/models/{model}:generateContent",
             "/v1/chat/completions"
         )
         from starlette.datastructures import URL
         http_request._url = URL(new_url_str)
-        
+
         # Temporarily override the backend type for this request
         original_backend_type = http_request.app.state.backend_type
         http_request.app.state.backend_type = backend_type
-        
+
         try:
             # Call the existing chat_completions endpoint
             openai_response = await chat_completions(openai_request, http_request)
-            
+
             # Convert response back to Gemini format
             if isinstance(openai_response, dict):
                 # Handle direct dict response (like error responses)
@@ -967,29 +974,29 @@ def build_app(
         """Gemini API compatible streaming content generation endpoint."""
         # Parse the model to determine backend
         backend_type, actual_model = _parse_model_backend(model, http_request.app.state.backend_type)
-        
+
         # Convert Gemini request to OpenAI format
         openai_request = gemini_to_openai_request(request_data, actual_model)
         openai_request.stream = True
-        
+
         # Use the existing chat_completions logic by calling it with the converted request
         # We need to temporarily modify the request path to match OpenAI format
         original_url = http_request.url
         new_url_str = str(http_request.url).replace(
-            f"/v1beta/models/{model}:streamGenerateContent", 
+            f"/v1beta/models/{model}:streamGenerateContent",
             "/v1/chat/completions"
         )
         from starlette.datastructures import URL
         http_request._url = URL(new_url_str)
-        
+
         # Temporarily override the backend type for this request
         original_backend_type = http_request.app.state.backend_type
         http_request.app.state.backend_type = backend_type
-        
+
         try:
             # Call the existing chat_completions endpoint
             openai_response = await chat_completions(openai_request, http_request)
-            
+
             # If we get a StreamingResponse, convert the chunks to Gemini format
             if isinstance(openai_response, StreamingResponse):
                 async def convert_stream():
@@ -998,11 +1005,11 @@ def build_app(
                             chunk_str = chunk.decode('utf-8')
                         else:
                             chunk_str = str(chunk)
-                        
+
                         # Convert OpenAI chunk to Gemini format
                         gemini_chunk = openai_to_gemini_stream_chunk(chunk_str)
                         yield gemini_chunk.encode('utf-8')
-                
+
                 return StreamingResponse(
                     convert_stream(),
                     media_type="text/plain",
@@ -1059,7 +1066,7 @@ def build_app(
         try:
             accounting = get_llm_accounting()
             recent_entries = accounting.tail(n=limit)
-            
+
             return {
                 "object": "usage_entries",
                 "data": [
@@ -1095,7 +1102,7 @@ def build_app(
         """Get audit log entries with full prompt/response content for compliance monitoring."""
         try:
             from datetime import datetime
-            
+
             # Parse date strings if provided
             start_dt = None
             end_dt = None
@@ -1109,14 +1116,14 @@ def build_app(
                     end_dt = datetime.fromisoformat(end_date.replace('Z', '+00:00'))
                 except ValueError:
                     raise HTTPException(status_code=400, detail="Invalid end_date format, use ISO format")
-            
+
             audit_logs = get_audit_logs(
                 start_date=start_dt,
                 end_date=end_dt,
                 username=username,
                 limit=limit,
             )
-            
+
             return {
                 "object": "audit_logs",
                 "data": audit_logs,

@@ -16,7 +16,7 @@ if TYPE_CHECKING:
     from src.models import (
         ChatCompletionRequest,
     )  # Corrected path assuming models.py is in src
-    from src.security import APIKeyRedactor
+    from src.security import APIKeyRedactor, ProxyCommandFilter
 
 
 class LLMBackend(abc.ABC):
@@ -40,6 +40,7 @@ class LLMBackend(abc.ABC):
         api_key: str,
         project: str | None = None,
         prompt_redactor: "APIKeyRedactor" | None = None,
+        command_filter: "ProxyCommandFilter" | None = None,
     ) -> Union[StreamingResponse, Dict[str, Any]]:
         """
         Forwards a chat completion request to the LLM backend.
@@ -55,6 +56,7 @@ class LLMBackend(abc.ABC):
             key_name: The environment variable name of the API key in use.
             api_key: The secret value of the API key.
             prompt_redactor: Optional APIKeyRedactor used to sanitize messages.
+            command_filter: Optional ProxyCommandFilter to remove leaked proxy commands.
 
         Returns:
             A StreamingResponse if the request is for a stream, or a dictionary

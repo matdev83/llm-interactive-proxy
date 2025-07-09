@@ -83,7 +83,7 @@ class Part(BaseModel):
     text: Optional[str] = None
     inline_data: Optional[Blob] = None
     file_data: Optional[FileData] = None
-    
+
     def model_post_init(self, __context):
         """Ensure exactly one field is set."""
         fields_set = sum([
@@ -104,7 +104,7 @@ class Content(BaseModel):
 class GenerationConfig(BaseModel):
     """Configuration options for model generation."""
     model_config = {"populate_by_name": True}
-    
+
     stop_sequences: Optional[List[str]] = Field(None, alias="stopSequences")
     response_mime_type: Optional[str] = Field(None, alias="responseMimeType")
     response_schema: Optional[Dict[str, Any]] = Field(None, alias="responseSchema")
@@ -118,7 +118,7 @@ class GenerationConfig(BaseModel):
 class GenerateContentRequest(BaseModel):
     """Request for generating content with Gemini."""
     model_config = {"populate_by_name": True}
-    
+
     contents: List[Content]
     tools: Optional[List[Dict[str, Any]]] = None
     tool_config: Optional[Dict[str, Any]] = Field(None, alias="toolConfig")
@@ -142,7 +142,7 @@ class CitationMetadata(BaseModel):
 class Candidate(BaseModel):
     """A generated candidate response."""
     model_config = {"populate_by_name": True}
-    
+
     content: Optional[Content] = None
     finish_reason: Optional[FinishReason] = Field(None, alias="finishReason")
     index: Optional[int] = None
@@ -155,7 +155,7 @@ class Candidate(BaseModel):
 class UsageMetadata(BaseModel):
     """Usage metadata for the generation request."""
     model_config = {"populate_by_name": True}
-    
+
     prompt_token_count: Optional[int] = Field(None, alias="promptTokenCount")
     candidates_token_count: Optional[int] = Field(None, alias="candidatesTokenCount")
     total_token_count: Optional[int] = Field(None, alias="totalTokenCount")
@@ -165,7 +165,7 @@ class UsageMetadata(BaseModel):
 class GenerateContentResponse(BaseModel):
     """Response from generating content with Gemini."""
     model_config = {"populate_by_name": True}
-    
+
     candidates: Optional[List[Candidate]] = None
     prompt_feedback: Optional[PromptFeedback] = Field(None, alias="promptFeedback")
     usage_metadata: Optional[UsageMetadata] = Field(None, alias="usageMetadata")
@@ -198,4 +198,4 @@ class GenerateContentStreamResponse(BaseModel):
     """Streaming response chunk from generating content."""
     candidates: Optional[List[Candidate]] = None
     prompt_feedback: Optional[PromptFeedback] = None
-    usage_metadata: Optional[UsageMetadata] = None 
+    usage_metadata: Optional[UsageMetadata] = None

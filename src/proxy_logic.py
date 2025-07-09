@@ -47,7 +47,7 @@ class ProxyState:
             logger.info("Clearing one-off route.")
             self.oneoff_backend = None
             self.oneoff_model = None
- 
+
     def set_override_backend(self, backend: str) -> None:
         """Override only the backend to use for this session."""
         logger.info(
