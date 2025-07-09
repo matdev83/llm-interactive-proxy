@@ -15,7 +15,7 @@ from src.models import (
     MessageContentPartImage,
     MessageContentPartText,
 )
-from src.security import APIKeyRedactor
+from src.security import APIKeyRedactor, ProxyCommandFilter
 
 logger = logging.getLogger(__name__)
 
@@ -115,10 +115,15 @@ class GeminiBackend(LLMBackend):
         self,
         part: Union[MessageContentPartText, MessageContentPartImage],
         prompt_redactor: APIKeyRedactor | None,
+        command_filter: ProxyCommandFilter | None = None,
     ) -> Dict[str, Any]:
         """Convert a MessageContentPart into Gemini API format."""
         if isinstance(part, MessageContentPartText):
             text = part.text
+            # Apply command filter first (emergency filter)
+            if command_filter:
+                text = command_filter.filter_commands(text)
+            # Apply API key redaction second
             if prompt_redactor:
                 text = prompt_redactor.redact(text)
             return {"text": text}
@@ -140,6 +145,10 @@ class GeminiBackend(LLMBackend):
                     "fileUri": url}}
         data = part.model_dump(exclude_unset=True)
         if data.get("type") == "text" and "text" in data:
+            # Apply command filter first (emergency filter)
+            if command_filter:
+                data["text"] = command_filter.filter_commands(data["text"])
+            # Apply API key redaction second
             if prompt_redactor:
                 data["text"] = prompt_redactor.redact(data["text"])
             data.pop("type", None)
@@ -149,6 +158,7 @@ class GeminiBackend(LLMBackend):
         self,
         processed_messages: list,
         prompt_redactor: APIKeyRedactor | None,
+        command_filter: ProxyCommandFilter | None = None,
     ) -> list[dict[str, Any]]:
         payload_contents = []
         for msg in processed_messages:
@@ -158,12 +168,16 @@ class GeminiBackend(LLMBackend):
 
             if isinstance(msg.content, str):
                 text = msg.content
+                # Apply command filter first (emergency filter)
+                if command_filter:
+                    text = command_filter.filter_commands(text)
+                # Apply API key redaction second
                 if prompt_redactor:
                     text = prompt_redactor.redact(text)
                 parts = [{"text": text}]
             else:
                 parts = [
-                    self._convert_part_for_gemini(part, prompt_redactor)
+                    self._convert_part_for_gemini(part, prompt_redactor, command_filter)
                     for part in msg.content
                 ]
 
@@ -293,6 +307,7 @@ class GeminiBackend(LLMBackend):
         api_key: Optional[str] = None,
         project: str | None = None,
         prompt_redactor: APIKeyRedactor | None = None,
+        command_filter: ProxyCommandFilter | None = None,
         **kwargs,
     ) -> Union[Tuple[dict, Dict[str, str]], StreamingResponse]:
         gemini_api_base_url = openrouter_api_base_url or kwargs.get(
@@ -305,7 +320,7 @@ class GeminiBackend(LLMBackend):
             )
 
         payload_contents = self._prepare_gemini_contents(
-            processed_messages, prompt_redactor
+            processed_messages, prompt_redactor, command_filter
         )
         payload = {"contents": payload_contents}
         if request_data.extra_params:

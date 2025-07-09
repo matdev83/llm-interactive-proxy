@@ -18,7 +18,7 @@ from src.gemini_models import (
 def gemini_to_openai_messages(contents: List[Content]) -> List[ChatMessage]:
     """Convert Gemini contents to OpenAI messages format."""
     messages = []
-    
+
     for content in contents:
         # Determine role mapping
         role = "user"  # Default role
@@ -28,7 +28,7 @@ def gemini_to_openai_messages(contents: List[Content]) -> List[ChatMessage]:
             role = "function"
         elif content.role == "user" or content.role is None:
             role = "user"
-        
+
         # Combine all text parts into a single message
         text_parts = []
         for part in content.parts:
@@ -40,18 +40,18 @@ def gemini_to_openai_messages(contents: List[Content]) -> List[ChatMessage]:
                 text_parts.append(f"[Attachment: {part.inline_data.mime_type}]")
             elif part.file_data:
                 text_parts.append(f"[File: {part.file_data.file_uri}]")
-        
+
         if text_parts:
             message_content = "\n".join(text_parts)
             messages.append(ChatMessage(role=role, content=message_content))
-    
+
     return messages
 
 
 def openai_to_gemini_contents(messages: List[ChatMessage]) -> List[Content]:
     """Convert OpenAI messages to Gemini contents format."""
     contents = []
-    
+
     for message in messages:
         # Determine role mapping
         role = "user"  # Default role
@@ -61,7 +61,7 @@ def openai_to_gemini_contents(messages: List[ChatMessage]) -> List[Content]:
             role = "function"
         elif message.role in ["user", "system"]:
             role = "user"
-        
+
         # Create content with text part
         if isinstance(message.content, str):
             part = Part(text=message.content)
@@ -92,34 +92,34 @@ def openai_to_gemini_contents(messages: List[ChatMessage]) -> List[Content]:
             if parts:
                 content = Content(parts=parts, role=role)
                 contents.append(content)
-    
+
     return contents
 
 
 def gemini_to_openai_request(gemini_request: GenerateContentRequest, model: str) -> ChatCompletionRequest:
     """Convert Gemini GenerateContentRequest to OpenAI ChatCompletionRequest."""
     messages = gemini_to_openai_messages(gemini_request.contents)
-    
+
     # Handle system instruction
     if gemini_request.system_instruction:
         system_messages = gemini_to_openai_messages([gemini_request.system_instruction])
         for msg in system_messages:
             msg.role = "system"
         messages = system_messages + messages
-    
+
     # Convert generation config to OpenAI parameters
     max_tokens = None
     temperature = None
     top_p = None
     stop = None
-    
+
     if gemini_request.generation_config:
         config = gemini_request.generation_config
         max_tokens = config.max_output_tokens
         temperature = config.temperature
         top_p = config.top_p
         stop = config.stop_sequences
-    
+
     return ChatCompletionRequest(
         model=model,
         messages=messages,
@@ -139,14 +139,14 @@ def gemini_to_openai_request(gemini_request: GenerateContentRequest, model: str)
 def openai_to_gemini_response(openai_response: ChatCompletionResponse) -> GenerateContentResponse:
     """Convert OpenAI ChatCompletionResponse to Gemini GenerateContentResponse."""
     candidates = []
-    
+
     for choice in openai_response.choices:
         # Convert choice to candidate
         content = None
         if choice.message and choice.message.content:
             part = Part(text=choice.message.content)
             content = Content(parts=[part], role="model")
-        
+
         # Map finish reason
         finish_reason = None
         if choice.finish_reason == "stop":
@@ -159,14 +159,14 @@ def openai_to_gemini_response(openai_response: ChatCompletionResponse) -> Genera
             finish_reason = FinishReason.TOOL_CALLS
         elif choice.finish_reason == "function_call":
             finish_reason = FinishReason.FUNCTION_CALL
-        
+
         candidate = Candidate(
             content=content,
             finish_reason=finish_reason,
             index=choice.index
         )
         candidates.append(candidate)
-    
+
     # Convert usage information
     usage_metadata = None
     if openai_response.usage:
@@ -176,7 +176,7 @@ def openai_to_gemini_response(openai_response: ChatCompletionResponse) -> Genera
             total_token_count=openai_response.usage.total_tokens,
             cached_content_token_count=None
         )
-    
+
     return GenerateContentResponse(
         candidates=candidates,
         prompt_feedback=None,
@@ -190,12 +190,12 @@ def openai_to_gemini_stream_chunk(chunk_data: str) -> str:
         # Parse the OpenAI chunk
         if chunk_data.startswith("data: "):
             chunk_data = chunk_data[6:]
-        
+
         if chunk_data.strip() == "[DONE]":
             return "data: [DONE]\n\n"
-        
+
         openai_chunk = json.loads(chunk_data)
-        
+
         # Convert to Gemini format
         candidates = []
         if "choices" in openai_chunk:
@@ -204,26 +204,26 @@ def openai_to_gemini_stream_chunk(chunk_data: str) -> str:
                 if "delta" in choice and "content" in choice["delta"] and choice["delta"]["content"]:
                     part = Part(text=choice["delta"]["content"])
                     content = Content(parts=[part], role="model")
-                
+
                 finish_reason = None
                 if choice.get("finish_reason") == "stop":
                     finish_reason = FinishReason.STOP
                 elif choice.get("finish_reason") == "length":
                     finish_reason = FinishReason.MAX_TOKENS
-                
+
                 candidate = Candidate(
                     content=content,
                     finish_reason=finish_reason,
                     index=choice.get("index", 0)
                 )
                 candidates.append(candidate)
-        
+
         gemini_chunk = {
             "candidates": [candidate.model_dump(exclude_none=True, by_alias=True) for candidate in candidates]
         }
-        
+
         return f"data: {json.dumps(gemini_chunk)}\n\n"
-    
+
     except Exception:
         # If parsing fails, return empty chunk
         return "data: {}\n\n"
@@ -232,10 +232,10 @@ def openai_to_gemini_stream_chunk(chunk_data: str) -> str:
 def openai_models_to_gemini_models(openai_models: List[Dict[str, Any]]) -> ListModelsResponse:
     """Convert OpenAI models list to Gemini models format."""
     gemini_models = []
-    
+
     for model_data in openai_models:
         model_id = model_data.get("id", "")
-        
+
         # Create Gemini-style model entry
         gemini_model = Model(
             name=f"models/{model_id}",
@@ -252,7 +252,7 @@ def openai_models_to_gemini_models(openai_models: List[Dict[str, Any]]) -> ListM
             top_k=40
         )
         gemini_models.append(gemini_model)
-    
+
     return ListModelsResponse(models=gemini_models)
 
 
@@ -269,4 +269,4 @@ def extract_model_from_gemini_path(path: str) -> str:
 
 def is_streaming_request(path: str) -> bool:
     """Check if the request is for streaming based on the path."""
-    return ":streamGenerateContent" in path 
+    return ":streamGenerateContent" in path

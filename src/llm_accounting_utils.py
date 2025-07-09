@@ -50,15 +50,15 @@ def get_system_username() -> str:
 def get_token_encoder(model: str = "gpt-3.5-turbo") -> tiktoken.Encoding:
     """
     Get a token encoder for counting tokens.
-    
+
     Args:
         model: Model name to get appropriate encoder for
-        
+
     Returns:
         tiktoken.Encoding instance
     """
     global _token_encoders
-    
+
     # Map model names to appropriate encoders
     if "gemini" in model.lower():
         # Use cl100k_base for Gemini models (similar to GPT-4)
@@ -70,25 +70,25 @@ def get_token_encoder(model: str = "gpt-3.5-turbo") -> tiktoken.Encoding:
     else:
         # Default to cl100k_base for unknown models
         encoder_name = "cl100k_base"
-    
+
     if encoder_name not in _token_encoders:
         try:
             _token_encoders[encoder_name] = tiktoken.get_encoding(encoder_name)
         except Exception as e:
             logger.warning(f"Failed to get encoding {encoder_name}, using cl100k_base: {e}")
             _token_encoders[encoder_name] = tiktoken.get_encoding("cl100k_base")
-    
+
     return _token_encoders[encoder_name]
 
 
 def count_tokens(text: str, model: str = "gpt-3.5-turbo") -> int:
     """
     Count tokens in text using tiktoken.
-    
+
     Args:
         text: Text to count tokens for
         model: Model name to get appropriate encoder
-        
+
     Returns:
         Number of tokens
     """
@@ -104,10 +104,10 @@ def count_tokens(text: str, model: str = "gpt-3.5-turbo") -> int:
 def extract_prompt_from_messages(messages: List[Union[Dict[str, Any], Any]]) -> str:
     """
     Extract the full prompt text from OpenAI-style messages.
-    
+
     Args:
         messages: List of message dictionaries or Pydantic ChatMessage objects
-        
+
     Returns:
         Combined prompt text
     """
@@ -122,7 +122,7 @@ def extract_prompt_from_messages(messages: List[Union[Dict[str, Any], Any]]) -> 
             # Dictionary format
             role = message.get("role", "user")
             content = message.get("content", "")
-            
+
         if isinstance(content, str):
             prompt_parts.append(f"{role}: {content}")
         elif isinstance(content, list):
@@ -137,17 +137,17 @@ def extract_prompt_from_messages(messages: List[Union[Dict[str, Any], Any]]) -> 
                     text_parts.append(part.get("text", ""))
             if text_parts:
                 prompt_parts.append(f"{role}: {' '.join(text_parts)}")
-    
+
     return "\n".join(prompt_parts)
 
 
 def extract_response_text(response: Union[Dict[str, Any], StreamingResponse]) -> str:
     """
     Extract response text from backend response.
-    
+
     Args:
         response: Backend response
-        
+
     Returns:
         Response text content
     """
@@ -156,7 +156,7 @@ def extract_response_text(response: Union[Dict[str, Any], StreamingResponse]) ->
         if choices:
             message = choices[0].get("message", {})
             return message.get("content", "")
-    
+
     # For streaming responses, we can't extract the content easily
     return "<streaming_response>"
 
@@ -164,11 +164,11 @@ def extract_response_text(response: Union[Dict[str, Any], StreamingResponse]) ->
 def extract_billing_info_from_headers(headers: Dict[str, str], backend: str) -> Dict[str, Any]:
     """
     Extract billing information from response headers based on backend.
-    
+
     Args:
         headers: Response headers dictionary
         backend: Backend name (openrouter, gemini, gemini-cli-direct)
-        
+
     Returns:
         Dictionary with billing information
     """
@@ -178,7 +178,7 @@ def extract_billing_info_from_headers(headers: Dict[str, str], backend: str) -> 
         "provider_info": {},
         "rate_limit_info": {}
     }
-    
+
     if backend == "openrouter":
         # OpenRouter billing headers
         # Note: OpenRouter includes usage info in response body when usage.include=true
@@ -191,13 +191,13 @@ def extract_billing_info_from_headers(headers: Dict[str, str], backend: str) -> 
             billing_info["rate_limit_info"]["tokens_remaining"] = headers.get("x-ratelimit-tokens-remaining")
         if "x-ratelimit-tokens-reset" in headers:
             billing_info["rate_limit_info"]["tokens_reset"] = headers.get("x-ratelimit-tokens-reset")
-            
+
         # Provider information
         if "x-or-provider" in headers:
             billing_info["provider_info"]["provider"] = headers.get("x-or-provider")
         if "x-or-model" in headers:
             billing_info["provider_info"]["model"] = headers.get("x-or-model")
-            
+
     elif backend == "gemini":
         # Gemini API billing headers (usage metadata is in response body)
         # Rate limiting headers
@@ -205,26 +205,26 @@ def extract_billing_info_from_headers(headers: Dict[str, str], backend: str) -> 
             billing_info["rate_limit_info"]["quota_remaining"] = headers.get("x-goog-quota-remaining")
         if "x-goog-quota-reset" in headers:
             billing_info["rate_limit_info"]["quota_reset"] = headers.get("x-goog-quota-reset")
-            
+
         # Request ID for tracking
         if "x-goog-request-id" in headers:
             billing_info["provider_info"]["request_id"] = headers.get("x-goog-request-id")
-            
+
     elif backend == "gemini-cli-direct":
         # No billing headers for CLI - we calculate tokens manually
         billing_info["provider_info"]["note"] = "CLI backend - no billing headers available"
-    
+
     return billing_info
 
 
 def extract_billing_info_from_response(response: Union[Dict[str, Any], StreamingResponse], backend: str) -> Dict[str, Any]:
     """
     Extract billing information from response body based on backend.
-    
+
     Args:
         response: Backend response
         backend: Backend name
-        
+
     Returns:
         Dictionary with billing and usage information
     """
@@ -236,7 +236,7 @@ def extract_billing_info_from_response(response: Union[Dict[str, Any], Streaming
         "reasoning_tokens": None,
         "cached_tokens": None,
     }
-    
+
     if isinstance(response, dict):
         if backend == "openrouter":
             # OpenRouter provides detailed usage info when usage.include=true is set
@@ -246,21 +246,21 @@ def extract_billing_info_from_response(response: Union[Dict[str, Any], Streaming
                 billing_info["completion_tokens"] = usage.get("completion_tokens")
                 billing_info["total_tokens"] = usage.get("total_tokens")
                 billing_info["cost"] = usage.get("cost", 0.0)
-                
+
                 # Detailed token information
                 completion_details = usage.get("completion_tokens_details", {})
                 if completion_details:
                     billing_info["reasoning_tokens"] = completion_details.get("reasoning_tokens", 0)
-                
+
                 prompt_details = usage.get("prompt_tokens_details", {})
                 if prompt_details:
                     billing_info["cached_tokens"] = prompt_details.get("cached_tokens", 0)
-                
+
                 # Cost breakdown
                 cost_details = usage.get("cost_details", {})
                 if cost_details:
                     billing_info["upstream_cost"] = cost_details.get("upstream_inference_cost")
-                    
+
         elif backend == "gemini":
             # Gemini provides usageMetadata in response
             usage = response.get("usageMetadata", {})
@@ -268,31 +268,31 @@ def extract_billing_info_from_response(response: Union[Dict[str, Any], Streaming
                 billing_info["prompt_tokens"] = usage.get("promptTokenCount", 0)
                 billing_info["completion_tokens"] = usage.get("candidatesTokenCount", 0)
                 billing_info["total_tokens"] = usage.get("totalTokenCount", 0)
-                
+
                 # Gemini doesn't provide cost in response - would need to calculate based on pricing
                 # For now, we'll leave cost as 0.0 and let the accounting system handle it
-                
+
         elif backend == "gemini-cli-direct":
             # For CLI backend, we need to calculate tokens manually
             # This will be handled in the tracking context manager
             pass
-    
+
     return billing_info
 
 
 def calculate_tokens_for_gemini_cli(
-    messages: List[Union[Dict[str, Any], Any]], 
+    messages: List[Union[Dict[str, Any], Any]],
     response_text: str,
     model: str = "gemini"
 ) -> Tuple[int, int, int]:
     """
     Calculate token counts for Gemini CLI responses using tiktoken.
-    
+
     Args:
         messages: Input messages
         response_text: Response text
         model: Model name
-        
+
     Returns:
         Tuple of (prompt_tokens, completion_tokens, total_tokens)
     """
@@ -301,12 +301,12 @@ def calculate_tokens_for_gemini_cli(
         prompt_tokens = count_tokens(prompt_text, model)
         completion_tokens = count_tokens(response_text, model)
         total_tokens = prompt_tokens + completion_tokens
-        
+
         logger.debug(
             f"Calculated tokens for {model}: prompt={prompt_tokens}, "
             f"completion={completion_tokens}, total={total_tokens}"
         )
-        
+
         return prompt_tokens, completion_tokens, total_tokens
     except Exception as e:
         logger.error(f"Failed to calculate tokens: {e}")
@@ -330,19 +330,19 @@ def track_usage_metrics(
 ) -> None:
     """
     Track LLM usage metrics for rate limiting and cost monitoring.
-    
+
     This is the first tracking system - focused on usage metrics.
     """
     try:
         accounting = get_llm_accounting()
-        
+
         # Create a full model identifier including backend
         full_model = f"{backend}:{model}" if backend else model
-        
+
         # Use system username if not provided
         if not username:
             username = get_system_username()
-        
+
         accounting.track_usage(
             model=full_model,
             prompt_tokens=prompt_tokens,
@@ -358,7 +358,7 @@ def track_usage_metrics(
             reasoning_tokens=reasoning_tokens,
             cached_tokens=cached_tokens,
         )
-        
+
         logger.debug(
             f"Tracked usage metrics: model={full_model}, tokens={total_tokens}, "
             f"cost={cost}, time={execution_time:.2f}s, user={username}"
@@ -379,20 +379,20 @@ def log_audit_trail(
 ) -> None:
     """
     Log audit trail for compliance and security monitoring.
-    
+
     This is the second tracking system - focused on audit logging with full content.
     """
     try:
         accounting = get_llm_accounting()
         audit_logger = accounting.audit_logger
-        
+
         # Create a full model identifier including backend
         full_model = f"{backend}:{model}" if backend else model
-        
+
         # Use system username if not provided
         if not username:
             username = get_system_username()
-        
+
         # Log the complete interaction as an event
         audit_logger.log_event(
             app_name="llm-interactive-proxy",
@@ -406,7 +406,7 @@ def log_audit_trail(
             timestamp=datetime.now(),
             session=session,
         )
-        
+
         logger.debug(
             f"Logged audit trail: model={full_model}, user={username}, "
             f"prompt_len={len(prompt_text)}, response_len={len(response_text)}"
@@ -427,7 +427,7 @@ async def track_llm_request(
 ):
     """
     Context manager to track both usage metrics and audit logs for LLM requests.
-    
+
     Usage:
         async with track_llm_request(model, backend, messages, session=session_id) as tracker:
             response = await backend.chat_completions(...)
@@ -436,41 +436,41 @@ async def track_llm_request(
     """
     start_time = time.time()
     prompt_text = extract_prompt_from_messages(messages)
-    
+
     # Use system username if not provided
     if not username:
         username = get_system_username()
-    
+
     class RequestTracker:
         def __init__(self):
             self.response = None
             self.response_headers: Dict[str, str] = {}
             self.cost = 0.0
             self.remote_completion_id = None
-            
+
         def set_response(self, response: Union[Dict[str, Any], StreamingResponse]):
             """Set the response and extract information."""
             self.response = response
-            
+
         def set_response_headers(self, headers: Dict[str, str]):
             """Set the response headers for billing extraction."""
             self.response_headers = headers
-            
+
         def set_cost(self, cost: float):
             """Set the cost for this request."""
             self.cost = cost
-            
+
         def set_completion_id(self, completion_id: str):
             """Set the remote completion ID."""
             self.remote_completion_id = completion_id
-    
+
     tracker = RequestTracker()
-    
+
     try:
         yield tracker
     finally:
         execution_time = time.time() - start_time
-        
+
         # Extract response information
         response_text = ""
         prompt_tokens = None
@@ -479,10 +479,10 @@ async def track_llm_request(
         reasoning_tokens = 0
         cached_tokens = 0
         cost = tracker.cost
-        
+
         if tracker.response:
             response_text = extract_response_text(tracker.response)
-            
+
             # Extract billing info from response body
             billing_info = extract_billing_info_from_response(tracker.response, backend)
             if billing_info["prompt_tokens"]:
@@ -497,23 +497,23 @@ async def track_llm_request(
                 reasoning_tokens = billing_info["reasoning_tokens"]
             if billing_info["cached_tokens"]:
                 cached_tokens = billing_info["cached_tokens"]
-                
+
             # Extract completion ID if available
             if not tracker.remote_completion_id:
                 if isinstance(tracker.response, dict):
                     tracker.remote_completion_id = tracker.response.get("id")
-        
+
         # Extract billing info from headers
         if tracker.response_headers:
             header_billing_info = extract_billing_info_from_headers(tracker.response_headers, backend)
             logger.debug(f"Extracted billing info from headers: {header_billing_info}")
-        
+
         # For gemini-cli-direct backend, calculate tokens manually
         if backend == "gemini-cli-direct" and not total_tokens:
             prompt_tokens, completion_tokens, total_tokens = calculate_tokens_for_gemini_cli(
                 messages, response_text, model
             )
-        
+
         # Track usage metrics (first tracking system)
         track_usage_metrics(
             model=model,
@@ -530,7 +530,7 @@ async def track_llm_request(
             reasoning_tokens=reasoning_tokens,
             cached_tokens=cached_tokens,
         )
-        
+
         # Log audit trail (second tracking system)
         log_audit_trail(
             model=model,
@@ -555,13 +555,13 @@ def get_usage_stats(
     """
     try:
         accounting = get_llm_accounting()
-        
+
         # Get period stats
         stats = accounting.get_period_stats(days=days)
-        
+
         # Get model rankings
         rankings = accounting.get_model_rankings(days=days)
-        
+
         return {
             "period_stats": stats,
             "model_rankings": rankings,
@@ -584,14 +584,14 @@ def get_audit_logs(
     try:
         accounting = get_llm_accounting()
         audit_logger = accounting.audit_logger
-        
+
         entries = audit_logger.get_entries(
             start_date=start_date,
             end_date=end_date,
             username=username,
             limit=limit,
         )
-        
+
         return [
             {
                 "id": entry.id,
@@ -610,4 +610,4 @@ def get_audit_logs(
         ]
     except Exception as e:
         logger.error(f"Failed to get audit logs: {e}")
-        return [] 
+        return []

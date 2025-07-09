@@ -15,14 +15,14 @@ from starlette.responses import StreamingResponse
 
 if TYPE_CHECKING:
     from src.models import ChatCompletionRequest
-    from src.security import APIKeyRedactor
+    from src.security import APIKeyRedactor, ProxyCommandFilter
 
 logger = logging.getLogger(__name__)
 
 
 class GeminiCliDirectConnector(LLMBackend):
     """Direct connector to Gemini CLI without MCP overhead"""
-    
+
     def __init__(self):
         super().__init__()
         self.name = "gemini-cli-direct"
@@ -36,33 +36,31 @@ class GeminiCliDirectConnector(LLMBackend):
         # Instead, set up default models and test CLI on first actual request
         logger.info("Gemini CLI Direct backend initialized (CLI test deferred)")
         self.available_models = [
-            "gemini-2.5-pro",
-            "gemini-1.5-pro", 
-            "gemini-2.0-flash-exp",
-            "gemini-pro"
+            "gemini-2.5-flash",
+            "gemini-1.5-pro",
         ]
         # Mark as functional by default - will be tested on first use
         self.is_functional = True
 
     async def _execute_gemini_cli_with_timeout(self, prompt: str, model: Optional[str] = None, timeout: int = 30) -> str:
         """Execute Gemini CLI with a specific timeout for initialization testing"""
-        
+
         # Build command arguments
         args = ["gemini"]
-        
+
         # Don't specify model - let Gemini CLI use its default
         # if model:
         #     args.extend(["-m", model])
-        
+
         # Add prompt - use -p flag to pass prompt as argument
         args.extend(["-p", prompt])
-        
+
         logger.info(f"Testing Gemini CLI with timeout {timeout}s: {args}")
-        
+
         try:
             # Create subprocess with proper environment
             env = os.environ.copy()
-            
+
             # On Windows, ensure npm global bin is in PATH
             if sys.platform == "win32":
                 npm_global_bin = os.path.expanduser("~\\AppData\\Roaming\\npm")
@@ -73,7 +71,7 @@ class GeminiCliDirectConnector(LLMBackend):
                 pathext = env.get("PATHEXT", "")
                 if ".CMD" not in pathext.upper():
                     env["PATHEXT"] = f"{pathext};.CMD"
-            
+
             # Execute command
             if sys.platform == "win32":
                 # On Windows, use shell=True for .cmd files
@@ -87,7 +85,7 @@ class GeminiCliDirectConnector(LLMBackend):
                     else:
                         cmd_parts.append(arg)
                 cmd_string = " ".join(cmd_parts)
-                
+
                 process = await asyncio.create_subprocess_shell(
                     cmd_string,
                     stdout=subprocess.PIPE,
@@ -102,7 +100,7 @@ class GeminiCliDirectConnector(LLMBackend):
                     stderr=subprocess.PIPE,
                     env=env
                 )
-            
+
             # Wait for completion with timeout
             try:
                 stdout, stderr = await asyncio.wait_for(
@@ -113,17 +111,17 @@ class GeminiCliDirectConnector(LLMBackend):
                 process.kill()
                 await process.wait()
                 raise Exception(f"Gemini CLI command timed out after {timeout} seconds")
-            
+
             # Check return code
             if process.returncode != 0:
                 error_msg = stderr.decode('utf-8', errors='replace').strip()
                 raise Exception(f"Gemini CLI failed with exit code {process.returncode}: {error_msg}")
-            
+
             # Return stdout
             result = stdout.decode('utf-8', errors='replace').strip()
             logger.info(f"Gemini CLI test completed successfully, output length: {len(result)}")
             return result
-            
+
         except Exception as e:
             logger.error(f"Error testing Gemini CLI: {e}")
             raise
@@ -131,30 +129,30 @@ class GeminiCliDirectConnector(LLMBackend):
     def get_available_models(self) -> list[str]:
         """Return available Gemini models if functional"""
         return self.available_models if self.is_functional else []
-    
+
     async def _execute_gemini_cli(self, prompt: str, model: Optional[str] = None, sandbox: bool = False) -> str:
         """Execute Gemini CLI command directly"""
-        
+
         # Build command arguments
         args = ["gemini"]
-        
+
         # Don't specify model - let Gemini CLI use its default
         # if model:
         #     args.extend(["-m", model])
-        
+
         if sandbox:
             args.append("-s")
-        
+
         # Add prompt - use -p flag to pass prompt as argument
         args.extend(["-p", prompt])
-        
+
         logger.info(f"Executing Gemini CLI: {args}")
         logger.info(f"Raw command: {' '.join(args)}")
-        
+
         try:
             # Create subprocess with proper environment
             env = os.environ.copy()
-            
+
             # On Windows, ensure npm global bin is in PATH
             if sys.platform == "win32":
                 npm_global_bin = os.path.expanduser("~\\AppData\\Roaming\\npm")
@@ -165,7 +163,7 @@ class GeminiCliDirectConnector(LLMBackend):
                 pathext = env.get("PATHEXT", "")
                 if ".CMD" not in pathext.upper():
                     env["PATHEXT"] = f"{pathext};.CMD"
-            
+
             # Execute command
             if sys.platform == "win32":
                 # On Windows, use shell=True for .cmd files
@@ -180,7 +178,7 @@ class GeminiCliDirectConnector(LLMBackend):
                         cmd_parts.append(arg)
                 cmd_string = " ".join(cmd_parts)
                 logger.info(f"Final command string: {cmd_string}")
-                
+
                 process = await asyncio.create_subprocess_shell(
                     cmd_string,
                     stdout=subprocess.PIPE,
@@ -195,7 +193,7 @@ class GeminiCliDirectConnector(LLMBackend):
                     stderr=subprocess.PIPE,
                     env=env
                 )
-            
+
             # Wait for completion with timeout
             try:
                 stdout, stderr = await asyncio.wait_for(
@@ -206,21 +204,21 @@ class GeminiCliDirectConnector(LLMBackend):
                 process.kill()
                 await process.wait()
                 raise Exception("Gemini CLI command timed out after 2 minutes")
-            
+
             # Check return code
             if process.returncode != 0:
                 error_msg = stderr.decode('utf-8', errors='replace').strip()
                 raise Exception(f"Gemini CLI failed with exit code {process.returncode}: {error_msg}")
-            
+
             # Return stdout
             result = stdout.decode('utf-8', errors='replace').strip()
             logger.info(f"Gemini CLI completed successfully, output length: {len(result)}")
             return result
-            
+
         except Exception as e:
             logger.error(f"Error executing Gemini CLI: {e}")
             raise
-    
+
     async def chat_completions(
         self,
         request_data: "ChatCompletionRequest",
@@ -232,16 +230,17 @@ class GeminiCliDirectConnector(LLMBackend):
         api_key: Optional[str] = None,
         project: Optional[str] = None,
         prompt_redactor: Optional["APIKeyRedactor"] = None,
+        command_filter: Optional["ProxyCommandFilter"] = None,
         **kwargs
     ) -> Union[Tuple[Dict[str, Any], Dict[str, str]], StreamingResponse]:
         """Handle chat completions using direct Gemini CLI"""
-        
+
         try:
             # Extract the last user message as the prompt
             user_messages = [msg for msg in processed_messages if msg.role == "user"]
             if not user_messages:
                 raise ValueError("No user messages found")
-            
+
             # Get the content from the last user message
             last_message = user_messages[-1]
             if isinstance(last_message.content, str):
@@ -249,21 +248,29 @@ class GeminiCliDirectConnector(LLMBackend):
             elif isinstance(last_message.content, list):
                 # Handle list of content parts (text + images)
                 prompt = " ".join(
-                    part.text for part in last_message.content 
+                    part.text for part in last_message.content
                     if hasattr(part, 'text')
                 )
             else:
                 prompt = str(last_message.content)
-            
+
             if not prompt:
                 raise ValueError("Empty prompt")
-            
+
+            # Apply emergency command filter if provided
+            if command_filter:
+                prompt = command_filter.filter_commands(prompt)
+
+            # Apply API key redaction if provided
+            if prompt_redactor:
+                prompt = prompt_redactor.redact(prompt)
+
             # Check if sandbox mode is requested (could be a parameter)
             sandbox = kwargs.get("sandbox", False)
-            
+
             # Execute Gemini CLI (let it use its default model)
             result = await self._execute_gemini_cli(prompt, model=None, sandbox=sandbox)
-            
+
             # Create OpenAI-compatible response
             response = {
                 "id": f"chatcmpl-geminicli-{secrets.token_hex(8)}",
@@ -286,19 +293,19 @@ class GeminiCliDirectConnector(LLMBackend):
                     "total_tokens": len(prompt.split()) + len(result.split())
                 }
             }
-            
+
             # Create dummy headers since CLI doesn't provide real headers
             dummy_headers = {
                 "content-type": "application/json",
                 "x-gemini-cli-direct": "true",
                 "x-gemini-cli-version": "1.0.0"
             }
-            
+
             if request_data.stream:
                 return self._create_streaming_response(response)
             else:
                 return response, dummy_headers
-                
+
         except Exception as e:
             logger.error(f"Error in chat_completions: {e}")
             # Return error in OpenAI format
@@ -319,15 +326,15 @@ class GeminiCliDirectConnector(LLMBackend):
                 ],
                 "usage": {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
             }
-    
+
     async def _create_streaming_response(self, response: Dict[str, Any]) -> StreamingResponse:
         """Create streaming response from complete response"""
-        
+
         async def stream_generator() -> AsyncGenerator[str, None]:
             # Split content into chunks for streaming
             content = response["choices"][0]["message"]["content"]
             words = content.split()
-            
+
             # Send chunks
             for i, word in enumerate(words):
                 chunk = {
@@ -345,7 +352,7 @@ class GeminiCliDirectConnector(LLMBackend):
                 }
                 yield f"data: {json.dumps(chunk)}\n\n"
                 await asyncio.sleep(0.05)  # Small delay between chunks
-            
+
             # Send final chunk
             final_chunk = {
                 "id": response["id"],
@@ -362,9 +369,9 @@ class GeminiCliDirectConnector(LLMBackend):
             }
             yield f"data: {json.dumps(final_chunk)}\n\n"
             yield "data: [DONE]\n\n"
-        
+
         return StreamingResponse(
             stream_generator(),
             media_type="text/plain",
             headers={"Cache-Control": "no-cache", "Connection": "keep-alive"}
-        ) 
+        )

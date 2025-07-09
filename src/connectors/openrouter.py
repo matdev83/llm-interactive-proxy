@@ -12,7 +12,7 @@ from src.connectors.base import LLMBackend
 
 # Assuming ChatCompletionRequest is in src.models
 from src.models import ChatCompletionRequest
-from src.security import APIKeyRedactor
+from src.security import APIKeyRedactor, ProxyCommandFilter
 
 # proxy_state and process_commands_in_messages are currently in src.proxy_logic
 # These are used in main.py *before* calling the backend.
@@ -66,6 +66,18 @@ class OpenRouterBackend(LLMBackend):
             return content # Return the modified list of dicts
         return content # No change for other types, or if content is None
 
+    def _filter_message_content(self, content: Any, command_filter: ProxyCommandFilter) -> Any:
+        """Emergency filter to remove proxy commands from message content."""
+        if isinstance(content, str):
+            return command_filter.filter_commands(content)
+        elif isinstance(content, list):
+            # Process parts. Assuming parts are dictionaries as they come from model_dump().
+            for part_dict in content:
+                if isinstance(part_dict, dict) and part_dict.get("type") == "text" and "text" in part_dict:
+                    part_dict["text"] = command_filter.filter_commands(part_dict["text"])
+            return content # Return the modified list of dicts
+        return content # No change for other types, or if content is None
+
     def _prepare_openrouter_payload(
         self,
         request_data: ChatCompletionRequest,
@@ -73,6 +85,7 @@ class OpenRouterBackend(LLMBackend):
         effective_model: str,
         project: str | None,
         prompt_redactor: APIKeyRedactor | None,
+        command_filter: ProxyCommandFilter | None,
     ) -> Dict[str, Any]:
         """Constructs the payload for the OpenRouter API request."""
         payload = request_data.model_dump(exclude_unset=True)
@@ -87,6 +100,13 @@ class OpenRouterBackend(LLMBackend):
         # Always request usage information for billing tracking
         payload["usage"] = {"include": True}
 
+        # Apply emergency command filter first (before API key redaction)
+        if command_filter:
+            for msg_payload in payload["messages"]:
+                original_content = msg_payload.get("content")
+                msg_payload["content"] = self._filter_message_content(original_content, command_filter)
+
+        # Apply API key redaction second
         if prompt_redactor:
             for msg_payload in payload["messages"]:
                 original_content = msg_payload.get("content")
@@ -104,6 +124,7 @@ class OpenRouterBackend(LLMBackend):
         api_key: str,
         project: str | None = None,
         prompt_redactor: APIKeyRedactor | None = None,
+        command_filter: ProxyCommandFilter | None = None,
     ) -> Union[StreamingResponse, Tuple[Dict[str, Any], Dict[str, str]]]:
 
         openrouter_payload = self._prepare_openrouter_payload(
@@ -112,6 +133,7 @@ class OpenRouterBackend(LLMBackend):
             effective_model,
             project,
             prompt_redactor,
+            command_filter,
         )
 
         logger.info(
