@@ -867,22 +867,26 @@ def build_app(
     @app_instance.get("/v1beta/models", dependencies=[Depends(verify_gemini_auth)])
     async def list_gemini_models(http_request: Request):
         """Gemini API compatible models listing endpoint."""
-        # Get all available models from backends
-        all_models = []
-        for backend_name in ["openrouter", "gemini", "gemini-cli-direct"]:
-            backend = getattr(http_request.app.state, f"{backend_name}_backend", None)
-            if backend and hasattr(backend, "get_available_models"):
-                models = backend.get_available_models()
-                for model in models:
-                    all_models.append({
-                        "id": f"{backend_name}:{model}",
-                        "object": "model",
-                        "owned_by": backend_name,
-                    })
-        
-        # Convert to Gemini format
-        gemini_models_response = openai_models_to_gemini_models(all_models)
-        return gemini_models_response.model_dump(exclude_none=True, by_alias=True)
+        try:
+            # Get all available models from backends
+            all_models = []
+            for backend_name in ["openrouter", "gemini", "gemini-cli-direct"]:
+                backend = getattr(http_request.app.state, f"{backend_name}_backend", None)
+                if backend and hasattr(backend, "get_available_models"):
+                    models = backend.get_available_models()
+                    for model in models:
+                        all_models.append({
+                            "id": f"{backend_name}:{model}",
+                            "object": "model",
+                            "owned_by": backend_name,
+                        })
+            
+            # Convert to Gemini format
+            gemini_models_response = openai_models_to_gemini_models(all_models)
+            return gemini_models_response.model_dump(exclude_none=True, by_alias=True)
+        except Exception as e:
+            logger.error(f"Error in list_gemini_models: {e}")
+            raise HTTPException(status_code=500, detail=f"Failed to list models: {str(e)}")
 
     def _parse_model_backend(model: str, default_backend: str) -> tuple[str, str]:
         """Parse model string to extract backend and actual model name.

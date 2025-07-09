@@ -5,13 +5,13 @@ to the internal OpenAI format used by existing backends.
 """
 from typing import List, Dict, Any, Optional, Iterator
 import json
-from .models import (
-    ChatCompletionRequest, ChatMessage, ChatCompletionResponse, ChatCompletionChoice, 
-    ChatCompletionChoiceMessage, CompletionUsage
+from src.models import (
+    ChatCompletionRequest, ChatMessage, ChatCompletionResponse, ChatCompletionChoice,
+    ChatCompletionChoiceMessage, CompletionUsage, MessageContentPartText, MessageContentPartImage
 )
-from .gemini_models import (
+from src.gemini_models import (
     GenerateContentRequest, GenerateContentResponse, Content, Part, Candidate,
-    GenerationConfig, SafetySetting, UsageMetadata, Model, ListModelsResponse
+    GenerationConfig, SafetySetting, UsageMetadata, Model, ListModelsResponse, FinishReason, Blob
 )
 
 
@@ -63,10 +63,35 @@ def openai_to_gemini_contents(messages: List[ChatMessage]) -> List[Content]:
             role = "user"
         
         # Create content with text part
-        if message.content:
+        if isinstance(message.content, str):
             part = Part(text=message.content)
             content = Content(parts=[part], role=role)
             contents.append(content)
+        elif isinstance(message.content, list):
+            parts = []
+            for part_item in message.content:
+                if isinstance(part_item, MessageContentPartText):
+                    parts.append(Part(text=part_item.text))
+                elif isinstance(part_item, MessageContentPartImage):
+                    # Assuming inline_data for now, adjust if file_data is needed
+                    # This is a simplified conversion; full handling of image_url
+                    # would involve fetching/encoding the image.
+                    # For now, we'll represent it as text or inline_data if base64.
+                    if part_item.image_url.url.startswith("data:"):
+                        try:
+                            header, b64_data = part_item.image_url.url.split(",", 1)
+                            mime = header.split(";")[0][5:]
+                            parts.append(Part(inline_data=Blob(mime_type=mime, data=b64_data)))
+                        except Exception:
+                            # Fallback for malformed data URLs
+                            parts.append(Part(text=f"[Image: {part_item.image_url.url}]"))
+                    else:
+                        # For external URLs, Gemini expects fileData or a text description
+                        # For simplicity, we'll use text for now.
+                        parts.append(Part(text=f"[Image: {part_item.image_url.url}]"))
+            if parts:
+                content = Content(parts=parts, role=role)
+                contents.append(content)
     
     return contents
 
@@ -102,7 +127,12 @@ def gemini_to_openai_request(gemini_request: GenerateContentRequest, model: str)
         temperature=temperature,
         top_p=top_p,
         stop=stop,
-        stream=False  # Will be set separately for streaming requests
+        stream=False,  # Will be set separately for streaming requests
+        n=None,
+        presence_penalty=None,
+        frequency_penalty=None,
+        logit_bias=None,
+        user=None,
     )
 
 
@@ -120,11 +150,15 @@ def openai_to_gemini_response(openai_response: ChatCompletionResponse) -> Genera
         # Map finish reason
         finish_reason = None
         if choice.finish_reason == "stop":
-            finish_reason = "STOP"
+            finish_reason = FinishReason.STOP
         elif choice.finish_reason == "length":
-            finish_reason = "MAX_TOKENS"
+            finish_reason = FinishReason.MAX_TOKENS
         elif choice.finish_reason == "content_filter":
-            finish_reason = "SAFETY"
+            finish_reason = FinishReason.SAFETY
+        elif choice.finish_reason == "tool_calls":
+            finish_reason = FinishReason.TOOL_CALLS
+        elif choice.finish_reason == "function_call":
+            finish_reason = FinishReason.FUNCTION_CALL
         
         candidate = Candidate(
             content=content,
@@ -139,11 +173,13 @@ def openai_to_gemini_response(openai_response: ChatCompletionResponse) -> Genera
         usage_metadata = UsageMetadata(
             prompt_token_count=openai_response.usage.prompt_tokens,
             candidates_token_count=openai_response.usage.completion_tokens,
-            total_token_count=openai_response.usage.total_tokens
+            total_token_count=openai_response.usage.total_tokens,
+            cached_content_token_count=None
         )
     
     return GenerateContentResponse(
         candidates=candidates,
+        prompt_feedback=None,
         usage_metadata=usage_metadata
     )
 
@@ -171,9 +207,9 @@ def openai_to_gemini_stream_chunk(chunk_data: str) -> str:
                 
                 finish_reason = None
                 if choice.get("finish_reason") == "stop":
-                    finish_reason = "STOP"
+                    finish_reason = FinishReason.STOP
                 elif choice.get("finish_reason") == "length":
-                    finish_reason = "MAX_TOKENS"
+                    finish_reason = FinishReason.MAX_TOKENS
                 
                 candidate = Candidate(
                     content=content,

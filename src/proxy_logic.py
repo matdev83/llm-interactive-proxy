@@ -1,5 +1,5 @@
 import logging
-from typing import Dict, List, Optional  # Add Dict import
+from typing import Any, Dict, List, Optional  # Add Dict import
 
 logger = logging.getLogger(__name__)
 
@@ -10,16 +10,18 @@ class ProxyState:
     def __init__(
         self,
         interactive_mode: bool = True,
-        failover_routes: Optional[Dict[str, Dict[str, List[str]]]] = None,
+        failover_routes: Optional[Dict[str, Dict[str, Any]]] = None,
     ) -> None:
         self.override_backend: Optional[str] = None
         self.override_model: Optional[str] = None
+        self.oneoff_backend: Optional[str] = None
+        self.oneoff_model: Optional[str] = None
         self.invalid_override: bool = False
         self.project: Optional[str] = None
         self.interactive_mode: bool = interactive_mode
         self.interactive_just_enabled: bool = False
         self.hello_requested: bool = False
-        self.failover_routes: Dict[str, Dict[str, List[str]]] = (
+        self.failover_routes: Dict[str, Dict[str, Any]] = (
             failover_routes if failover_routes is not None else {}
         )
 
@@ -33,6 +35,19 @@ class ProxyState:
         self.override_model = model_name
         self.invalid_override = invalid
 
+    def set_oneoff_route(self, backend: str, model_name: str) -> None:
+        """Sets a one-off route for the very next request."""
+        logger.info(f"Setting one-off route to: {backend}:{model_name}")
+        self.oneoff_backend = backend
+        self.oneoff_model = model_name
+
+    def clear_oneoff_route(self) -> None:
+        """Clears the one-off route."""
+        if self.oneoff_backend or self.oneoff_model:
+            logger.info("Clearing one-off route.")
+            self.oneoff_backend = None
+            self.oneoff_model = None
+ 
     def set_override_backend(self, backend: str) -> None:
         """Override only the backend to use for this session."""
         logger.info(
@@ -119,6 +134,11 @@ class ProxyState:
         self.hello_requested = False
 
     def get_effective_model(self, requested_model: str) -> str:
+        if self.oneoff_model:
+            logger.info(
+                f"Using one-off model '{self.oneoff_model}' instead of '{requested_model}'"
+            )
+            return self.oneoff_model
         if self.override_model:
             logger.info(
                 f"Overriding requested model '{requested_model}' with '{self.override_model}'"
@@ -127,6 +147,9 @@ class ProxyState:
         return requested_model
 
     def get_selected_backend(self, default_backend: str) -> str:
+        if self.oneoff_backend:
+            logger.info(f"Using one-off backend '{self.oneoff_backend}'")
+            return self.oneoff_backend
         return self.override_backend or default_backend
 
 

@@ -22,6 +22,17 @@ def sample_chat_request_data() -> models.ChatCompletionRequest:
     return models.ChatCompletionRequest(
         model="test-model",
         messages=[models.ChatMessage(role="user", content="Hello")],
+        temperature=None,
+        top_p=None,
+        n=None,
+        stream=False, # Explicitly set stream to False for non-streaming tests
+        stop=None,
+        max_tokens=None,
+        presence_penalty=None,
+        frequency_penalty=None,
+        logit_bias=None,
+        user=None,
+        extra_params=None,
     )
 
 
@@ -57,7 +68,7 @@ async def test_chat_completions_model_prefix_handled(
         match_headers={"x-goog-api-key": "FAKE_KEY"},
     )
 
-    response = await gemini_backend.chat_completions(
+    response_tuple = await gemini_backend.chat_completions(
         request_data=sample_chat_request_data,
         processed_messages=sample_processed_messages,
         effective_model=effective_model,
@@ -66,6 +77,13 @@ async def test_chat_completions_model_prefix_handled(
         key_name="GEMINI_API_KEY_1",
         api_key="FAKE_KEY",
     )
+    # Explicitly cast to Tuple for type checking, as it's a non-streaming test
+    response: dict
+    if isinstance(response_tuple, tuple):
+        response, _ = response_tuple
+    else:
+        # This case should not happen for non-streaming requests, but for type safety
+        raise TypeError("Expected a tuple response for non-streaming request.")
 
     assert isinstance(response, dict)
     request = httpx_mock.get_request()

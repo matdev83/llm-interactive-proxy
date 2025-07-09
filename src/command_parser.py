@@ -458,4 +458,11 @@ def process_commands_in_messages(
         functional_backends=functional_backends,
     )
 
-    return parser.process_messages(messages)
+    final_messages, commands_processed = parser.process_messages(messages)
+
+    # If a one-off command was just used, clear it after processing the request.
+    if current_proxy_state.oneoff_backend or current_proxy_state.oneoff_model:
+        if not (len(final_messages) == 0 and commands_processed):
+            current_proxy_state.clear_oneoff_route()
+
+    return final_messages, commands_processed

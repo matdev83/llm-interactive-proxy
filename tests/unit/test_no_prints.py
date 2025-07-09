@@ -3,6 +3,7 @@ import pathlib
 
 ALLOWED_FILES = {
     pathlib.Path("src/main.py"),
+    pathlib.Path("examples/gemini_api_usage.py"),
 }
 
 
