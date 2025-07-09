@@ -121,21 +121,25 @@ def main():
         api_key="your-api-key-here"
     )
     
-    print("=== Gemini API Compatibility Example ===\n")
+    # Use logging instead of print for examples
+    import logging
+    logging.basicConfig(level=logging.INFO)
+    logger = logging.getLogger(__name__)
+    logger.info("=== Gemini API Compatibility Example ===")
     
     # 1. List available models
-    print("1. Listing available models...")
+    logger.info("1. Listing available models...")
     try:
         models = client.list_models()
-        print(f"Found {len(models.get('models', []))} models:")
+        logger.info(f"Found {len(models.get('models', []))} models:")
         for model in models.get('models', [])[:3]:  # Show first 3
-            print(f"  - {model['name']} ({model['display_name']})")
-        print()
+            logger.info(f"  - {model['name']} ({model['display_name']})")
+        logger.info()
     except Exception as e:
-        print(f"Error listing models: {e}\n")
+        logger.info(f"Error listing models: {e}\n")
     
     # 2. Simple content generation
-    print("2. Simple content generation...")
+    logger.info("2. Simple content generation...")
     try:
         response = client.generate_content(
             model="gemini-pro",  # Use any available model
@@ -153,13 +157,13 @@ def main():
         
         if response.get('candidates'):
             content = response['candidates'][0]['content']['parts'][0]['text']
-            print(f"Response: {content}")
-        print()
+            logger.info(f"Response: {content}")
+        logger.info()
     except Exception as e:
-        print(f"Error generating content: {e}\n")
+        logger.info(f"Error generating content: {e}\n")
     
     # 3. Content generation with system instruction
-    print("3. Content generation with system instruction...")
+    logger.info("3. Content generation with system instruction...")
     try:
         response = client.generate_content(
             model="gemini-pro",
@@ -181,15 +185,15 @@ def main():
         
         if response.get('candidates'):
             content = response['candidates'][0]['content']['parts'][0]['text']
-            print(f"Response: {content[:200]}...")
-        print()
+            logger.info(f"Response: {content[:200]}...")
+        logger.info()
     except Exception as e:
-        print(f"Error with system instruction: {e}\n")
+        logger.info(f"Error with system instruction: {e}\n")
     
     # 4. Streaming content generation
-    print("4. Streaming content generation...")
+    logger.info("4. Streaming content generation...")
     try:
-        print("Streaming response: ", end="", flush=True)
+        logger.info("Streaming response: ", end="", flush=True)
         for chunk in client.stream_generate_content(
             model="gemini-pro",
             contents=[
@@ -207,13 +211,13 @@ def main():
                 candidate = chunk['candidates'][0]
                 if candidate.get('content') and candidate['content'].get('parts'):
                     text = candidate['content']['parts'][0].get('text', '')
-                    print(text, end="", flush=True)
-        print("\n")
+                    logger.info(text, end="", flush=True)
+        logger.info("\n")
     except Exception as e:
-        print(f"Error with streaming: {e}\n")
+        logger.info(f"Error with streaming: {e}\n")
     
     # 5. Multi-turn conversation
-    print("5. Multi-turn conversation...")
+    logger.info("5. Multi-turn conversation...")
     try:
         conversation_contents = [
             {
@@ -241,12 +245,12 @@ def main():
         
         if response.get('candidates'):
             content = response['candidates'][0]['content']['parts'][0]['text']
-            print(f"Assistant: {content}")
-        print()
+            logger.info(f"Assistant: {content}")
+        logger.info()
     except Exception as e:
-        print(f"Error with conversation: {e}\n")
+        logger.info(f"Error with conversation: {e}\n")
     
-    print("=== Example completed ===")
+    logger.info("=== Example completed ===")
 
 
 if __name__ == "__main__":

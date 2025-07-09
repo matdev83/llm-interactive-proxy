@@ -20,7 +20,9 @@ def test_banner_on_first_reply(interactive_client):
     assert "Functional backends:" in content # From banner
     # Note: The backends_str in _welcome_banner is sorted.
     # openrouter (K:2, M:3), gemini (K:1, M:2). Sorted: gemini, openrouter
-    assert "gemini (K:1, M:2), openrouter (K:2, M:3)" in content # From banner
+    # The banner now includes gemini-cli-direct backend, so check for individual backends
+    assert "gemini (K:1, M:2)" in content
+    assert "openrouter (K:2, M:3)" in content
     assert "backend" in content # From mock_backend_response
     assert "<attempt_completion>" not in content # Should be plain
     mock_method.assert_called_once()
@@ -42,7 +44,8 @@ def test_hello_command_returns_banner(interactive_client):
     # EXPECT PLAIN TEXT NOW
     project_name = interactive_client.app.state.project_metadata["name"]
     project_version = interactive_client.app.state.project_metadata["version"]
-    backends_str_expected = "gemini (K:1, M:2), openrouter (K:2, M:3)" # Sorted
+    # The backends now include gemini-cli-direct, so we need to check the actual content
+    backends_str_expected = "gemini (K:1, M:2), gemini-cli-direct (M:4), openrouter (K:2, M:3)" # Sorted
 
     expected_lines = [
         f"Hello, this is {project_name} {project_version}",
@@ -104,7 +107,7 @@ def test_hello_command_returns_xml_banner_for_cline_agent(interactive_client):
 
     project_name = interactive_client.app.state.project_metadata["name"]
     project_version = interactive_client.app.state.project_metadata["version"]
-    backends_str_expected = "gemini (K:1, M:2), openrouter (K:2, M:3)"
+    backends_str_expected = "gemini (K:1, M:2), gemini-cli-direct (M:4), openrouter (K:2, M:3)"
 
     expected_lines = [
         f"Hello, this is {project_name} {project_version}",

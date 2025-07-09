@@ -10,8 +10,10 @@ from src.gemini_converters import (
     openai_models_to_gemini_models
 )
 from src.gemini_models import (
-    GenerateContentRequest, Content, Part, GenerationConfig,
-    GenerateContentResponse, Candidate, UsageMetadata
+    Blob, GenerateContentRequest, Content, Part, GenerationConfig,
+    GenerateContentResponse, Candidate, UsageMetadata, SafetyRating,
+    HarmCategory, HarmProbability, FinishReason, PromptFeedback,
+    SafetySetting, HarmBlockThreshold
 )
 from src.models import (
     ChatMessage, ChatCompletionRequest, ChatCompletionResponse, 
@@ -58,7 +60,7 @@ class TestMessageConversion:
             Content(
                 parts=[
                     Part(text="Look at this: "),
-                    Part(inline_data={"mime_type": "image/png", "data": "base64data"}),
+                    Part(inline_data=Blob(mime_type="image/png", data="base64data")),
                     Part(text=" What do you think?")
                 ],
                 role="user"
@@ -122,11 +124,21 @@ class TestRequestConversion:
                     role="user"
                 )
             ],
-            generation_config=GenerationConfig(
+            tools=None,
+            toolConfig=None,
+            safetySettings=None,
+            systemInstruction=None,
+            generationConfig=GenerationConfig(
+                stopSequences=None,
+                responseMimeType=None,
+                responseSchema=None,
+                candidateCount=None,
                 temperature=0.7,
-                max_output_tokens=100,
-                top_p=0.9
-            )
+                maxOutputTokens=100,
+                topP=0.9,
+                topK=None
+            ),
+            cachedContent=None
         )
         
         openai_request = gemini_to_openai_request(gemini_request, "test-model")
@@ -148,10 +160,15 @@ class TestRequestConversion:
                     role="user"
                 )
             ],
-            system_instruction=Content(
+            tools=None,
+            toolConfig=None,
+            safetySettings=None,
+            systemInstruction=Content(
                 parts=[Part(text="You are a geography expert.")],
                 role="user"
-            )
+            ),
+            generationConfig=None, # No generation config in this test case
+            cachedContent=None
         )
         
         openai_request = gemini_to_openai_request(gemini_request, "test-model")
@@ -192,14 +209,17 @@ class TestResponseConversion:
         
         gemini_response = openai_to_gemini_response(openai_response)
         
+        assert gemini_response.candidates is not None
         assert len(gemini_response.candidates) == 1
         candidate = gemini_response.candidates[0]
+        assert candidate.content is not None
         assert candidate.content.role == "model"
         assert len(candidate.content.parts) == 1
         assert candidate.content.parts[0].text == "The capital of France is Paris."
-        assert candidate.finish_reason == "STOP"
+        assert candidate.finish_reason == FinishReason.STOP
         assert candidate.index == 0
         
+        assert gemini_response.usage_metadata is not None
         assert gemini_response.usage_metadata.prompt_token_count == 10
         assert gemini_response.usage_metadata.candidates_token_count == 8
         assert gemini_response.usage_metadata.total_token_count == 18
@@ -207,32 +227,38 @@ class TestResponseConversion:
     def test_openai_to_gemini_finish_reason_mapping(self):
         """Test finish reason mapping from OpenAI to Gemini."""
         test_cases = [
-            ("stop", "STOP"),
-            ("length", "MAX_TOKENS"),
-            ("content_filter", "SAFETY"),
-            (None, None)
+            ("stop", FinishReason.STOP),
+            ("length", FinishReason.MAX_TOKENS),
+            ("content_filter", FinishReason.SAFETY),
+            (None, None),
+            ("tool_calls", FinishReason.TOOL_CALLS),
+            ("function_call", FinishReason.FUNCTION_CALL)
         ]
         
         for openai_reason, expected_gemini_reason in test_cases:
+            choice = ChatCompletionChoice(
+                index=0,
+                message=ChatCompletionChoiceMessage(
+                    role="assistant",
+                    content="Test response"
+                ),
+                finish_reason=openai_reason # Now Optional, so can be None
+            )
+
             openai_response = ChatCompletionResponse(
                 id="test-id",
-                object="chat.completion", 
+                object="chat.completion",
                 created=1234567890,
                 model="test-model",
-                choices=[
-                    ChatCompletionChoice(
-                        index=0,
-                        message=ChatCompletionChoiceMessage(
-                            role="assistant",
-                            content="Test response"
-                        ),
-                        finish_reason=openai_reason
-                    )
-                ]
+                choices=[choice]
             )
             
             gemini_response = openai_to_gemini_response(openai_response)
-            assert gemini_response.candidates[0].finish_reason == expected_gemini_reason
+            assert gemini_response.candidates is not None
+            if expected_gemini_reason is None:
+                assert gemini_response.candidates[0].finish_reason is None
+            else:
+                assert gemini_response.candidates[0].finish_reason == expected_gemini_reason
 
 
 class TestUtilityFunctions:
@@ -288,4 +314,4 @@ class TestUtilityFunctions:
         assert "generateContent" in model1.supported_generation_methods
         assert "streamGenerateContent" in model1.supported_generation_methods
         assert model1.input_token_limit > 0
-        assert model1.output_token_limit > 0 
+        assert model1.output_token_limit > 0

@@ -109,7 +109,7 @@ class ChatCompletionChoice(BaseModel):
 
     index: int
     message: ChatCompletionChoiceMessage
-    finish_reason: str
+    finish_reason: Optional[str] = None
 
 
 class CompletionUsage(BaseModel):

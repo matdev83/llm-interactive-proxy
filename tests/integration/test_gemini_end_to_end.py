@@ -7,6 +7,8 @@ import sys
 import time
 
 import pytest
+
+pytestmark = pytest.mark.integration
 from tests.conftest import ORIG_GEMINI_KEY as ORIG_KEY # E402: Moved here
 
 

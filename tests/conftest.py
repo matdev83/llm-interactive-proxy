@@ -255,3 +255,23 @@ def setup_logging():
     logging.getLogger().setLevel(logging.DEBUG)
 
 # Note: Removed duplicate interactive_client fixture definition
+
+@pytest.fixture
+def mock_gemini_backend():
+    """Mock Gemini backend for testing."""
+    from unittest.mock import Mock
+    mock = Mock()
+    mock.get_available_models.return_value = ["gemini-pro", "gemini-pro-vision"]
+    mock.chat_completions.return_value = ({
+        "id": "test-id",
+        "object": "chat.completion",
+        "created": 1234567890,
+        "model": "gemini-pro",
+        "choices": [{
+            "index": 0,
+            "message": {"role": "assistant", "content": "Test response"},
+            "finish_reason": "stop"
+        }],
+        "usage": {"prompt_tokens": 10, "completion_tokens": 20, "total_tokens": 30}
+    }, {})
+    return mock

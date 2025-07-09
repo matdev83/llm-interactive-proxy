@@ -48,6 +48,8 @@ class FinishReason(str, Enum):
     MAX_TOKENS = "MAX_TOKENS"
     SAFETY = "SAFETY"
     RECITATION = "RECITATION"
+    TOOL_CALLS = "TOOL_CALLS"
+    FUNCTION_CALL = "FUNCTION_CALL"
     OTHER = "OTHER"
 
 
