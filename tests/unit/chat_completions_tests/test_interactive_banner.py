@@ -90,20 +90,8 @@ def test_hello_command_returns_xml_banner_for_cline_agent(interactive_client):
     assert message["role"] == "assistant"
     content = message["content"]
 
-    assert content.startswith("<attempt_completion>\n<result>\n<thinking>")
-    assert content.endswith("\n</thinking>\n</result>\n</attempt_completion>\n")
-
-    start_tag = "<thinking>"
-    end_tag = "</thinking>"
-    start_index = content.find(start_tag)
-    end_index = content.find(end_tag)
-
-    assert start_index != -1, "Start <thinking> tag not found"
-    assert end_index != -1, "End </thinking> tag not found"
-
-    thinking_content_with_trailing_newline = content[start_index + len(start_tag):end_index + len(end_tag)]
-    assert thinking_content_with_trailing_newline.endswith("\n" + end_tag)
-    thinking_content = thinking_content_with_trailing_newline[:-len(end_tag)-1]
+    assert content.startswith("<attempt_completion>\n<result>\n")
+    assert content.endswith("\n</result>\n</attempt_completion>\n")
 
     project_name = interactive_client.app.state.project_metadata["name"]
     project_version = interactive_client.app.state.project_metadata["version"]
@@ -116,9 +104,16 @@ def test_hello_command_returns_xml_banner_for_cline_agent(interactive_client):
         f"Type {interactive_client.app.state.command_prefix}help for list of available commands",
         "hello acknowledged"
     ]
-    expected_thinking_content = "\n".join(expected_lines)
+    expected_result_content = "\n".join(expected_lines)
 
-    assert thinking_content == expected_thinking_content
+    # Extract content between <result> and </result>
+    start_tag = "<result>\n"
+    end_tag = "\n</result>"
+    start_index = content.find(start_tag) + len(start_tag)
+    end_index = content.find(end_tag)
+    actual_result_content = content[start_index:end_index]
+
+    assert actual_result_content == expected_result_content
     assert "[Proxy Result]" not in content
 
     assert "usage" in data
@@ -152,20 +147,17 @@ def test_set_command_returns_xml_for_cline_agent(interactive_client):
     assert message["role"] == "assistant"
     content = message["content"]
 
-    assert content.startswith("<attempt_completion>\n<result>\n<thinking>")
-    assert content.endswith("\n</thinking>\n</result>\n</attempt_completion>\n")
+    assert content.startswith("<attempt_completion>\n<result>\n")
+    assert content.endswith("\n</result>\n</attempt_completion>\n")
 
-    start_tag = "<thinking>"
-    end_tag = "</thinking>"
-    start_index = content.find(start_tag)
+    # Extract content between <result> and </result>
+    start_tag = "<result>\n"
+    end_tag = "\n</result>"
+    start_index = content.find(start_tag) + len(start_tag)
     end_index = content.find(end_tag)
-    assert start_index != -1 and end_index != -1, "Thinking tags not found"
+    actual_result_content = content[start_index:end_index]
 
-    thinking_content_with_trailing_newline = content[start_index + len(start_tag):end_index + len(end_tag)]
-    assert thinking_content_with_trailing_newline.endswith("\n" + end_tag)
-    thinking_content = thinking_content_with_trailing_newline[:-len(end_tag)-1]
-
-    assert "backend set to openrouter" in thinking_content
+    assert "backend set to openrouter" in actual_result_content
     assert "[Proxy Result]" not in content
 
     # Check usage field
@@ -174,3 +166,4 @@ def test_set_command_returns_xml_for_cline_agent(interactive_client):
     assert usage["prompt_tokens"] == 0
     assert usage["completion_tokens"] == 0
     assert usage["total_tokens"] == 0
+

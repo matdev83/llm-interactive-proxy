@@ -27,6 +27,7 @@ def test_set_backend_command_integration(mock_openrouter_completions_method: Asy
     mock_proxy_state.interactive_mode = True # Assuming interactive for banner checks later
     mock_proxy_state.interactive_just_enabled = False
     mock_proxy_state.hello_requested = False
+    mock_proxy_state.is_cline_agent = False
     mock_proxy_state.failover_routes = {}
     mock_proxy_state.get_effective_model.return_value = "some-model" # Ensure this returns a string
 
@@ -84,6 +85,7 @@ def test_unset_backend_command_integration(mock_openrouter_completions_method: A
     mock_proxy_state.interactive_mode = True
     mock_proxy_state.interactive_just_enabled = False
     mock_proxy_state.hello_requested = False
+    mock_proxy_state.is_cline_agent = False
     mock_proxy_state.failover_routes = {}
     mock_proxy_state.get_effective_model.return_value = "some-model" # Ensure this returns a string (already correctly indented in the read file)
 
@@ -144,6 +146,7 @@ def test_set_backend_rejects_nonfunctional(client: TestClient, httpx_mock: HTTPX
         mock_proxy_state.interactive_mode = True
         mock_proxy_state.interactive_just_enabled = False
         mock_proxy_state.hello_requested = False
+        mock_proxy_state.is_cline_agent = False
         mock_proxy_state.failover_routes = {}
         mock_proxy_state.get_effective_model.return_value = "some-model"
 
@@ -181,6 +184,7 @@ def test_set_default_backend_command_integration(client: TestClient):
     mock_proxy_state.interactive_mode = True
     mock_proxy_state.interactive_just_enabled = False
     mock_proxy_state.hello_requested = False
+    mock_proxy_state.is_cline_agent = False
     mock_proxy_state.failover_routes = {}
     mock_proxy_state.get_effective_model.return_value = "some-model"
 
@@ -241,6 +245,7 @@ def test_unset_default_backend_command_integration(client: TestClient):
     mock_proxy_state.interactive_mode = True
     mock_proxy_state.interactive_just_enabled = False
     mock_proxy_state.hello_requested = False
+    mock_proxy_state.is_cline_agent = False
     mock_proxy_state.failover_routes = {}
     mock_proxy_state.get_effective_model.return_value = "some-model"
 

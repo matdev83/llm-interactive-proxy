@@ -297,7 +297,7 @@ def build_app(
             session_id)
         proxy_state: ProxyState = session.proxy_state
 
-        if session.agent is None and request_data.messages:
+        if request_data.messages:
             first = request_data.messages[0]
             if isinstance(first.content, str):
                 text = first.content
@@ -309,7 +309,15 @@ def build_app(
                 )
             else:
                 text = ""
-            session.agent = detect_agent(text)
+
+            if not proxy_state.is_cline_agent and "<attempt_completion>" in text:
+                proxy_state.set_is_cline_agent(True)
+                # Also set session.agent to ensure XML wrapping works
+                if session.agent is None:
+                    session.agent = "cline"
+
+            if session.agent is None:
+                session.agent = detect_agent(text)
 
         current_backend_type = http_request.app.state.backend_type
         if proxy_state.override_backend:
@@ -414,20 +422,35 @@ def build_app(
 
         confirmation_text = ""
         if parser is not None:
-            confirmation_text = "\n".join(
-                r.message for r in parser.command_results if r.message
-            )
+                    confirmation_text = "\n".join(
+            r.message for r in parser.command_results if r.message
+        )
 
         if commands_processed:
+            # Enhanced Cline detection: if commands were processed but no agent was detected yet,
+            # check if this looks like a Cline request (long prompt with command at the end)
+            if session.agent is None and request_data.messages:
+                first_message = request_data.messages[0]
+                if isinstance(first_message.content, str):
+                    content = first_message.content
+                    # Cline typically sends long prompts (agent instructions) followed by user commands
+                    # If we see a command in a reasonably long message, it's likely Cline
+                    if len(content) > 100 and ("!/hello" in content or "!/" in content):
+                        session.agent = "cline"
+                        proxy_state.set_is_cline_agent(True)
+
             content_lines_for_agent = []
-            if proxy_state.interactive_mode and show_banner:
+            # Only show banner if interactive mode is enabled AND global interactive commands are not disabled
+            if proxy_state.interactive_mode and show_banner and not http_request.app.state.disable_interactive_commands:
                 banner_content = _welcome_banner(http_request.app, session_id)
                 content_lines_for_agent.extend(banner_content.splitlines())
-            elif show_banner:  # This condition might need review, but keeping its logic.
+            elif show_banner and not http_request.app.state.disable_interactive_commands:  # This condition might need review, but keeping its logic.
                 banner_content = _welcome_banner(http_request.app, session_id)
                 content_lines_for_agent.extend(banner_content.splitlines())
 
-            if confirmation_text:
+            # For Cline agents, don't include command confirmation messages in XML response
+            # Only include them for non-Cline agents
+            if confirmation_text and session.agent != "cline":
                 content_lines_for_agent.extend(confirmation_text.splitlines())
 
             if not content_lines_for_agent:
@@ -801,14 +824,20 @@ def build_app(
             )
             return response_from_backend
 
-        backend_response_dict: Dict[str, Any] = response_from_backend if isinstance(
-            response_from_backend, dict) else {}
+        backend_response_dict: Dict[str, Any] = (
+            response_from_backend if isinstance(response_from_backend, dict) 
+            else response_from_backend.model_dump() if hasattr(response_from_backend, 'model_dump')
+            else {}
+        )
 
         if "choices" not in backend_response_dict:
             backend_response_dict["choices"] = [{"index": 0, "message": {
                 "role": "assistant", "content": "(no response)"}, "finish_reason": "error"}]
 
-        if proxy_state.interactive_mode:
+        # Only inject banner/prefix if there were commands processed AND both session-level 
+        # interactive mode is enabled AND global interactive commands are not disabled
+        # Banner should NEVER be injected into pure LLM responses
+        if commands_processed and proxy_state.interactive_mode and not http_request.app.state.disable_interactive_commands:
             prefix_parts = []
             if show_banner:
                 prefix_parts.append(
@@ -939,6 +968,10 @@ def build_app(
         # Temporarily override the backend type for this request
         original_backend_type = http_request.app.state.backend_type
         http_request.app.state.backend_type = backend_type
+        
+        # Temporarily disable interactive commands for Gemini API compatibility
+        original_disable_interactive = http_request.app.state.disable_interactive_commands
+        http_request.app.state.disable_interactive_commands = True
 
         try:
             # Call the existing chat_completions endpoint
@@ -961,9 +994,10 @@ def build_app(
                 gemini_response = openai_to_gemini_response(openai_response)
                 return gemini_response.model_dump(exclude_none=True, by_alias=True)
         finally:
-            # Restore original URL and backend type
+            # Restore original URL, backend type, and interactive commands setting
             http_request._url = original_url
             http_request.app.state.backend_type = original_backend_type
+            http_request.app.state.disable_interactive_commands = original_disable_interactive
 
     @app_instance.post("/v1beta/models/{model}:streamGenerateContent", dependencies=[Depends(verify_gemini_auth)])
     async def gemini_stream_generate_content(
@@ -992,6 +1026,10 @@ def build_app(
         # Temporarily override the backend type for this request
         original_backend_type = http_request.app.state.backend_type
         http_request.app.state.backend_type = backend_type
+        
+        # Temporarily disable interactive commands for Gemini API compatibility
+        original_disable_interactive = http_request.app.state.disable_interactive_commands
+        http_request.app.state.disable_interactive_commands = True
 
         try:
             # Call the existing chat_completions endpoint
@@ -1029,9 +1067,10 @@ def build_app(
                     gemini_response = openai_to_gemini_response(openai_response)
                     return gemini_response.model_dump(exclude_none=True, by_alias=True)
         finally:
-            # Restore original URL and backend type
+            # Restore original URL, backend type, and interactive commands setting
             http_request._url = original_url
             http_request.app.state.backend_type = original_backend_type
+            http_request.app.state.disable_interactive_commands = original_disable_interactive
 
     @app_instance.get("/usage/stats", dependencies=[Depends(verify_client_auth)])
     async def get_usage_statistics(

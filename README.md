@@ -141,10 +141,10 @@ The Gemini CLI Direct backend:
 
 ### Running the Proxy Server
 
-To start the proxy server, run the `main.py` script from the `src` directory:
+To start the proxy server, run the following command from the project's root directory:
 
 ```bash
-python src/main.py
+python -m src.main
 ```
 
 The server will typically start on `http://127.0.0.1:8000` (or as configured in your `.env` file). You should see log output indicating the server has started, e.g.:

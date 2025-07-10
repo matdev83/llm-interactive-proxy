@@ -12,89 +12,19 @@ from src.main import build_app
 from src.gemini_models import GenerateContentRequest, Content, Part, GenerationConfig
 
 
-@pytest.fixture
-def client():
-    # Ensure app state is fully initialized
-    client = TestClient(build_app())
-    client.app.state.backend_type = 'openrouter'
-    client.app.state.disable_interactive_commands = False
-    client.app.state.command_prefix = '!/'  
-    client.app.state.force_set_project = False
-    client.app.state.api_key_redaction_enabled = False
-    from src.rate_limit import RateLimitRegistry
-    client.app.state.rate_limits = RateLimitRegistry()
-    if not hasattr(client.app.state, 'session_manager'):
-        from src.session import SessionManager
-        client.app.state.session_manager = SessionManager()
-    if not hasattr(client.app.state, 'openrouter_backend'):
-        from unittest.mock import Mock
-        mock_backend = Mock()
-        mock_backend.get_available_models.return_value = ["gpt-4", "gpt-3.5-turbo"]
-        client.app.state.openrouter_backend = mock_backend
-    if not hasattr(client.app.state, 'gemini_backend'):
-        from unittest.mock import Mock
-        mock_backend = Mock()
-        mock_backend.get_available_models.return_value = ["gemini-pro", "gemini-pro-vision"]
-        client.app.state.gemini_backend = mock_backend
-    if not hasattr(client.app.state, 'gemini_cli_direct_backend'):
-        from unittest.mock import Mock
-        mock_backend = Mock()
-        mock_backend.get_available_models.return_value = ["gemini-2.0-flash-001", "gemini-1.5-pro", "gemini-1.5-flash", "gemini-1.0-pro"]
-        client.app.state.gemini_cli_direct_backend = mock_backend
-    return client
 
 
-def test_config():
-    """Test configuration with disabled auth for easier testing."""
-    return {
-        "disable_auth": True,
-        "interactive_mode": False,
-        "command_prefix": "/",
-        "disable_interactive_commands": True,
-        "proxy_timeout": 30.0,
-        "openrouter_api_base_url": "https://openrouter.ai/api/v1",
-        "gemini_api_base_url": "https://generativelanguage.googleapis.com/v1beta",
-        "openrouter_api_keys": {"test": "test-key"},
-        "gemini_api_keys": {"test": "test-gemini-key"},
-    }
 
 
-@pytest.fixture
-def client(test_config):
-    """FastAPI test client with test configuration."""
-    app = build_app(test_config)
-    return TestClient(app)
+
+
+
 
 
 class TestGeminiModelsEndpoint:
     """Test the Gemini models listing endpoint."""
     
-    # Ensure app state is fully initialized
-        client.app.state.backend_type = 'openrouter'
-        client.app.state.disable_interactive_commands = False
-        client.app.state.command_prefix = '!/'  
-        client.app.state.force_set_project = False
-        client.app.state.api_key_redaction_enabled = False
-        from src.rate_limit import RateLimitRegistry
-        client.app.state.rate_limits = RateLimitRegistry()
-        if not hasattr(client.app.state, 'session_manager'):
-            from src.session import SessionManager
-            client.app.state.session_manager = SessionManager()
-        if not hasattr(client.app.state, 'openrouter_backend'):
-            from unittest.mock import Mock
-            mock_backend = Mock()
-            mock_backend.get_available_models.return_value = ["gpt-4", "gpt-3.5-turbo"]
-            client.app.state.openrouter_backend = mock_backend
-        if not hasattr(client.app.state, 'gemini_backend'):
-            from unittest.mock import Mock
-            mock_backend = Mock()
-            mock_backend.get_available_models.return_value = ["gemini-pro", "gemini-pro-vision"]
-            client.app.state.gemini_backend = mock_backend
-        if not hasattr(client.app.state, 'gemini_cli_direct_backend'):
-            from unittest.mock import Mock
-            mock_backend = Mock()
-            mock_backend.get_available_models.return_value = ["gemini-2.0-flash-001", "gemini-1.5-pro", "gemini-1.5-flash", "gemini-1.0-pro"]
-            client.app.state.gemini_cli_direct_backend = mock_backend
+
 
     def test_list_models_gemini_format(self, client):
         """Test that /v1beta/models returns Gemini-formatted models."""
@@ -141,32 +71,7 @@ class TestGeminiModelsEndpoint:
             assert "generateContent" in model["supported_generation_methods"]
             assert "streamGenerateContent" in model["supported_generation_methods"]
     
-    # Ensure app state is fully initialized
-        client.app.state.backend_type = 'openrouter'
-        client.app.state.disable_interactive_commands = False
-        client.app.state.command_prefix = '!/'  
-        client.app.state.force_set_project = False
-        client.app.state.api_key_redaction_enabled = False
-        from src.rate_limit import RateLimitRegistry
-        client.app.state.rate_limits = RateLimitRegistry()
-        if not hasattr(client.app.state, 'session_manager'):
-            from src.session import SessionManager
-            client.app.state.session_manager = SessionManager()
-        if not hasattr(client.app.state, 'openrouter_backend'):
-            from unittest.mock import Mock
-            mock_backend = Mock()
-            mock_backend.get_available_models.return_value = ["gpt-4", "gpt-3.5-turbo"]
-            client.app.state.openrouter_backend = mock_backend
-        if not hasattr(client.app.state, 'gemini_backend'):
-            from unittest.mock import Mock
-            mock_backend = Mock()
-            mock_backend.get_available_models.return_value = ["gemini-pro", "gemini-pro-vision"]
-            client.app.state.gemini_backend = mock_backend
-        if not hasattr(client.app.state, 'gemini_cli_direct_backend'):
-            from unittest.mock import Mock
-            mock_backend = Mock()
-            mock_backend.get_available_models.return_value = ["gemini-2.0-flash-001", "gemini-1.5-pro", "gemini-1.5-flash", "gemini-1.0-pro"]
-            client.app.state.gemini_cli_direct_backend = mock_backend
+
 
     def test_models_endpoint_auth_disabled(self, client):
         """Test models endpoint works when auth is disabled."""
@@ -177,38 +82,13 @@ class TestGeminiModelsEndpoint:
 class TestGeminiGenerateContent:
     """Test the Gemini content generation endpoint."""
     
-    # Ensure app state is fully initialized
-        client.app.state.backend_type = 'openrouter'
-        client.app.state.disable_interactive_commands = False
-        client.app.state.command_prefix = '!/'  
-        client.app.state.force_set_project = False
-        client.app.state.api_key_redaction_enabled = False
-        from src.rate_limit import RateLimitRegistry
-        client.app.state.rate_limits = RateLimitRegistry()
-        if not hasattr(client.app.state, 'session_manager'):
-            from src.session import SessionManager
-            client.app.state.session_manager = SessionManager()
-        if not hasattr(client.app.state, 'openrouter_backend'):
-            from unittest.mock import Mock
-            mock_backend = Mock()
-            mock_backend.get_available_models.return_value = ["gpt-4", "gpt-3.5-turbo"]
-            client.app.state.openrouter_backend = mock_backend
-        if not hasattr(client.app.state, 'gemini_backend'):
-            from unittest.mock import Mock
-            mock_backend = Mock()
-            mock_backend.get_available_models.return_value = ["gemini-pro", "gemini-pro-vision"]
-            client.app.state.gemini_backend = mock_backend
-        if not hasattr(client.app.state, 'gemini_cli_direct_backend'):
-            from unittest.mock import Mock
-            mock_backend = Mock()
-            mock_backend.get_available_models.return_value = ["gemini-2.0-flash-001", "gemini-1.5-pro", "gemini-1.5-flash", "gemini-1.0-pro"]
-            client.app.state.gemini_cli_direct_backend = mock_backend
+
 
     def test_generate_content_basic(self, client):
         """Test basic content generation with Gemini format."""
         # Ensure app state is fully initialized
         client.app.state.backend_type = 'openrouter'
-        client.app.state.disable_interactive_commands = False
+        client.app.state.disable_interactive_commands = True  # Disable to prevent banner injection
         client.app.state.command_prefix = '!/'
         client.app.state.force_set_project = False
         client.app.state.api_key_redaction_enabled = False
@@ -308,7 +188,7 @@ class TestGeminiGenerateContent:
             
             candidate = data["candidates"][0]
             assert "content" in candidate
-            assert "finish_reason" in candidate
+            assert "finishReason" in candidate
             assert candidate["finishReason"] == "STOP"
             
             # Check content format
@@ -317,39 +197,14 @@ class TestGeminiGenerateContent:
             assert "role" in content
             assert content["role"] == "model"
             
-            # Check usage metadata
-            assert "usage_metadata" in data
-            usage = data["usage_metadata"]
-            assert "prompt_token_count" in usage
-            assert "candidates_token_count" in usage
-            assert "total_token_count" in usage
+            # Check usage metadata (camelCase as per official Gemini API)
+            assert "usageMetadata" in data
+            usage = data["usageMetadata"]
+            assert "promptTokenCount" in usage
+            assert "candidatesTokenCount" in usage
+            assert "totalTokenCount" in usage
     
-    # Ensure app state is fully initialized
-        client.app.state.backend_type = 'openrouter'
-        client.app.state.disable_interactive_commands = False
-        client.app.state.command_prefix = '!/'  
-        client.app.state.force_set_project = False
-        client.app.state.api_key_redaction_enabled = False
-        from src.rate_limit import RateLimitRegistry
-        client.app.state.rate_limits = RateLimitRegistry()
-        if not hasattr(client.app.state, 'session_manager'):
-            from src.session import SessionManager
-            client.app.state.session_manager = SessionManager()
-        if not hasattr(client.app.state, 'openrouter_backend'):
-            from unittest.mock import Mock
-            mock_backend = Mock()
-            mock_backend.get_available_models.return_value = ["gpt-4", "gpt-3.5-turbo"]
-            client.app.state.openrouter_backend = mock_backend
-        if not hasattr(client.app.state, 'gemini_backend'):
-            from unittest.mock import Mock
-            mock_backend = Mock()
-            mock_backend.get_available_models.return_value = ["gemini-pro", "gemini-pro-vision"]
-            client.app.state.gemini_backend = mock_backend
-        if not hasattr(client.app.state, 'gemini_cli_direct_backend'):
-            from unittest.mock import Mock
-            mock_backend = Mock()
-            mock_backend.get_available_models.return_value = ["gemini-2.0-flash-001", "gemini-1.5-pro", "gemini-1.5-flash", "gemini-1.0-pro"]
-            client.app.state.gemini_cli_direct_backend = mock_backend
+
 
     def test_generate_content_with_system_instruction(self, client):
         """Test content generation with system instruction."""
@@ -404,32 +259,7 @@ class TestGeminiGenerateContent:
             assert "candidates" in data
             assert data["candidates"][0]["content"]["parts"][0]["text"] == "2+2 equals 4."
     
-    # Ensure app state is fully initialized
-        client.app.state.backend_type = 'openrouter'
-        client.app.state.disable_interactive_commands = False
-        client.app.state.command_prefix = '!/'  
-        client.app.state.force_set_project = False
-        client.app.state.api_key_redaction_enabled = False
-        from src.rate_limit import RateLimitRegistry
-        client.app.state.rate_limits = RateLimitRegistry()
-        if not hasattr(client.app.state, 'session_manager'):
-            from src.session import SessionManager
-            client.app.state.session_manager = SessionManager()
-        if not hasattr(client.app.state, 'openrouter_backend'):
-            from unittest.mock import Mock
-            mock_backend = Mock()
-            mock_backend.get_available_models.return_value = ["gpt-4", "gpt-3.5-turbo"]
-            client.app.state.openrouter_backend = mock_backend
-        if not hasattr(client.app.state, 'gemini_backend'):
-            from unittest.mock import Mock
-            mock_backend = Mock()
-            mock_backend.get_available_models.return_value = ["gemini-pro", "gemini-pro-vision"]
-            client.app.state.gemini_backend = mock_backend
-        if not hasattr(client.app.state, 'gemini_cli_direct_backend'):
-            from unittest.mock import Mock
-            mock_backend = Mock()
-            mock_backend.get_available_models.return_value = ["gemini-2.0-flash-001", "gemini-1.5-pro", "gemini-1.5-flash", "gemini-1.0-pro"]
-            client.app.state.gemini_cli_direct_backend = mock_backend
+
 
     def test_generate_content_error_handling(self, client):
         """Test error handling in content generation."""
@@ -486,32 +316,7 @@ class TestGeminiGenerateContent:
 class TestGeminiStreamGenerateContent:
     """Test the Gemini streaming content generation endpoint."""
     
-    # Ensure app state is fully initialized
-        client.app.state.backend_type = 'openrouter'
-        client.app.state.disable_interactive_commands = False
-        client.app.state.command_prefix = '!/'  
-        client.app.state.force_set_project = False
-        client.app.state.api_key_redaction_enabled = False
-        from src.rate_limit import RateLimitRegistry
-        client.app.state.rate_limits = RateLimitRegistry()
-        if not hasattr(client.app.state, 'session_manager'):
-            from src.session import SessionManager
-            client.app.state.session_manager = SessionManager()
-        if not hasattr(client.app.state, 'openrouter_backend'):
-            from unittest.mock import Mock
-            mock_backend = Mock()
-            mock_backend.get_available_models.return_value = ["gpt-4", "gpt-3.5-turbo"]
-            client.app.state.openrouter_backend = mock_backend
-        if not hasattr(client.app.state, 'gemini_backend'):
-            from unittest.mock import Mock
-            mock_backend = Mock()
-            mock_backend.get_available_models.return_value = ["gemini-pro", "gemini-pro-vision"]
-            client.app.state.gemini_backend = mock_backend
-        if not hasattr(client.app.state, 'gemini_cli_direct_backend'):
-            from unittest.mock import Mock
-            mock_backend = Mock()
-            mock_backend.get_available_models.return_value = ["gemini-2.0-flash-001", "gemini-1.5-pro", "gemini-1.5-flash", "gemini-1.0-pro"]
-            client.app.state.gemini_cli_direct_backend = mock_backend
+
 
     def test_stream_generate_content(self, client):
         """Test streaming content generation with Gemini format."""
@@ -583,32 +388,7 @@ class TestGeminiStreamGenerateContent:
 class TestGeminiAuthentication:
     """Test Gemini API authentication."""
     
-    # Ensure app state is fully initialized
-        client.app.state.backend_type = 'openrouter'
-        client.app.state.disable_interactive_commands = False
-        client.app.state.command_prefix = '!/'  
-        client.app.state.force_set_project = False
-        client.app.state.api_key_redaction_enabled = False
-        from src.rate_limit import RateLimitRegistry
-        client.app.state.rate_limits = RateLimitRegistry()
-        if not hasattr(client.app.state, 'session_manager'):
-            from src.session import SessionManager
-            client.app.state.session_manager = SessionManager()
-        if not hasattr(client.app.state, 'openrouter_backend'):
-            from unittest.mock import Mock
-            mock_backend = Mock()
-            mock_backend.get_available_models.return_value = ["gpt-4", "gpt-3.5-turbo"]
-            client.app.state.openrouter_backend = mock_backend
-        if not hasattr(client.app.state, 'gemini_backend'):
-            from unittest.mock import Mock
-            mock_backend = Mock()
-            mock_backend.get_available_models.return_value = ["gemini-pro", "gemini-pro-vision"]
-            client.app.state.gemini_backend = mock_backend
-        if not hasattr(client.app.state, 'gemini_cli_direct_backend'):
-            from unittest.mock import Mock
-            mock_backend = Mock()
-            mock_backend.get_available_models.return_value = ["gemini-2.0-flash-001", "gemini-1.5-pro", "gemini-1.5-flash", "gemini-1.0-pro"]
-            client.app.state.gemini_cli_direct_backend = mock_backend
+
 
     def test_gemini_auth_with_api_key_header(self):
         """Test authentication using x-goog-api-key header."""
@@ -645,32 +425,7 @@ class TestGeminiAuthentication:
         response = client.get("/v1beta/models")
         assert response.status_code == 401
     
-    # Ensure app state is fully initialized
-        client.app.state.backend_type = 'openrouter'
-        client.app.state.disable_interactive_commands = False
-        client.app.state.command_prefix = '!/'  
-        client.app.state.force_set_project = False
-        client.app.state.api_key_redaction_enabled = False
-        from src.rate_limit import RateLimitRegistry
-        client.app.state.rate_limits = RateLimitRegistry()
-        if not hasattr(client.app.state, 'session_manager'):
-            from src.session import SessionManager
-            client.app.state.session_manager = SessionManager()
-        if not hasattr(client.app.state, 'openrouter_backend'):
-            from unittest.mock import Mock
-            mock_backend = Mock()
-            mock_backend.get_available_models.return_value = ["gpt-4", "gpt-3.5-turbo"]
-            client.app.state.openrouter_backend = mock_backend
-        if not hasattr(client.app.state, 'gemini_backend'):
-            from unittest.mock import Mock
-            mock_backend = Mock()
-            mock_backend.get_available_models.return_value = ["gemini-pro", "gemini-pro-vision"]
-            client.app.state.gemini_backend = mock_backend
-        if not hasattr(client.app.state, 'gemini_cli_direct_backend'):
-            from unittest.mock import Mock
-            mock_backend = Mock()
-            mock_backend.get_available_models.return_value = ["gemini-2.0-flash-001", "gemini-1.5-pro", "gemini-1.5-flash", "gemini-1.0-pro"]
-            client.app.state.gemini_cli_direct_backend = mock_backend
+
 
     def test_gemini_auth_fallback_to_bearer(self):
         """Test fallback to Bearer token authentication."""
@@ -697,32 +452,7 @@ class TestGeminiAuthentication:
 class TestGeminiRequestConversion:
     """Test conversion between Gemini and OpenAI formats."""
     
-    # Ensure app state is fully initialized
-        client.app.state.backend_type = 'openrouter'
-        client.app.state.disable_interactive_commands = False
-        client.app.state.command_prefix = '!/'  
-        client.app.state.force_set_project = False
-        client.app.state.api_key_redaction_enabled = False
-        from src.rate_limit import RateLimitRegistry
-        client.app.state.rate_limits = RateLimitRegistry()
-        if not hasattr(client.app.state, 'session_manager'):
-            from src.session import SessionManager
-            client.app.state.session_manager = SessionManager()
-        if not hasattr(client.app.state, 'openrouter_backend'):
-            from unittest.mock import Mock
-            mock_backend = Mock()
-            mock_backend.get_available_models.return_value = ["gpt-4", "gpt-3.5-turbo"]
-            client.app.state.openrouter_backend = mock_backend
-        if not hasattr(client.app.state, 'gemini_backend'):
-            from unittest.mock import Mock
-            mock_backend = Mock()
-            mock_backend.get_available_models.return_value = ["gemini-pro", "gemini-pro-vision"]
-            client.app.state.gemini_backend = mock_backend
-        if not hasattr(client.app.state, 'gemini_cli_direct_backend'):
-            from unittest.mock import Mock
-            mock_backend = Mock()
-            mock_backend.get_available_models.return_value = ["gemini-2.0-flash-001", "gemini-1.5-pro", "gemini-1.5-flash", "gemini-1.0-pro"]
-            client.app.state.gemini_cli_direct_backend = mock_backend
+
 
     def test_complex_content_conversion(self, client):
         """Test conversion of complex content with multiple parts."""

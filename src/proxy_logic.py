@@ -21,6 +21,7 @@ class ProxyState:
         self.interactive_mode: bool = interactive_mode
         self.interactive_just_enabled: bool = False
         self.hello_requested: bool = False
+        self.is_cline_agent: bool = False
         self.failover_routes: Dict[str, Dict[str, Any]] = (
             failover_routes if failover_routes is not None else {}
         )
@@ -123,6 +124,10 @@ class ProxyState:
             return []
         return list(route.get("elements", []))
 
+    def set_is_cline_agent(self, value: bool) -> None:
+        logger.info(f"Setting is_cline_agent to: {value}")
+        self.is_cline_agent = value
+
     def reset(self) -> None:
         logger.info("Resetting ProxyState instance.")
         self.override_backend = None
@@ -132,6 +137,7 @@ class ProxyState:
         self.interactive_mode = False
         self.interactive_just_enabled = False
         self.hello_requested = False
+        self.is_cline_agent = False
 
     def get_effective_model(self, requested_model: str) -> str:
         if self.oneoff_model:

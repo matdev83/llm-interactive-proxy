@@ -309,7 +309,7 @@ class GeminiBackend(LLMBackend):
         prompt_redactor: APIKeyRedactor | None = None,
         command_filter: ProxyCommandFilter | None = None,
         **kwargs,
-    ) -> Union[Tuple[dict, Dict[str, str]], StreamingResponse]:
+    ) -> Union[Dict[str, Any], StreamingResponse]:
         gemini_api_base_url = openrouter_api_base_url or kwargs.get(
             "gemini_api_base_url"
         )
@@ -331,7 +331,10 @@ class GeminiBackend(LLMBackend):
             model_name = model_name.split(":", 1)[1]
         if model_name.startswith("models/"):
             model_name = model_name.split("/", 1)[1]
+        if model_name.startswith("gemini/"):
+            model_name = model_name.split("/", 1)[1]
 
+        logger.debug(f"Constructing Gemini API URL with model_name: {model_name}")
         base_api_url = f"{gemini_api_base_url.rstrip('/')}/v1beta/models/{model_name}"
         headers = {"x-goog-api-key": api_key}
 
@@ -340,10 +343,10 @@ class GeminiBackend(LLMBackend):
                 base_api_url, payload, headers, effective_model
             )
 
-        response_json, response_headers = await self._handle_gemini_non_streaming_response(
+        response_json = await self._handle_gemini_non_streaming_response(
             base_api_url, payload, headers, effective_model
         )
-        return response_json, response_headers
+        return response_json
 
     async def _handle_gemini_non_streaming_response(
         self,
@@ -351,7 +354,7 @@ class GeminiBackend(LLMBackend):
         payload: dict,
         headers: dict,
         effective_model: str,
-    ) -> Tuple[dict, Dict[str, str]]:
+    ) -> Dict[str, Any]:
         url = f"{base_url}:generateContent"
         try:
             response = await self.client.post(url, json=payload, headers=headers)
@@ -364,9 +367,8 @@ class GeminiBackend(LLMBackend):
                     status_code=response.status_code, detail=error_detail
                 )
             data = response.json()
-            response_headers = dict(response.headers)
-            logger.debug(f"Gemini response headers: {response_headers}")
-            return self._convert_full_response(data, effective_model), response_headers
+            logger.debug(f"Gemini response headers: {dict(response.headers)}")
+            return self._convert_full_response(data, effective_model)
         except httpx.RequestError as e:
             logger.error(
                 f"Request error connecting to Gemini: {e}", exc_info=True)
