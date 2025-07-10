@@ -110,8 +110,8 @@ class CommandParser:
                     args, self.proxy_state
                 )
                 self.command_results.append(execution_result)
-                if not execution_result.success:
-                    return execution_result.message, True
+                # Always return empty string for command-only messages, regardless of success/failure
+                # The error will be handled through the command_results and XML wrapping in main.py
                 if text_content.strip() == command_full.strip():
                     return "", True  # Command-only message, content becomes empty
             else:

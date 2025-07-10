@@ -40,11 +40,10 @@ def format_command_response_for_agent(
     joined_content = "\n".join(content_lines)
 
     if agent in {"cline", "roocode"}:
-        # Ensure the XML structure and newlines match the target format
-        # precisely
+        # Format according to CLINE_FORKS.md specification - no <command> element
         return (
             f"<attempt_completion>\n<result>\n"
-            f"<thinking>{joined_content}\n</thinking>\n"
+            f"{joined_content}\n"
             f"</result>\n</attempt_completion>\n"
         )
     else:

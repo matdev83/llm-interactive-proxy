@@ -115,6 +115,8 @@ def interactive_client(configured_interactive_app):
             c.app.state.openrouter_backend.available_models = ["m1", "m2", "m3"]
         if hasattr(c.app.state, "gemini_backend") and not c.app.state.gemini_backend.available_models:
             c.app.state.gemini_backend.available_models = ["g1", "g2"]
+        if hasattr(c.app.state, "gemini_cli_direct_backend") and not c.app.state.gemini_cli_direct_backend.available_models:
+            c.app.state.gemini_cli_direct_backend.available_models = ["gemini-2.0-flash-001", "gemini-1.5-pro", "gemini-1.5-flash", "gemini-1.0-pro"]
         yield c
 
 
@@ -144,6 +146,16 @@ def pytest_sessionstart(session):
         GeminiBackend,
         "list_models",
         AsyncMock(return_value={"models": [{"name": "mock-gemini-model-1"}]}),
+    ).start()
+    patch.object(
+        app_main.GeminiCliDirectConnector,
+        "initialize",
+        AsyncMock(return_value=None),
+    ).start()
+    patch.object(
+        app_main.GeminiCliDirectConnector,
+        "get_available_models",
+        lambda self: ["gemini-2.0-flash-001", "gemini-1.5-pro", "gemini-1.5-flash", "gemini-1.0-pro"],
     ).start()
 
 

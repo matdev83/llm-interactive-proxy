@@ -78,12 +78,7 @@ async def test_chat_completions_model_prefix_handled(
         api_key="FAKE_KEY",
     )
     # Explicitly cast to Tuple for type checking, as it's a non-streaming test
-    response: dict
-    if isinstance(response_tuple, tuple):
-        response, _ = response_tuple
-    else:
-        # This case should not happen for non-streaming requests, but for type safety
-        raise TypeError("Expected a tuple response for non-streaming request.")
+    response: dict = response_tuple
 
     assert isinstance(response, dict)
     request = httpx_mock.get_request()
