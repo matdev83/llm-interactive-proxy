@@ -60,7 +60,9 @@ def test_cline_output_format_exact(interactive_client):
     
     # The result should contain the hello response
     assert "Hello, this is llm-interactive-proxy" in actual_result
-    assert "hello acknowledged" in actual_result
+    # Note: "hello acknowledged" is excluded for Cline agents as confirmation messages
+    # are only shown to non-Cline clients
+    assert "hello acknowledged" not in actual_result
     
     # Verify the complete expected format
     expected_start = "<attempt_completion>\n<result>\n"

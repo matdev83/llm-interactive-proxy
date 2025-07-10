@@ -32,10 +32,12 @@ class OneoffCommand(BaseCommand):
             return CommandResult(self.name, False, "oneoff command requires a backend/model argument.")
 
         arg_key = list(args.keys())[0]
-        if "/" not in arg_key:
-            return CommandResult(self.name, False, "Invalid format. Use backend/model.")
-
-        backend, model = arg_key.split("/", 1)
+        
+        # Use robust parsing that handles both slash and colon syntax
+        from src.models import parse_model_backend
+        backend, model = parse_model_backend(arg_key)
+        if not backend:
+            return CommandResult(self.name, False, "Invalid format. Use backend/model or backend:model.")
         backend = backend.strip()
         model = model.strip()
 
@@ -43,4 +45,4 @@ class OneoffCommand(BaseCommand):
             return CommandResult(self.name, False, "Backend and model cannot be empty.")
 
         state.set_oneoff_route(backend, model)
-        return CommandResult(self.name, True, f"One-off route set to {backend}:{model}.")
+        return CommandResult(self.name, True, f"One-off route set to {backend}/{model}.")

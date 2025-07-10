@@ -68,7 +68,7 @@ def test_oneoff_command(
         if "without_prompt" in test_id:
             # The response includes banner + confirmation, so check if the confirmation is in the content
             content = response_json["choices"][0]["message"]["content"]
-            assert "One-off route set to gemini:gemini-2.0-flash-001." in content
+            assert "One-off route set to gemini/gemini-2.0-flash-001." in content
             
             # Second request with the prompt
             follow_up_payload = {

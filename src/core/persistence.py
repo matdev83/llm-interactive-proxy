@@ -58,12 +58,21 @@ class ConfigManager:
 
     def _parse_and_validate_failover_element(self, elem_str: Any, route_name: str) -> Tuple[Optional[str], Optional[str]]:
         """Parses and validates a single failover element string.
+        Accepts both slash (backend/model) and colon (backend:model) syntax.
         Returns (valid_element_string, warning_message_if_any).
         """
-        if not isinstance(elem_str, str) or ":" not in elem_str:
-            return None, f"Invalid element format '{elem_str}' in route '{route_name}', skipping."
+        if not isinstance(elem_str, str):
+            return None, f"Invalid element format '{elem_str}' in route '{route_name}', must be string."
 
-        backend_name, model_name = elem_str.split(":", 1)
+        # Use robust parsing that handles both slash and colon syntax
+        from src.models import parse_model_backend
+        backend_name, model_name = parse_model_backend(elem_str)
+        if not backend_name:
+            return None, f"Invalid element format '{elem_str}' in route '{route_name}', must contain '/' or ':' separator."
+        
+        # Convert to internal colon syntax
+        internal_elem_str = f"{backend_name}:{model_name}"
+
         if backend_name not in self.app.state.functional_backends:
             return None, f"Backend '{backend_name}' in route '{route_name}' element '{elem_str}' is not functional, skipping."
 
@@ -71,7 +80,7 @@ class ConfigManager:
         if not backend_instance or model_name not in backend_instance.get_available_models():
             return None, f"Model '{model_name}' for backend '{backend_name}' in route '{route_name}' element '{elem_str}' is not available, skipping."
 
-        return elem_str, None # Valid element, no warning
+        return internal_elem_str, None # Return internal colon syntax, no warning
 
     def _apply_failover_routes(self, froutes_value: Any) -> list[str]:
         warnings: list[str] = []

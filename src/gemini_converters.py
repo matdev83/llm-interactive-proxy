@@ -143,9 +143,27 @@ def openai_to_gemini_response(openai_response: ChatCompletionResponse) -> Genera
     for choice in openai_response.choices:
         # Convert choice to candidate
         content = None
-        if choice.message and choice.message.content:
-            part = Part(text=choice.message.content)
-            content = Content(parts=[part], role="model")
+        
+        if choice.message:
+            # Handle tool calls (especially for Cline agent responses)
+            if choice.message.tool_calls:
+                # For Cline agents, extract XML content from tool calls and return as text
+                tool_call = choice.message.tool_calls[0]  # Take the first tool call
+                if tool_call.function and tool_call.function.name == "attempt_completion":
+                    # The XML content is now JSON-encoded in the arguments
+                    try:
+                        import json
+                        args = json.loads(tool_call.function.arguments)
+                        xml_content = args.get("result", tool_call.function.arguments)
+                    except (json.JSONDecodeError, TypeError):
+                        # Fallback to raw arguments if JSON parsing fails
+                        xml_content = tool_call.function.arguments
+                    part = Part(text=xml_content)
+                    content = Content(parts=[part], role="model")
+            elif choice.message.content:
+                # Handle regular text content
+                part = Part(text=choice.message.content)
+                content = Content(parts=[part], role="model")
 
         # Map finish reason
         finish_reason = None

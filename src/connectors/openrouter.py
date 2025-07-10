@@ -89,7 +89,16 @@ class OpenRouterBackend(LLMBackend):
     ) -> Dict[str, Any]:
         """Constructs the payload for the OpenRouter API request."""
         payload = request_data.model_dump(exclude_unset=True)
-        payload["model"] = effective_model
+        
+        # Ensure the model name includes the provider prefix for OpenRouter
+        # If the model doesn't contain a slash, it's likely just the model name
+        # and we need to add the openrouter/ prefix
+        if "/" not in effective_model:
+            openrouter_model = f"openrouter/{effective_model}"
+        else:
+            openrouter_model = effective_model
+            
+        payload["model"] = openrouter_model
         # Ensure messages are in dict format, not Pydantic models
         payload["messages"] = [
             msg.model_dump(exclude_unset=True) for msg in processed_messages
@@ -220,9 +229,18 @@ class OpenRouterBackend(LLMBackend):
                 logger.info("Caught httpx.HTTPStatusError in stream_generator")
                 body_text = ""
                 try:
-                    body_text = (await e_stream.response.aread()).decode("utf-8")
-                except Exception: # pragma: no cover
-                    pass # Keep body_text empty if decoding fails
+                    # Try to get the response text directly
+                    body_text = e_stream.response.text
+                except Exception:
+                    try:
+                        # If that fails, try to decode the content
+                        body_text = e_stream.response.content.decode("utf-8")
+                    except Exception: # pragma: no cover
+                        # If all else fails, try to read any available content
+                        try:
+                            body_text = (await e_stream.response.aread()).decode("utf-8")
+                        except Exception:
+                            body_text = "Unable to read error response"
                 logger.error(
                     "HTTP error during OpenRouter stream: %s - %s",
                     e_stream.response.status_code,

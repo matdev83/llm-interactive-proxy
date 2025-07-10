@@ -65,7 +65,9 @@ def test_cline_hello_command_xml_wrapping(interactive_client):
     
     # The result should contain the hello response
     assert "Hello, this is" in actual_result_content
-    assert "hello acknowledged" in actual_result_content
+    # Note: "hello acknowledged" is excluded for Cline agents as confirmation messages
+    # are only shown to non-Cline clients
+    assert "hello acknowledged" not in actual_result_content
 
 
 def test_cline_hello_command_same_request(interactive_client):

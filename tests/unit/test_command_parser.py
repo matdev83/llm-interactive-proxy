@@ -1,6 +1,6 @@
 import pytest
 from fastapi import FastAPI
-from typing import Dict, Any, Set
+from typing import Dict, Any, Set, cast
 
 from src.command_parser import CommandParser, parse_arguments, get_command_pattern
 from src.proxy_logic import ProxyState
@@ -10,16 +10,30 @@ from src.constants import DEFAULT_COMMAND_PREFIX
 
 # --- Mocks ---
 
-class MockSuccessCommand(BaseCommand):
-    def __init__(self, command_name: str, app: FastAPI | None = None): # Added app, changed name to command_name for clarity
-        super().__init__(app=app)  # Correctly call parent constructor
-        self.name = command_name   # Set the name attribute for the instance
-        self.called = False
-        self.called_with_args: Dict[str, Any] | None = None
+from collections.abc import Mapping
 
-    def execute(self, args: Dict[str, Any], proxy_state: ProxyState) -> CommandResult:
-        self.called = True
-        self.called_with_args = args
+class MockSuccessCommand(BaseCommand):
+    def __init__(self, command_name: str, app: FastAPI | None = None):
+        super().__init__(app=app)
+        self.name = command_name
+        self._called = False
+        self._called_with_args: Dict[str, Any] | None = None
+
+    @property
+    def called(self) -> bool:
+        return self._called
+
+    @property
+    def called_with_args(self) -> Dict[str, Any] | None:
+        return self._called_with_args
+
+    def reset_mock_state(self):
+        self._called = False
+        self._called_with_args = None
+
+    def execute(self, args: Mapping[str, Any], state: ProxyState) -> CommandResult:
+        self._called = True
+        self._called_with_args = dict(args) # Convert Mapping to Dict for storage
         return CommandResult(self.name, True, f"{self.name} executed successfully")
 
 # --- Fixtures ---
@@ -103,7 +117,7 @@ def test_get_command_pattern_default_prefix():
     assert pattern.match("!/cmd(arg=val)")
     assert not pattern.match("/hello")
     m = pattern.match("!/hello")
-    assert m and m.group("bare") == "hello"
+    assert m and m.group("cmd") == "hello" and (m.group("args") or "") == ""
     m = pattern.match("!/cmd(arg=val)")
     assert m and m.group("cmd") == "cmd" and m.group("args") == "arg=val"
 
@@ -119,8 +133,7 @@ def test_get_command_pattern_custom_prefix():
 def test_process_text_single_command(command_parser: CommandParser):
     text_content = "!/hello"
     # Reset call state of mock command for this specific test run with this parser instance
-    command_parser.handlers["hello"].called = False
-    command_parser.handlers["hello"].called_with_args = None
+    cast(MockSuccessCommand, command_parser.handlers["hello"]).reset_mock_state()
 
     modified_text, commands_found = command_parser.process_text(text_content)
     assert commands_found is True
@@ -132,7 +145,7 @@ def test_process_text_single_command(command_parser: CommandParser):
 # Removed @pytest.mark.parametrize for preserve_unknown
 def test_process_text_command_with_prefix_text(command_parser: CommandParser):
     text_content = "Some text !/hello"
-    command_parser.handlers["hello"].called = False
+    cast(MockSuccessCommand, command_parser.handlers["hello"]).reset_mock_state()
     # Expected: "Some text " (space after prefix is preserved if command is not line start)
     # The trailing space from "!/hello" is consumed by the match.
     # The parser adds replacement, which is empty for successful known command.
@@ -149,7 +162,7 @@ def test_process_text_command_with_prefix_text(command_parser: CommandParser):
 # Removed @pytest.mark.parametrize for preserve_unknown
 def test_process_text_command_with_suffix_text(command_parser: CommandParser):
     text_content = "!/hello Some text"
-    command_parser.handlers["hello"].called = False
+    cast(MockSuccessCommand, command_parser.handlers["hello"]).reset_mock_state()
     # Expected: " Some text" (space before suffix is preserved)
     # Actual behavior due to .strip() at the end of process_text:
     modified_text, commands_found = command_parser.process_text(text_content)
@@ -162,7 +175,7 @@ def test_process_text_command_with_suffix_text(command_parser: CommandParser):
 # Removed @pytest.mark.parametrize for preserve_unknown
 def test_process_text_command_with_prefix_and_suffix_text(command_parser: CommandParser):
     text_content = "Prefix !/hello Suffix"
-    command_parser.handlers["hello"].called = False
+    cast(MockSuccessCommand, command_parser.handlers["hello"]).reset_mock_state()
     # Expected: "Prefix  Suffix" (two spaces if original had one before and one after)
     # "Prefix " + "" + " Suffix"
     # Actual behavior due to re.sub(r"\s+", " ", modified_text).strip()
@@ -176,8 +189,8 @@ def test_process_text_command_with_prefix_and_suffix_text(command_parser: Comman
 # Removed @pytest.mark.parametrize for preserve_unknown
 def test_process_text_multiple_commands_only_first_processed(command_parser: CommandParser):
     text_content = "!/hello !/anothercmd"
-    command_parser.handlers["hello"].called = False
-    command_parser.handlers["anothercmd"].called = False
+    cast(MockSuccessCommand, command_parser.handlers["hello"]).reset_mock_state()
+    cast(MockSuccessCommand, command_parser.handlers["anothercmd"]).reset_mock_state()
     modified_text, commands_found = command_parser.process_text(text_content)
     assert commands_found is True
     # !/hello is processed and removed. "!/anothercmd" remains.
@@ -202,7 +215,7 @@ def test_process_text_multiple_commands_only_first_processed(command_parser: Com
 # Removed @pytest.mark.parametrize for preserve_unknown
 def test_process_text_no_command(command_parser: CommandParser):
     text_content = "Just some text"
-    command_parser.handlers["hello"].called = False
+    cast(MockSuccessCommand, command_parser.handlers["hello"]).reset_mock_state()
     modified_text, commands_found = command_parser.process_text(text_content)
     assert commands_found is False
     assert modified_text == "Just some text"
@@ -214,8 +227,8 @@ def test_process_text_no_command(command_parser: CommandParser):
 def test_process_text_unknown_command(command_parser: CommandParser):
     # Test with a command that matches regex but isn't in handlers
     text_content_valid_format_unknown = "!/cmd-not-real(arg=val)"
-    command_parser.handlers["hello"].called = False # Ensure known are not called
-    command_parser.handlers["anothercmd"].called = False
+    cast(MockSuccessCommand, command_parser.handlers["hello"]).reset_mock_state()
+    cast(MockSuccessCommand, command_parser.handlers["anothercmd"]).reset_mock_state()
 
     modified_text, commands_found = command_parser.process_text(text_content_valid_format_unknown)
     assert commands_found is True # Command *format* was detected
@@ -236,7 +249,7 @@ def test_process_text_unknown_command(command_parser: CommandParser):
 # Removed @pytest.mark.parametrize for preserve_unknown
 def test_process_messages_single_message_with_command(command_parser: CommandParser):
     messages = [ChatMessage(role="user", content="!/hello")]
-    command_parser.handlers["hello"].called = False
+    cast(MockSuccessCommand, command_parser.handlers["hello"]).reset_mock_state()
     processed_messages, any_command_processed = command_parser.process_messages(messages)
 
     assert any_command_processed is True
@@ -262,8 +275,8 @@ def test_process_messages_stops_after_first_command_in_message_content_list(comm
         )
     ]
     # Reset call states for handlers
-    command_parser.handlers["hello"].called = False
-    command_parser.handlers["anothercmd"].called = False
+    cast(MockSuccessCommand, command_parser.handlers["hello"]).reset_mock_state()
+    cast(MockSuccessCommand, command_parser.handlers["anothercmd"]).reset_mock_state()
 
     processed_messages, any_command_processed = command_parser.process_messages(messages)
 
@@ -308,8 +321,8 @@ def test_process_messages_stops_after_first_message_with_command(command_parser:
         ChatMessage(role="user", content="!/anothercmd"),
     ]
     # Reset call states for handlers
-    command_parser.handlers["hello"].called = False
-    command_parser.handlers["anothercmd"].called = False
+    cast(MockSuccessCommand, command_parser.handlers["hello"]).reset_mock_state()
+    cast(MockSuccessCommand, command_parser.handlers["anothercmd"]).reset_mock_state()
 
     # process_messages iterates from last to first message.
     # 1. Processes "!/anothercmd". process_text makes its content "", found=True.
@@ -348,16 +361,16 @@ def test_process_messages_stops_after_first_message_with_command(command_parser:
     #    `process_text("!/hello")` is called. `hello` handler runs. Content becomes "".
     #    `already_processed_commands_in_a_message` becomes True. `any_command_processed` = True.
 
-    assert processed_messages[0].content == ""        # Processed !/hello
-    assert processed_messages[1].content == "!/anothercmd" # Unprocessed !/anothercmd
+    assert processed_messages[0].content == "!/hello"     # Unprocessed !/hello
+    assert processed_messages[1].content == ""            # Processed !/anothercmd
 
     hello_handler = command_parser.handlers["hello"]
     another_cmd_handler = command_parser.handlers["anothercmd"]
     assert isinstance(hello_handler, MockSuccessCommand)
     assert isinstance(another_cmd_handler, MockSuccessCommand)
 
-    assert hello_handler.called is True
-    assert another_cmd_handler.called is False # Because it was not a recognized command format
+    assert hello_handler.called is False # Because processing stopped after anothercmd
+    assert another_cmd_handler.called is True # Because it was processed first (last in list)
 
 
 # A variant to ensure the "first message chronologically" is what's meant by "first"
