@@ -8,6 +8,8 @@ from fastapi import FastAPI
 from ..command_prefix import validate_command_prefix
 from .base import BaseCommand, CommandResult, register_command
 
+import json
+
 if TYPE_CHECKING:
     from ..proxy_logic import ProxyState
 
@@ -22,6 +24,11 @@ class SetCommand(BaseCommand):
     examples = [
         "!/set(model=openrouter:gpt-4)",
         "!/set(interactive=true)",
+        "!/set(reasoning-effort=high)",
+        "!/set(reasoning=effort=medium)",
+        "!/set(thinking-budget=2048)",
+        "!/set(gemini-generation-config={'thinkingConfig': {'thinkingBudget': 1024}})",
+        "!/set(temperature=0.7)",
     ]
 
     HandlerOutput = Tuple[bool, Union[str, CommandResult, None], bool]
@@ -154,6 +161,116 @@ class SetCommand(BaseCommand):
         self.app.state.command_prefix = val_arg
         return True, f"{key} set to {val_arg}", True
 
+    def _handle_reasoning_effort_setting(self, args: Dict[str, Any], state: "ProxyState") -> HandlerOutput:
+        key = "reasoning-effort"
+        val_arg = args.get(key)
+        if not isinstance(val_arg, str):
+            return False, None, False
+
+        val = val_arg.strip().lower()
+        if val not in {"low", "medium", "high"}:
+            return True, CommandResult(self.name, False, f"reasoning-effort must be 'low', 'medium', or 'high', got: {val_arg}"), False
+
+        state.set_reasoning_effort(val)
+        return True, f"{key} set to {val}", False
+
+    def _handle_reasoning_config_setting(self, args: Dict[str, Any], state: "ProxyState") -> HandlerOutput:
+        key = "reasoning"
+        val_arg = args.get(key)
+        if not isinstance(val_arg, (dict, str)):
+            return False, None, False
+
+        if isinstance(val_arg, str):
+            # Simple string format like "effort=high" or "max_tokens=2000"
+            try:
+                if "=" in val_arg:
+                    k, v = val_arg.split("=", 1)
+                    k = k.strip()
+                    v = v.strip()
+                    if k == "effort" and v in {"low", "medium", "high"}:
+                        config = {"effort": v}
+                    elif k == "max_tokens" and v.isdigit():
+                        config = {"max_tokens": int(v)}
+                    elif k == "exclude" and v.lower() in {"true", "false"}:
+                        config = {"exclude": v.lower() == "true"}
+                    else:
+                        return True, CommandResult(self.name, False, f"Invalid reasoning parameter: {k}={v}"), False
+                else:
+                    return True, CommandResult(self.name, False, f"Invalid reasoning format. Use key=value or dict format"), False
+            except ValueError:
+                return True, CommandResult(self.name, False, f"Invalid reasoning format: {val_arg}"), False
+        else:
+            # Dict format
+            config = val_arg
+
+        state.set_reasoning_config(config)
+        return True, f"{key} set to {config}", False
+
+    def _handle_thinking_budget_setting(self, args: Dict[str, Any], state: "ProxyState") -> HandlerOutput:
+        key = "thinking-budget"
+        val_arg = args.get(key)
+        if val_arg is None:
+            return False, None, False
+
+        try:
+            budget = int(val_arg)
+            if budget < 128 or budget > 32768:
+                return True, CommandResult(self.name, False, f"thinking-budget must be between 128 and 32768, got: {budget}"), False
+            
+            state.set_thinking_budget(budget)
+            return True, f"{key} set to {budget}", False
+        except (ValueError, TypeError):
+            return True, CommandResult(self.name, False, f"thinking-budget must be a valid integer, got: {val_arg}"), False
+
+    def _handle_gemini_generation_config_setting(self, args: Dict[str, Any], state: "ProxyState") -> HandlerOutput:
+        key = "gemini-generation-config"
+        val_arg = args.get(key)
+        if not isinstance(val_arg, (dict, str)):
+            return False, None, False
+
+        if isinstance(val_arg, str):
+            try:
+                config = json.loads(val_arg)
+            except json.JSONDecodeError:
+                return False, f"Invalid JSON format for {key}: {val_arg}", True
+        else:
+            config = val_arg
+
+        if not isinstance(config, dict):
+            return False, f"Invalid format for {key}, expected dict", True
+
+        try:
+            state.set_gemini_generation_config(config)
+            return True, f"gemini generation config set to: {config}", False
+        except Exception as e:
+            return False, f"Failed to set {key}: {str(e)}", True
+
+    def _handle_temperature_setting(self, args: Dict[str, Any], state: "ProxyState") -> HandlerOutput:
+        key = "temperature"
+        val_arg = args.get(key)
+        if val_arg is None:
+            return False, None, False
+
+        try:
+            # Convert to float
+            if isinstance(val_arg, str):
+                temperature = float(val_arg)
+            elif isinstance(val_arg, (int, float)):
+                temperature = float(val_arg)
+            else:
+                return True, CommandResult(self.name, False, f"Invalid temperature format: {val_arg}"), False
+
+            state.set_temperature(temperature)
+            return True, f"temperature set to: {temperature}", False
+        except ValueError as e:
+            # Handle specific ValueError from set_temperature validation
+            if "Temperature must be between 0.0 and 2.0" in str(e):
+                return True, CommandResult(self.name, False, str(e)), False
+            else:
+                return True, CommandResult(self.name, False, f"Invalid temperature value: {val_arg}"), False
+        except Exception as e:
+            return True, CommandResult(self.name, False, str(e)), False
+
     def _save_config_if_needed(self, any_persistent_change: bool, messages: List[str]) -> None:
         if not any_persistent_change or not self.app or not hasattr(self.app.state, "config_manager"):
             return
@@ -183,6 +300,11 @@ class SetCommand(BaseCommand):
             lambda: self._handle_interactive_mode_setting(args, state),
             lambda: self._handle_api_key_redaction_setting(args),
             lambda: self._handle_command_prefix_setting(args),
+            lambda: self._handle_reasoning_effort_setting(args, state),
+            lambda: self._handle_reasoning_config_setting(args, state),
+            lambda: self._handle_thinking_budget_setting(args, state),
+            lambda: self._handle_gemini_generation_config_setting(args, state),
+            lambda: self._handle_temperature_setting(args, state),
         ]
 
         for i, task_func in enumerate(tasks):

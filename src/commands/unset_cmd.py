@@ -72,6 +72,11 @@ class UnsetCommand(BaseCommand):
             "interactive-mode": (lambda s: (s.unset_interactive_mode(), "interactive mode unset")[1], True),
             "command-prefix": (self._unset_command_prefix, True),
             "redact-api-keys-in-prompts": (self._unset_redact_api_keys, True),
+            "reasoning-effort": (lambda s: (s.unset_reasoning_effort(), "reasoning effort unset")[1], False),
+            "reasoning": (lambda s: (s.unset_reasoning_config(), "reasoning config unset")[1], False),
+            "thinking-budget": (lambda s: (s.unset_thinking_budget(), "thinking budget unset")[1], False),
+            "gemini-generation-config": (lambda s: (s.unset_gemini_generation_config(), "gemini generation config unset")[1], False),
+            "temperature": (lambda s: (s.unset_temperature(), "temperature unset")[1], False),
         }
 
         for key in keys_to_unset:

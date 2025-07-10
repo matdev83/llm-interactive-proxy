@@ -109,6 +109,10 @@ class OpenRouterBackend(LLMBackend):
         # Always request usage information for billing tracking
         payload["usage"] = {"include": True}
 
+        # Add extra parameters (including reasoning parameters)
+        if request_data.extra_params:
+            payload.update(request_data.extra_params)
+
         # Apply emergency command filter first (before API key redaction)
         if command_filter:
             for msg_payload in payload["messages"]:

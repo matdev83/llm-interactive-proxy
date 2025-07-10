@@ -108,6 +108,33 @@ class ChatCompletionRequest(BaseModel):
         description="A unique identifier representing your end-user, which can help OpenAI monitor and detect abuse.",
     )
     tools: Optional[List[ToolCall]] = None
+    
+    # Reasoning parameters for o1, o3, o4-mini and other reasoning models
+    reasoning_effort: Optional[str] = Field(
+        None, 
+        description="Constrains effort on reasoning for reasoning models. Supported values: 'low', 'medium', 'high'."
+    )
+    reasoning: Optional[Dict[str, Any]] = Field(
+        None,
+        description="Unified reasoning configuration for OpenRouter. Can include 'effort', 'max_tokens', 'exclude', etc."
+    )
+
+    # Gemini-specific reasoning parameters
+    thinking_budget: Optional[int] = Field(
+        None,
+        description="Gemini thinking budget (128-32768 tokens). Controls tokens allocated for reasoning in Gemini models."
+    )
+    generation_config: Optional[Dict[str, Any]] = Field(
+        None,
+        description="Gemini generation configuration including thinkingConfig, temperature, etc."
+    )
+
+    # Temperature configuration
+    temperature: Optional[float] = Field(
+        None,
+        description="Controls randomness in the model's output. Range: 0.0 to 2.0 (OpenAI) or 0.0 to 1.0 (Gemini)"
+    )
+    
     extra_params: Optional[Dict[str, Any]] = None
     # Add other OpenAI parameters as needed, e.g., functions, tool_choice
 
@@ -206,3 +233,41 @@ def parse_model_backend(model: str, default_backend: str = "") -> tuple[str, str
     else:
         # No separator found, use default backend
         return default_backend, model
+
+# Model-specific reasoning configuration for config files
+class ModelReasoningConfig(BaseModel):
+    """Configuration for model-specific reasoning defaults."""
+    
+    # OpenAI/OpenRouter reasoning parameters
+    reasoning_effort: Optional[str] = Field(
+        None,
+        description="Default reasoning effort for this model (low/medium/high)"
+    )
+    reasoning: Optional[Dict[str, Any]] = Field(
+        None,
+        description="Default OpenRouter unified reasoning configuration"
+    )
+    
+    # Gemini reasoning parameters
+    thinking_budget: Optional[int] = Field(
+        None,
+        description="Default Gemini thinking budget (128-32768 tokens)"
+    )
+    generation_config: Optional[Dict[str, Any]] = Field(
+        None,
+        description="Default Gemini generation configuration"
+    )
+
+    # Temperature configuration
+    temperature: Optional[float] = Field(
+        None,
+        description="Default temperature for this model (0.0-2.0 for OpenAI, 0.0-1.0 for Gemini)"
+    )
+
+class ModelDefaults(BaseModel):
+    """Model-specific default configurations."""
+    
+    reasoning: Optional[ModelReasoningConfig] = Field(
+        None,
+        description="Reasoning configuration defaults for this model"
+    )

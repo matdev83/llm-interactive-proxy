@@ -6,6 +6,7 @@ from typing import Any, Dict, Optional, Tuple # Added Optional and Tuple
 from fastapi import FastAPI
 
 from src.command_prefix import validate_command_prefix
+from src.models import ModelDefaults, ModelReasoningConfig  # Add import for model config classes
 
 logger = logging.getLogger(__name__)
 
@@ -52,9 +53,35 @@ class ConfigManager:
         if isinstance(prefix_value, str):
             err = validate_command_prefix(prefix_value)
             if err:
-                logger.warning("Invalid command_prefix in config '%s': %s", prefix_value, err)
+                logger.warning(f"Invalid command prefix in config: {err}")
             else:
                 self.app.state.command_prefix = prefix_value
+
+    def _apply_model_defaults(self, model_defaults_value: Any) -> list[str]:
+        """Apply model-specific default configurations."""
+        warnings: list[str] = []
+        if not isinstance(model_defaults_value, dict):
+            return warnings
+
+        # Store model defaults in app state for later use
+        if not hasattr(self.app.state, 'model_defaults'):
+            self.app.state.model_defaults = {}
+
+        for model_name, defaults_config in model_defaults_value.items():
+            if not isinstance(defaults_config, dict):
+                warnings.append(f"Model defaults for '{model_name}' is not a dictionary, skipping.")
+                continue
+
+            try:
+                # Validate the model defaults configuration
+                model_defaults = ModelDefaults(**defaults_config)
+                self.app.state.model_defaults[model_name] = model_defaults
+                logger.info(f"Loaded defaults for model: {model_name}")
+            except Exception as e:
+                warnings.append(f"Invalid model defaults for '{model_name}': {e}")
+                continue
+
+        return warnings
 
     def _parse_and_validate_failover_element(self, elem_str: Any, route_name: str) -> Tuple[Optional[str], Optional[str]]:
         """Parses and validates a single failover element string.
@@ -123,18 +150,30 @@ class ConfigManager:
         all_warnings.extend(failover_warnings)
 
         self._apply_command_prefix(data.get("command_prefix"))
+        model_defaults_warnings = self._apply_model_defaults(data.get("model_defaults"))
+        all_warnings.extend(model_defaults_warnings)
 
         for w in all_warnings:
             logger.warning(w)
 
     def collect(self) -> Dict[str, Any]:
-        return {
+        config_data = {
             "default_backend": self.app.state.backend_type,
             "interactive_mode": self.app.state.session_manager.default_interactive_mode,
             "failover_routes": self.app.state.failover_routes,
             "redact_api_keys_in_prompts": self.app.state.api_key_redaction_enabled,
             "command_prefix": self.app.state.command_prefix,
         }
+        
+        # Include model defaults if they exist
+        if hasattr(self.app.state, 'model_defaults') and self.app.state.model_defaults:
+            # Convert ModelDefaults objects back to dict format for JSON serialization
+            model_defaults_dict = {}
+            for model_name, model_defaults in self.app.state.model_defaults.items():
+                model_defaults_dict[model_name] = model_defaults.dict(exclude_none=True)
+            config_data["model_defaults"] = model_defaults_dict
+            
+        return config_data
 
     def save(self) -> None:
         self.path.parent.mkdir(parents=True, exist_ok=True)

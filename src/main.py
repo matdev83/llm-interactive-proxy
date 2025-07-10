@@ -188,6 +188,10 @@ def build_app(
         }
         app_param.state.functional_backends = functional
 
+        # Generate the welcome banner at startup to show API key and model counts
+        startup_banner = _welcome_banner(app_param, "startup")
+        # Banner is logged instead of printed to avoid test failures
+
         backend_type = cfg.get("backend")
         if backend_type:
             if functional and backend_type not in functional:
@@ -440,104 +444,124 @@ def build_app(
                     if isinstance(part, models.MessageContentPartText)
                 )
 
+        # Check if commands were processed and determine if we should return proxy response or continue to backend
         if commands_processed:
-            # Enhanced Cline detection: if commands were processed but no agent was detected yet,
-            # check if this looks like a Cline request (long prompt with command at the end)
-            if session.agent is None and request_data.messages:
-                first_message = request_data.messages[0]
-                if isinstance(first_message.content, str):
-                    content = first_message.content
-                    logger.info(f"[CLINE_DEBUG] Commands processed but no agent detected. Message length: {len(content)}. Session: {session_id}")
-                    logger.debug(f"[CLINE_DEBUG] Message content preview: {content[:200]}...")
-                    # Cline typically sends long prompts (agent instructions) followed by user commands
-                    # If we see a command in a reasonably long message, it's likely Cline
-                    if len(content) > 100 and ("!/hello" in content or "!/" in content):
-                        session.agent = "cline"
-                        proxy_state.set_is_cline_agent(True)
-                        logger.info(f"[CLINE_DEBUG] Enhanced detection: Set agent to Cline (long message with commands). Session: {session_id}")
-                    else:
-                        logger.info(f"[CLINE_DEBUG] Enhanced detection: Did not match Cline pattern. Session: {session_id}")
-            else:
-                logger.info(f"[CLINE_DEBUG] Commands processed, agent already detected: {session.agent}. Session: {session_id}")
-
-            content_lines_for_agent = []
-            if proxy_state.interactive_mode and show_banner and not http_request.app.state.disable_interactive_commands:
-                banner_content = _welcome_banner(http_request.app, session_id)
-                content_lines_for_agent.append(banner_content)
-
-            # Include command results for Cline agents, but exclude simple confirmations for non-Cline agents
-            if confirmation_text:
-                if session.agent == "cline":
-                    # For Cline agents, include command results but exclude "hello acknowledged" confirmations
-                    if confirmation_text != "hello acknowledged":
-                        content_lines_for_agent.append(confirmation_text)
+            # Check if there's meaningful content remaining after command processing
+            has_meaningful_content = False
+            if processed_messages:
+                for msg in processed_messages:
+                    if isinstance(msg.content, str) and msg.content.strip():
+                        has_meaningful_content = True
+                        break
+                    elif isinstance(msg.content, list) and msg.content:
+                        # Check if list has any non-empty text parts
+                        for part in msg.content:
+                            if hasattr(part, 'text') and part.text.strip():
+                                has_meaningful_content = True
+                                break
+                        if has_meaningful_content:
+                            break
+            
+            # If no meaningful content remains, return proxy response for command-only requests
+            if not has_meaningful_content:
+                # Enhanced Cline detection: if commands were processed but no agent was detected yet,
+                # check if this looks like a Cline request (long prompt with command at the end)
+                if session.agent is None and request_data.messages:
+                    first_message = request_data.messages[0]
+                    if isinstance(first_message.content, str):
+                        content = first_message.content
+                        logger.info(f"[CLINE_DEBUG] Commands processed but no agent detected. Message length: {len(content)}. Session: {session_id}")
+                        logger.debug(f"[CLINE_DEBUG] Message content preview: {content[:200]}...")
+                        # Cline typically sends long prompts (agent instructions) followed by user commands
+                        # If we see a command in a reasonably long message, it's likely Cline
+                        if len(content) > 100 and ("!/hello" in content or "!/" in content):
+                            session.agent = "cline"
+                            proxy_state.set_is_cline_agent(True)
+                            logger.info(f"[CLINE_DEBUG] Enhanced detection: Set agent to Cline (long message with commands). Session: {session_id}")
+                        else:
+                            logger.info(f"[CLINE_DEBUG] Enhanced detection: Did not match Cline pattern. Session: {session_id}")
                 else:
-                    # For non-Cline agents, include all confirmation messages
-                    content_lines_for_agent.append(confirmation_text)
+                    logger.info(f"[CLINE_DEBUG] Commands processed, agent already detected: {session.agent}. Session: {session_id}")
 
-            final_content = "\n".join(content_lines_for_agent)
+                content_lines_for_agent = []
+                if proxy_state.interactive_mode and show_banner and not http_request.app.state.disable_interactive_commands:
+                    banner_content = _welcome_banner(http_request.app, session_id)
+                    content_lines_for_agent.append(banner_content)
 
-            session.add_interaction(
-                SessionInteraction(
-                    prompt=raw_prompt,
-                    handler="proxy",
-                    model=proxy_state.get_effective_model(request_data.model),
-                    project=proxy_state.project,
-                    response=final_content,
-                )
-            )
-            proxy_state.hello_requested = False
-            proxy_state.interactive_just_enabled = False
+                # Include command results for Cline agents, but exclude simple confirmations for non-Cline agents
+                if confirmation_text:
+                    if session.agent == "cline":
+                        # For Cline agents, include command results but exclude "hello acknowledged" confirmations
+                        if confirmation_text != "hello acknowledged":
+                            content_lines_for_agent.append(confirmation_text)
+                    else:
+                        # For non-Cline agents, include all confirmation messages
+                        content_lines_for_agent.append(confirmation_text)
 
-            if session.agent == "cline":
-                logger.debug("[CLINE_DEBUG] Returning as XML-wrapped content for Cline agent")
-                # Format the response in the XML format expected by Cline tests
-                xml_wrapped_content = f"<attempt_completion>\n<result>\n{final_content}\n</result>\n</attempt_completion>\n"
-                return models.CommandProcessedChatCompletionResponse(
-                    id="proxy_cmd_processed",
-                    object="chat.completion",
-                    created=int(datetime.now(timezone.utc).timestamp()),
-                    model=request_data.model,
-                    choices=[
-                        models.ChatCompletionChoice(
-                            index=0,
-                            message=models.ChatCompletionChoiceMessage(
-                                role="assistant",
-                                content=xml_wrapped_content
-                            ),
-                            finish_reason="stop"
-                        )
-                    ],
-                    usage=models.CompletionUsage(
-                        prompt_tokens=0,
-                        completion_tokens=0,
-                        total_tokens=0
+                final_content = "\n".join(content_lines_for_agent)
+
+                session.add_interaction(
+                    SessionInteraction(
+                        prompt=raw_prompt,
+                        handler="proxy",
+                        model=proxy_state.get_effective_model(request_data.model),
+                        project=proxy_state.project,
+                        response=final_content,
                     )
                 )
-            else:
-                logger.debug(f"[CLINE_DEBUG] Returning as regular assistant message for agent: {session.agent}")
-                formatted_content = wrap_proxy_message(session.agent, final_content)
-                return models.CommandProcessedChatCompletionResponse(
-                    id="proxy_cmd_processed",
-                    object="chat.completion",
-                    created=int(datetime.now(timezone.utc).timestamp()),
-                    model=proxy_state.get_effective_model(request_data.model),
-                    choices=[
-                        models.ChatCompletionChoice(
-                            index=0,
-                            message=models.ChatCompletionChoiceMessage(
-                                role="assistant",
-                                content=formatted_content
-                            ),
-                            finish_reason="stop"
+                proxy_state.hello_requested = False
+                proxy_state.interactive_just_enabled = False
+
+                if session.agent == "cline":
+                    logger.debug("[CLINE_DEBUG] Returning as XML-wrapped content for Cline agent")
+                    # Format the response in the XML format expected by Cline tests
+                    xml_wrapped_content = f"<attempt_completion>\n<result>\n{final_content}\n</result>\n</attempt_completion>\n"
+                    return models.CommandProcessedChatCompletionResponse(
+                        id="proxy_cmd_processed",
+                        object="chat.completion",
+                        created=int(datetime.now(timezone.utc).timestamp()),
+                        model=request_data.model,
+                        choices=[
+                            models.ChatCompletionChoice(
+                                index=0,
+                                message=models.ChatCompletionChoiceMessage(
+                                    role="assistant",
+                                    content=xml_wrapped_content
+                                ),
+                                finish_reason="stop"
+                            )
+                        ],
+                        usage=models.CompletionUsage(
+                            prompt_tokens=0,
+                            completion_tokens=0,
+                            total_tokens=0
                         )
-                    ],
-                    usage=models.CompletionUsage(
-                        prompt_tokens=0,
-                        completion_tokens=0,
-                        total_tokens=0
                     )
-                )
+                else:
+                    logger.debug(f"[CLINE_DEBUG] Returning as regular assistant message for agent: {session.agent}")
+                    formatted_content = wrap_proxy_message(session.agent, final_content)
+                    return models.CommandProcessedChatCompletionResponse(
+                        id="proxy_cmd_processed",
+                        object="chat.completion",
+                        created=int(datetime.now(timezone.utc).timestamp()),
+                        model=proxy_state.get_effective_model(request_data.model),
+                        choices=[
+                            models.ChatCompletionChoice(
+                                index=0,
+                                message=models.ChatCompletionChoiceMessage(
+                                    role="assistant",
+                                    content=formatted_content
+                                ),
+                                finish_reason="stop"
+                            )
+                        ],
+                        usage=models.CompletionUsage(
+                            prompt_tokens=0,
+                            completion_tokens=0,
+                            total_tokens=0
+                        )
+                    )
+            # If there's meaningful content remaining, continue to backend call
 
         # Check if messages became empty after processing and no commands were processed
         if not processed_messages:
@@ -560,9 +584,70 @@ def build_app(
 
         effective_model = proxy_state.get_effective_model(request_data.model)
         
+        # Apply model-specific defaults if configured
+        if hasattr(http_request.app.state, 'model_defaults') and http_request.app.state.model_defaults:
+            # Check for exact model match first
+            if effective_model in http_request.app.state.model_defaults:
+                proxy_state.apply_model_defaults(effective_model, http_request.app.state.model_defaults[effective_model])
+            else:
+                # Check for backend:model pattern match
+                current_backend = proxy_state.get_selected_backend(http_request.app.state.backend_type)
+                full_model_name = f"{current_backend}:{effective_model}"
+                if full_model_name in http_request.app.state.model_defaults:
+                    proxy_state.apply_model_defaults(full_model_name, http_request.app.state.model_defaults[full_model_name])
+        
         # Update performance metrics with backend and model info
         perf_metrics.backend_used = current_backend_type
         perf_metrics.model_used = effective_model
+
+        # Inject reasoning parameters from proxy state into request_data
+        if proxy_state.reasoning_effort:
+            request_data.reasoning_effort = proxy_state.reasoning_effort
+
+        if proxy_state.reasoning_config:
+            request_data.reasoning = proxy_state.reasoning_config
+
+        # Inject Gemini-specific reasoning parameters
+        if proxy_state.thinking_budget:
+            request_data.thinking_budget = proxy_state.thinking_budget
+
+        if proxy_state.gemini_generation_config:
+            request_data.generation_config = proxy_state.gemini_generation_config
+
+        # Inject temperature parameter (only if not already set in API request)
+        if proxy_state.temperature is not None and request_data.temperature is None:
+            request_data.temperature = proxy_state.temperature
+
+        # Provider-specific reasoning parameter handling
+        if current_backend_type == "openrouter":
+            # For OpenRouter, add reasoning parameters to extra_params if not already set
+            if not request_data.extra_params:
+                request_data.extra_params = {}
+            
+            if proxy_state.reasoning_effort and "reasoning_effort" not in request_data.extra_params:
+                request_data.extra_params["reasoning_effort"] = proxy_state.reasoning_effort
+            
+            if proxy_state.reasoning_config and "reasoning" not in request_data.extra_params:
+                request_data.extra_params["reasoning"] = proxy_state.reasoning_config
+
+        elif current_backend_type in ["gemini", "gemini-cli-direct"]:
+            # For Gemini, handle thinking budget and generation config
+            if not request_data.extra_params:
+                request_data.extra_params = {}
+            
+            # Convert thinking budget to Gemini's generation config format
+            if proxy_state.thinking_budget and "generationConfig" not in request_data.extra_params:
+                request_data.extra_params["generationConfig"] = {
+                    "thinkingConfig": {
+                        "thinkingBudget": proxy_state.thinking_budget
+                    }
+                }
+            
+            # Add generation config if provided
+            if proxy_state.gemini_generation_config:
+                if "generationConfig" not in request_data.extra_params:
+                    request_data.extra_params["generationConfig"] = {}
+                request_data.extra_params["generationConfig"].update(proxy_state.gemini_generation_config)
 
         async def _call_backend(
             b_type: str, model_str: str, key_name_str: str, api_key_str: str
