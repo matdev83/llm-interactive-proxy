@@ -14,9 +14,9 @@ if TYPE_CHECKING:
 @register_command
 class RoutePrependCommand(FailoverBase):
     name = "route-prepend"
-    format = "route-prepend(name=<route>,backend:model,...)"
+    format = "route-prepend(name=<route>,backend/model,...)"
     description = "Prepend elements to a failover route"
-    examples = ["!/route-prepend(name=myroute,openrouter:model-a)"]
+    examples = ["!/route-prepend(name=myroute,openrouter/model-a)"]
 
     def __init__(self, app: FastAPI | None = None,
                  functional_backends: Set[str] | None = None) -> None:
@@ -34,9 +34,13 @@ class RoutePrependCommand(FailoverBase):
             return CommandResult(
                 self.name, False, "no route elements specified")
         for e in reversed(elements):
-            if ":" not in e:
-                continue
-            state.prepend_route_element(name, e)
+            # Use robust parsing that handles both slash and colon syntax
+            from src.models import parse_model_backend
+            backend, model = parse_model_backend(e)
+            if not backend:
+                continue  # Skip invalid elements
+            internal_element = f"{backend}:{model}"
+            state.prepend_route_element(name, internal_element)
         msgs.append(f"elements prepended to {name}")
         if self.app is not None and getattr(
                 self.app.state, "config_manager", None):

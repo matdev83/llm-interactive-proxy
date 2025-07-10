@@ -14,9 +14,9 @@ if TYPE_CHECKING:
 @register_command
 class RouteAppendCommand(FailoverBase):
     name = "route-append"
-    format = "route-append(name=<route>,backend:model,...)"
+    format = "route-append(name=<route>,backend/model,...)"
     description = "Append elements to a failover route"
-    examples = ["!/route-append(name=myroute,openrouter:model-a)"]
+    examples = ["!/route-append(name=myroute,openrouter/model-a)"]
 
     def __init__(self, app: FastAPI | None = None,
                  functional_backends: Set[str] | None = None) -> None:
@@ -34,9 +34,13 @@ class RouteAppendCommand(FailoverBase):
             return CommandResult(
                 self.name, False, "no route elements specified")
         for e in elements:
-            if ":" not in e:
-                continue
-            state.append_route_element(name, e)
+            # Use robust parsing that handles both slash and colon syntax
+            from src.models import parse_model_backend
+            backend, model = parse_model_backend(e)
+            if not backend:
+                continue  # Skip invalid elements
+            internal_element = f"{backend}:{model}"
+            state.append_route_element(name, internal_element)
         msgs.append(f"elements appended to {name}")
         if self.app is not None and getattr(
                 self.app.state, "config_manager", None):

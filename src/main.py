@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 import asyncio
+import json
 import os
 import secrets
 import sys
@@ -13,7 +14,7 @@ from typing import Any, Dict, Union, Optional
 # Moved imports to the top (E402 fix)
 import httpx  # json is used for logging, will keep
 from fastapi import Depends, FastAPI, HTTPException, Request
-from fastapi.responses import StreamingResponse
+from starlette.responses import StreamingResponse
 
 from src import models
 from src.agents import detect_agent, wrap_proxy_message, format_command_response_for_agent
@@ -28,6 +29,7 @@ from src.rate_limit import RateLimitRegistry, parse_retry_delay
 from src.security import APIKeyRedactor, ProxyCommandFilter
 from src.session import SessionInteraction, SessionManager
 from src.llm_accounting_utils import track_llm_request, get_usage_stats, get_audit_logs, get_llm_accounting
+from src.performance_tracker import track_request_performance, track_phase
 from src.gemini_models import GenerateContentRequest, GenerateContentResponse, ListModelsResponse
 from src.gemini_converters import (
     gemini_to_openai_request, openai_to_gemini_response, openai_to_gemini_stream_chunk,
@@ -284,40 +286,70 @@ def build_app(
 
     @app_instance.post(
         "/v1/chat/completions",
-        response_model=Union[
-            models.CommandProcessedChatCompletionResponse, Dict[str, Any]
-        ],
         dependencies=[Depends(verify_client_auth)],
     )
     async def chat_completions(
         request_data: models.ChatCompletionRequest, http_request: Request
     ):
         session_id = http_request.headers.get("x-session-id", "default")
-        session = http_request.app.state.session_manager.get_session(
-            session_id)
-        proxy_state: ProxyState = session.proxy_state
+        
+        with track_request_performance(session_id) as perf_metrics:
+            session = http_request.app.state.session_manager.get_session(
+                session_id)
+            proxy_state: ProxyState = session.proxy_state
+            
+            # Set initial context for performance tracking
+            perf_metrics.streaming = getattr(request_data, 'stream', False)
 
-        if request_data.messages:
-            first = request_data.messages[0]
-            if isinstance(first.content, str):
-                text = first.content
-            elif isinstance(first.content, list):
-                # E501: Wrapped list comprehension
-                text = " ".join(
-                    p.text for p in first.content
-                    if isinstance(p, models.MessageContentPartText)
-                )
+            # Add detailed logging for debugging Cline issues
+            logger.info(f"[CLINE_DEBUG] ========== NEW REQUEST ==========")
+            logger.info(f"[CLINE_DEBUG] Session ID: {session_id}")
+            logger.info(f"[CLINE_DEBUG] User-Agent: {http_request.headers.get('user-agent', 'Unknown')}")
+            logger.info(f"[CLINE_DEBUG] Authorization: {http_request.headers.get('authorization', 'None')[:20]}...")
+            logger.info(f"[CLINE_DEBUG] Content-Type: {http_request.headers.get('content-type', 'Unknown')}")
+            logger.info(f"[CLINE_DEBUG] Model requested: {request_data.model}")
+            logger.info(f"[CLINE_DEBUG] Messages count: {len(request_data.messages) if request_data.messages else 0}")
+            
+            # Check if tools are included in the request
+            if request_data.tools:
+                logger.info(f"[CLINE_DEBUG] Tools provided: {len(request_data.tools)} tools")
+                for i, tool in enumerate(request_data.tools):
+                    logger.info(f"[CLINE_DEBUG] Tool {i}: {tool.function.name}")
             else:
-                text = ""
+                logger.info(f"[CLINE_DEBUG] No tools provided in request")
+                
+            if request_data.messages:
+                for i, msg in enumerate(request_data.messages):
+                    content_preview = str(msg.content)[:100] + "..." if len(str(msg.content)) > 100 else str(msg.content)
+                    logger.info(f"[CLINE_DEBUG] Message {i}: role={msg.role}, content={content_preview}")
+            logger.info(f"[CLINE_DEBUG] ================================")
 
-            if not proxy_state.is_cline_agent and "<attempt_completion>" in text:
-                proxy_state.set_is_cline_agent(True)
-                # Also set session.agent to ensure XML wrapping works
-                if session.agent is None:
-                    session.agent = "cline"
+            # Start command processing phase
+            with track_phase(perf_metrics, "command_processing"):
+                if request_data.messages:
+                    first = request_data.messages[0]
+                    if isinstance(first.content, str):
+                        text = first.content
+                    elif isinstance(first.content, list):
+                        # E501: Wrapped list comprehension
+                        text = " ".join(
+                            p.text for p in first.content
+                            if isinstance(p, models.MessageContentPartText)
+                        )
+                    else:
+                        text = ""
 
-            if session.agent is None:
-                session.agent = detect_agent(text)
+                    if not proxy_state.is_cline_agent and "<attempt_completion>" in text:
+                        proxy_state.set_is_cline_agent(True)
+                        # Also set session.agent to ensure XML wrapping works
+                        if session.agent is None:
+                            session.agent = "cline"
+                        logger.info(f"[CLINE_DEBUG] Detected Cline agent via <attempt_completion> pattern. Session: {session_id}")
+
+                    if session.agent is None:
+                        session.agent = detect_agent(text)
+                        if session.agent:
+                            logger.info(f"[CLINE_DEBUG] Detected agent via detect_agent(): {session.agent}. Session: {session_id}")
 
         current_backend_type = http_request.app.state.backend_type
         if proxy_state.override_backend:
@@ -338,6 +370,8 @@ def build_app(
                     detail=f"unknown backend {current_backend_type}")
 
         parser = None
+        confirmation_text = ""  # Initialize confirmation_text for both paths
+        
         if not http_request.app.state.disable_interactive_commands:
             parser = CommandParser(
                 proxy_state,
@@ -346,9 +380,21 @@ def build_app(
                 preserve_unknown=not proxy_state.interactive_mode,
                 functional_backends=http_request.app.state.functional_backends,
             )
+            
             processed_messages, commands_processed = parser.process_messages(
                 request_data.messages
             )
+            
+            # Generate confirmation text from command results
+            if parser and parser.command_results:
+                confirmation_messages = []
+                for result in parser.command_results:
+                    if result.success:
+                        confirmation_messages.append(result.message)
+                    else:
+                        confirmation_messages.append(f"Error: {result.message}")
+                confirmation_text = "\n".join(confirmation_messages)
+            
             if parser.command_results and any(
                     not result.success for result in parser.command_results):
                 error_messages = [
@@ -357,7 +403,7 @@ def build_app(
                 return {
                     "id": "proxy_cmd_processed",
                     "object": "chat.completion",
-                    "created": int(time.time()),
+                    "created": int(datetime.now(timezone.utc).timestamp()),
                     "model": request_data.model,
                     "choices": [{
                         "index": 0,
@@ -377,19 +423,10 @@ def build_app(
             processed_messages = request_data.messages
             commands_processed = False
 
-        if proxy_state.override_backend:
-            current_backend_type = proxy_state.override_backend
-        else:
-            current_backend_type = http_request.app.state.backend_type
+        current_backend_type = proxy_state.get_selected_backend(http_request.app.state.backend_type)
 
-        show_banner = False
-        if proxy_state.interactive_mode:
-            if not session.history:
-                show_banner = True
-            if proxy_state.interactive_just_enabled:
-                show_banner = True
-            if proxy_state.hello_requested:
-                show_banner = True
+        # Only show banner when explicitly requested via !/hello command
+        show_banner = proxy_state.hello_requested
 
         raw_prompt = ""
         if request_data.messages:
@@ -404,94 +441,105 @@ def build_app(
                 )
 
         if commands_processed:
-            if not processed_messages:
-                pass
-            else:
-                last_msg = processed_messages[-1]
-                # The following lines were causing a Pylance warning "Expression value is unused".
-                # They were evaluating a boolean expression but not using the result.
-                # Removed them as they were effectively no-ops.
-                # if isinstance(last_msg.content, str):
-                #     not last_msg.content.strip()
-                # elif isinstance(last_msg.content, list):
-                #     # E501: Wrapped comprehension
-                #     not any(
-                #         part.text.strip() for part in last_msg.content
-                #         if isinstance(part, models.MessageContentPartText)
-                #     )
-
-        confirmation_text = ""
-        if parser is not None:
-                    confirmation_text = "\n".join(
-            r.message for r in parser.command_results if r.message
-        )
-
-        if commands_processed:
             # Enhanced Cline detection: if commands were processed but no agent was detected yet,
             # check if this looks like a Cline request (long prompt with command at the end)
             if session.agent is None and request_data.messages:
                 first_message = request_data.messages[0]
                 if isinstance(first_message.content, str):
                     content = first_message.content
+                    logger.info(f"[CLINE_DEBUG] Commands processed but no agent detected. Message length: {len(content)}. Session: {session_id}")
+                    logger.debug(f"[CLINE_DEBUG] Message content preview: {content[:200]}...")
                     # Cline typically sends long prompts (agent instructions) followed by user commands
                     # If we see a command in a reasonably long message, it's likely Cline
                     if len(content) > 100 and ("!/hello" in content or "!/" in content):
                         session.agent = "cline"
                         proxy_state.set_is_cline_agent(True)
+                        logger.info(f"[CLINE_DEBUG] Enhanced detection: Set agent to Cline (long message with commands). Session: {session_id}")
+                    else:
+                        logger.info(f"[CLINE_DEBUG] Enhanced detection: Did not match Cline pattern. Session: {session_id}")
+            else:
+                logger.info(f"[CLINE_DEBUG] Commands processed, agent already detected: {session.agent}. Session: {session_id}")
 
             content_lines_for_agent = []
-            # Only show banner if interactive mode is enabled AND global interactive commands are not disabled
             if proxy_state.interactive_mode and show_banner and not http_request.app.state.disable_interactive_commands:
                 banner_content = _welcome_banner(http_request.app, session_id)
-                content_lines_for_agent.extend(banner_content.splitlines())
-            elif show_banner and not http_request.app.state.disable_interactive_commands:  # This condition might need review, but keeping its logic.
-                banner_content = _welcome_banner(http_request.app, session_id)
-                content_lines_for_agent.extend(banner_content.splitlines())
+                content_lines_for_agent.append(banner_content)
 
-            # For Cline agents, don't include command confirmation messages in XML response
-            # Only include them for non-Cline agents
-            if confirmation_text and session.agent != "cline":
-                content_lines_for_agent.extend(confirmation_text.splitlines())
+            # Include command results for Cline agents, but exclude simple confirmations for non-Cline agents
+            if confirmation_text:
+                if session.agent == "cline":
+                    # For Cline agents, include command results but exclude "hello acknowledged" confirmations
+                    if confirmation_text != "hello acknowledged":
+                        content_lines_for_agent.append(confirmation_text)
+                else:
+                    # For non-Cline agents, include all confirmation messages
+                    content_lines_for_agent.append(confirmation_text)
 
-            if not content_lines_for_agent:
-                content_lines_for_agent = [
-                    "Proxy command processed. No query sent to LLM."]
+            final_content = "\n".join(content_lines_for_agent)
 
-            formatted_agent_response = format_command_response_for_agent(
-                content_lines_for_agent, session.agent)
-            response_text = wrap_proxy_message(
-                session.agent, formatted_agent_response)
-
-            # The rest of the block (session.add_interaction, return models.CommandProcessedChatCompletionResponse)
-            # uses this final response_text.
             session.add_interaction(
                 SessionInteraction(
                     prompt=raw_prompt,
                     handler="proxy",
                     model=proxy_state.get_effective_model(request_data.model),
                     project=proxy_state.project,
-                    response=response_text,
+                    response=final_content,
                 )
             )
             proxy_state.hello_requested = False
             proxy_state.interactive_just_enabled = False
-            return models.CommandProcessedChatCompletionResponse(
-                id="proxy_cmd_processed",
-                object="chat.completion",
-                created=int(datetime.now(timezone.utc).timestamp()),
-                model=proxy_state.get_effective_model(request_data.model),
-                choices=[models.ChatCompletionChoice(
-                    index=0,
-                    message=models.ChatCompletionChoiceMessage(
-                        role="assistant", content=response_text,
-                    ),
-                    finish_reason="stop",
-                )],
-                usage=models.CompletionUsage(
-                    prompt_tokens=0, completion_tokens=0, total_tokens=0
-                ),
-            )
 
+            if session.agent == "cline":
+                logger.debug("[CLINE_DEBUG] Returning as XML-wrapped content for Cline agent")
+                # Format the response in the XML format expected by Cline tests
+                xml_wrapped_content = f"<attempt_completion>\n<result>\n{final_content}\n</result>\n</attempt_completion>\n"
+                return models.CommandProcessedChatCompletionResponse(
+                    id="proxy_cmd_processed",
+                    object="chat.completion",
+                    created=int(datetime.now(timezone.utc).timestamp()),
+                    model=request_data.model,
+                    choices=[
+                        models.ChatCompletionChoice(
+                            index=0,
+                            message=models.ChatCompletionChoiceMessage(
+                                role="assistant",
+                                content=xml_wrapped_content
+                            ),
+                            finish_reason="stop"
+                        )
+                    ],
+                    usage=models.CompletionUsage(
+                        prompt_tokens=0,
+                        completion_tokens=0,
+                        total_tokens=0
+                    )
+                )
+            else:
+                logger.debug(f"[CLINE_DEBUG] Returning as regular assistant message for agent: {session.agent}")
+                formatted_content = wrap_proxy_message(session.agent, final_content)
+                return models.CommandProcessedChatCompletionResponse(
+                    id="proxy_cmd_processed",
+                    object="chat.completion",
+                    created=int(datetime.now(timezone.utc).timestamp()),
+                    model=proxy_state.get_effective_model(request_data.model),
+                    choices=[
+                        models.ChatCompletionChoice(
+                            index=0,
+                            message=models.ChatCompletionChoiceMessage(
+                                role="assistant",
+                                content=formatted_content
+                            ),
+                            finish_reason="stop"
+                        )
+                    ],
+                    usage=models.CompletionUsage(
+                        prompt_tokens=0,
+                        completion_tokens=0,
+                        total_tokens=0
+                    )
+                )
+
+        # Check if messages became empty after processing and no commands were processed
         if not processed_messages:
             raise HTTPException(
                 status_code=400,
@@ -511,6 +559,10 @@ def build_app(
             )
 
         effective_model = proxy_state.get_effective_model(request_data.model)
+        
+        # Update performance metrics with backend and model info
+        perf_metrics.backend_used = current_backend_type
+        perf_metrics.model_used = effective_model
 
         async def _call_backend(
             b_type: str, model_str: str, key_name_str: str, api_key_str: str
@@ -668,8 +720,10 @@ def build_app(
                                 )
                         raise
 
-        route = proxy_state.failover_routes.get(effective_model)
-        attempts: list[tuple[str, str, str, str]] = []
+        # Start backend selection phase
+        with track_phase(perf_metrics, "backend_selection"):
+            route = proxy_state.failover_routes.get(effective_model)
+            attempts: list[tuple[str, str, str, str]] = []
         if route:
             elements = route.get("elements", [])
             if isinstance(elements, dict):
@@ -763,6 +817,11 @@ def build_app(
                     logger.debug(
                         f"Attempt successful for backend: {b_attempt}, model: {m_attempt}, key_name: {kname_attempt}"
                     )
+                    
+                    # Clear oneoff route after successful backend call
+                    if proxy_state.oneoff_backend or proxy_state.oneoff_model:
+                        proxy_state.clear_oneoff_route()
+                    
                     break
                 except HTTPException as e:
                     logger.debug(
@@ -813,70 +872,56 @@ def build_app(
                     raise HTTPException(status_code=429, detail={"message": "Backend rate limited", "retry_after": int(earliest_retry - time.time())})
                 await asyncio.sleep(max(0, earliest_retry - time.time()))
 
-        if isinstance(response_from_backend, StreamingResponse):
+        # Start response processing phase
+        with track_phase(perf_metrics, "response_processing"):
+            if isinstance(response_from_backend, StreamingResponse):
+                session.add_interaction(
+                    SessionInteraction(
+                        prompt=raw_prompt, handler="backend", backend=used_backend,
+                        model=used_model, project=proxy_state.project,
+                        parameters=request_data.model_dump(exclude_unset=True),
+                        response="<streaming>",
+                    )
+                )
+                return response_from_backend
+
+            backend_response_dict: Dict[str, Any] = (
+                response_from_backend if isinstance(response_from_backend, dict) 
+                else response_from_backend.model_dump(exclude_none=True) if response_from_backend and hasattr(response_from_backend, 'model_dump')
+                else {}
+            )
+
+            if "choices" not in backend_response_dict:
+                backend_response_dict["choices"] = [{"index": 0, "message": {
+                    "role": "assistant", "content": "(no response)"}, "finish_reason": "error"}]
+
+            usage_data = backend_response_dict.get("usage")
             session.add_interaction(
                 SessionInteraction(
                     prompt=raw_prompt, handler="backend", backend=used_backend,
                     model=used_model, project=proxy_state.project,
                     parameters=request_data.model_dump(exclude_unset=True),
-                    response="<streaming>",
+                    response=backend_response_dict.get("choices", [{}])[0]
+                    .get("message", {}).get("content"),
+                    usage=(
+                        models.CompletionUsage(**usage_data)
+                        if isinstance(usage_data, dict) else None
+                    ),
                 )
             )
-            return response_from_backend
-
-        backend_response_dict: Dict[str, Any] = (
-            response_from_backend if isinstance(response_from_backend, dict) 
-            else response_from_backend.model_dump() if hasattr(response_from_backend, 'model_dump')
-            else {}
-        )
-
-        if "choices" not in backend_response_dict:
-            backend_response_dict["choices"] = [{"index": 0, "message": {
-                "role": "assistant", "content": "(no response)"}, "finish_reason": "error"}]
-
-        # Only inject banner/prefix if there were commands processed AND both session-level 
-        # interactive mode is enabled AND global interactive commands are not disabled
-        # Banner should NEVER be injected into pure LLM responses
-        if commands_processed and proxy_state.interactive_mode and not http_request.app.state.disable_interactive_commands:
-            prefix_parts = []
-            if show_banner:
-                prefix_parts.append(
-                    _welcome_banner(
-                        http_request.app,
-                        session_id))
-            if confirmation_text:
-                prefix_parts.append(confirmation_text)
-            if prefix_parts:
-                prefix_text_str = wrap_proxy_message(
-                    session.agent, "\n".join(prefix_parts))
-                orig_content = (
-                    backend_response_dict.get("choices", [{}])[0]
-                    .get("message", {})
-                    .get("content", "")
-                )
-                # E501: Wrapped assignment
-                backend_response_dict["choices"][0]["message"]["content"] = (
-                    f"{prefix_text_str}\n{orig_content}" if orig_content
-                    else prefix_text_str
-                )
-
-        usage_data = backend_response_dict.get("usage")
-        session.add_interaction(
-            SessionInteraction(
-                prompt=raw_prompt, handler="backend", backend=used_backend,
-                model=used_model, project=proxy_state.project,
-                parameters=request_data.model_dump(exclude_unset=True),
-                response=backend_response_dict.get("choices", [{}])[0]
-                .get("message", {}).get("content"),
-                usage=(
-                    models.CompletionUsage(**usage_data)
-                    if isinstance(usage_data, dict) else None
-                ),
-            )
-        )
-        proxy_state.hello_requested = False
-        proxy_state.interactive_just_enabled = False
-        return backend_response_dict
+            proxy_state.hello_requested = False
+            proxy_state.interactive_just_enabled = False
+            
+            # Remove None values from the response to match expected format
+            def remove_none_values(obj):
+                if isinstance(obj, dict):
+                    return {k: remove_none_values(v) for k, v in obj.items() if v is not None}
+                elif isinstance(obj, list):
+                    return [remove_none_values(item) for item in obj]
+                else:
+                    return obj
+            
+            return remove_none_values(backend_response_dict)
 
     @app_instance.get("/models", dependencies=[Depends(verify_client_auth)])
     async def list_all_models(http_request: Request):
@@ -925,21 +970,9 @@ def build_app(
             raise HTTPException(status_code=500, detail=f"Failed to list models: {str(e)}")
 
     def _parse_model_backend(model: str, default_backend: str) -> tuple[str, str]:
-        """Parse model string to extract backend and actual model name.
-
-        Args:
-            model: Model string like "openrouter:gpt-4" or "gemini:gemini-pro" or just "gpt-4"
-            default_backend: Default backend to use if no prefix is specified
-
-        Returns:
-            Tuple of (backend_type, model_name)
-        """
-        if ":" in model:
-            backend, model_name = model.split(":", 1)
-            return backend, model_name
-        else:
-            # Default to the provided default backend if no prefix
-            return default_backend, model
+        """Parse model string to extract backend and actual model name."""
+        from src.models import parse_model_backend
+        return parse_model_backend(model, default_backend)
 
     @app_instance.post("/v1beta/models/{model}:generateContent", dependencies=[Depends(verify_gemini_auth)])
     async def gemini_generate_content(
@@ -948,6 +981,10 @@ def build_app(
         http_request: Request
     ):
         """Gemini API compatible content generation endpoint (non-streaming)."""
+        # Debug: Check session ID for Gemini interface
+        session_id = http_request.headers.get("x-session-id", "default")
+        logger.debug(f"[GEMINI_DEBUG] Gemini interface session ID: {session_id}")
+        
         # Parse the model to determine backend
         backend_type, actual_model = _parse_model_backend(model, http_request.app.state.backend_type)
 
@@ -968,10 +1005,6 @@ def build_app(
         # Temporarily override the backend type for this request
         original_backend_type = http_request.app.state.backend_type
         http_request.app.state.backend_type = backend_type
-        
-        # Temporarily disable interactive commands for Gemini API compatibility
-        original_disable_interactive = http_request.app.state.disable_interactive_commands
-        http_request.app.state.disable_interactive_commands = True
 
         try:
             # Call the existing chat_completions endpoint
@@ -983,7 +1016,7 @@ def build_app(
                 if "choices" in openai_response:
                     # Convert successful response
                     from src.models import ChatCompletionResponse
-                    openai_resp_obj = ChatCompletionResponse(**openai_response)
+                    openai_resp_obj = models.ChatCompletionResponse.model_validate(openai_response)
                     gemini_response = openai_to_gemini_response(openai_resp_obj)
                     return gemini_response.model_dump(exclude_none=True, by_alias=True)
                 else:
@@ -991,13 +1024,12 @@ def build_app(
                     return openai_response
             else:
                 # Handle model object response
-                gemini_response = openai_to_gemini_response(openai_response)
+                gemini_response = openai_to_gemini_response(models.ChatCompletionResponse.model_validate(openai_response))
                 return gemini_response.model_dump(exclude_none=True, by_alias=True)
         finally:
-            # Restore original URL, backend type, and interactive commands setting
+            # Restore original URL and backend type
             http_request._url = original_url
             http_request.app.state.backend_type = original_backend_type
-            http_request.app.state.disable_interactive_commands = original_disable_interactive
 
     @app_instance.post("/v1beta/models/{model}:streamGenerateContent", dependencies=[Depends(verify_gemini_auth)])
     async def gemini_stream_generate_content(
@@ -1026,10 +1058,6 @@ def build_app(
         # Temporarily override the backend type for this request
         original_backend_type = http_request.app.state.backend_type
         http_request.app.state.backend_type = backend_type
-        
-        # Temporarily disable interactive commands for Gemini API compatibility
-        original_disable_interactive = http_request.app.state.disable_interactive_commands
-        http_request.app.state.disable_interactive_commands = True
 
         try:
             # Call the existing chat_completions endpoint
@@ -1058,19 +1086,18 @@ def build_app(
                 if isinstance(openai_response, dict):
                     if "choices" in openai_response:
                         from src.models import ChatCompletionResponse
-                        openai_resp_obj = ChatCompletionResponse(**openai_response)
+                        openai_resp_obj = models.ChatCompletionResponse.model_validate(openai_response)
                         gemini_response = openai_to_gemini_response(openai_resp_obj)
                         return gemini_response.model_dump(exclude_none=True, by_alias=True)
                     else:
                         return openai_response
                 else:
-                    gemini_response = openai_to_gemini_response(openai_response)
+                    gemini_response = openai_to_gemini_response(models.ChatCompletionResponse.model_validate(openai_response))
                     return gemini_response.model_dump(exclude_none=True, by_alias=True)
         finally:
-            # Restore original URL, backend type, and interactive commands setting
+            # Restore original URL and backend type
             http_request._url = original_url
             http_request.app.state.backend_type = original_backend_type
-            http_request.app.state.disable_interactive_commands = original_disable_interactive
 
     @app_instance.get("/usage/stats", dependencies=[Depends(verify_client_auth)])
     async def get_usage_statistics(

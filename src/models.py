@@ -1,6 +1,6 @@
 from typing import Any, Dict, List, Optional, Union
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ConfigDict
 
 
 # For multimodal content parts
@@ -44,6 +44,21 @@ class ChatMessage(BaseModel):
     # tool_calls: Optional[List[Any]] = None # Future extension for tool/function calling
     # tool_call_id: Optional[str] = None   # Future extension for
     # tool/function calling
+
+
+class FunctionCall(BaseModel):
+    """Represents a function call within a tool call."""
+    
+    name: str
+    arguments: str
+
+
+class ToolCall(BaseModel):
+    """Represents a tool call in a chat completion response."""
+    
+    id: str
+    type: str = "function"
+    function: FunctionCall
 
 
 class ChatCompletionRequest(BaseModel):
@@ -92,16 +107,19 @@ class ChatCompletionRequest(BaseModel):
         None,
         description="A unique identifier representing your end-user, which can help OpenAI monitor and detect abuse.",
     )
+    tools: Optional[List[ToolCall]] = None
     extra_params: Optional[Dict[str, Any]] = None
-    # Add other OpenAI parameters as needed, e.g., functions, tool_choice,
-    # tools
+    # Add other OpenAI parameters as needed, e.g., functions, tool_choice
 
 
 class ChatCompletionChoiceMessage(BaseModel):
     """Represents the message content within a chat completion choice."""
+    
+    model_config = ConfigDict(extra='ignore')
 
     role: str
-    content: str
+    content: Optional[str] = None
+    tool_calls: Optional[List[ToolCall]] = None
 
 
 class ChatCompletionChoice(BaseModel):
@@ -145,3 +163,46 @@ class CommandProcessedChatCompletionResponse(BaseModel):
     model: str
     choices: List[ChatCompletionChoice]
     usage: CompletionUsage
+
+
+def parse_model_backend(model: str, default_backend: str = "") -> tuple[str, str]:
+    """Parse model string to extract backend and actual model name.
+    
+    Handles multiple formats:
+    - backend:model (e.g., "openrouter:gpt-4") 
+    - backend/model (e.g., "openrouter/gpt-4")
+    - backend:model:version (e.g., "openrouter:anthropic/claude-3-haiku:beta")
+    - backend/model:version (e.g., "openrouter/anthropic/claude-3-haiku:beta")
+    - model (e.g., "gpt-4" - uses default backend)
+
+    Args:
+        model: Model string in various formats
+        default_backend: Default backend to use if no prefix is specified
+
+    Returns:
+        Tuple of (backend_type, model_name)
+    """
+    # Find the first occurrence of either ':' or '/'
+    colon_pos = model.find(':')
+    slash_pos = model.find('/')
+    
+    # Determine which separator comes first (or if only one exists)
+    separator_pos = -1
+    if colon_pos != -1 and slash_pos != -1:
+        # Both exist, use the first one
+        separator_pos = min(colon_pos, slash_pos)
+    elif colon_pos != -1:
+        # Only colon exists
+        separator_pos = colon_pos
+    elif slash_pos != -1:
+        # Only slash exists
+        separator_pos = slash_pos
+    
+    if separator_pos != -1:
+        # Split at the first separator
+        backend = model[:separator_pos]
+        model_name = model[separator_pos + 1:]
+        return backend, model_name
+    else:
+        # No separator found, use default backend
+        return default_backend, model

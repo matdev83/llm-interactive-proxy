@@ -39,9 +39,11 @@ def parse_arguments(args_str: str) -> Dict[str, Any]:
 
 def get_command_pattern(command_prefix: str) -> re.Pattern:
     prefix_escaped = re.escape(command_prefix)
+    # Updated regex to correctly handle commands with and without arguments.
+    # - (?P<cmd>[\w-]+) captures the command name.
+    # - (?:\s*\((?P<args>[^)]*)\))? is an optional non-capturing group for arguments.
     pattern_string = (
-        rf"{prefix_escaped}(?:(?P<bare>hello|help)(?!\()\b|"
-        r"(?P<cmd>[\w-]+)\((?P<args>[^)]*)\))"
+        rf"{prefix_escaped}(?P<cmd>[\w-]+)" r"(?:\s*\((?P<args>[^)]*)\))?"
     )
     return re.compile(pattern_string, re.VERBOSE)
 
@@ -89,12 +91,8 @@ class CommandParser:
             match = matches[0]
             commands_found = True
             command_full = match.group(0)
-            if "bare" in match.groupdict() and match.group("bare"):
-                command_name = match.group("bare").lower()
-                args_str = ""
-            else:
-                command_name = match.group("cmd").lower()
-                args_str = match.group("args")
+            command_name = match.group("cmd").lower()
+            args_str = match.group("args") or ""
             logger.debug(
                 "Regex match: Full='%s', Command='%s', ArgsStr='%s'",
                 command_full,
@@ -281,6 +279,37 @@ class CommandParser:
         # Check if the entire content (after comment removal and stripping) is the command
         return bool(match and content_without_comments == match.group(0))
 
+    def _is_tool_call_result(self, text: str) -> bool:
+        """Check if the text appears to be a tool call result rather than direct user input."""
+        # Tool call results typically start with patterns like:
+        # "[tool_name for 'arg'] Result:"
+        # "[attempt_completion] Result:"
+        # "[read_file for 'filename'] Result:"
+        tool_result_patterns = [
+            r'^\s*\[[\w_]+(?:\s+for\s+[\'"][^\'"\]]+[\'"])?\]\s+Result:',
+            r'^\s*\[[\w_]+\]\s+Result:',
+        ]
+        
+        for pattern in tool_result_patterns:
+            if re.match(pattern, text, re.IGNORECASE):
+                logger.debug(f"Detected tool call result pattern: {pattern}")
+                return True
+        return False
+
+    def _extract_feedback_from_tool_result(self, text: str) -> str:
+        """Extract user feedback from tool call results that contain feedback sections."""
+        # Look for feedback within tool call results, typically in format:
+        # <feedback>
+        # !/command or user input
+        # </feedback>
+        feedback_pattern = r'<feedback>\s*(.*?)\s*</feedback>'
+        match = re.search(feedback_pattern, text, re.DOTALL | re.IGNORECASE)
+        if match:
+            feedback_content = match.group(1).strip()
+            logger.debug(f"Extracted feedback from tool result: {repr(feedback_content)}")
+            return feedback_content
+        return ""
+
     def _get_text_for_command_check(self, content: Any) -> str:
         """Extracts and prepares text from message content for command checking."""
         text_to_check = ""
@@ -290,6 +319,17 @@ class CommandParser:
             for part in content:
                 if isinstance(part, models.MessageContentPartText):
                     text_to_check += part.text + " " # Add space to simulate separate words
+
+        # CRITICAL FIX: Handle tool call results with embedded feedback
+        if self._is_tool_call_result(text_to_check):
+            # Check if this tool call result contains user feedback with commands
+            feedback_text = self._extract_feedback_from_tool_result(text_to_check)
+            if feedback_text:
+                logger.debug(f"Found feedback in tool call result, checking for commands in feedback")
+                return COMMENT_LINE_PATTERN.sub("", feedback_text).strip()
+            else:
+                logger.debug(f"Skipping command detection in tool call result content")
+                return ""
 
         # Remove comments and strip whitespace for accurate command pattern matching
         return COMMENT_LINE_PATTERN.sub("", text_to_check).strip()
@@ -381,18 +421,22 @@ class CommandParser:
         modified_messages = [msg.model_copy(deep=True) for msg in messages]
         overall_commands_processed = False
 
-        # Stage 1: Find the last message that potentially contains a command
-        target_message_idx_for_command_processing = -1
+        # Stage 1: Find and process commands in the last message that contains them.
+        # Iterate backwards from the most recent message.
         for i in range(len(modified_messages) - 1, -1, -1):
-            text_for_check = self._get_text_for_command_check(modified_messages[i].content)
-            if self.command_pattern.search(text_for_check):
-                target_message_idx_for_command_processing = i
-                break
-
-        if target_message_idx_for_command_processing != -1:
-            overall_commands_processed = self._execute_commands_in_target_message(
-                target_message_idx_for_command_processing, modified_messages
+            text_for_check = self._get_text_for_command_check(
+                modified_messages[i].content
             )
+            logger.debug(f"[COMMAND_DEBUG] Checking message {i} for commands.")
+            logger.debug(f"[COMMAND_DEBUG] Text for check: {repr(text_for_check)}")
+            command_match = self.command_pattern.search(text_for_check)
+            if command_match:
+                logger.debug(f"[COMMAND_DEBUG] Command detected in message {i}")
+                overall_commands_processed = self._execute_commands_in_target_message(
+                    i, modified_messages
+                )
+                # Once we find and process commands in a message, we stop.
+                break
 
         final_messages = self._filter_empty_messages(modified_messages, messages)
 
@@ -425,7 +469,16 @@ def _process_text_for_commands(
         functional_backends=functional_backends,
     )
     parser.command_pattern = command_pattern
-    return parser.process_text(text_content)
+    processed_text, commands_found = parser.process_text(text_content)
+
+    # For tests relying on this helper, if a command-only message was processed
+    # and failed, return the error message from the command execution.
+    if commands_found and not processed_text.strip() and parser.command_results:
+        last_result = parser.command_results[-1]
+        if not last_result.success and last_result.message:
+            return last_result.message, True
+
+    return processed_text, commands_found
 
 
 def process_commands_in_messages(
@@ -459,20 +512,5 @@ def process_commands_in_messages(
     )
 
     final_messages, commands_processed = parser.process_messages(messages)
-
-    # If a one-off command was just used, clear it after processing the request.
-    # Clear oneoff route after any message processing where oneoff is set,
-    # except when it's a pure command-only message (single message with empty content after command processing)
-    if current_proxy_state.oneoff_backend or current_proxy_state.oneoff_model:
-        # Check if this is a pure command-only message: single message with empty content and commands were processed
-        is_pure_command_only = (
-            len(final_messages) == 1 and
-            commands_processed and
-            final_messages[0].content.strip() == ""
-        )
-
-        if not is_pure_command_only:
-            # This is either a command+prompt message or a follow-up prompt after command-only
-            current_proxy_state.clear_oneoff_route()
 
     return final_messages, commands_processed

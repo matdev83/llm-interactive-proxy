@@ -2,7 +2,8 @@ from unittest.mock import AsyncMock, patch
 import pytest
 
 
-def test_banner_on_first_reply(interactive_client):
+def test_first_reply_no_automatic_banner(interactive_client):
+    """Test that first interactions do NOT get automatic banner injection."""
     mock_backend_response = {"choices": [{"message": {"content": "backend"}}]}
     with patch.object(
         interactive_client.app.state.openrouter_backend,
@@ -14,17 +15,12 @@ def test_banner_on_first_reply(interactive_client):
         resp = interactive_client.post("/v1/chat/completions", json=payload)
     assert resp.status_code == 200
     content = resp.json()["choices"][0]["message"]["content"]
-    # EXPECT PLAIN TEXT NOW
-    assert "Hello, this is" in content # From banner
-    assert "Session id" in content # From banner
-    assert "Functional backends:" in content # From banner
-    # Note: The backends_str in _welcome_banner is sorted.
-    # openrouter (K:2, M:3), gemini (K:1, M:2). Sorted: gemini, openrouter
-    # The banner now includes gemini-cli-direct backend, so check for individual backends
-    assert "gemini (K:1, M:2)" in content
-    assert "openrouter (K:2, M:3)" in content
-    assert "backend" in content # From mock_backend_response
-    assert "<attempt_completion>" not in content # Should be plain
+    # Should be clean backend response without any banner injection
+    assert content == "backend"  # Only the backend response
+    assert "Hello, this is" not in content  # No automatic banner
+    assert "Session id" not in content  # No automatic banner
+    assert "Functional backends:" not in content  # No automatic banner
+    assert "<attempt_completion>" not in content  # Should be plain
     mock_method.assert_called_once()
 
 
@@ -101,8 +97,9 @@ def test_hello_command_returns_xml_banner_for_cline_agent(interactive_client):
         f"Hello, this is {project_name} {project_version}",
         "Session id: default",
         f"Functional backends: {backends_str_expected}",
-        f"Type {interactive_client.app.state.command_prefix}help for list of available commands",
-        "hello acknowledged"
+        f"Type {interactive_client.app.state.command_prefix}help for list of available commands"
+        # Note: "hello acknowledged" is excluded for Cline agents as confirmation messages
+        # are only shown to non-Cline clients
     ]
     expected_result_content = "\n".join(expected_lines)
 

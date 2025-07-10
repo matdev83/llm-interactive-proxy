@@ -102,7 +102,7 @@ def test_cline_xml_wrapping_error_commands(interactive_client):
     
     # For mixed content (command + other content), the error is returned directly
     # and the remaining content gets sent to LLM. This is the correct behavior.
-    assert content == "Invalid format. Use backend/model.", \
+    assert content == "Invalid format. Use backend/model or backend:model.", \
         f"Mixed content with command error should return error directly, got: {content}"
 
 
@@ -173,7 +173,7 @@ def test_cline_xml_wrapping_pure_error_commands(interactive_client):
     
     # Pure error commands return error messages directly, not XML wrapped
     # This is the correct behavior - errors should be immediate feedback
-    assert content == "Invalid format. Use backend/model.", \
+    assert content == "Invalid format. Use backend/model or backend:model.", \
         f"Pure error command should return error directly, got: {content}"
 
 

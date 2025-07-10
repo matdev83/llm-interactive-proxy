@@ -79,10 +79,12 @@ class SetCommand(BaseCommand):
             return True, "model not set due to prior backend issue", False
 
         model_val = model_arg.strip()
-        if ":" not in model_val:
-            return True, CommandResult(self.name, False, "model must be specified as <backend>:<model>"), False
-
-        backend_part, model_name = model_val.split(":", 1)
+        
+        # Use robust parsing that handles both slash and colon syntax
+        from src.models import parse_model_backend
+        backend_part, model_name = parse_model_backend(model_val)
+        if not backend_part:
+            return True, CommandResult(self.name, False, "model must be specified as <backend>:<model> or <backend>/<model>"), False
         backend_part = backend_part.lower()
 
         backend_obj = getattr(self.app.state, f"{backend_part}_backend", None) if self.app else None
