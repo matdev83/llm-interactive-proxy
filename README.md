@@ -349,6 +349,21 @@ You can embed special commands within your chat messages to control the proxy's 
 - `!/set(command-prefix=prefix)`: Change the command prefix used by the proxy.
     Example: `!/set(command-prefix=##)`
 - `!/unset(command-prefix)`: Reset the prefix back to `!/`.
+- `!/set(reasoning-effort=low|medium|high)`: Set reasoning effort level for reasoning models (o1, o3, o4-mini, etc.).
+    Example: `!/set(reasoning-effort=high)`
+- `!/set(reasoning=effort=high)` or `!/set(reasoning=max_tokens=2000)`: Set unified reasoning configuration for OpenRouter.
+    Example: `!/set(reasoning=effort=medium)` or `!/set(reasoning=max_tokens=1500)`
+- `!/unset(reasoning-effort)`: Clear reasoning effort setting.
+- `!/unset(reasoning)`: Clear reasoning configuration.
+- `!/set(thinking-budget=<tokens>)`: Set Gemini thinking budget (128-32768 tokens).
+    Example: `!/set(thinking-budget=2048)`
+- `!/set(gemini-generation-config=<config>)`: Set Gemini generation configuration with thinking settings.
+    Example: `!/set(gemini-generation-config={'thinkingConfig': {'thinkingBudget': 1024}})`
+- `!/unset(thinking-budget)`: Clear Gemini thinking budget.
+- `!/unset(gemini-generation-config)`: Clear Gemini generation configuration.
+- `!/set(temperature=<value>)`: Set temperature for model output randomness (0.0-2.0 for OpenAI, 0.0-1.0 for Gemini).
+    Example: `!/set(temperature=0.7)`
+- `!/unset(temperature)`: Clear temperature setting.
 - `!/hello`: Return the interactive welcome banner.
 - `!/create-failover-route(name=<name>,policy=k|m|km|mk)`: Create a new failover route with given policy.
     Example: `!/create-failover-route(name=myroute,policy=k)`
@@ -380,9 +395,302 @@ The command prefix must be 2-10 printable characters with no whitespace. If the 
 
 The proxy will process these commands, strip them from the message sent to the LLM, and adjust its behavior accordingly.
 
+## Reasoning Models Support
+
+The proxy provides comprehensive support for reasoning models (also known as "thinking" models) from various providers. These models, such as OpenAI's o1/o3/o4-mini series, Anthropic's Claude models with reasoning, DeepSeek's R1, and Gemini's thinking variants, can perform step-by-step reasoning before providing their final answer.
+
+**Important**: Different providers use different parameter formats for reasoning control. The proxy handles these differences automatically.
+
+### Provider-Specific Reasoning Parameters
+
+#### OpenAI-Compatible Interfaces (OpenRouter)
+- **`reasoning_effort`**: Simple effort levels (`low`, `medium`, `high`)
+- **`reasoning`**: Unified configuration object with `effort`, `max_tokens`, `exclude` fields
+
+#### Gemini Backend
+- **`thinking_budget`**: Number of tokens allocated for reasoning (128-32768)
+- **`generation_config`**: Full Gemini generation configuration including `thinkingConfig`
+
+### Setting Reasoning Parameters
+
+You can control reasoning behavior using several methods:
+
+#### 1. In-Chat Commands (Recommended)
+
+**OpenAI/OpenRouter Models:**
+```bash
+# Set reasoning effort level (works with OpenAI and OpenRouter models)
+!/set(reasoning-effort=high)
+
+# Set OpenRouter unified reasoning configuration
+!/set(reasoning=effort=medium)
+!/set(reasoning=max_tokens=2000)
+!/set(reasoning=exclude=true)
+
+# Clear OpenAI/OpenRouter reasoning settings
+!/unset(reasoning-effort)
+!/unset(reasoning)
+```
+
+**Gemini Models:**
+```bash
+# Set Gemini thinking budget (128-32768 tokens)
+!/set(thinking-budget=2048)
+
+# Set full Gemini generation config with thinking
+!/set(gemini-generation-config={'thinkingConfig': {'thinkingBudget': 1024}})
+
+# Clear Gemini reasoning settings
+!/unset(thinking-budget)
+!/unset(gemini-generation-config)
+```
+
+#### 2. Direct API Parameters
+
+**OpenAI/OpenRouter Models:**
+```json
+{
+  "model": "openrouter:openai/o1",
+  "messages": [...],
+  "reasoning_effort": "high",
+  "reasoning": {
+    "effort": "medium",
+    "max_tokens": 1500,
+    "exclude": false
+  }
+}
+```
+
+**Gemini Models:**
+```json
+{
+  "model": "gemini:gemini-2.5-pro",
+  "messages": [...],
+  "thinking_budget": 2048,
+  "generation_config": {
+    "thinkingConfig": {
+      "thinkingBudget": 1024
+    },
+    "temperature": 0.7
+  }
+}
+```
+
+#### 3. Extra Parameters (Universal)
+
+For maximum flexibility with any provider, use the `extra_params` field:
+
+**OpenRouter:**
+```json
+{
+  "model": "openrouter:deepseek/deepseek-r1",
+  "messages": [...],
+  "extra_params": {
+    "reasoning": {
+      "effort": "high",
+      "max_tokens": 2000
+    }
+  }
+}
+```
+
+**Gemini:**
+```json
+{
+  "model": "gemini:gemini-2.5-flash",
+  "messages": [...],
+  "extra_params": {
+    "generationConfig": {
+      "thinkingConfig": {
+        "thinkingBudget": 1024
+      }
+    }
+  }
+}
+```
+
+### Backend-Specific Behavior
+
+- **OpenRouter**: Automatically converts `reasoning_effort` and `reasoning` parameters to the appropriate OpenRouter format. Supports all reasoning models available through OpenRouter.
+
+- **Gemini**: Converts `thinking_budget` to Gemini's `generationConfig.thinkingConfig.thinkingBudget` format. Also supports direct `generation_config` for full control over Gemini's generation parameters.
+
+- **Gemini CLI Direct**: Reasoning parameters are passed through but effectiveness depends on the CLI version and model support.
+
+### Example Usage Scenarios
+
+**Complex Problem Solving with OpenAI Models:**
+```bash
+!/set(reasoning-effort=high)
+Solve this complex mathematical proof step by step...
+```
+
+**Token-Controlled Reasoning with OpenRouter:**
+```bash
+!/set(reasoning=max_tokens=3000)
+Analyze this large dataset and provide detailed insights...
+```
+
+**Gemini Thinking Budget Control:**
+```bash
+!/set(thinking-budget=2048)
+Please think through this design problem carefully...
+```
+
+**Fast Reasoning (Internal Only):**
+```bash
+!/set(reasoning=effort=medium,exclude=true)
+Quick analysis needed for this business decision...
+```
+
+### Model Compatibility
+
+The reasoning features work with various reasoning models:
+
+- **OpenAI**: o1-preview, o1-mini, o3, o4-mini
+- **OpenRouter**: All reasoning models including:
+  - DeepSeek R1 (`deepseek/deepseek-r1`)
+  - QwQ (`qwen/qwq-32b-preview`)
+  - OpenAI models via OpenRouter
+  - Other reasoning-capable models
+- **Gemini**: Gemini 2.5 Pro, Gemini 2.5 Flash, and other thinking variants
+- **Other providers**: Any model that supports reasoning tokens through their respective APIs
+
+### Important Notes
+
+1. **Provider Auto-Detection**: The proxy automatically detects which backend you're using and applies the correct reasoning parameter format.
+
+2. **Parameter Validation**: 
+   - OpenAI `reasoning_effort` accepts only `low`, `medium`, `high`
+   - Gemini `thinking_budget` must be between 128 and 32768 tokens
+
+3. **Billing Considerations**: Reasoning tokens count toward your token usage and may incur additional costs. Check your provider's pricing for reasoning tokens.
+
+4. **Session Persistence**: Reasoning settings persist throughout your session until explicitly unset or the proxy is restarted.
+
+For the most up-to-date list of supported models, check the `/models` endpoint or visit the respective provider documentation.
+
+## Temperature Configuration
+
+The proxy provides comprehensive temperature control for fine-tuning model output randomness across different providers.
+
+### Setting Temperature
+
+**In-Chat Commands:**
+```bash
+!/set(temperature=0.7)    # Set temperature to 0.7
+!/unset(temperature)      # Clear temperature setting
+```
+
+**Direct API Parameters:**
+```json
+{
+  "model": "openrouter:gpt-4",
+  "temperature": 0.8,
+  "messages": [...]
+}
+```
+
+**Model-Specific Defaults (Config File):**
+```json
+{
+  "model_defaults": {
+    "openrouter:gpt-4": {
+      "reasoning": {
+        "temperature": 0.7
+      }
+    }
+  }
+}
+```
+
+### Provider-Specific Behavior
+
+- **OpenAI/OpenRouter**: Supports temperature range 0.0 to 2.0
+- **Gemini**: Supports temperature range 0.0 to 1.0 (values > 1.0 are automatically clamped)
+
+### Temperature Guidelines
+
+- **0.0**: Deterministic output (most conservative)
+- **0.3-0.5**: Good for factual, analytical tasks
+- **0.7**: Balanced creativity and coherence (recommended default)
+- **0.9-1.0**: High creativity for brainstorming, creative writing
+- **1.5-2.0**: Maximum creativity (OpenAI only, use with caution)
+
+### Precedence Order
+
+1. Direct API parameters (highest priority)
+2. Session-level settings (`!/set(temperature=...)`)
+3. Model-specific defaults (from config file)
+4. Provider defaults (lowest priority)
+
 ## Configuration
 
 The proxy's runtime configuration is determined by a hierarchy of settings, allowing for flexible deployment and management.
+
+### Model-Specific Reasoning Defaults
+
+You can configure default reasoning parameters for specific models in the configuration file. This allows you to automatically apply appropriate reasoning settings based on the model being used, without needing to set them manually for each session.
+
+#### Configuration File Format
+
+```json
+{
+  "default_backend": "openrouter",
+  "interactive_mode": true,
+  "model_defaults": {
+    "openrouter:openai/o1": {
+      "reasoning": {
+        "reasoning_effort": "high",
+        "temperature": 0.3
+      }
+    },
+    "gemini:gemini-2.5-pro": {
+      "reasoning": {
+        "thinking_budget": 2048,
+        "generation_config": {
+          "thinkingConfig": {
+            "thinkingBudget": 2048
+          },
+          "temperature": 0.7
+        },
+        "temperature": 0.7
+      }
+    }
+  }
+}
+```
+
+#### Model Naming Patterns
+
+Model defaults can be specified using:
+- **Full model names**: `"openrouter:openai/o1"`, `"gemini:gemini-2.5-pro"`
+- **Short model names**: `"gemini-exp-1206"` (matches any backend)
+
+#### Reasoning Configuration Options
+
+**For OpenAI-Compatible Models (OpenRouter):**
+- `reasoning_effort`: Set to `"low"`, `"medium"`, or `"high"`
+- `reasoning`: Unified reasoning config with `effort`, `max_tokens`, `exclude` fields
+
+**For Gemini Models:**
+- `thinking_budget`: Number of tokens (128-32768) allocated for reasoning
+- `generation_config`: Full Gemini generation configuration including `thinkingConfig`
+- `temperature`: Controls randomness (0.0-1.0 for Gemini, automatically clamped if > 1.0)
+
+**Universal Parameters:**
+- `temperature`: Controls output randomness (0.0-2.0 for OpenAI/OpenRouter, 0.0-1.0 for Gemini)
+
+#### How It Works
+
+1. When a request is made, the proxy determines the effective model
+2. If model defaults exist for that model, they are applied automatically
+3. Session-level settings (from `!/set` commands) take precedence over defaults
+4. Direct API parameters take precedence over both defaults and session settings
+
+#### Example Configuration
+
+See `config/sample-reasoning-config.json` for a comprehensive example with various reasoning models configured.
 
 ### Configuration Sources
 

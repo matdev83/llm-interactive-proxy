@@ -323,6 +323,32 @@ class GeminiBackend(LLMBackend):
             processed_messages, prompt_redactor, command_filter
         )
         payload = {"contents": payload_contents}
+
+        # Handle Gemini-specific reasoning parameters
+        if hasattr(request_data, 'thinking_budget') and request_data.thinking_budget:
+            if "generationConfig" not in payload:
+                payload["generationConfig"] = {}
+            if "thinkingConfig" not in payload["generationConfig"]:
+                payload["generationConfig"]["thinkingConfig"] = {}
+            payload["generationConfig"]["thinkingConfig"]["thinkingBudget"] = request_data.thinking_budget
+
+        if hasattr(request_data, 'generation_config') and request_data.generation_config:
+            if "generationConfig" not in payload:
+                payload["generationConfig"] = {}
+            payload["generationConfig"].update(request_data.generation_config)
+
+        # Handle temperature parameter
+        if hasattr(request_data, 'temperature') and request_data.temperature is not None:
+            if "generationConfig" not in payload:
+                payload["generationConfig"] = {}
+            # Validate temperature range for Gemini (0.0 to 1.0)
+            temperature = request_data.temperature
+            if temperature > 1.0:
+                logger.warning(f"Temperature {temperature} > 1.0 for Gemini, clamping to 1.0")
+                temperature = 1.0
+            payload["generationConfig"]["temperature"] = temperature
+
+        # Add extra parameters (may override or supplement the above)
         if request_data.extra_params:
             payload.update(request_data.extra_params)
 
