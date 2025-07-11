@@ -418,29 +418,33 @@ class CommandParser:
             logger.debug("process_messages received empty messages list.")
             return messages, False
 
-        modified_messages = [msg.model_copy(deep=True) for msg in messages]
-        overall_commands_processed = False
-
-        # Stage 1: Find and process commands in the last message that contains them.
-        # Iterate backwards from the most recent message.
-        for i in range(len(modified_messages) - 1, -1, -1):
-            text_for_check = self._get_text_for_command_check(
-                modified_messages[i].content
-            )
-            logger.debug(f"[COMMAND_DEBUG] Checking message {i} for commands.")
-            logger.debug(f"[COMMAND_DEBUG] Text for check: {repr(text_for_check)}")
-            command_match = self.command_pattern.search(text_for_check)
-            if command_match:
-                logger.debug(f"[COMMAND_DEBUG] Command detected in message {i}")
-                overall_commands_processed = self._execute_commands_in_target_message(
-                    i, modified_messages
-                )
-                # Once we find and process commands in a message, we stop.
+        # Find the index of the last message containing a command to avoid unnecessary processing.
+        command_message_idx = -1
+        for i in range(len(messages) - 1, -1, -1):
+            text_for_check = self._get_text_for_command_check(messages[i].content)
+            if self.command_pattern.search(text_for_check):
+                command_message_idx = i
                 break
 
+        # If no command is found, return the original list reference, avoiding any copies.
+        if command_message_idx == -1:
+            return messages, False
+
+        # A command was found. Create a shallow copy of the list and deep copy only the message
+        # that needs to be modified. This is the core performance optimization.
+        modified_messages = list(messages)
+        msg_to_process = modified_messages[command_message_idx].model_copy(deep=True)
+        modified_messages[command_message_idx] = msg_to_process
+
+        overall_commands_processed = self._execute_commands_in_target_message(
+            command_message_idx, modified_messages
+        )
+
+        # The original filtering logic is now safe to use because we have both the
+        # modified list and the original list for comparison.
         final_messages = self._filter_empty_messages(modified_messages, messages)
 
-        if not final_messages and overall_commands_processed and messages: # `messages` here refers to original non-empty input
+        if not final_messages and overall_commands_processed:
             logger.info(
                 "All messages were removed after command processing. "
                 "This might indicate a command-only request."

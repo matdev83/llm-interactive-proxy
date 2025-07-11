@@ -39,58 +39,67 @@ class ProxyState:
     def set_override_model(
         self, backend: str, model_name: str, *, invalid: bool = False
     ) -> None:
-        logger.debug(
-            f"ProxyState.set_override_model called with: backend={backend}, model_name={model_name}, invalid={invalid}"
-        )
+        if logger.isEnabledFor(logging.DEBUG):
+            logger.debug(
+                f"ProxyState.set_override_model called with: backend={backend}, model_name={model_name}, invalid={invalid}"
+            )
         self.override_backend = backend
         self.override_model = model_name
         self.invalid_override = invalid
 
     def set_oneoff_route(self, backend: str, model_name: str) -> None:
         """Sets a one-off route for the very next request."""
-        logger.info(f"Setting one-off route to: {backend}:{model_name}")
+        if logger.isEnabledFor(logging.INFO):
+            logger.info(f"Setting one-off route to: {backend}:{model_name}")
         self.oneoff_backend = backend
         self.oneoff_model = model_name
 
     def clear_oneoff_route(self) -> None:
         """Clears the one-off route."""
         if self.oneoff_backend or self.oneoff_model:
-            logger.info("Clearing one-off route.")
+            if logger.isEnabledFor(logging.INFO):
+                logger.info("Clearing one-off route.")
             self.oneoff_backend = None
             self.oneoff_model = None
 
     def set_override_backend(self, backend: str) -> None:
         """Override only the backend to use for this session."""
-        logger.info(
-            f"Setting override backend to: {backend} for ProxyState ID: {id(self)}"
-        )
+        if logger.isEnabledFor(logging.INFO):
+            logger.info(
+                f"Setting override backend to: {backend} for ProxyState ID: {id(self)}"
+            )
         self.override_backend = backend
         self.override_model = None
         self.invalid_override = False
 
     def unset_override_model(self) -> None:
-        logger.info("Unsetting override model.")
+        if logger.isEnabledFor(logging.INFO):
+            logger.info("Unsetting override model.")
         self.override_backend = None
         self.override_model = None
         self.invalid_override = False
 
     def unset_override_backend(self) -> None:
         """Remove any backend override."""
-        logger.info("Unsetting override backend.")
+        if logger.isEnabledFor(logging.INFO):
+            logger.info("Unsetting override backend.")
         self.override_backend = None
         self.override_model = None
         self.invalid_override = False
 
     def set_project(self, project_name: str) -> None:
-        logger.info(f"Setting project to: {project_name}")
+        if logger.isEnabledFor(logging.INFO):
+            logger.info(f"Setting project to: {project_name}")
         self.project = project_name
 
     def unset_project(self) -> None:
-        logger.info("Unsetting project.")
+        if logger.isEnabledFor(logging.INFO):
+            logger.info("Unsetting project.")
         self.project = None
 
     def set_interactive_mode(self, value: bool) -> None:
-        logger.info(f"Setting interactive mode to: {value}")
+        if logger.isEnabledFor(logging.INFO):
+            logger.info(f"Setting interactive mode to: {value}")
         if value and not self.interactive_mode:
             self.interactive_just_enabled = True
         else:
@@ -98,7 +107,8 @@ class ProxyState:
         self.interactive_mode = value
 
     def unset_interactive_mode(self) -> None:
-        logger.info("Unsetting interactive mode (setting to False).")
+        if logger.isEnabledFor(logging.INFO):
+            logger.info("Unsetting interactive mode (setting to False).")
         self.interactive_mode = False
         self.interactive_just_enabled = False
 
@@ -135,61 +145,72 @@ class ProxyState:
         return list(route.get("elements", []))
 
     def set_is_cline_agent(self, value: bool) -> None:
-        logger.info(f"Setting is_cline_agent to: {value}")
+        if logger.isEnabledFor(logging.INFO):
+            logger.info(f"Setting is_cline_agent to: {value}")
         self.is_cline_agent = value
 
     def set_reasoning_effort(self, effort: str) -> None:
         """Set reasoning effort level for reasoning models."""
-        logger.info(f"Setting reasoning effort to: {effort}")
+        if logger.isEnabledFor(logging.INFO):
+            logger.info(f"Setting reasoning effort to: {effort}")
         self.reasoning_effort = effort
 
     def unset_reasoning_effort(self) -> None:
         """Clear reasoning effort setting."""
-        logger.info("Unsetting reasoning effort.")
+        if logger.isEnabledFor(logging.INFO):
+            logger.info("Unsetting reasoning effort.")
         self.reasoning_effort = None
 
     def set_reasoning_config(self, config: Dict[str, Any]) -> None:
         """Set unified reasoning configuration for OpenRouter."""
-        logger.info(f"Setting reasoning config to: {config}")
+        if logger.isEnabledFor(logging.INFO):
+            logger.info(f"Setting reasoning config to: {config}")
         self.reasoning_config = config
 
     def unset_reasoning_config(self) -> None:
         """Clear reasoning configuration."""
-        logger.info("Unsetting reasoning config.")
+        if logger.isEnabledFor(logging.INFO):
+            logger.info("Unsetting reasoning config.")
         self.reasoning_config = None
 
     def set_thinking_budget(self, budget: int) -> None:
         """Set Gemini thinking budget (128-32768 tokens)."""
         if budget < 128 or budget > 32768:
             raise ValueError("Thinking budget must be between 128 and 32768 tokens")
-        logger.info(f"Setting Gemini thinking budget to: {budget}")
+        if logger.isEnabledFor(logging.INFO):
+            logger.info(f"Setting Gemini thinking budget to: {budget}")
         self.thinking_budget = budget
 
     def unset_thinking_budget(self) -> None:
         """Clear Gemini thinking budget."""
-        logger.info("Unsetting Gemini thinking budget.")
+        if logger.isEnabledFor(logging.INFO):
+            logger.info("Unsetting Gemini thinking budget.")
         self.thinking_budget = None
 
     def set_gemini_generation_config(self, config: Dict[str, Any]) -> None:
         """Set Gemini generation configuration."""
-        logger.info(f"Setting Gemini generation config to: {config}")
+        if logger.isEnabledFor(logging.INFO):
+            logger.info(f"Setting Gemini generation config to: {config}")
         self.gemini_generation_config = config
 
     def unset_gemini_generation_config(self) -> None:
         """Clear Gemini generation configuration."""
-        logger.info("Unsetting Gemini generation config.")
+        if logger.isEnabledFor(logging.INFO):
+            logger.info("Unsetting Gemini generation config.")
         self.gemini_generation_config = None
 
     def set_temperature(self, temperature: float) -> None:
         """Set the temperature for the model."""
         if temperature < 0.0 or temperature > 2.0:
             raise ValueError("Temperature must be between 0.0 and 2.0 (OpenAI supports up to 2.0, Gemini up to 1.0)")
-        logger.info(f"Setting temperature to: {temperature}")
+        if logger.isEnabledFor(logging.INFO):
+            logger.info(f"Setting temperature to: {temperature}")
         self.temperature = temperature
 
     def unset_temperature(self) -> None:
         """Clear the temperature setting."""
-        logger.info("Unsetting temperature.")
+        if logger.isEnabledFor(logging.INFO):
+            logger.info("Unsetting temperature.")
         self.temperature = None
 
     def apply_model_defaults(self, model_name: str, model_defaults: Dict[str, Any]) -> None:
@@ -209,32 +230,39 @@ class ProxyState:
                 
                 # Apply OpenAI/OpenRouter reasoning defaults
                 if reasoning_config.reasoning_effort and not self.reasoning_effort:
-                    logger.info(f"Applying default reasoning effort '{reasoning_config.reasoning_effort}' for model {model_name}")
+                    if logger.isEnabledFor(logging.INFO):
+                        logger.info(f"Applying default reasoning effort '{reasoning_config.reasoning_effort}' for model {model_name}")
                     self.reasoning_effort = reasoning_config.reasoning_effort
                     
                 if reasoning_config.reasoning and not self.reasoning_config:
-                    logger.info(f"Applying default reasoning config for model {model_name}")
+                    if logger.isEnabledFor(logging.INFO):
+                        logger.info(f"Applying default reasoning config for model {model_name}")
                     self.reasoning_config = reasoning_config.reasoning
                     
                 # Apply Gemini reasoning defaults
                 if reasoning_config.thinking_budget and not self.thinking_budget:
-                    logger.info(f"Applying default thinking budget {reasoning_config.thinking_budget} for model {model_name}")
+                    if logger.isEnabledFor(logging.INFO):
+                        logger.info(f"Applying default thinking budget {reasoning_config.thinking_budget} for model {model_name}")
                     self.thinking_budget = reasoning_config.thinking_budget
                     
                 if reasoning_config.generation_config and not self.gemini_generation_config:
-                    logger.info(f"Applying default generation config for model {model_name}")
+                    if logger.isEnabledFor(logging.INFO):
+                        logger.info(f"Applying default generation config for model {model_name}")
                     self.gemini_generation_config = reasoning_config.generation_config
                     
                 # Apply temperature defaults
                 if reasoning_config.temperature and not self.temperature:
-                    logger.info(f"Applying default temperature {reasoning_config.temperature} for model {model_name}")
+                    if logger.isEnabledFor(logging.INFO):
+                        logger.info(f"Applying default temperature {reasoning_config.temperature} for model {model_name}")
                     self.temperature = reasoning_config.temperature
                     
         except Exception as e:
-            logger.warning(f"Failed to apply model defaults for {model_name}: {e}")
+            if logger.isEnabledFor(logging.WARNING):
+                logger.warning(f"Failed to apply model defaults for {model_name}: {e}")
 
     def reset(self) -> None:
-        logger.info("Resetting ProxyState instance.")
+        if logger.isEnabledFor(logging.INFO):
+            logger.info("Resetting ProxyState instance.")
         self.override_backend = None
         self.override_model = None
         self.invalid_override = False
@@ -251,20 +279,23 @@ class ProxyState:
 
     def get_effective_model(self, requested_model: str) -> str:
         if self.oneoff_model:
-            logger.info(
-                f"Using one-off model '{self.oneoff_model}' instead of '{requested_model}'"
-            )
+            if logger.isEnabledFor(logging.INFO):
+                logger.info(
+                    f"Using one-off model '{self.oneoff_model}' instead of '{requested_model}'"
+                )
             return self.oneoff_model
         if self.override_model:
-            logger.info(
-                f"Overriding requested model '{requested_model}' with '{self.override_model}'"
-            )
+            if logger.isEnabledFor(logging.INFO):
+                logger.info(
+                    f"Overriding requested model '{requested_model}' with '{self.override_model}'"
+                )
             return self.override_model
         return requested_model
 
     def get_selected_backend(self, default_backend: str) -> str:
         if self.oneoff_backend:
-            logger.info(f"Using one-off backend '{self.oneoff_backend}'")
+            if logger.isEnabledFor(logging.INFO):
+                logger.info(f"Using one-off backend '{self.oneoff_backend}'")
             return self.oneoff_backend
         return self.override_backend or default_backend
 

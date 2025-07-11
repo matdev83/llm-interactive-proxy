@@ -111,7 +111,8 @@ class PerformanceMetrics:
             overhead = self.total_time - accounted_time
             summary_parts.append(f"overhead={overhead:.3f}s")
         
-        logger.info(" | ".join(summary_parts))
+        if logger.isEnabledFor(logging.INFO):
+            logger.info(" | ".join(summary_parts))
 
 
 @contextmanager
