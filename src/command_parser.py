@@ -2,50 +2,23 @@ import logging
 import re
 from typing import Any, Dict, List, Optional, Set, Tuple
 
-import src.models as models
 from fastapi import FastAPI
-from .proxy_logic import ProxyState
 
-from .commands import BaseCommand, CommandResult, create_command_instances
-from .constants import DEFAULT_COMMAND_PREFIX
+from src import models
+from src.commands import BaseCommand, CommandResult, create_command_instances
+from src.constants import DEFAULT_COMMAND_PREFIX
+from src.proxy_logic import ProxyState
+from src.command_processor import CommandProcessor, get_command_pattern
+from src.command_config import CommandParserConfig, CommandProcessorConfig
+from src.command_utils import (
+    is_content_effectively_empty,
+    is_original_purely_command,
+    is_tool_call_result,
+    extract_feedback_from_tool_result,
+    get_text_for_command_check,
+)
 
 logger = logging.getLogger(__name__)
-
-# Regex matching comment lines that should be ignored when detecting
-# command-only messages. This helps to strip agent-provided context such as
-# "# foo" lines that might precede a user command.
-COMMENT_LINE_PATTERN = re.compile(r"^\s*#[^\n]*\n?", re.MULTILINE)
-
-
-def parse_arguments(args_str: str) -> Dict[str, Any]:
-    """Parse a comma separated key=value string into a dictionary."""
-    logger.debug(f"Parsing arguments from string: '{args_str}'")
-    args: Dict[str, Any] = {}
-    if not args_str.strip():
-        logger.debug("Argument string is empty, returning empty dict.")
-        return args
-    for part in args_str.split(","):
-        if "=" in part:
-            key, param_value = part.split("=", 1)
-            param_value = param_value.strip()
-            if (param_value.startswith('"') and param_value.endswith('"')) or \
-               (param_value.startswith("'") and param_value.endswith("'")):
-                param_value = param_value[1:-1]
-            args[key.strip()] = param_value
-        else:
-            args[part.strip()] = True
-    return args
-
-
-def get_command_pattern(command_prefix: str) -> re.Pattern:
-    prefix_escaped = re.escape(command_prefix)
-    # Updated regex to correctly handle commands with and without arguments.
-    # - (?P<cmd>[\w-]+) captures the command name.
-    # - (?:\s*\((?P<args>[^)]*)\))? is an optional non-capturing group for arguments.
-    pattern_string = (
-        rf"{prefix_escaped}(?P<cmd>[\w-]+)" r"(?:\s*\((?P<args>[^)]*)\))?"
-    )
-    return re.compile(pattern_string, re.VERBOSE)
 
 
 class CommandParser:
@@ -53,286 +26,52 @@ class CommandParser:
 
     def __init__(
         self,
-        proxy_state: ProxyState,
-        app: FastAPI,
-        command_prefix: str = DEFAULT_COMMAND_PREFIX,
-        preserve_unknown: bool = True,
-        functional_backends: Set[str] | None = None,
+        config: "CommandParserConfig",
+        command_prefix: str,
     ) -> None:
-        self.proxy_state = proxy_state
-        self.app = app
-        self.command_prefix = command_prefix
-        self.preserve_unknown = preserve_unknown
+        self.config = config
         self.command_pattern = get_command_pattern(command_prefix)
         self.handlers: Dict[str, BaseCommand] = {}
-        self.functional_backends = functional_backends or set()
+        self.command_results: List[CommandResult] = []
 
         for cmd_instance in create_command_instances(
-            self.app, self.functional_backends
+            config.app, config.functional_backends
         ):
             self.register_command(cmd_instance)
-        self.command_results: List[CommandResult] = []
+
+        processor_config = CommandProcessorConfig(
+            proxy_state=config.proxy_state,
+            app=config.app,
+            command_pattern=self.command_pattern,
+            handlers=self.handlers,
+            preserve_unknown=config.preserve_unknown,
+            command_results=self.command_results,
+        )
+        self.command_processor = CommandProcessor(processor_config)
 
     def register_command(self, command: BaseCommand) -> None:
         self.handlers[command.name.lower()] = command
 
-    def process_text(self, text_content: str) -> Tuple[str, bool]:
-        logger.debug(f"Processing text for commands: '{text_content}'")
-        commands_found = False
-        modified_text = text_content
-
-        matches = list(self.command_pattern.finditer(text_content))
-        logger.debug(
-            "Found %s command matches for text: '%s'",
-            len(matches),
-            text_content,
-        )
-        if matches:
-            match = matches[0]
-            commands_found = True
-            command_full = match.group(0)
-            command_name = match.group("cmd").lower()
-            args_str = match.group("args") or ""
-            logger.debug(
-                "Regex match: Full='%s', Command='%s', ArgsStr='%s'",
-                command_full,
-                command_name,
-                args_str,
-            )
-            args = parse_arguments(args_str)
-
-            replacement = ""
-            command_handler = self.handlers.get(command_name)
-            if command_handler:
-                execution_result = command_handler.execute(
-                    args, self.proxy_state
-                )
-                self.command_results.append(execution_result)
-                # Always return empty string for command-only messages, regardless of success/failure
-                # The error will be handled through the command_results and XML wrapping in main.py
-                if text_content.strip() == command_full.strip():
-                    return "", True  # Command-only message, content becomes empty
-            else:
-                logger.warning(f"Unknown command: {command_name}.")
-                error_message = f"cmd not found: {command_name}"
-                unknown_cmd_result = CommandResult(
-                    name=command_name,  # Changed from command_name
-                    success=False,
-                    message=error_message,
-                )
-                self.command_results.append(unknown_cmd_result)
-                if self.preserve_unknown:
-                    replacement = command_full
-
-            # Only replace the first command occurrence
-            modified_text = (
-                modified_text[:match.start()] +
-                replacement +
-                modified_text[match.end():]
-            )
-
-        final_text = re.sub(r"\s+", " ", modified_text).strip()
-        final_text = self._clean_remaining_text(final_text)
-        logger.debug(
-            "Text after command processing and normalization: '%s'", final_text
-        )
-        return final_text, commands_found
-
-    def _clean_remaining_text(self, text: str) -> str:
-        text = re.sub(r"<[^>]+>", "", text)
-        text = COMMENT_LINE_PATTERN.sub("", text)
-        return text
-
-    def _handle_string_content(
-        self,
-        msg_content: str,
-    ) -> Tuple[str, bool, bool]:
-        original_content = msg_content
-        processed_text, command_found = self.process_text(original_content)
-
-        content_modified = False
-        if command_found:
-            original_content_stripped = original_content.strip()
-            is_prefix_match = original_content_stripped.startswith(
-                self.command_prefix)
-            command_pattern_match = None
-            if is_prefix_match:
-                command_pattern_match = self.command_pattern.match(
-                    original_content_stripped)
-
-            is_full_command_match_condition = False
-            if command_pattern_match:
-                is_full_command_match_condition = (
-                    original_content_stripped == command_pattern_match.group(0)
-                )
-
-            if is_prefix_match and command_pattern_match and \
-               is_full_command_match_condition and processed_text == "":
-                content_modified = True
-            elif processed_text != original_content:
-                content_modified = True
-
-        return processed_text, command_found, content_modified
-
-    def _process_single_part(
-        self,
-        part: models.MessageContentPart,
-    ) -> Tuple[Optional[models.MessageContentPart], bool]:
-        """Processes a single part of a message."""
-        if not isinstance(part, models.MessageContentPartText):
-            return part.model_copy(deep=True), False
-
-        processed_text, found_in_part = self.process_text(part.text)
-
-        if found_in_part:
-            if not processed_text.strip(): # Command processed AND resulted in empty text
-                return None, True  # Drop the part, but signal command was handled
-            return models.MessageContentPartText(type="text", text=processed_text), True
-
-        # No command found in this part
-        if processed_text.strip(): # If text remains (e.g. from cleaning non-command text)
-            return models.MessageContentPartText(type="text", text=processed_text), False
-
-        return None, False # No command, and text is empty
-
-    def _handle_list_content(
-        self,
-        msg_content_list: List[models.MessageContentPart],
-    ) -> Tuple[List[models.MessageContentPart], bool, bool]:
-        new_parts: List[models.MessageContentPart] = []
-        any_command_found_overall = False # Tracks if any command was found in any part of this list
-        list_actually_changed = False
-
-        command_processed_within_this_list = False # Flag for this specific list processing pass
-
-        if not msg_content_list:
-            return [], False, False
-
-        new_parts: List[models.MessageContentPart] = [] # Initialize new_parts here
-        original_parts_copy = [part.model_copy(deep=True) for part in msg_content_list]
-
-
-        for original_part in original_parts_copy: # Iterate over copy
-            processed_part_current_iteration: Optional[models.MessageContentPart] = None
-            command_found_in_this_specific_part = False
-
-            if not command_processed_within_this_list:
-                # If no command has been processed yet in this list, try to process this part
-                processed_part_current_iteration, command_found_in_this_specific_part = \
-                    self._process_single_part(original_part)
-
-                if command_found_in_this_specific_part:
-                    any_command_found_overall = True # Mark that a command was found somewhere in this list
-                    command_processed_within_this_list = True # Stop processing further parts for commands
-            else:
-                # A command was already found and processed in a previous part of this list.
-                # Add this part as is (it's a copy from original_parts_copy).
-                processed_part_current_iteration = original_part
-
-            if processed_part_current_iteration is not None:
-                new_parts.append(processed_part_current_iteration)
-
-        # Determine if the list's content actually changed by comparing new_parts with original_parts_copy
-        if len(new_parts) != len(original_parts_copy):
-            list_actually_changed = True
-        else:
-            for i in range(len(new_parts)):
-                if new_parts[i] != original_parts_copy[i]: # Assumes MessageContentPart has __eq__
-                    list_actually_changed = True
-                    break
-
-        # should_consider_modified is True if a command was found OR the list content changed.
-        should_consider_modified = any_command_found_overall or list_actually_changed
-
-        return new_parts, any_command_found_overall, should_consider_modified
 
     def _is_content_effectively_empty(self, content: Any) -> bool:
         """Checks if message content is effectively empty after processing."""
-        if isinstance(content, str):
-            return not content.strip()
-        if isinstance(content, list):
-            if not content:  # An empty list is definitely empty
-                return True
-            # If the list has any non-text part (e.g., image), it's not empty.
-            # If all parts are text parts, then it's empty if all those text parts are empty.
-            for part in content:
-                if not isinstance(part, models.MessageContentPartText):
-                    return False  # Contains a non-text part (like an image), so not empty
-                if part.text.strip():
-                    return False  # Contains a non-empty text part
-            return True  # All parts are empty text parts, or list was empty initially
-        return False # Should not be reached if content is always str or list
+        return is_content_effectively_empty(content)
 
     def _is_original_purely_command(self, original_content: Any) -> bool:
         """Checks if the original message content was purely a command, ignoring comments."""
-        if not isinstance(original_content, str):
-            # Assuming commands can only be in string content for "purely command" messages
-            return False
-
-        # Remove comment lines first
-        content_without_comments = COMMENT_LINE_PATTERN.sub("", original_content).strip()
-
-        if not content_without_comments: # If only comments or empty after stripping comments
-            return False
-
-        match = self.command_pattern.match(content_without_comments)
-        # Check if the entire content (after comment removal and stripping) is the command
-        return bool(match and content_without_comments == match.group(0))
+        return is_original_purely_command(original_content, self.command_pattern)
 
     def _is_tool_call_result(self, text: str) -> bool:
         """Check if the text appears to be a tool call result rather than direct user input."""
-        # Tool call results typically start with patterns like:
-        # "[tool_name for 'arg'] Result:"
-        # "[attempt_completion] Result:"
-        # "[read_file for 'filename'] Result:"
-        tool_result_patterns = [
-            r'^\s*\[[\w_]+(?:\s+for\s+[\'"][^\'"\]]+[\'"])?\]\s+Result:',
-            r'^\s*\[[\w_]+\]\s+Result:',
-        ]
-        
-        for pattern in tool_result_patterns:
-            if re.match(pattern, text, re.IGNORECASE):
-                logger.debug(f"Detected tool call result pattern: {pattern}")
-                return True
-        return False
+        return is_tool_call_result(text)
 
     def _extract_feedback_from_tool_result(self, text: str) -> str:
         """Extract user feedback from tool call results that contain feedback sections."""
-        # Look for feedback within tool call results, typically in format:
-        # <feedback>
-        # !/command or user input
-        # </feedback>
-        feedback_pattern = r'<feedback>\s*(.*?)\s*</feedback>'
-        match = re.search(feedback_pattern, text, re.DOTALL | re.IGNORECASE)
-        if match:
-            feedback_content = match.group(1).strip()
-            logger.debug(f"Extracted feedback from tool result: {repr(feedback_content)}")
-            return feedback_content
-        return ""
+        return extract_feedback_from_tool_result(text)
 
     def _get_text_for_command_check(self, content: Any) -> str:
         """Extracts and prepares text from message content for command checking."""
-        text_to_check = ""
-        if isinstance(content, str):
-            text_to_check = content
-        elif isinstance(content, list):
-            for part in content:
-                if isinstance(part, models.MessageContentPartText):
-                    text_to_check += part.text + " " # Add space to simulate separate words
-
-        # CRITICAL FIX: Handle tool call results with embedded feedback
-        if self._is_tool_call_result(text_to_check):
-            # Check if this tool call result contains user feedback with commands
-            feedback_text = self._extract_feedback_from_tool_result(text_to_check)
-            if feedback_text:
-                logger.debug(f"Found feedback in tool call result, checking for commands in feedback")
-                return COMMENT_LINE_PATTERN.sub("", feedback_text).strip()
-            else:
-                logger.debug(f"Skipping command detection in tool call result content")
-                return ""
-
-        # Remove comments and strip whitespace for accurate command pattern matching
-        return COMMENT_LINE_PATTERN.sub("", text_to_check).strip()
+        return get_text_for_command_check(content)
 
     def _execute_commands_in_target_message(
             self,
@@ -351,12 +90,23 @@ class CommandParser:
 
         if isinstance(msg_to_process.content, str):
             processed_content, command_found_in_target_msg, content_modified_by_cmd = \
-                self._handle_string_content(msg_to_process.content)
+                self.command_processor.handle_string_content(msg_to_process.content)
         elif isinstance(msg_to_process.content, list):
             processed_content, command_found_in_target_msg, content_modified_by_cmd = \
-                self._handle_list_content(msg_to_process.content)
+                self.command_processor.handle_list_content(msg_to_process.content)
 
         if command_found_in_target_msg:
+            # If the original content was purely a command and the resulting content is empty,
+            # check if there was a command failure. If so, use the failure message as the new content.
+            if self._is_original_purely_command(
+                original_content_for_comparison
+            ) and self._is_content_effectively_empty(processed_content):
+                if self.command_results:
+                    last_result = self.command_results[-1]
+                    if not last_result.success and last_result.message:
+                        processed_content = last_result.message
+                        content_modified_by_cmd = True
+
             # Update content only if it was actually modified by the command processing
             # and processed_content is not None (it could be None if list content became empty)
             if content_modified_by_cmd and processed_content is not None:
@@ -366,16 +116,18 @@ class CommandParser:
                     target_idx,
                     msg_to_process.role,
                 )
-            elif content_modified_by_cmd and processed_content is None and isinstance(original_content_for_comparison, list):
+            elif content_modified_by_cmd and processed_content is None and isinstance(
+                original_content_for_comparison, list
+            ):
                 # This case handles when a list content is entirely consumed by a command, resulting in None (empty list)
-                msg_to_process.content = [] # Ensure it's an empty list
+                msg_to_process.content = []  # Ensure it's an empty list
                 logger.info(
                     "List content removed by command in message index %s. Role: %s.",
                     target_idx,
                     msg_to_process.role,
                 )
 
-            return True # A command was found and an attempt to execute it was made.
+            return True  # A command was found and an attempt to execute it was made.
         return False
 
     def _filter_empty_messages(
@@ -386,19 +138,11 @@ class CommandParser:
         """Filters out messages that became empty, unless they were purely commands."""
         final_messages: List[models.ChatMessage] = []
         for original_msg_idx, current_msg_state in enumerate(processed_messages):
-            is_empty = self._is_content_effectively_empty(current_msg_state.content)
+            is_empty = is_content_effectively_empty(current_msg_state.content)
 
             if is_empty:
                 original_content = original_messages[original_msg_idx].content
-                if not self._is_original_purely_command(original_content):
-                    logger.info(
-                        "Removing message (role: %s, index: %s) as its content "
-                        "became effectively empty after command processing and was not a pure command.",
-                        current_msg_state.role,
-                        original_msg_idx
-                    )
-                    continue
-                else:
+                if is_original_purely_command(original_content, self.command_pattern):
                     # Pure command became empty. Retain it, ensuring content is canonical empty.
                     current_msg_state.content = [] if isinstance(original_content, list) else ""
                     logger.info(
@@ -407,6 +151,14 @@ class CommandParser:
                         current_msg_state.role,
                         original_msg_idx
                     )
+                else:
+                    logger.info(
+                        "Removing message (role: %s, index: %s) as its content "
+                        "became effectively empty after command processing and was not a pure command.",
+                        current_msg_state.role,
+                        original_msg_idx
+                    )
+                    continue
             final_messages.append(current_msg_state)
         return final_messages
 
@@ -421,7 +173,7 @@ class CommandParser:
         # Find the index of the last message containing a command to avoid unnecessary processing.
         command_message_idx = -1
         for i in range(len(messages) - 1, -1, -1):
-            text_for_check = self._get_text_for_command_check(messages[i].content)
+            text_for_check = get_text_for_command_check(messages[i].content)
             if self.command_pattern.search(text_for_check):
                 command_message_idx = i
                 break
@@ -466,14 +218,20 @@ def _process_text_for_commands(
     app: FastAPI,
     functional_backends: Set[str] | None = None,
 ) -> Tuple[str, bool]:
-    parser = CommandParser(
-        current_proxy_state,
-        app,
-        command_prefix="",
+    # This function is primarily for testing and specific internal uses where a
+    # CommandParser instance is not fully initialized with all handlers.
+    # It creates a minimal parser to process a single text string.
+    parser_config = CommandParserConfig(
+        proxy_state=current_proxy_state,
+        app=app,
+        preserve_unknown=True,
         functional_backends=functional_backends,
     )
+    parser = CommandParser(parser_config, command_prefix="")
+    # Override the command_pattern as it's passed directly for this helper
     parser.command_pattern = command_pattern
-    processed_text, commands_found = parser.process_text(text_content)
+    # Use the internal command_processor for actual text processing
+    processed_text, commands_found = parser.command_processor.process_text_and_execute_command(text_content)
 
     # For tests relying on this helper, if a command-only message was processed
     # and failed, return the error message from the command execution.
@@ -491,15 +249,18 @@ def process_commands_in_messages(
     app: Optional[FastAPI] = None,
     command_prefix: str = DEFAULT_COMMAND_PREFIX,
 ) -> Tuple[List[models.ChatMessage], bool]:
+    """
+    Processes a list of chat messages to identify and execute embedded commands.
+
+    This is the primary public interface for command processing. It initializes
+    a CommandParser and uses it to process the messages.
+    """
     if not messages:
+        logger.debug("process_commands_in_messages received empty messages list.")
         return messages, False
 
     functional_backends: Optional[Set[str]] = None
-    if app and hasattr(
-            app,
-            "state") and hasattr(
-            app.state,
-            "functional_backends"):
+    if app and hasattr(app, "state") and hasattr(app.state, "functional_backends"):
         functional_backends = app.state.functional_backends
     else:
         logger.warning(
@@ -508,13 +269,15 @@ def process_commands_in_messages(
             "functional_backends.",
         )
 
-    parser = CommandParser(
+    parser_config = CommandParserConfig(
         proxy_state=current_proxy_state,
         app=app,  # type: ignore
-        command_prefix=command_prefix,
+        preserve_unknown=True,
         functional_backends=functional_backends,
     )
+    parser = CommandParser(parser_config, command_prefix=command_prefix)
 
     final_messages, commands_processed = parser.process_messages(messages)
 
     return final_messages, commands_processed
+

@@ -69,9 +69,6 @@ class ChatCompletionRequest(BaseModel):
 
     model: str
     messages: List[ChatMessage]
-    temperature: Optional[float] = Field(
-        None, description="Controls randomness. Lower is more deterministic."
-    )
     top_p: Optional[float] = Field(
         None,
         description="Nucleus sampling: considers tokens with top_p probability mass.",

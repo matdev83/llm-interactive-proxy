@@ -91,3 +91,4 @@ def test_failover_missing_keys(monkeypatch, httpx_mock: HTTPXMock):
         )
         assert resp.status_code == 500
         assert resp.json()["detail"]["error"] == "all backends failed"
+

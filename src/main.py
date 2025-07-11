@@ -50,6 +50,7 @@ def build_app(
     cfg = cfg or _load_config()
 
     disable_auth = cfg.get("disable_auth", False)
+    disable_accounting = cfg.get("disable_accounting", False)
     api_key = os.getenv("LLM_INTERACTIVE_PROXY_API_KEY")
     if not disable_auth:
         if not api_key:
@@ -254,6 +255,7 @@ def build_app(
         "name": project_name, "version": project_version}
     app_instance.state.client_api_key = api_key
     app_instance.state.disable_auth = disable_auth
+    app_instance.state.disable_accounting = disable_accounting
 
     async def verify_client_auth(http_request: Request) -> None:
         if http_request.app.state.disable_auth:
@@ -379,12 +381,15 @@ def build_app(
         confirmation_text = ""  # Initialize confirmation_text for both paths
         
         if not http_request.app.state.disable_interactive_commands:
-            parser = CommandParser(
-                proxy_state,
-                http_request.app,
-                command_prefix=http_request.app.state.command_prefix,
+            from src.command_config import CommandParserConfig
+            parser_config = CommandParserConfig(
+                proxy_state=proxy_state,
+                app=http_request.app,
                 preserve_unknown=not proxy_state.interactive_mode,
                 functional_backends=http_request.app.state.functional_backends,
+            )
+            parser = CommandParser(
+                parser_config, command_prefix=http_request.app.state.command_prefix
             )
             
             processed_messages, commands_processed = parser.process_messages(
@@ -514,7 +519,7 @@ def build_app(
                     elif isinstance(msg.content, list) and msg.content:
                         # Check if list has any non-empty text parts
                         for part in msg.content:
-                            if hasattr(part, 'text') and part.text.strip():
+                            if isinstance(part, models.MessageContentPartText) and part.text.strip():
                                 has_meaningful_content = True
                                 break
                         if has_meaningful_content:
@@ -713,7 +718,17 @@ def build_app(
             # Extract username from request headers or use default
             username = http_request.headers.get("X-User-ID", "anonymous")
 
-            async with track_llm_request(
+            # Create a context manager that does nothing if accounting is disabled
+            @asynccontextmanager
+            async def no_op_tracker():
+                class DummyTracker:
+                    def set_response(self, *args, **kwargs): pass
+                    def set_response_headers(self, *args, **kwargs): pass
+                    def set_cost(self, *args, **kwargs): pass
+                    def set_completion_id(self, *args, **kwargs): pass
+                yield DummyTracker()
+
+            tracker_context = track_llm_request(
                 model=model_str,
                 backend=b_type,
                 messages=processed_messages,
@@ -721,7 +736,9 @@ def build_app(
                 project=proxy_state.project,
                 session=session_id,
                 caller_name=f"{b_type}_backend"
-            ) as tracker:
+            ) if not http_request.app.state.disable_accounting else no_op_tracker()
+
+            async with tracker_context as tracker:
                 if b_type == "gemini":
                     retry_at = http_request.app.state.rate_limits.get(
                         "gemini", model_str, key_name_str
@@ -970,16 +987,21 @@ def build_app(
                     logger.debug(
                         f"Attempt failed for backend: {b_attempt}, model: {m_attempt}, key_name: {kname_attempt} with HTTPException: {e.status_code} - {e.detail}"
                     )
-                    if e.status_code == 429:
-                        delay = parse_retry_delay(e.detail)
-                        if delay:
-                            http_request.app.state.rate_limits.set(
-                                b_attempt, m_attempt, kname_attempt, delay
-                            )
-                            retry_at = time.time() + delay
-                            earliest_retry = (
-                                retry_at if earliest_retry is None or retry_at < earliest_retry else earliest_retry
-                            )
+                    RETRYABLE_STATUS_CODES = {429, 500, 502, 503, 504}
+                    if e.status_code in RETRYABLE_STATUS_CODES:
+                        if e.status_code == 429:
+                            delay = parse_retry_delay(e.detail)
+                            if delay:
+                                http_request.app.state.rate_limits.set(
+                                    b_attempt, m_attempt, kname_attempt, delay
+                                )
+                                retry_at = time.time() + delay
+                                earliest_retry = (
+                                    retry_at
+                                    if earliest_retry is None
+                                    or retry_at < earliest_retry
+                                    else earliest_retry
+                                )
                         last_error = e
                         attempted_any = True
                         continue

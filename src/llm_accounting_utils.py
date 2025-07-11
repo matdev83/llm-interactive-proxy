@@ -26,6 +26,11 @@ _llm_accounting: Optional[LLMAccounting] = None
 _token_encoders: Dict[str, tiktoken.Encoding] = {}
 
 
+def is_accounting_disabled() -> bool:
+    """Check if LLM accounting is disabled via environment variable."""
+    return os.getenv("DISABLE_ACCOUNTING", "false").lower() == "true"
+
+
 def get_llm_accounting() -> LLMAccounting:
     """Get or create the global LLM accounting instance."""
     global _llm_accounting
@@ -434,13 +439,6 @@ async def track_llm_request(
             tracker.set_response(response)
             tracker.set_response_headers(response_headers)  # NEW: Set headers for billing extraction
     """
-    start_time = time.time()
-    prompt_text = extract_prompt_from_messages(messages)
-
-    # Use system username if not provided
-    if not username:
-        username = get_system_username()
-
     class RequestTracker:
         def __init__(self):
             self.response = None
@@ -465,6 +463,20 @@ async def track_llm_request(
             self.remote_completion_id = completion_id
 
     tracker = RequestTracker()
+
+    if is_accounting_disabled():
+        try:
+            yield tracker
+        finally:
+            pass  # Do nothing if accounting is disabled
+        return
+
+    start_time = time.time()
+    prompt_text = extract_prompt_from_messages(messages)
+
+    # Use system username if not provided
+    if not username:
+        username = get_system_username()
 
     try:
         yield tracker

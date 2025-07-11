@@ -43,7 +43,8 @@ def test_get_openrouter_headers_no_api_key(client):
         response = client.post("/v1/chat/completions", json=payload)
 
     assert response.status_code == 500
-    assert "Simulated backend error due to bad headers" in response.json()["detail"]
+    response_json = response.json()
+    assert "Simulated backend error due to bad headers" in response_json["detail"]["error"]
 
 
 def test_invalid_model_noninteractive(client):

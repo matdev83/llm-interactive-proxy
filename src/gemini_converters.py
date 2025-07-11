@@ -133,6 +133,10 @@ def gemini_to_openai_request(gemini_request: GenerateContentRequest, model: str)
         frequency_penalty=None,
         logit_bias=None,
         user=None,
+        reasoning_effort=None,
+        reasoning=None,
+        thinking_budget=None,
+        generation_config=None
     )
 
 
@@ -152,7 +156,6 @@ def openai_to_gemini_response(openai_response: ChatCompletionResponse) -> Genera
                 if tool_call.function and tool_call.function.name == "attempt_completion":
                     # The XML content is now JSON-encoded in the arguments
                     try:
-                        import json
                         args = json.loads(tool_call.function.arguments)
                         xml_content = args.get("result", tool_call.function.arguments)
                     except (json.JSONDecodeError, TypeError):
@@ -180,7 +183,7 @@ def openai_to_gemini_response(openai_response: ChatCompletionResponse) -> Genera
 
         candidate = Candidate(
             content=content,
-            finish_reason=finish_reason,
+            finishReason=finish_reason,
             index=choice.index
         )
         candidates.append(candidate)
@@ -189,16 +192,16 @@ def openai_to_gemini_response(openai_response: ChatCompletionResponse) -> Genera
     usage_metadata = None
     if openai_response.usage:
         usage_metadata = UsageMetadata(
-            prompt_token_count=openai_response.usage.prompt_tokens,
-            candidates_token_count=openai_response.usage.completion_tokens,
-            total_token_count=openai_response.usage.total_tokens,
-            cached_content_token_count=None
+            promptTokenCount=openai_response.usage.prompt_tokens,
+            candidatesTokenCount=openai_response.usage.completion_tokens,
+            totalTokenCount=openai_response.usage.total_tokens,
+            cachedContentTokenCount=None
         )
 
     return GenerateContentResponse(
         candidates=candidates,
-        prompt_feedback=None,
-        usage_metadata=usage_metadata
+        promptFeedback=None,
+        usageMetadata=usage_metadata
     )
 
 
@@ -231,7 +234,7 @@ def openai_to_gemini_stream_chunk(chunk_data: str) -> str:
 
                 candidate = Candidate(
                     content=content,
-                    finish_reason=finish_reason,
+                    finishReason=finish_reason,
                     index=choice.get("index", 0)
                 )
                 candidates.append(candidate)

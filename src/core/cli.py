@@ -91,6 +91,12 @@ def parse_cli_args(argv: list[str] | None = None) -> argparse.Namespace:
         default=None,
         help="Disable all in-chat command processing",
     )
+    parser.add_argument(
+        "--disable-accounting",
+        action="store_true",
+        default=None,
+        help="Disable LLM accounting (usage tracking and audit logging)",
+    )
     return parser.parse_args(argv)
 
 
@@ -109,6 +115,7 @@ def apply_cli_args(args: argparse.Namespace) -> Dict[str, Any]:
         "disable_auth": "DISABLE_AUTH",
         "force_set_project": "FORCE_SET_PROJECT",
         "disable_interactive_commands": "DISABLE_INTERACTIVE_COMMANDS",
+        "disable_accounting": "DISABLE_ACCOUNTING",
     }
     for attr, env_name in mappings.items():
         value = getattr(args, attr)
@@ -126,6 +133,8 @@ def apply_cli_args(args: argparse.Namespace) -> Dict[str, Any]:
         os.environ["FORCE_SET_PROJECT"] = "true"
     if getattr(args, "disable_interactive_commands", None):
         os.environ["DISABLE_INTERACTIVE_COMMANDS"] = "true"
+    if getattr(args, "disable_accounting", None):
+        os.environ["DISABLE_ACCOUNTING"] = "true"
     return _load_config()
 
 
