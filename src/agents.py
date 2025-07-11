@@ -46,5 +46,4 @@ def format_command_response_for_agent(
             f"{joined_content}\n"
             f"</result>\n</attempt_completion>\n"
         )
-    else:
-        return joined_content
+    return joined_content

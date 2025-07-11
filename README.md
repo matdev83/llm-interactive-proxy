@@ -83,6 +83,9 @@ These instructions will get you a copy of the project up and running on your loc
 
     # Enable or disable prompt redaction (default true)
     # REDACT_API_KEYS_IN_PROMPTS="false"  # same as passing --disable-redact-api-keys-in-prompts
+
+    # Enable or disable LLM accounting (usage tracking and audit logging)
+    # DISABLE_ACCOUNTING="true"  # same as passing --disable-accounting
     ```
 
     Replace `"your_openrouter_api_key_here"` (or numbered variants) with your
@@ -190,6 +193,7 @@ The proxy server can be configured using the following command-line arguments:
 - `--disable-auth`: Disables client API key authentication (only allowed when binding to `127.0.0.1`).
 - `--force-set-project`: Requires a project name to be set before sending prompts.
 - `--disable-interactive-commands`: Disables all in-chat command processing.
+- `--disable-accounting`: Disables LLM accounting (usage tracking and audit logging).
 
 ### Usage Tracking and Analytics
 

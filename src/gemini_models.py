@@ -2,9 +2,9 @@
 Pydantic models for Google Gemini API request/response structures.
 These models match the official Gemini API format for compatibility.
 """
-from typing import Any, Dict, List, Optional, Union
-from pydantic import BaseModel, Field
 from enum import Enum
+from typing import Any, Dict, List, Optional
+from pydantic import BaseModel, Field
 
 
 class HarmCategory(str, Enum):
@@ -84,15 +84,19 @@ class Part(BaseModel):
     inline_data: Optional[Blob] = None
     file_data: Optional[FileData] = None
 
-    def model_post_init(self, __context):
+    def model_post_init(self, __context: Any) -> None:
         """Ensure exactly one field is set."""
-        fields_set = sum([
-            self.text is not None,
-            self.inline_data is not None,
-            self.file_data is not None
-        ])
-        if fields_set != 1:
-            raise ValueError("Exactly one of text, inline_data, or file_data must be set")
+        fields_set = sum(
+            [
+                self.text is not None,
+                self.inline_data is not None,
+                self.file_data is not None,
+            ]
+        )
+        if fields_set > 1:
+            raise ValueError(
+                "Exactly one of text, inline_data, or file_data must be set"
+            )
 
 
 class Content(BaseModel):

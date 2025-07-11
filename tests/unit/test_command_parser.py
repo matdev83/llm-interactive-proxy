@@ -2,7 +2,9 @@ import pytest
 from fastapi import FastAPI
 from typing import Dict, Any, Set, cast
 
-from src.command_parser import CommandParser, parse_arguments, get_command_pattern
+from src.command_parser import CommandParser, get_command_pattern
+from src.command_processor import parse_arguments
+from src.command_config import CommandParserConfig
 from src.proxy_logic import ProxyState
 from src.commands import BaseCommand, CommandResult
 from src.models import ChatMessage, MessageContentPartText, MessageContentPart
@@ -55,13 +57,13 @@ def command_parser(
     request, mock_app: FastAPI, proxy_state: ProxyState
 ) -> CommandParser:
     preserve_unknown_val = request.param
-    parser = CommandParser(
+    parser_config = CommandParserConfig(
         proxy_state=proxy_state,
         app=mock_app,
-        command_prefix=DEFAULT_COMMAND_PREFIX,
-        preserve_unknown=preserve_unknown_val, # Use parameterized value
+        preserve_unknown=preserve_unknown_val,
         functional_backends=mock_app.state.functional_backends,
     )
+    parser = CommandParser(parser_config, command_prefix=DEFAULT_COMMAND_PREFIX)
     parser.handlers.clear()
 
     # Create fresh mocks for each parametrization to avoid state leakage
@@ -135,7 +137,7 @@ def test_process_text_single_command(command_parser: CommandParser):
     # Reset call state of mock command for this specific test run with this parser instance
     cast(MockSuccessCommand, command_parser.handlers["hello"]).reset_mock_state()
 
-    modified_text, commands_found = command_parser.process_text(text_content)
+    modified_text, commands_found = command_parser.command_processor.process_text_and_execute_command(text_content)
     assert commands_found is True
     assert modified_text == "" # Command-only message results in empty text
     hello_handler = command_parser.handlers["hello"]
@@ -152,7 +154,7 @@ def test_process_text_command_with_prefix_text(command_parser: CommandParser):
     # So, "Some text " + "" + "" = "Some text "
     # If it were "Some text!/hello", it would be "Some text"
     # Actual behavior due to .strip() at the end of process_text:
-    modified_text, commands_found = command_parser.process_text(text_content)
+    modified_text, commands_found = command_parser.command_processor.process_text_and_execute_command(text_content)
     assert commands_found is True
     assert modified_text == "Some text" # .strip() removes trailing space
     hello_handler = command_parser.handlers["hello"]
@@ -165,7 +167,7 @@ def test_process_text_command_with_suffix_text(command_parser: CommandParser):
     cast(MockSuccessCommand, command_parser.handlers["hello"]).reset_mock_state()
     # Expected: " Some text" (space before suffix is preserved)
     # Actual behavior due to .strip() at the end of process_text:
-    modified_text, commands_found = command_parser.process_text(text_content)
+    modified_text, commands_found = command_parser.command_processor.process_text_and_execute_command(text_content)
     assert commands_found is True
     assert modified_text == "Some text" # .strip() removes leading space
     hello_handler = command_parser.handlers["hello"]
@@ -179,7 +181,7 @@ def test_process_text_command_with_prefix_and_suffix_text(command_parser: Comman
     # Expected: "Prefix  Suffix" (two spaces if original had one before and one after)
     # "Prefix " + "" + " Suffix"
     # Actual behavior due to re.sub(r"\s+", " ", modified_text).strip()
-    modified_text, commands_found = command_parser.process_text(text_content)
+    modified_text, commands_found = command_parser.command_processor.process_text_and_execute_command(text_content)
     assert commands_found is True
     assert modified_text == "Prefix Suffix" # Multiple spaces collapsed, then stripped
     hello_handler = command_parser.handlers["hello"]
@@ -191,7 +193,7 @@ def test_process_text_multiple_commands_only_first_processed(command_parser: Com
     text_content = "!/hello !/anothercmd"
     cast(MockSuccessCommand, command_parser.handlers["hello"]).reset_mock_state()
     cast(MockSuccessCommand, command_parser.handlers["anothercmd"]).reset_mock_state()
-    modified_text, commands_found = command_parser.process_text(text_content)
+    modified_text, commands_found = command_parser.command_processor.process_text_and_execute_command(text_content)
     assert commands_found is True
     # !/hello is processed and removed. "!/anothercmd" remains.
     # The space before "!/anothercmd" is part of the match of !/hello if we consider it greedy
@@ -216,7 +218,7 @@ def test_process_text_multiple_commands_only_first_processed(command_parser: Com
 def test_process_text_no_command(command_parser: CommandParser):
     text_content = "Just some text"
     cast(MockSuccessCommand, command_parser.handlers["hello"]).reset_mock_state()
-    modified_text, commands_found = command_parser.process_text(text_content)
+    modified_text, commands_found = command_parser.command_processor.process_text_and_execute_command(text_content)
     assert commands_found is False
     assert modified_text == "Just some text"
     hello_handler = command_parser.handlers["hello"]
@@ -230,10 +232,10 @@ def test_process_text_unknown_command(command_parser: CommandParser):
     cast(MockSuccessCommand, command_parser.handlers["hello"]).reset_mock_state()
     cast(MockSuccessCommand, command_parser.handlers["anothercmd"]).reset_mock_state()
 
-    modified_text, commands_found = command_parser.process_text(text_content_valid_format_unknown)
+    modified_text, commands_found = command_parser.command_processor.process_text_and_execute_command(text_content_valid_format_unknown)
     assert commands_found is True # Command *format* was detected
 
-    if command_parser.preserve_unknown:
+    if command_parser.config.preserve_unknown:
         assert modified_text == "!/cmd-not-real(arg=val)" # Preserved
     else:
         assert modified_text == "" # Not preserved, removed
