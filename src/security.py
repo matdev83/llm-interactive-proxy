@@ -17,8 +17,9 @@ class APIKeyRedactor:
         redacted_text = text
         for key in self.api_keys:
             if key and key in redacted_text:
-                logger.warning(
-                    "API key detected in prompt. Redacting before forwarding."
+                if logger.isEnabledFor(logging.WARNING):
+                    logger.warning(
+                        "API key detected in prompt. Redacting before forwarding."
                 )
                 redacted_text = redacted_text.replace(
                     key, "(API_KEY_HAS_BEEN_REDACTED)"
@@ -59,25 +60,37 @@ class ProxyCommandFilter:
         matches = list(self.command_pattern.finditer(text))
 
         if matches:
-            logger.warning(
-                "EMERGENCY FILTER TRIGGERED: %d proxy command(s) detected in text being sent to remote LLM. "
-                "This indicates a potential command leak or mishandling. Commands will be removed.",
-                len(matches)
-            )
+            if logger.isEnabledFor(logging.WARNING):
+                logger.warning(
+                    "EMERGENCY FILTER TRIGGERED: %d proxy command(s) detected in text being sent to remote LLM. "
+                    "This indicates a potential command leak or mishandling. Commands will be removed.",
+                    len(matches),
+                )
 
-            # Log each detected command for debugging
-            for i, match in enumerate(matches, 1):
-                command_text = match.group(0)
-                logger.warning("  Command %d: '%s' at position %d-%d", i, command_text, match.start(), match.end())
+                # Log each detected command for debugging
+                for i, match in enumerate(matches, 1):
+                    command_text = match.group(0)
+                    logger.warning(
+                        "  Command %d: '%s' at position %d-%d",
+                        i,
+                        command_text,
+                        match.start(),
+                        match.end(),
+                    )
 
             # Remove all commands from the text
             filtered_text = self.command_pattern.sub("", text)
 
             # Clean up extra whitespace that might be left behind
-            filtered_text = re.sub(r'\s+', ' ', filtered_text).strip()
+            filtered_text = re.sub(r"\s+", " ", filtered_text).strip()
 
-            logger.info("Emergency filter removed %d command(s). Original length: %d, filtered length: %d", 
-                        len(matches), len(text), len(filtered_text))
+            if logger.isEnabledFor(logging.INFO):
+                logger.info(
+                    "Emergency filter removed %d command(s). Original length: %d, filtered length: %d",
+                    len(matches),
+                    len(text),
+                    len(filtered_text),
+                )
 
             return filtered_text
 

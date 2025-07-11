@@ -60,8 +60,10 @@ class SessionManager:
                     failover_routes=self.failover_routes,
                 ),
             )
-            logger.info(f"Created new session: {session_id}")
-        logger.debug(
-            f"Retrieving session: {session_id}, ProxyState ID: {id(self.sessions[session_id].proxy_state)}"
+            if logger.isEnabledFor(logging.INFO):
+                logger.info(f"Created new session: {session_id}")
+        if logger.isEnabledFor(logging.DEBUG):
+            logger.debug(
+                f"Retrieving session: {session_id}, ProxyState ID: {id(self.sessions[session_id].proxy_state)}"
         )
         return self.sessions[session_id]
