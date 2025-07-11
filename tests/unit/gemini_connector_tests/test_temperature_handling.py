@@ -354,15 +354,15 @@ class TestGeminiTemperatureHandling:
 
         # Mock streaming response
         mock_response = Mock()
-        mock_response.status_code = 200
+        mock_response.status_code = 200  # This should be an int, not AsyncMock
         mock_response.aiter_text.return_value = [
             '{"candidates": [{"content": {"parts": [{"text": "Streaming response"}]}}]}'
         ]
         mock_response.aclose = AsyncMock()
 
-        gemini_backend.client.stream = AsyncMock()
-        gemini_backend.client.stream.return_value.__aenter__ = AsyncMock(return_value=mock_response)
-        gemini_backend.client.stream.return_value.__aexit__ = AsyncMock(return_value=None)
+        # Mock the client.send method instead of client.stream
+        gemini_backend.client.build_request = Mock()
+        gemini_backend.client.send = AsyncMock(return_value=mock_response)
 
         # Call the method
         result = await gemini_backend.chat_completions(
@@ -373,9 +373,9 @@ class TestGeminiTemperatureHandling:
             api_key="test-key"
         )
 
-        # Verify streaming was called with temperature in payload
-        gemini_backend.client.stream.assert_called_once()
-        call_args = gemini_backend.client.stream.call_args
+        # Verify the request was built with temperature in payload
+        gemini_backend.client.build_request.assert_called_once()
+        call_args = gemini_backend.client.build_request.call_args
         payload = call_args[1]["json"]
         
         assert "generationConfig" in payload

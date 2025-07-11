@@ -1,5 +1,6 @@
 import json
 import logging
+import os
 from pathlib import Path
 from typing import Any, Dict, Optional, Tuple # Added Optional and Tuple
 
@@ -28,13 +29,21 @@ class ConfigManager:
 
     def _apply_default_backend(self, backend_value: Any) -> None:
         if isinstance(backend_value, str):
+            # Check if CLI argument was provided (LLM_BACKEND env var set)
+            # If so, don't override it with config file value
+            cli_backend = os.getenv("LLM_BACKEND")
+            if cli_backend and cli_backend != backend_value:
+                logger.info(f"Skipping config file backend '{backend_value}' because CLI argument '{cli_backend}' takes precedence")
+                return
+                
             if backend_value in self.app.state.functional_backends:
                 self.app.state.backend_type = backend_value
-                self.app.state.backend = (
-                    self.app.state.gemini_backend
-                    if backend_value == "gemini"
-                    else self.app.state.openrouter_backend
-                )
+                if backend_value == "gemini":
+                    self.app.state.backend = self.app.state.gemini_backend
+                elif backend_value == "gemini-cli-direct":
+                    self.app.state.backend = self.app.state.gemini_cli_direct_backend
+                else:
+                    self.app.state.backend = self.app.state.openrouter_backend
             else:
                 raise ValueError(
                     f"Default backend '{backend_value}' is not in functional_backends."

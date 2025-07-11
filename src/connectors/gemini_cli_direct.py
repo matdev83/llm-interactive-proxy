@@ -29,12 +29,14 @@ class GeminiCliDirectConnector(LLMBackend):
         self.available_models: list[str] = []
         self.is_functional = False
         self._cli_tested = False  # Track if we've tested CLI yet
+        self.google_cloud_project: Optional[str] = None
 
-    async def initialize(self) -> None:
+    async def initialize(self, google_cloud_project: Optional[str] = None) -> None:
         """Initialize backend - defer CLI testing until first use"""
         # Don't test CLI during initialization to avoid blocking server startup
         # Instead, set up default models and test CLI on first actual request
         logger.info("Gemini CLI Direct backend initialized (CLI test deferred)")
+        self.google_cloud_project = google_cloud_project
         self.available_models = [
             "gemini-2.5-flash",
             "gemini-1.5-pro",
@@ -60,6 +62,11 @@ class GeminiCliDirectConnector(LLMBackend):
         try:
             # Create subprocess with proper environment
             env = os.environ.copy()
+            
+            # Set Google Cloud Project ID if provided
+            if self.google_cloud_project:
+                env["GOOGLE_CLOUD_PROJECT"] = self.google_cloud_project
+                logger.debug(f"Set GOOGLE_CLOUD_PROJECT={self.google_cloud_project} for Gemini CLI")
 
             # On Windows, ensure npm global bin is in PATH
             if sys.platform == "win32":
@@ -152,6 +159,11 @@ class GeminiCliDirectConnector(LLMBackend):
         try:
             # Create subprocess with proper environment
             env = os.environ.copy()
+            
+            # Set Google Cloud Project ID if provided
+            if self.google_cloud_project:
+                env["GOOGLE_CLOUD_PROJECT"] = self.google_cloud_project
+                logger.debug(f"Set GOOGLE_CLOUD_PROJECT={self.google_cloud_project} for Gemini CLI")
 
             # On Windows, ensure npm global bin is in PATH
             if sys.platform == "win32":
