@@ -47,7 +47,8 @@ def test_save_and_load_persistent_config(tmp_path, monkeypatch):
 
     app2 = build_app(config_file=str(cfg_path))
     with TestClient(app2) as client2:
-        assert client2.app.state.backend_type == "gemini"
+        # CLI argument (LLM_BACKEND=openrouter) should take precedence over config file (default_backend=gemini)
+        assert client2.app.state.backend_type == "openrouter"
         assert client2.app.state.session_manager.default_interactive_mode is True
         # This assertion depends on "openrouter:model-a" being available during app2 init
         # If list_models is mocked to not include "model-a", this will be empty.

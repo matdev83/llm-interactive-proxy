@@ -71,8 +71,9 @@ These instructions will get you a copy of the project up and running on your loc
     # GEMINI_API_KEY_1="first_gemini_key"
     # Keys are sent using the `x-goog-api-key` header to avoid exposing them in URLs
 
-    # Gemini CLI Direct backend (no configuration needed)
+    # Gemini CLI Direct backend configuration
     # Uses system-installed Gemini CLI - ensure 'gemini auth' has been run first
+    # GOOGLE_CLOUD_PROJECT="your-google-cloud-project-id"  # Required for Gemini CLI
 
     # Client API key for accessing this proxy
     # LLM_INTERACTIVE_PROXY_API_KEY="choose_a_secret_key"
@@ -121,6 +122,14 @@ The Gemini CLI Direct backend allows you to use Google's Gemini models directly 
     ```
 
     Follow the prompts to complete the authentication process. This is a one-time operation that stores your credentials locally.
+
+4. **Set Google Cloud Project ID**: The Gemini CLI requires a Google Cloud Project ID to be set. Add this to your `.env` file:
+
+    ```env
+    GOOGLE_CLOUD_PROJECT=your-google-cloud-project-id
+    ```
+
+    Replace `your-google-cloud-project-id` with your actual Google Cloud Project ID.
 
 #### Using Gemini CLI Direct Backend
 

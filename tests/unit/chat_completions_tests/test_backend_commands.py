@@ -1,13 +1,15 @@
+#!/usr/bin/env python3
+
 import logging
-from unittest.mock import MagicMock, patch, AsyncMock # Added AsyncMock
+from unittest.mock import AsyncMock, MagicMock, patch
+
 import pytest
 from fastapi.testclient import TestClient
-from pytest_httpx import HTTPXMock # E402: Moved to top
+from pytest_httpx import HTTPXMock
 
 from src.proxy_logic import ProxyState
 
 logger = logging.getLogger(__name__)
-
 
 @patch('src.connectors.GeminiBackend.chat_completions', new_callable=AsyncMock)
 @patch('src.connectors.OpenRouterBackend.chat_completions', new_callable=AsyncMock)
@@ -29,7 +31,16 @@ def test_set_backend_command_integration(mock_openrouter_completions_method: Asy
     mock_proxy_state.hello_requested = False
     mock_proxy_state.is_cline_agent = False
     mock_proxy_state.failover_routes = {}
+    # Add missing attributes that main.py accesses
+    mock_proxy_state.reasoning_effort = None
+    mock_proxy_state.reasoning_config = None
+    mock_proxy_state.thinking_budget = None
+    mock_proxy_state.gemini_generation_config = None
+    mock_proxy_state.temperature = None
+    mock_proxy_state.oneoff_backend = None
+    mock_proxy_state.oneoff_model = None
     mock_proxy_state.get_effective_model.return_value = "some-model" # Ensure this returns a string
+    mock_proxy_state.get_selected_backend.return_value = "openrouter"  # Default backend
 
     # Mocking the side effect of set_override_backend directly on the mock_proxy_state
     # This ensures that when CommandParser calls state.set_override_backend(), our mock_proxy_state reflects the change.
@@ -87,7 +98,16 @@ def test_unset_backend_command_integration(mock_openrouter_completions_method: A
     mock_proxy_state.hello_requested = False
     mock_proxy_state.is_cline_agent = False
     mock_proxy_state.failover_routes = {}
+    # Add missing attributes that main.py accesses
+    mock_proxy_state.reasoning_effort = None
+    mock_proxy_state.reasoning_config = None
+    mock_proxy_state.thinking_budget = None
+    mock_proxy_state.gemini_generation_config = None
+    mock_proxy_state.temperature = None
+    mock_proxy_state.oneoff_backend = None
+    mock_proxy_state.oneoff_model = None
     mock_proxy_state.get_effective_model.return_value = "some-model" # Ensure this returns a string (already correctly indented in the read file)
+    mock_proxy_state.get_selected_backend.return_value = "openrouter"  # Default backend
 
     original_unset_override_backend = mock_proxy_state.unset_override_backend
     def side_effect_unset_override_backend():
@@ -148,7 +168,16 @@ def test_set_backend_rejects_nonfunctional(client: TestClient, httpx_mock: HTTPX
         mock_proxy_state.hello_requested = False
         mock_proxy_state.is_cline_agent = False
         mock_proxy_state.failover_routes = {}
+        # Add missing attributes that main.py accesses
+        mock_proxy_state.reasoning_effort = None
+        mock_proxy_state.reasoning_config = None
+        mock_proxy_state.thinking_budget = None
+        mock_proxy_state.gemini_generation_config = None
+        mock_proxy_state.temperature = None
+        mock_proxy_state.oneoff_backend = None
+        mock_proxy_state.oneoff_model = None
         mock_proxy_state.get_effective_model.return_value = "some-model"
+        mock_proxy_state.get_selected_backend.return_value = "openrouter"  # Default backend
 
         mock_session = MagicMock()
         mock_session.proxy_state = mock_proxy_state
@@ -186,7 +215,16 @@ def test_set_default_backend_command_integration(client: TestClient):
     mock_proxy_state.hello_requested = False
     mock_proxy_state.is_cline_agent = False
     mock_proxy_state.failover_routes = {}
+    # Add missing attributes that main.py accesses
+    mock_proxy_state.reasoning_effort = None
+    mock_proxy_state.reasoning_config = None
+    mock_proxy_state.thinking_budget = None
+    mock_proxy_state.gemini_generation_config = None
+    mock_proxy_state.temperature = None
+    mock_proxy_state.oneoff_backend = None
+    mock_proxy_state.oneoff_model = None
     mock_proxy_state.get_effective_model.return_value = "some-model"
+    mock_proxy_state.get_selected_backend.return_value = "openrouter"  # Default backend
 
     mock_session = MagicMock()
     mock_session.proxy_state = mock_proxy_state
@@ -247,7 +285,16 @@ def test_unset_default_backend_command_integration(client: TestClient):
     mock_proxy_state.hello_requested = False
     mock_proxy_state.is_cline_agent = False
     mock_proxy_state.failover_routes = {}
+    # Add missing attributes that main.py accesses
+    mock_proxy_state.reasoning_effort = None
+    mock_proxy_state.reasoning_config = None
+    mock_proxy_state.thinking_budget = None
+    mock_proxy_state.gemini_generation_config = None
+    mock_proxy_state.temperature = None
+    mock_proxy_state.oneoff_backend = None
+    mock_proxy_state.oneoff_model = None
     mock_proxy_state.get_effective_model.return_value = "some-model"
+    mock_proxy_state.get_selected_backend.return_value = "openrouter"  # Default backend
 
     mock_session = MagicMock()
     mock_session.proxy_state = mock_proxy_state

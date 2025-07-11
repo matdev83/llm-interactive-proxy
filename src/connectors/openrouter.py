@@ -219,57 +219,54 @@ class OpenRouterBackend(LLMBackend):
     ) -> StreamingResponse:
         logger.debug("Initiating stream request to OpenRouter.")
 
-        async def stream_generator():
-            try:
-                async with self.client.stream(
-                    "POST", url, json=payload, headers=headers
-                ) as response:
-                    logger.debug(f"OpenRouter stream response status: {response.status_code}")
-                    response.raise_for_status()
-                    async for chunk in response.aiter_bytes():
-                        yield chunk
-                    logger.debug("OpenRouter stream finished.")
-            except httpx.HTTPStatusError as e_stream:
-                logger.info("Caught httpx.HTTPStatusError in stream_generator")
-                body_text = ""
+        # Check for HTTP errors before creating the StreamingResponse
+        try:
+            request = self.client.build_request(
+                "POST", url, json=payload, headers=headers
+            )
+            response = await self.client.send(request, stream=True)
+            if response.status_code >= 400:
                 try:
-                    # Try to get the response text directly
-                    body_text = e_stream.response.text
+                    body_text = (await response.aread()).decode("utf-8")
                 except Exception:
-                    try:
-                        # If that fails, try to decode the content
-                        body_text = e_stream.response.content.decode("utf-8")
-                    except Exception: # pragma: no cover
-                        # If all else fails, try to read any available content
-                        try:
-                            body_text = (await e_stream.response.aread()).decode("utf-8")
-                        except Exception:
-                            body_text = "Unable to read error response"
+                    body_text = "Unable to read error response"
+                finally:
+                    await response.aclose()
                 logger.error(
                     "HTTP error during OpenRouter stream: %s - %s",
-                    e_stream.response.status_code,
+                    response.status_code,
                     body_text,
                 )
                 raise HTTPException(
-                    status_code=e_stream.response.status_code,
+                    status_code=response.status_code,
                     detail={
-                        "message": f"OpenRouter stream error: {e_stream.response.status_code} - {body_text}",
+                        "message": f"OpenRouter stream error: {response.status_code} - {body_text}",
                         "type": "openrouter_error",
-                        "code": e_stream.response.status_code,
-                    },
-                )
-            except Exception as e_gen: # pragma: no cover - for truly unexpected errors
-                logger.error(f"Error in stream generator: {e_gen}", exc_info=True)
-                raise HTTPException(
-                    status_code=500,
-                    detail={
-                        "message": f"Proxy stream generator error: {str(e_gen)}",
-                        "type": "proxy_error",
-                        "code": "proxy_stream_error",
+                        "code": response.status_code,
                     },
                 )
 
-        return StreamingResponse(stream_generator(), media_type="text/event-stream")
+            async def stream_generator():
+                try:
+                    async for chunk in response.aiter_bytes():
+                        yield chunk
+                    logger.debug("OpenRouter stream finished.")
+                except Exception as e_gen: # pragma: no cover - for truly unexpected errors
+                    logger.error(f"Error in stream generator: {e_gen}", exc_info=True)
+                    # For errors after streaming has started, we can't raise HTTPException
+                    # Instead, we'll just log the error and stop the stream
+                    pass
+                finally:
+                    await response.aclose()
+
+            return StreamingResponse(stream_generator(), media_type="text/event-stream")
+        except httpx.RequestError as e:
+            logger.error(
+                f"Request error connecting to OpenRouter: {e}", exc_info=True)
+            raise HTTPException(
+                status_code=503,
+                detail=f"Service unavailable: Could not connect to OpenRouter ({e})",
+            )
 
     async def list_models(
         self,

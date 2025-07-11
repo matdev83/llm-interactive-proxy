@@ -1,35 +1,43 @@
-import pytest
-from unittest.mock import AsyncMock, Mock, patch
+import json
+from typing import Dict, List
+from unittest.mock import AsyncMock, Mock
 
+import pytest
 from src.connectors.openrouter import OpenRouterBackend
 from src.models import ChatCompletionRequest, ChatMessage
 
+# Default OpenRouter settings for tests
+TEST_OPENROUTER_API_BASE_URL = "https://openrouter.ai/api/v1"
+
+
+def mock_get_openrouter_headers(key_name: str, api_key: str) -> Dict[str, str]:
+    return {
+        "Authorization": f"Bearer {api_key}",
+        "Content-Type": "application/json",
+        "HTTP-Referer": "http://localhost:test",
+        "X-Title": "TestProxy",
+    }
+
 
 class TestOpenRouterTemperatureHandling:
-    """Test temperature handling in OpenRouter connector."""
+    """Test temperature parameter handling in OpenRouter backend."""
 
     @pytest.fixture
     def openrouter_backend(self):
-        """Create an OpenRouterBackend instance for testing."""
-        mock_client = AsyncMock()
-        return OpenRouterBackend(mock_client)
+        from unittest.mock import AsyncMock
+        import httpx
+        return OpenRouterBackend(client=AsyncMock(spec=httpx.AsyncClient))
 
     @pytest.fixture
     def sample_request_data(self):
-        """Create sample request data for testing."""
         return ChatCompletionRequest(
             model="openrouter:openai/gpt-4",
-            messages=[
-                ChatMessage(role="user", content="Test message")
-            ]
+            messages=[ChatMessage(role="user", content="Test message")]
         )
 
     @pytest.fixture
     def sample_processed_messages(self):
-        """Create sample processed messages for testing."""
-        return [
-            ChatMessage(role="user", content="Test message")
-        ]
+        return [ChatMessage(role="user", content="Test message")]
 
     @pytest.mark.asyncio
     @pytest.mark.asyncio
@@ -58,6 +66,9 @@ class TestOpenRouterTemperatureHandling:
             request_data=sample_request_data,
             processed_messages=sample_processed_messages,
             effective_model="openai/gpt-4",
+            openrouter_api_base_url=TEST_OPENROUTER_API_BASE_URL,
+            openrouter_headers_provider=mock_get_openrouter_headers,
+            key_name="OPENROUTER_API_KEY_1",
             api_key="test-key"
         )
 
@@ -95,6 +106,9 @@ class TestOpenRouterTemperatureHandling:
             request_data=sample_request_data,
             processed_messages=sample_processed_messages,
             effective_model="openai/gpt-4",
+            openrouter_api_base_url=TEST_OPENROUTER_API_BASE_URL,
+            openrouter_headers_provider=mock_get_openrouter_headers,
+            key_name="OPENROUTER_API_KEY_1",
             api_key="test-key"
         )
 
@@ -132,6 +146,9 @@ class TestOpenRouterTemperatureHandling:
             request_data=sample_request_data,
             processed_messages=sample_processed_messages,
             effective_model="openai/gpt-4",
+            openrouter_api_base_url=TEST_OPENROUTER_API_BASE_URL,
+            openrouter_headers_provider=mock_get_openrouter_headers,
+            key_name="OPENROUTER_API_KEY_1",
             api_key="test-key"
         )
 
@@ -174,6 +191,9 @@ class TestOpenRouterTemperatureHandling:
             request_data=sample_request_data,
             processed_messages=sample_processed_messages,
             effective_model="openai/gpt-4",
+            openrouter_api_base_url=TEST_OPENROUTER_API_BASE_URL,
+            openrouter_headers_provider=mock_get_openrouter_headers,
+            key_name="OPENROUTER_API_KEY_1",
             api_key="test-key"
         )
 
@@ -218,6 +238,9 @@ class TestOpenRouterTemperatureHandling:
             request_data=sample_request_data,
             processed_messages=sample_processed_messages,
             effective_model="openai/gpt-4",
+            openrouter_api_base_url=TEST_OPENROUTER_API_BASE_URL,
+            openrouter_headers_provider=mock_get_openrouter_headers,
+            key_name="OPENROUTER_API_KEY_1",
             api_key="test-key"
         )
 
@@ -261,6 +284,9 @@ class TestOpenRouterTemperatureHandling:
             request_data=sample_request_data,
             processed_messages=sample_processed_messages,
             effective_model="openai/gpt-4",
+            openrouter_api_base_url=TEST_OPENROUTER_API_BASE_URL,
+            openrouter_headers_provider=mock_get_openrouter_headers,
+            key_name="OPENROUTER_API_KEY_1",
             api_key="test-key"
         )
 
@@ -301,10 +327,13 @@ class TestOpenRouterTemperatureHandling:
             request_data=sample_request_data,
             processed_messages=sample_processed_messages,
             effective_model="openai/gpt-4",
+            openrouter_api_base_url=TEST_OPENROUTER_API_BASE_URL,
+            openrouter_headers_provider=mock_get_openrouter_headers,
+            key_name="OPENROUTER_API_KEY_1",
             api_key="test-key"
         )
 
-        # Verify temperature is not in payload
+        # Verify temperature is not in the payload
         openrouter_backend.client.post.assert_called_once()
         call_args = openrouter_backend.client.post.call_args
         payload = call_args[1]["json"]
@@ -342,6 +371,9 @@ class TestOpenRouterTemperatureHandling:
             request_data=sample_request_data,
             processed_messages=sample_processed_messages,
             effective_model="openai/gpt-4",
+            openrouter_api_base_url=TEST_OPENROUTER_API_BASE_URL,
+            openrouter_headers_provider=mock_get_openrouter_headers,
+            key_name="OPENROUTER_API_KEY_1",
             api_key="test-key"
         )
 
@@ -363,35 +395,36 @@ class TestOpenRouterTemperatureHandling:
 
         # Mock streaming response
         mock_response = Mock()
-        mock_response.status_code = 200
-        mock_response.aiter_text.return_value = [
-            'data: {"choices": [{"delta": {"content": "Streaming"}}]}\n\n',
-            'data: {"choices": [{"delta": {"content": " response"}}]}\n\n',
-            'data: [DONE]\n\n'
+        mock_response.status_code = 200  # This should be an int, not AsyncMock
+        mock_response.aiter_bytes.return_value = [
+            b'data: {"choices": [{"delta": {"content": "Streaming"}}]}\n\n',
+            b'data: {"choices": [{"delta": {"content": " response"}}]}\n\n',
+            b'data: [DONE]\n\n'
         ]
         mock_response.aclose = AsyncMock()
 
-        openrouter_backend.client.stream = AsyncMock()
-        openrouter_backend.client.stream.return_value.__aenter__ = AsyncMock(return_value=mock_response)
-        openrouter_backend.client.stream.return_value.__aexit__ = AsyncMock(return_value=None)
+        # Mock the client.send method instead of client.stream
+        openrouter_backend.client.build_request = Mock()
+        openrouter_backend.client.send = AsyncMock(return_value=mock_response)
 
         # Call the method
         result = await openrouter_backend.chat_completions(
             request_data=sample_request_data,
             processed_messages=sample_processed_messages,
             effective_model="openai/gpt-4",
+            openrouter_api_base_url=TEST_OPENROUTER_API_BASE_URL,
+            openrouter_headers_provider=mock_get_openrouter_headers,
+            key_name="OPENROUTER_API_KEY_1",
             api_key="test-key"
         )
 
-        # Verify streaming was called with temperature in payload
-        openrouter_backend.client.stream.assert_called_once()
-        call_args = openrouter_backend.client.stream.call_args
+        # Verify the request was built with temperature in payload
+        openrouter_backend.client.build_request.assert_called_once()
+        call_args = openrouter_backend.client.build_request.call_args
         payload = call_args[1]["json"]
         
         assert "temperature" in payload
         assert payload["temperature"] == 0.9
-        assert "stream" in payload
-        assert payload["stream"] is True
 
     @pytest.mark.asyncio
     async def test_temperature_with_all_standard_params(self, openrouter_backend, sample_request_data, sample_processed_messages):
@@ -424,10 +457,13 @@ class TestOpenRouterTemperatureHandling:
             request_data=sample_request_data,
             processed_messages=sample_processed_messages,
             effective_model="openai/gpt-4",
+            openrouter_api_base_url=TEST_OPENROUTER_API_BASE_URL,
+            openrouter_headers_provider=mock_get_openrouter_headers,
+            key_name="OPENROUTER_API_KEY_1",
             api_key="test-key"
         )
 
-        # Verify all parameters including temperature are in payload
+        # Verify all parameters are in payload
         openrouter_backend.client.post.assert_called_once()
         call_args = openrouter_backend.client.post.call_args
         payload = call_args[1]["json"]

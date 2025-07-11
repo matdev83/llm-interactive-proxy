@@ -230,21 +230,35 @@ class TestMultipleOneoffCommands:
     def test_oneoff_command_with_prompt_in_same_message(self, client: TestClient):
         """
         Test that oneoff command + prompt in the same message works correctly.
-        In the test environment, command+prompt messages are treated as command-only
-        and return the command confirmation. The actual prompt would be sent in a 
-        subsequent message that would use the oneoff route.
+        The command is processed (setting the oneoff route) and the remaining text
+        is sent to the LLM using the oneoff route.
         """
-        # Oneoff command + prompt in same message
-        response = client.post("/v1/chat/completions", json={
-            "messages": [{"role": "user", "content": "!/oneoff(openrouter/cypher-alpha:free)\nWhat is the meaning of life?"}],
-            "model": "gemini-2.0-flash-exp"
-        })
-        assert response.status_code == 200
-        response_json = response.json()
-        
-        # In test environment, command+prompt is treated as command-only
-        # The response should contain the command confirmation
-        assert "One-off route set to openrouter/cypher-alpha:free" in response_json["choices"][0]["message"]["content"]
-        
-        # The model shows the effective model (which is the oneoff model)
-        assert response_json["model"] == "cypher-alpha:free" 
+        # Mock the backend to prevent real API calls
+        with patch.object(client.app.state.openrouter_backend, 'chat_completions',
+                          new=AsyncMock(return_value=({
+                              "id": "test-response",
+                              "object": "chat.completion",
+                              "created": 1234567890,
+                              "model": "cypher-alpha:free",
+                              "choices": [{
+                                  "index": 0,
+                                  "message": {"role": "assistant", "content": "Mocked response"},
+                                  "finish_reason": "stop"
+                              }],
+                              "usage": {"prompt_tokens": 10, "completion_tokens": 5, "total_tokens": 15}
+                          }, {}))):
+            
+            # Oneoff command + prompt in same message
+            response = client.post("/v1/chat/completions", json={
+                "messages": [{"role": "user", "content": "!/oneoff(openrouter/cypher-alpha:free)\nWhat is the meaning of life?"}],
+                "model": "gemini-2.0-flash-exp"
+            })
+            assert response.status_code == 200
+            response_json = response.json()
+            
+            # The command is processed and the remaining text is sent to the LLM
+            # So we should get the mocked response, not the command confirmation
+            assert "Mocked response" in response_json["choices"][0]["message"]["content"]
+            
+            # The model shows the effective model (which is the oneoff model)
+            assert response_json["model"] == "cypher-alpha:free" 
