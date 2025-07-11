@@ -7,12 +7,15 @@ This script shows how to use the reasoning features for different providers in t
 import json
 import requests
 import time
+import pytest
 from typing import Dict, Any
 
 # Proxy configuration
 PROXY_URL = "http://localhost:8000"
 API_KEY = "your-proxy-api-key"  # Replace with your actual proxy API key
 
+
+@pytest.mark.integration
 def test_provider_specific_reasoning():
     """Test provider-specific reasoning functionality with different configurations."""
     
@@ -155,6 +158,7 @@ def test_provider_specific_reasoning():
         # Small delay between requests
         time.sleep(1)
 
+@pytest.mark.integration
 def test_in_chat_reasoning_commands():
     """Demonstrate in-chat reasoning commands for different providers."""
     
