@@ -262,9 +262,9 @@ def test_cline_first_message_hello(interactive_client):
     
     # Let's see what actually happens
     if content.startswith("<attempt_completion>"):
-        print("✓ Content is XML wrapped (good for Cline)")
+        print("[OK] Content is XML wrapped (good for Cline)")
     else:
-        print("✗ Content is NOT XML wrapped (this could be the issue!)")
+        print("[X] Content is NOT XML wrapped (this could be the issue!)")
         print("This might be why Cline shows the error about no assistant messages")
 
 
@@ -350,9 +350,9 @@ When you complete a task, you should summarize what you did and confirm that it 
     
     # This should be XML wrapped since it's a long message with a command (typical Cline pattern)
     if content.startswith("<attempt_completion>"):
-        print("✓ Content is XML wrapped (good for Cline)")
+        print("[OK] Content is XML wrapped (good for Cline)")
         assert content.startswith("<attempt_completion>")
         assert content.endswith("</attempt_completion>\n")
     else:
-        print("✗ Content is NOT XML wrapped (this could be the issue!)")
+        print("[X] Content is NOT XML wrapped (this could be the issue!)")
         print("This might be why Cline shows the error about no assistant messages") 
