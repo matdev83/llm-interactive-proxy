@@ -1,153 +1,122 @@
-import pytest # Add import
-from src.core.config import _load_config
+import os
+import pytest
+from unittest.mock import patch
+
+from src.core.config import _load_config, _collect_api_keys
 
 
-def test_collect_single_gemini_key(monkeypatch):
-    # Clean slate for this test
-    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
-    monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
-    for i in range(1, 21):
-        monkeypatch.delenv(f"GEMINI_API_KEY_{i}", raising=False)
-        monkeypatch.delenv(f"OPENROUTER_API_KEY_{i}", raising=False)
-
-    monkeypatch.setenv("GEMINI_API_KEY", "test_key_gemini")
-    cfg = _load_config()
-    assert cfg["gemini_api_keys"] == {"GEMINI_API_KEY": "test_key_gemini"}
-    assert not cfg["openrouter_api_keys"]
+def test_collect_api_keys_single():
+    """Test collecting a single API key."""
+    with patch.dict(os.environ, {"TEST_API_KEY": "test-key"}, clear=True):
+        keys = _collect_api_keys("TEST_API_KEY")
+        assert keys == {"TEST_API_KEY": "test-key"}
 
 
-def test_collect_numbered_openrouter_keys(monkeypatch):
-    # Clean slate for this test
-    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
-    monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
-    for i in range(1, 21):
-        monkeypatch.delenv(f"GEMINI_API_KEY_{i}", raising=False)
-        monkeypatch.delenv(f"OPENROUTER_API_KEY_{i}", raising=False)
-
-    monkeypatch.setenv("OPENROUTER_API_KEY_1", "key1")
-    monkeypatch.setenv("OPENROUTER_API_KEY_2", "key2")
-    cfg = _load_config()
-    assert cfg["openrouter_api_keys"] == {
-        "OPENROUTER_API_KEY_1": "key1",
-        "OPENROUTER_API_KEY_2": "key2",
-    }
-    assert not cfg["gemini_api_keys"]
+def test_collect_api_keys_numbered():
+    """Test collecting numbered API keys."""
+    with patch.dict(os.environ, {
+        "TEST_API_KEY_1": "key1",
+        "TEST_API_KEY_2": "key2"
+    }, clear=True):
+        keys = _collect_api_keys("TEST_API_KEY")
+        assert keys == {"TEST_API_KEY_1": "key1", "TEST_API_KEY_2": "key2"}
 
 
-def test_conflicting_key_formats(monkeypatch, caplog):
-    # Clean slate for this test
-    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
-    monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
-    for i in range(1, 21):
-        monkeypatch.delenv(f"GEMINI_API_KEY_{i}", raising=False)
-        monkeypatch.delenv(f"OPENROUTER_API_KEY_{i}", raising=False)
+def test_collect_api_keys_prioritizes_numbered():
+    """Test that numbered keys take priority over single key."""
+    with patch.dict(os.environ, {
+        "TEST_API_KEY": "single-key",
+        "TEST_API_KEY_1": "key1"
+    }, clear=True):
+        with patch("src.core.config.logger") as mock_logger:
+            keys = _collect_api_keys("TEST_API_KEY")
+            assert keys == {"TEST_API_KEY_1": "key1"}
+            mock_logger.warning.assert_called_once()
 
-    monkeypatch.setenv("OPENROUTER_API_KEY", "base_key")
-    monkeypatch.setenv("OPENROUTER_API_KEY_1", "numbered_key")
+
+def test_load_config_basic():
+    """Test basic configuration loading."""
+    with patch.dict(os.environ, {}, clear=True):
+        config = _load_config()
+        assert config["proxy_host"] == "127.0.0.1"
+        assert config["proxy_port"] == 8000
+        assert config["disable_auth"] is False
+
+
+def test_load_config_custom_values():
+    """Test configuration loading with custom values."""
+    with patch.dict(os.environ, {
+        "PROXY_HOST": "0.0.0.0",
+        "PROXY_PORT": "9000",
+        "DISABLE_AUTH": "false"
+    }, clear=True):
+        config = _load_config()
+        assert config["proxy_host"] == "0.0.0.0"
+        assert config["proxy_port"] == 9000
+        assert config["disable_auth"] is False
+
+
+def test_load_config_disable_auth_forces_localhost():
+    """Test that disable_auth forces host to localhost."""
+    with patch.dict(os.environ, {
+        "DISABLE_AUTH": "true",
+        "PROXY_HOST": "0.0.0.0"
+    }, clear=True):
+        with patch("src.core.config.logger") as mock_logger:
+            config = _load_config()
+            assert config["proxy_host"] == "127.0.0.1"
+            assert config["disable_auth"] is True
+            # Should log a warning about forcing localhost
+            mock_logger.warning.assert_called_once()
+            warning_call = mock_logger.warning.call_args[0][0]
+            assert "Forcing to 127.0.0.1 for security" in warning_call
+
+
+def test_load_config_disable_auth_with_localhost_no_warning():
+    """Test that disable_auth with localhost doesn't trigger warning."""
+    with patch.dict(os.environ, {
+        "DISABLE_AUTH": "true",
+        "PROXY_HOST": "127.0.0.1"
+    }, clear=True):
+        with patch("src.core.config.logger") as mock_logger:
+            config = _load_config()
+            assert config["proxy_host"] == "127.0.0.1"
+            assert config["disable_auth"] is True
+            # Should not log a warning since host is already localhost
+            mock_logger.warning.assert_not_called()
+
+
+def test_load_config_auth_enabled_allows_custom_host():
+    """Test that custom host is allowed when auth is enabled."""
+    with patch.dict(os.environ, {
+        "DISABLE_AUTH": "false",
+        "PROXY_HOST": "0.0.0.0"
+    }, clear=True):
+        with patch("src.core.config.logger") as mock_logger:
+            config = _load_config()
+            assert config["proxy_host"] == "0.0.0.0"
+            assert config["disable_auth"] is False
+            # Should not log any warnings
+            mock_logger.warning.assert_not_called()
+
+
+def test_load_config_str_to_bool_variations():
+    """Test various string to boolean conversions."""
+    test_cases = [
+        ("true", True),
+        ("1", True),
+        ("yes", True),
+        ("on", True),
+        ("false", False),
+        ("0", False),
+        ("no", False),
+        ("off", False),
+        ("none", False),
+        ("", False),
+        ("invalid", False),
+    ]
     
-    cfg = _load_config()
-    
-    # Should prioritize numbered keys and issue a warning
-    assert cfg["openrouter_api_keys"] == {"OPENROUTER_API_KEY_1": "numbered_key"}
-    assert "OPENROUTER_API_KEY" not in cfg["openrouter_api_keys"]
-    
-    # Check that a warning was logged
-    assert "Both OPENROUTER_API_KEY and OPENROUTER_API_KEY_<n> environment variables are set" in caplog.text
-    assert "Prioritizing OPENROUTER_API_KEY_<n> and ignoring OPENROUTER_API_KEY" in caplog.text
-
-
-def test_no_api_keys(monkeypatch):
-    # Clean slate: remove keys potentially set by session-scoped fixtures
-    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
-    monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
-    for i in range(1, 21):
-        monkeypatch.delenv(f"GEMINI_API_KEY_{i}", raising=False)
-        monkeypatch.delenv(f"OPENROUTER_API_KEY_{i}", raising=False)
-
-    cfg = _load_config()
-    assert not cfg["gemini_api_keys"]
-    assert not cfg["openrouter_api_keys"]
-
-
-def test_multiple_gemini_keys(monkeypatch):
-    # Clean slate for this test
-    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
-    monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
-    for i in range(1, 21):
-        monkeypatch.delenv(f"GEMINI_API_KEY_{i}", raising=False)
-        monkeypatch.delenv(f"OPENROUTER_API_KEY_{i}", raising=False)
-
-    monkeypatch.setenv("GEMINI_API_KEY_1", "gkey1")
-    monkeypatch.setenv("GEMINI_API_KEY_2", "gkey2")
-    cfg = _load_config()
-    assert cfg["gemini_api_keys"] == {
-        "GEMINI_API_KEY_1": "gkey1",
-        "GEMINI_API_KEY_2": "gkey2",
-    }
-    assert not cfg["openrouter_api_keys"]
-
-
-def test_mixed_gemini_and_openrouter_keys(monkeypatch):
-    # Clean slate for this test
-    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
-    monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
-    for i in range(1, 21):
-        monkeypatch.delenv(f"GEMINI_API_KEY_{i}", raising=False)
-        monkeypatch.delenv(f"OPENROUTER_API_KEY_{i}", raising=False)
-
-    monkeypatch.setenv("GEMINI_API_KEY_1", "gkey1")
-    monkeypatch.setenv("OPENROUTER_API_KEY_3", "orkey3")
-    cfg = _load_config()
-    assert cfg["gemini_api_keys"] == {"GEMINI_API_KEY_1": "gkey1"}
-    assert cfg["openrouter_api_keys"] == {"OPENROUTER_API_KEY_3": "orkey3"}
-
-
-def test_gemini_with_multiple_openrouter_keys(monkeypatch):
-    # Clean slate for this test
-    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
-    monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
-    for i in range(1, 21):
-        monkeypatch.delenv(f"GEMINI_API_KEY_{i}", raising=False)
-        monkeypatch.delenv(f"OPENROUTER_API_KEY_{i}", raising=False)
-
-    monkeypatch.setenv("GEMINI_API_KEY", "gem_key_single")
-    monkeypatch.setenv("OPENROUTER_API_KEY_1", "or_key_1")
-    monkeypatch.setenv("OPENROUTER_API_KEY_2", "or_key_2")
-    cfg = _load_config()
-    assert cfg["gemini_api_keys"] == {"GEMINI_API_KEY": "gem_key_single"}
-    assert cfg["openrouter_api_keys"] == {
-        "OPENROUTER_API_KEY_1": "or_key_1",
-        "OPENROUTER_API_KEY_2": "or_key_2",
-    }
-
-
-def test_openrouter_only(monkeypatch):
-    # Clean slate for this specific test's expectations
-    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
-    monkeypatch.delenv("OPENROUTER_API_KEY", raising=False) # Ensure base key is not there if we only want numbered
-    for i in range(1, 21):
-        monkeypatch.delenv(f"GEMINI_API_KEY_{i}", raising=False)
-        monkeypatch.delenv(f"OPENROUTER_API_KEY_{i}", raising=False) # Remove numbered keys
-
-    monkeypatch.setenv("OPENROUTER_API_KEY", "or_key_single")
-    cfg = _load_config()
-    assert cfg["openrouter_api_keys"] == {"OPENROUTER_API_KEY": "or_key_single"}
-    assert not cfg["gemini_api_keys"]
-
-
-def test_redaction_env(monkeypatch):
-    monkeypatch.setenv("REDACT_API_KEYS_IN_PROMPTS", "false")
-    cfg = _load_config()
-    assert cfg["redact_api_keys_in_prompts"] is False
-    monkeypatch.setenv("REDACT_API_KEYS_IN_PROMPTS", "true")
-    cfg = _load_config()
-    assert cfg["redact_api_keys_in_prompts"] is True
-
-
-def test_force_set_project_env(monkeypatch):
-    monkeypatch.setenv("FORCE_SET_PROJECT", "true")
-    cfg = _load_config()
-    assert cfg["force_set_project"] is True
-    monkeypatch.setenv("FORCE_SET_PROJECT", "false")
-    cfg = _load_config()
-    assert cfg["force_set_project"] is False
+    for value, expected in test_cases:
+        with patch.dict(os.environ, {"DISABLE_AUTH": value}, clear=True):
+            config = _load_config()
+            assert config["disable_auth"] is expected

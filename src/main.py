@@ -35,6 +35,7 @@ from src.gemini_converters import (
     gemini_to_openai_request, openai_to_gemini_response, openai_to_gemini_stream_chunk,
     extract_model_from_gemini_path, is_streaming_request, openai_models_to_gemini_models
 )
+from src.constants import BackendType, SUPPORTED_BACKENDS
 
 logger = logging.getLogger(__name__)
 
@@ -83,18 +84,18 @@ def build_app(
         backend_info = []
         # Use current_app.state.functional_backends instead of 'functional'
         # from closure
-        if "openrouter" in current_app.state.functional_backends:
+        if BackendType.OPENROUTER in current_app.state.functional_backends:
             keys = len(cfg.get("openrouter_api_keys", {}))
             models_list = current_app.state.openrouter_backend.get_available_models()
             models_count = len(models_list)
             backend_info.append(f"openrouter (K:{keys}, M:{models_count})")
-        if "gemini" in current_app.state.functional_backends:
+        if BackendType.GEMINI in current_app.state.functional_backends:
             keys = len(cfg.get("gemini_api_keys", {}))
             # Ensure gemini_backend is accessed via current_app.state
             models_list = current_app.state.gemini_backend.get_available_models()
             models_count = len(models_list)
             backend_info.append(f"gemini (K:{keys}, M:{models_count})")
-        if "gemini-cli-direct" in current_app.state.functional_backends:
+        if BackendType.GEMINI_CLI_DIRECT in current_app.state.functional_backends:
             # For gemini-cli-direct, we call Gemini CLI directly (no API keys needed)
             models_list = current_app.state.gemini_cli_direct_backend.get_available_models()
             models_count = len(models_list)
@@ -183,9 +184,9 @@ def build_app(
         functional = {
             name
             for name, ok in (
-                ("openrouter", openrouter_ok),
-                ("gemini", gemini_ok),
-                ("gemini-cli-direct", gemini_cli_direct_ok),
+                (BackendType.OPENROUTER, openrouter_ok),
+                (BackendType.GEMINI, gemini_ok),
+                (BackendType.GEMINI_CLI_DIRECT, gemini_cli_direct_ok),
             )
             if ok
         }
@@ -372,7 +373,7 @@ def build_app(
                     ),
                 }
                 raise HTTPException(status_code=400, detail=detail_msg)
-            if current_backend_type not in {"openrouter", "gemini", "gemini-cli-direct"}:
+            if current_backend_type not in SUPPORTED_BACKENDS:
                 raise HTTPException(
                     status_code=400,
                     detail=f"unknown backend {current_backend_type}")
@@ -739,7 +740,7 @@ def build_app(
             ) if not http_request.app.state.disable_accounting else no_op_tracker()
 
             async with tracker_context as tracker:
-                if b_type == "gemini":
+                if b_type == BackendType.GEMINI:
                     retry_at = http_request.app.state.rate_limits.get(
                         "gemini", model_str, key_name_str
                     )
@@ -790,7 +791,7 @@ def build_app(
                                     "gemini", model_str, key_name_str, delay
                                 )
                         raise
-                elif b_type == "gemini-cli-direct":
+                elif b_type == BackendType.GEMINI_CLI_DIRECT:
                     # Direct Gemini CLI calls - no API keys needed
                     try:
                         backend_result = await http_request.app.state.gemini_cli_direct_backend.chat_completions(
@@ -1103,7 +1104,7 @@ def build_app(
     async def list_all_models(http_request: Request):
         """List all available models from all backends."""
         all_models = []
-        for backend_name in ["openrouter", "gemini", "gemini-cli-direct"]:
+        for backend_name in [BackendType.OPENROUTER, BackendType.GEMINI, BackendType.GEMINI_CLI_DIRECT]:
             backend = getattr(http_request.app.state, f"{backend_name}_backend", None)
             if backend and hasattr(backend, "get_available_models"):
                 models = backend.get_available_models()
@@ -1127,7 +1128,7 @@ def build_app(
         try:
             # Get all available models from backends
             all_models = []
-            for backend_name in ["openrouter", "gemini", "gemini-cli-direct"]:
+            for backend_name in [BackendType.OPENROUTER, BackendType.GEMINI, BackendType.GEMINI_CLI_DIRECT]:
                 backend = getattr(http_request.app.state, f"{backend_name}_backend", None)
                 if backend and hasattr(backend, "get_available_models"):
                     models = backend.get_available_models()

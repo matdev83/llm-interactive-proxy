@@ -21,10 +21,6 @@ def wrap_proxy_message(agent: Optional[str], text: str) -> str:
     if not text:  # Keep this check
         return text
 
-    # The Cline/RooCode block is removed.
-    # if agent in {"cline", "roocode"}:
-    #     return f"[Proxy Result]\n\n{text}"
-
     if agent == "aider":
         lines = text.splitlines()
         patch = ["*** Begin Patch", "*** Add File: PROXY_OUTPUT.txt"]

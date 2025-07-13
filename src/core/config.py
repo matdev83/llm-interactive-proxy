@@ -60,6 +60,18 @@ def _load_config() -> Dict[str, Any]:
             err)
         prefix = DEFAULT_COMMAND_PREFIX
 
+    # Security: Check if authentication is disabled
+    disable_auth = _str_to_bool(os.getenv("DISABLE_AUTH"), False)
+    proxy_host = os.getenv("PROXY_HOST", "127.0.0.1")
+    
+    # Force localhost when authentication is disabled
+    if disable_auth and proxy_host != "127.0.0.1":
+        logger.warning(
+            "Authentication is disabled but PROXY_HOST is set to %s. Forcing to 127.0.0.1 for security.",
+            proxy_host
+        )
+        proxy_host = "127.0.0.1"
+
     return {
         "backend": os.getenv("LLM_BACKEND"),
         "openrouter_api_key": next(iter(openrouter_keys.values()), None),
@@ -76,7 +88,7 @@ def _load_config() -> Dict[str, Any]:
         "app_site_url": os.getenv("APP_SITE_URL", "http://localhost:8000"),
         "app_x_title": os.getenv("APP_X_TITLE", "InterceptorProxy"),
         "proxy_port": int(os.getenv("PROXY_PORT", "8000")),
-        "proxy_host": os.getenv("PROXY_HOST", "127.0.0.1"),
+        "proxy_host": proxy_host,
         "proxy_timeout": int(
             os.getenv("PROXY_TIMEOUT", os.getenv("OPENROUTER_TIMEOUT", "300"))
         ),
@@ -87,11 +99,12 @@ def _load_config() -> Dict[str, Any]:
         "redact_api_keys_in_prompts": _str_to_bool(
             os.getenv("REDACT_API_KEYS_IN_PROMPTS"), True
         ),
-        "disable_auth": _str_to_bool(os.getenv("DISABLE_AUTH"), False),
+        "disable_auth": disable_auth,
         "force_set_project": _str_to_bool(os.getenv("FORCE_SET_PROJECT"), False),
         "disable_interactive_commands": _str_to_bool(
             os.getenv("DISABLE_INTERACTIVE_COMMANDS"), False
         ),
+        "disable_accounting": _str_to_bool(os.getenv("DISABLE_ACCOUNTING"), False),
     }
 
 
