@@ -2,14 +2,8 @@ from __future__ import annotations
 
 import abc
 
-# Assuming ChatCompletionRequest is defined in models.py or a similar location
-# from ...models import ChatCompletionRequest # Placeholder if models is outside src
-# For now, let's assume ChatCompletionRequest will be imported where it's used or defined later.
-# To make this file runnable standalone for now, we can use a forward
-# reference or Any.
 from typing import TYPE_CHECKING, Any, Callable, Dict, Union
 
-# import httpx # F401: Removed
 from starlette.responses import StreamingResponse
 
 if TYPE_CHECKING:

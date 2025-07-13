@@ -56,6 +56,7 @@ def _run_client(cfg_path: str, port: int) -> str:
 
 def _start_server(port: int) -> subprocess.Popen:
     env = os.environ.copy()
+    env["DISABLE_AUTH"] = "true"  # Disable authentication for tests
     proc = subprocess.Popen(
         [
             "uvicorn",

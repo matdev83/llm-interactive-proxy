@@ -77,7 +77,7 @@ def parse_cli_args(argv: list[str] | None = None) -> argparse.Namespace:
         "--disable-auth",
         action="store_true",
         default=None,
-        help="Disable client API key authentication",
+        help="Disable client API key authentication (forces binding to 127.0.0.1 for security)",
     )
     parser.add_argument(
         "--force-set-project",
@@ -96,6 +96,13 @@ def parse_cli_args(argv: list[str] | None = None) -> argparse.Namespace:
         action="store_true",
         default=None,
         help="Disable LLM accounting (usage tracking and audit logging)",
+    )
+    parser.add_argument(
+        "--log-level",
+        dest="log_level",
+        choices=["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"],
+        default="INFO",
+        help="Set the logging level (e.g., INFO, DEBUG)",
     )
     return parser.parse_args(argv)
 
@@ -129,6 +136,13 @@ def apply_cli_args(args: argparse.Namespace) -> Dict[str, Any]:
         os.environ["REDACT_API_KEYS_IN_PROMPTS"] = "false"
     if getattr(args, "disable_auth", None):
         os.environ["DISABLE_AUTH"] = "true"
+        # Security: Force localhost when auth is disabled via CLI
+        if getattr(args, "host", None) and args.host != "127.0.0.1":
+            logging.warning(
+                "Authentication disabled via CLI. Forcing host to 127.0.0.1 for security (was: %s)",
+                args.host
+            )
+        os.environ["PROXY_HOST"] = "127.0.0.1"
     if getattr(args, "force_set_project", None):
         os.environ["FORCE_SET_PROJECT"] = "true"
     if getattr(args, "disable_interactive_commands", None):
@@ -145,22 +159,21 @@ def main(
     args = parse_cli_args(argv)
     cfg = apply_cli_args(args)
     logging.basicConfig(
-        level=logging.DEBUG,
+        level=getattr(logging, args.log_level),
         format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
         filename=args.log_file,
     )
     _check_privileges()
 
+    # Security: Ensure localhost-only binding when authentication is disabled
     if cfg.get("disable_auth"):
         logging.warning("Client authentication is DISABLED")
         if cfg.get("proxy_host") != "127.0.0.1":
             logging.warning(
-                "Refusing to run with authentication disabled on non-localhost"
+                "Authentication disabled but host is %s. Forcing host to 127.0.0.1 for security.",
+                cfg.get("proxy_host")
             )
-            sys.stdout.write(
-                "Authentication disabled but host not 127.0.0.1. Aborting.\n"
-            )
-            raise SystemExit(1)
+            cfg["proxy_host"] = "127.0.0.1"
 
     if build_app_fn is None:
         from src.main import build_app as build_app_fn
