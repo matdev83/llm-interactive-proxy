@@ -15,6 +15,7 @@ from .route_clear_cmd import RouteClearCommand  # noqa: F401
 from .route_list_cmd import RouteListCommand  # noqa: F401
 from .route_prepend_cmd import RoutePrependCommand  # noqa: F401
 from .oneoff_cmd import OneoffCommand # noqa: F401
+from .pwd_cmd import PwdCommand # noqa: F401
 
 # Import command modules to ensure registration
 from .set_cmd import SetCommand  # noqa: F401
@@ -38,4 +39,5 @@ __all__ = [
     "ListFailoverRoutesCommand",
     "RouteListCommand",
     "HelpCommand",
+    "PwdCommand",
 ]

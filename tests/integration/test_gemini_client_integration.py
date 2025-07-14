@@ -414,6 +414,7 @@ class TestErrorHandling:
                 )
 
 
+@pytest.mark.skipif(not GENAI_AVAILABLE, reason="google-genai not installed")
 class TestPerformanceAndReliability:
     """Test performance and reliability aspects."""
     

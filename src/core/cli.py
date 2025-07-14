@@ -4,6 +4,7 @@ import os
 import sys
 from typing import Any, Callable, Dict, Optional
 
+import colorama
 import uvicorn
 
 from src.command_prefix import validate_command_prefix
@@ -26,19 +27,41 @@ def _check_privileges() -> None:
             pass
 
 
+def _daemonize_unix() -> None:
+    """Daemonize the process on Unix-like systems."""
+    if os.fork() > 0:
+        sys.exit(0)  # exit first parent
+
+    os.chdir("/")
+    os.setsid()
+    os.umask(0)
+
+    if os.fork() > 0:
+        sys.exit(0)  # exit second parent
+
+    sys.stdout.flush()
+    sys.stderr.flush()
+    si = open(os.devnull, "r")
+    so = open(os.devnull, "a+")
+    se = open(os.devnull, "a+")
+    os.dup2(si.fileno(), sys.stdin.fileno())
+    os.dup2(so.fileno(), sys.stdout.fileno())
+    os.dup2(se.fileno(), sys.stderr.fileno())
+
+
 def parse_cli_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Run the LLM proxy server")
     parser.add_argument(
         "--default-backend",
         dest="default_backend",
-        choices=["openrouter", "gemini", "gemini-cli-direct"],
+        choices=["openrouter", "gemini", "gemini-cli-direct", "gemini-cli-batch", "gemini-cli-interactive"],
         default=os.getenv("LLM_BACKEND"),
         help="Default backend when multiple backends are functional",
     )
     parser.add_argument(
         "--backend",
         dest="default_backend",
-        choices=["openrouter", "gemini", "gemini-cli-direct"],
+        choices=["openrouter", "gemini", "gemini-cli-direct", "gemini-cli-batch", "gemini-cli-interactive"],
         help=argparse.SUPPRESS,
     )
     parser.add_argument("--openrouter-api-key")
@@ -104,6 +127,18 @@ def parse_cli_args(argv: list[str] | None = None) -> argparse.Namespace:
         default="INFO",
         help="Set the logging level (e.g., INFO, DEBUG)",
     )
+    parser.add_argument(
+        "--allow-admin",
+        action="store_true",
+        default=False,
+        help="Allow running server with administrative privileges (Windows UAC/admin or root)",
+    )
+    parser.add_argument(
+        "--daemon",
+        action="store_true",
+        default=False,
+        help="Run the server as a daemon (in the background). Requires --log to be set.",
+    )
     return parser.parse_args(argv)
 
 
@@ -140,7 +175,7 @@ def apply_cli_args(args: argparse.Namespace) -> Dict[str, Any]:
         if getattr(args, "host", None) and args.host != "127.0.0.1":
             logging.warning(
                 "Authentication disabled via CLI. Forcing host to 127.0.0.1 for security (was: %s)",
-                args.host
+                args.host,
             )
         os.environ["PROXY_HOST"] = "127.0.0.1"
     if getattr(args, "force_set_project", None):
@@ -156,14 +191,41 @@ def main(
     argv: list[str] | None = None,
     build_app_fn: Optional[Callable[[Dict[str, Any] | None], Any]] = None,
 ) -> None:
+    if os.name == "nt":
+        colorama.init()
+
     args = parse_cli_args(argv)
+
+    if args.daemon:
+        if not args.log_file:
+            raise SystemExit("--log must be specified when running in daemon mode.")
+
+        if os.name == "nt":
+            import subprocess
+            import time
+
+            args_list = [
+                arg for arg in sys.argv[1:] if not arg.startswith("--daemon")
+            ]
+            command = [sys.executable, "-m", "src.core.cli"] + args_list
+            subprocess.Popen(
+                command,
+                creationflags=subprocess.DETACHED_PROCESS,
+                close_fds=True,
+            )
+            time.sleep(2)  # Give the child process a moment to start
+            sys.exit(0)
+        else:
+            _daemonize_unix()
+
     cfg = apply_cli_args(args)
     logging.basicConfig(
         level=getattr(logging, args.log_level),
         format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
         filename=args.log_file,
     )
-    _check_privileges()
+    if not args.allow_admin:
+        _check_privileges()
 
     # Security: Ensure localhost-only binding when authentication is disabled
     if cfg.get("disable_auth"):
@@ -171,7 +233,7 @@ def main(
         if cfg.get("proxy_host") != "127.0.0.1":
             logging.warning(
                 "Authentication disabled but host is %s. Forcing host to 127.0.0.1 for security.",
-                cfg.get("proxy_host")
+                cfg.get("proxy_host"),
             )
             cfg["proxy_host"] = "127.0.0.1"
 
@@ -180,3 +242,7 @@ def main(
 
     app = build_app_fn(cfg, config_file=args.config_file)
     uvicorn.run(app, host=cfg["proxy_host"], port=cfg["proxy_port"])
+
+
+if __name__ == "__main__":
+    main()

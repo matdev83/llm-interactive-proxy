@@ -10,6 +10,10 @@ class BackendType(str, Enum):
     GEMINI = "gemini"
     GEMINI_CLI_DIRECT = "gemini-cli-direct"
 
+    # New explicit variants after refactor
+    GEMINI_CLI_BATCH = "gemini-cli-batch"
+    GEMINI_CLI_INTERACTIVE = "gemini-cli-interactive"
+
 
 class AgentType(str, Enum):
     """Enum for supported agent types."""
@@ -39,10 +43,14 @@ class ConfigKey(str, Enum):
 SUPPORTED_BACKENDS: Set[str] = {
     BackendType.OPENROUTER,
     BackendType.GEMINI,
-    BackendType.GEMINI_CLI_DIRECT
+    BackendType.GEMINI_CLI_DIRECT,
+    BackendType.GEMINI_CLI_BATCH,
+    BackendType.GEMINI_CLI_INTERACTIVE
 }
 
 GEMINI_BACKENDS: Set[str] = {
     BackendType.GEMINI,
-    BackendType.GEMINI_CLI_DIRECT
+    BackendType.GEMINI_CLI_DIRECT,
+    BackendType.GEMINI_CLI_BATCH,
+    BackendType.GEMINI_CLI_INTERACTIVE
 }

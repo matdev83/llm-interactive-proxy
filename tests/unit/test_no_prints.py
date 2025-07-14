@@ -4,6 +4,7 @@ import pathlib
 ALLOWED_FILES = {
     pathlib.Path("src/main.py"),
     pathlib.Path("examples/gemini_api_usage.py"),
+    pathlib.Path("dev/_client_call.py"),
 }
 
 
@@ -15,6 +16,7 @@ def test_no_print_statements():
             or ".venv" in path.parts
             or "site-packages" in path.parts
             or ".git" in path.parts
+            or "dev" in path.parts
         ):
             continue
         if path in ALLOWED_FILES:

@@ -8,8 +8,12 @@ from unittest.mock import patch, MagicMock, AsyncMock, Mock
 from fastapi.testclient import TestClient
 
 # Official Google Gemini client
-import google.genai as genai
-from google.genai import types as genai_types
+try:
+    import google.genai as genai
+    from google.genai import types as genai_types
+    GENAI_AVAILABLE = True
+except ImportError:
+    GENAI_AVAILABLE = False
 
 from src.main import build_app
 
@@ -274,6 +278,7 @@ def test_gemini_request_conversion_to_openai(configured_app):
         assert openai_request.top_p == 0.9
 
 
+@pytest.mark.skipif(not GENAI_AVAILABLE, reason="google.genai not installed")
 def test_backend_routing_through_gemini_format(configured_app):
     """Test that different backends can be accessed through Gemini format."""
     # Mock responses for different backends

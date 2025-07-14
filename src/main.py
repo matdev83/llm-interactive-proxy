@@ -100,6 +100,10 @@ def build_app(
             models_list = current_app.state.gemini_cli_direct_backend.get_available_models()
             models_count = len(models_list)
             backend_info.append(f"gemini-cli-direct (M:{models_count})")
+        if BackendType.GEMINI_CLI_BATCH in current_app.state.functional_backends:
+            models_list = current_app.state.gemini_cli_batch_backend.get_available_models()
+            models_count = len(models_list)
+            backend_info.append(f"gemini-cli-batch (M:{models_count})")
         backends_str = ", ".join(sorted(backend_info))
         banner_lines = [
             f"Hello, this is {project_name} {project_version}",
@@ -134,8 +138,17 @@ def build_app(
         openrouter_backend = OpenRouterBackend(client_httpx)
         gemini_backend = GeminiBackend(client_httpx)
         gemini_cli_direct_backend = GeminiCliDirectConnector()
+        # New variant backends
+        from src.connectors.gemini_cli_batch import GeminiCliBatchConnector  # local import to avoid circular
+        from src.connectors.gemini_cli_interactive import GeminiCliInteractiveConnector
+
+        gemini_cli_batch_backend = GeminiCliBatchConnector()
+        gemini_cli_interactive_backend = GeminiCliInteractiveConnector()
+
         app_param.state.openrouter_backend = openrouter_backend
         app_param.state.gemini_backend = gemini_backend
+        app_param.state.gemini_cli_batch_backend = gemini_cli_batch_backend
+        app_param.state.gemini_cli_interactive_backend = gemini_cli_interactive_backend
         app_param.state.gemini_cli_direct_backend = gemini_cli_direct_backend
 
         openrouter_ok = False
@@ -169,16 +182,30 @@ def build_app(
                 if gemini_backend.get_available_models():
                     gemini_ok = True
 
-        # Try to initialize gemini-cli-direct backend (direct CLI calls)
+        # Initialize Gemini CLI batch (direct) backend
         try:
-            await gemini_cli_direct_backend.initialize(
+            await gemini_cli_batch_backend.initialize(
                 google_cloud_project=cfg.get("google_cloud_project")
             )
-            if gemini_cli_direct_backend.get_available_models():
-                gemini_cli_direct_ok = True
+            # Mark batch backend functional if the CLI is available
+            gemini_cli_batch_ok = bool(gemini_cli_batch_backend.get_available_models())
         except Exception as e:
-            logger.error(f"Failed to initialize Gemini CLI Direct backend: {e}")
-            gemini_cli_direct_ok = False
+            logger.error(f"Failed to initialize Gemini CLI Batch backend: {e}")
+            gemini_cli_batch_ok = False
+
+        # Legacy alias remains functional using the batch backend's capabilities
+        gemini_cli_direct_ok = bool(gemini_cli_batch_backend.get_available_models())
+
+        # Initialize Gemini CLI interactive backend (may be disabled in CI)
+        try:
+            await gemini_cli_interactive_backend.initialize(
+                google_cloud_project=cfg.get("google_cloud_project")
+            )
+            # Keep interactive backend non-functional by default until fully supported in production
+            gemini_cli_interactive_ok = False
+        except Exception as e:
+            logger.warning(f"Interactive Gemini CLI backend unavailable: {e}")
+            gemini_cli_interactive_ok = False
 
 
         functional = {
@@ -187,6 +214,8 @@ def build_app(
                 (BackendType.OPENROUTER, openrouter_ok),
                 (BackendType.GEMINI, gemini_ok),
                 (BackendType.GEMINI_CLI_DIRECT, gemini_cli_direct_ok),
+                (BackendType.GEMINI_CLI_BATCH, gemini_cli_batch_ok),
+                (BackendType.GEMINI_CLI_INTERACTIVE, gemini_cli_interactive_ok),
             )
             if ok
         }
@@ -217,8 +246,10 @@ def build_app(
 
         if backend_type == "gemini":
             current_backend = gemini_backend
-        elif backend_type == "gemini-cli-direct":
-            current_backend = gemini_cli_direct_backend
+        elif backend_type in ["gemini-cli-direct", "gemini-cli-batch"]:
+            current_backend = gemini_cli_batch_backend
+        elif backend_type == "gemini-cli-interactive":
+            current_backend = gemini_cli_interactive_backend
         else: # Default to openrouter if not specified or not gemini/gemini-cli-direct
             current_backend = openrouter_backend
 
@@ -694,7 +725,7 @@ def build_app(
             if proxy_state.reasoning_config and "reasoning" not in request_data.extra_params:
                 request_data.extra_params["reasoning"] = proxy_state.reasoning_config
 
-        elif current_backend_type in ["gemini", "gemini-cli-direct"]:
+        elif current_backend_type in ["gemini", "gemini-cli-direct", "gemini-cli-batch"]:
             # For Gemini, handle thinking budget and generation config
             if not request_data.extra_params:
                 request_data.extra_params = {}
@@ -714,7 +745,7 @@ def build_app(
                 request_data.extra_params["generationConfig"].update(proxy_state.gemini_generation_config)
 
         async def _call_backend(
-            b_type: str, model_str: str, key_name_str: str, api_key_str: str
+            b_type: str, model_str: str, key_name_str: str, api_key_str: str, agent: str | None
         ):
             # Extract username from request headers or use default
             username = http_request.headers.get("X-User-ID", "anonymous")
@@ -826,6 +857,42 @@ def build_app(
                     except Exception as e:
                         logger.error(f"Unexpected error from Gemini CLI Direct backend: {e}", exc_info=True)
                         raise HTTPException(status_code=500, detail=f"Gemini CLI Direct backend error: {str(e)}")
+
+                elif b_type == BackendType.GEMINI_CLI_BATCH:
+                    # Batch (one-shot) Gemini CLI backend – same interface as direct variant
+                    try:
+                        backend_result = await http_request.app.state.gemini_cli_batch_backend.chat_completions(
+                            request_data=request_data,
+                            processed_messages=processed_messages,
+                            effective_model=model_str,
+                            project=proxy_state.project,
+                            prompt_redactor=(
+                                http_request.app.state.api_key_redactor
+                                if http_request.app.state.api_key_redaction_enabled
+                                else None
+                            ),
+                            command_filter=http_request.app.state.command_filter,
+                        )
+
+                        if isinstance(backend_result, tuple):
+                            result, response_headers = backend_result
+                            tracker.set_response(result)
+                            tracker.set_response_headers(response_headers)
+                        else:
+                            # Streaming response
+                            result = backend_result
+                            tracker.set_response(result)
+
+                        logger.debug(
+                            f"Result from Gemini CLI Batch backend chat_completions: {result}"
+                        )
+                        return result
+                    except HTTPException as e:
+                        logger.error(f"Error from Gemini CLI Batch backend: {e.status_code} - {e.detail}")
+                        raise
+                    except Exception as e:
+                        logger.error(f"Unexpected error from Gemini CLI Batch backend: {e}", exc_info=True)
+                        raise HTTPException(status_code=500, detail=f"Gemini CLI Batch backend error: {str(e)}")
 
                 else: # Default to OpenRouter or handle unknown b_type if more are added
                     retry_at = http_request.app.state.rate_limits.get(
@@ -970,7 +1037,7 @@ def build_app(
                 try:
                     attempted_any = True
                     response_from_backend = await _call_backend(
-                        b_attempt, m_attempt, kname_attempt, key_attempt
+                        b_attempt, m_attempt, kname_attempt, key_attempt, session.agent
                     )
                     used_backend = b_attempt
                     used_model = m_attempt
@@ -1104,7 +1171,7 @@ def build_app(
     async def list_all_models(http_request: Request):
         """List all available models from all backends."""
         all_models = []
-        for backend_name in [BackendType.OPENROUTER, BackendType.GEMINI, BackendType.GEMINI_CLI_DIRECT]:
+        for backend_name in [BackendType.OPENROUTER, BackendType.GEMINI, BackendType.GEMINI_CLI_DIRECT, BackendType.GEMINI_CLI_BATCH]:
             backend = getattr(http_request.app.state, f"{backend_name}_backend", None)
             if backend and hasattr(backend, "get_available_models"):
                 models = backend.get_available_models()
@@ -1128,7 +1195,7 @@ def build_app(
         try:
             # Get all available models from backends
             all_models = []
-            for backend_name in [BackendType.OPENROUTER, BackendType.GEMINI, BackendType.GEMINI_CLI_DIRECT]:
+            for backend_name in [BackendType.OPENROUTER, BackendType.GEMINI, BackendType.GEMINI_CLI_DIRECT, BackendType.GEMINI_CLI_BATCH]:
                 backend = getattr(http_request.app.state, f"{backend_name}_backend", None)
                 if backend and hasattr(backend, "get_available_models"):
                     models = backend.get_available_models()
