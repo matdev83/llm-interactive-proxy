@@ -1,6 +1,6 @@
 # OpenAI Compatible Intercepting Proxy Server
 
-This project provides an intercepting proxy server that is compatible with the OpenAI API. It allows for modification of requests and responses, command execution within chat messages, and model overriding. The proxy can forward requests to **OpenRouter.ai** or **Google Gemini**, selectable at run time.
+This project provides an intercepting proxy server that is compatible with the OpenAI API. It allows for modification of requests and responses, command execution within chat messages, and model overriding. The proxy can forward requests to **OpenRouter.ai**, **Google Gemini**, or **Anthropic Claude**, selectable at run time.
 
 ## 🚀 KILLER FEATURES
 
@@ -18,13 +18,14 @@ This project provides an intercepting proxy server that is compatible with the O
 
 - **OpenAI API Compatibility** – drop-in replacement for `/v1/chat/completions` and `/v1/models`.
 - **Gemini API Compatibility** – native Google Gemini API endpoints (`/v1beta/models` and `/v1beta/models/{model}:generateContent`) with full compatibility for the official `google-genai` client library.
+- **Anthropic API Compatibility** – native Anthropic API endpoints (`/anthropic/v1/messages` and `/anthropic/v1/models`) with full compatibility for the official `anthropic` client library.
 - **Request Interception and Command Parsing** – user messages can contain commands (default prefix `!/`) to change proxy behaviour.
 - **Configurable Command Prefix** – via the `COMMAND_PREFIX` environment variable, CLI, or in‑chat commands.
 - **Dynamic Model Override** – commands like `!/set(model=...)` change the model for subsequent requests.
-- **Multiple Backends** – forward requests to OpenRouter, Google Gemini, or Gemini CLI Direct. Chosen with `LLM_BACKEND`.
+- **Multiple Backends** – forward requests to OpenRouter, Google Gemini, Gemini CLI Direct, or Anthropic. Chosen with `LLM_BACKEND`.
 - **Gemini CLI Direct Support** - Route requests directly to the system-installed Gemini CLI application, providing access to Gemini models without requiring API keys.
 - **Streaming and Non‑Streaming Support** – for OpenRouter and Gemini backends. Gemini CLI Direct backend supports both streaming and non-streaming responses.
-- **Aggregated Model Listing** – the `/models` and `/v1/models` endpoints return the union of all models discovered from configured backends, prefixed with the backend name (e.g., `openrouter:model_name`, `gemini:model_name`, `gemini-cli-direct:model_name`).
+- **Aggregated Model Listing** – the `/models` and `/v1/models` endpoints return the union of all models discovered from configured backends, prefixed with the backend name (e.g., `openrouter:model_name`, `gemini:model_name`, `gemini-cli-direct:model_name`, `anthropic:model_name`).
 - **Session History Tracking** – optional per-session logs using the `X-Session-ID` header.
 - **Agent Detection** – recognizes popular coding agents and formats proxy responses accordingly.
 - **CLI Configuration** – command line flags can override environment variables for quick testing.
@@ -330,7 +331,115 @@ Model names can include backend prefixes to route to specific backends:
 - `openrouter:gpt-4` - Routes to OpenRouter backend
 - `gemini:gemini-pro` - Routes to Gemini backend  
 - `gemini-cli-direct:gemini-1.5-pro` - Routes to Gemini CLI Direct backend
+- `anthropic:claude-3-sonnet-20240229` - Routes to Anthropic backend
 - `gpt-4` - Uses default backend (no prefix)
+
+## Anthropic API Compatibility
+
+This proxy provides **native Anthropic API endpoints** that are fully compatible with the official `anthropic` client library. You can use the proxy as a drop-in replacement for the Anthropic API by simply changing the base URL.
+
+### Anthropic Endpoints
+
+- **`/anthropic/v1/models`** – List available Anthropic Claude models
+- **`/anthropic/v1/messages`** – Create messages using Claude models (streaming and non-streaming)
+
+### Using with the Official Anthropic Client
+
+Install the official Anthropic client library:
+
+```bash
+pip install anthropic
+```
+
+Then use it with the proxy:
+
+```python
+from anthropic import Anthropic
+
+# Configure the client to use the proxy
+client = Anthropic(
+    api_key="your-anthropic-api-key",
+    base_url="http://localhost:8000/anthropic"
+)
+
+# Use normally
+response = client.messages.create(
+    model="claude-3-sonnet-20240229",
+    max_tokens=100,
+    messages=[
+        {"role": "user", "content": "Hello, Claude!"}
+    ]
+)
+print(response.content[0].text)
+```
+
+### Async Support
+
+```python
+from anthropic import AsyncAnthropic
+
+client = AsyncAnthropic(
+    api_key="your-anthropic-api-key", 
+    base_url="http://localhost:8000/anthropic"
+)
+
+response = await client.messages.create(
+    model="claude-3-haiku-20240307",
+    max_tokens=50,
+    messages=[{"role": "user", "content": "Hello!"}]
+)
+```
+
+### Streaming Support
+
+```python
+async with client.messages.stream(
+    model="claude-3-sonnet-20240229",
+    max_tokens=200,
+    messages=[{"role": "user", "content": "Tell me a story"}]
+) as stream:
+    async for event in stream:
+        if hasattr(event, 'delta') and hasattr(event.delta, 'text'):
+            print(event.delta.text, end='', flush=True)
+```
+
+### System Messages and Advanced Parameters
+
+Anthropic API supports system messages and advanced parameters:
+
+```python
+response = client.messages.create(
+    model="claude-3-opus-20240229",
+    max_tokens=200,
+    temperature=0.7,
+    top_p=0.9,
+    system="You are a helpful coding assistant.",
+    stop_sequences=["```"],
+    messages=[
+        {"role": "user", "content": "Write a Python function to reverse a string"}
+    ]
+)
+```
+
+### Backend Routing
+
+The proxy will automatically route Anthropic API requests to the configured backend based on your `LLM_BACKEND` setting:
+
+- **`anthropic`** - Routes directly to Anthropic's API
+- **`openrouter`** - Routes through OpenRouter (if Anthropic models are available)
+- **`gemini`** - Routes to Gemini backend (with format conversion)
+- **`gemini-cli-direct`** - Routes to Gemini CLI (with format conversion)
+
+You can also use model prefixes in the Anthropic client:
+
+```python
+# Explicitly route to OpenRouter
+response = client.messages.create(
+    model="openrouter:anthropic/claude-3-sonnet-20240229",
+    max_tokens=100,
+    messages=[{"role": "user", "content": "Hello!"}]
+)
+```
 
 ### Command Feature
 

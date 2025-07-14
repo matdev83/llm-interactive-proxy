@@ -9,6 +9,7 @@ class BackendType(str, Enum):
     OPENROUTER = "openrouter"
     GEMINI = "gemini"
     GEMINI_CLI_DIRECT = "gemini-cli-direct"
+    ANTHROPIC = "anthropic"
 
     # New explicit variants after refactor
     GEMINI_CLI_BATCH = "gemini-cli-batch"
@@ -45,7 +46,8 @@ SUPPORTED_BACKENDS: Set[str] = {
     BackendType.GEMINI,
     BackendType.GEMINI_CLI_DIRECT,
     BackendType.GEMINI_CLI_BATCH,
-    BackendType.GEMINI_CLI_INTERACTIVE
+    BackendType.GEMINI_CLI_INTERACTIVE,
+    BackendType.ANTHROPIC
 }
 
 GEMINI_BACKENDS: Set[str] = {

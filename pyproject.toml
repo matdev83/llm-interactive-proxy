@@ -18,6 +18,10 @@ dependencies = [
     "llm-accounting",
     "tiktoken",
     "google-genai",
+    "anthropic>=0.24.0",
+    "pytest",
+    "pytest-asyncio",
+    "pytest-httpx",
 ]
 requires-python = ">=3.10"
 readme = "README.md"
@@ -39,8 +43,6 @@ classifiers = [
 
 [project.optional-dependencies]
 dev = [
-    "pytest",
-    "pytest-asyncio",
     "pytest-httpx",
     "ruff",
     "black",
