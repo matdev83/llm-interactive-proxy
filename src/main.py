@@ -21,6 +21,7 @@ from src.agents import detect_agent, wrap_proxy_message, format_command_response
 from src.command_parser import CommandParser
 from src.connectors import GeminiBackend, OpenRouterBackend
 from src.connectors.gemini_cli_direct import GeminiCliDirectConnector
+from src.connectors.anthropic import AnthropicBackend
 from src.core.config import _keys_for, _load_config, get_openrouter_headers
 from src.core.metadata import _load_project_metadata
 from src.core.persistence import ConfigManager
@@ -138,6 +139,7 @@ def build_app(
         openrouter_backend = OpenRouterBackend(client_httpx)
         gemini_backend = GeminiBackend(client_httpx)
         gemini_cli_direct_backend = GeminiCliDirectConnector()
+        anthropic_backend = AnthropicBackend()
         # New variant backends
         from src.connectors.gemini_cli_batch import GeminiCliBatchConnector  # local import to avoid circular
         from src.connectors.gemini_cli_interactive import GeminiCliInteractiveConnector
@@ -150,10 +152,14 @@ def build_app(
         app_param.state.gemini_cli_batch_backend = gemini_cli_batch_backend
         app_param.state.gemini_cli_interactive_backend = gemini_cli_interactive_backend
         app_param.state.gemini_cli_direct_backend = gemini_cli_direct_backend
+        app_param.state.anthropic_backend = anthropic_backend
 
         openrouter_ok = False
         gemini_ok = False
         gemini_cli_direct_ok = False
+        gemini_cli_batch_ok = False
+        gemini_cli_interactive_ok = False
+        anthropic_ok = False
 
         if cfg.get("openrouter_api_keys"):
             openrouter_api_keys_list = list(cfg["openrouter_api_keys"].items())
@@ -207,6 +213,21 @@ def build_app(
             logger.warning(f"Interactive Gemini CLI backend unavailable: {e}")
             gemini_cli_interactive_ok = False
 
+        # Initialize Anthropic backend – requires API key but works with static model list in tests
+        if cfg.get("anthropic_api_keys"):
+            anthropic_api_keys_list = list(cfg["anthropic_api_keys"].items())
+            if anthropic_api_keys_list:
+                key_name, current_api_key = anthropic_api_keys_list[0]
+                try:
+                    await anthropic_backend.initialize(key_name=key_name, api_key=current_api_key)
+                    if anthropic_backend.get_available_models():
+                        anthropic_ok = True
+                except Exception as e:
+                    logger.error(f"Failed to initialise Anthropic backend: {e}")
+                    anthropic_ok = False
+        else:
+            # Allow proxy to start without API keys in dev mode – backend just not functional
+            anthropic_ok = False
 
         functional = {
             name
@@ -216,6 +237,7 @@ def build_app(
                 (BackendType.GEMINI_CLI_DIRECT, gemini_cli_direct_ok),
                 (BackendType.GEMINI_CLI_BATCH, gemini_cli_batch_ok),
                 (BackendType.GEMINI_CLI_INTERACTIVE, gemini_cli_interactive_ok),
+                (BackendType.ANTHROPIC, anthropic_ok),
             )
             if ok
         }
@@ -250,10 +272,15 @@ def build_app(
             current_backend = gemini_cli_batch_backend
         elif backend_type == "gemini-cli-interactive":
             current_backend = gemini_cli_interactive_backend
+        elif backend_type == "anthropic":
+            current_backend = anthropic_backend
         else: # Default to openrouter if not specified or not gemini/gemini-cli-direct
             current_backend = openrouter_backend
 
         app_param.state.backend = current_backend
+
+        # Expose the chat_completions function to other routers (Anthropic router needs it)
+        app_param.state.chat_completions_func = chat_completions
 
         all_keys = list(cfg.get("openrouter_api_keys", {}).values()) + list(
             cfg.get("gemini_api_keys", {}).values()
@@ -283,6 +310,10 @@ def build_app(
         await client_httpx.aclose()
 
     app_instance = FastAPI(lifespan=lifespan)
+    
+    # Include Anthropic router
+    from src.anthropic_router import router as anthropic_router
+    app_instance.include_router(anthropic_router)
     app_instance.state.project_metadata = {
         "name": project_name, "version": project_version}
     app_instance.state.client_api_key = api_key
@@ -893,6 +924,42 @@ def build_app(
                     except Exception as e:
                         logger.error(f"Unexpected error from Gemini CLI Batch backend: {e}", exc_info=True)
                         raise HTTPException(status_code=500, detail=f"Gemini CLI Batch backend error: {str(e)}")
+
+                elif b_type == BackendType.ANTHROPIC:
+                    try:
+                        backend_result = await http_request.app.state.anthropic_backend.chat_completions(
+                            request_data=request_data,
+                            processed_messages=processed_messages,
+                            effective_model=model_str,
+                            openrouter_api_base_url="",  # Not used for Anthropic
+                            openrouter_headers_provider=lambda n, k: {},  # Not used
+                            key_name=key_name_str,
+                            api_key=api_key_str,
+                            project=proxy_state.project,
+                            prompt_redactor=(
+                                http_request.app.state.api_key_redactor
+                                if http_request.app.state.api_key_redaction_enabled
+                                else None
+                            ),
+                            command_filter=http_request.app.state.command_filter,
+                        )
+                        
+                        if isinstance(backend_result, tuple):
+                            result, response_headers = backend_result
+                            tracker.set_response(result)
+                            tracker.set_response_headers(response_headers)
+                        else:
+                            # Streaming response
+                            result = backend_result
+                            tracker.set_response(result)
+                        
+                        return result
+                    except HTTPException as e:
+                        logger.error(f"Error from Anthropic backend: {e.status_code} - {e.detail}")
+                        raise
+                    except Exception as e:
+                        logger.error(f"Unexpected error from Anthropic backend: {e}", exc_info=True)
+                        raise HTTPException(status_code=500, detail=f"Anthropic backend error: {str(e)}")
 
                 else: # Default to OpenRouter or handle unknown b_type if more are added
                     retry_at = http_request.app.state.rate_limits.get(

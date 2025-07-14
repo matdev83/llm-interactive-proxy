@@ -29,11 +29,17 @@ def _check_privileges() -> None:
 
 def _daemonize_unix() -> None:
     """Daemonize the process on Unix-like systems."""
-    if os.fork() > 0:
-        sys.exit(0)  # exit first parent
+    if not hasattr(os, "fork"):
+        raise NotImplementedError("Daemon mode is only supported on Unix-like systems with os.fork()")
+    if hasattr(os, "fork"):
+        if os.fork() > 0:
+            sys.exit(0)  # exit first parent
+    else:
+        raise NotImplementedError("Daemon mode is only supported on Unix-like systems with os.fork()")
 
     os.chdir("/")
-    os.setsid()
+    if hasattr(os, "setsid"):
+        os.setsid()
     os.umask(0)
 
     if os.fork() > 0:
@@ -240,7 +246,7 @@ def main(
     if build_app_fn is None:
         from src.main import build_app as build_app_fn
 
-    app = build_app_fn(cfg, config_file=args.config_file)
+    app = build_app_fn(cfg)
     uvicorn.run(app, host=cfg["proxy_host"], port=cfg["proxy_port"])
 
 
