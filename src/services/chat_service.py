@@ -387,6 +387,10 @@ class ChatService:
             models_list = self.app.state.gemini_cli_direct_backend.get_available_models()
             models_count = len(models_list)
             backend_info.append(f"gemini-cli-direct (M:{models_count})")
+        elif BackendType.GEMINI_CLI_BATCH in self.app.state.functional_backends:
+            models_list = self.app.state.gemini_cli_batch_backend.get_available_models()
+            models_count = len(models_list)
+            backend_info.append(f"gemini-cli-batch (M:{models_count})")
         
         backends_str = ", ".join(sorted(backend_info))
         banner_lines = [
@@ -626,8 +630,12 @@ class ChatService:
                 return await self._call_gemini_backend(
                     request_data, processed_messages, model, key_name, api_key, proxy_state, tracker
                 )
-            elif backend_type == BackendType.GEMINI_CLI_DIRECT:
+            elif backend_type in [BackendType.GEMINI_CLI_DIRECT, BackendType.GEMINI_CLI_BATCH]:
                 return await self._call_gemini_cli_direct_backend(
+                    request_data, processed_messages, model, proxy_state, tracker
+                )
+            elif backend_type == BackendType.GEMINI_CLI_INTERACTIVE:
+                return await self._call_gemini_cli_interactive_backend(
                     request_data, processed_messages, model, proxy_state, tracker
                 )
             else:  # OpenRouter
@@ -662,7 +670,13 @@ class ChatService:
     
     async def _call_gemini_cli_direct_backend(self, request_data, processed_messages, model, proxy_state, tracker):
         """Call Gemini CLI Direct backend."""
-        backend_result = await self.app.state.gemini_cli_direct_backend.chat_completions(
+        backend_instance = (
+            self.app.state.gemini_cli_batch_backend
+            if hasattr(self.app.state, "gemini_cli_batch_backend")
+            else self.app.state.gemini_cli_direct_backend
+        )
+
+        backend_result = await backend_instance.chat_completions(
             request_data=request_data,
             processed_messages=processed_messages,
             effective_model=model,
@@ -680,6 +694,28 @@ class ChatService:
             tracker.set_response(result)
         
         logger.debug(f"Result from Gemini CLI Direct backend chat_completions: {result}")
+        return result
+    
+    async def _call_gemini_cli_interactive_backend(self, request_data, processed_messages, model, proxy_state, tracker):
+        """Call Gemini CLI Interactive backend."""
+        backend_result = await self.app.state.gemini_cli_interactive_backend.chat_completions(
+            request_data=request_data,
+            processed_messages=processed_messages,
+            effective_model=model,
+            project=proxy_state.project,
+            prompt_redactor=self.app.state.api_key_redactor if self.app.state.api_key_redaction_enabled else None,
+            command_filter=self.app.state.command_filter,
+        )
+
+        if isinstance(backend_result, tuple):
+            result, response_headers = backend_result
+            tracker.set_response(result)
+            tracker.set_response_headers(response_headers)
+        else:
+            result = backend_result
+            tracker.set_response(result)
+
+        logger.debug(f"Result from Gemini CLI Interactive backend chat_completions: {result}")
         return result
     
     async def _call_openrouter_backend(self, request_data, processed_messages, model, key_name, api_key, proxy_state, tracker):

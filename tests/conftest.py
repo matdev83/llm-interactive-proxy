@@ -13,7 +13,7 @@ from src.connectors import GeminiBackend, OpenRouterBackend
 from src.main import build_app  # Import build_app
 
 # Preserve original Gemini API key for integration tests
-ORIG_GEMINI_KEY = os.environ.get("GEMINI_API_KEY_1")
+ORIG_GEMINI_KEY = os.environ.get("GEMINI_API_KEY_1", "dummy-gemini-key-for-conftest")
 
 def _clear_specific_api_key_env_vars():
     """Clears common API key environment variables used in tests."""

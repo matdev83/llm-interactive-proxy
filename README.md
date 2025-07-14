@@ -188,6 +188,7 @@ The proxy server can be configured using the following command-line arguments:
 - `--command-prefix <prefix>`: Sets the command prefix for in-chat commands (default: `!/`).
 - `--log FILE`: Writes logs to the specified file instead of stderr.
 - `--config FILE`: Specifies the path to a persistent configuration file for saving and reloading failover routes and defaults.
+- `--daemon`: Runs the server as a daemon (in the background). Requires `--log` to be set.
 - `--disable-interactive-mode`: Disables interactive mode by default for new sessions.
 - `--disable-redact-api-keys-in-prompts`: Disables API key redaction in prompts.
 - `--disable-auth`: Disables client API key authentication (only allowed when binding to `127.0.0.1`).
@@ -350,9 +351,12 @@ You can embed special commands within your chat messages to control the proxy's 
 - `!/set(default-backend=openrouter|gemini|gemini-cli-direct)`: Sets the default backend persistently.
     Example: `!/set(default-backend=gemini-cli-direct)`
 - `!/unset(default-backend)`: Unsets the default backend, restoring initial configuration.
-- `!/set(project=project_name)` or `!/set(project-name=project_name)`: Sets the project name for the current session.
+- `!/set(project-name=project_name)`: Sets the project name for the current session.
     Example: `!/set(project=my-project)`
+- `!/set(project-dir="<project_root_dir>")`, `!/set(dir="<project_root_dir>")`, or `!/set(project-directory="<project_root_dir>")`: Sets the project directory for the current session. The directory must exist and be readable.
+    Example: `!/set(project-dir="C:\Users\Test\Projects\MyProject")`
 - `!/unset(project)` or `!/unset(project-name)`: Unsets the project name.
+- `!/pwd`: Prints the current project directory.
 - `!/set(interactive=true|false|on|off)`: Enables or disables interactive mode for the current session.
     Example: `!/set(interactive=true)` to enable, `!/set(interactive=off)` to disable.
 - `!/unset(interactive)` or `!/unset(interactive-mode)`: Unsets interactive mode.

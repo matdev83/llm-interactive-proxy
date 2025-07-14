@@ -1,6 +1,6 @@
 import pytest
 from fastapi import FastAPI
-from typing import Dict, Any, Set, cast
+from typing import Dict, Any, Set, cast, AsyncGenerator
 
 from src.command_parser import CommandParser, get_command_pattern
 from src.command_processor import parse_arguments
@@ -53,9 +53,9 @@ def proxy_state() -> ProxyState:
     return ProxyState()
 
 @pytest.fixture(params=[True, False], ids=["preserve_unknown_True", "preserve_unknown_False"])
-def command_parser(
+async def command_parser(
     request, mock_app: FastAPI, proxy_state: ProxyState
-) -> CommandParser:
+) -> AsyncGenerator[CommandParser, None]:
     preserve_unknown_val = request.param
     parser_config = CommandParserConfig(
         proxy_state=proxy_state,
@@ -72,7 +72,7 @@ def command_parser(
     another_cmd = MockSuccessCommand("anothercmd", app=mock_app)
     parser.register_command(hello_cmd)
     parser.register_command(another_cmd)
-    return parser
+    yield parser
 
 # --- Tests for parse_arguments ---
 
@@ -132,7 +132,8 @@ def test_get_command_pattern_custom_prefix():
 # --- Tests for CommandParser.process_text ---
 
 # Removed @pytest.mark.parametrize for preserve_unknown, fixture handles it.
-def test_process_text_single_command(command_parser: CommandParser):
+@pytest.mark.asyncio
+async def test_process_text_single_command(command_parser: CommandParser):
     text_content = "!/hello"
     # Reset call state of mock command for this specific test run with this parser instance
     cast(MockSuccessCommand, command_parser.handlers["hello"]).reset_mock_state()
@@ -145,7 +146,8 @@ def test_process_text_single_command(command_parser: CommandParser):
     assert hello_handler.called is True
 
 # Removed @pytest.mark.parametrize for preserve_unknown
-def test_process_text_command_with_prefix_text(command_parser: CommandParser):
+@pytest.mark.asyncio
+async def test_process_text_command_with_prefix_text(command_parser: CommandParser):
     text_content = "Some text !/hello"
     cast(MockSuccessCommand, command_parser.handlers["hello"]).reset_mock_state()
     # Expected: "Some text " (space after prefix is preserved if command is not line start)
@@ -162,7 +164,8 @@ def test_process_text_command_with_prefix_text(command_parser: CommandParser):
     assert hello_handler.called is True
 
 # Removed @pytest.mark.parametrize for preserve_unknown
-def test_process_text_command_with_suffix_text(command_parser: CommandParser):
+@pytest.mark.asyncio
+async def test_process_text_command_with_suffix_text(command_parser: CommandParser):
     text_content = "!/hello Some text"
     cast(MockSuccessCommand, command_parser.handlers["hello"]).reset_mock_state()
     # Expected: " Some text" (space before suffix is preserved)
@@ -175,7 +178,8 @@ def test_process_text_command_with_suffix_text(command_parser: CommandParser):
     assert hello_handler.called is True
 
 # Removed @pytest.mark.parametrize for preserve_unknown
-def test_process_text_command_with_prefix_and_suffix_text(command_parser: CommandParser):
+@pytest.mark.asyncio
+async def test_process_text_command_with_prefix_and_suffix_text(command_parser: CommandParser):
     text_content = "Prefix !/hello Suffix"
     cast(MockSuccessCommand, command_parser.handlers["hello"]).reset_mock_state()
     # Expected: "Prefix  Suffix" (two spaces if original had one before and one after)
@@ -189,7 +193,8 @@ def test_process_text_command_with_prefix_and_suffix_text(command_parser: Comman
     assert hello_handler.called is True
 
 # Removed @pytest.mark.parametrize for preserve_unknown
-def test_process_text_multiple_commands_only_first_processed(command_parser: CommandParser):
+@pytest.mark.asyncio
+async def test_process_text_multiple_commands_only_first_processed(command_parser: CommandParser):
     text_content = "!/hello !/anothercmd"
     cast(MockSuccessCommand, command_parser.handlers["hello"]).reset_mock_state()
     cast(MockSuccessCommand, command_parser.handlers["anothercmd"]).reset_mock_state()
@@ -215,7 +220,8 @@ def test_process_text_multiple_commands_only_first_processed(command_parser: Com
     assert another_cmd_handler.called is False # Crucial check
 
 # Removed @pytest.mark.parametrize for preserve_unknown
-def test_process_text_no_command(command_parser: CommandParser):
+@pytest.mark.asyncio
+async def test_process_text_no_command(command_parser: CommandParser):
     text_content = "Just some text"
     cast(MockSuccessCommand, command_parser.handlers["hello"]).reset_mock_state()
     modified_text, commands_found = command_parser.command_processor.process_text_and_execute_command(text_content)
@@ -226,7 +232,8 @@ def test_process_text_no_command(command_parser: CommandParser):
     assert hello_handler.called is False
 
 # This test now uses the parameterized command_parser fixture
-def test_process_text_unknown_command(command_parser: CommandParser):
+@pytest.mark.asyncio
+async def test_process_text_unknown_command(command_parser: CommandParser):
     # Test with a command that matches regex but isn't in handlers
     text_content_valid_format_unknown = "!/cmd-not-real(arg=val)"
     cast(MockSuccessCommand, command_parser.handlers["hello"]).reset_mock_state()
@@ -249,7 +256,8 @@ def test_process_text_unknown_command(command_parser: CommandParser):
 # --- Tests for CommandParser.process_messages ---
 
 # Removed @pytest.mark.parametrize for preserve_unknown
-def test_process_messages_single_message_with_command(command_parser: CommandParser):
+@pytest.mark.asyncio
+async def test_process_messages_single_message_with_command(command_parser: CommandParser):
     messages = [ChatMessage(role="user", content="!/hello")]
     cast(MockSuccessCommand, command_parser.handlers["hello"]).reset_mock_state()
     processed_messages, any_command_processed = command_parser.process_messages(messages)
@@ -266,7 +274,8 @@ def test_process_messages_single_message_with_command(command_parser: CommandPar
     assert hello_handler.called is True
 
 # Removed @pytest.mark.parametrize for preserve_unknown
-def test_process_messages_stops_after_first_command_in_message_content_list(command_parser: CommandParser):
+@pytest.mark.asyncio
+async def test_process_messages_stops_after_first_command_in_message_content_list(command_parser: CommandParser):
     messages = [
         ChatMessage(
             role="user",
@@ -317,7 +326,8 @@ def test_process_messages_stops_after_first_command_in_message_content_list(comm
     assert another_cmd_handler.called is False
 
 # Removed @pytest.mark.parametrize for preserve_unknown
-def test_process_messages_stops_after_first_message_with_command(command_parser: CommandParser):
+@pytest.mark.asyncio
+async def test_process_messages_processes_command_in_last_message_and_stops(command_parser: CommandParser):
     messages = [
         ChatMessage(role="user", content="!/hello"),
         ChatMessage(role="user", content="!/anothercmd"),
@@ -326,43 +336,18 @@ def test_process_messages_stops_after_first_message_with_command(command_parser:
     cast(MockSuccessCommand, command_parser.handlers["hello"]).reset_mock_state()
     cast(MockSuccessCommand, command_parser.handlers["anothercmd"]).reset_mock_state()
 
-    # process_messages iterates from last to first message.
-    # 1. Processes "!/anothercmd". process_text makes its content "", found=True.
-    #    `already_processed_commands_in_a_message` becomes True. `any_command_processed` = True.
-    # 2. Processes "!/hello". `already_processed_commands_in_a_message` is True.
-    #    So, `process_text` is NOT called for "!/hello". Its content remains "!/hello".
-    # This means the *last* command in the list of messages is processed first and prevents
-    # earlier ones. This matches the loop direction `range(len(modified_messages) - 1, -1, -1)`.
+    # `process_messages` iterates from last to first message to find the *last* message
+    # containing a command. It then processes only that message and stops.
+    # In this case, "!/anothercmd" is in the last message, so it will be processed.
+    # "!/hello" will not be processed.
 
     processed_messages, any_command_processed = command_parser.process_messages(messages)
 
     assert any_command_processed is True
     assert len(processed_messages) == 2
 
-    # Based on loop order (last to first) and `already_processed_commands_in_a_message`:
-    # Message 2 ("!/anothercmd") is processed first. Its command is executed.
-    # Message 1 ("!/hello") is seen next, but `already_processed_commands_in_a_message` is true,
-    # so its command is not executed.
-
-    # Oh, wait. `already_processed_commands_in_a_message` is set within the loop for a single message
-    # if it has multiple parts. It is NOT carried across messages in the list.
-    # Let me re-verify `process_messages` logic from the file.
-    # `already_processed_commands_in_a_message` is initialized to `False` before the loop.
-    # Ah, `if not already_processed_commands_in_a_message:` is the key.
-    # So, once any command is found (in any message, due to reverse iteration), this flag is set
-    # and no further commands in *any subsequent messages (earlier in the list)* are processed.
-
-    # So, for messages = ["!/hello", "!/anothercmd"]:
-    # `process_messages` iterates from last to first.
-    # 1. msg = "!/anothercmd" (index 1). `already_processed_commands_in_a_message` is False.
-    #    `process_text("!/anothercmd")` is called.
-    #    Since "!/anothercmd" is not "hello" or "help" and has no parens, regex finds 0 matches.
-    #    So, for this message, `found` is False. Content remains "!/anothercmd".
-    #    `already_processed_commands_in_a_message` remains False.
-    # 2. msg = "!/hello" (index 0). `already_processed_commands_in_a_message` is False.
-    #    `process_text("!/hello")` is called. `hello` handler runs. Content becomes "".
-    #    `already_processed_commands_in_a_message` becomes True. `any_command_processed` = True.
-
+    # The command in the last message ("!/anothercmd") is processed, and its content becomes empty.
+    # The command in the first message ("!/hello") is not processed, so its content remains.
     assert processed_messages[0].content == "!/hello"     # Unprocessed !/hello
     assert processed_messages[1].content == ""            # Processed !/anothercmd
 
@@ -372,20 +357,9 @@ def test_process_messages_stops_after_first_message_with_command(command_parser:
     assert isinstance(another_cmd_handler, MockSuccessCommand)
 
     assert hello_handler.called is False # Because processing stopped after anothercmd
-    assert another_cmd_handler.called is True # Because it was processed first (last in list)
+    assert another_cmd_handler.called is True # Because it was the command in the last message with a command
 
 
-# A variant to ensure the "first message chronologically" is what's meant by "first"
-# Removed @pytest.mark.parametrize for preserve_unknown
-def test_process_messages_processes_command_in_chronologically_first_message(command_parser: CommandParser):
-    # This test name might be confusing given the actual reverse iteration.
-    # The current `process_messages` processes the *last* message in the list first.
-    # If a command is found there, it stops.
-    # If the requirement implies "first message as it appears in the list chronologically",
-    # then `process_messages` current logic does the opposite.
-    # The subtask was about `process_text`. `process_messages` has its own logic.
-    # Let's stick to testing the current behavior of `process_messages`.
-    # The previous test `test_process_messages_stops_after_first_message_with_command` covers this.
-    # This test is effectively a duplicate or needs renaming to reflect current behavior.
-    # Let's assume the prompt meant to test the existing "stop after one command overall" logic.
-    pass # Covered by the previous test.
+# This test is now covered by test_process_messages_processes_command_in_last_message_and_stops.
+# The previous test name was misleading given the actual reverse iteration and processing logic.
+# No further action needed for this specific test.

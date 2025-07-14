@@ -35,6 +35,7 @@ class LLMBackend(abc.ABC):
         project: str | None = None,
         prompt_redactor: "APIKeyRedactor" | None = None,
         command_filter: "ProxyCommandFilter" | None = None,
+        agent: str | None = None,
     ) -> Union[StreamingResponse, Dict[str, Any]]:
         """
         Forwards a chat completion request to the LLM backend.

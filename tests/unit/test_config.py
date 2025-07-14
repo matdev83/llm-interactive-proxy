@@ -34,7 +34,8 @@ def test_collect_api_keys_prioritizes_numbered():
             mock_logger.warning.assert_called_once()
 
 
-def test_load_config_basic():
+@pytest.mark.asyncio
+async def test_load_config_basic():
     """Test basic configuration loading."""
     with patch.dict(os.environ, {}, clear=True):
         config = _load_config()
@@ -43,7 +44,8 @@ def test_load_config_basic():
         assert config["disable_auth"] is False
 
 
-def test_load_config_custom_values():
+@pytest.mark.asyncio
+async def test_load_config_custom_values():
     """Test configuration loading with custom values."""
     with patch.dict(os.environ, {
         "PROXY_HOST": "0.0.0.0",

@@ -1,46 +1,54 @@
 import pytest
-# from fastapi import HTTPException # F401: Removed
+from fastapi.testclient import TestClient
 from pytest_httpx import HTTPXMock
+
+from src.main import build_app
 
 
 @pytest.mark.httpx_mock()
-def test_failover_key_rotation(client, httpx_mock: HTTPXMock):
-    # create route
-    payload = {
-        "model": "dummy",
-        "messages": [
-            {"role": "user", "content": "!/create-failover-route(name=r,policy=k)"}
-        ],
-    }
-    client.post("/v1/chat/completions", json=payload)
-    payload = {
-        "model": "dummy",
-        "messages": [
-            {"role": "user", "content": "!/route-append(name=r,openrouter:model-x)"}
-        ],
-    }
-    client.post("/v1/chat/completions", json=payload)
+def test_failover_key_rotation(httpx_mock: HTTPXMock, monkeypatch):
+    monkeypatch.setenv("OPENROUTER_API_KEY_1", "key1")
+    monkeypatch.setenv("OPENROUTER_API_KEY_2", "key2")
+    monkeypatch.setenv("LLM_BACKEND", "openrouter")
 
-    # Mock the OpenRouter responses
-    httpx_mock.add_response(
-        url="https://openrouter.ai/api/v1/chat/completions",
-        method="POST",
-        status_code=429,
-        json={"detail": "limit"},
-    )
-    httpx_mock.add_response(
-        url="https://openrouter.ai/api/v1/chat/completions",
-        method="POST",
-        status_code=200,
-        json={"choices": [{"message": {"content": "ok"}}]},
-    )
+    app = build_app()
+    with TestClient(app, headers={"Authorization": "Bearer test-proxy-key"}) as client:
+        # create route
+        payload = {
+            "model": "dummy",
+            "messages": [
+                {"role": "user", "content": "!/create-failover-route(name=r,policy=k)"}
+            ],
+        }
+        client.post("/v1/chat/completions", json=payload)
+        payload = {
+            "model": "dummy",
+            "messages": [
+                {"role": "user", "content": "!/route-append(name=r,openrouter:model-x)"}
+            ],
+        }
+        client.post("/v1/chat/completions", json=payload)
 
-    payload2 = {"model": "r", "messages": [{"role": "user", "content": "hi"}]}
-    resp = client.post("/v1/chat/completions", json=payload2)
+        # Mock the OpenRouter responses
+        httpx_mock.add_response(
+            url="https://openrouter.ai/api/v1/chat/completions",
+            method="POST",
+            status_code=429,
+            json={"detail": "limit"},
+        )
+        httpx_mock.add_response(
+            url="https://openrouter.ai/api/v1/chat/completions",
+            method="POST",
+            status_code=200,
+            json={"choices": [{"message": {"content": "ok"}}]},
+        )
 
-    assert resp.status_code == 200
-    assert resp.json()["choices"][0]["message"]["content"].endswith("ok")
-    assert len(httpx_mock.get_requests()) == 2
+        payload2 = {"model": "r", "messages": [{"role": "user", "content": "hi"}]}
+        resp = client.post("/v1/chat/completions", json=payload2)
+
+        assert resp.status_code == 200
+        assert resp.json()["choices"][0]["message"]["content"].endswith("ok")
+        assert len(httpx_mock.get_requests()) == 2
 
 
 @pytest.mark.httpx_mock()

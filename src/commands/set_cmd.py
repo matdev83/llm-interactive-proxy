@@ -130,6 +130,20 @@ class SetCommand(BaseCommand):
         state.set_project(name_val_str)
         return True, f"{key_used} set to {name_val_str}", False
 
+    def _handle_project_dir_setting(self, args: Dict[str, Any], state: "ProxyState") -> HandlerOutput:
+        dir_val_str: Optional[str] = args.get("project-dir") or args.get("dir") or args.get("project-directory")
+        if not isinstance(dir_val_str, str):
+            return False, None, False
+
+        import os
+        if not os.path.isdir(dir_val_str):
+            return True, CommandResult(self.name, False, f"Directory '{dir_val_str}' not found."), False
+        if not os.access(dir_val_str, os.R_OK):
+            return True, CommandResult(self.name, False, f"Directory '{dir_val_str}' not readable."), False
+
+        state.set_project_dir(dir_val_str)
+        return True, f"project-dir set to {dir_val_str}", False
+
     def _handle_interactive_mode_setting(self, args: Dict[str, Any], state: "ProxyState") -> HandlerOutput:
         val_str: Optional[str] = None
         key_used: Optional[str] = None
@@ -322,6 +336,7 @@ class SetCommand(BaseCommand):
             lambda: self._handle_default_backend_setting(args, context),
             lambda: self._handle_model_setting(args, state, backend_setting_failed_critically, context),
             lambda: self._handle_project_setting(args, state),
+            lambda: self._handle_project_dir_setting(args, state),
             lambda: self._handle_interactive_mode_setting(args, state),
             lambda: self._handle_api_key_redaction_setting(args, context),
             lambda: self._handle_command_prefix_setting(args, context),

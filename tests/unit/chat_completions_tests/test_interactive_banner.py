@@ -41,7 +41,7 @@ def test_hello_command_returns_banner(interactive_client):
     project_name = interactive_client.app.state.project_metadata["name"]
     project_version = interactive_client.app.state.project_metadata["version"]
     # The backends now include gemini-cli-direct, so we need to check the actual content
-    backends_str_expected = "gemini (K:1, M:2), gemini-cli-direct (M:4), openrouter (K:2, M:3)" # Sorted
+    backends_str_expected = "gemini (K:1, M:2), gemini-cli-batch (M:4), gemini-cli-direct (M:4), openrouter (K:2, M:3)" # Sorted
 
     expected_lines = [
         f"Hello, this is {project_name} {project_version}",
@@ -91,7 +91,7 @@ def test_hello_command_returns_xml_banner_for_cline_agent(interactive_client):
 
     project_name = interactive_client.app.state.project_metadata["name"]
     project_version = interactive_client.app.state.project_metadata["version"]
-    backends_str_expected = "gemini (K:1, M:2), gemini-cli-direct (M:4), openrouter (K:2, M:3)"
+    backends_str_expected = "gemini (K:1, M:2), gemini-cli-batch (M:4), gemini-cli-direct (M:4), openrouter (K:2, M:3)" # Sorted
 
     expected_lines = [
         f"Hello, this is {project_name} {project_version}",

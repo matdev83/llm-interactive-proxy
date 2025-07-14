@@ -18,6 +18,7 @@ class ProxyState:
         self.oneoff_model: Optional[str] = None
         self.invalid_override: bool = False
         self.project: Optional[str] = None
+        self.project_dir: Optional[str] = None
         self.interactive_mode: bool = interactive_mode
         self.interactive_just_enabled: bool = False
         self.hello_requested: bool = False
@@ -96,6 +97,16 @@ class ProxyState:
         if logger.isEnabledFor(logging.INFO):
             logger.info("Unsetting project.")
         self.project = None
+
+    def set_project_dir(self, project_dir: str) -> None:
+        if logger.isEnabledFor(logging.INFO):
+            logger.info(f"Setting project directory to: {project_dir}")
+        self.project_dir = project_dir
+
+    def unset_project_dir(self) -> None:
+        if logger.isEnabledFor(logging.INFO):
+            logger.info("Unsetting project directory.")
+        self.project_dir = None
 
     def set_interactive_mode(self, value: bool) -> None:
         if logger.isEnabledFor(logging.INFO):
@@ -267,6 +278,7 @@ class ProxyState:
         self.override_model = None
         self.invalid_override = False
         self.project = None
+        self.project_dir = None
         self.interactive_mode = False
         self.interactive_just_enabled = False
         self.hello_requested = False

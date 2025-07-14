@@ -84,11 +84,13 @@ def test_security_documentation():
     from src.core.cli import parse_cli_args
     
     # Test that the disable-auth flag exists and has proper help text
-    try:
-        args = parse_cli_args(["--help"])
-    except SystemExit:
-        # argparse exits when showing help, this is expected
-        pass
+    import contextlib
+    from io import StringIO
+
+    # Suppress the help banner printed by argparse to keep the pytest output clean.
+    with contextlib.redirect_stdout(StringIO()):
+        with pytest.raises(SystemExit):
+            parse_cli_args(["--help"])
     
     # Test that the flag can be parsed
     args = parse_cli_args(["--disable-auth"])

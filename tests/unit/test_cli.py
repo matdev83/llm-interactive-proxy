@@ -124,7 +124,8 @@ def test_main_log_file(monkeypatch, tmp_path):
     assert recorded.get("filename") == str(log_file)
 
 
-def test_build_app_uses_env(monkeypatch):
+@pytest.mark.asyncio
+async def test_build_app_uses_env(monkeypatch):
     monkeypatch.delenv("GEMINI_API_KEY", raising=False)
     for i in range(1, 21):
         monkeypatch.delenv(f"GEMINI_API_KEY_{i}", raising=False)
@@ -139,7 +140,8 @@ def test_build_app_uses_env(monkeypatch):
     monkeypatch.delenv("COMMAND_PREFIX", raising=False)
 
 
-def test_build_app_uses_interactive_env(monkeypatch):
+@pytest.mark.asyncio
+async def test_build_app_uses_interactive_env(monkeypatch):
     monkeypatch.delenv("GEMINI_API_KEY", raising=False)
     for i in range(1, 21):
         monkeypatch.delenv(f"GEMINI_API_KEY_{i}", raising=False)
