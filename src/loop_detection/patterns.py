@@ -22,6 +22,12 @@ class BlockMatch:
     total_length: int
     confidence: float
 
+    # Legacy alias – many callers (tests) still expect ``.pattern`` instead of
+    # the newer ``.block`` terminology.
+    @property
+    def pattern(self) -> str:  # noqa: D401
+        return self.block
+
 
 class BlockAnalyzer:
     """
@@ -31,18 +37,39 @@ class BlockAnalyzer:
     focusing on substantial text blocks rather than character-level patterns.
     """
     
-    def __init__(self, min_block_length: int = 100, max_block_length: int = 2000, whitelist: list[str] | None = None):
+    def __init__(
+        self,
+        min_block_length: int = 100,
+        max_block_length: int = 8192,
+        whitelist: list[str] | None = None,
+        block_scan_step: int = 8,
+        **legacy_kwargs,
+    ):
+        """Create a new ``BlockAnalyzer``.
+
+        The constructor keeps its original *min_block_length* / *max_block_length*
+        API but also swallows renamed legacy keyword arguments such as
+        *max_pattern_length* so that older code (and tests) continue to work
+        after the internal refactor.  Any unknown keyword arguments are ignored
+        with a *debug* log entry so that new typos do not slip in silently.
         """
-        Initialize the block analyzer.
-        
-        Args:
-            min_block_length: Minimum block length to consider (100+ chars)
-            max_block_length: Maximum block length to analyze
-            whitelist: List of patterns that should not trigger detection
-        """
-        self.min_block_length = max(min_block_length, 100)  # Enforce 100+ char minimum
+
+        # Gracefully map the old parameter name to the new one
+        if "max_pattern_length" in legacy_kwargs:
+            max_block_length = legacy_kwargs.pop("max_pattern_length")
+
+        if legacy_kwargs:
+            logger.debug("Ignored legacy/unknown kwargs in BlockAnalyzer.__init__: %s", legacy_kwargs)
+        # Enforce 100+ char minimum – we are only interested in *text block*
+        # repetitions, not low-level character sequences.
+        self.min_block_length = max(min_block_length, 100)
         self.max_block_length = max_block_length
         self.whitelist = set(whitelist or [])
+        # Step size when iterating over block lengths.  Using a larger step
+        # dramatically reduces the combinatorial explosion of checks while
+        # still giving adequate coverage thanks to the extra "common_lengths"
+        # that are always evaluated.
+        self.block_scan_step = max(1, block_scan_step)
     
     def find_blocks_in_text(self, text: str, min_repetitions: int = 2) -> list[BlockMatch]:
         """
@@ -64,7 +91,8 @@ class BlockAnalyzer:
         max_length = min(self.max_block_length, len(text) // 2)
         
         # Check every 3 characters for better coverage of real-world patterns
-        for block_length in range(self.min_block_length, max_length + 1, 3):
+        step = 1 if max_length <= 50 else self.block_scan_step
+        for block_length in range(self.min_block_length, max_length + 1, step):
             block_matches = self._find_blocks_of_length(text, block_length, min_repetitions)
             all_matches.extend(block_matches)
         
@@ -100,46 +128,54 @@ class BlockAnalyzer:
         
         matches = []
         processed_positions = set()
-        
-        # Check each possible starting position
-        for start_pos in range(len(text) - block_length + 1):
-            if start_pos in processed_positions:
+
+        text_len = len(text)
+        pos = 0
+        while pos <= text_len - block_length:
+            if pos in processed_positions:
+                pos += 1
                 continue
-                
-            block = text[start_pos:start_pos + block_length]
-            
+
+            block = text[pos : pos + block_length]
+
             # Skip if whitelisted
             if self.is_whitelisted(block):
+                pos += 1
                 continue
-            
+
             # Count consecutive repetitions starting from this position
             repetitions = 1
-            current_pos = start_pos + block_length
-            
-            while current_pos + block_length <= len(text):
-                next_block = text[current_pos:current_pos + block_length]
-                if next_block == block:
+            current_pos = pos + block_length
+
+            while current_pos + block_length <= text_len:
+                if text.startswith(block, current_pos):
                     repetitions += 1
                     current_pos += block_length
                 else:
                     break
-            
+
             # If we found enough repetitions, create a match
             if repetitions >= min_repetitions:
                 confidence = self._calculate_block_confidence(block, repetitions)
-                
-                matches.append(BlockMatch(
-                    block=block,
-                    repetition_count=repetitions,
-                    start_position=start_pos,
-                    total_length=repetitions * block_length,
-                    confidence=confidence
-                ))
-                
-                # Mark all positions covered by this match as processed
-                for pos in range(start_pos, current_pos):
-                    processed_positions.add(pos)
-        
+
+                matches.append(
+                    BlockMatch(
+                        block=block,
+                        repetition_count=repetitions,
+                        start_position=pos,
+                        total_length=repetitions * block_length,
+                        confidence=confidence,
+                    )
+                )
+
+                # Mark all positions covered by this match as processed to
+                # avoid redundant checks.  Using range with step of 1 is still
+                # acceptable because this branch is only hit for actual matches.
+                processed_positions.update(range(pos, current_pos))
+                pos = current_pos  # Skip past the processed block
+            else:
+                pos += 1
+
         return matches
     
     def _calculate_block_confidence(self, block: str, repetitions: int) -> float:
@@ -239,10 +275,58 @@ class BlockAnalyzer:
         # Remove extra whitespace and convert to lowercase
         return ' '.join(block.lower().split())
 
+    # ---------------------------------------------------------------------
+    # Backwards-compat helper methods – keep the old public surface intact
+    # ---------------------------------------------------------------------
 
-# Backward compatibility alias
+    # Older code (and tests) used *pattern* terminology instead of the new
+    # *block* nomenclature.  Provide thin wrappers so that nothing breaks.
+
+    def find_patterns_in_text(self, text: str, min_repetitions: int = 2):  # noqa: D401 – keep legacy name
+        """Alias for :py:meth:`find_blocks_in_text`."""
+        return self.find_blocks_in_text(text, min_repetitions)
+
+    def normalize_pattern(self, pattern: str) -> str:  # noqa: D401 – keep legacy name
+        """Alias for :py:meth:`normalize_block`."""
+        return self.normalize_block(pattern)
+
+
+# ------------------------------------------------------------------
+# Backwards-compat dataclass and aliases
+# ------------------------------------------------------------------
+
+
+class PatternMatch(BlockMatch):
+    """Backwards-compat wrapper that uses the legacy *pattern* attribute name."""
+
+    # Forward ``pattern`` to the new ``block`` attribute on construction.
+    def __init__(
+        self,
+        pattern: str,
+        start_position: int,
+        repetition_count: int,
+        total_length: int,
+        confidence: float,
+    ) -> None:
+        super().__init__(
+            block=pattern,
+            repetition_count=repetition_count,
+            start_position=start_position,
+            total_length=total_length,
+            confidence=confidence,
+        )
+
+    # Property alias so read-access via ``.pattern`` continues to work
+    @property
+    def pattern(self) -> str:  # noqa: D401
+        return self.block
+
+
+# Backward compatibility aliases used all over the code-base
 PatternAnalyzer = BlockAnalyzer
-PatternMatch = BlockMatch
+
+# Keep the old find_patterns_in_text *function* name intact
+# but bump internally to the optimised implementation.
 
 def find_patterns_in_text(text: str, min_repetitions: int = 2) -> list[BlockMatch]:
     """Backward compatibility function."""

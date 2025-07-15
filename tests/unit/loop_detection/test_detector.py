@@ -33,7 +33,7 @@ class TestLoopDetector:
         config = LoopDetectionConfig(
             enabled=True,
             buffer_size=1024,
-            max_pattern_length=100
+            max_pattern_length=200
         )
         # Lower thresholds for testing
         config.short_pattern_threshold.min_repetitions = 3
@@ -47,9 +47,10 @@ class TestLoopDetector:
         
         detector = LoopDetector(config=config, on_loop_detected=on_loop_detected)
         
-        # Send a clearly looping pattern - simple character repetition
-        # Make sure we have enough content (detector requires 50+ chars)
-        loop_text = "A" * 60  # 60 A's - should definitely trigger
+        # Send a clearly looping pattern of >=100 chars repeated 3 times
+        long_block = "ERROR " * 20  # 120 chars
+        loop_text = long_block * 3
+
         result = detector.process_chunk(loop_text)
         
         # Debug: print what was detected
@@ -57,7 +58,7 @@ class TestLoopDetector:
         print(f"Events: {events}")
         
         # Should detect the loop
-        assert result is not None or len(events) > 0, f"No loop detected in obvious pattern: '{loop_text[:20]}...'"
+        assert result is not None or len(events) > 0, "Loop not detected for 120-char repeated block"
         
         if result:
             assert isinstance(result, LoopDetectionEvent)

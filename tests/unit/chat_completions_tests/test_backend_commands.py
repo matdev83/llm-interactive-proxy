@@ -235,30 +235,24 @@ def test_set_default_backend_command_integration(client: TestClient):
     async def mock_openrouter_chat_completions(*args, **kwargs):
         return mock_backend_response
 
-    with (
-        patch.object(
-            client.app.state.gemini_backend,
-            "chat_completions",
-            new=mock_gemini_chat_completions,
-        ),
-        patch.object(
-            client.app.state.openrouter_backend,
-            "chat_completions",
-            new=mock_openrouter_chat_completions,
-        ),
-        patch.object(
-            client.app.state.gemini_backend,
-            "get_available_models",
-            return_value=["gemini-model"],
-        ),
-        patch.object(
-            client.app.state.openrouter_backend,
-            "get_available_models",
-            return_value=["openrouter-model"],
-        ),
-        patch.object(
-            client.app.state.session_manager, "get_session", return_value=mock_session
-        ),
+    with patch.object(
+        client.app.state.gemini_backend,
+        "chat_completions",
+        new=mock_gemini_chat_completions,
+    ), patch.object(
+        client.app.state.openrouter_backend,
+        "chat_completions",
+        new=mock_openrouter_chat_completions,
+    ), patch.object(
+        client.app.state.gemini_backend,
+        "get_available_models",
+        return_value=["gemini-model"],
+    ), patch.object(
+        client.app.state.openrouter_backend,
+        "get_available_models",
+        return_value=["openrouter-model"],
+    ), patch.object(
+        client.app.state.session_manager, "get_session", return_value=mock_session
     ):
         payload = {
             "model": "some-model",
@@ -307,30 +301,24 @@ def test_unset_default_backend_command_integration(client: TestClient):
     async def mock_openrouter_chat_completions(*args, **kwargs):
         return mock_backend_response
 
-    with (
-        patch.object(
-            client.app.state.gemini_backend,
-            "chat_completions",
-            new=mock_gemini_chat_completions,
-        ),
-        patch.object(
-            client.app.state.openrouter_backend,
-            "chat_completions",
-            new=mock_openrouter_chat_completions,
-        ),
-        patch.object(
-            client.app.state.gemini_backend,
-            "get_available_models",
-            return_value=["gemini-model"],
-        ),
-        patch.object(
-            client.app.state.openrouter_backend,
-            "get_available_models",
-            return_value=["openrouter-model"],
-        ),
-        patch.object(
-            client.app.state.session_manager, "get_session", return_value=mock_session
-        ),
+    with patch.object(
+        client.app.state.gemini_backend,
+        "chat_completions",
+        new=mock_gemini_chat_completions,
+    ), patch.object(
+        client.app.state.openrouter_backend,
+        "chat_completions",
+        new=mock_openrouter_chat_completions,
+    ), patch.object(
+        client.app.state.gemini_backend,
+        "get_available_models",
+        return_value=["gemini-model"],
+    ), patch.object(
+        client.app.state.openrouter_backend,
+        "get_available_models",
+        return_value=["openrouter-model"],
+    ), patch.object(
+        client.app.state.session_manager, "get_session", return_value=mock_session
     ):
         payload = {
             "model": "some-model",

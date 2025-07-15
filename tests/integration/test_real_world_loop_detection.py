@@ -5,9 +5,10 @@ These tests use real-world examples of loops and non-loops to verify
 that the loop detection system works correctly with realistic content.
 """
 
-import pytest
 import asyncio
 from pathlib import Path
+
+import pytest
 
 from src.loop_detection.config import LoopDetectionConfig
 from src.loop_detection.detector import LoopDetector
@@ -32,7 +33,7 @@ class TestRealWorldLoopDetection:
     def load_test_data(self, filename: str) -> str:
         """Load test data from file."""
         test_data_path = Path("tests/loop_test_data") / filename
-        with open(test_data_path, 'r', encoding='utf-8') as f:
+        with open(test_data_path, encoding='utf-8') as f:
             return f.read()
 
     def test_example1_kiro_loop_detection(self):

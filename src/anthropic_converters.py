@@ -5,6 +5,7 @@ import logging
 from typing import Any, Dict, List
 
 from src.anthropic_models import (
+    AnthropicMessage,
     AnthropicMessagesRequest,
 )
 
@@ -14,7 +15,7 @@ def anthropic_to_openai_request(anthropic_request: AnthropicMessagesRequest) -> 
     OpenAI Chat Completions endpoint.
 
     The unit-test suite indexes into the result with ``["model"]`` so we must
-    return a plain dictionary – not a ``ChatCompletionRequest`` object.
+    return a plain dictionary - not a ``ChatCompletionRequest`` object.
     """
 
     messages: List[Dict[str, str]] = []
@@ -33,7 +34,7 @@ def anthropic_to_openai_request(anthropic_request: AnthropicMessagesRequest) -> 
         "max_tokens": anthropic_request.max_tokens,
         "temperature": anthropic_request.temperature,
         "top_p": anthropic_request.top_p,
-        # Anthropic uses ``top_k`` – unsupported by OpenAI; drop silently
+        # Anthropic uses ``top_k`` - unsupported by OpenAI; drop silently
         "stop": anthropic_request.stop_sequences,
         "stream": anthropic_request.stream or False,
     }
@@ -50,7 +51,7 @@ def openai_to_anthropic_response(openai_response: Any) -> Dict[str, Any]:
 
     # Normalise to a dictionary first
     if not isinstance(openai_response, dict):
-        # pydantic-model – use attribute access
+        # pydantic-model - use attribute access
         _dict = {
             "id": openai_response.id,
             "model": openai_response.model,
@@ -135,8 +136,8 @@ def openai_to_anthropic_stream_chunk(chunk_data: str, id: str, model: str) -> st
 def extract_anthropic_usage(response: Any) -> Dict[str, int]:
     """Extract usage information from an Anthropic API response.
 
-    The helper is intentionally defensive – it works with either a raw
-    dictionary payload *or* a pydantic‐model / Mock instance that exposes a
+    The helper is intentionally defensive - it works with either a raw
+    dictionary payload *or* a pydantic-model / Mock instance that exposes a
     ``usage`` attribute.  Missing fields default to zero so that billing
     helpers never crash.
     """
@@ -144,7 +145,7 @@ def extract_anthropic_usage(response: Any) -> Dict[str, int]:
     output_tokens = 0
 
     try:
-        # If the response is a dict – the common case coming from HTTP layer
+        # If the response is a dict - the common case coming from HTTP layer
         if isinstance(response, dict):
             usage_section = response.get("usage", {}) if response else {}
             input_tokens = int(usage_section.get("input_tokens", 0) or 0)
@@ -155,7 +156,7 @@ def extract_anthropic_usage(response: Any) -> Dict[str, int]:
             usage_obj = response.usage
             input_tokens = int(getattr(usage_obj, "input_tokens", 0) or 0)
             output_tokens = int(getattr(usage_obj, "output_tokens", 0) or 0)
-    except Exception:  # pragma: no cover – never break caller on edge-cases
+    except Exception:  # pragma: no cover - never break caller on edge-cases
         logging.getLogger(__name__).debug("Failed to extract anthropic usage", exc_info=True)
 
     return {
@@ -191,13 +192,13 @@ def openai_stream_to_anthropic_stream(chunk_data: str) -> str:
     finish patterns exercised in the test-suite.  For unrecognised input we
     pass the chunk through unchanged so that the stream keeps flowing.
     """
-    # Preserve the original *data:* prefix – tests assert on it.
-    prefix = "data: " if not chunk_data.startswith("data: ") else "data: "
+    # Preserve the original *data:* prefix - tests assert on it.
+    prefix = "data: "
     payload_str = chunk_data[len(prefix):] if chunk_data.startswith("data: ") else chunk_data
 
     try:
         if payload_str.strip() == "[DONE]":
-            return chunk_data  # pass through – not currently asserted on
+            return chunk_data  # pass through - not currently asserted on
 
         openai_chunk: Dict[str, Any] = json.loads(payload_str)
         choice = openai_chunk.get("choices", [{}])[0]
@@ -230,7 +231,7 @@ def openai_stream_to_anthropic_stream(chunk_data: str) -> str:
             }
             return f"{prefix}{json.dumps(payload)}\n\n"
 
-    except Exception:  # pragma: no cover – never break the stream
+    except Exception:  # pragma: no cover - never break the stream
         logging.getLogger(__name__).debug("Stream conversion failed", exc_info=True)
 
     # Fallback: return input unchanged so upstream can decide what to do
@@ -276,3 +277,18 @@ def get_anthropic_models() -> Dict[str, Any]:
 
 # Backwards-compat alias so existing imports still resolve
 openai_to_anthropic_stream = openai_stream_to_anthropic_stream  # type: ignore
+
+# Re-export commonly used pydantic models for convenience so that tests and
+# legacy code can simply "from src.anthropic_converters import AnthropicMessage"
+# without having to know the internal module structure.
+
+__all__ = [
+    "AnthropicMessage",
+    "AnthropicMessagesRequest",
+    # Conversion helpers
+    "anthropic_to_openai_request",
+    "openai_to_anthropic_response",
+    "openai_to_anthropic_stream_chunk",
+    "extract_anthropic_usage",
+    "openai_stream_to_anthropic_stream",
+]

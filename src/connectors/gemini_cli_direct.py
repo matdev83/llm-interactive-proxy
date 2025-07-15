@@ -52,7 +52,7 @@ class GeminiCliDirectConnector(LLMBackend):
                 self._gemini_process.wait(timeout=5)
                 logger.info("Background Gemini CLI process terminated during connector cleanup")
         except Exception:
-            # Ignore cleanup errors – process may have already exited
+            # Ignore cleanup errors - process may have already exited
             pass
 
     # -----------------------------------------------------------
@@ -121,7 +121,7 @@ class GeminiCliDirectConnector(LLMBackend):
             if tmp_var in os.environ:
                 env[tmp_var] = os.environ[tmp_var]
 
-        # Preserve Windows-specific AppData paths – some Node tools rely on them for caching / auth
+        # Preserve Windows-specific AppData paths - some Node tools rely on them for caching / auth
         for win_var in ["APPDATA", "LOCALAPPDATA", "PROGRAMDATA", "SYSTEMROOT", "WINDIR"]:
             if win_var in os.environ:
                 env[win_var] = os.environ[win_var]
@@ -519,9 +519,9 @@ class GeminiCliDirectConnector(LLMBackend):
             content = response["choices"][0]["message"]["content"]
             words = content.split()
 
-            CHUNK_SIZE = 20  # words per SSE chunk
-            for start in range(0, len(words), CHUNK_SIZE):
-                part = " ".join(words[start:start + CHUNK_SIZE])
+            chunk_size = 20  # words per SSE chunk
+            for start in range(0, len(words), chunk_size):
+                part = " ".join(words[start:start + chunk_size])
                 chunk = {
                     "id": response["id"],
                     "object": "chat.completion.chunk",

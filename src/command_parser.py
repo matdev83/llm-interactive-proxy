@@ -98,14 +98,14 @@ class CommandParser:
         if command_found_in_target_msg:
             # If the original content was purely a command and the resulting content is empty,
             # check if there was a command failure. If so, use the failure message as the new content.
-            if self._is_original_purely_command(
+            if (self._is_original_purely_command(
                 original_content_for_comparison
-            ) and self._is_content_effectively_empty(processed_content):
-                if self.command_results:
-                    last_result = self.command_results[-1]
-                    if not last_result.success and last_result.message:
-                        processed_content = last_result.message
-                        content_modified_by_cmd = True
+            ) and self._is_content_effectively_empty(processed_content) 
+            and self.command_results):
+                last_result = self.command_results[-1]
+                if not last_result.success and last_result.message:
+                    processed_content = last_result.message
+                    content_modified_by_cmd = True
 
             # Update content only if it was actually modified by the command processing
             # and processed_content is not None (it could be None if list content became empty)
