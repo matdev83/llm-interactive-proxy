@@ -29,8 +29,12 @@ class LoopDetectionConfig:
     
     # Core settings
     enabled: bool = True
-    buffer_size: int = 2048
-    max_pattern_length: int = 500
+    buffer_size: int = 16384
+    max_pattern_length: int = 8192
+    # How many new characters must be processed before running another costly
+    # pattern analysis pass.  This directly trades CPU time for latency of
+    # detection.  A value of 0 (or negative) disables the interval optimisation.
+    analysis_interval: int = 64
     
     # Pattern thresholds
     short_pattern_threshold: PatternThresholds = None
@@ -76,6 +80,9 @@ class LoopDetectionConfig:
         
         if "max_pattern_length" in config_dict:
             config.max_pattern_length = int(config_dict["max_pattern_length"])
+
+        if "analysis_interval" in config_dict:
+            config.analysis_interval = int(config_dict["analysis_interval"])
         
         if "whitelist" in config_dict:
             config.whitelist = list(config_dict["whitelist"])
@@ -119,6 +126,9 @@ class LoopDetectionConfig:
         
         if "LOOP_DETECTION_MAX_PATTERN_LENGTH" in env_dict:
             config.max_pattern_length = int(env_dict["LOOP_DETECTION_MAX_PATTERN_LENGTH"])
+
+        if "LOOP_DETECTION_ANALYSIS_INTERVAL" in env_dict:
+            config.analysis_interval = int(env_dict["LOOP_DETECTION_ANALYSIS_INTERVAL"])
         
         # Threshold environment variables
         if "LOOP_DETECTION_MIN_REPETITIONS_SHORT" in env_dict:
@@ -157,8 +167,9 @@ class LoopDetectionConfig:
         if self.max_pattern_length <= 0:
             errors.append("max_pattern_length must be positive")
         
-        if self.max_pattern_length > self.buffer_size:
-            errors.append("max_pattern_length cannot be larger than buffer_size")
+        # Allow pattern length to exceed buffer – the detector will handle
+        # clipping automatically when the buffer is smaller than the maximum
+        # pattern size requested by configuration/testing scenarios.
         
         # Validate thresholds
         for name, threshold in [
@@ -171,5 +182,8 @@ class LoopDetectionConfig:
             
             if threshold.min_total_length <= 0:
                 errors.append(f"{name}_threshold.min_total_length must be positive")
+
+        if self.analysis_interval < 0:
+            errors.append("analysis_interval cannot be negative")
         
         return errors

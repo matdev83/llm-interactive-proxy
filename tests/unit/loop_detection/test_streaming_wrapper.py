@@ -10,8 +10,8 @@ async def test_stream_cancellation_on_loop():
 
     # Configure detector with VERY low thresholds so the test is fast
     config = LoopDetectionConfig(
-        buffer_size=128,
-        max_pattern_length=10,
+        buffer_size=1024,
+        max_pattern_length=8192,
     )
     # Three repetitions of a 1-char pattern should be enough
     config.short_pattern_threshold.min_repetitions = 3
@@ -21,8 +21,8 @@ async def test_stream_cancellation_on_loop():
     async def fake_stream():
         # Emit a short normal prefix
         yield "Hello, world!\n"
-        # Then emit a long loop that should trigger the detector
-        yield "A" * 64
+        # Then emit a 120-char block repeated to form a loop
+        yield ("ERROR " * 20) * 3
         # This line should never be reached – wrapper should stop before
         yield "Should not reach here"
 

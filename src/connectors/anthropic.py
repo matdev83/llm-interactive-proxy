@@ -1,5 +1,5 @@
 """
-Anthropic backend connector – provides chat_completions and model discovery for the Anthropic Messages API.
+Anthropic backend connector - provides chat_completions and model discovery for the Anthropic Messages API.
 """
 from __future__ import annotations
 
@@ -53,7 +53,7 @@ class AnthropicBackend(LLMBackend):
         return list(self.available_models)
 
     # -----------------------------------------------------------
-    # Core entry – called by proxy
+    # Core entry - called by proxy
     # -----------------------------------------------------------
     async def chat_completions(
         self,

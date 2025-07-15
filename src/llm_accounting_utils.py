@@ -563,9 +563,8 @@ async def track_llm_request(
                 cached_tokens = billing_info["cached_tokens"]
 
             # Extract completion ID if available
-            if not tracker.remote_completion_id:
-                if isinstance(tracker.response, dict):
-                    tracker.remote_completion_id = tracker.response.get("id")
+            if not tracker.remote_completion_id and isinstance(tracker.response, dict):
+                tracker.remote_completion_id = tracker.response.get("id")
 
         # Extract billing info from headers
         if tracker.response_headers:

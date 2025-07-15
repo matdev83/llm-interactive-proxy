@@ -11,25 +11,30 @@ class TestPatternAnalyzer:
     """Test the PatternAnalyzer class."""
     
     def test_simple_pattern_detection(self):
-        """Test detection of simple repeating patterns."""
-        analyzer = PatternAnalyzer(max_pattern_length=100)
-        
-        # Test simple character repetition
-        text = "aaaaaaaaaa"  # 10 'a's
-        matches = analyzer.find_patterns_in_text(text, min_repetitions=5)
-        
-        assert len(matches) > 0
-        # Should find the 'a' pattern repeated
-        single_a_match = next((m for m in matches if m.pattern == "a"), None)
-        assert single_a_match is not None
-        assert single_a_match.repetition_count >= 5
+        """Detect repeating blocks of at least 100 characters."""
+        analyzer = PatternAnalyzer()
+
+        # Create a 100-char block ("ERROR " * 17 ≈ 102 chars) and repeat it 3 times
+        block = "ERROR " * 20  # 120 chars
+        assert len(block) >= 100
+
+        text = block * 3  # 3 repetitions
+
+        matches = analyzer.find_patterns_in_text(text, min_repetitions=3)
+
+        # Should detect the block or a large portion of it repeated 3×
+        assert any(m.repetition_count >= 3 and len(m.pattern) >= 100 for m in matches), (
+            f"No 100-char block repetition detected. Matches: {matches}")
     
     def test_word_pattern_detection(self):
         """Test detection of repeating word patterns."""
-        analyzer = PatternAnalyzer(max_pattern_length=100)
+        analyzer = PatternAnalyzer()
         
-        # Test word repetition - use a simpler, more obvious pattern
-        text = "ERROR ERROR ERROR ERROR ERROR ERROR"
+        # Repeat a 100+ char phrase containing a word multiple times.
+        phrase = "ERROR " * 20  # 6*20=120 chars block with spaces
+        assert len(phrase) == 120
+
+        text = phrase * 4  # 4 repetitions (>3)
         matches = analyzer.find_patterns_in_text(text, min_repetitions=3)
         
         # Debug: print matches to see what's being detected
@@ -45,9 +50,12 @@ class TestPatternAnalyzer:
     
     def test_no_false_positives_short_text(self):
         """Test that short, non-repetitive text doesn't trigger detection."""
-        analyzer = PatternAnalyzer(max_pattern_length=100)
+        analyzer = PatternAnalyzer()
         
-        text = "This is a normal sentence without any repetition."
+        text = (
+            "This is a normal sentence without any repetition. "
+            "Each part of this paragraph is unique, so no loops should be detected."
+        )
         matches = analyzer.find_patterns_in_text(text, min_repetitions=3)
         
         # Should not find any significant patterns
@@ -55,7 +63,7 @@ class TestPatternAnalyzer:
     
     def test_whitelist_patterns(self):
         """Test that whitelisted patterns are ignored."""
-        analyzer = PatternAnalyzer(max_pattern_length=100, whitelist=["..."])
+        analyzer = PatternAnalyzer(whitelist=["..."])
         
         # Text with whitelisted pattern
         text = "Loading" + "..." * 10  # Should be ignored
@@ -67,7 +75,7 @@ class TestPatternAnalyzer:
     
     def test_confidence_scoring(self):
         """Test that confidence scoring works correctly."""
-        analyzer = PatternAnalyzer(max_pattern_length=100)
+        analyzer = PatternAnalyzer()
         
         # High confidence: meaningful repeated text
         text = "Error: Connection failed. " * 5
@@ -79,7 +87,7 @@ class TestPatternAnalyzer:
     
     def test_pattern_normalization(self):
         """Test pattern normalization functionality."""
-        analyzer = PatternAnalyzer(max_pattern_length=100)
+        analyzer = PatternAnalyzer()
         
         # Test whitespace normalization
         pattern1 = "  hello   world  "
@@ -92,7 +100,7 @@ class TestPatternAnalyzer:
     
     def test_overlapping_pattern_removal(self):
         """Test that overlapping patterns are handled correctly."""
-        analyzer = PatternAnalyzer(max_pattern_length=100)
+        analyzer = PatternAnalyzer()
         
         # Text with overlapping patterns
         text = "abcabcabcabc"  # Could match "abc", "abcabc", etc.

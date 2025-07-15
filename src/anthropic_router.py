@@ -45,7 +45,7 @@ async def anthropic_messages(
     logger.info(f"Anthropic messages request for model: {request_body.model}")
 
     # --- Step 1: Convert to OpenAI format
-    # Basic role validation – Anthropic accepts only user/assistant/system roles
+    # Basic role validation - Anthropic accepts only user/assistant/system roles
     allowed_roles = {"user", "assistant", "system"}
     for m in request_body.messages:
         if m.role not in allowed_roles:
@@ -77,7 +77,7 @@ async def anthropic_messages(
         elif isinstance(openai_response, dict):
             return openai_to_anthropic_response(openai_response)
         else:
-            # Unknown response type – forward as-is
+            # Unknown response type - forward as-is
             return openai_response
     finally:
         # Restore original backend type

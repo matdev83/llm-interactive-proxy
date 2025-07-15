@@ -95,7 +95,7 @@ class LoopDetector:
         # Initialize components
         self.buffer = ResponseBuffer(max_size=self.config.buffer_size)
         self.block_analyzer = BlockAnalyzer(
-            min_block_length=100,  # Enforce 100+ char minimum
+            min_block_length=100,
             max_block_length=self.config.max_pattern_length,
             whitelist=self.config.whitelist
         )
@@ -104,6 +104,10 @@ class LoopDetector:
         self.is_active = self.config.enabled
         self.total_processed = 0
         self.last_detection_position = -1
+        # Track the last position (character count) where heavy analysis was
+        # performed so we can skip redundant work when only a few new
+        # characters have arrived (important for token-by-token streaming).
+        self._last_analysis_position = -1
         
         logger.info(f"LoopDetector initialized: enabled={self.is_active}, "
                    f"buffer_size={self.config.buffer_size}, "
@@ -117,14 +121,20 @@ class LoopDetector:
         # Add chunk to buffer
         self.buffer.append(chunk)
         self.total_processed += len(chunk)
-        
+
         # Only analyze if we have enough content
         if self.buffer.size() < 50:  # Minimum content threshold
             return None
-        
-        # Get current buffer content
+
+        # Respect analysis interval optimisation (if enabled)
+        interval = getattr(self.config, "analysis_interval", 0)
+        if interval > 0 and self._last_analysis_position >= 0:
+            if self.total_processed - self._last_analysis_position < interval:
+                return None
+
+        # Get current buffer content (only now that we're going to use it)
         buffer_content = self.buffer.get_content()
-        
+
         # Analyze for blocks
         matches = self.block_analyzer.find_blocks_in_text(buffer_content)
         
@@ -148,8 +158,13 @@ class LoopDetector:
                     except Exception as e:
                         logger.error(f"Error in loop detection callback: {e}")
                 
+                # Record that we did an analysis and triggered detection
+                self._last_analysis_position = self.total_processed
                 return event
         
+        # Record that analysis was executed even if nothing was found so the
+        # next call will be skipped until enough new data arrives.
+        self._last_analysis_position = self.total_processed
         return None
     
     def _should_trigger_detection(self, match: BlockMatch) -> bool:
@@ -165,9 +180,18 @@ class LoopDetector:
         if match.total_length < threshold.min_total_length:
             return False
         
-        # Check confidence threshold (minimum 0.5)
-        if match.confidence < 0.5:
-            return False
+        # Dynamic confidence threshold – allow lower confidence for very
+        # short repeating units (e.g. single characters or short words) to
+        # avoid missing blatant loops like "ERROR ERROR ..." which would have
+        # a low diversity score by their very nature.
+        # For substantial blocks (>=100 chars) we rely on size + repetition
+        # thresholds and therefore do *not* enforce a confidence floor.  For
+        # medium-sized blocks we keep the 0.5 limit; for tiny units we accept
+        # 0.3 (see above).
+        if block_length < 100:
+            min_confidence = 0.3 if block_length <= 10 else 0.5
+            if match.confidence < min_confidence:
+                return False
         
         # Avoid triggering multiple times for the same area
         detection_gap = 100  # Minimum characters between detections
@@ -205,6 +229,7 @@ class LoopDetector:
         self.buffer.clear()
         self.total_processed = 0
         self.last_detection_position = -1
+        self._last_analysis_position = -1
         logger.debug("Loop detector state reset")
     
     def get_stats(self) -> dict:
@@ -253,9 +278,12 @@ class LoopDetector:
                 self.buffer.append(recent_content)
         
         self.block_analyzer = BlockAnalyzer(
-            min_block_length=100,  # Enforce 100+ char minimum
+            min_block_length=100,
             max_block_length=new_config.max_pattern_length,
             whitelist=new_config.whitelist
         )
+
+        # Force re-analysis after configuration changes
+        self._last_analysis_position = -1
         
         logger.info(f"Loop detector configuration updated: enabled={self.is_active}")

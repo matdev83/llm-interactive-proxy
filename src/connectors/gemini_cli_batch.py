@@ -257,7 +257,7 @@ class GeminiCliBatchConnector(GeminiCliDirectConnector):
     # ---------------------------------------------------------------------
 
     def _start_background_gemini_process(self) -> None:  # type: ignore[override]
-        # Intentionally do nothing – batch connector spawns a fresh process
+        # Intentionally do nothing - batch connector spawns a fresh process
         # per request, so we don’t need the always-running helper that the
         # direct/interactive variant wants.
         return

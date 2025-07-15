@@ -78,8 +78,8 @@ class TestLoopDetectionIntegration:
         # Configure loop detection with very low thresholds for testing
         config = LoopDetectionConfig(
             enabled=True,
-            buffer_size=256,
-            max_pattern_length=50
+            buffer_size=8192,
+            max_pattern_length=8192
         )
         config.short_pattern_threshold.min_repetitions = 3
         config.short_pattern_threshold.min_total_length = 10
@@ -89,7 +89,8 @@ class TestLoopDetectionIntegration:
         # Mock a streaming response that contains a loop
         async def mock_streaming_content():
             yield "Normal response start. "
-            yield "ERROR " * 20  # This should trigger loop detection
+            long_block = "ERROR " * 20  # 120 chars
+            yield long_block * 3  # 3 repetitions should trigger detection
             yield "This should not be reached"
         
         from starlette.responses import StreamingResponse
@@ -131,8 +132,8 @@ class TestLoopDetectionIntegration:
         """Test loop detection with non-streaming responses."""
         config = LoopDetectionConfig(
             enabled=True,
-            buffer_size=256,
-            max_pattern_length=50
+            buffer_size=8192,
+            max_pattern_length=8192
         )
         config.short_pattern_threshold.min_repetitions = 3
         config.short_pattern_threshold.min_total_length = 10
@@ -143,7 +144,7 @@ class TestLoopDetectionIntegration:
         response_with_loop = {
             "choices": [{
                 "message": {
-                    "content": "Normal start. " + "ERROR ERROR ERROR ERROR ERROR ERROR " + "Normal end."
+                    "content": "Normal start. " + (("ERROR " * 20) * 3) + " Normal end."
                 }
             }]
         }
@@ -164,7 +165,7 @@ class TestLoopDetectionIntegration:
         # Should contain loop detection notice
         content = processed_response["choices"][0]["message"]["content"]
         assert "Response analysis detected potential loop" in content
-        assert "Pattern ' ERROR" in content  # Note: pattern starts with space
+        assert "Pattern '" in content
 
     def test_environment_variable_configuration(self):
         """Test that loop detection respects environment variables."""

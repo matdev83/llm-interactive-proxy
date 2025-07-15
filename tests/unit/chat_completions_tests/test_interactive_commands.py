@@ -54,18 +54,15 @@ def test_set_command_confirmation(mock_openrouter_completions: AsyncMock, intera
 
 def test_set_backend_confirmation(interactive_client):
     mock_backend_response = {"choices": [{"message": {"content": "resp"}}]}
-    with (
-        patch.object(
-            interactive_client.app.state.gemini_backend,
-            "chat_completions",
-            new_callable=AsyncMock,
-        ) as gem_mock,
-        patch.object(
-            interactive_client.app.state.openrouter_backend,
-            "chat_completions",
-            new_callable=AsyncMock,
-        ) as open_mock,
-    ):
+    with patch.object(
+        interactive_client.app.state.gemini_backend,
+        "chat_completions",
+        new_callable=AsyncMock,
+    ) as gem_mock, patch.object(
+        interactive_client.app.state.openrouter_backend,
+        "chat_completions",
+        new_callable=AsyncMock,
+    ) as open_mock:
         gem_mock.return_value = mock_backend_response
         payload = {
             "model": "m",
