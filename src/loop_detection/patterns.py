@@ -25,7 +25,7 @@ class BlockMatch:
     # Legacy alias – many callers (tests) still expect ``.pattern`` instead of
     # the newer ``.block`` terminology.
     @property
-    def pattern(self) -> str:  # noqa: D401
+    def pattern(self) -> str:
         return self.block
 
 
@@ -255,10 +255,8 @@ class BlockAnalyzer:
         
         # Check if block contains only whitelisted patterns
         for whitelisted in self.whitelist:
-            if whitelisted in block or whitelisted in block_normalized:
-                # If the whitelisted pattern makes up most of the block, ignore it
-                if len(whitelisted) >= len(block) * 0.8:
-                    return True
+            if (whitelisted in block or whitelisted in block_normalized) and len(whitelisted) >= len(block) * 0.8:
+                return True
         
         return False
     
@@ -282,11 +280,11 @@ class BlockAnalyzer:
     # Older code (and tests) used *pattern* terminology instead of the new
     # *block* nomenclature.  Provide thin wrappers so that nothing breaks.
 
-    def find_patterns_in_text(self, text: str, min_repetitions: int = 2):  # noqa: D401 – keep legacy name
+    def find_patterns_in_text(self, text: str, min_repetitions: int = 2):
         """Alias for :py:meth:`find_blocks_in_text`."""
         return self.find_blocks_in_text(text, min_repetitions)
 
-    def normalize_pattern(self, pattern: str) -> str:  # noqa: D401 – keep legacy name
+    def normalize_pattern(self, pattern: str) -> str:
         """Alias for :py:meth:`normalize_block`."""
         return self.normalize_block(pattern)
 
@@ -318,7 +316,7 @@ class PatternMatch(BlockMatch):
 
     # Property alias so read-access via ``.pattern`` continues to work
     @property
-    def pattern(self) -> str:  # noqa: D401
+    def pattern(self) -> str:
         return self.block
 
 

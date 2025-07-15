@@ -112,10 +112,10 @@ def test_main_log_file(monkeypatch, tmp_path):
 
     recorded = {}
 
-    def fake_basicConfig(**kwargs):
+    def fake_basic_config(**kwargs):
         recorded.update(kwargs)
 
-    monkeypatch.setattr(cli.logging, "basicConfig", fake_basicConfig)
+    monkeypatch.setattr(cli.logging, "basicConfig", fake_basic_config)
     monkeypatch.setattr(cli.uvicorn, "run", lambda app, host, port: None) # app is fine here
     monkeypatch.setattr(cli, "_check_privileges", lambda: None)
 
@@ -250,25 +250,23 @@ def test_apply_cli_args_basic():
 def test_apply_cli_args_disable_auth_forces_localhost():
     """Test that disable_auth via CLI forces host to localhost."""
     args = parse_cli_args(["--disable-auth", "--host", "0.0.0.0"])
-    with patch.dict(os.environ, {}, clear=True):
-        with patch("src.core.cli.logging") as mock_logging:
-            cfg = apply_cli_args(args)
-            assert cfg["proxy_host"] == "127.0.0.1"
-            assert cfg["disable_auth"] is True
-            # Should log a warning about forcing localhost
-            mock_logging.warning.assert_called_once()
+    with patch.dict(os.environ, {}, clear=True), patch("src.core.cli.logging") as mock_logging:
+        cfg = apply_cli_args(args)
+        assert cfg["proxy_host"] == "127.0.0.1"
+        assert cfg["disable_auth"] is True
+        # Should log a warning about forcing localhost
+        mock_logging.warning.assert_called_once()
 
 
 def test_apply_cli_args_disable_auth_with_localhost_no_warning():
     """Test that disable_auth with localhost doesn't trigger warning."""
     args = parse_cli_args(["--disable-auth", "--host", "127.0.0.1"])
-    with patch.dict(os.environ, {}, clear=True):
-        with patch("src.core.cli.logging") as mock_logging:
-            cfg = apply_cli_args(args)
-            assert cfg["proxy_host"] == "127.0.0.1"
-            assert cfg["disable_auth"] is True
-            # Should not log a warning since host is already localhost
-            mock_logging.warning.assert_not_called()
+    with patch.dict(os.environ, {}, clear=True), patch("src.core.cli.logging") as mock_logging:
+        cfg = apply_cli_args(args)
+        assert cfg["proxy_host"] == "127.0.0.1"
+        assert cfg["disable_auth"] is True
+        # Should not log a warning since host is already localhost
+        mock_logging.warning.assert_not_called()
 
 
 def test_main_disable_auth_forces_localhost():
@@ -315,11 +313,7 @@ def test_main_disable_auth_with_localhost_no_force():
 
 def test_main_auth_enabled_allows_custom_host():
     """Test that main function allows custom host when auth is enabled."""
-    with patch.dict(os.environ, {"DISABLE_AUTH": "false", "PROXY_HOST": "0.0.0.0"}, clear=True):
-        with patch("src.core.cli.logging.basicConfig"):
-            with patch("src.core.cli.logging") as mock_logging:
-                with patch("uvicorn.run") as mock_uvicorn:
-                    with patch("src.core.cli._check_privileges"):
+    with patch.dict(os.environ, {"DISABLE_AUTH": "false", "PROXY_HOST": "0.0.0.0"}, clear=True), patch("src.core.cli.logging.basicConfig"), patch("src.core.cli.logging") as mock_logging, patch("uvicorn.run") as mock_uvicorn, patch("src.core.cli._check_privileges"):
                         mock_app = MagicMock()
                         mock_build_app = MagicMock(return_value=mock_app)
                         

@@ -167,7 +167,7 @@ class LoopDetectionConfig:
         if self.max_pattern_length <= 0:
             errors.append("max_pattern_length must be positive")
         
-        # Allow pattern length to exceed buffer – the detector will handle
+        # Allow pattern length to exceed buffer - the detector will handle
         # clipping automatically when the buffer is smaller than the maximum
         # pattern size requested by configuration/testing scenarios.
         

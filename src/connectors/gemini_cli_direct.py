@@ -127,7 +127,7 @@ class GeminiCliDirectConnector(LLMBackend):
                 env[win_var] = os.environ[win_var]
 
         # Pass through a generic Google API key if present, **but intentionally NOT any GEMINI_API_KEY
-        # variables** – the CLI authenticates via cached OAuth linked to the project ID.
+        # variables** - the CLI authenticates via cached OAuth linked to the project ID.
         if "GOOGLE_API_KEY" in os.environ:
             env["GOOGLE_API_KEY"] = os.environ["GOOGLE_API_KEY"]
 

@@ -128,9 +128,8 @@ class LoopDetector:
 
         # Respect analysis interval optimisation (if enabled)
         interval = getattr(self.config, "analysis_interval", 0)
-        if interval > 0 and self._last_analysis_position >= 0:
-            if self.total_processed - self._last_analysis_position < interval:
-                return None
+        if interval > 0 and self._last_analysis_position >= 0 and self.total_processed - self._last_analysis_position < interval:
+            return None
 
         # Get current buffer content (only now that we're going to use it)
         buffer_content = self.buffer.get_content()
@@ -180,7 +179,7 @@ class LoopDetector:
         if match.total_length < threshold.min_total_length:
             return False
         
-        # Dynamic confidence threshold – allow lower confidence for very
+        # Dynamic confidence threshold - allow lower confidence for very
         # short repeating units (e.g. single characters or short words) to
         # avoid missing blatant loops like "ERROR ERROR ..." which would have
         # a low diversity score by their very nature.

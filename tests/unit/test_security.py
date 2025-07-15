@@ -67,12 +67,12 @@ def test_config_disable_auth_forces_localhost():
     """Test that config loading enforces localhost when disable_auth is true."""
     from src.core.config import _load_config
     
-    with patch.dict(os.environ, {"DISABLE_AUTH": "true", "PROXY_HOST": "192.168.1.100"}, clear=True):
-        with patch("src.core.config.logger") as mock_logger:
-            config = _load_config()
-            assert config["proxy_host"] == "127.0.0.1"
-            assert config["disable_auth"]
-            mock_logger.warning.assert_called_once()
+    with patch.dict(os.environ, {"DISABLE_AUTH": "true", "PROXY_HOST": "192.168.1.100"}, clear=True), patch("src.core.config.logger") as mock_logger:
+        from src.core.config import _load_config
+        config = _load_config()
+        assert config["proxy_host"] == "127.0.0.1"
+        assert config["disable_auth"]
+        mock_logger.warning.assert_called_once()
 
 
 def test_security_documentation():

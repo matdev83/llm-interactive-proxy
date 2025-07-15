@@ -12,6 +12,7 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 import uvicorn
+import requests
 
 from src.main import build_app
 
@@ -392,7 +393,7 @@ class TestErrorHandling:
             client = genai
             
             # This should raise an authentication error
-            with pytest.raises(Exception):  # Could be various exception types
+            with pytest.raises(requests.exceptions.RequestException):  # More specific exception
                 client.models.list()
         finally:
             server.stop()
@@ -401,10 +402,7 @@ class TestErrorHandling:
     def test_model_not_found_error(self, gemini_client, proxy_server):
         """Test model not found error handling."""
         with patch.object(proxy_server.app.state.openrouter_backend, 'chat_completions', 
-                          new=AsyncMock(side_effect=Exception("Model not found"))):
-            
-            # This should handle the error gracefully
-            with pytest.raises(Exception):
+                          new=AsyncMock(side_effect=Exception("Model not found"))), pytest.raises(Exception):
                 gemini_client.models.generate_content(
                     model='non-existent-model',
                     contents='Test message'

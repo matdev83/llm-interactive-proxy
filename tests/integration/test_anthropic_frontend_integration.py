@@ -9,7 +9,6 @@ from fastapi.testclient import TestClient
 
 # Import the official Anthropic SDK for testing
 try:
-    import anthropic
     from anthropic import Anthropic, AsyncAnthropic
     ANTHROPIC_AVAILABLE = True
 except ImportError:
