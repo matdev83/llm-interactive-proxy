@@ -147,11 +147,7 @@ async def wrap_streaming_content_with_loop_detection(
                     cancelled = True
                     
                     # Yield a final cancellation message
-                    cancellation_message = (
-                        f"data: [Response cancelled: Loop detected – Pattern "
-                        f"'{detection_event.pattern[:30]}...' repeated "
-                        f"{detection_event.repetition_count} times]\n\n"
-                    )
+                    cancellation_message = (                        f"data: [Response cancelled: Loop detected - Pattern "                        f"'{detection_event.pattern[:30]}...' repeated "                        f"{detection_event.repetition_count} times]\n\n"                    )
                     yield cancellation_message
                     break
             

@@ -287,8 +287,8 @@ __all__ = [
     "AnthropicMessagesRequest",
     # Conversion helpers
     "anthropic_to_openai_request",
+    "extract_anthropic_usage",
     "openai_to_anthropic_response",
     "openai_to_anthropic_stream_chunk",
-    "extract_anthropic_usage",
     "openai_stream_to_anthropic_stream",
 ]

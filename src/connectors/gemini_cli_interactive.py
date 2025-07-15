@@ -86,7 +86,7 @@ class GeminiCliInteractiveConnector(LLMBackend):
                 cwd,
             )
         except FileNotFoundError:
-            logger.warning("Gemini CLI executable not found – interactive backend disabled")
+            logger.warning("Gemini CLI executable not found - interactive backend disabled")
             self.is_functional = False
         except Exception as exc:
             logger.warning("Failed to spawn interactive Gemini CLI: %s", exc)
@@ -114,9 +114,9 @@ class GeminiCliInteractiveConnector(LLMBackend):
         while True:
             line = await self._process.stdout.readline()
             if not line:
-                break  # EOF – process exited
+                break  # EOF - process exited
             if _PROMPT_RE.match(line):
-                break  # reached CLI prompt again – end of response
+                break  # reached CLI prompt again - end of response
             response_chunks.append(line.decode("utf-8", "replace"))
         return "".join(response_chunks).strip()
 

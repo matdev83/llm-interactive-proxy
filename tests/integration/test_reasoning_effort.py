@@ -118,18 +118,9 @@ def test_provider_specific_reasoning():
                 result = response.json()
                 
                 # Extract response content
-                if "choices" in result and len(result["choices"]) > 0:
-                    # Success - content received
-                    
-                    # Check usage information if available
-                    usage = result.get("usage", {})
-                    if usage:
-                        # Usage information available
-                        
-                        # Check for reasoning tokens in usage
-                        if "reasoning_tokens" in str(usage):
-                            # Reasoning tokens detected in response
-                            pass
+                if "choices" in result and len(result["choices"]) > 0 and "reasoning_tokens" in str(result.get("usage", {})):
+                    # Reasoning tokens detected in response
+                    pass
                     
                     # Check provider-specific information
                     provider_info = result.get("provider_info", {})

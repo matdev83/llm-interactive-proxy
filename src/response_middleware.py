@@ -188,7 +188,6 @@ class LoopDetectionProcessor(ResponseProcessor):
     ) -> dict[str, Any]:
         """Process non-streaming response with loop detection."""
         
-        modified = False
         for idx, choice in enumerate(response.get("choices", [])):
             if not ("message" in choice and "content" in choice["message"]):
                 continue
@@ -209,9 +208,8 @@ class LoopDetectionProcessor(ResponseProcessor):
                     f"Pattern '{detection_event.pattern[:30]}...' repeated "
                     f"{detection_event.repetition_count} times]"
                 )
-                modified = True
 
-        return response if not modified else response
+        return response
     
     def cleanup_session(self, session_id: str):
         """Clean up detector for a session."""

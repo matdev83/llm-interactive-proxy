@@ -1321,8 +1321,8 @@ def build_app(
                     logger.debug(
                         f"Attempt failed for backend: {b_attempt}, model: {m_attempt}, key_name: {kname_attempt} with HTTPException: {e.status_code} - {e.detail}"
                     )
-                    RETRYABLE_STATUS_CODES = {429, 500, 502, 503, 504}
-                    if e.status_code in RETRYABLE_STATUS_CODES:
+                    retryable_status_codes = {429, 500, 502, 503, 504}
+                    if e.status_code in retryable_status_codes:
                         if e.status_code == 429:
                             delay = parse_retry_delay(e.detail)
                             if delay:

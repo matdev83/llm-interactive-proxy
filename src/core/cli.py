@@ -41,12 +41,10 @@ def _daemonize_unix() -> None:
 
     sys.stdout.flush()
     sys.stderr.flush()
-    si = open(os.devnull)
-    so = open(os.devnull, "a+")
-    se = open(os.devnull, "a+")
-    os.dup2(si.fileno(), sys.stdin.fileno())
-    os.dup2(so.fileno(), sys.stdout.fileno())
-    os.dup2(se.fileno(), sys.stderr.fileno())
+    with open(os.devnull) as si, open(os.devnull, "a+") as so, open(os.devnull, "a+") as se:
+        os.dup2(si.fileno(), sys.stdin.fileno())
+        os.dup2(so.fileno(), sys.stdout.fileno())
+        os.dup2(se.fileno(), sys.stderr.fileno())
 
 
 def parse_cli_args(argv: list[str] | None = None) -> argparse.Namespace:

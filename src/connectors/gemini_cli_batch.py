@@ -252,13 +252,13 @@ class GeminiCliBatchConnector(GeminiCliDirectConnector):
     # ---------------------------------------------------------------------
     # Background helper process is irrelevant for one-shot batch mode, so we
     # override the starter with a no-op to avoid FileNotFoundError marking the
-    # backend non-functional when the `gemini` executable isn’t on PATH at
+    # backend non-functional when the `gemini` executable isn't on PATH at
     # import time (it will still be found at execution time via _execute_*).
     # ---------------------------------------------------------------------
 
     def _start_background_gemini_process(self) -> None:  # type: ignore[override]
         # Intentionally do nothing - batch connector spawns a fresh process
-        # per request, so we don’t need the always-running helper that the
+        # per request, so we don't need the always-running helper that the
         # direct/interactive variant wants.
         return
 
