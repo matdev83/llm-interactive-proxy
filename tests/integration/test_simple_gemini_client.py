@@ -2,9 +2,7 @@
 Simplified integration test using the official Google Gemini API client library.
 """
 import pytest
-
-pytestmark = pytest.mark.integration
-from unittest.mock import patch, MagicMock, AsyncMock, Mock
+from unittest.mock import MagicMock, AsyncMock, Mock
 from fastapi.testclient import TestClient
 
 # Official Google Gemini client
@@ -17,6 +15,8 @@ except ImportError:
 
 from src.main import build_app
 
+
+pytestmark = pytest.mark.integration
 
 @pytest.fixture
 def test_app():
@@ -357,4 +357,4 @@ def test_backend_routing_through_gemini_format(configured_app):
 
 
 if __name__ == "__main__":
-    pytest.main([__file__, "-v"]) 
+    pytest.main([__file__, "-v"])

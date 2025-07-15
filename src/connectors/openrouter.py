@@ -138,7 +138,6 @@ class OpenRouterBackend(LLMBackend):
         project: str | None = None,
         prompt_redactor: APIKeyRedactor | None = None,
         command_filter: ProxyCommandFilter | None = None,
-        agent: str | None = None,
     ) -> Union[StreamingResponse, Tuple[Dict[str, Any], Dict[str, str]]]:
 
         openrouter_payload = self._prepare_openrouter_payload(

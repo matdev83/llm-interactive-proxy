@@ -1,8 +1,8 @@
+
 """
 Unit tests for Gemini API converter functions.
 Tests the conversion logic between Gemini and OpenAI formats.
 """
-import pytest
 from src.gemini_converters import (
     gemini_to_openai_messages, openai_to_gemini_contents,
     gemini_to_openai_request, openai_to_gemini_response,
@@ -11,12 +11,10 @@ from src.gemini_converters import (
 )
 from src.gemini_models import (
     Blob, GenerateContentRequest, Content, Part, GenerationConfig,
-    GenerateContentResponse, Candidate, UsageMetadata, SafetyRating,
-    HarmCategory, HarmProbability, FinishReason, PromptFeedback,
-    SafetySetting, HarmBlockThreshold
+    FinishReason
 )
 from src.models import (
-    ChatMessage, ChatCompletionRequest, ChatCompletionResponse, 
+    ChatMessage, ChatCompletionResponse, 
     ChatCompletionChoice, CompletionUsage, ChatCompletionChoiceMessage
 )
 
@@ -149,7 +147,7 @@ class TestRequestConversion:
         assert openai_request.temperature == 0.7
         assert openai_request.max_tokens == 100
         assert openai_request.top_p == 0.9
-        assert openai_request.stream == False
+        assert not openai_request.stream
     
     def test_gemini_to_openai_with_system_instruction(self):
         """Test converting Gemini request with system instruction."""
@@ -291,10 +289,10 @@ class TestUtilityFunctions:
         ]
         
         for path in streaming_paths:
-            assert is_streaming_request(path) == True
+            assert is_streaming_request(path)
         
         for path in non_streaming_paths:
-            assert is_streaming_request(path) == False
+            assert not is_streaming_request(path)
     
     def test_openai_models_to_gemini_models(self):
         """Test converting OpenAI models list to Gemini format."""

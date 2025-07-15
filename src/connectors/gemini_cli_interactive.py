@@ -1,35 +1,35 @@
 from __future__ import annotations
 
-"""Interactive (long-lived) Gemini CLI backend.
-
-This backend starts a single `gemini` process in interactive mode (no `-p` flag)
-and keeps it alive for the lifetime of the proxy.  Each prompt is written to
-stdin and the textual response is read back from stdout.
-
-NOTE: the current implementation makes a *best-effort* attempt to detect the end
-of the model’s response by waiting for the next CLI prompt line that starts
-with "> ".  If the upstream CLI changes its prompt format this detector may
-need adjustments.
-"""
-
 import asyncio
 import logging
-import os
 import re
 import subprocess
 import sys
 from asyncio.subprocess import Process
 from typing import Any, AsyncGenerator, Dict, Optional, Tuple, Union, TYPE_CHECKING
 
+from starlette.responses import StreamingResponse
+
 from .base import LLMBackend
 from .gemini_cli_batch import GeminiCliBatchConnector  # for helpers
-from starlette.responses import StreamingResponse
 
 if TYPE_CHECKING:
     from src.models import ChatCompletionRequest
     from src.security import APIKeyRedactor, ProxyCommandFilter
 
 logger = logging.getLogger(__name__)
+
+"""Interactive (long-lived) Gemini CLI backend.
+
+This backend starts a single `gemini` process in interactive mode (no `-p` flag)
+and keeps it alive for the lifetime of the proxy. Each prompt is written to
+stdin and the textual response is read back from stdout.
+
+NOTE: the current implementation makes a *best-effort* attempt to detect the end
+of the model’s response by waiting for the next CLI prompt line that starts
+with "> ". If the upstream CLI changes its prompt format this detector may
+need adjustments.
+"""
 
 _PROMPT_RE = re.compile(br"^> ")  # bytes pattern for prompt line
 
@@ -120,7 +120,7 @@ class GeminiCliInteractiveConnector(LLMBackend):
         return "".join(response_chunks).strip()
 
     # ------------------------------------------------------------------
-    async def chat_completions(  # noqa: C901  – keep signature identical
+    async def chat_completions(  # noqa: C901 – keep signature identical
         self,
         request_data: "ChatCompletionRequest",
         processed_messages: list,
@@ -193,4 +193,24 @@ class GeminiCliInteractiveConnector(LLMBackend):
             try:
                 self._process.terminate()
             except Exception:  # noqa: BLE001
-                pass 
+                pass
+
+    # ------------------------------------------------------------------
+    async def shutdown(self) -> None:  # noqa: D401
+        """Terminate the interactive subprocess gracefully (used by FastAPI lifespan)."""
+        if self._process and self._process.returncode is None:
+            try:
+                self._process.terminate()
+                await asyncio.wait_for(self._process.wait(), timeout=5)
+                # Explicitly close pipes to avoid ResourceWarnings on Windows
+                if self._process.stdout:
+                    self._process.stdout.close()
+                if self._process.stderr:
+                    self._process.stderr.close()
+                if self._process.stdin:
+                    self._process.stdin.close()
+                logger.info("Interactive Gemini CLI backend (PID %s) terminated", self._process.pid)
+            except Exception as exc:  # noqa: BLE001
+                logger.debug("Failed to terminate interactive Gemini CLI backend: %s", exc)
+            finally:
+                self._process = None

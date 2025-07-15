@@ -1,5 +1,4 @@
-import json
-from typing import Dict, List
+from typing import Dict
 from unittest.mock import AsyncMock, Mock
 
 import pytest
@@ -40,7 +39,6 @@ class TestOpenRouterTemperatureHandling:
         return [ChatMessage(role="user", content="Test message")]
 
     @pytest.mark.asyncio
-    @pytest.mark.asyncio
     async def test_temperature_added_to_payload(self, openrouter_backend, sample_request_data, sample_processed_messages):
         """Test that temperature is properly added to the request payload."""
         # Set temperature in request data
@@ -62,7 +60,7 @@ class TestOpenRouterTemperatureHandling:
         openrouter_backend.client.post = AsyncMock(return_value=mock_response)
 
         # Call the method
-        result = await openrouter_backend.chat_completions(
+        await openrouter_backend.chat_completions(
             request_data=sample_request_data,
             processed_messages=sample_processed_messages,
             effective_model="openai/gpt-4",
@@ -102,7 +100,7 @@ class TestOpenRouterTemperatureHandling:
         openrouter_backend.client.post = AsyncMock(return_value=mock_response)
 
         # Call the method
-        result = await openrouter_backend.chat_completions(
+        await openrouter_backend.chat_completions(
             request_data=sample_request_data,
             processed_messages=sample_processed_messages,
             effective_model="openai/gpt-4",
@@ -142,7 +140,7 @@ class TestOpenRouterTemperatureHandling:
         openrouter_backend.client.post = AsyncMock(return_value=mock_response)
 
         # Call the method
-        result = await openrouter_backend.chat_completions(
+        await openrouter_backend.chat_completions(
             request_data=sample_request_data,
             processed_messages=sample_processed_messages,
             effective_model="openai/gpt-4",
@@ -187,7 +185,7 @@ class TestOpenRouterTemperatureHandling:
         openrouter_backend.client.post = AsyncMock(return_value=mock_response)
 
         # Call the method
-        result = await openrouter_backend.chat_completions(
+        await openrouter_backend.chat_completions(
             request_data=sample_request_data,
             processed_messages=sample_processed_messages,
             effective_model="openai/gpt-4",
@@ -234,7 +232,7 @@ class TestOpenRouterTemperatureHandling:
         openrouter_backend.client.post = AsyncMock(return_value=mock_response)
 
         # Call the method
-        result = await openrouter_backend.chat_completions(
+        await openrouter_backend.chat_completions(
             request_data=sample_request_data,
             processed_messages=sample_processed_messages,
             effective_model="openai/gpt-4",
@@ -280,7 +278,7 @@ class TestOpenRouterTemperatureHandling:
         openrouter_backend.client.post = AsyncMock(return_value=mock_response)
 
         # Call the method
-        result = await openrouter_backend.chat_completions(
+        await openrouter_backend.chat_completions(
             request_data=sample_request_data,
             processed_messages=sample_processed_messages,
             effective_model="openai/gpt-4",
@@ -323,7 +321,7 @@ class TestOpenRouterTemperatureHandling:
         openrouter_backend.client.post = AsyncMock(return_value=mock_response)
 
         # Call the method
-        result = await openrouter_backend.chat_completions(
+        await openrouter_backend.chat_completions(
             request_data=sample_request_data,
             processed_messages=sample_processed_messages,
             effective_model="openai/gpt-4",
@@ -367,7 +365,7 @@ class TestOpenRouterTemperatureHandling:
         openrouter_backend.client.post = AsyncMock(return_value=mock_response)
 
         # Call the method
-        result = await openrouter_backend.chat_completions(
+        await openrouter_backend.chat_completions(
             request_data=sample_request_data,
             processed_messages=sample_processed_messages,
             effective_model="openai/gpt-4",
@@ -397,8 +395,8 @@ class TestOpenRouterTemperatureHandling:
         mock_response = Mock()
         mock_response.status_code = 200  # This should be an int, not AsyncMock
         mock_response.aiter_bytes.return_value = [
-            b'data: {"choices": [{"delta": {"content": "Streaming"}}]}\n\n',
-            b'data: {"choices": [{"delta": {"content": " response"}}]}\n\n',
+            b'data: { "choices": [ { "delta": { "content": "Streaming" } } ] }\n\n',
+            b'data: { "choices": [ { "delta": { "content": " response" } } ] }\n\n',
             b'data: [DONE]\n\n'
         ]
         mock_response.aclose = AsyncMock()
@@ -408,7 +406,7 @@ class TestOpenRouterTemperatureHandling:
         openrouter_backend.client.send = AsyncMock(return_value=mock_response)
 
         # Call the method
-        result = await openrouter_backend.chat_completions(
+        await openrouter_backend.chat_completions(
             request_data=sample_request_data,
             processed_messages=sample_processed_messages,
             effective_model="openai/gpt-4",
@@ -453,7 +451,7 @@ class TestOpenRouterTemperatureHandling:
         openrouter_backend.client.post = AsyncMock(return_value=mock_response)
 
         # Call the method
-        result = await openrouter_backend.chat_completions(
+        await openrouter_backend.chat_completions(
             request_data=sample_request_data,
             processed_messages=sample_processed_messages,
             effective_model="openai/gpt-4",
@@ -479,4 +477,4 @@ class TestOpenRouterTemperatureHandling:
         assert "presence_penalty" in payload
         assert payload["presence_penalty"] == 0.1
         assert "stop" in payload
-        assert payload["stop"] == ["END", "STOP"] 
+        assert payload["stop"] == ["END", "STOP"]

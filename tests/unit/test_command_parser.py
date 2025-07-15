@@ -1,13 +1,13 @@
 import pytest
 from fastapi import FastAPI
-from typing import Dict, Any, Set, cast, AsyncGenerator
+from typing import Dict, Any, cast, AsyncGenerator
 
 from src.command_parser import CommandParser, get_command_pattern
 from src.command_processor import parse_arguments
 from src.command_config import CommandParserConfig
 from src.proxy_logic import ProxyState
 from src.commands import BaseCommand, CommandResult
-from src.models import ChatMessage, MessageContentPartText, MessageContentPart
+from src.models import ChatMessage, MessageContentPartText
 from src.constants import DEFAULT_COMMAND_PREFIX
 
 # --- Mocks ---

@@ -2,12 +2,8 @@ import logging
 import re
 from typing import Any, Dict, List, Optional, Tuple
 from src.command_config import CommandProcessorConfig
-
-from fastapi import FastAPI
-
+from src.commands.base import CommandResult
 from src import models
-from src.commands import BaseCommand, CommandResult
-from src.proxy_logic import ProxyState
 
 logger = logging.getLogger(__name__)
 
@@ -117,8 +113,8 @@ class CommandProcessor:
     ) -> Tuple[str, bool, bool]:
         original_content = msg_content
         processed_text, command_found = self.process_text_and_execute_command(original_content)
+        content_modified = command_found or processed_text != original_content
 
-        content_modified = False
         if command_found:
             original_content_stripped = original_content.strip()
             is_prefix_match = original_content_stripped.startswith(

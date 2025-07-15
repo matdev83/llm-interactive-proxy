@@ -38,7 +38,7 @@ def test_cline_command_wrapping(client):
 
     project_name = client.app.state.project_metadata["name"]
     project_version = client.app.state.project_metadata["version"]
-    backends_str_expected = "gemini (K:1, M:1), openrouter (K:2, M:1)"
+    backends_str_expected = "gemini (K:2, M:2), gemini-cli-batch (M:2), gemini-cli-direct (M:2), openrouter (K:2, M:2)"
 
     expected_lines = [
         f"Hello, this is {project_name} {project_version}",

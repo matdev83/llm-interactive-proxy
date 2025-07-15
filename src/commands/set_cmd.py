@@ -7,7 +7,7 @@ from fastapi import FastAPI
 
 from ..command_prefix import validate_command_prefix
 from .base import BaseCommand, CommandResult, register_command, CommandContext
-from ..constants import BackendType, SUPPORTED_BACKENDS
+from ..constants import SUPPORTED_BACKENDS
 
 import json
 
@@ -40,8 +40,10 @@ class SetCommand(BaseCommand):
 
     def _parse_bool(self, value: str) -> bool | None:
         val = value.strip().lower()
-        if val in ("true", "1", "yes", "on"): return True
-        if val in ("false", "0", "no", "off", "none"): return False
+        if val in ("true", "1", "yes", "on"):
+            return True
+        if val in ("false", "0", "no", "off", "none"):
+            return False
         return None
 
     def _handle_backend_setting(self, args: Dict[str, Any], state: "ProxyState") -> HandlerOutput:
@@ -123,9 +125,12 @@ class SetCommand(BaseCommand):
         key_used: Optional[str] = None
         project_arg, pname_arg = args.get("project"), args.get("project-name")
 
-        if isinstance(project_arg, str): name_val_str, key_used = project_arg, "project"
-        elif isinstance(pname_arg, str): name_val_str, key_used = pname_arg, "project-name"
-        else: return False, None, False
+        if isinstance(project_arg, str):
+            name_val_str, key_used = project_arg, "project"
+        elif isinstance(pname_arg, str):
+            name_val_str, key_used = pname_arg, "project-name"
+        else:
+            return False, None, False
 
         state.set_project(name_val_str)
         return True, f"{key_used} set to {name_val_str}", False
@@ -149,9 +154,12 @@ class SetCommand(BaseCommand):
         key_used: Optional[str] = None
         inter_arg, inter_mode_arg = args.get("interactive"), args.get("interactive-mode")
 
-        if isinstance(inter_arg, str): val_str, key_used = inter_arg, "interactive"
-        elif isinstance(inter_mode_arg, str): val_str, key_used = inter_mode_arg, "interactive-mode"
-        else: return False, None, False
+        if isinstance(inter_arg, str):
+            val_str, key_used = inter_arg, "interactive"
+        elif isinstance(inter_mode_arg, str):
+            val_str, key_used = inter_mode_arg, "interactive-mode"
+        else:
+            return False, None, False
 
         val = self._parse_bool(val_str)
         if val is None:
@@ -186,7 +194,8 @@ class SetCommand(BaseCommand):
             return False, None, False
 
         error = validate_command_prefix(val_arg)
-        if error: return True, CommandResult(self.name, False, error), False
+        if error:
+            return True, CommandResult(self.name, False, error), False
 
         if context:
             context.command_prefix = val_arg
@@ -232,7 +241,7 @@ class SetCommand(BaseCommand):
                     else:
                         return True, CommandResult(self.name, False, f"Invalid reasoning parameter: {k}={v}"), False
                 else:
-                    return True, CommandResult(self.name, False, f"Invalid reasoning format. Use key=value or dict format"), False
+                    return True, CommandResult(self.name, False, "Invalid reasoning format. Use key=value or dict format"), False
             except ValueError:
                 return True, CommandResult(self.name, False, f"Invalid reasoning format: {val_arg}"), False
         else:

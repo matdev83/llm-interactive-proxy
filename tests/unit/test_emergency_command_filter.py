@@ -1,7 +1,6 @@
 """
 Tests for the emergency command filter functionality.
 """
-import pytest
 from src.security import ProxyCommandFilter
 
 

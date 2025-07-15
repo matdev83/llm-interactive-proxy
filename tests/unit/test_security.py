@@ -1,8 +1,5 @@
 import os
 import pytest
-import subprocess
-import sys
-import time
 from unittest.mock import patch
 
 
@@ -17,7 +14,8 @@ def test_cli_disable_auth_forces_localhost():
             with patch("src.core.cli.logging.basicConfig"):
                 with patch("src.core.cli._check_privileges"):
                     mock_app = object()
-                    mock_build_app = lambda cfg, config_file=None: mock_app
+                    def mock_build_app(cfg, config_file=None):
+                        return mock_app
                     
                     # Test with localhost - should work
                     main(["--disable-auth", "--host", "127.0.0.1", "--port", "8080"], 
@@ -41,7 +39,8 @@ def test_env_disable_auth_forces_localhost():
             with patch("src.core.cli.logging.basicConfig"):
                 with patch("src.core.cli._check_privileges"):
                     mock_app = object()
-                    mock_build_app = lambda cfg, config_file=None: mock_app
+                    def mock_build_app(cfg, config_file=None):
+                        return mock_app
                     
                     main(["--port", "8080"], build_app_fn=mock_build_app)
                     mock_uvicorn.assert_called_with(mock_app, host="127.0.0.1", port=8080)
@@ -56,7 +55,8 @@ def test_auth_enabled_allows_custom_host():
             with patch("src.core.cli.logging.basicConfig"):
                 with patch("src.core.cli._check_privileges"):
                     mock_app = object()
-                    mock_build_app = lambda cfg, config_file=None: mock_app
+                    def mock_build_app(cfg, config_file=None):
+                        return mock_app
                     
                     main(["--port", "8080"], build_app_fn=mock_build_app)
                     mock_uvicorn.assert_called_with(mock_app, host="0.0.0.0", port=8080)
@@ -70,17 +70,12 @@ def test_config_disable_auth_forces_localhost():
         with patch("src.core.config.logger") as mock_logger:
             config = _load_config()
             assert config["proxy_host"] == "127.0.0.1"
-            assert config["disable_auth"] is True
+            assert config["disable_auth"]
             mock_logger.warning.assert_called_once()
 
 
 def test_security_documentation():
     """Test that security behavior is properly documented in help text."""
-    from src.core.cli import parse_cli_args
-    
-    parser = parse_cli_args.__defaults__[0]  # This won't work, let me fix it
-    # Actually, let's test the help text differently
-    import argparse
     from src.core.cli import parse_cli_args
     
     # Test that the disable-auth flag exists and has proper help text
@@ -94,4 +89,4 @@ def test_security_documentation():
     
     # Test that the flag can be parsed
     args = parse_cli_args(["--disable-auth"])
-    assert args.disable_auth is True 
+    assert args.disable_auth

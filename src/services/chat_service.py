@@ -10,17 +10,15 @@ from fastapi import HTTPException, Request
 from starlette.responses import StreamingResponse
 
 from src import models
-from src.agents import detect_agent, format_command_response_for_agent, wrap_proxy_message
+from src.agents import detect_agent, wrap_proxy_message
 from src.command_config import CommandParserConfig
 from src.command_parser import CommandParser
 from src.constants import BackendType, GEMINI_BACKENDS
 from src.core.config import get_openrouter_headers, _keys_for
 from src.llm_accounting_utils import track_llm_request
-from src.loop_detection import LoopDetectionConfig, LoopDetectionEvent
 from src.performance_tracker import track_phase
 from src.proxy_logic import ProxyState
 from src.rate_limit import parse_retry_delay
-from src.response_middleware import configure_loop_detection_middleware, get_response_middleware, RequestContext
 from src.session import SessionInteraction
 
 logger = logging.getLogger(__name__)
@@ -32,40 +30,6 @@ class ChatService:
     def __init__(self, app, config: Dict[str, Any]):
         self.app = app
         self.config = config
-        
-        # Initialize loop detection configuration
-        self.loop_detection_config = self._load_loop_detection_config()
-        
-        # Configure response middleware with loop detection
-        configure_loop_detection_middleware(
-            self.loop_detection_config,
-            on_loop_detected=self._handle_loop_detection
-        )
-        
-    def _load_loop_detection_config(self) -> LoopDetectionConfig:
-        """Load loop detection configuration from various sources."""
-        # Start with defaults
-        config = LoopDetectionConfig()
-        
-        # Load from config file if available
-        if hasattr(self.app.state, 'persistent_config') and self.app.state.persistent_config:
-            loop_config_dict = self.app.state.persistent_config.get('loop_detection', {})
-            if loop_config_dict:
-                config = LoopDetectionConfig.from_dict(loop_config_dict)
-        
-        # Override with environment variables
-        import os
-        env_config = LoopDetectionConfig.from_env_vars(os.environ)
-        
-        # Merge environment overrides
-        if 'LOOP_DETECTION_ENABLED' in os.environ:
-            config.enabled = env_config.enabled
-        if 'LOOP_DETECTION_BUFFER_SIZE' in os.environ:
-            config.buffer_size = env_config.buffer_size
-        if 'LOOP_DETECTION_MAX_PATTERN_LENGTH' in os.environ:
-            config.max_pattern_length = env_config.max_pattern_length
-        
-        return config
     
     async def process_chat_completion(
         self, 
@@ -125,35 +89,21 @@ class ChatService:
         perf_metrics.backend_used = current_backend_type
         perf_metrics.model_used = effective_model
         
-        # Call backend (no loop detector needed - handled by middleware)
+        # Call backend
         response_from_backend, used_backend, used_model = await self._call_backend_with_failover(
             request_data, processed_messages, effective_model, current_backend_type, proxy_state, perf_metrics
         )
         
-        # Process response through middleware (including loop detection)
+        # Process response
         with track_phase(perf_metrics, "response_processing"):
-            # Create request context for middleware
-            request_context = RequestContext(
-                session_id=session_id,
-                backend_type=used_backend,
-                model=used_model,
-                is_streaming=isinstance(response_from_backend, StreamingResponse),
-                request_data=request_data
-            )
-            
-            # Process through middleware stack
-            middleware = get_response_middleware()
-            processed_response = await middleware.process_response(response_from_backend, request_context)
-            
-            # Handle session tracking and cleanup
             return self._process_backend_response(
-                processed_response, request_data, session, proxy_state, 
+                response_from_backend, request_data, session, proxy_state, 
                 used_backend, used_model, session_id
             )
     
     def _log_request_details(self, session_id: str, request_data: models.ChatCompletionRequest, http_request: Request):
         """Log detailed request information for debugging."""
-        logger.info(f"[CLINE_DEBUG] ========== NEW REQUEST ==========")
+        logger.info("[CLINE_DEBUG] ========== NEW REQUEST ==========")
         logger.info(f"[CLINE_DEBUG] Session ID: {session_id}")
         logger.info(f"[CLINE_DEBUG] User-Agent: {http_request.headers.get('user-agent', 'Unknown')}")
         logger.info(f"[CLINE_DEBUG] Authorization: {http_request.headers.get('authorization', 'None')[:20]}...")
@@ -202,7 +152,7 @@ class ChatService:
                 proxy_state.set_is_cline_agent(True)
                 if session.agent is None:
                     session.agent = "cline"
-                logger.info(f"[CLINE_DEBUG] Detected Cline agent via <attempt_completion> pattern.")
+                logger.info("[CLINE_DEBUG] Detected Cline agent via <attempt_completion> pattern.")
             
             # Detect other agents
             if session.agent is None:
@@ -450,18 +400,6 @@ class ChatService:
             f"Type {self.config['command_prefix']}help for list of available commands"
         ]
         return "\n".join(banner_lines)
-    
-    def _handle_loop_detection(self, event: LoopDetectionEvent, session_id: str):
-        """Handle loop detection events."""
-        logger.warning(f"Loop detected in session {session_id}: "
-                      f"pattern='{event.pattern[:50]}...', "
-                      f"repetitions={event.repetition_count}, "
-                      f"confidence={event.confidence:.2f}")
-        
-        # Could add additional handling here like:
-        # - Sending notifications
-        # - Recording metrics
-        # - Updating session state
     
     def _apply_model_defaults(self, proxy_state: ProxyState, effective_model: str):
         """Apply model-specific defaults if configured."""

@@ -1,7 +1,7 @@
 from typing import Dict, List, Set
 import re
 from fastapi import FastAPI
-from src.commands import BaseCommand, CommandResult
+from src.commands.base import BaseCommand, CommandResult
 from src.proxy_logic import ProxyState
 
 
