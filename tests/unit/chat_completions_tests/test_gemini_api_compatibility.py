@@ -3,19 +3,11 @@ Tests for Gemini API compatibility endpoints.
 These tests verify that the proxy correctly handles Gemini API format requests
 and converts them to/from the internal OpenAI format.
 """
-from fastapi.testclient import TestClient
 from unittest.mock import AsyncMock, patch
 
+from fastapi.testclient import TestClient
+
 from src.main import build_app
-
-
-
-
-
-
-
-
-
 
 
 class TestGeminiModelsEndpoint:

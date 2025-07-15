@@ -8,12 +8,12 @@ analyzes patterns, and determines when to trigger loop detection events.
 from __future__ import annotations
 
 import logging
-from typing import Optional, Callable, List, Any
-from dataclasses import dataclass
 from collections import deque
+from dataclasses import dataclass
+from typing import Callable
 
 from .config import LoopDetectionConfig
-from .patterns import PatternAnalyzer, PatternMatch
+from .patterns import BlockAnalyzer, BlockMatch
 
 logger = logging.getLogger(__name__)
 
@@ -81,8 +81,8 @@ class LoopDetector:
     
     def __init__(
         self,
-        config: Optional[LoopDetectionConfig] = None,
-        on_loop_detected: Optional[Callable[[LoopDetectionEvent], None]] = None
+        config: LoopDetectionConfig | None = None,
+        on_loop_detected: Callable[[LoopDetectionEvent], None] | None = None
     ):
         self.config = config or LoopDetectionConfig()
         self.on_loop_detected = on_loop_detected
@@ -94,8 +94,9 @@ class LoopDetector:
         
         # Initialize components
         self.buffer = ResponseBuffer(max_size=self.config.buffer_size)
-        self.pattern_analyzer = PatternAnalyzer(
-            max_pattern_length=self.config.max_pattern_length,
+        self.block_analyzer = BlockAnalyzer(
+            min_block_length=100,  # Enforce 100+ char minimum
+            max_block_length=self.config.max_pattern_length,
             whitelist=self.config.whitelist
         )
         
@@ -108,7 +109,7 @@ class LoopDetector:
                    f"buffer_size={self.config.buffer_size}, "
                    f"max_pattern_length={self.config.max_pattern_length}")
     
-    def process_chunk(self, chunk: str) -> Optional[LoopDetectionEvent]:
+    def process_chunk(self, chunk: str) -> LoopDetectionEvent | None:
         """Process a chunk of response text and check for loops."""
         if not self.is_active or not chunk:
             return None
@@ -124,8 +125,8 @@ class LoopDetector:
         # Get current buffer content
         buffer_content = self.buffer.get_content()
         
-        # Analyze for patterns
-        matches = self.pattern_analyzer.find_patterns_in_text(buffer_content)
+        # Analyze for blocks
+        matches = self.block_analyzer.find_blocks_in_text(buffer_content)
         
         # Check if any matches meet our thresholds
         for match in matches:
@@ -136,7 +137,7 @@ class LoopDetector:
                 self.last_detection_position = self.total_processed
                 
                 # Log the detection
-                logger.warning(f"Loop detected: pattern='{match.pattern[:50]}...', "
+                logger.warning(f"Loop detected: block='{match.block[:50]}...', "
                               f"repetitions={match.repetition_count}, "
                               f"confidence={match.confidence:.2f}")
                 
@@ -151,10 +152,10 @@ class LoopDetector:
         
         return None
     
-    def _should_trigger_detection(self, match: PatternMatch) -> bool:
-        """Determine if a pattern match should trigger loop detection."""
-        pattern_length = len(match.pattern)
-        threshold = self.config.get_threshold_for_pattern_length(pattern_length)
+    def _should_trigger_detection(self, match: BlockMatch) -> bool:
+        """Determine if a block match should trigger loop detection."""
+        block_length = len(match.block)
+        threshold = self.config.get_threshold_for_pattern_length(block_length)
         
         # Check repetition count threshold
         if match.repetition_count < threshold.min_repetitions:
@@ -170,18 +171,14 @@ class LoopDetector:
         
         # Avoid triggering multiple times for the same area
         detection_gap = 100  # Minimum characters between detections
-        if (self.last_detection_position >= 0 and 
-            self.total_processed - self.last_detection_position < detection_gap):
-            return False
-        
-        return True
+        return not (self.last_detection_position >= 0 and self.total_processed - self.last_detection_position < detection_gap)
     
-    def _create_detection_event(self, match: PatternMatch, buffer_content: str) -> LoopDetectionEvent:
+    def _create_detection_event(self, match: BlockMatch, buffer_content: str) -> LoopDetectionEvent:
         """Create a loop detection event from a pattern match."""
         import time
         
         return LoopDetectionEvent(
-            pattern=match.pattern,
+            pattern=match.block,
             repetition_count=match.repetition_count,
             total_length=match.total_length,
             confidence=match.confidence,
@@ -255,8 +252,9 @@ class LoopDetector:
                 recent_content = old_content[-new_config.buffer_size:] if len(old_content) > new_config.buffer_size else old_content
                 self.buffer.append(recent_content)
         
-        self.pattern_analyzer = PatternAnalyzer(
-            max_pattern_length=new_config.max_pattern_length,
+        self.block_analyzer = BlockAnalyzer(
+            min_block_length=100,  # Enforce 100+ char minimum
+            max_block_length=new_config.max_pattern_length,
             whitelist=new_config.whitelist
         )
         

@@ -85,15 +85,13 @@ def test_multiple_backends_requires_arg(monkeypatch):
     resp_ge = {"models": [{"name": "g"}]}
     with patch.object(
         OpenRouterBackend, "list_models", new=AsyncMock(return_value=resp_or)
+    ), patch.object(
+        GeminiBackend, "list_models", new=AsyncMock(return_value=resp_ge)
     ):
-        with patch.object(
-            GeminiBackend, "list_models", new=AsyncMock(return_value=resp_ge)
-        ):
-            app = app_main.build_app()
-            from fastapi.testclient import TestClient
+        app = app_main.build_app()
+        from fastapi.testclient import TestClient
 
-            with pytest.raises(ValueError):
-                with TestClient(
-                    app, headers={"Authorization": "Bearer test-proxy-key"}
-                ):
-                    pass
+        with pytest.raises(ValueError), TestClient(
+            app, headers={"Authorization": "Bearer test-proxy-key"}
+        ):
+            pass

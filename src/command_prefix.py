@@ -1,6 +1,5 @@
 import string
 
-
 # Define rules outside the function so they are created only once.
 # Each rule is a tuple: (lambda predicate returning True on error, error_message)
 # These rules assume `prefix` is already confirmed to be a non-empty string.

@@ -1,6 +1,7 @@
 from unittest.mock import AsyncMock, patch
 
 import pytest
+
 # from fastapi import HTTPException  # F401: Removed
 # from httpx import (
 #     Response,

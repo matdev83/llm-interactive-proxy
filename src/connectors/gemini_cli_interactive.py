@@ -1,12 +1,13 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
 import re
 import subprocess
 import sys
 from asyncio.subprocess import Process
-from typing import Any, AsyncGenerator, Dict, Optional, Tuple, Union, TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, AsyncGenerator
 
 from starlette.responses import StreamingResponse
 
@@ -48,14 +49,14 @@ class GeminiCliInteractiveConnector(LLMBackend):
 
         # Re-use env / working-dir helpers from the batch connector
         self._helper = GeminiCliBatchConnector()
-        self._process: Optional[Process] = None
+        self._process: Process | None = None
 
     # ---------------------------------------------------------------------
-    async def initialize(self, google_cloud_project: Optional[str] = None) -> None:  # noqa: D401
+    async def initialize(self, google_cloud_project: str | None = None) -> None:
         """Spawn the interactive `gemini` process once."""
         self._helper.google_cloud_project = google_cloud_project
-        env = self._helper._build_gemini_env()  # noqa: SLF001 – trusted helper
-        cwd = self._helper._gemini_working_dir  # noqa: SLF001
+        env = self._helper._build_gemini_env()
+        cwd = self._helper._gemini_working_dir
 
         try:
             if sys.platform == "win32":
@@ -92,7 +93,7 @@ class GeminiCliInteractiveConnector(LLMBackend):
             self.is_functional = False
 
     # ------------------------------------------------------------------
-    def get_available_models(self) -> list[str]:  # noqa: D401
+    def get_available_models(self) -> list[str]:
         return self.available_models if self.is_functional else []
 
     # ------------------------------------------------------------------
@@ -120,20 +121,20 @@ class GeminiCliInteractiveConnector(LLMBackend):
         return "".join(response_chunks).strip()
 
     # ------------------------------------------------------------------
-    async def chat_completions(  # noqa: C901 – keep signature identical
+    async def chat_completions(
         self,
-        request_data: "ChatCompletionRequest",
+        request_data: ChatCompletionRequest,
         processed_messages: list,
         effective_model: str,
-        openrouter_api_base_url: Optional[str] = None,
+        openrouter_api_base_url: str | None = None,
         openrouter_headers_provider: object = None,
-        key_name: Optional[str] = None,
-        api_key: Optional[str] = None,
-        project: Optional[str] = None,
-        prompt_redactor: Optional["APIKeyRedactor"] = None,
-        command_filter: Optional["ProxyCommandFilter"] = None,
+        key_name: str | None = None,
+        api_key: str | None = None,
+        project: str | None = None,
+        prompt_redactor: APIKeyRedactor | None = None,
+        command_filter: ProxyCommandFilter | None = None,
         **kwargs,
-    ) -> Union[Tuple[Dict[str, Any], Dict[str, str]], StreamingResponse]:
+    ) -> tuple[dict[str, Any], dict[str, str]] | StreamingResponse:
         """Send a single prompt through the interactive process."""
         if not self.is_functional:
             raise RuntimeError("Interactive Gemini backend is not functional")
@@ -190,13 +191,11 @@ class GeminiCliInteractiveConnector(LLMBackend):
     # ------------------------------------------------------------------
     def __del__(self) -> None:
         if self._process and self._process.returncode is None:
-            try:
+            with contextlib.suppress(Exception):
                 self._process.terminate()
-            except Exception:  # noqa: BLE001
-                pass
 
     # ------------------------------------------------------------------
-    async def shutdown(self) -> None:  # noqa: D401
+    async def shutdown(self) -> None:
         """Terminate the interactive subprocess gracefully (used by FastAPI lifespan)."""
         if self._process and self._process.returncode is None:
             try:
@@ -210,7 +209,7 @@ class GeminiCliInteractiveConnector(LLMBackend):
                 if self._process.stdin:
                     self._process.stdin.close()
                 logger.info("Interactive Gemini CLI backend (PID %s) terminated", self._process.pid)
-            except Exception as exc:  # noqa: BLE001
+            except Exception as exc:
                 logger.debug("Failed to terminate interactive Gemini CLI backend: %s", exc)
             finally:
                 self._process = None

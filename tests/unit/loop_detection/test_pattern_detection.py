@@ -3,8 +3,8 @@ Unit tests for pattern detection functionality.
 """
 
 import pytest
+
 from src.loop_detection.patterns import PatternAnalyzer, PatternMatch
-from src.loop_detection.config import LoopDetectionConfig
 
 
 class TestPatternAnalyzer:

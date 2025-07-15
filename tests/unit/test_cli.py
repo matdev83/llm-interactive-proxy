@@ -1,11 +1,11 @@
 import os
+from unittest.mock import MagicMock, patch
 
 import pytest
-from fastapi.testclient import TestClient # Add import
-from unittest.mock import patch, MagicMock
+from fastapi.testclient import TestClient  # Add import
 
-from src.constants import DEFAULT_COMMAND_PREFIX # Removed DEFAULT_PROXY_TIMEOUT
-from src.core.cli import apply_cli_args, parse_cli_args, main
+from src.constants import DEFAULT_COMMAND_PREFIX  # Removed DEFAULT_PROXY_TIMEOUT
+from src.core.cli import apply_cli_args, main, parse_cli_args
 from src.main import build_app as app_main_build_app
 
 
@@ -106,7 +106,7 @@ def test_cli_log_argument(tmp_path):
 
 
 def test_main_log_file(monkeypatch, tmp_path):
-    import src.core.cli as cli # Moved import inside
+    import src.core.cli as cli  # Moved import inside
 
     log_file = tmp_path / "srv.log"
 

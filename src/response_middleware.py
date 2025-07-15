@@ -8,11 +8,15 @@ from any backend without coupling the loop detection logic to individual connect
 from __future__ import annotations
 
 import logging
-from typing import Any, Dict, List, Optional, Union, Callable, AsyncIterator
+from typing import Any, Callable
+
 from starlette.responses import StreamingResponse
 
-from src.loop_detection import LoopDetector, LoopDetectionEvent, LoopDetectionConfig
-from src.loop_detection.streaming import wrap_streaming_content_with_loop_detection, analyze_complete_response_for_loops
+from src.loop_detection import LoopDetectionConfig, LoopDetectionEvent, LoopDetector
+from src.loop_detection.streaming import (
+    analyze_complete_response_for_loops,
+    wrap_streaming_content_with_loop_detection,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -26,9 +30,9 @@ class ResponseMiddleware:
     """
     
     def __init__(self):
-        self.middleware_stack: List[ResponseProcessor] = []
+        self.middleware_stack: list[ResponseProcessor] = []
     
-    def add_processor(self, processor: "ResponseProcessor") -> None:
+    def add_processor(self, processor: ResponseProcessor) -> None:
         """Add a response processor to the middleware stack."""
         self.middleware_stack.append(processor)
     
@@ -38,9 +42,9 @@ class ResponseMiddleware:
     
     async def process_response(
         self,
-        response: Union[StreamingResponse, Dict[str, Any]],
-        request_context: "RequestContext"
-    ) -> Union[StreamingResponse, Dict[str, Any]]:
+        response: StreamingResponse | dict[str, Any],
+        request_context: RequestContext
+    ) -> StreamingResponse | dict[str, Any]:
         """
         Process a response through all middleware processors.
         
@@ -65,17 +69,17 @@ class ResponseProcessor:
     
     def should_process(
         self, 
-        response: Union[StreamingResponse, Dict[str, Any]], 
-        context: "RequestContext"
+        response: StreamingResponse | dict[str, Any], 
+        context: RequestContext
     ) -> bool:
         """Determine if this processor should handle the response."""
         return True
     
     async def process(
         self,
-        response: Union[StreamingResponse, Dict[str, Any]],
-        context: "RequestContext"
-    ) -> Union[StreamingResponse, Dict[str, Any]]:
+        response: StreamingResponse | dict[str, Any],
+        context: RequestContext
+    ) -> StreamingResponse | dict[str, Any]:
         """Process the response."""
         return response
 
@@ -106,15 +110,15 @@ class LoopDetectionProcessor(ResponseProcessor):
     def __init__(
         self,
         config: LoopDetectionConfig,
-        on_loop_detected: Optional[Callable[[LoopDetectionEvent, str], None]] = None
+        on_loop_detected: Callable[[LoopDetectionEvent, str], None] | None = None
     ):
         self.config = config
         self.on_loop_detected = on_loop_detected
-        self._detectors: Dict[str, LoopDetector] = {}  # Per-session detectors
+        self._detectors: dict[str, LoopDetector] = {}  # Per-session detectors
     
     def should_process(
         self, 
-        response: Union[StreamingResponse, Dict[str, Any]], 
+        response: StreamingResponse | dict[str, Any], 
         context: RequestContext
     ) -> bool:
         """Only process if loop detection is enabled."""
@@ -141,9 +145,9 @@ class LoopDetectionProcessor(ResponseProcessor):
     
     async def process(
         self,
-        response: Union[StreamingResponse, Dict[str, Any]],
+        response: StreamingResponse | dict[str, Any],
         context: RequestContext
-    ) -> Union[StreamingResponse, Dict[str, Any]]:
+    ) -> StreamingResponse | dict[str, Any]:
         """Process response for loop detection."""
         detector = self._get_or_create_detector(context.session_id)
         
@@ -178,10 +182,10 @@ class LoopDetectionProcessor(ResponseProcessor):
     
     async def _process_non_streaming_response(
         self,
-        response: Dict[str, Any],
+        response: dict[str, Any],
         detector: LoopDetector,
         context: RequestContext
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """Process non-streaming response with loop detection."""
         
         modified = False
@@ -221,7 +225,7 @@ response_middleware = ResponseMiddleware()
 
 def configure_loop_detection_middleware(
     config: LoopDetectionConfig,
-    on_loop_detected: Optional[Callable[[LoopDetectionEvent, str], None]] = None
+    on_loop_detected: Callable[[LoopDetectionEvent, str], None] | None = None
 ):
     """Configure the global loop detection middleware."""
     # Remove any existing loop detection processors

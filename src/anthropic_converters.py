@@ -2,14 +2,10 @@
 """Converter functions between Anthropic API format and OpenAI format."""
 import json
 import logging
+from typing import Any, Dict, List
 
-from typing import List, Dict, Any
 from src.anthropic_models import (
-    AnthropicMessagesRequest, AnthropicMessagesResponse, AnthropicMessage, ContentBlock, Usage
-)
-from src.models import (
-    ChatCompletionRequest, ChatMessage, ChatCompletionResponse, ChatCompletionChoice,
-    ChatCompletionChoiceMessage, CompletionUsage
+    AnthropicMessagesRequest,
 )
 
 
@@ -188,7 +184,7 @@ def _map_finish_reason(openai_reason: str | None) -> str | None:
     return _FINISH_REASON_MAP.get(openai_reason, "end_turn")
 
 
-def openai_stream_to_anthropic_stream(chunk_data: str) -> str:  # noqa: C901 – keep simple
+def openai_stream_to_anthropic_stream(chunk_data: str) -> str:
     """Convert an individual SSE chunk from OpenAI format to Anthropic.
 
     The implementation purposefully covers only the message-start/content/

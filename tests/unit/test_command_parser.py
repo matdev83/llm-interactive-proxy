@@ -1,18 +1,18 @@
+# --- Mocks ---
+from collections.abc import Mapping
+from typing import Any, AsyncGenerator, Dict, cast
+
 import pytest
 from fastapi import FastAPI
-from typing import Dict, Any, cast, AsyncGenerator
 
+from src.command_config import CommandParserConfig
 from src.command_parser import CommandParser, get_command_pattern
 from src.command_processor import parse_arguments
-from src.command_config import CommandParserConfig
-from src.proxy_logic import ProxyState
 from src.commands import BaseCommand, CommandResult
-from src.models import ChatMessage, MessageContentPartText
 from src.constants import DEFAULT_COMMAND_PREFIX
+from src.models import ChatMessage, MessageContentPartText
+from src.proxy_logic import ProxyState
 
-# --- Mocks ---
-
-from collections.abc import Mapping
 
 class MockSuccessCommand(BaseCommand):
     def __init__(self, command_name: str, app: FastAPI | None = None):

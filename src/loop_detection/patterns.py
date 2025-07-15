@@ -1,328 +1,250 @@
 """
-Pattern analysis utilities for loop detection.
+Block repetition detection for loop detection.
 
-This module provides efficient algorithms for detecting repetitive patterns
-in text streams, including sliding window detection and rolling hash
-implementations for optimal performance.
+This module detects repeated text blocks of 100+ characters that indicate
+LLM response loops. Focuses on block-level repetitions rather than character patterns.
 """
 
 from __future__ import annotations
 
 import logging
-from typing import Dict, List, Optional, Tuple, Set
 from dataclasses import dataclass
-from collections import defaultdict
 
 logger = logging.getLogger(__name__)
 
 
 @dataclass
-class PatternMatch:
-    """Represents a detected pattern match."""
-    pattern: str
-    start_position: int
+class BlockMatch:
+    """Represents a detected repeated block."""
+    block: str
     repetition_count: int
+    start_position: int
     total_length: int
-    confidence: float = 1.0
+    confidence: float
 
 
-class RollingHash:
-    """Efficient rolling hash implementation for pattern matching."""
+class BlockAnalyzer:
+    """
+    Analyzes text for repeated blocks of 100+ characters.
     
-    def __init__(self, base: int = 256, modulus: int = 10**9 + 7):
-        self.base = base
-        self.modulus = modulus
-        self.hash_value = 0
-        self.length = 0
-        self.base_power = 1
-        # Pre-compute multiplicative inverse of ``base`` modulo ``modulus``
-        # so that we can update ``base_power`` in O(1) during character
-        # removal without an expensive ``pow`` call on every step.
-        # The modulus is prime (1e9+7) so ``base^(mod-2)`` is the inverse.
-        self._base_inv = pow(self.base, self.modulus - 2, self.modulus)
+    This class efficiently detects block repetitions that indicate LLM loops,
+    focusing on substantial text blocks rather than character-level patterns.
+    """
     
-    def add_char(self, char: str) -> int:
-        """Add a character to the rolling hash."""
-        self.hash_value = (self.hash_value * self.base + ord(char)) % self.modulus
-        self.length += 1
-        if self.length > 1:
-            self.base_power = (self.base_power * self.base) % self.modulus
-        return self.hash_value
-    
-    def remove_char(self, char: str) -> int:
-        """Remove the oldest character from the rolling hash."""
-        if self.length == 0:
-            return self.hash_value
+    def __init__(self, min_block_length: int = 100, max_block_length: int = 2000, whitelist: list[str] | None = None):
+        """
+        Initialize the block analyzer.
         
-        self.hash_value = (self.hash_value - ord(char) * self.base_power) % self.modulus
-        if self.hash_value < 0:
-            self.hash_value += self.modulus
-        
-        self.length -= 1
-        if self.length > 0:
-            # Multiply by the cached modular inverse instead of recomputing
-            self.base_power = (self.base_power * self._base_inv) % self.modulus
-        else:
-            self.base_power = 1
-        
-        return self.hash_value
-    
-    def get_hash(self) -> int:
-        """Get current hash value."""
-        return self.hash_value
-    
-    def reset(self):
-        """Reset the rolling hash."""
-        self.hash_value = 0
-        self.length = 0
-        self.base_power = 1
-
-
-class PatternAnalyzer:
-    """Analyzes text for repetitive patterns using efficient algorithms."""
-    
-    def __init__(self, max_pattern_length: int = 500, whitelist: Optional[List[str]] = None):
-        self.max_pattern_length = max_pattern_length
+        Args:
+            min_block_length: Minimum block length to consider (100+ chars)
+            max_block_length: Maximum block length to analyze
+            whitelist: List of patterns that should not trigger detection
+        """
+        self.min_block_length = max(min_block_length, 100)  # Enforce 100+ char minimum
+        self.max_block_length = max_block_length
         self.whitelist = set(whitelist or [])
-        
-        # Pattern lengths to check (powers of 2 + some common sizes)
-        self.pattern_lengths = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 12, 16, 20, 24, 32, 40, 50, 64, 100, 128, 256]
-        self.pattern_lengths = [l for l in self.pattern_lengths if l <= max_pattern_length]
-        
-
-    def normalize_pattern(self, pattern: str) -> str:
-        """Normalize a pattern for consistent comparison."""
-        # Strip leading/trailing whitespace
-        normalized = pattern.strip()
-        
-        # Replace multiple consecutive whitespace with single space
-        import re
-        normalized = re.sub(r'\s+', ' ', normalized)
-        
-        return normalized
     
-    def is_whitelisted(self, pattern: str) -> bool:
-        """Check if pattern is in the whitelist."""
-        normalized = self.normalize_pattern(pattern)
+    def find_blocks_in_text(self, text: str, min_repetitions: int = 2) -> list[BlockMatch]:
+        """
+        Find all repeated blocks in the given text.
         
-        # Direct match
-        if normalized in self.whitelist or pattern in self.whitelist:
-            return True
+        Args:
+            text: Text to analyze
+            min_repetitions: Minimum number of repetitions required
+            
+        Returns:
+            List of detected block matches, sorted by significance
+        """
+        if len(text) < self.min_block_length * 2:
+            return []
         
-        # Check if pattern is part of any whitelisted pattern
-        for whitelisted in self.whitelist:
-            if pattern in whitelisted or normalized in whitelisted:
-                return True
-            # Also check if whitelisted pattern is part of the detected pattern
-            if whitelisted in pattern or whitelisted in normalized:
-                return True
+        all_matches = []
         
-        return False
+        # Try different block lengths from min to max
+        max_length = min(self.max_block_length, len(text) // 2)
+        
+        # Check every 3 characters for better coverage of real-world patterns
+        for block_length in range(self.min_block_length, max_length + 1, 3):
+            block_matches = self._find_blocks_of_length(text, block_length, min_repetitions)
+            all_matches.extend(block_matches)
+        
+        # Also check some specific lengths that might be common in real-world loops
+        common_lengths = [100, 120, 150, 180, 200, 250, 266, 300, 350, 400, 420, 450, 453, 480, 500, 550, 600, 700, 800, 900, 1000, 1200, 1330, 1400, 1500, 1600, 1800, 2000]
+        for length in common_lengths:
+            if self.min_block_length <= length <= max_length:
+                block_matches = self._find_blocks_of_length(text, length, min_repetitions)
+                all_matches.extend(block_matches)
+        
+        # Sort by total length (bigger blocks are more significant)
+        all_matches.sort(key=lambda m: (m.total_length, m.repetition_count), reverse=True)
+        
+        # Remove overlapping matches
+        final_matches = self._remove_overlapping_blocks(all_matches)
+        
+        return final_matches
     
-    def find_patterns_in_text(self, text: str, min_repetitions: int = 2) -> List[PatternMatch]:
-        """Find all repetitive patterns in the given text."""
-        if not text or len(text) < 2:
+    def _find_blocks_of_length(self, text: str, block_length: int, min_repetitions: int) -> list[BlockMatch]:
+        """
+        Find repeated blocks of a specific length.
+        
+        Args:
+            text: Text to analyze
+            block_length: Length of blocks to find
+            min_repetitions: Minimum repetitions required
+            
+        Returns:
+            List of block matches for this length
+        """
+        if len(text) < block_length * min_repetitions:
             return []
         
         matches = []
-        text_length = len(text)
+        processed_positions = set()
         
-        # Check each pattern length
-        for pattern_length in self.pattern_lengths:
-            if pattern_length > text_length // 2:
+        # Check each possible starting position
+        for start_pos in range(len(text) - block_length + 1):
+            if start_pos in processed_positions:
+                continue
+                
+            block = text[start_pos:start_pos + block_length]
+            
+            # Skip if whitelisted
+            if self.is_whitelisted(block):
                 continue
             
-            pattern_matches = self._find_patterns_of_length(
-                text, pattern_length, min_repetitions
-            )
-            matches.extend(pattern_matches)
-        
-        # Sort by confidence and repetition count
-        matches.sort(key=lambda m: (m.confidence, m.repetition_count), reverse=True)
-        
-        # Remove overlapping matches (keep the best ones)
-        return self._remove_overlapping_matches(matches)
-    
-    def _find_patterns_of_length(self, text: str, pattern_length: int, min_repetitions: int) -> List[PatternMatch]:
-        """Find repetitive patterns of a specific length."""
-        if len(text) < pattern_length * min_repetitions:
-            return []
-        
-        matches = []
-        hash_to_positions: Dict[int, List[int]] = defaultdict(list)
-        rolling_hash = RollingHash()
-        
-        # Build initial hash for first pattern
-        for i in range(pattern_length):
-            rolling_hash.add_char(text[i])
-        
-        initial_hash = rolling_hash.get_hash()
-        hash_to_positions[initial_hash].append(0)
-        
-        # Roll through the text
-        for i in range(pattern_length, len(text)):
-            # Remove old character and add new one
-            rolling_hash.remove_char(text[i - pattern_length])
-            rolling_hash.add_char(text[i])
+            # Count consecutive repetitions starting from this position
+            repetitions = 1
+            current_pos = start_pos + block_length
             
-            current_hash = rolling_hash.get_hash()
-            current_pos = i - pattern_length + 1
+            while current_pos + block_length <= len(text):
+                next_block = text[current_pos:current_pos + block_length]
+                if next_block == block:
+                    repetitions += 1
+                    current_pos += block_length
+                else:
+                    break
             
-            hash_to_positions[current_hash].append(current_pos)
-        
-        # Analyze hash collisions for repetitions
-        for hash_value, positions in hash_to_positions.items():
-            if len(positions) < min_repetitions:
-                continue
-            
-            # Verify actual string matches (hash collisions are possible)
-            pattern_groups = self._group_consecutive_patterns(text, positions, pattern_length)
-            
-            for group in pattern_groups:
-                if len(group) >= min_repetitions:
-                    pattern = text[group[0]:group[0] + pattern_length]
-                    
-                    # Skip if whitelisted - check both the pattern and if any whitelist item appears in the source text
-                    if self.is_whitelisted(pattern):
-                        continue
-                    
-                    # Also check if any whitelisted pattern appears in the source text around this location
-                    start_pos = max(0, group[0] - pattern_length)
-                    end_pos = min(len(text), group[0] + len(group) * pattern_length + pattern_length)
-                    context = text[start_pos:end_pos]
-                    
-                    should_skip = False
-                    for whitelisted in self.whitelist:
-                        if whitelisted in context:
-                            should_skip = True
-                            break
-                    
-                    if should_skip:
-                        continue
-                    
-                    # Calculate confidence based on pattern characteristics
-                    confidence = self._calculate_pattern_confidence(pattern, len(group))
-                    
-                    match = PatternMatch(
-                        pattern=pattern,
-                        start_position=group[0],
-                        repetition_count=len(group),
-                        total_length=len(group) * pattern_length,
-                        confidence=confidence
-                    )
-                    matches.append(match)
+            # If we found enough repetitions, create a match
+            if repetitions >= min_repetitions:
+                confidence = self._calculate_block_confidence(block, repetitions)
+                
+                matches.append(BlockMatch(
+                    block=block,
+                    repetition_count=repetitions,
+                    start_position=start_pos,
+                    total_length=repetitions * block_length,
+                    confidence=confidence
+                ))
+                
+                # Mark all positions covered by this match as processed
+                for pos in range(start_pos, current_pos):
+                    processed_positions.add(pos)
         
         return matches
     
-    def _group_consecutive_patterns(self, text: str, positions: List[int], pattern_length: int) -> List[List[int]]:
-        """Group positions that represent consecutive repetitions of the same pattern."""
-        if not positions:
-            return []
+    def _calculate_block_confidence(self, block: str, repetitions: int) -> float:
+        """
+        Calculate confidence score for a block match.
         
-        # Sort positions
-        positions.sort()
-        
-        groups = []
-        current_group = [positions[0]]
-        expected_next = positions[0] + pattern_length
-        
-        for pos in positions[1:]:
-            # Verify the pattern actually matches
-            pattern1 = text[current_group[0]:current_group[0] + pattern_length]
-            pattern2 = text[pos:pos + pattern_length]
+        Args:
+            block: The repeated block
+            repetitions: Number of repetitions
             
-            if pos == expected_next and pattern1 == pattern2:
-                # Consecutive repetition
-                current_group.append(pos)
-                expected_next = pos + pattern_length
-            else:
-                # Start new group
-                if len(current_group) > 1:
-                    groups.append(current_group)
-                current_group = [pos]
-                expected_next = pos + pattern_length
+        Returns:
+            Confidence score between 0 and 1
+        """
+        # Base confidence from repetition count
+        repetition_score = min(repetitions / 10.0, 1.0)  # Max at 10 repetitions
         
-        # Add the last group
-        if len(current_group) > 1:
-            groups.append(current_group)
+        # Length bonus - longer blocks are more significant
+        length_score = min(len(block) / 500.0, 1.0)  # Max at 500 chars
         
-        return groups
-    
-    def _calculate_pattern_confidence(self, pattern: str, repetition_count: int) -> float:
-        """Calculate confidence score for a pattern match."""
-        confidence = 1.0
+        # Content diversity penalty - very repetitive content within block is less significant
+        unique_chars = len(set(block.lower()))
+        diversity_score = min(unique_chars / 20.0, 1.0)  # Max at 20 unique chars
         
-        # Lower confidence for very short patterns
-        if len(pattern) == 1:
-            confidence *= 0.7
-        elif len(pattern) == 2:
-            confidence *= 0.8
-        elif len(pattern) <= 5:
-            confidence *= 0.9
-        
-        # Higher confidence for more repetitions
-        if repetition_count >= 10:
-            confidence *= 1.2
-        elif repetition_count >= 5:
-            confidence *= 1.1
-        
-        # Lower confidence for patterns that are mostly whitespace
-        non_whitespace_ratio = len(pattern.strip()) / len(pattern) if pattern else 0
-        confidence *= (0.5 + 0.5 * non_whitespace_ratio)
-        
-        # Lower confidence for patterns with very few unique characters
-        unique_chars = len(set(pattern))
-        if unique_chars == 1:
-            confidence *= 0.6
-        elif unique_chars == 2:
-            confidence *= 0.8
+        # Combine scores
+        confidence = (repetition_score * 0.5 + length_score * 0.3 + diversity_score * 0.2)
         
         return min(confidence, 1.0)
     
-    def _remove_overlapping_matches(self, matches: List[PatternMatch]) -> List[PatternMatch]:
-        """Remove overlapping matches, keeping the best ones."""
+    def _remove_overlapping_blocks(self, matches: list[BlockMatch]) -> list[BlockMatch]:
+        """
+        Remove overlapping block matches, keeping the most significant ones.
+        
+        Args:
+            matches: List of block matches (should be sorted by significance)
+            
+        Returns:
+            List of non-overlapping matches
+        """
         if not matches:
             return []
         
-        # Sort by start position
-        sorted_matches = sorted(matches, key=lambda m: m.start_position)
-        
-        result = []
-        last_end = -1
-        
-        for match in sorted_matches:
-            match_start = match.start_position
-            match_end = match.start_position + match.total_length
-            
-            if match_start >= last_end:
-                # No overlap
-                result.append(match)
-                last_end = match_end
-            else:
-                # Overlap - keep the better match
-                if result and match.confidence > result[-1].confidence:
-                    result[-1] = match
-                    last_end = match_end
-        
-        return result
-    
-    def analyze_streaming_chunk(self, chunk: str, context: str = "") -> List[PatternMatch]:
-        """Analyze a chunk of streaming text with optional context."""
-        # Combine context with new chunk for analysis
-        full_text = context + chunk
-        
-        # Find patterns in the combined text
-        matches = self.find_patterns_in_text(full_text)
-        
-        # Filter matches that involve the new chunk
-        chunk_start = len(context)
-        relevant_matches = []
+        final_matches = []
+        used_ranges = []
         
         for match in matches:
-            match_end = match.start_position + match.total_length
+            start = match.start_position
+            end = match.start_position + match.total_length
             
-            # Keep matches that overlap with the new chunk
-            if match_end > chunk_start:
-                relevant_matches.append(match)
+            # Check if this match overlaps with any already selected match
+            overlaps = False
+            for used_start, used_end in used_ranges:
+                if not (end <= used_start or start >= used_end):
+                    overlaps = True
+                    break
+            
+            if not overlaps:
+                final_matches.append(match)
+                used_ranges.append((start, end))
         
-        return relevant_matches
+        return final_matches
+    
+    def is_whitelisted(self, block: str) -> bool:
+        """
+        Check if a block should be ignored due to whitelist.
+        
+        Args:
+            block: Block to check
+            
+        Returns:
+            True if block should be ignored
+        """
+        block_normalized = self.normalize_block(block)
+        
+        # Direct match
+        if block_normalized in self.whitelist or block in self.whitelist:
+            return True
+        
+        # Check if block contains only whitelisted patterns
+        for whitelisted in self.whitelist:
+            if whitelisted in block or whitelisted in block_normalized:
+                # If the whitelisted pattern makes up most of the block, ignore it
+                if len(whitelisted) >= len(block) * 0.8:
+                    return True
+        
+        return False
+    
+    def normalize_block(self, block: str) -> str:
+        """
+        Normalize a block for comparison.
+        
+        Args:
+            block: Block to normalize
+            
+        Returns:
+            Normalized block
+        """
+        # Remove extra whitespace and convert to lowercase
+        return ' '.join(block.lower().split())
+
+
+# Backward compatibility alias
+PatternAnalyzer = BlockAnalyzer
+PatternMatch = BlockMatch
+
+def find_patterns_in_text(text: str, min_repetitions: int = 2) -> list[BlockMatch]:
+    """Backward compatibility function."""
+    analyzer = BlockAnalyzer()
+    return analyzer.find_blocks_in_text(text, min_repetitions)

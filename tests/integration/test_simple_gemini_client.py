@@ -1,8 +1,9 @@
 """
 Simplified integration test using the official Google Gemini API client library.
 """
+from unittest.mock import AsyncMock, MagicMock, Mock
+
 import pytest
-from unittest.mock import MagicMock, AsyncMock, Mock
 from fastapi.testclient import TestClient
 
 # Official Google Gemini client
@@ -14,7 +15,6 @@ except ImportError:
     GENAI_AVAILABLE = False
 
 from src.main import build_app
-
 
 pytestmark = pytest.mark.integration
 

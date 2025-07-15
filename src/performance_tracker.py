@@ -1,11 +1,11 @@
 """
 Performance tracking system for measuring execution times across the full request handling cycle.
 """
-import time
 import logging
-from typing import Dict, Optional
+import time
 from contextlib import contextmanager
 from dataclasses import dataclass, field
+from typing import Dict, Optional
 
 logger = logging.getLogger(__name__)
 

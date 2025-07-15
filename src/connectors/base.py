@@ -1,8 +1,7 @@
 from __future__ import annotations
 
 import abc
-
-from typing import TYPE_CHECKING, Any, Callable, Dict, Union
+from typing import TYPE_CHECKING, Any, Callable
 
 from starlette.responses import StreamingResponse
 
@@ -22,21 +21,21 @@ class LLMBackend(abc.ABC):
     @abc.abstractmethod
     async def chat_completions(
         self,
-        request_data: "ChatCompletionRequest",
+        request_data: ChatCompletionRequest,
         processed_messages: list,  # Messages after command processing
         effective_model: str,  # Model after considering override
         # This might need to be more generic if we have more backends
         openrouter_api_base_url: str,
         openrouter_headers_provider: Callable[
-            [str, str], Dict[str, str]
+            [str, str], dict[str, str]
         ],  # Same as above
         key_name: str,
         api_key: str,
         project: str | None = None,
-        prompt_redactor: "APIKeyRedactor" | None = None,
-        command_filter: "ProxyCommandFilter" | None = None,
+        prompt_redactor: APIKeyRedactor | None = None,
+        command_filter: ProxyCommandFilter | None = None,
         agent: str | None = None,
-    ) -> Union[StreamingResponse, Dict[str, Any]]:
+    ) -> StreamingResponse | dict[str, Any]:
         """
         Forwards a chat completion request to the LLM backend.
 
@@ -57,4 +56,3 @@ class LLMBackend(abc.ABC):
             A StreamingResponse if the request is for a stream, or a dictionary
             representing the JSON response for a non-streaming request.
         """
-        pass

@@ -1,6 +1,7 @@
 import os
-import pytest
 from unittest.mock import patch
+
+import pytest
 
 
 def test_cli_disable_auth_forces_localhost():
@@ -76,16 +77,15 @@ def test_config_disable_auth_forces_localhost():
 
 def test_security_documentation():
     """Test that security behavior is properly documented in help text."""
-    from src.core.cli import parse_cli_args
-    
     # Test that the disable-auth flag exists and has proper help text
     import contextlib
     from io import StringIO
 
+    from src.core.cli import parse_cli_args
+
     # Suppress the help banner printed by argparse to keep the pytest output clean.
-    with contextlib.redirect_stdout(StringIO()):
-        with pytest.raises(SystemExit):
-            parse_cli_args(["--help"])
+    with contextlib.redirect_stdout(StringIO()), pytest.raises(SystemExit):
+        parse_cli_args(["--help"])
     
     # Test that the flag can be parsed
     args = parse_cli_args(["--disable-auth"])

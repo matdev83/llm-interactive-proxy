@@ -6,8 +6,9 @@ each time properly overriding the backend/model for exactly one request
 and then reverting to the default backend.
 """
 
+from unittest.mock import AsyncMock, patch
+
 from fastapi.testclient import TestClient
-from unittest.mock import patch, AsyncMock
 
 
 class TestMultipleOneoffCommands:

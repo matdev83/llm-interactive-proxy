@@ -5,18 +5,18 @@ from typing import Any, Dict, List, Optional, Set, Tuple
 from fastapi import FastAPI
 
 from src import models
-from src.commands.base import BaseCommand, CommandResult, create_command_instances
-from src.constants import DEFAULT_COMMAND_PREFIX
-from src.proxy_logic import ProxyState
-from src.command_processor import CommandProcessor, get_command_pattern
 from src.command_config import CommandParserConfig, CommandProcessorConfig
+from src.command_processor import CommandProcessor, get_command_pattern
 from src.command_utils import (
+    extract_feedback_from_tool_result,
+    get_text_for_command_check,
     is_content_effectively_empty,
     is_original_purely_command,
     is_tool_call_result,
-    extract_feedback_from_tool_result,
-    get_text_for_command_check,
 )
+from src.commands.base import BaseCommand, CommandResult, create_command_instances
+from src.constants import DEFAULT_COMMAND_PREFIX
+from src.proxy_logic import ProxyState
 
 logger = logging.getLogger(__name__)
 

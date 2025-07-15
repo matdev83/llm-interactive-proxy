@@ -1,8 +1,9 @@
 import os
-import pytest
 from unittest.mock import patch
 
-from src.core.config import _load_config, _collect_api_keys
+import pytest
+
+from src.core.config import _collect_api_keys, _load_config
 
 
 def test_collect_api_keys_single():
@@ -27,11 +28,10 @@ def test_collect_api_keys_prioritizes_numbered():
     with patch.dict(os.environ, {
         "TEST_API_KEY": "single-key",
         "TEST_API_KEY_1": "key1"
-    }, clear=True):
-        with patch("src.core.config.logger") as mock_logger:
-            keys = _collect_api_keys("TEST_API_KEY")
-            assert keys == {"TEST_API_KEY_1": "key1"}
-            mock_logger.warning.assert_called_once()
+    }, clear=True), patch("src.core.config.logger") as mock_logger:
+        keys = _collect_api_keys("TEST_API_KEY")
+        assert keys == {"TEST_API_KEY_1": "key1"}
+        mock_logger.warning.assert_called_once()
 
 
 @pytest.mark.asyncio
@@ -63,15 +63,14 @@ def test_load_config_disable_auth_forces_localhost():
     with patch.dict(os.environ, {
         "DISABLE_AUTH": "true",
         "PROXY_HOST": "0.0.0.0"
-    }, clear=True):
-        with patch("src.core.config.logger") as mock_logger:
-            config = _load_config()
-            assert config["proxy_host"] == "127.0.0.1"
-            assert config["disable_auth"] is True
-            # Should log a warning about forcing localhost
-            mock_logger.warning.assert_called_once()
-            warning_call = mock_logger.warning.call_args[0][0]
-            assert "Forcing to 127.0.0.1 for security" in warning_call
+    }, clear=True), patch("src.core.config.logger") as mock_logger:
+        config = _load_config()
+        assert config["proxy_host"] == "127.0.0.1"
+        assert config["disable_auth"] is True
+        # Should log a warning about forcing localhost
+        mock_logger.warning.assert_called_once()
+        warning_call = mock_logger.warning.call_args[0][0]
+        assert "Forcing to 127.0.0.1 for security" in warning_call
 
 
 def test_load_config_disable_auth_with_localhost_no_warning():
@@ -79,13 +78,12 @@ def test_load_config_disable_auth_with_localhost_no_warning():
     with patch.dict(os.environ, {
         "DISABLE_AUTH": "true",
         "PROXY_HOST": "127.0.0.1"
-    }, clear=True):
-        with patch("src.core.config.logger") as mock_logger:
-            config = _load_config()
-            assert config["proxy_host"] == "127.0.0.1"
-            assert config["disable_auth"] is True
-            # Should not log a warning since host is already localhost
-            mock_logger.warning.assert_not_called()
+    }, clear=True), patch("src.core.config.logger") as mock_logger:
+        config = _load_config()
+        assert config["proxy_host"] == "127.0.0.1"
+        assert config["disable_auth"] is True
+        # Should not log a warning since host is already localhost
+        mock_logger.warning.assert_not_called()
 
 
 def test_load_config_auth_enabled_allows_custom_host():
@@ -93,13 +91,12 @@ def test_load_config_auth_enabled_allows_custom_host():
     with patch.dict(os.environ, {
         "DISABLE_AUTH": "false",
         "PROXY_HOST": "0.0.0.0"
-    }, clear=True):
-        with patch("src.core.config.logger") as mock_logger:
-            config = _load_config()
-            assert config["proxy_host"] == "0.0.0.0"
-            assert config["disable_auth"] is False
-            # Should not log any warnings
-            mock_logger.warning.assert_not_called()
+    }, clear=True), patch("src.core.config.logger") as mock_logger:
+        config = _load_config()
+        assert config["proxy_host"] == "0.0.0.0"
+        assert config["disable_auth"] is False
+        # Should not log any warnings
+        mock_logger.warning.assert_not_called()
 
 
 def test_load_config_str_to_bool_variations():

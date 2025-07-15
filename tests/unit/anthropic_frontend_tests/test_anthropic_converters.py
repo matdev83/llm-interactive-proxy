@@ -3,18 +3,17 @@ Unit tests for Anthropic front-end converters.
 Tests the conversion between Anthropic and OpenAI API formats.
 """
 
-import pytest
 from unittest.mock import Mock
+
 from src.anthropic_converters import (
-    AnthropicMessagesRequest,
-    AnthropicMessage,
-    anthropic_to_openai_request,
-    openai_to_anthropic_response,
-    openai_stream_to_anthropic_stream,
-    get_anthropic_models,
-    extract_anthropic_usage,
     _map_finish_reason,
+    anthropic_to_openai_request,
+    extract_anthropic_usage,
+    get_anthropic_models,
+    openai_stream_to_anthropic_stream,
+    openai_to_anthropic_response,
 )
+from src.anthropic_models import AnthropicMessage, AnthropicMessagesRequest
 
 
 class TestAnthropicConverters:

@@ -2,6 +2,7 @@ from typing import Dict
 from unittest.mock import AsyncMock, Mock
 
 import pytest
+
 from src.connectors.openrouter import OpenRouterBackend
 from src.models import ChatCompletionRequest, ChatMessage
 
@@ -24,6 +25,7 @@ class TestOpenRouterTemperatureHandling:
     @pytest.fixture
     def openrouter_backend(self):
         from unittest.mock import AsyncMock
+
         import httpx
         return OpenRouterBackend(client=AsyncMock(spec=httpx.AsyncClient))
 

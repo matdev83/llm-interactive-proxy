@@ -1,5 +1,6 @@
-import pytest
 from unittest.mock import AsyncMock, Mock, patch
+
+import pytest
 
 from src.connectors.gemini import GeminiBackend
 from src.models import ChatCompletionRequest, ChatMessage

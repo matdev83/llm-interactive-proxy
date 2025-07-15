@@ -1,11 +1,16 @@
 from typing import AsyncGenerator
+from unittest.mock import AsyncMock, patch
 
 import pytest
 from fastapi.testclient import TestClient
-from unittest.mock import AsyncMock, patch
 
 from src.main import build_app
-from src.models import ChatCompletionResponse, ChatCompletionChoice, ChatCompletionChoiceMessage, CompletionUsage
+from src.models import (
+    ChatCompletionChoice,
+    ChatCompletionChoiceMessage,
+    ChatCompletionResponse,
+    CompletionUsage,
+)
 
 
 @pytest.fixture()

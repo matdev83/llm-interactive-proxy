@@ -1,15 +1,14 @@
 from __future__ import annotations
 
+import json
 import logging
-from typing import TYPE_CHECKING, Any, Dict, List, Set, Tuple, Optional, Union, Callable
+from typing import TYPE_CHECKING, Any, Callable, Tuple, Union
 
 from fastapi import FastAPI
 
 from ..command_prefix import validate_command_prefix
-from .base import BaseCommand, CommandResult, register_command, CommandContext
 from ..constants import SUPPORTED_BACKENDS
-
-import json
+from .base import BaseCommand, CommandContext, CommandResult, register_command
 
 if TYPE_CHECKING:
     from ..proxy_logic import ProxyState
@@ -35,7 +34,7 @@ class SetCommand(BaseCommand):
     HandlerOutput = Tuple[bool, Union[str, CommandResult, None], bool]
 
     def __init__(self, app: FastAPI | None = None,
-                 functional_backends: Set[str] | None = None) -> None:
+                 functional_backends: set[str] | None = None) -> None:
         super().__init__(app, functional_backends)
 
     def _parse_bool(self, value: str) -> bool | None:
@@ -46,7 +45,7 @@ class SetCommand(BaseCommand):
             return False
         return None
 
-    def _handle_backend_setting(self, args: Dict[str, Any], state: "ProxyState") -> HandlerOutput:
+    def _handle_backend_setting(self, args: dict[str, Any], state: ProxyState) -> HandlerOutput:
         backend_arg = args.get("backend")
         if not isinstance(backend_arg, str):
             return False, None, False
@@ -63,7 +62,7 @@ class SetCommand(BaseCommand):
         state.set_override_backend(backend_val)
         return True, f"backend set to {backend_val}", False
 
-    def _handle_default_backend_setting(self, args: Dict[str, Any], context: Optional[CommandContext] = None) -> HandlerOutput:
+    def _handle_default_backend_setting(self, args: dict[str, Any], context: CommandContext | None = None) -> HandlerOutput:
         backend_arg = args.get("default-backend")
         if not isinstance(backend_arg, str):
             return False, None, False
@@ -83,7 +82,7 @@ class SetCommand(BaseCommand):
             self.app.state.backend = getattr(self.app.state, f"{backend_val}_backend", self.app.state.backend)
         return True, f"default backend set to {backend_val}", True
 
-    def _handle_model_setting(self, args: Dict[str, Any], state: "ProxyState", backend_setting_failed_critically: bool, context: Optional[CommandContext] = None) -> HandlerOutput:
+    def _handle_model_setting(self, args: dict[str, Any], state: ProxyState, backend_setting_failed_critically: bool, context: CommandContext | None = None) -> HandlerOutput:
         model_arg = args.get("model")
         if not isinstance(model_arg, str):
             return False, None, False
@@ -120,9 +119,9 @@ class SetCommand(BaseCommand):
         state.set_override_model(backend_part, model_name, invalid=True)
         return True, f"model {backend_part}:{model_name} set (but may be invalid/unavailable)", False
 
-    def _handle_project_setting(self, args: Dict[str, Any], state: "ProxyState") -> HandlerOutput:
-        name_val_str: Optional[str] = None
-        key_used: Optional[str] = None
+    def _handle_project_setting(self, args: dict[str, Any], state: ProxyState) -> HandlerOutput:
+        name_val_str: str | None = None
+        key_used: str | None = None
         project_arg, pname_arg = args.get("project"), args.get("project-name")
 
         if isinstance(project_arg, str):
@@ -135,8 +134,8 @@ class SetCommand(BaseCommand):
         state.set_project(name_val_str)
         return True, f"{key_used} set to {name_val_str}", False
 
-    def _handle_project_dir_setting(self, args: Dict[str, Any], state: "ProxyState") -> HandlerOutput:
-        dir_val_str: Optional[str] = args.get("project-dir") or args.get("dir") or args.get("project-directory")
+    def _handle_project_dir_setting(self, args: dict[str, Any], state: ProxyState) -> HandlerOutput:
+        dir_val_str: str | None = args.get("project-dir") or args.get("dir") or args.get("project-directory")
         if not isinstance(dir_val_str, str):
             return False, None, False
 
@@ -149,9 +148,9 @@ class SetCommand(BaseCommand):
         state.set_project_dir(dir_val_str)
         return True, f"project-dir set to {dir_val_str}", False
 
-    def _handle_interactive_mode_setting(self, args: Dict[str, Any], state: "ProxyState") -> HandlerOutput:
-        val_str: Optional[str] = None
-        key_used: Optional[str] = None
+    def _handle_interactive_mode_setting(self, args: dict[str, Any], state: ProxyState) -> HandlerOutput:
+        val_str: str | None = None
+        key_used: str | None = None
         inter_arg, inter_mode_arg = args.get("interactive"), args.get("interactive-mode")
 
         if isinstance(inter_arg, str):
@@ -168,7 +167,7 @@ class SetCommand(BaseCommand):
         state.set_interactive_mode(val)
         return True, f"{key_used} set to {val}", True
 
-    def _handle_api_key_redaction_setting(self, args: Dict[str, Any], context: Optional[CommandContext] = None) -> HandlerOutput:
+    def _handle_api_key_redaction_setting(self, args: dict[str, Any], context: CommandContext | None = None) -> HandlerOutput:
         key = "redact-api-keys-in-prompts"
         val_arg = args.get(key)
         if not isinstance(val_arg, str):
@@ -187,7 +186,7 @@ class SetCommand(BaseCommand):
             return False, None, False
         return True, f"{key} set to {val}", True
 
-    def _handle_command_prefix_setting(self, args: Dict[str, Any], context: Optional[CommandContext] = None) -> HandlerOutput:
+    def _handle_command_prefix_setting(self, args: dict[str, Any], context: CommandContext | None = None) -> HandlerOutput:
         key = "command-prefix"
         val_arg = args.get(key)
         if not isinstance(val_arg, str):
@@ -206,7 +205,7 @@ class SetCommand(BaseCommand):
             return False, None, False
         return True, f"{key} set to {val_arg}", True
 
-    def _handle_reasoning_effort_setting(self, args: Dict[str, Any], state: "ProxyState") -> HandlerOutput:
+    def _handle_reasoning_effort_setting(self, args: dict[str, Any], state: ProxyState) -> HandlerOutput:
         key = "reasoning-effort"
         val_arg = args.get(key)
         if not isinstance(val_arg, str):
@@ -219,7 +218,7 @@ class SetCommand(BaseCommand):
         state.set_reasoning_effort(val)
         return True, f"{key} set to {val}", False
 
-    def _handle_reasoning_config_setting(self, args: Dict[str, Any], state: "ProxyState") -> HandlerOutput:
+    def _handle_reasoning_config_setting(self, args: dict[str, Any], state: ProxyState) -> HandlerOutput:
         key = "reasoning"
         val_arg = args.get(key)
         if not isinstance(val_arg, (dict, str)):
@@ -251,7 +250,7 @@ class SetCommand(BaseCommand):
         state.set_reasoning_config(config)
         return True, f"{key} set to {config}", False
 
-    def _handle_thinking_budget_setting(self, args: Dict[str, Any], state: "ProxyState") -> HandlerOutput:
+    def _handle_thinking_budget_setting(self, args: dict[str, Any], state: ProxyState) -> HandlerOutput:
         key = "thinking-budget"
         val_arg = args.get(key)
         if val_arg is None:
@@ -267,7 +266,7 @@ class SetCommand(BaseCommand):
         except (ValueError, TypeError):
             return True, CommandResult(self.name, False, f"thinking-budget must be a valid integer, got: {val_arg}"), False
 
-    def _handle_gemini_generation_config_setting(self, args: Dict[str, Any], state: "ProxyState") -> HandlerOutput:
+    def _handle_gemini_generation_config_setting(self, args: dict[str, Any], state: ProxyState) -> HandlerOutput:
         key = "gemini-generation-config"
         val_arg = args.get(key)
         if not isinstance(val_arg, (dict, str)):
@@ -288,9 +287,9 @@ class SetCommand(BaseCommand):
             state.set_gemini_generation_config(config)
             return True, f"gemini generation config set to: {config}", False
         except Exception as e:
-            return False, f"Failed to set {key}: {str(e)}", True
+            return False, f"Failed to set {key}: {e!s}", True
 
-    def _handle_temperature_setting(self, args: Dict[str, Any], state: "ProxyState") -> HandlerOutput:
+    def _handle_temperature_setting(self, args: dict[str, Any], state: ProxyState) -> HandlerOutput:
         key = "temperature"
         val_arg = args.get(key)
         if val_arg is None:
@@ -298,9 +297,7 @@ class SetCommand(BaseCommand):
 
         try:
             # Convert to float
-            if isinstance(val_arg, str):
-                temperature = float(val_arg)
-            elif isinstance(val_arg, (int, float)):
+            if isinstance(val_arg, (str, int, float)):
                 temperature = float(val_arg)
             else:
                 return True, CommandResult(self.name, False, f"Invalid temperature format: {val_arg}"), False
@@ -316,7 +313,7 @@ class SetCommand(BaseCommand):
         except Exception as e:
             return True, CommandResult(self.name, False, str(e)), False
 
-    def _save_config_if_needed(self, any_persistent_change: bool, messages: List[str], context: Optional[CommandContext] = None) -> None:
+    def _save_config_if_needed(self, any_persistent_change: bool, messages: list[str], context: CommandContext | None = None) -> None:
         if not any_persistent_change:
             return
 
@@ -338,7 +335,7 @@ class SetCommand(BaseCommand):
             else:
                 logger.warning("Config manager was None, not saving.")
 
-    def _get_handler_tasks(self, args: Dict[str, Any], state: "ProxyState", backend_setting_failed_critically: bool, context: Optional[CommandContext] = None) -> List[Callable[[], HandlerOutput]]:
+    def _get_handler_tasks(self, args: dict[str, Any], state: ProxyState, backend_setting_failed_critically: bool, context: CommandContext | None = None) -> list[Callable[[], HandlerOutput]]:
         """Get the list of handler tasks for processing arguments."""
         return [
             lambda: self._handle_backend_setting(args, state),
@@ -356,9 +353,9 @@ class SetCommand(BaseCommand):
             lambda: self._handle_temperature_setting(args, state),
         ]
 
-    def _process_handler_tasks(self, tasks: List[Callable[[], HandlerOutput]]) -> Tuple[bool, List[str], bool, bool]:
+    def _process_handler_tasks(self, tasks: list[Callable[[], HandlerOutput]]) -> tuple[bool, list[str], bool, bool]:
         """Process handler tasks and return results."""
-        messages: List[str] = []
+        messages: list[str] = []
         any_handled = False
         any_persistent_change = False
         backend_setting_failed_critically = False
@@ -381,7 +378,7 @@ class SetCommand(BaseCommand):
 
         return any_handled, messages, any_persistent_change, backend_setting_failed_critically
 
-    def execute(self, args: Dict[str, Any], state: "ProxyState") -> CommandResult:
+    def execute(self, args: dict[str, Any], state: ProxyState) -> CommandResult:
         """Execute the set command with the provided arguments."""
         logger.debug(f"SetCommand.execute called with args: {args}")
         
@@ -406,9 +403,9 @@ class SetCommand(BaseCommand):
 
     def execute_with_context(
         self, 
-        args: Dict[str, Any], 
-        state: "ProxyState", 
-        context: Optional[CommandContext] = None
+        args: dict[str, Any], 
+        state: ProxyState, 
+        context: CommandContext | None = None
     ) -> CommandResult:
         """Execute command with context for better decoupling."""
         logger.debug(f"SetCommand.execute_with_context called with args: {args}")

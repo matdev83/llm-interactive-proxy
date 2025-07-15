@@ -3,14 +3,18 @@ Unit tests for Anthropic front-end router.
 Tests the FastAPI endpoints for /anthropic/v1/messages and /anthropic/v1/models.
 """
 
-import pytest
-from unittest.mock import AsyncMock, Mock, patch
-from fastapi.testclient import TestClient
-from fastapi import FastAPI, HTTPException
-from starlette.responses import StreamingResponse
+from unittest.mock import Mock, patch
 
-from src.anthropic_router import router, anthropic_messages, anthropic_models, anthropic_health, anthropic_info
-from src.anthropic_converters import AnthropicMessagesRequest, AnthropicMessage
+import pytest
+from fastapi import FastAPI, HTTPException
+from fastapi.testclient import TestClient
+
+from src.anthropic_converters import AnthropicMessage, AnthropicMessagesRequest
+from src.anthropic_router import (
+    anthropic_messages,
+    anthropic_models,
+    router,
+)
 
 
 class TestAnthropicRouter:
@@ -25,7 +29,7 @@ class TestAnthropicRouter:
     def test_router_prefix(self):
         """Test that router has correct prefix."""
         assert router.prefix == "/anthropic"
-        assert "anthropic" in [tag for tag in router.tags]
+        assert "anthropic" in list(router.tags)
 
     def test_health_endpoint(self):
         """Test health check endpoint."""

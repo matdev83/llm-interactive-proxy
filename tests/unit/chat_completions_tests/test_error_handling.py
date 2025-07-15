@@ -1,7 +1,8 @@
 from unittest.mock import AsyncMock, patch
 
 # import pytest # F401: Removed
-from fastapi import HTTPException # Used
+from fastapi import HTTPException  # Used
+
 # from httpx import Response # F401: Removed
 # from starlette.responses import StreamingResponse # F401: Removed
 

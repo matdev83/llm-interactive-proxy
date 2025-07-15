@@ -1,8 +1,16 @@
+from unittest.mock import AsyncMock, MagicMock, patch
+
 import pytest
-from unittest.mock import AsyncMock, patch, MagicMock
 from fastapi.testclient import TestClient
+
 from src.main import build_app
-from src.models import ChatCompletionResponse, ChatCompletionChoice, ChatCompletionChoiceMessage, CompletionUsage
+from src.models import (
+    ChatCompletionChoice,
+    ChatCompletionChoiceMessage,
+    ChatCompletionResponse,
+    CompletionUsage,
+)
+
 
 @pytest.fixture
 def test_app():

@@ -49,7 +49,7 @@ def test_cline_hello_command_xml_wrapping(interactive_client):
     assert data["id"] == "proxy_cmd_processed"
     
     content = data["choices"][0]["message"]["content"]
-    print(f"Hello command response content: {repr(content)}")
+    print(f"Hello command response content: {content!r}")
     
     # For Cline agent, the response should be wrapped in XML
     assert content.startswith("<attempt_completion>\n<result>\n"), f"Response should start with XML wrapper, got: {content[:100]}"
@@ -101,7 +101,7 @@ def test_cline_hello_command_same_request(interactive_client):
     print(f"DEBUG: session.agent = {session.agent}")
     
     content = data["choices"][0]["message"]["content"]
-    print(f"Same-request hello command response content: {repr(content)}")
+    print(f"Same-request hello command response content: {content!r}")
     
     # The response should be wrapped in XML since Cline was detected in the same request
     assert content.startswith("<attempt_completion>\n<result>\n"), f"Response should start with XML wrapper, got: {content[:100]}"
@@ -140,7 +140,7 @@ def test_cline_hello_with_attempt_completion_only(interactive_client):
     print(f"DEBUG: session.agent = {session.agent}")
     
     content = data["choices"][0]["message"]["content"]
-    print(f"Attempt_completion-only hello command response content: {repr(content)}")
+    print(f"Attempt_completion-only hello command response content: {content!r}")
     
     # The response should be wrapped in XML since <attempt_completion> was detected
     assert content.startswith("<attempt_completion>\n<result>\n"), f"Response should start with XML wrapper, got: {content[:100]}"
@@ -176,7 +176,7 @@ def test_cline_hello_command_first_message(interactive_client):
     print(f"DEBUG: session.agent = {session.agent}")
     
     content = data["choices"][0]["message"]["content"]
-    print(f"First message hello command response content: {repr(content)}")
+    print(f"First message hello command response content: {content!r}")
     
     # Without prior Cline detection, this should NOT be wrapped in XML
     assert not content.startswith("<attempt_completion>"), f"Response should NOT be wrapped in XML without Cline detection, got: {content[:100]}"
@@ -207,7 +207,7 @@ def test_non_cline_hello_command_no_xml_wrapping(interactive_client):
     assert data["id"] == "proxy_cmd_processed"
     
     content = data["choices"][0]["message"]["content"]
-    print(f"Non-Cline hello command response content: {repr(content)}")
+    print(f"Non-Cline hello command response content: {content!r}")
     
     # For non-Cline agent, the response should NOT be wrapped in XML
     assert not content.startswith("<attempt_completion>"), f"Response should NOT be wrapped in XML for non-Cline, got: {content[:100]}"

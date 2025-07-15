@@ -1,7 +1,8 @@
+from typing import Any, Dict
+from unittest.mock import AsyncMock, patch
+
 import pytest
 from fastapi.testclient import TestClient
-from typing import Dict, Any
-from unittest.mock import patch, AsyncMock
 
 oneoff_test_cases = [
     (

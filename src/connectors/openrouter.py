@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 import logging
-from typing import Any, Callable, Dict, Union, Tuple
+from typing import Any, Callable
 
 import httpx
 from fastapi import HTTPException  # Required for raising HTTP exceptions
@@ -35,7 +35,7 @@ class OpenRouterBackend(LLMBackend):
         self,
         *,
         openrouter_api_base_url: str,
-        openrouter_headers_provider: Callable[[str, str], Dict[str, str]],
+        openrouter_headers_provider: Callable[[str, str], dict[str, str]],
         key_name: str,
         api_key: str,
     ) -> None:
@@ -86,7 +86,7 @@ class OpenRouterBackend(LLMBackend):
         project: str | None,
         prompt_redactor: APIKeyRedactor | None,
         command_filter: ProxyCommandFilter | None,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """Constructs the payload for the OpenRouter API request."""
         payload = request_data.model_dump(exclude_unset=True)
         
@@ -132,13 +132,13 @@ class OpenRouterBackend(LLMBackend):
         processed_messages: list,  # Messages after command processing
         effective_model: str,  # Model after considering override
         openrouter_api_base_url: str,
-        openrouter_headers_provider: Callable[[str, str], Dict[str, str]],
+        openrouter_headers_provider: Callable[[str, str], dict[str, str]],
         key_name: str,
         api_key: str,
         project: str | None = None,
         prompt_redactor: APIKeyRedactor | None = None,
         command_filter: ProxyCommandFilter | None = None,
-    ) -> Union[StreamingResponse, Tuple[Dict[str, Any], Dict[str, str]]]:
+    ) -> StreamingResponse | tuple[dict[str, Any], dict[str, str]]:
 
         openrouter_payload = self._prepare_openrouter_payload(
             request_data,
@@ -183,18 +183,18 @@ class OpenRouterBackend(LLMBackend):
                 detail=error_detail)
         except httpx.RequestError as e:
             logger.error(
-                f"Request error connecting to OpenRouter: {type(e).__name__} - {str(e)}",
+                f"Request error connecting to OpenRouter: {type(e).__name__} - {e!s}",
                 exc_info=True,
             )
             raise HTTPException(
                 status_code=503,
-                detail=f"Service unavailable: Could not connect to OpenRouter ({str(e)})",
+                detail=f"Service unavailable: Could not connect to OpenRouter ({e!s})",
             )
         # HTTPException and other unexpected errors will now propagate up.
 
     async def _handle_openrouter_non_streaming_response(
-        self, url: str, payload: Dict[str, Any], headers: Dict[str, str]
-    ) -> Tuple[Dict[str, Any], Dict[str, str]]:
+        self, url: str, payload: dict[str, Any], headers: dict[str, str]
+    ) -> tuple[dict[str, Any], dict[str, str]]:
         logger.debug("Initiating non-streaming request to OpenRouter.")
         response = await self.client.post(url, json=payload, headers=headers)
         logger.debug(f"OpenRouter non-stream response status: {response.status_code}")
@@ -215,7 +215,7 @@ class OpenRouterBackend(LLMBackend):
         return response_json, response_headers
 
     async def _handle_openrouter_streaming_response(
-        self, url: str, payload: Dict[str, Any], headers: Dict[str, str]
+        self, url: str, payload: dict[str, Any], headers: dict[str, str]
     ) -> StreamingResponse:
         logger.debug("Initiating stream request to OpenRouter.")
 
@@ -255,7 +255,6 @@ class OpenRouterBackend(LLMBackend):
                     logger.error(f"Error in stream generator: {e_gen}", exc_info=True)
                     # For errors after streaming has started, we can't raise HTTPException
                     # Instead, we'll just log the error and stop the stream
-                    pass
                 finally:
                     await response.aclose()
 
@@ -272,10 +271,10 @@ class OpenRouterBackend(LLMBackend):
         self,
         *,
         openrouter_api_base_url: str,
-        openrouter_headers_provider: Callable[[str, str], Dict[str, str]],
+        openrouter_headers_provider: Callable[[str, str], dict[str, str]],
         key_name: str,
         api_key: str,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """Fetch available models from OpenRouter."""
         headers = openrouter_headers_provider(key_name, api_key)
         try:
@@ -307,19 +306,19 @@ class OpenRouterBackend(LLMBackend):
                 detail=error_detail)
         except httpx.RequestError as e:
             logger.error(
-                f"Request error connecting to OpenRouter: {type(e).__name__} - {str(e)}",
+                f"Request error connecting to OpenRouter: {type(e).__name__} - {e!s}",
                 exc_info=True,
             )
             raise HTTPException(
                 status_code=503,
-                detail=f"Service unavailable: Could not connect to OpenRouter ({str(e)})",
+                detail=f"Service unavailable: Could not connect to OpenRouter ({e!s})",
             )
         except Exception as e:
             logger.error(
-                f"An unexpected error occurred in OpenRouterBackend.list_models: {type(e).__name__} - {str(e)}",
+                f"An unexpected error occurred in OpenRouterBackend.list_models: {type(e).__name__} - {e!s}",
                 exc_info=True,
             )
             raise HTTPException(
                 status_code=500,
-                detail=f"Internal server error in backend connector: {str(e)}",
+                detail=f"Internal server error in backend connector: {e!s}",
             )

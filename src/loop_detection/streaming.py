@@ -9,10 +9,11 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from typing import AsyncIterator, Optional, Callable, Any
+from typing import Any, AsyncIterator, Callable
+
 from starlette.responses import StreamingResponse
 
-from .detector import LoopDetector, LoopDetectionEvent
+from .detector import LoopDetectionEvent, LoopDetector
 
 logger = logging.getLogger(__name__)
 
@@ -23,8 +24,8 @@ class LoopDetectionStreamingResponse(StreamingResponse):
     def __init__(
         self,
         content: AsyncIterator[Any],
-        loop_detector: Optional[LoopDetector] = None,
-        on_loop_detected: Optional[Callable[[LoopDetectionEvent], None]] = None,
+        loop_detector: LoopDetector | None = None,
+        on_loop_detected: Callable[[LoopDetectionEvent], None] | None = None,
         **kwargs
     ):
         self.loop_detector = loop_detector
@@ -83,7 +84,7 @@ class LoopDetectionStreamingResponse(StreamingResponse):
             async for chunk in content:
                 yield chunk
     
-    def _create_cancellation_message(self, detection_event: LoopDetectionEvent) -> Optional[str]:
+    def _create_cancellation_message(self, detection_event: LoopDetectionEvent) -> str | None:
         """Create a cancellation message to send when a loop is detected."""
         # Emit an SSE-compatible line so that OpenAI/Gemini style clients that
         # parse incremental JSON do not choke on raw text.  The payload is a
@@ -104,8 +105,8 @@ class LoopDetectionStreamingResponse(StreamingResponse):
 
 async def wrap_streaming_content_with_loop_detection(
     content: AsyncIterator[Any],
-    loop_detector: Optional[LoopDetector] = None,
-    on_loop_detected: Optional[Callable[[LoopDetectionEvent], None]] = None
+    loop_detector: LoopDetector | None = None,
+    on_loop_detected: Callable[[LoopDetectionEvent], None] | None = None
 ) -> AsyncIterator[Any]:
     """
     Wrap streaming content with loop detection.
@@ -169,8 +170,8 @@ async def wrap_streaming_content_with_loop_detection(
 
 def analyze_complete_response_for_loops(
     response_text: str,
-    loop_detector: Optional[LoopDetector] = None
-) -> Optional[LoopDetectionEvent]:
+    loop_detector: LoopDetector | None = None
+) -> LoopDetectionEvent | None:
     """
     Analyze a complete response for loops (for non-streaming responses).
     

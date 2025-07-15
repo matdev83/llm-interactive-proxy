@@ -4,7 +4,7 @@ import logging
 import time
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional, Tuple, Union
+from typing import Any
 
 from fastapi import HTTPException, Request
 from starlette.responses import StreamingResponse
@@ -13,8 +13,8 @@ from src import models
 from src.agents import detect_agent, wrap_proxy_message
 from src.command_config import CommandParserConfig
 from src.command_parser import CommandParser
-from src.constants import BackendType, GEMINI_BACKENDS
-from src.core.config import get_openrouter_headers, _keys_for
+from src.constants import GEMINI_BACKENDS, BackendType
+from src.core.config import _keys_for, get_openrouter_headers
 from src.llm_accounting_utils import track_llm_request
 from src.performance_tracker import track_phase
 from src.proxy_logic import ProxyState
@@ -27,7 +27,7 @@ logger = logging.getLogger(__name__)
 class ChatService:
     """Service layer for handling chat completion requests."""
     
-    def __init__(self, app, config: Dict[str, Any]):
+    def __init__(self, app, config: dict[str, Any]):
         self.app = app
         self.config = config
     
@@ -37,7 +37,7 @@ class ChatService:
         http_request: Request,
         session_id: str,
         perf_metrics
-    ) -> Union[Dict[str, Any], StreamingResponse]:
+    ) -> dict[str, Any] | StreamingResponse:
         """Process a chat completion request through the entire pipeline."""
         
         session = self.app.state.session_manager.get_session(session_id)
@@ -131,7 +131,7 @@ class ChatService:
         proxy_state: ProxyState, 
         session, 
         http_request: Request
-    ) -> Tuple[List[models.ChatMessage], bool, str]:
+    ) -> tuple[list[models.ChatMessage], bool, str]:
         """Process commands in messages and detect agent."""
         
         # Detect agent from first message
@@ -230,12 +230,12 @@ class ChatService:
     def _handle_command_response(
         self, 
         request_data: models.ChatCompletionRequest,
-        processed_messages: List[models.ChatMessage],
+        processed_messages: list[models.ChatMessage],
         confirmation_text: str,
         proxy_state: ProxyState,
         session,
         session_id: str
-    ) -> Optional[Union[Dict[str, Any], models.CommandProcessedChatCompletionResponse]]:
+    ) -> dict[str, Any] | models.CommandProcessedChatCompletionResponse | None:
         """Handle command-only requests that don't need backend processing."""
         
         # Check if there's meaningful content remaining after command processing
@@ -319,7 +319,7 @@ class ChatService:
         
         return None
     
-    def _has_meaningful_content(self, processed_messages: List[models.ChatMessage], proxy_state: ProxyState, session) -> bool:
+    def _has_meaningful_content(self, processed_messages: list[models.ChatMessage], proxy_state: ProxyState, session) -> bool:
         """Check if processed messages contain meaningful content for backend processing."""
         has_meaningful_content = False
         
@@ -460,25 +460,25 @@ class ChatService:
     async def _call_backend_with_failover(
         self, 
         request_data: models.ChatCompletionRequest,
-        processed_messages: List[models.ChatMessage],
+        processed_messages: list[models.ChatMessage],
         effective_model: str,
         current_backend_type: str,
         proxy_state: ProxyState,
         perf_metrics
-    ) -> Tuple[Union[Dict[str, Any], StreamingResponse], str, str]:
+    ) -> tuple[dict[str, Any] | StreamingResponse, str, str]:
         """Call backend with failover logic."""
         
         # Build attempts list for failover
         attempts = self._build_failover_attempts(effective_model, current_backend_type, proxy_state)
         
-        last_error: Optional[HTTPException] = None
+        last_error: HTTPException | None = None
         response_from_backend = None
         used_backend = current_backend_type
         used_model = effective_model
         success = False
         
         while not success:
-            earliest_retry: Optional[float] = None
+            earliest_retry: float | None = None
             attempted_any = False
             
             for b_attempt, m_attempt, kname_attempt, key_attempt in attempts:
@@ -536,7 +536,7 @@ class ChatService:
         
         return response_from_backend, used_backend, used_model
     
-    def _build_failover_attempts(self, effective_model: str, current_backend_type: str, proxy_state: ProxyState) -> List[Tuple[str, str, str, str]]:
+    def _build_failover_attempts(self, effective_model: str, current_backend_type: str, proxy_state: ProxyState) -> list[tuple[str, str, str, str]]:
         """Build list of backend attempts for failover."""
         attempts = []
         route = proxy_state.failover_routes.get(effective_model)
@@ -598,9 +598,9 @@ class ChatService:
         key_name: str, 
         api_key: str,
         request_data: models.ChatCompletionRequest,
-        processed_messages: List[models.ChatMessage],
+        processed_messages: list[models.ChatMessage],
         proxy_state: ProxyState
-    ) -> Union[Dict[str, Any], StreamingResponse]:
+    ) -> dict[str, Any] | StreamingResponse:
         """Call a single backend."""
         
         # Create accounting tracker
@@ -746,14 +746,14 @@ class ChatService:
     
     def _process_backend_response(
         self, 
-        response_from_backend: Union[Dict[str, Any], StreamingResponse],
+        response_from_backend: dict[str, Any] | StreamingResponse,
         request_data: models.ChatCompletionRequest,
         session,
         proxy_state: ProxyState,
         used_backend: str,
         used_model: str,
         session_id: str
-    ) -> Union[Dict[str, Any], StreamingResponse]:
+    ) -> dict[str, Any] | StreamingResponse:
         """Process the response from the backend."""
         
         # Extract raw prompt for session tracking
