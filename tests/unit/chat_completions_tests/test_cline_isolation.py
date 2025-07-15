@@ -1,4 +1,3 @@
-import pytest
 from unittest.mock import AsyncMock, patch
 from src import models
 
@@ -55,7 +54,7 @@ def test_non_cline_clients_no_xml_wrapping(interactive_client):
         
         # Verify session agent detection did NOT happen
         session = interactive_client.app.state.session_manager.get_session(session_id)
-        assert session.proxy_state.is_cline_agent == False, f"Non-Cline session should not detect Cline agent for {command}"
+        assert not session.proxy_state.is_cline_agent, f"Non-Cline session should not detect Cline agent for {command}"
         assert session.agent != "cline", f"Session agent should NOT be 'cline' for non-Cline request: {command}"
 
 
@@ -128,7 +127,7 @@ def test_remote_llm_responses_never_xml_wrapped(interactive_client):
     
     # Verify Cline agent was detected but response is still not wrapped
     session = interactive_client.app.state.session_manager.get_session("cline-llm-test")
-    assert session.proxy_state.is_cline_agent == True, "Cline agent should be detected"
+    assert session.proxy_state.is_cline_agent, "Cline agent should be detected"
     assert session.agent == "cline", "Session agent should be 'cline'"
 
 
@@ -261,7 +260,7 @@ def test_streaming_responses_never_xml_wrapped(interactive_client):
     
     # Verify Cline agent was detected
     session = interactive_client.app.state.session_manager.get_session("cline-stream-test")
-    assert session.proxy_state.is_cline_agent == True, "Cline agent should be detected for streaming"
+    assert session.proxy_state.is_cline_agent, "Cline agent should be detected for streaming"
     
     # The streaming response itself should not be modified
     # (We can't easily test the actual stream content in this test setup, 
@@ -292,9 +291,8 @@ def test_error_responses_from_llm_never_xml_wrapped(interactive_client):
         
         mock_method.assert_called_once()
     
-    # Should get the HTTP error, not XML wrapped
     assert resp.status_code == 500
     
     # Verify Cline agent was detected but error is not wrapped
     session = interactive_client.app.state.session_manager.get_session("cline-error-test")
-    assert session.proxy_state.is_cline_agent == True, "Cline agent should be detected even for errors" 
+    assert session.proxy_state.is_cline_agent, "Cline agent should be detected even for errors"

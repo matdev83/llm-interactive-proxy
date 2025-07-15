@@ -4,11 +4,9 @@ Simple test script to demonstrate provider-specific reasoning functionality.
 This script shows how to use the reasoning features for different providers in the LLM interactive proxy.
 """
 
-import json
 import requests
 import time
 import pytest
-from typing import Dict, Any
 
 # Proxy configuration
 PROXY_URL = "http://localhost:8000"
@@ -120,7 +118,6 @@ def test_provider_specific_reasoning():
                 
                 # Extract response content
                 if "choices" in result and len(result["choices"]) > 0:
-                    content = result["choices"][0]["message"]["content"]
                     # Success - content received
                     
                     # Check usage information if available
@@ -147,11 +144,11 @@ def test_provider_specific_reasoning():
                 # HTTP error occurred
                 pass
                 
-        except requests.exceptions.RequestException as e:
+        except requests.exceptions.RequestException:
             # Request failed
             pass
             
-        except Exception as e:
+        except Exception:
             # Unexpected error
             pass
             
@@ -163,24 +160,9 @@ def test_in_chat_reasoning_commands():
     """Demonstrate in-chat reasoning commands for different providers."""
     
     # Example commands for different providers
-    commands = [
-        # OpenAI/OpenRouter commands
-        "!/set(reasoning-effort=high)",
-        "!/set(reasoning=effort=medium)",
-        "!/set(reasoning=max_tokens=2000)",
-        "!/set(reasoning=effort=low,exclude=true)",
-        "!/unset(reasoning-effort)",
-        "!/unset(reasoning)",
-        
-        # Gemini commands
-        "!/set(thinking-budget=2048)",
-        "!/set(gemini-generation-config={'thinkingConfig': {'thinkingBudget': 1024}})",
-        "!/unset(thinking-budget)",
-        "!/unset(gemini-generation-config)",
-    ]
-    
     # Available reasoning commands are defined in the commands list
     # Example conversation flow would demonstrate the commands in action
+    pass
 
 if __name__ == "__main__":
     try:
@@ -190,6 +172,6 @@ if __name__ == "__main__":
     except KeyboardInterrupt:
         # Test interrupted by user
         pass
-    except Exception as e:
+    except Exception:
         # Test failed with error
-        pass 
+        pass

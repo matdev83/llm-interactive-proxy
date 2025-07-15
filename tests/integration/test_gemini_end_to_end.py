@@ -9,7 +9,9 @@ import time
 import pytest
 
 pytestmark = pytest.mark.integration
-from tests.conftest import ORIG_GEMINI_KEY as ORIG_KEY # E402: Moved here
+
+ORIG_KEY = os.getenv("GEMINI_API_KEY_1")
+
 
 
 @pytest.fixture(autouse=True)

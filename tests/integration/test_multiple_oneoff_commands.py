@@ -6,9 +6,7 @@ each time properly overriding the backend/model for exactly one request
 and then reverting to the default backend.
 """
 
-import pytest
 from fastapi.testclient import TestClient
-from typing import Dict, Any
 from unittest.mock import patch, AsyncMock
 
 

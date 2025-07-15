@@ -1,9 +1,8 @@
 import logging
 import re
-from typing import Any, List
+from typing import Any
 
 from src import models
-from src.constants import DEFAULT_COMMAND_PREFIX
 
 logger = logging.getLogger(__name__)
 

@@ -53,28 +53,25 @@ def test_gemini_models_cached(monkeypatch):
 
 
 def test_auto_default_backend(monkeypatch):
-    # This test is no longer valid since gemini-cli-direct is always functional
-    # and doesn't require API keys, making auto-detection impossible when multiple
-    # backends are functional. Update test to verify the multiple backends error.
+    # Since gemini-cli-direct is always functional and doesn't require API keys,
+    # we need to test a scenario where only one backend is functional for auto-detection
     monkeypatch.delenv("LLM_BACKEND", raising=False)
-    monkeypatch.setenv("OPENROUTER_API_KEY", "KEY")
+    monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
     monkeypatch.delenv("GEMINI_API_KEY", raising=False)
     for i in range(1, 21):
         monkeypatch.delenv(f"GEMINI_API_KEY_{i}", raising=False)
         monkeypatch.delenv(f"OPENROUTER_API_KEY_{i}", raising=False)
-    resp = {"data": [{"id": "x"}]}
-    with patch.object(
-        OpenRouterBackend, "list_models", new=AsyncMock(return_value=resp)
-    ):
-        app = app_main.build_app()
-        from fastapi.testclient import TestClient
+    
+    # With no API keys set, only gemini-cli-direct should be functional
+    # and should be auto-selected as the default backend
+    app = app_main.build_app()
+    from fastapi.testclient import TestClient
 
-        # Now we expect this to fail because both openrouter and gemini-cli-direct are functional
-        with pytest.raises(ValueError, match="Multiple functional backends"):
-            with TestClient(
-                app, headers={"Authorization": "Bearer test-proxy-key"}
-            ):
-                pass
+    with TestClient(
+        app, headers={"Authorization": "Bearer test-proxy-key"}
+    ) as client:
+        # Should auto-select gemini-cli-direct as the only functional backend
+        assert client.app.state.backend_type in ["gemini-cli-direct", "gemini-cli-batch"]
 
 
 def test_multiple_backends_requires_arg(monkeypatch):

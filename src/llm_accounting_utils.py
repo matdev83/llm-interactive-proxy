@@ -178,16 +178,10 @@ def extract_billing_info_from_headers(headers: Dict[str, str], backend: str) -> 
         Dictionary with billing information
     """
     billing_info = {
-        "backend": backend,
         "cost": 0.0,
         "upstream_cost": None,
         "provider_info": {},
-        "rate_limit_info": {},
-        "usage": {
-            "prompt_tokens": 0,
-            "completion_tokens": 0,
-            "total_tokens": 0
-        }
+        "rate_limit_info": {}
     }
 
     if backend == "openrouter":
@@ -224,9 +218,6 @@ def extract_billing_info_from_headers(headers: Dict[str, str], backend: str) -> 
     elif backend == "gemini-cli-direct":
         # No billing headers for CLI - we calculate tokens manually
         billing_info["provider_info"]["note"] = "CLI backend - no billing headers available"
-    elif backend == "anthropic":
-        # Anthropic doesn't provide usage info in headers
-        billing_info["provider_info"]["note"] = "Anthropic backend - usage info in response only"
 
     return billing_info
 
@@ -243,19 +234,12 @@ def extract_billing_info_from_response(response: Union[Dict[str, Any], Streaming
         Dictionary with billing and usage information
     """
     billing_info = {
-        "backend": backend,
         "cost": 0.0,
         "prompt_tokens": None,
         "completion_tokens": None,
         "total_tokens": None,
         "reasoning_tokens": None,
         "cached_tokens": None,
-        "provider_info": {},
-        "usage": {
-            "prompt_tokens": 0,
-            "completion_tokens": 0,
-            "total_tokens": 0
-        }
     }
 
     if isinstance(response, dict):
@@ -297,32 +281,6 @@ def extract_billing_info_from_response(response: Union[Dict[str, Any], Streaming
             # For CLI backend, we need to calculate tokens manually
             # This will be handled in the tracking context manager
             pass
-        elif backend == "anthropic":
-            # Extract usage from Anthropic response (dict format)
-            from src.anthropic_converters import extract_anthropic_usage
-            usage_info = extract_anthropic_usage(response)
-            if usage_info:
-                billing_info["usage"]["prompt_tokens"] = usage_info.get("input_tokens", 0)
-                billing_info["usage"]["completion_tokens"] = usage_info.get("output_tokens", 0)
-                billing_info["usage"]["total_tokens"] = usage_info.get("total_tokens", 0)
-                # Also update the top-level fields for compatibility
-                billing_info["prompt_tokens"] = usage_info.get("input_tokens", 0)
-                billing_info["completion_tokens"] = usage_info.get("output_tokens", 0)
-                billing_info["total_tokens"] = usage_info.get("total_tokens", 0)
-    
-    # Handle non-dict responses (objects, Mock objects, etc.)
-    elif backend == "anthropic":
-        # Extract usage from Anthropic response object
-        from src.anthropic_converters import extract_anthropic_usage
-        usage_info = extract_anthropic_usage(response)
-        if usage_info:
-            billing_info["usage"]["prompt_tokens"] = usage_info.get("input_tokens", 0)
-            billing_info["usage"]["completion_tokens"] = usage_info.get("output_tokens", 0)
-            billing_info["usage"]["total_tokens"] = usage_info.get("total_tokens", 0)
-            # Also update the top-level fields for compatibility
-            billing_info["prompt_tokens"] = usage_info.get("input_tokens", 0)
-            billing_info["completion_tokens"] = usage_info.get("output_tokens", 0)
-            billing_info["total_tokens"] = usage_info.get("total_tokens", 0)
 
     return billing_info
 

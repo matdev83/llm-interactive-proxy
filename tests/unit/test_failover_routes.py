@@ -3,7 +3,7 @@ from unittest.mock import Mock
 import pytest
 
 from src.command_parser import CommandParser, CommandParserConfig
-from src.models import ChatMessage, MessageContentPartText
+from src.models import ChatMessage
 from src.proxy_logic import ProxyState
 
 

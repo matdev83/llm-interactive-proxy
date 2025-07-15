@@ -7,7 +7,6 @@ from src.command_parser import (
     CommandParserConfig,
     process_commands_in_messages,
 )
-from src.command_processor import get_command_pattern
 from src.models import ChatMessage
 from src.proxy_logic import ProxyState
 
@@ -221,7 +220,6 @@ class TestProcessTextForCommands:
         # Example: !/unset(foo) - current logic might allow this if "foo" is treated as a key.
         # The existing logic for !/unset(model) checks "if 'model' in args".
         # So !/unset(foo) would not unset the model.
-        pattern = get_command_pattern("!/")
         process_commands_in_messages(
             [ChatMessage(role="user", content="!/set(model=openrouter:gpt-4)")],
             current_proxy_state,
@@ -244,7 +242,6 @@ class TestProcessTextForCommands:
 
     def test_set_and_unset_project(self):
         current_proxy_state = ProxyState()
-        pattern = get_command_pattern("!/")
         processed_messages, _ = process_commands_in_messages(
             [ChatMessage(role="user", content="!/set(project='abc def')")],
             current_proxy_state,
@@ -266,7 +263,6 @@ class TestProcessTextForCommands:
 
     def test_unset_model_and_project_together(self):
         current_proxy_state = ProxyState()
-        pattern = get_command_pattern("!/")
         process_commands_in_messages(
             [ChatMessage(role="user", content="!/set(model=openrouter:foo)")],
             current_proxy_state,
@@ -295,7 +291,6 @@ class TestProcessTextForCommands:
 
     def test_set_interactive_mode(self):
         current_proxy_state = ProxyState()
-        pattern = get_command_pattern("!/")
         text = "hello !/set(interactive-mode=ON)"
         processed_messages, found = process_commands_in_messages(
             [ChatMessage(role="user", content=text)],
@@ -306,11 +301,10 @@ class TestProcessTextForCommands:
         processed_text = processed_messages[0].content if processed_messages else ""
         assert processed_text == "hello"
         assert found
-        assert current_proxy_state.interactive_mode is True
+        assert current_proxy_state.interactive_mode
 
     def test_unset_interactive_mode(self):
         current_proxy_state = ProxyState(interactive_mode=True)
-        pattern = get_command_pattern("!/")
         text = "!/unset(interactive)"
         processed_messages, found = process_commands_in_messages(
             [ChatMessage(role="user", content=text)],
@@ -321,11 +315,10 @@ class TestProcessTextForCommands:
         processed_text = processed_messages[0].content if processed_messages else ""
         assert processed_text == ""
         assert found
-        assert current_proxy_state.interactive_mode is False
+        assert not current_proxy_state.interactive_mode
 
     def test_hello_command(self):
         current_proxy_state = ProxyState()
-        pattern = get_command_pattern("!/")
         text = "!/hello"
         processed_messages, found = process_commands_in_messages(
             [ChatMessage(role="user", content=text)],
@@ -336,11 +329,10 @@ class TestProcessTextForCommands:
         processed_text = processed_messages[0].content if processed_messages else ""
         assert processed_text == ""
         assert found
-        assert current_proxy_state.hello_requested is True
+        assert current_proxy_state.hello_requested
 
     def test_hello_command_with_text(self):
         current_proxy_state = ProxyState()
-        pattern = get_command_pattern("!/")
         text = "Greetings !/hello friend"
         processed_messages, found = process_commands_in_messages(
             [ChatMessage(role="user", content=text)],
@@ -351,7 +343,7 @@ class TestProcessTextForCommands:
         processed_text = processed_messages[0].content if processed_messages else ""
         assert processed_text == "Greetings friend"
         assert found
-        assert current_proxy_state.hello_requested is True
+        assert current_proxy_state.hello_requested
 
     def test_unknown_command_removed_interactive(self):
         state = ProxyState(interactive_mode=True)
@@ -369,7 +361,7 @@ class TestProcessTextForCommands:
         processed = processed_messages[0].content if processed_messages else ""
         assert found
         assert processed == "Hi"
-        assert parser.command_results[0].success is False
+        assert not parser.command_results[0].success
         assert "cmd not found" in parser.command_results[0].message # Match actual error message
 
     def test_set_invalid_model_interactive(self):
@@ -385,8 +377,8 @@ class TestProcessTextForCommands:
             [ChatMessage(role="user", content="!/set(model=openrouter:bad)")]
         )
         assert state.override_model is None
-        assert state.invalid_override is False
-        assert parser.command_results[0].success is False
+        assert not state.invalid_override
+        assert not parser.command_results[0].success
         assert "not available" in parser.command_results[0].message
 
     def test_set_invalid_model_noninteractive(self):
@@ -408,8 +400,6 @@ class TestProcessTextForCommands:
         state = ProxyState()
         # from src import main as app_main # No longer needed
         # app_main.app.state.functional_backends = {"openrouter", "gemini"} # No longer needed
-        functional_backends_for_test = {"openrouter", "gemini"}  # Define it here
-        pattern = get_command_pattern("!/")
         text = "!/set(backend=gemini) hi"
         processed_messages, found = process_commands_in_messages(
             [ChatMessage(role="user", content=text)],
@@ -426,7 +416,6 @@ class TestProcessTextForCommands:
     def test_unset_backend(self):
         state = ProxyState()
         state.set_override_backend("gemini")
-        pattern = get_command_pattern("!/")
         text = "!/unset(backend)"
         processed_messages, found = process_commands_in_messages(
             [ChatMessage(role="user", content=text)],
@@ -441,7 +430,6 @@ class TestProcessTextForCommands:
 
     def test_set_redact_api_keys_flag(self):
         state = ProxyState()
-        pattern = get_command_pattern("!/")
         text = "!/set(redact-api-keys-in-prompts=false)"
         processed_messages, found = process_commands_in_messages(
             [ChatMessage(role="user", content=text)],
@@ -452,12 +440,11 @@ class TestProcessTextForCommands:
         processed = processed_messages[0].content if processed_messages else ""
         assert processed == ""
         assert found
-        assert self.mock_app.state.api_key_redaction_enabled is False
+        assert not self.mock_app.state.api_key_redaction_enabled
 
     def test_unset_redact_api_keys_flag(self):
         state = ProxyState()
         self.mock_app.state.api_key_redaction_enabled = False
-        pattern = get_command_pattern("!/")
         text = "!/unset(redact-api-keys-in-prompts)"
         processed_messages, found = process_commands_in_messages(
             [ChatMessage(role="user", content=text)],

@@ -1,4 +1,3 @@
-import pytest
 from unittest.mock import AsyncMock, patch
 
 
@@ -70,7 +69,7 @@ def test_cline_xml_wrapping_for_all_commands(interactive_client):
         
         # Verify session agent detection worked
         session = interactive_client.app.state.session_manager.get_session(session_id)
-        assert session.proxy_state.is_cline_agent == True, f"Cline agent should be detected for {command}"
+        assert session.proxy_state.is_cline_agent, f"Cline agent should be detected for {command}"
         assert session.agent == "cline", f"Session agent should be 'cline' for {command}"
 
 
@@ -206,4 +205,4 @@ def test_non_cline_commands_no_xml_wrapping(interactive_client):
         
         # Should NOT be wrapped in XML for non-Cline sessions
         assert not content.startswith("<attempt_completion>"), \
-            f"Non-Cline command {command} should NOT be wrapped in XML, got: {content[:100]}" 
+            f"Non-Cline command {command} should NOT be wrapped in XML, got: {content[:100]}"

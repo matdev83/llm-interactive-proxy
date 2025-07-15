@@ -1,7 +1,6 @@
 import pytest
 from unittest.mock import AsyncMock, patch
 
-import src.models as models
 
 
 class TestTemperatureCommands:

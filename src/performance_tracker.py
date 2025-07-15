@@ -3,7 +3,7 @@ Performance tracking system for measuring execution times across the full reques
 """
 import time
 import logging
-from typing import Dict, Optional, Any
+from typing import Dict, Optional
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 

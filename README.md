@@ -1,6 +1,6 @@
-# OpenAI Compatible Intercepting Proxy Server
+# Interactive LLM Proxy Server
 
-This project provides an intercepting proxy server that is compatible with the OpenAI API. It allows for modification of requests and responses, command execution within chat messages, and model overriding. The proxy can forward requests to **OpenRouter.ai**, **Google Gemini**, or **Anthropic Claude**, selectable at run time.
+This project is a *swiss-army knife* for anyone hacking on language models and agentic workflows. It sits between **any LLM-aware client and any LLM backend**, speaking multiple front-end protocols (OpenAI, Anthropic, OpenRouter, Gemini) while transparently converting them to whichever backend you prefer—cloud API or local CLI. With the proxy you can translate, reroute and augment requests on the fly, execute chat-embedded commands, override models, rotate API keys, prevent leaks and inspect every token exchanged—all from a single drop-in gateway.
 
 ## 🚀 KILLER FEATURES
 
@@ -18,19 +18,55 @@ This project provides an intercepting proxy server that is compatible with the O
 
 - **OpenAI API Compatibility** – drop-in replacement for `/v1/chat/completions` and `/v1/models`.
 - **Gemini API Compatibility** – native Google Gemini API endpoints (`/v1beta/models` and `/v1beta/models/{model}:generateContent`) with full compatibility for the official `google-genai` client library.
-- **Anthropic API Compatibility** – native Anthropic API endpoints (`/anthropic/v1/messages` and `/anthropic/v1/models`) with full compatibility for the official `anthropic` client library.
 - **Request Interception and Command Parsing** – user messages can contain commands (default prefix `!/`) to change proxy behaviour.
 - **Configurable Command Prefix** – via the `COMMAND_PREFIX` environment variable, CLI, or in‑chat commands.
 - **Dynamic Model Override** – commands like `!/set(model=...)` change the model for subsequent requests.
-- **Multiple Backends** – forward requests to OpenRouter, Google Gemini, Gemini CLI Direct, or Anthropic. Chosen with `LLM_BACKEND`.
+- **Multiple Backends** – forward requests to OpenRouter, Google Gemini, or Gemini CLI Direct. Chosen with `LLM_BACKEND`.
 - **Gemini CLI Direct Support** - Route requests directly to the system-installed Gemini CLI application, providing access to Gemini models without requiring API keys.
 - **Streaming and Non‑Streaming Support** – for OpenRouter and Gemini backends. Gemini CLI Direct backend supports both streaming and non-streaming responses.
-- **Automatic Loop-Detection & Cancellation** – detects repetitive patterns in LLM output (e.g. "I'm sorry, I'm sorry…") and cancels the response to save tokens and avoid infinite loops. Fully configurable via env-vars.
-- **Aggregated Model Listing** – the `/models` and `/v1/models` endpoints return the union of all models discovered from configured backends, prefixed with the backend name (e.g., `openrouter:model_name`, `gemini:model_name`, `gemini-cli-direct:model_name`, `anthropic:model_name`).
+- **Aggregated Model Listing** – the `/models` and `/v1/models` endpoints return the union of all models discovered from configured backends, prefixed with the backend name (e.g., `openrouter:model_name`, `gemini:model_name`, `gemini-cli-direct:model_name`).
 - **Session History Tracking** – optional per-session logs using the `X-Session-ID` header.
 - **Agent Detection** – recognizes popular coding agents and formats proxy responses accordingly.
 - **CLI Configuration** – command line flags can override environment variables for quick testing.
-- **Persistent Configuration** – use `--config config/file.json` to save and reload failover routes and defaults across restarts.
+
+### Front-End API Compatibility
+
+The proxy can present itself as **any** of the following APIs while still letting you reach every configured backend:
+
+| Client-Side (front-end) SDK / Protocol | Path prefix | Typical SDK | Status |
+| -------------------------------------- | ----------- | ----------- | ------ |
+| OpenAI Chat Completions                | `/v1/*`     | `openai`    | ✅ |
+| OpenRouter (OpenAI-compatible superset)| `/v1/*`     | any HTTP    | ✅ |
+| Anthropic Messages API                 | `/v1/messages`, `/v1/models` | `anthropic` | ✅ |
+| Google Gemini Generative AI            | `/v1beta/*` | `google-genai` | ✅ |
+
+Because the proxy normalises requests internally, **any front-end can be wired to any back-end** (OpenRouter, Gemini REST, Gemini CLI, Anthropic API, etc.). This unlocks powerful protocol-conversion scenarios such as using an Anthropic-only client to talk to OpenRouter’s GPT-4 or a Gemini model.
+
+### Protocol Conversion Examples
+
+* Anthropic SDK ➜ OpenRouter backend – change the base-URL to `http://proxy/v1` and prefix the model name with `openrouter:`.
+* OpenAI client ➜ Gemini model – use model `gemini:gemini-2.5-pro` and enjoy full streaming support.
+* Gemini client ➜ Gemini CLI Direct – route heavy workloads to your local free-tier CLI process by requesting `gemini-cli-direct:gemini-2.5-pro`.
+
+## Example Use-Cases
+
+1. **Leverage free-tier allowances across many accounts** – configure numbered API keys (`*_API_KEY_1..20`) and let the proxy rotate them automatically.
+2. **Cross-protocol bridging** – point a *Claude Code* command-line tool (Anthropic-only) at the proxy URL and talk to GPT-4 or Gemini simply by prefixing the model.
+3. **Automatic loop detection & mitigation** – the proxy tracks session history and prevents infinite self-calling loops between agents.
+4. **Hard-coded model overrides** – intercept requests from rigid clients and rewrite `model` or even `backend` fields on-the-fly via `!/set` or failover routes.
+5. **API key redaction & leak prevention** – all prompts are inspected and any configured secrets are replaced with `***` before reaching the LLM.
+6. **Transparent traffic inspection** – log, audit and aggregate all prompts / completions for debugging and compliance via the built-in usage endpoints.
+
+## Roadmap
+
+- **Zero-knowledge key provisioning** – backend API keys fetched from a secure vault so users never see them.
+- **SSO authentication** – integrate corporate identity providers for user access control.
+- **Remote management UI** – web dashboard powered by [`llm-accounting`](https://github.com/matdev83/llm-accounting) for live config changes, key rotation and usage analytics.
+- **On-the-fly prompt compression** – reduce token spend by compressing repeated context.
+- **Command shortcuts / aliases** – user-definable shorthands for long commands.
+- **Deep observability hooks** – export traces / metrics to OpenTelemetry, Prometheus, etc.
+
+---
 
 ## Getting Started
 
@@ -71,6 +107,9 @@ These instructions will get you a copy of the project up and running on your loc
     # Gemini backend keys follow the same pattern
     # GEMINI_API_KEY="your_gemini_api_key_here"
     # GEMINI_API_KEY_1="first_gemini_key"
+    # Anthropic backend keys (same numbered pattern)
+    # ANTHROPIC_API_KEY="your_anthropic_api_key_here"
+    # ANTHROPIC_API_KEY_1="first_anthropic_key"
     # Keys are sent using the `x-goog-api-key` header to avoid exposing them in URLs
 
     # Gemini CLI Direct backend configuration
@@ -83,25 +122,19 @@ These instructions will get you a copy of the project up and running on your loc
     # Disable all interactive commands
     # DISABLE_INTERACTIVE_COMMANDS="true"  # same as passing --disable-interactive-commands
 
-    # ---------------------------------
-    # 🔄 Loop-Detection configuration
-    # ---------------------------------
-    # Enable / disable the feature (default true)
-    LOOP_DETECTION_ENABLED="true"
-    # Sliding window size (characters) inspected for loops (default 2048)
-    LOOP_DETECTION_BUFFER_SIZE="2048"
-    # Maximum pattern length considered (default 500)
-    LOOP_DETECTION_MAX_PATTERN_LENGTH="500"
-    # Optional thresholds can be overridden individually (see src/loop_detection/config.py)
-    # LOOP_DETECTION_MIN_REPETITIONS_SHORT="12"
-    # LOOP_DETECTION_MIN_REPETITIONS_MEDIUM="6"
-    # LOOP_DETECTION_MIN_REPETITIONS_LONG="3"
-
     # Enable or disable prompt redaction (default true)
     # REDACT_API_KEYS_IN_PROMPTS="false"  # same as passing --disable-redact-api-keys-in-prompts
 
     # Enable or disable LLM accounting (usage tracking and audit logging)
     # DISABLE_ACCOUNTING="true"  # same as passing --disable-accounting
+
+    # --- Optional CLI-variant backends --------------------------
+    # Enable Gemini CLI *batch* and *interactive* helper backends. These
+    # spawn local `gemini` subprocesses during requests and therefore are
+    # disabled by default in CI / container images.
+    # When enabled they appear as backends `gemini-cli-batch` and
+    # `gemini-cli-interactive` in the welcome banner.
+    ENABLE_GEMINI_CLI="true"
     ```
 
     Replace `"your_openrouter_api_key_here"` (or numbered variants) with your
@@ -167,15 +200,6 @@ The Gemini CLI Direct backend:
 
 **Note**: The Gemini CLI Direct backend uses the default model configured in your Gemini CLI installation and does not pass model selection parameters to the CLI.
 
-## Loop-Detection
-
-The proxy continuously inspects the characters emitted by the LLM in real-time. When it detects a repeating pattern that exceeds configurable thresholds it will:
-
-1. Cancel the HTTP stream early (for streaming endpoints) and send a final SSE line explaining why it stopped.
-2. Append a warning note to non-streaming responses.
-
-Use the environment variables above or the persistent JSON config (`loop_detection` section) to fine-tune the behaviour.  Set `LOOP_DETECTION_ENABLED=false` to disable the feature completely.
-
 ### Running the Proxy Server
 
 To start the proxy server, run the following command from the project's root directory:
@@ -189,6 +213,11 @@ The server will typically start on `http://127.0.0.1:8000` (or as configured in 
 `INFO:     Waiting for application startup.`
 `INFO:     Application startup complete.`
 `INFO:     Uvicorn running on http://127.0.0.1:8000 (Press CTRL+C to quit)`
+
+When the process is shut down (CTRL-C, signal or ASGI lifespan event) the
+proxy now terminates any background `gemini` subprocesses **gracefully** and
+closes the shared `httpx.AsyncClient`, eliminating lingering *asyncio closed
+pipe* warnings on Windows.
 
 By default the server expects an API key from connecting clients. Set the key in
 the `LLM_INTERACTIVE_PROXY_API_KEY` environment variable or let the server
@@ -355,115 +384,7 @@ Model names can include backend prefixes to route to specific backends:
 - `openrouter:gpt-4` - Routes to OpenRouter backend
 - `gemini:gemini-pro` - Routes to Gemini backend  
 - `gemini-cli-direct:gemini-1.5-pro` - Routes to Gemini CLI Direct backend
-- `anthropic:claude-3-sonnet-20240229` - Routes to Anthropic backend
 - `gpt-4` - Uses default backend (no prefix)
-
-## Anthropic API Compatibility
-
-This proxy provides **native Anthropic API endpoints** that are fully compatible with the official `anthropic` client library. You can use the proxy as a drop-in replacement for the Anthropic API by simply changing the base URL.
-
-### Anthropic Endpoints
-
-- **`/anthropic/v1/models`** – List available Anthropic Claude models
-- **`/anthropic/v1/messages`** – Create messages using Claude models (streaming and non-streaming)
-
-### Using with the Official Anthropic Client
-
-Install the official Anthropic client library:
-
-```bash
-pip install anthropic
-```
-
-Then use it with the proxy:
-
-```python
-from anthropic import Anthropic
-
-# Configure the client to use the proxy
-client = Anthropic(
-    api_key="your-anthropic-api-key",
-    base_url="http://localhost:8000/anthropic"
-)
-
-# Use normally
-response = client.messages.create(
-    model="claude-3-sonnet-20240229",
-    max_tokens=100,
-    messages=[
-        {"role": "user", "content": "Hello, Claude!"}
-    ]
-)
-print(response.content[0].text)
-```
-
-### Async Support
-
-```python
-from anthropic import AsyncAnthropic
-
-client = AsyncAnthropic(
-    api_key="your-anthropic-api-key", 
-    base_url="http://localhost:8000/anthropic"
-)
-
-response = await client.messages.create(
-    model="claude-3-haiku-20240307",
-    max_tokens=50,
-    messages=[{"role": "user", "content": "Hello!"}]
-)
-```
-
-### Streaming Support
-
-```python
-async with client.messages.stream(
-    model="claude-3-sonnet-20240229",
-    max_tokens=200,
-    messages=[{"role": "user", "content": "Tell me a story"}]
-) as stream:
-    async for event in stream:
-        if hasattr(event, 'delta') and hasattr(event.delta, 'text'):
-            print(event.delta.text, end='', flush=True)
-```
-
-### System Messages and Advanced Parameters
-
-Anthropic API supports system messages and advanced parameters:
-
-```python
-response = client.messages.create(
-    model="claude-3-opus-20240229",
-    max_tokens=200,
-    temperature=0.7,
-    top_p=0.9,
-    system="You are a helpful coding assistant.",
-    stop_sequences=["```"],
-    messages=[
-        {"role": "user", "content": "Write a Python function to reverse a string"}
-    ]
-)
-```
-
-### Backend Routing
-
-The proxy will automatically route Anthropic API requests to the configured backend based on your `LLM_BACKEND` setting:
-
-- **`anthropic`** - Routes directly to Anthropic's API
-- **`openrouter`** - Routes through OpenRouter (if Anthropic models are available)
-- **`gemini`** - Routes to Gemini backend (with format conversion)
-- **`gemini-cli-direct`** - Routes to Gemini CLI (with format conversion)
-
-You can also use model prefixes in the Anthropic client:
-
-```python
-# Explicitly route to OpenRouter
-response = client.messages.create(
-    model="openrouter:anthropic/claude-3-sonnet-20240229",
-    max_tokens=100,
-    messages=[{"role": "user", "content": "Hello!"}]
-)
-```
 
 ### Command Feature
 
@@ -970,3 +891,49 @@ We welcome contributions to this project! To contribute, please follow the typic
     - Provide a clear title and description for your PR.
     - Reference any related issues.
     - Ensure all tests pass and address any feedback from maintainers.
+
+### Anthropic API Compatibility
+
+The proxy exposes Anthropic-compatible endpoints so you can use the official `anthropic` Python client or any SDK that expects the **Messages API**.
+
+#### Endpoints
+
+* **`POST /v1/messages`** – Non-streaming & streaming requests (set `"stream": true` in JSON body).
+* **`GET /v1/models`** – Lists all models including Anthropic; IDs are prefixed `anthropic:` when routed through the proxy.
+
+#### Authentication
+
+Use the same `x-api-key` header Anthropic expects **or** a Bearer token:
+
+```bash
+curl -X POST http://localhost:8000/v1/messages \
+  -H "x-api-key: your-proxy-api-key" \
+  -H "Content-Type: application/json" \
+  -d '{
+        "model": "anthropic:claude-3-haiku-20240229",
+        "max_tokens": 256,
+        "messages": [{"role": "user", "content": "Hello!"}]
+      }'
+```
+
+#### Client example (anthropic-python)
+
+```python
+from anthropic import Anthropic, HUMAN_PROMPT, AI_PROMPT
+
+client = Anthropic(
+    api_key="your-proxy-api-key",
+    base_url="http://localhost:8000"  # point SDK at proxy
+)
+
+response = client.completions.create(
+    model="anthropic:claude-3-haiku-20240229",
+    max_tokens=256,
+    prompt=f"{HUMAN_PROMPT} Hello, world!{AI_PROMPT}"
+)
+print(response.completion)
+```
+
+#### Environment variables
+
+Set `ANTHROPIC_API_KEY` **or** numbered variants (`ANTHROPIC_API_KEY_1`, `ANTHROPIC_API_KEY_2`, …) to configure your Anthropic credentials. Keys participate in automatic rotation and fail-over policies like other backends.

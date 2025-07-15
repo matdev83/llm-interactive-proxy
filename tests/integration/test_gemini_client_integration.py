@@ -5,22 +5,19 @@ These tests verify that the proxy's Gemini API compatibility works correctly
 with the real Google Gemini client, testing all backends and conversion logic.
 """
 import pytest
-import json
 import asyncio
 import threading
 import time
-from unittest.mock import patch, AsyncMock, MagicMock
+from unittest.mock import patch, AsyncMock
 from typing import Dict, Any
 import uvicorn
-from fastapi import FastAPI
 
 from src.main import build_app
-from src.core.config import _load_config
 
 # Import Gemini client types
 try:
     import google.genai as genai
-    from google.genai.types import GenerationConfig, Content, Part, Blob
+    from google.genai.types import Content, Part, Blob
     GENAI_AVAILABLE = True
 except ImportError:
     GENAI_AVAILABLE = False
@@ -50,7 +47,6 @@ class ProxyServer:
         self.thread.start()
         
         # Wait for server to start
-        import time
         time.sleep(2)
         
         # Test if server is running
@@ -391,7 +387,7 @@ class TestErrorHandling:
         
         try:
             # Configure client with invalid credentials
-            genai.configure(api_key="invalid_key", base_url=f"http://127.0.0.1:8002")
+            genai.configure(api_key="invalid_key", base_url="http://127.0.0.1:8002")
             client = genai
             
             # This should raise an authentication error

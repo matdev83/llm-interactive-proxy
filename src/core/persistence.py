@@ -7,7 +7,7 @@ from typing import Any, Dict, Optional, Tuple # Added Optional and Tuple
 from fastapi import FastAPI
 
 from src.command_prefix import validate_command_prefix
-from src.models import ModelDefaults, ModelReasoningConfig  # Add import for model config classes
+from src.models import ModelDefaults  # Add import for model config classes
 
 logger = logging.getLogger(__name__)
 

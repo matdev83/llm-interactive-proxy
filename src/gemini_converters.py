@@ -3,15 +3,14 @@ Converter functions between Gemini API format and OpenAI format.
 These functions enable the proxy to accept Gemini API requests and convert them
 to the internal OpenAI format used by existing backends.
 """
-from typing import List, Dict, Any, Optional, Iterator
 import json
+from typing import List, Dict, Any
 from src.models import (
-    ChatCompletionRequest, ChatMessage, ChatCompletionResponse, ChatCompletionChoice,
-    ChatCompletionChoiceMessage, CompletionUsage, MessageContentPartText, MessageContentPartImage
+    ChatCompletionRequest, ChatMessage, ChatCompletionResponse, MessageContentPartText, MessageContentPartImage
 )
 from src.gemini_models import (
     GenerateContentRequest, GenerateContentResponse, Content, Part, Candidate,
-    GenerationConfig, SafetySetting, UsageMetadata, Model, ListModelsResponse, FinishReason, Blob
+    UsageMetadata, Model, ListModelsResponse, FinishReason, Blob
 )
 
 

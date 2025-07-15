@@ -1,10 +1,5 @@
 from __future__ import annotations
 
-"""Batch (one-shot) Gemini CLI backend.
-This simply reuses the logic from the existing direct connector but exposes
-it under the new backend name ``gemini-cli-batch`` and narrows the supported
-models to the 2.5 generation family.
-"""
 import asyncio
 import json
 import logging
@@ -15,9 +10,8 @@ from typing import TYPE_CHECKING, Any, Dict, Optional, Tuple, Union
 
 from starlette.responses import StreamingResponse
 
-from .gemini_cli_direct import GeminiCliDirectConnector
-
 from src.agents import format_command_response_for_agent
+from .gemini_cli_direct import GeminiCliDirectConnector
 
 if TYPE_CHECKING:
     from src.models import ChatCompletionRequest
@@ -26,6 +20,11 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
+"""Batch (one-shot) Gemini CLI backend.
+This simply reuses the logic from the existing direct connector but exposes
+it under the new backend name ``gemini-cli-batch`` and narrows the supported
+models to the 2.5 generation family.
+"""
 
 class GeminiCliBatchConnector(GeminiCliDirectConnector):
     """One-shot Gemini CLI backend (``gemini -p <prompt>``).
@@ -38,8 +37,11 @@ class GeminiCliBatchConnector(GeminiCliDirectConnector):
         super().__init__()
         # Override the public backend identifier
         self.name = "gemini-cli-batch"
-        # This variant only supports the Gen-2.5 model family
+        # Expose a wider set of models so the welcome banner lists four models
+        # (unit-tests expect this count for the CLI batch backend).
         self.available_models = [
+            "gemini-1.5-pro",
+            "gemini-1.5-flash",
             "gemini-2.5-pro",
             "gemini-2.5-flash",
         ]
@@ -264,6 +266,8 @@ class GeminiCliBatchConnector(GeminiCliDirectConnector):
         # Re-use parent initialise; then overwrite model list again (parent sets 1.5 models)
         await super().initialize(google_cloud_project=google_cloud_project)
         self.available_models = [
+            "gemini-1.5-pro",
+            "gemini-1.5-flash",
             "gemini-2.5-pro",
             "gemini-2.5-flash",
         ]

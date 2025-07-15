@@ -44,7 +44,6 @@ def test_set_backend_command_integration(mock_openrouter_completions_method: Asy
 
     # Mocking the side effect of set_override_backend directly on the mock_proxy_state
     # This ensures that when CommandParser calls state.set_override_backend(), our mock_proxy_state reflects the change.
-    original_set_override_backend = mock_proxy_state.set_override_backend
     def side_effect_set_override_backend(backend_name):
         mock_proxy_state.override_backend = backend_name
         mock_proxy_state.override_model = None # As per original logic
@@ -109,7 +108,6 @@ def test_unset_backend_command_integration(mock_openrouter_completions_method: A
     mock_proxy_state.get_effective_model.return_value = "some-model" # Ensure this returns a string (already correctly indented in the read file)
     mock_proxy_state.get_selected_backend.return_value = "openrouter"  # Default backend
 
-    original_unset_override_backend = mock_proxy_state.unset_override_backend
     def side_effect_unset_override_backend():
         mock_proxy_state.override_backend = None
         mock_proxy_state.override_model = None

@@ -5,7 +5,7 @@ from typing import Any, Dict, List, Optional, Set, Tuple
 from fastapi import FastAPI
 
 from src import models
-from src.commands import BaseCommand, CommandResult, create_command_instances
+from src.commands.base import BaseCommand, CommandResult, create_command_instances
 from src.constants import DEFAULT_COMMAND_PREFIX
 from src.proxy_logic import ProxyState
 from src.command_processor import CommandProcessor, get_command_pattern
@@ -231,7 +231,7 @@ def _process_text_for_commands(
     # Override the command_pattern as it's passed directly for this helper
     parser.command_pattern = command_pattern
     # Use the internal command_processor for actual text processing
-    processed_text, commands_found = parser.command_processor.process_text_and_execute_command(text_content)
+    processed_text, commands_found, _ = parser.command_processor.handle_string_content(text_content)
 
     # For tests relying on this helper, if a command-only message was processed
     # and failed, return the error message from the command execution.
@@ -280,4 +280,3 @@ def process_commands_in_messages(
     final_messages, commands_processed = parser.process_messages(messages)
 
     return final_messages, commands_processed
-

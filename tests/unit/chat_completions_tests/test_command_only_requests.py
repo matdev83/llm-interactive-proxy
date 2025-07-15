@@ -1,10 +1,4 @@
-# from unittest.mock import AsyncMock, patch # F401: Removed
-# import pytest # F401: Removed
-# from fastapi import HTTPException # F401: Removed
-# from httpx import Response # F401: Removed
-# from starlette.responses import StreamingResponse # F401: Removed
-# import src.models as models # F401: Removed
-
+from unittest.mock import AsyncMock, patch
 
 def test_command_only_request_direct_response(client):
     client.app.state.openrouter_backend.available_models = ["command-only-model"]
@@ -29,8 +23,6 @@ def test_command_only_request_direct_response(client):
     # No mock needed here as we are testing the direct proxy response
     session = client.app.state.session_manager.get_session("default")  # type: ignore
     assert session.proxy_state.override_model == "command-only-model"
-
-from unittest.mock import AsyncMock, patch
 
 
 @patch('src.connectors.OpenRouterBackend.chat_completions', new_callable=AsyncMock)

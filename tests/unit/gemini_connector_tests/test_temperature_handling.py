@@ -1,6 +1,5 @@
 import pytest
 from unittest.mock import AsyncMock, Mock, patch
-import json
 
 from src.connectors.gemini import GeminiBackend
 from src.models import ChatCompletionRequest, ChatMessage
@@ -56,7 +55,7 @@ class TestGeminiTemperatureHandling:
         gemini_backend.client.post = AsyncMock(return_value=mock_response)
 
         # Call the method
-        result = await gemini_backend.chat_completions(
+        await gemini_backend.chat_completions(
             request_data=sample_request_data,
             processed_messages=sample_processed_messages,
             effective_model="gemini-2.5-pro",
@@ -98,7 +97,7 @@ class TestGeminiTemperatureHandling:
 
         # Call the method
         with patch('src.connectors.gemini.logger') as mock_logger:
-            result = await gemini_backend.chat_completions(
+            await gemini_backend.chat_completions(
                 request_data=sample_request_data,
                 processed_messages=sample_processed_messages,
                 effective_model="gemini-2.5-pro",
@@ -144,7 +143,7 @@ class TestGeminiTemperatureHandling:
         gemini_backend.client.post = AsyncMock(return_value=mock_response)
 
         # Call the method
-        result = await gemini_backend.chat_completions(
+        await gemini_backend.chat_completions(
             request_data=sample_request_data,
             processed_messages=sample_processed_messages,
             effective_model="gemini-2.5-pro",
@@ -189,7 +188,7 @@ class TestGeminiTemperatureHandling:
         gemini_backend.client.post = AsyncMock(return_value=mock_response)
 
         # Call the method
-        result = await gemini_backend.chat_completions(
+        await gemini_backend.chat_completions(
             request_data=sample_request_data,
             processed_messages=sample_processed_messages,
             effective_model="gemini-2.5-pro",
@@ -235,7 +234,7 @@ class TestGeminiTemperatureHandling:
         gemini_backend.client.post = AsyncMock(return_value=mock_response)
 
         # Call the method
-        result = await gemini_backend.chat_completions(
+        await gemini_backend.chat_completions(
             request_data=sample_request_data,
             processed_messages=sample_processed_messages,
             effective_model="gemini-2.5-pro",
@@ -279,7 +278,7 @@ class TestGeminiTemperatureHandling:
         gemini_backend.client.post = AsyncMock(return_value=mock_response)
 
         # Call the method
-        result = await gemini_backend.chat_completions(
+        await gemini_backend.chat_completions(
             request_data=sample_request_data,
             processed_messages=sample_processed_messages,
             effective_model="gemini-2.5-pro",
@@ -327,7 +326,7 @@ class TestGeminiTemperatureHandling:
         gemini_backend.client.post = AsyncMock(return_value=mock_response)
 
         # Call the method
-        result = await gemini_backend.chat_completions(
+        await gemini_backend.chat_completions(
             request_data=sample_request_data,
             processed_messages=sample_processed_messages,
             effective_model="gemini-2.5-pro",
@@ -365,7 +364,7 @@ class TestGeminiTemperatureHandling:
         gemini_backend.client.send = AsyncMock(return_value=mock_response)
 
         # Call the method
-        result = await gemini_backend.chat_completions(
+        await gemini_backend.chat_completions(
             request_data=sample_request_data,
             processed_messages=sample_processed_messages,
             effective_model="gemini-2.5-pro",
@@ -380,4 +379,4 @@ class TestGeminiTemperatureHandling:
         
         assert "generationConfig" in payload
         assert "temperature" in payload["generationConfig"]
-        assert payload["generationConfig"]["temperature"] == 0.9 
+        assert payload["generationConfig"]["temperature"] == 0.9
