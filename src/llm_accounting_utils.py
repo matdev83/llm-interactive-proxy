@@ -178,6 +178,7 @@ def extract_billing_info_from_headers(headers: Dict[str, str], backend: str) -> 
         Dictionary with billing information
     """
     billing_info = {
+        "backend": backend,
         "cost": 0.0,
         "upstream_cost": None,
         "provider_info": {},
@@ -219,6 +220,15 @@ def extract_billing_info_from_headers(headers: Dict[str, str], backend: str) -> 
         # No billing headers for CLI - we calculate tokens manually
         billing_info["provider_info"]["note"] = "CLI backend - no billing headers available"
 
+    elif backend == "anthropic":
+        # Anthropic headers currently carry no usage information.  Keep a note
+        billing_info["provider_info"]["note"] = "Anthropic backend - usage info in response only"
+        billing_info["usage"] = {
+            "prompt_tokens": 0,
+            "completion_tokens": 0,
+            "total_tokens": 0,
+        }
+
     return billing_info
 
 
@@ -234,7 +244,15 @@ def extract_billing_info_from_response(response: Union[Dict[str, Any], Streaming
         Dictionary with billing and usage information
     """
     billing_info = {
+        "backend": backend,
+        "provider_info": {},
+        "usage": {
+            "prompt_tokens": 0,
+            "completion_tokens": 0,
+            "total_tokens": 0,
+        },
         "cost": 0.0,
+        # legacy flat keys kept for backwards compat
         "prompt_tokens": None,
         "completion_tokens": None,
         "total_tokens": None,
@@ -281,6 +299,42 @@ def extract_billing_info_from_response(response: Union[Dict[str, Any], Streaming
             # For CLI backend, we need to calculate tokens manually
             # This will be handled in the tracking context manager
             pass
+
+        elif backend == "anthropic":
+            from src.anthropic_converters import extract_anthropic_usage
+            usage_info = extract_anthropic_usage(response)
+            billing_info["usage"]["prompt_tokens"] = usage_info["input_tokens"]
+            billing_info["usage"]["completion_tokens"] = usage_info["output_tokens"]
+            billing_info["usage"]["total_tokens"] = usage_info["total_tokens"]
+            billing_info["prompt_tokens"] = usage_info["input_tokens"]
+            billing_info["completion_tokens"] = usage_info["output_tokens"]
+            billing_info["total_tokens"] = usage_info["total_tokens"]
+            billing_info["provider_info"]["note"] = "Anthropic backend response usage"
+
+    elif backend == "anthropic" and hasattr(response, "usage"):
+        from src.anthropic_converters import extract_anthropic_usage
+        usage_info = extract_anthropic_usage(response)
+        billing_info["usage"]["prompt_tokens"] = usage_info["input_tokens"]
+        billing_info["usage"]["completion_tokens"] = usage_info["output_tokens"]
+        billing_info["usage"]["total_tokens"] = usage_info["total_tokens"]
+        billing_info["prompt_tokens"] = usage_info["input_tokens"]
+        billing_info["completion_tokens"] = usage_info["output_tokens"]
+        billing_info["total_tokens"] = usage_info["total_tokens"]
+        billing_info["provider_info"]["note"] = "Anthropic backend response usage"
+
+    elif isinstance(response, StreamingResponse):
+        # For streaming responses, usage info may not be readily available
+        if backend == "gemini-cli-direct":
+            # For CLI backend, we need to calculate tokens manually
+            pass
+        elif backend == "anthropic":
+            # Anthropic streaming responses don't include usage; default zeros
+            billing_info["usage"]["prompt_tokens"] = 0
+            billing_info["usage"]["completion_tokens"] = 0
+            billing_info["usage"]["total_tokens"] = 0
+            billing_info["prompt_tokens"] = 0
+            billing_info["completion_tokens"] = 0
+            billing_info["total_tokens"] = 0
 
     return billing_info
 

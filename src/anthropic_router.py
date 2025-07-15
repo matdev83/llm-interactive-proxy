@@ -44,6 +44,12 @@ async def anthropic_messages(
     logger.info(f"Anthropic messages request for model: {request_body.model}")
 
     # --- Step 1: Convert to OpenAI format
+    # Basic role validation – Anthropic accepts only user/assistant/system roles
+    allowed_roles = {"user", "assistant", "system"}
+    for m in request_body.messages:
+        if m.role not in allowed_roles:
+            raise HTTPException(status_code=422, detail=f"Invalid role '{m.role}'")
+
     openai_request_data = anthropic_to_openai_request(request_body)
     openai_request_obj = ChatCompletionRequest(**openai_request_data)
 
