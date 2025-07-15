@@ -86,7 +86,7 @@ class PatternAnalyzer:
         self.whitelist = set(whitelist or [])
         
         # Pattern lengths to check (powers of 2 + some common sizes)
-        self.pattern_lengths = [1, 2, 3, 4, 5, 8, 10, 16, 20, 32, 50, 64, 100, 128, 256]
+        self.pattern_lengths = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 12, 16, 20, 24, 32, 40, 50, 64, 100, 128, 256]
         self.pattern_lengths = [l for l in self.pattern_lengths if l <= max_pattern_length]
         
 
@@ -104,9 +104,22 @@ class PatternAnalyzer:
     def is_whitelisted(self, pattern: str) -> bool:
         """Check if pattern is in the whitelist."""
         normalized = self.normalize_pattern(pattern)
-        return normalized in self.whitelist or pattern in self.whitelist
+        
+        # Direct match
+        if normalized in self.whitelist or pattern in self.whitelist:
+            return True
+        
+        # Check if pattern is part of any whitelisted pattern
+        for whitelisted in self.whitelist:
+            if pattern in whitelisted or normalized in whitelisted:
+                return True
+            # Also check if whitelisted pattern is part of the detected pattern
+            if whitelisted in pattern or whitelisted in normalized:
+                return True
+        
+        return False
     
-    def find_patterns_in_text(self, text: str, min_repetitions: int = 3) -> List[PatternMatch]:
+    def find_patterns_in_text(self, text: str, min_repetitions: int = 2) -> List[PatternMatch]:
         """Find all repetitive patterns in the given text."""
         if not text or len(text) < 2:
             return []
@@ -169,8 +182,22 @@ class PatternAnalyzer:
                 if len(group) >= min_repetitions:
                     pattern = text[group[0]:group[0] + pattern_length]
                     
-                    # Skip if whitelisted
+                    # Skip if whitelisted - check both the pattern and if any whitelist item appears in the source text
                     if self.is_whitelisted(pattern):
+                        continue
+                    
+                    # Also check if any whitelisted pattern appears in the source text around this location
+                    start_pos = max(0, group[0] - pattern_length)
+                    end_pos = min(len(text), group[0] + len(group) * pattern_length + pattern_length)
+                    context = text[start_pos:end_pos]
+                    
+                    should_skip = False
+                    for whitelisted in self.whitelist:
+                        if whitelisted in context:
+                            should_skip = True
+                            break
+                    
+                    if should_skip:
                         continue
                     
                     # Calculate confidence based on pattern characteristics
