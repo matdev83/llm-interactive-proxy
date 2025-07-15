@@ -4,12 +4,13 @@ Integration tests using the official Google Gemini API client library.
 These tests verify that the proxy's Gemini API compatibility works correctly
 with the real Google Gemini client, testing all backends and conversion logic.
 """
-import pytest
 import asyncio
 import threading
 import time
-from unittest.mock import patch, AsyncMock
-from typing import Dict, Any
+from typing import Any, Dict
+from unittest.mock import AsyncMock, patch
+
+import pytest
 import uvicorn
 
 from src.main import build_app
@@ -17,7 +18,7 @@ from src.main import build_app
 # Import Gemini client types
 try:
     import google.genai as genai
-    from google.genai.types import Content, Part, Blob
+    from google.genai.types import Blob, Content, Part
     GENAI_AVAILABLE = True
 except ImportError:
     GENAI_AVAILABLE = False

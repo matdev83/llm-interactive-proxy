@@ -2,19 +2,19 @@
 Unit tests for the response middleware system.
 """
 
-import pytest
 from unittest.mock import AsyncMock, MagicMock
-from starlette.responses import StreamingResponse
 
-from src.response_middleware import (
-    ResponseMiddleware, 
-    ResponseProcessor, 
-    RequestContext, 
-    LoopDetectionProcessor,
-    configure_loop_detection_middleware,
-    get_response_middleware
-)
+import pytest
+
 from src.loop_detection.config import LoopDetectionConfig
+from src.response_middleware import (
+    LoopDetectionProcessor,
+    RequestContext,
+    ResponseMiddleware,
+    ResponseProcessor,
+    configure_loop_detection_middleware,
+    get_response_middleware,
+)
 
 
 class TestResponseMiddleware:

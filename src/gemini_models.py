@@ -4,6 +4,7 @@ These models match the official Gemini API format for compatibility.
 """
 from enum import Enum
 from typing import Any, Dict, List, Optional
+
 from pydantic import BaseModel, Field
 
 

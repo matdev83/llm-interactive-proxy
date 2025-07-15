@@ -6,17 +6,21 @@ repetitive patterns that indicate the model is stuck in a loop, allowing
 for automatic cancellation of such requests.
 """
 
-from .detector import LoopDetector, LoopDetectionEvent
 from .config import LoopDetectionConfig
+from .detector import LoopDetectionEvent, LoopDetector
 from .patterns import PatternAnalyzer
-from .streaming import LoopDetectionStreamingResponse, wrap_streaming_content_with_loop_detection, analyze_complete_response_for_loops
+from .streaming import (
+    LoopDetectionStreamingResponse,
+    analyze_complete_response_for_loops,
+    wrap_streaming_content_with_loop_detection,
+)
 
 __all__ = [
-    "LoopDetector",
+    "LoopDetectionConfig",
     "LoopDetectionEvent",
-    "LoopDetectionConfig", 
-    "PatternAnalyzer",
     "LoopDetectionStreamingResponse",
-    "wrap_streaming_content_with_loop_detection",
-    "analyze_complete_response_for_loops"
+    "LoopDetector",
+    "PatternAnalyzer",
+    "analyze_complete_response_for_loops",
+    "wrap_streaming_content_with_loop_detection"
 ]

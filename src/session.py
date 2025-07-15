@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import logging  # Add logging import
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -17,12 +17,12 @@ class SessionInteraction(BaseModel):
 
     prompt: str
     handler: str  # "proxy" or "backend"
-    backend: Optional[str] = None
-    model: Optional[str] = None
-    project: Optional[str] = None
-    parameters: Dict[str, Any] = {}
-    response: Optional[str] = None
-    usage: Optional[models.CompletionUsage] = None
+    backend: str | None = None
+    model: str | None = None
+    project: str | None = None
+    parameters: dict[str, Any] = {}
+    response: str | None = None
+    usage: models.CompletionUsage | None = None
 
 
 class Session(BaseModel):
@@ -32,8 +32,8 @@ class Session(BaseModel):
 
     session_id: str
     proxy_state: ProxyState
-    history: List[SessionInteraction] = Field(default_factory=list)
-    agent: Optional[str] = None
+    history: list[SessionInteraction] = Field(default_factory=list)
+    agent: str | None = None
 
     def add_interaction(self, interaction: SessionInteraction) -> None:
         self.history.append(interaction)
@@ -45,9 +45,9 @@ class SessionManager:
     def __init__(
         self,
         default_interactive_mode: bool = True,
-        failover_routes: Optional[dict[str, dict[str, object]]] | None = None,
+        failover_routes: dict[str, dict[str, object]] | None | None = None,
     ) -> None:
-        self.sessions: Dict[str, Session] = {}
+        self.sessions: dict[str, Session] = {}
         self.default_interactive_mode = default_interactive_mode
         self.failover_routes = failover_routes if failover_routes is not None else {}
 

@@ -4,9 +4,10 @@ Example usage of the Gemini API compatibility interface.
 This demonstrates how to use the LLM Interactive Proxy as if it were
 the Google Gemini API, with proper request/response formats.
 """
-import requests
 import json
-from typing import Dict, Any
+from typing import Any, Dict
+
+import requests
 
 
 class GeminiAPIClient:

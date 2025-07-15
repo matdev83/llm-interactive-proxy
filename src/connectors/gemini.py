@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 import logging
 import time
-from typing import Any, AsyncGenerator, Dict, Optional, Union
+from typing import Any, AsyncGenerator
 
 import httpx
 from fastapi import HTTPException
@@ -49,7 +49,7 @@ class GeminiBackend(LLMBackend):
         return list(self.available_models)
 
     def _convert_stream_chunk(
-            self, data: Dict[str, Any], model: str) -> Dict[str, Any]:
+            self, data: dict[str, Any], model: str) -> dict[str, Any]:
         """Convert a Gemini streaming JSON chunk to OpenAI format."""
         candidate = {}
         text = ""
@@ -77,8 +77,8 @@ class GeminiBackend(LLMBackend):
         }
 
     def _convert_full_response(
-        self, data: Dict[str, Any], model: str
-    ) -> Dict[str, Any]:
+        self, data: dict[str, Any], model: str
+    ) -> dict[str, Any]:
         """Convert a Gemini JSON response to OpenAI format."""
         candidate = {}
         text = ""
@@ -113,10 +113,10 @@ class GeminiBackend(LLMBackend):
 
     def _convert_part_for_gemini(
         self,
-        part: Union[MessageContentPartText, MessageContentPartImage],
+        part: MessageContentPartText | MessageContentPartImage,
         prompt_redactor: APIKeyRedactor | None,
         command_filter: ProxyCommandFilter | None = None,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """Convert a MessageContentPart into Gemini API format."""
         if isinstance(part, MessageContentPartText):
             text = part.text
@@ -301,15 +301,15 @@ class GeminiBackend(LLMBackend):
         request_data: ChatCompletionRequest,
         processed_messages: list,
         effective_model: str,
-        openrouter_api_base_url: Optional[str] = None,  # absorb unused param
+        openrouter_api_base_url: str | None = None,  # absorb unused param
         openrouter_headers_provider: object = None,  # absorb unused param
-        key_name: Optional[str] = None,
-        api_key: Optional[str] = None,
+        key_name: str | None = None,
+        api_key: str | None = None,
         project: str | None = None,
         prompt_redactor: APIKeyRedactor | None = None,
         command_filter: ProxyCommandFilter | None = None,
         **kwargs,
-    ) -> Union[Dict[str, Any], StreamingResponse]:
+    ) -> dict[str, Any] | StreamingResponse:
         gemini_api_base_url = openrouter_api_base_url or kwargs.get(
             "gemini_api_base_url"
         )
@@ -380,7 +380,7 @@ class GeminiBackend(LLMBackend):
         payload: dict,
         headers: dict,
         effective_model: str,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         url = f"{base_url}:generateContent"
         try:
             response = await self.client.post(url, json=payload, headers=headers)
@@ -409,7 +409,7 @@ class GeminiBackend(LLMBackend):
         gemini_api_base_url: str,
         key_name: str,
         api_key: str,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         headers = {"x-goog-api-key": api_key}
         url = f"{gemini_api_base_url.rstrip('/')}/v1beta/models"
         try:

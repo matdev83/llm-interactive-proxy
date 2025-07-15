@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, List, Mapping, Optional, Set, Type, Protocol
 import logging
+from dataclasses import dataclass
+from typing import TYPE_CHECKING, Any, Mapping, Protocol
 
 if TYPE_CHECKING:
     from fastapi import FastAPI
@@ -23,7 +23,7 @@ class CommandContext(Protocol):
     """Protocol for command execution context to decouple commands from FastAPI app."""
     
     @property
-    def backend_type(self) -> Optional[str]:
+    def backend_type(self) -> str | None:
         """Get the current backend type."""
         ...
     
@@ -52,7 +52,7 @@ class CommandContext(Protocol):
         """Set command prefix."""
         ...
     
-    def get_backend(self, backend_name: str) -> Optional[Any]:
+    def get_backend(self, backend_name: str) -> Any | None:
         """Get backend instance by name."""
         ...
     
@@ -64,11 +64,11 @@ class CommandContext(Protocol):
 class AppCommandContext:
     """Concrete implementation of CommandContext that wraps FastAPI app state."""
     
-    def __init__(self, app: "FastAPI") -> None:
+    def __init__(self, app: FastAPI) -> None:
         self.app = app
     
     @property
-    def backend_type(self) -> Optional[str]:
+    def backend_type(self) -> str | None:
         return getattr(self.app.state, "backend_type", None)
     
     @backend_type.setter
@@ -95,7 +95,7 @@ class AppCommandContext:
     def command_prefix(self, value: str) -> None:
         self.app.state.command_prefix = value
     
-    def get_backend(self, backend_name: str) -> Optional[Any]:
+    def get_backend(self, backend_name: str) -> Any | None:
         backend_attr = f"{backend_name}_backend"
         return getattr(self.app.state, backend_attr, None)
     
@@ -119,45 +119,45 @@ class BaseCommand:
     # human friendly description
     description: str = ""
     # usage examples
-    examples: List[str] = []
+    examples: list[str] = []
 
     def __init__(
         self,
-        app: Optional[FastAPI] = None,
-        functional_backends: Optional[Set[str]] = None,
+        app: FastAPI | None = None,
+        functional_backends: set[str] | None = None,
     ) -> None:
         self.app = app
         self.functional_backends = functional_backends or set()
 
     def execute(self, args: Mapping[str, Any],
-                state: "ProxyState") -> CommandResult:
+                state: ProxyState) -> CommandResult:
         raise NotImplementedError
 
     def execute_with_context(
         self, 
         args: Mapping[str, Any], 
-        state: "ProxyState", 
-        context: Optional[CommandContext] = None
+        state: ProxyState, 
+        context: CommandContext | None = None
     ) -> CommandResult:
         """Execute command with context. Default implementation calls execute for backward compatibility."""
         return self.execute(args, state)
 
 
 # Registry -----------------------------------------------------------------
-command_registry: Mapping[str, Type[BaseCommand]] = {}
+command_registry: Mapping[str, type[BaseCommand]] = {}
 
 
-def register_command(cls: Type[BaseCommand]) -> Type[BaseCommand]:
+def register_command(cls: type[BaseCommand]) -> type[BaseCommand]:
     """Class decorator to register a command in the global registry."""
     command_registry[cls.name.lower()] = cls
     return cls
 
 
 def create_command_instances(
-    app: Optional[FastAPI], functional_backends: Optional[Set[str]] = None
-) -> List[BaseCommand]:
+    app: FastAPI | None, functional_backends: set[str] | None = None
+) -> list[BaseCommand]:
     """Instantiate all registered commands."""
-    instances: List[BaseCommand] = []
+    instances: list[BaseCommand] = []
     for cls in command_registry.values():
         instances.append(cls(app=app, functional_backends=functional_backends))
     return instances

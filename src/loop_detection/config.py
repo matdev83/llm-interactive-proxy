@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
-from typing import Dict, List, Optional, Any
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -38,33 +38,33 @@ class LoopDetectionConfig:
     long_pattern_threshold: PatternThresholds = None
     
     # Whitelist patterns that should not trigger detection
-    whitelist: List[str] = None
+    whitelist: list[str] = None
     
     def __post_init__(self):
         """Initialize default thresholds if not provided."""
         if self.short_pattern_threshold is None:
             self.short_pattern_threshold = PatternThresholds(
-                min_repetitions=12,
-                min_total_length=50
+                min_repetitions=8,  # Reduced to catch more patterns
+                min_total_length=100  # 100 unicode chars minimum
             )
         
         if self.medium_pattern_threshold is None:
             self.medium_pattern_threshold = PatternThresholds(
-                min_repetitions=6,
-                min_total_length=100
+                min_repetitions=4,  # Reduced to catch medium patterns
+                min_total_length=100  # 100 unicode chars minimum
             )
         
         if self.long_pattern_threshold is None:
             self.long_pattern_threshold = PatternThresholds(
-                min_repetitions=3,
-                min_total_length=200
+                min_repetitions=3,  # Keep at 3 for long patterns
+                min_total_length=100  # 100 unicode chars minimum
             )
         
         if self.whitelist is None:
             self.whitelist = ["...", "---", "===", "```"]
     
     @classmethod
-    def from_dict(cls, config_dict: Dict[str, Any]) -> "LoopDetectionConfig":
+    def from_dict(cls, config_dict: dict[str, Any]) -> LoopDetectionConfig:
         """Create configuration from dictionary."""
         config = cls()
         
@@ -107,7 +107,7 @@ class LoopDetectionConfig:
         return config
     
     @classmethod
-    def from_env_vars(cls, env_dict: Dict[str, str]) -> "LoopDetectionConfig":
+    def from_env_vars(cls, env_dict: dict[str, str]) -> LoopDetectionConfig:
         """Create configuration from environment variables."""
         config = cls()
         
@@ -147,7 +147,7 @@ class LoopDetectionConfig:
         else:
             return self.long_pattern_threshold
     
-    def validate(self) -> List[str]:
+    def validate(self) -> list[str]:
         """Validate configuration and return list of errors."""
         errors = []
         

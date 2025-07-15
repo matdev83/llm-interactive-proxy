@@ -6,7 +6,7 @@ from __future__ import annotations
 import json
 import logging
 import time
-from typing import Any, Dict, Tuple, Union, Callable, AsyncGenerator
+from typing import Any, AsyncGenerator, Callable
 
 import httpx
 from fastapi import HTTPException
@@ -57,18 +57,18 @@ class AnthropicBackend(LLMBackend):
     # -----------------------------------------------------------
     async def chat_completions(
         self,
-        request_data: "ChatCompletionRequest",
+        request_data: ChatCompletionRequest,
         processed_messages: list,
         effective_model: str,
         openrouter_api_base_url: str | None = None,  # absorbs positional arg in base class
-        openrouter_headers_provider: Callable[[str, str], Dict[str, str]] | None = None,  # unused
+        openrouter_headers_provider: Callable[[str, str], dict[str, str]] | None = None,  # unused
         key_name: str | None = None,
         api_key: str | None = None,
         project: str | None = None,
-        prompt_redactor: "APIKeyRedactor" | None = None,
-        command_filter: "ProxyCommandFilter" | None = None,
+        prompt_redactor: APIKeyRedactor | None = None,
+        command_filter: ProxyCommandFilter | None = None,
         **kwargs,
-    ) -> Union[Tuple[Dict[str, Any], Dict[str, str]], StreamingResponse]:
+    ) -> tuple[dict[str, Any], dict[str, str]] | StreamingResponse:
         """Send request to Anthropic Messages endpoint and return data in OpenAI format."""
         if api_key is None:
             raise HTTPException(status_code=500, detail="Anthropic API key not configured")
@@ -115,8 +115,8 @@ class AnthropicBackend(LLMBackend):
         project: str | None,
         prompt_redactor: APIKeyRedactor | None,
         command_filter: ProxyCommandFilter | None,
-    ) -> Dict[str, Any]:
-        payload: Dict[str, Any] = {
+    ) -> dict[str, Any]:
+        payload: dict[str, Any] = {
             "model": effective_model,
             "max_tokens": request_data.max_tokens or 1024,
             "stream": bool(request_data.stream),
@@ -124,7 +124,7 @@ class AnthropicBackend(LLMBackend):
 
         # System message extraction (Anthropic expects it separately)
         system_prompt = None
-        anth_messages: list[Dict[str, Any]] = []
+        anth_messages: list[dict[str, Any]] = []
         for msg in processed_messages:
             if msg.role == "system":
                 if isinstance(msg.content, str):
@@ -187,7 +187,7 @@ class AnthropicBackend(LLMBackend):
         payload: dict,
         headers: dict,
         model: str,
-    ) -> Tuple[Dict[str, Any], Dict[str, str]]:
+    ) -> tuple[dict[str, Any], dict[str, str]]:
         response = await self.client.post(url, json=payload, headers=headers)
         if response.status_code >= 400:
             try:
@@ -249,7 +249,7 @@ class AnthropicBackend(LLMBackend):
     # -----------------------------------------------------------
     # Converters
     # -----------------------------------------------------------
-    def _convert_stream_chunk(self, data: Dict[str, Any], model: str) -> Dict[str, Any]:
+    def _convert_stream_chunk(self, data: dict[str, Any], model: str) -> dict[str, Any]:
         """Convert Anthropic delta event to OpenAI chat.completion.chunk format."""
         # Anthropic delta events have the shape:
         # {"type": "content_block_delta", "index":0, "delta": {"text":"..."}}
@@ -273,7 +273,7 @@ class AnthropicBackend(LLMBackend):
             ],
         }
 
-    def _convert_full_response(self, data: Dict[str, Any], model: str) -> Dict[str, Any]:
+    def _convert_full_response(self, data: dict[str, Any], model: str) -> dict[str, Any]:
         """Convert full Anthropic message response to OpenAI format."""
         # Anthropic response example:
         # {"id":"...","content":[{"type":"text","text":"..."}],"role":"assistant","stop_reason":"stop","usage":{"input_tokens":X,"output_tokens":Y}}
@@ -302,7 +302,7 @@ class AnthropicBackend(LLMBackend):
     # -----------------------------------------------------------
     # Model listing
     # -----------------------------------------------------------
-    async def list_models(self, *, base_url: str, key_name: str, api_key: str) -> list[Dict[str, Any]]:
+    async def list_models(self, *, base_url: str, key_name: str, api_key: str) -> list[dict[str, Any]]:
         url = f"{base_url}/models"
         headers = {
             "x-api-key": api_key,

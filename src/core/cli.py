@@ -41,7 +41,7 @@ def _daemonize_unix() -> None:
 
     sys.stdout.flush()
     sys.stderr.flush()
-    si = open(os.devnull, "r")
+    si = open(os.devnull)
     so = open(os.devnull, "a+")
     se = open(os.devnull, "a+")
     os.dup2(si.fileno(), sys.stdin.fileno())
@@ -207,7 +207,7 @@ def main(
             args_list = [
                 arg for arg in sys.argv[1:] if not arg.startswith("--daemon")
             ]
-            command = [sys.executable, "-m", "src.core.cli"] + args_list
+            command = [sys.executable, "-m", "src.core.cli", *args_list]
             subprocess.Popen(
                 command,
                 creationflags=subprocess.DETACHED_PROCESS,

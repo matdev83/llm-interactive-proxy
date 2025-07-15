@@ -1,7 +1,8 @@
 # import os # F401: Removed
+from unittest.mock import AsyncMock, patch
+
 import pytest
 from fastapi.testclient import TestClient
-from unittest.mock import patch, AsyncMock
 
 from src.main import build_app
 

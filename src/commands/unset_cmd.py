@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, Dict, List, Set
+from typing import TYPE_CHECKING, Any
 
 from fastapi import FastAPI
 
@@ -22,10 +22,10 @@ class UnsetCommand(BaseCommand):
     ]
 
     def __init__(self, app: FastAPI | None = None,
-                 functional_backends: Set[str] | None = None) -> None:
+                 functional_backends: set[str] | None = None) -> None:
         super().__init__(app, functional_backends)
 
-    def _unset_default_backend(self, state: "ProxyState") -> str:
+    def _unset_default_backend(self, state: ProxyState) -> str:
         if not self.app:
             return ""
         initial_type = getattr(
@@ -39,13 +39,13 @@ class UnsetCommand(BaseCommand):
             self.app.state.backend = self.app.state.openrouter_backend
         return "default-backend unset"
 
-    def _unset_command_prefix(self, state: "ProxyState") -> str:
+    def _unset_command_prefix(self, state: ProxyState) -> str:
         if not self.app:
             return ""
         self.app.state.command_prefix = DEFAULT_COMMAND_PREFIX
         return "command prefix unset"
 
-    def _unset_redact_api_keys(self, state: "ProxyState") -> str:
+    def _unset_redact_api_keys(self, state: ProxyState) -> str:
         if not self.app:
             return ""
         self.app.state.api_key_redaction_enabled = (
@@ -53,9 +53,9 @@ class UnsetCommand(BaseCommand):
         )
         return "redact-api-keys-in-prompts unset"
 
-    def execute(self, args: Dict[str, Any],
-                state: "ProxyState") -> CommandResult:
-        messages: List[str] = []
+    def execute(self, args: dict[str, Any],
+                state: ProxyState) -> CommandResult:
+        messages: list[str] = []
         persistent_change = False
         keys_to_unset = [k for k, v in args.items() if v is True]
 

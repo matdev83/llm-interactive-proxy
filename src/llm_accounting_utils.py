@@ -7,15 +7,15 @@ This module implements two separate tracking systems:
 """
 
 import logging
-import time
 import os
-from datetime import datetime
-from typing import Optional, Dict, Any, Union, List, Tuple
+import time
 from contextlib import asynccontextmanager
+from datetime import datetime
+from typing import Any, Dict, List, Optional, Tuple, Union
 
 import tiktoken
-from llm_accounting import LLMAccounting
 from fastapi.responses import StreamingResponse
+from llm_accounting import LLMAccounting
 
 logger = logging.getLogger(__name__)
 
@@ -68,9 +68,7 @@ def get_token_encoder(model: str = "gpt-3.5-turbo") -> tiktoken.Encoding:
     if "gemini" in model.lower():
         # Use cl100k_base for Gemini models (similar to GPT-4)
         encoder_name = "cl100k_base"
-    elif "gpt-4" in model.lower():
-        encoder_name = "cl100k_base"
-    elif "gpt-3.5" in model.lower():
+    elif "gpt-4" in model.lower() or "gpt-3.5" in model.lower():
         encoder_name = "cl100k_base"
     else:
         # Default to cl100k_base for unknown models

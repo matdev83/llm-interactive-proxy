@@ -4,13 +4,15 @@ Simple integration tests for loop detection functionality.
 These tests focus on core functionality without complex app startup issues.
 """
 
+
 import pytest
-from unittest.mock import patch
-import os
 
 from src.loop_detection.config import LoopDetectionConfig
-from src.response_middleware import configure_loop_detection_middleware, get_response_middleware
 from src.loop_detection.detector import LoopDetector
+from src.response_middleware import (
+    configure_loop_detection_middleware,
+    get_response_middleware,
+)
 
 
 class TestLoopDetectionSimpleIntegration:
@@ -128,7 +130,9 @@ class TestLoopDetectionSimpleIntegration:
             yield " "
             yield "World"
         
-        from src.loop_detection.streaming import wrap_streaming_content_with_loop_detection
+        from src.loop_detection.streaming import (
+            wrap_streaming_content_with_loop_detection,
+        )
         
         # Wrap the stream
         wrapped_stream = wrap_streaming_content_with_loop_detection(simple_stream(), detector)
@@ -178,8 +182,8 @@ class TestLoopDetectionSimpleIntegration:
     def test_app_startup_integration(self):
         """Test that app can start with loop detection enabled."""
         # This is a minimal test that just verifies imports and basic setup work
-        from src.main import build_app
         from src.core.config import _load_config
+        from src.main import build_app
         
         # Get base config and override problematic settings
         base_config = _load_config()

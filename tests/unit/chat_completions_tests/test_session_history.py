@@ -3,7 +3,6 @@ from unittest.mock import AsyncMock, patch
 from starlette.responses import StreamingResponse
 
 
-
 def test_session_records_proxy_and_backend_interactions(client):
     with patch.object(
         client.app.state.openrouter_backend, "chat_completions", new_callable=AsyncMock

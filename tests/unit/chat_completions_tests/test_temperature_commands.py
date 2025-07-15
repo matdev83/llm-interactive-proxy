@@ -1,6 +1,6 @@
-import pytest
 from unittest.mock import AsyncMock, patch
 
+import pytest
 
 
 class TestTemperatureCommands:
@@ -460,8 +460,8 @@ class TestTemperatureProxyState:
 
     def test_proxy_state_apply_model_defaults_temperature(self):
         """Test applying model defaults with temperature."""
-        from src.proxy_logic import ProxyState
         from src.models import ModelDefaults, ModelReasoningConfig
+        from src.proxy_logic import ProxyState
         
         proxy_state = ProxyState()
         
@@ -478,8 +478,8 @@ class TestTemperatureProxyState:
 
     def test_proxy_state_apply_model_defaults_no_override(self):
         """Test that model defaults don't override existing temperature."""
-        from src.proxy_logic import ProxyState
         from src.models import ModelDefaults, ModelReasoningConfig
+        from src.proxy_logic import ProxyState
         
         proxy_state = ProxyState()
         proxy_state.set_temperature(0.9)  # Set existing temperature

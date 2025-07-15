@@ -1,5 +1,6 @@
 from unittest.mock import AsyncMock, patch
 
+
 def test_command_only_request_direct_response(client):
     client.app.state.openrouter_backend.available_models = ["command-only-model"]
     payload = {

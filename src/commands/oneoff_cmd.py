@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING, Any, List, Mapping, Set, Optional
+from typing import TYPE_CHECKING, Any, Mapping
 
 from fastapi import FastAPI
 
@@ -16,7 +16,7 @@ logger = logging.getLogger(__name__)
 @register_command
 class OneoffCommand(BaseCommand):
     name = "oneoff"
-    aliases: List[str] = ["one-off"]
+    aliases: list[str] = ["one-off"]
     format = "oneoff(backend/model)"
     description = "Sets a one-time override for the backend and model for the next request."
     examples = [
@@ -24,14 +24,14 @@ class OneoffCommand(BaseCommand):
         "!/one-off(gemini/gemini-pro)",
     ]
 
-    def __init__(self, app: Optional[FastAPI] = None, functional_backends: Optional[Set[str]] = None) -> None:
+    def __init__(self, app: FastAPI | None = None, functional_backends: set[str] | None = None) -> None:
         super().__init__(app, functional_backends)
 
-    def execute(self, args: Mapping[str, Any], state: "ProxyState") -> CommandResult:
+    def execute(self, args: Mapping[str, Any], state: ProxyState) -> CommandResult:
         if not args:
             return CommandResult(self.name, False, "oneoff command requires a backend/model argument.")
 
-        arg_key = list(args.keys())[0]
+        arg_key = next(iter(args.keys()))
         
         # Use robust parsing that handles both slash and colon syntax
         from src.models import parse_model_backend

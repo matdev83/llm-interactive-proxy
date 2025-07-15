@@ -3,16 +3,14 @@ Integration tests for Anthropic front-end interface.
 Tests the complete flow using the official Anthropic SDK against the proxy.
 """
 
+
 import pytest
-import asyncio
-import os
-from unittest.mock import patch, AsyncMock, Mock
 from fastapi.testclient import TestClient
 
 # Import the official Anthropic SDK for testing
 try:
     import anthropic
-    from anthropic import AsyncAnthropic, Anthropic
+    from anthropic import Anthropic, AsyncAnthropic
     ANTHROPIC_AVAILABLE = True
 except ImportError:
     ANTHROPIC_AVAILABLE = False
@@ -231,7 +229,6 @@ class TestAnthropicFrontendIntegration:
     def test_concurrent_requests(self):
         """Test handling of concurrent requests."""
         import threading
-        import time
         
         results = []
         

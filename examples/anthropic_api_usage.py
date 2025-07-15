@@ -7,8 +7,9 @@ by simply changing the base_url parameter.
 """
 
 import asyncio
-import os
 import logging
+import os
+
 from anthropic import AsyncAnthropic
 
 # Use application logger instead of print statements
@@ -88,7 +89,7 @@ async def example_streaming_completion():
 async def example_list_models():
     """Example of listing available models through the proxy."""
     
-    client = AsyncAnthropic(
+    AsyncAnthropic(
         api_key=ANTHROPIC_API_KEY,
         base_url=PROXY_BASE_URL
     )

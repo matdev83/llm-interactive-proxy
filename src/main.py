@@ -1,52 +1,66 @@
 from __future__ import annotations
 
-import logging
 import asyncio
 import json
+import logging
 import os
 import sys
 import time
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, suppress
 from datetime import datetime, timezone
-from typing import Any, Dict, Optional
+from typing import Any
 
 # Moved imports to the top (E402 fix)
 import httpx  # json is used for logging, will keep
-from fastapi import Depends, FastAPI, HTTPException, Request, Body
-from starlette.responses import StreamingResponse
+from fastapi import Body, Depends, FastAPI, HTTPException, Request
 from fastapi.testclient import TestClient
+from starlette.responses import StreamingResponse
 
-from src.connectors.gemini_cli_direct import GeminiCliDirectConnector  # re-export for tests
-from src.core.config import _load_config  # needed for build_app
-from src.core.config import get_openrouter_headers, _keys_for
-from src.core.metadata import _load_project_metadata  # project metadata helper
-from src.session import SessionManager  # manages per-session state
-from src.connectors.openrouter import OpenRouterBackend
-from src.connectors.gemini import GeminiBackend
-from src.constants import BackendType
-from src.security import APIKeyRedactor, ProxyCommandFilter
-from src.rate_limit import RateLimitRegistry
-from src.core.persistence import ConfigManager
 import src.models as models
-from src.performance_tracker import track_request_performance, track_phase
-from src.llm_accounting_utils import track_llm_request, get_usage_stats, get_llm_accounting, get_audit_logs
-from src.rate_limit import parse_retry_delay
-from src.command_parser import CommandParser
-from src.proxy_logic import ProxyState
-from src.constants import SUPPORTED_BACKENDS
-from src.agents import detect_agent
-from src.agents import wrap_proxy_message
-from src.session import SessionInteraction
-from src.anthropic_models import AnthropicMessagesRequest
+from src.agents import detect_agent, wrap_proxy_message
 from src.anthropic_converters import (
     anthropic_to_openai_request,
     openai_to_anthropic_response,
     openai_to_anthropic_stream_chunk,
 )
-from src.gemini_converters import openai_models_to_gemini_models, gemini_to_openai_request, openai_to_gemini_response, openai_to_gemini_stream_chunk
+from src.anthropic_models import AnthropicMessagesRequest
+from src.command_parser import CommandParser
+from src.connectors.gemini import GeminiBackend
+from src.connectors.gemini_cli_direct import (
+    GeminiCliDirectConnector,  # re-export for tests
+)
+from src.connectors.openrouter import OpenRouterBackend
+from src.constants import SUPPORTED_BACKENDS, BackendType
+from src.core.config import (
+    _keys_for,
+    _load_config,  # needed for build_app
+    get_openrouter_headers,
+)
+from src.core.metadata import _load_project_metadata  # project metadata helper
+from src.core.persistence import ConfigManager
+from src.gemini_converters import (
+    gemini_to_openai_request,
+    openai_models_to_gemini_models,
+    openai_to_gemini_response,
+    openai_to_gemini_stream_chunk,
+)
 from src.gemini_models import GenerateContentRequest
-from src.response_middleware import configure_loop_detection_middleware
+from src.llm_accounting_utils import (
+    get_audit_logs,
+    get_llm_accounting,
+    get_usage_stats,
+    track_llm_request,
+)
 from src.loop_detection.config import LoopDetectionConfig
+from src.performance_tracker import track_phase, track_request_performance
+from src.proxy_logic import ProxyState
+from src.rate_limit import RateLimitRegistry, parse_retry_delay
+from src.response_middleware import configure_loop_detection_middleware
+from src.security import APIKeyRedactor, ProxyCommandFilter
+from src.session import (
+    SessionInteraction,
+    SessionManager,  # manages per-session state
+)
 
 # Configure module-level logger
 logger = logging.getLogger(__name__)
@@ -73,7 +87,7 @@ if not hasattr(TestClient, "_patched_stream_kw"):
 
 
 def build_app(
-    cfg: Dict[str, Any] | None = None, *, config_file: str | None = None
+    cfg: dict[str, Any] | None = None, *, config_file: str | None = None
 ) -> FastAPI:
     # ---------------------------------------------------------------------
     # Load configuration from env first, then merge optional config_file JSON
@@ -82,7 +96,7 @@ def build_app(
 
     if config_file:
         try:
-            with open(config_file, "r", encoding="utf-8") as fh:
+            with open(config_file, encoding="utf-8") as fh:
                 file_cfg = json.load(fh)
                 # Map legacy key name `default_backend` → `backend`
                 if "default_backend" in file_cfg and "backend" not in file_cfg:
@@ -228,7 +242,9 @@ def build_app(
         if len(gemini_backend.api_keys) < 2:
             gemini_backend.api_keys.append("local-cli")
         # New variant backends
-        from src.connectors.gemini_cli_batch import GeminiCliBatchConnector  # local import to avoid circular
+        from src.connectors.gemini_cli_batch import (
+            GeminiCliBatchConnector,  # local import to avoid circular
+        )
         from src.connectors.gemini_cli_interactive import GeminiCliInteractiveConnector
 
         gemini_cli_batch_backend = GeminiCliBatchConnector()
@@ -451,19 +467,15 @@ def build_app(
         # Close shared httpx client
         try:
             await client_httpx.aclose()
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             logger.debug("Failed to close shared httpx client: %s", exc)
 
         # Terminate Gemini CLI background/interactive processes to avoid ResourceWarnings
-        try:
+        with suppress(Exception):
             await gemini_cli_interactive_backend.shutdown()
-        except Exception:  # noqa: BLE001
-            pass
 
-        try:
+        with suppress(Exception):
             await gemini_cli_direct_backend.shutdown()
-        except Exception:  # noqa: BLE001
-            pass
 
     app_instance = FastAPI(lifespan=lifespan)
 
@@ -1059,7 +1071,7 @@ def build_app(
                         raise
                     except Exception as e:
                         logger.error(f"Unexpected error from Gemini CLI Direct backend: {e}", exc_info=True)
-                        raise HTTPException(status_code=500, detail=f"Gemini CLI Direct backend error: {str(e)}")
+                        raise HTTPException(status_code=500, detail=f"Gemini CLI Direct backend error: {e!s}")
 
                 elif b_type == BackendType.GEMINI_CLI_BATCH:
                     # Batch (one-shot) Gemini CLI backend – same interface as direct variant
@@ -1095,7 +1107,7 @@ def build_app(
                         raise
                     except Exception as e:
                         logger.error(f"Unexpected error from Gemini CLI Batch backend: {e}", exc_info=True)
-                        raise HTTPException(status_code=500, detail=f"Gemini CLI Batch backend error: {str(e)}")
+                        raise HTTPException(status_code=500, detail=f"Gemini CLI Batch backend error: {e!s}")
 
                 elif b_type == BackendType.ANTHROPIC:
                     retry_at = http_request.app.state.rate_limits.get(
@@ -1377,7 +1389,7 @@ def build_app(
                 backend_response_dict = response_from_backend
             elif response_from_backend and hasattr(response_from_backend, 'model_dump'):
                 backend_response_dict = response_from_backend.model_dump(exclude_none=True)
-            elif hasattr(response_from_backend, '__call__') or hasattr(response_from_backend, '__await__'):
+            elif callable(response_from_backend) or hasattr(response_from_backend, '__await__'):
                 # Handle mock objects or coroutines that weren't properly awaited
                 logger.warning(f"Backend returned a callable/awaitable object instead of response: {type(response_from_backend)}")
                 backend_response_dict = {}
@@ -1499,7 +1511,7 @@ def build_app(
             return gemini_models_response.model_dump(exclude_none=True, by_alias=True)
         except Exception as e:
             logger.error(f"Error in list_gemini_models: {e}")
-            raise HTTPException(status_code=500, detail=f"Failed to list models: {str(e)}")
+            raise HTTPException(status_code=500, detail=f"Failed to list models: {e!s}")
 
     def _parse_model_backend(model: str, default_backend: str) -> tuple[str, str]:
         """Parse model string to extract backend and actual model name."""
@@ -1633,9 +1645,9 @@ def build_app(
     async def get_usage_statistics(
         http_request: Request,
         days: int = 30,
-        backend: Optional[str] = None,
-        project: Optional[str] = None,
-        username: Optional[str] = None,
+        backend: str | None = None,
+        project: str | None = None,
+        username: str | None = None,
     ):
         """Get usage statistics from the LLM accounting system."""
         try:
@@ -1651,7 +1663,7 @@ def build_app(
             }
         except Exception as e:
             logger.error(f"Failed to get usage statistics: {e}")
-            raise HTTPException(status_code=500, detail=f"Failed to get usage statistics: {str(e)}")
+            raise HTTPException(status_code=500, detail=f"Failed to get usage statistics: {e!s}")
 
     @app_instance.get("/usage/recent", dependencies=[Depends(verify_client_auth)])
     async def get_recent_usage(
@@ -1685,15 +1697,15 @@ def build_app(
             }
         except Exception as e:
             logger.error(f"Failed to get recent usage: {e}")
-            raise HTTPException(status_code=500, detail=f"Failed to get recent usage: {str(e)}")
+            raise HTTPException(status_code=500, detail=f"Failed to get recent usage: {e!s}")
 
     @app_instance.get("/audit/logs", dependencies=[Depends(verify_client_auth)])
     async def get_audit_logs_endpoint(
         http_request: Request,
         limit: int = 100,
-        username: Optional[str] = None,
-        start_date: Optional[str] = None,
-        end_date: Optional[str] = None,
+        username: str | None = None,
+        start_date: str | None = None,
+        end_date: str | None = None,
     ):
         """Get audit log entries with full prompt/response content for compliance monitoring."""
         try:
@@ -1729,7 +1741,7 @@ def build_app(
             raise
         except Exception as e:
             logger.error(f"Failed to get audit logs: {e}")
-            raise HTTPException(status_code=500, detail=f"Failed to get audit logs: {str(e)}")
+            raise HTTPException(status_code=500, detail=f"Failed to get audit logs: {e!s}")
 
     async def verify_anthropic_auth(http_request: Request) -> None:
         """Verify Anthropic API authentication via x-api-key header."""

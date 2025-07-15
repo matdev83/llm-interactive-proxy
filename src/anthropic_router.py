@@ -6,7 +6,7 @@ Provides /anthropic/v1/messages and /anthropic/v1/models endpoints.
 from __future__ import annotations
 
 import logging
-from typing import Any, Dict
+from typing import Any
 
 from fastapi import APIRouter, HTTPException, Request
 from starlette.responses import Response, StreamingResponse
@@ -16,11 +16,12 @@ from src.anthropic_converters import (
     AnthropicMessagesRequest,
     anthropic_to_openai_request,
     get_anthropic_models,
-    openai_to_anthropic_response,
     openai_stream_to_anthropic_stream,
+    openai_to_anthropic_response,
 )
 from src.constants import BackendType
 from src.models import ChatCompletionRequest
+
 # Import will be done locally to avoid circular imports
 
 logger = logging.getLogger(__name__)
@@ -84,7 +85,7 @@ async def anthropic_messages(
 
 
 @router.get("/v1/models")
-async def anthropic_models() -> Dict[str, Any]:
+async def anthropic_models() -> dict[str, Any]:
     """
     Anthropic /v1/models endpoint - list available models.
     
@@ -136,14 +137,14 @@ def _convert_streaming_response(openai_stream_response) -> Response:
 
 # Health check endpoint for Anthropic router
 @router.get("/health")
-async def anthropic_health() -> Dict[str, str]:
+async def anthropic_health() -> dict[str, str]:
     """Health check for Anthropic router."""
     return {"status": "healthy", "service": "anthropic-proxy"}
 
 
 # Info endpoint
 @router.get("/v1/info")
-async def anthropic_info() -> Dict[str, Any]:
+async def anthropic_info() -> dict[str, Any]:
     """Information about the Anthropic proxy service."""
     return {
         "service": "anthropic-proxy",

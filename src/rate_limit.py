@@ -2,14 +2,14 @@ from __future__ import annotations
 
 import json
 import time
-from typing import Any, Dict, Iterable, Optional, Tuple
+from typing import Any, Iterable
 
 
 class RateLimitRegistry:
     """Tracks when a backend/model/key combination can be retried."""
 
     def __init__(self) -> None:
-        self._until: Dict[Tuple[str, str, str], float] = {}
+        self._until: dict[tuple[str, str, str], float] = {}
 
     def set(
             self,
@@ -21,7 +21,7 @@ class RateLimitRegistry:
                     ] = time.time() + delay_seconds
 
     def get(self, backend: str, model: str | None,
-            key_name: str) -> Optional[float]:
+            key_name: str) -> float | None:
         key = (backend, model or "", key_name)
         ts = self._until.get(key)
         if ts is None:
@@ -31,7 +31,7 @@ class RateLimitRegistry:
             return None
         return ts
 
-    def earliest(self, combos: Iterable[Tuple[str, str, str]] | None = None) -> Optional[float]:
+    def earliest(self, combos: Iterable[tuple[str, str, str]] | None = None) -> float | None:
         """Return the earliest retry timestamp for the given combinations."""
         items = (
             ((b, m or "", k), self._until.get((b, m or "", k)))
@@ -43,7 +43,7 @@ class RateLimitRegistry:
         return min(valid_times)
 
 
-def _find_retry_delay_in_details(details_list: list) -> Optional[float]:
+def _find_retry_delay_in_details(details_list: list) -> float | None:
     """Iterates through a list of detail items to find and parse RetryInfo."""
     # This check can be removed if the caller ensures details_list is always a list.
     # However, keeping it makes the helper more robust.
@@ -69,9 +69,9 @@ def _find_retry_delay_in_details(details_list: list) -> Optional[float]:
     return None
 
 
-def parse_retry_delay(detail: object) -> Optional[float]:
+def parse_retry_delay(detail: object) -> float | None:
     """Parse retry delay (seconds) from backend 429 error details."""
-    data_dict: Optional[Dict[str, Any]] = None
+    data_dict: dict[str, Any] | None = None
     if isinstance(detail, str):
         try:
             loaded_json = json.loads(detail)

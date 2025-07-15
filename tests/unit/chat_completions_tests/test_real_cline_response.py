@@ -1,5 +1,5 @@
-from unittest.mock import AsyncMock, patch
 import json
+from unittest.mock import AsyncMock, patch
 
 
 def test_real_cline_hello_response(interactive_client):
@@ -121,7 +121,7 @@ def test_cline_pure_hello_command(interactive_client):
     data = resp.json()
     content = data["choices"][0]["message"]["content"]
     
-    print(f"\nPure command content: {repr(content)}")
+    print(f"\nPure command content: {content!r}")
     
     # Should be XML wrapped for Cline
     assert content.startswith("<attempt_completion>")
@@ -156,7 +156,7 @@ def test_cline_no_session_id(interactive_client):
     data = resp.json()
     content = data["choices"][0]["message"]["content"]
     
-    print(f"\nNo session ID content: {repr(content)}")
+    print(f"\nNo session ID content: {content!r}")
     
     # Should still be XML wrapped for Cline
     assert content.startswith("<attempt_completion>")
@@ -216,7 +216,7 @@ def test_cline_non_command_message(interactive_client):
     data = resp.json()
     content = data["choices"][0]["message"]["content"]
     
-    print(f"\nNon-command content: {repr(content)}")
+    print(f"\nNon-command content: {content!r}")
     
     # This should NOT be XML wrapped because it's a normal LLM response, not a proxy command response
     # The issue might be here - if Cline expects ALL responses to be XML wrapped when it's detected
@@ -253,7 +253,7 @@ def test_cline_first_message_hello(interactive_client):
     data = resp.json()
     content = data["choices"][0]["message"]["content"]
     
-    print(f"\nFirst message hello content: {repr(content)}")
+    print(f"\nFirst message hello content: {content!r}")
     
     # The question is: should this be XML wrapped or not?
     # If Cline sends !/hello as first message, it hasn't been detected as Cline agent yet
@@ -296,7 +296,7 @@ def test_cline_first_message_with_detection(interactive_client):
     data = resp.json()
     content = data["choices"][0]["message"]["content"]
     
-    print(f"\nFirst message with detection content: {repr(content)}")
+    print(f"\nFirst message with detection content: {content!r}")
     
     # This should definitely be XML wrapped since detection happens in the same message
     assert content.startswith("<attempt_completion>")
@@ -345,7 +345,7 @@ When you complete a task, you should summarize what you did and confirm that it 
     data = resp.json()
     content = data["choices"][0]["message"]["content"]
     
-    print(f"\nRealistic Cline content: {repr(content)}")
+    print(f"\nRealistic Cline content: {content!r}")
     
     # This should be XML wrapped since it's a long message with a command (typical Cline pattern)
     if content.startswith("<attempt_completion>"):

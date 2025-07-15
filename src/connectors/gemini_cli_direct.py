@@ -5,14 +5,15 @@ import asyncio
 import json
 import logging
 import os
+import secrets
 import subprocess
 import sys
-from typing import Dict, Any, Optional, AsyncGenerator, Union, TYPE_CHECKING, Tuple
-import secrets
 import tempfile
+from typing import TYPE_CHECKING, Any, AsyncGenerator, Dict, Optional, Tuple, Union
+
+from starlette.responses import StreamingResponse
 
 from .base import LLMBackend
-from starlette.responses import StreamingResponse
 
 if TYPE_CHECKING:
     from src.models import ChatCompletionRequest
@@ -55,7 +56,7 @@ class GeminiCliDirectConnector(LLMBackend):
             pass
 
     # -----------------------------------------------------------
-    async def shutdown(self) -> None:  # noqa: D401
+    async def shutdown(self) -> None:
         """Terminate background Gemini CLI process (called from FastAPI shutdown)."""
         if self._gemini_process and self._gemini_process.poll() is None:
             try:
@@ -69,7 +70,7 @@ class GeminiCliDirectConnector(LLMBackend):
                 if self._gemini_process.stderr:
                     self._gemini_process.stderr.close()
                 logger.info("Background Gemini CLI process terminated during shutdown")
-            except Exception as exc:  # noqa: BLE001
+            except Exception as exc:
                 logger.debug("Failed to terminate Gemini CLI background process: %s", exc)
             finally:
                 self._gemini_process = None
@@ -502,7 +503,7 @@ class GeminiCliDirectConnector(LLMBackend):
                         "index": 0,
                         "message": {
                             "role": "assistant",
-                            "content": f"Error: {str(e)}"
+                            "content": f"Error: {e!s}"
                         },
                         "finish_reason": "stop"
                     }

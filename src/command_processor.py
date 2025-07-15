@@ -1,9 +1,10 @@
 import logging
 import re
 from typing import Any, Dict, List, Optional, Tuple
+
+from src import models
 from src.command_config import CommandProcessorConfig
 from src.commands.base import CommandResult
-from src import models
 
 logger = logging.getLogger(__name__)
 
@@ -131,10 +132,8 @@ class CommandProcessor:
                     original_content_stripped == command_pattern_match.group(0)
                 )
 
-            if is_prefix_match and command_pattern_match and \
-               is_full_command_match_condition and processed_text == "":
-                content_modified = True
-            elif processed_text != original_content:
+            if (is_prefix_match and command_pattern_match and \
+               is_full_command_match_condition and processed_text == "") or processed_text != original_content:
                 content_modified = True
 
         return processed_text, command_found, content_modified

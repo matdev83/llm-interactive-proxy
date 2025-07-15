@@ -6,11 +6,12 @@ import logging
 import os
 import secrets
 import sys
-from typing import TYPE_CHECKING, Any, Dict, Optional, Tuple, Union
+from typing import TYPE_CHECKING, Any
 
 from starlette.responses import StreamingResponse
 
 from src.agents import format_command_response_for_agent
+
 from .gemini_cli_direct import GeminiCliDirectConnector
 
 if TYPE_CHECKING:
@@ -33,7 +34,7 @@ class GeminiCliBatchConnector(GeminiCliDirectConnector):
     advertised under the new backend identifier ``gemini-cli-batch``.
     """
 
-    def __init__(self) -> None:  # noqa: D401
+    def __init__(self) -> None:
         super().__init__()
         # Override the public backend identifier
         self.name = "gemini-cli-batch"
@@ -48,7 +49,7 @@ class GeminiCliBatchConnector(GeminiCliDirectConnector):
 
     async def chat_completions(
         self,
-        request_data: "ChatCompletionRequest",
+        request_data: ChatCompletionRequest,
         processed_messages: list,
         effective_model: str,
         openrouter_api_base_url: str | None = None,  # absorb unused param
@@ -56,11 +57,11 @@ class GeminiCliBatchConnector(GeminiCliDirectConnector):
         key_name: str | None = None,
         api_key: str | None = None,
         project: str | None = None,
-        prompt_redactor: "APIKeyRedactor" | None = None,
-        command_filter: "ProxyCommandFilter" | None = None,
+        prompt_redactor: APIKeyRedactor | None = None,
+        command_filter: ProxyCommandFilter | None = None,
         agent: str | None = None,  # Added agent parameter
         **kwargs,
-    ) -> Union[Tuple[Dict[str, Any], Dict[str, str]], StreamingResponse]:
+    ) -> tuple[dict[str, Any], dict[str, str]] | StreamingResponse:
         if not project:
             error_content = "To use gemini-cli-batch, you need to set the project-dir first. Use the !/set(project-dir=...) command to configure the Google Cloud project."
             
@@ -150,7 +151,7 @@ class GeminiCliBatchConnector(GeminiCliDirectConnector):
             raise
         return file_path
 
-    async def _execute_gemini_cli(self, prompt: str, model: Optional[str] = None, sandbox: bool = False) -> str:
+    async def _execute_gemini_cli(self, prompt: str, model: str | None = None, sandbox: bool = False) -> str:
         """Execute Gemini CLI command directly, using the project directory as CWD."""
 
         # Persist prompt to file to avoid long command lines
@@ -262,7 +263,7 @@ class GeminiCliBatchConnector(GeminiCliDirectConnector):
         return
 
     # Public override (just to annotate the narrower model set)
-    async def initialize(self, google_cloud_project: Optional[str] = None) -> None:  # type: ignore[override]  # noqa: D401
+    async def initialize(self, google_cloud_project: str | None = None) -> None:  # type: ignore[override]
         # Re-use parent initialise; then overwrite model list again (parent sets 1.5 models)
         await super().initialize(google_cloud_project=google_cloud_project)
         self.available_models = [

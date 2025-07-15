@@ -4,18 +4,28 @@ Unit tests for Gemini API converter functions.
 Tests the conversion logic between Gemini and OpenAI formats.
 """
 from src.gemini_converters import (
-    gemini_to_openai_messages, openai_to_gemini_contents,
-    gemini_to_openai_request, openai_to_gemini_response,
-    extract_model_from_gemini_path, is_streaming_request,
-    openai_models_to_gemini_models
+    extract_model_from_gemini_path,
+    gemini_to_openai_messages,
+    gemini_to_openai_request,
+    is_streaming_request,
+    openai_models_to_gemini_models,
+    openai_to_gemini_contents,
+    openai_to_gemini_response,
 )
 from src.gemini_models import (
-    Blob, GenerateContentRequest, Content, Part, GenerationConfig,
-    FinishReason
+    Blob,
+    Content,
+    FinishReason,
+    GenerateContentRequest,
+    GenerationConfig,
+    Part,
 )
 from src.models import (
-    ChatMessage, ChatCompletionResponse, 
-    ChatCompletionChoice, CompletionUsage, ChatCompletionChoiceMessage
+    ChatCompletionChoice,
+    ChatCompletionChoiceMessage,
+    ChatCompletionResponse,
+    ChatMessage,
+    CompletionUsage,
 )
 
 

@@ -3,8 +3,9 @@ Unit tests for the main LoopDetector class.
 """
 
 import pytest
-from src.loop_detection.detector import LoopDetector, LoopDetectionEvent
+
 from src.loop_detection.config import LoopDetectionConfig
+from src.loop_detection.detector import LoopDetectionEvent, LoopDetector
 
 
 class TestLoopDetector:

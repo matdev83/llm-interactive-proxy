@@ -5,14 +5,17 @@ These tests verify that loop detection works end-to-end with the actual
 application and middleware stack.
 """
 
-import pytest
-import asyncio
-from fastapi.testclient import TestClient
-from unittest.mock import patch, AsyncMock
+from unittest.mock import patch
 
-from src.main import build_app
+import pytest
+from fastapi.testclient import TestClient
+
 from src.loop_detection.config import LoopDetectionConfig
-from src.response_middleware import configure_loop_detection_middleware, get_response_middleware
+from src.main import build_app
+from src.response_middleware import (
+    configure_loop_detection_middleware,
+    get_response_middleware,
+)
 
 
 class TestLoopDetectionIntegration:
@@ -34,7 +37,7 @@ class TestLoopDetectionIntegration:
         app = build_app(cfg=config)
         
         # Use TestClient to trigger lifespan events
-        with TestClient(app) as client:
+        with TestClient(app):
             # Check that middleware was configured
             middleware = get_response_middleware()
             assert len(middleware.middleware_stack) > 0
@@ -61,7 +64,7 @@ class TestLoopDetectionIntegration:
         
         app = build_app(cfg=config)
         
-        with TestClient(app) as client:
+        with TestClient(app):
             middleware = get_response_middleware()
             
             # Should have no loop detection processors when disabled
@@ -89,9 +92,9 @@ class TestLoopDetectionIntegration:
             yield "ERROR " * 20  # This should trigger loop detection
             yield "This should not be reached"
         
-        from src.response_middleware import get_response_middleware
-        from src.response_middleware import RequestContext
         from starlette.responses import StreamingResponse
+
+        from src.response_middleware import RequestContext, get_response_middleware
         
         middleware = get_response_middleware()
         
@@ -145,7 +148,7 @@ class TestLoopDetectionIntegration:
             }]
         }
         
-        from src.response_middleware import get_response_middleware, RequestContext
+        from src.response_middleware import RequestContext, get_response_middleware
         
         middleware = get_response_middleware()
         context = RequestContext(
@@ -183,7 +186,7 @@ class TestLoopDetectionIntegration:
             }
             app = build_app(cfg=config)
             
-            with TestClient(app) as client:
+            with TestClient(app):
                 middleware = get_response_middleware()
                 
                 # Should be disabled
@@ -197,7 +200,10 @@ class TestLoopDetectionIntegration:
         config = LoopDetectionConfig(enabled=True)
         configure_loop_detection_middleware(config)
         
-        from src.response_middleware import get_response_middleware, RequestContext, LoopDetectionProcessor
+        from src.response_middleware import (
+            LoopDetectionProcessor,
+            get_response_middleware,
+        )
         
         middleware = get_response_middleware()
         processor = None
@@ -278,7 +284,7 @@ class TestLoopDetectionCommands:
         }
         app = build_app(cfg=config)
         
-        with TestClient(app) as client:
+        with TestClient(app):
             # This would require implementing a command to show loop detection status
             # For now, we just verify the app starts successfully
             pass

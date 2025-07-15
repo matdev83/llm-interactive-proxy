@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, Dict, List, Set
+from typing import TYPE_CHECKING, Any
 
 from fastapi import FastAPI
 
@@ -19,17 +19,17 @@ class RouteAppendCommand(FailoverBase):
     examples = ["!/route-append(name=myroute,openrouter/model-a)"]
 
     def __init__(self, app: FastAPI | None = None,
-                 functional_backends: Set[str] | None = None) -> None:
+                 functional_backends: set[str] | None = None) -> None:
         super().__init__(app=app, functional_backends=functional_backends)
 
-    def execute(self, args: Dict[str, Any],
-                state: "ProxyState") -> CommandResult:
-        msgs: List[str] = []
+    def execute(self, args: dict[str, Any],
+                state: ProxyState) -> CommandResult:
+        msgs: list[str] = []
         self._ensure_interactive(state, msgs)
         name = args.get("name")
         if not name or name not in state.failover_routes:
             return CommandResult(self.name, False, f"route {name} not found")
-        elements = [k for k in args.keys() if k != "name"]
+        elements = [k for k in args if k != "name"]
         if not elements:
             return CommandResult(
                 self.name, False, "no route elements specified")

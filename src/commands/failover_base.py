@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, List
+from typing import TYPE_CHECKING
 
 from fastapi import FastAPI
 
@@ -16,8 +16,8 @@ class FailoverBase(BaseCommand):
 
     def _ensure_interactive(
             self,
-            state: "ProxyState",
-            messages: List[str]) -> None:
+            state: ProxyState,
+            messages: list[str]) -> None:
         if not state.interactive_mode:
             state.set_interactive_mode(True)
             messages.append(

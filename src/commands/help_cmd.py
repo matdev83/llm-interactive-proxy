@@ -16,7 +16,7 @@ class HelpCommand(BaseCommand):
     examples = ["!/help", "!/help(set)"]
 
     def execute(self, args: Mapping[str, Any],
-                state: "ProxyState") -> CommandResult:
+                state: ProxyState) -> CommandResult:
         if args:
             # assume first argument name is the command
             cmd_name = next(iter(args.keys())).lower()

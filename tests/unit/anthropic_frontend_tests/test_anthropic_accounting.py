@@ -3,13 +3,13 @@ Unit tests for Anthropic front-end accounting integration.
 Tests the token usage tracking and billing info extraction.
 """
 
-import pytest
 from unittest.mock import Mock, patch
+
+from src.anthropic_converters import extract_anthropic_usage
 from src.llm_accounting_utils import (
     extract_billing_info_from_headers,
-    extract_billing_info_from_response
+    extract_billing_info_from_response,
 )
-from src.anthropic_converters import extract_anthropic_usage
 
 
 class TestAnthropicFrontendAccounting:
@@ -205,7 +205,7 @@ class TestAnthropicFrontendAccounting:
         
         # OpenRouter billing for comparison
         openrouter_header = extract_billing_info_from_headers(headers, "openrouter")
-        openrouter_response = extract_billing_info_from_response(response, "openrouter")
+        extract_billing_info_from_response(response, "openrouter")
         
         # Should have different provider info
         assert anthropic_header["provider_info"]["note"] != openrouter_header["provider_info"].get("note", "")

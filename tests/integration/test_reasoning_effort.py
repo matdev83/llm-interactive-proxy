@@ -4,9 +4,10 @@ Simple test script to demonstrate provider-specific reasoning functionality.
 This script shows how to use the reasoning features for different providers in the LLM interactive proxy.
 """
 
-import requests
 import time
+
 import pytest
+import requests
 
 # Proxy configuration
 PROXY_URL = "http://localhost:8000"
@@ -102,7 +103,7 @@ def test_provider_specific_reasoning():
         }
     ]
     
-    for i, test_case in enumerate(test_cases, 1):
+    for _i, test_case in enumerate(test_cases, 1):
         
         try:
             # Make request to proxy
@@ -162,7 +163,6 @@ def test_in_chat_reasoning_commands():
     # Example commands for different providers
     # Available reasoning commands are defined in the commands list
     # Example conversation flow would demonstrate the commands in action
-    pass
 
 if __name__ == "__main__":
     try:
