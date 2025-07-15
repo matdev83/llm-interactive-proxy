@@ -110,6 +110,10 @@ def _load_config() -> Dict[str, Any]:
             os.getenv("DISABLE_INTERACTIVE_COMMANDS"), False
         ),
         "disable_accounting": _str_to_bool(os.getenv("DISABLE_ACCOUNTING"), False),
+        # Loop detection configuration
+        "loop_detection_enabled": _str_to_bool(os.getenv("LOOP_DETECTION_ENABLED"), True),
+        "loop_detection_buffer_size": int(os.getenv("LOOP_DETECTION_BUFFER_SIZE", "2048")),
+        "loop_detection_max_pattern_length": int(os.getenv("LOOP_DETECTION_MAX_PATTERN_LENGTH", "500")),
     }
 
 

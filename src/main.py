@@ -45,6 +45,8 @@ from src.anthropic_converters import (
 )
 from src.gemini_converters import openai_models_to_gemini_models, gemini_to_openai_request, openai_to_gemini_response, openai_to_gemini_stream_chunk
 from src.gemini_models import GenerateContentRequest
+from src.response_middleware import configure_loop_detection_middleware
+from src.loop_detection.config import LoopDetectionConfig
 
 # Configure module-level logger
 logger = logging.getLogger(__name__)
@@ -359,6 +361,19 @@ def build_app(
             if ok
         }
         app_param.state.functional_backends = functional
+
+        # Initialize loop detection middleware
+        loop_config = LoopDetectionConfig(
+            enabled=cfg.get("loop_detection_enabled", True),
+            buffer_size=cfg.get("loop_detection_buffer_size", 2048),
+            max_pattern_length=cfg.get("loop_detection_max_pattern_length", 500)
+        )
+        
+        def handle_loop_detected(event, session_id):
+            logger.warning(f"Loop detected in session {session_id}: {event.pattern[:50]}...")
+        
+        configure_loop_detection_middleware(loop_config, handle_loop_detected)
+        logger.info(f"Loop detection initialized: enabled={loop_config.enabled}")
 
         # Generate the welcome banner at startup to show API key and model counts
         _welcome_banner(app_param, "startup")
