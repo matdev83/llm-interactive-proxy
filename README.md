@@ -25,6 +25,7 @@ This project provides an intercepting proxy server that is compatible with the O
 - **Multiple Backends** – forward requests to OpenRouter, Google Gemini, Gemini CLI Direct, or Anthropic. Chosen with `LLM_BACKEND`.
 - **Gemini CLI Direct Support** - Route requests directly to the system-installed Gemini CLI application, providing access to Gemini models without requiring API keys.
 - **Streaming and Non‑Streaming Support** – for OpenRouter and Gemini backends. Gemini CLI Direct backend supports both streaming and non-streaming responses.
+- **Automatic Loop-Detection & Cancellation** – detects repetitive patterns in LLM output (e.g. "I'm sorry, I'm sorry…") and cancels the response to save tokens and avoid infinite loops. Fully configurable via env-vars.
 - **Aggregated Model Listing** – the `/models` and `/v1/models` endpoints return the union of all models discovered from configured backends, prefixed with the backend name (e.g., `openrouter:model_name`, `gemini:model_name`, `gemini-cli-direct:model_name`, `anthropic:model_name`).
 - **Session History Tracking** – optional per-session logs using the `X-Session-ID` header.
 - **Agent Detection** – recognizes popular coding agents and formats proxy responses accordingly.
@@ -81,6 +82,20 @@ These instructions will get you a copy of the project up and running on your loc
 
     # Disable all interactive commands
     # DISABLE_INTERACTIVE_COMMANDS="true"  # same as passing --disable-interactive-commands
+
+    # ---------------------------------
+    # 🔄 Loop-Detection configuration
+    # ---------------------------------
+    # Enable / disable the feature (default true)
+    LOOP_DETECTION_ENABLED="true"
+    # Sliding window size (characters) inspected for loops (default 2048)
+    LOOP_DETECTION_BUFFER_SIZE="2048"
+    # Maximum pattern length considered (default 500)
+    LOOP_DETECTION_MAX_PATTERN_LENGTH="500"
+    # Optional thresholds can be overridden individually (see src/loop_detection/config.py)
+    # LOOP_DETECTION_MIN_REPETITIONS_SHORT="12"
+    # LOOP_DETECTION_MIN_REPETITIONS_MEDIUM="6"
+    # LOOP_DETECTION_MIN_REPETITIONS_LONG="3"
 
     # Enable or disable prompt redaction (default true)
     # REDACT_API_KEYS_IN_PROMPTS="false"  # same as passing --disable-redact-api-keys-in-prompts
@@ -151,6 +166,15 @@ The Gemini CLI Direct backend:
 - **Available models**: `gemini-cli-direct:gemini-2.5-pro`, `gemini-cli-direct:gemini-1.5-pro`, `gemini-cli-direct:gemini-2.0-flash-exp`, `gemini-cli-direct:gemini-pro`
 
 **Note**: The Gemini CLI Direct backend uses the default model configured in your Gemini CLI installation and does not pass model selection parameters to the CLI.
+
+## Loop-Detection
+
+The proxy continuously inspects the characters emitted by the LLM in real-time. When it detects a repeating pattern that exceeds configurable thresholds it will:
+
+1. Cancel the HTTP stream early (for streaming endpoints) and send a final SSE line explaining why it stopped.
+2. Append a warning note to non-streaming responses.
+
+Use the environment variables above or the persistent JSON config (`loop_detection` section) to fine-tune the behaviour.  Set `LOOP_DETECTION_ENABLED=false` to disable the feature completely.
 
 ### Running the Proxy Server
 
