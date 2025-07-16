@@ -126,8 +126,27 @@ class GeminiCliDirectConnector(LLMBackend):
             if win_var in os.environ:
                 env[win_var] = os.environ[win_var]
 
+        # ------------------------------------------------------------------
+        # Google Cloud / Vertex-AI configuration
+        # ------------------------------------------------------------------
+        # 1️⃣  Vertex-AI mode needs both PROJECT and LOCATION variables.  We
+        #     were already copying the project ID (via the
+        #     self.google_cloud_project attribute set during initialise or
+        #     copied from os.environ by caller).  Location env-var, however,
+        #     was *not* forwarded – which causes the Gemini CLI to abort with
+        #     “you must specify GOOGLE_CLOUD_LOCATION” even though it is set
+        #     in the parent process.  Forward it here if present.
+        if "GOOGLE_CLOUD_LOCATION" in os.environ:
+            env["GOOGLE_CLOUD_LOCATION"] = os.environ["GOOGLE_CLOUD_LOCATION"]
+
+        # 2️⃣  The Node CLI also honours GOOGLE_GENAI_USE_VERTEXAI to switch
+        #     between Express-mode and Vertex-AI mode explicitly.  Preserve
+        #     it so users can control behaviour from their shell.
+        if "GOOGLE_GENAI_USE_VERTEXAI" in os.environ:
+            env["GOOGLE_GENAI_USE_VERTEXAI"] = os.environ["GOOGLE_GENAI_USE_VERTEXAI"]
+
         # Pass through a generic Google API key if present, **but intentionally NOT any GEMINI_API_KEY
-        # variables** - the CLI authenticates via cached OAuth linked to the project ID.
+        # variables** – the CLI authenticates via cached OAuth linked to the project ID.
         if "GOOGLE_API_KEY" in os.environ:
             env["GOOGLE_API_KEY"] = os.environ["GOOGLE_API_KEY"]
 
@@ -135,9 +154,12 @@ class GeminiCliDirectConnector(LLMBackend):
         if sys.platform == "win32" and "PATHEXT" in os.environ:
             env["PATHEXT"] = os.environ["PATHEXT"]
 
-        # Propagate explicit Google Cloud project if supplied via config/initialize
+        # Propagate explicit Google Cloud project if supplied via config/initialize.
+        # Fallback to parent environment variable if attribute is None.
         if self.google_cloud_project:
             env["GOOGLE_CLOUD_PROJECT"] = self.google_cloud_project
+        elif "GOOGLE_CLOUD_PROJECT" in os.environ:
+            env["GOOGLE_CLOUD_PROJECT"] = os.environ["GOOGLE_CLOUD_PROJECT"]
 
         return env
 
@@ -393,9 +415,18 @@ class GeminiCliDirectConnector(LLMBackend):
                 error_msg = stderr.decode('utf-8', errors='replace').strip()
                 raise Exception(f"Gemini CLI failed with exit code {process.returncode}: {error_msg}")
 
-            # Return stdout
-            result = stdout.decode('utf-8', errors='replace').strip()
-            logger.info(f"Gemini CLI completed successfully, output length: {len(result)}")
+            # Decode and prepare result
+            result = stdout.decode("utf-8", errors="replace").strip()
+
+            # Explicitly close pipe handles to avoid "unclosed transport" warnings
+            if process.stdout:
+                process.stdout.close()
+            if process.stderr:
+                process.stderr.close()
+
+            logger.info(
+                "Gemini CLI completed successfully (output length: %s)", len(result)
+            )
             return result
 
         except Exception as e:

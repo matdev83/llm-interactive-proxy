@@ -10,14 +10,13 @@ from contextlib import asynccontextmanager, suppress
 from datetime import datetime, timezone
 from typing import Any
 
-# Moved imports to the top (E402 fix)
 import httpx  # json is used for logging, will keep
 from fastapi import Body, Depends, FastAPI, HTTPException, Request
 from fastapi.testclient import TestClient
 from starlette.responses import StreamingResponse
 
 import src.models as models
-from src.agents import detect_agent, wrap_proxy_message, format_command_response_for_agent, detect_frontend_api, convert_cline_marker_to_openai_tool_call
+from src.agents import detect_agent, wrap_proxy_message, format_command_response_for_agent, detect_frontend_api, convert_cline_marker_to_openai_tool_call, create_openai_attempt_completion_tool_call
 from src.anthropic_converters import (
     anthropic_to_openai_request,
     openai_to_anthropic_response,
@@ -1098,7 +1097,7 @@ def build_app(
                             request_data=request_data,
                             processed_messages=processed_messages,
                             effective_model=model_str,
-                            project=proxy_state.project,
+                            project=proxy_state.project_dir,
                             prompt_redactor=(
                                 http_request.app.state.api_key_redactor
                                 if http_request.app.state.api_key_redaction_enabled
@@ -1450,6 +1449,34 @@ def build_app(
             proxy_state.hello_requested = False
             proxy_state.interactive_just_enabled = False
             
+            # -----------------------------------------------------------------
+            # Convert backend responses to OpenAI tool calls for Cline/Roocode
+            # -----------------------------------------------------------------
+            frontend_api_val = detect_frontend_api(str(http_request.url.path))
+            if session.agent in {"cline", "roocode"} and frontend_api_val == "openai":
+                for choice_obj in backend_response_dict.get("choices", []):
+                    msg_obj = choice_obj.get("message", {})
+                    content_txt = msg_obj.get("content")
+                    if not content_txt or not isinstance(content_txt, str):
+                        continue
+
+                    try:
+                        tool_call_dict = None
+                        if content_txt.startswith("__CLINE_TOOL_CALL_MARKER__"):
+                            tool_call_dict = convert_cline_marker_to_openai_tool_call(content_txt)
+                        elif "<attempt_completion>" in content_txt and "</attempt_completion>" in content_txt:
+                            import re
+                            r_match = re.search(r"<r>\s*(.*?)\s*</r>", content_txt, re.DOTALL)
+                            extracted_txt = r_match.group(1).strip() if r_match else content_txt
+                            tool_call_dict = create_openai_attempt_completion_tool_call([extracted_txt])
+
+                        if tool_call_dict:
+                            msg_obj["content"] = None
+                            msg_obj["tool_calls"] = [tool_call_dict]
+                            choice_obj["finish_reason"] = "tool_calls"
+                    except Exception as conv_exc:
+                        logger.debug("Cline tool-call conversion error: %s", conv_exc)
+
             # Remove None values from the response to match expected format
             def remove_none_values(obj):
                 if isinstance(obj, dict):
