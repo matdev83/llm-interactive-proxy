@@ -25,6 +25,10 @@ build/
 .cursorignore.yml
 .cursorignore.yaml
 .cursorignore.json
+GEMINI.md
+.agent.md
+.kiro/
+
 
 # Test and coverage artifacts
 .pytest_cache/
@@ -62,3 +66,4 @@ data/
 venv/
 venv/*
 venv
+
