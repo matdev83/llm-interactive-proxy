@@ -35,7 +35,7 @@ def test_hello_command_returns_banner(interactive_client):
     assert resp.status_code == 200
     data = resp.json()
     assert data["id"] == "proxy_cmd_processed"
-    content = data["choices"][0]["message"]["content"]
+    message = data["choices"][0]["message"]
     # EXPECT PLAIN TEXT NOW
     project_name = interactive_client.app.state.project_metadata["name"]
     project_version = interactive_client.app.state.project_metadata["version"]
@@ -69,6 +69,7 @@ def test_hello_command_returns_banner(interactive_client):
         "hello acknowledged" # Confirmation from HelloCommand
     ]
     expected_content = "\n".join(expected_lines)
+    content = message["content"]
     assert content == expected_content
     assert "<attempt_completion>" not in content # Should be plain
 
@@ -98,14 +99,16 @@ def test_hello_command_returns_xml_banner_for_cline_agent(interactive_client):
     assert len(data["choices"]) == 1
     choice = data["choices"][0]
     assert choice["index"] == 0
-    assert choice["finish_reason"] == "stop"
+    assert choice["finish_reason"] == "tool_calls"
 
     message = choice["message"]
     assert message["role"] == "assistant"
     content = message["content"]
 
-    assert content.startswith("<attempt_completion>\n<result>\n")
-    assert content.endswith("\n</result>\n</attempt_completion>\n")
+    assert message.get("content") is None
+    assert message.get("tool_calls") is not None
+    assert len(message["tool_calls"]) == 1
+    assert message["tool_calls"][0]["function"]["name"] == "attempt_completion"
 
     project_name = interactive_client.app.state.project_metadata["name"]
     project_version = interactive_client.app.state.project_metadata["version"]
@@ -141,15 +144,13 @@ def test_hello_command_returns_xml_banner_for_cline_agent(interactive_client):
     ]
     expected_result_content = "\n".join(expected_lines)
 
-    # Extract content between <result> and </result>
-    start_tag = "<result>\n"
-    end_tag = "\n</result>"
-    start_index = content.find(start_tag) + len(start_tag)
-    end_index = content.find(end_tag)
-    actual_result_content = content[start_index:end_index]
+    # Extract content from tool call arguments
+    tool_call_args = message["tool_calls"][0]["function"]["arguments"]
+    import json
+    args_dict = json.loads(tool_call_args)
+    actual_result_content = args_dict.get("result", "")
 
     assert actual_result_content == expected_result_content
-    assert "[Proxy Result]" not in content
 
     assert "usage" in data
     usage = data["usage"]
@@ -182,18 +183,18 @@ def test_set_command_returns_xml_for_cline_agent(interactive_client):
     assert message["role"] == "assistant"
     content = message["content"]
 
-    assert content.startswith("<attempt_completion>\n<result>\n")
-    assert content.endswith("\n</result>\n</attempt_completion>\n")
+    assert message.get("content") is None
+    assert message.get("tool_calls") is not None
+    assert len(message["tool_calls"]) == 1
+    assert message["tool_calls"][0]["function"]["name"] == "attempt_completion"
 
-    # Extract content between <result> and </result>
-    start_tag = "<result>\n"
-    end_tag = "\n</result>"
-    start_index = content.find(start_tag) + len(start_tag)
-    end_index = content.find(end_tag)
-    actual_result_content = content[start_index:end_index]
+    # Extract content from tool call arguments
+    tool_call_args = message["tool_calls"][0]["function"]["arguments"]
+    import json
+    args_dict = json.loads(tool_call_args)
+    actual_result_content = args_dict.get("result", "")
 
     assert "backend set to openrouter" in actual_result_content
-    assert "[Proxy Result]" not in content
 
     # Check usage field
     assert "usage" in data

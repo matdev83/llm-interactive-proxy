@@ -178,14 +178,10 @@ def test_mixed_cline_command_and_llm_prompt(interactive_client):
     
     assert resp.status_code == 200
     data = resp.json()
-    command_content = data["choices"][0]["message"]["content"]
-    
-    print("Command response:")
-    print(command_content)
-    
-    # Command response should be XML wrapped
-    assert command_content.startswith("<attempt_completion>\n<result>\n"), \
-        "Command response should be XML wrapped"
+    # Command response should be a tool call
+    message = data["choices"][0]["message"]
+    assert message.get("tool_calls") is not None, "Command response should be a tool call"
+    assert len(message["tool_calls"]) == 1, "Expected one tool call for command response"
     
     # Now send a regular prompt (should NOT get XML wrapped)
     with patch.object(

@@ -1,8 +1,8 @@
 from unittest.mock import AsyncMock, patch
 
 
-def test_cline_hello_command_xml_wrapping(interactive_client):
-    """Test that !/hello command is properly wrapped in XML for Cline agent."""
+def test_cline_hello_command_tool_calls(interactive_client):
+    """Test that !/hello command returns tool calls for Cline agent."""
     
     # First, simulate a Cline agent by sending a message with <attempt_completion>
     # This should trigger Cline agent detection
@@ -28,7 +28,7 @@ def test_cline_hello_command_xml_wrapping(interactive_client):
     print(f"DEBUG: is_cline_agent after detection = {session.proxy_state.is_cline_agent}")
     print(f"DEBUG: session.agent = {session.agent}")
     
-    # Now send the !/hello command - this should be wrapped in XML
+    # Now send the !/hello command - this should return tool calls
     with patch.object(
         interactive_client.app.state.openrouter_backend,
         "chat_completions",
@@ -48,26 +48,31 @@ def test_cline_hello_command_xml_wrapping(interactive_client):
     data = resp.json()
     assert data["id"] == "proxy_cmd_processed"
     
-    content = data["choices"][0]["message"]["content"]
-    print(f"Hello command response content: {content!r}")
-    
-    # For Cline agent, the response should be wrapped in XML
-    assert content.startswith("<attempt_completion>\n<result>\n"), f"Response should start with XML wrapper, got: {content[:100]}"
-    assert content.endswith("\n</result>\n</attempt_completion>\n"), f"Response should end with XML wrapper, got: {content[-100:]}"
-    
-    # Extract content between <result> and </result>
-    start_tag = "<result>\n"
-    end_tag = "\n</result>"
-    start_index = content.find(start_tag) + len(start_tag)
-    end_index = content.find(end_tag)
-    actual_result_content = content[start_index:end_index]
-    
+    message = data["choices"][0]["message"]
+    print(f"Hello command response message: {message}")
+
+    # For Cline agent, should receive tool calls instead of content
+    assert message.get("content") is None, "Content should be None for tool calls"
+    assert message.get("tool_calls") is not None, "Tool calls should be present"
+    assert len(message["tool_calls"]) == 1, "Should have exactly one tool call"
+    assert data["choices"][0].get("finish_reason") == "tool_calls", "Finish reason should be tool_calls"
+
+    # Verify tool call structure
+    tool_call = message["tool_calls"][0]
+    assert tool_call["type"] == "function", "Tool call should be function type"
+    assert tool_call["function"]["name"] == "attempt_completion", "Function should be attempt_completion"
+
+    # Verify arguments contain the response
+    import json
+    args = json.loads(tool_call["function"]["arguments"])
+    assert "result" in args, "Arguments should contain result"
+
     # The result should contain the hello response
+    actual_result_content = args["result"]
     assert "Hello, this is" in actual_result_content
     # Note: "hello acknowledged" is excluded for Cline agents as confirmation messages
     # are only shown to non-Cline clients
     assert "hello acknowledged" not in actual_result_content
-
 
 def test_cline_hello_command_same_request(interactive_client):
     """Test !/hello command when Cline detection and command are in the same request."""
@@ -100,12 +105,12 @@ def test_cline_hello_command_same_request(interactive_client):
     print(f"DEBUG: is_cline_agent after same-request detection = {session.proxy_state.is_cline_agent}")
     print(f"DEBUG: session.agent = {session.agent}")
     
-    content = data["choices"][0]["message"]["content"]
-    print(f"Same-request hello command response content: {content!r}")
-    
-    # The response should be wrapped in XML since Cline was detected in the same request
-    assert content.startswith("<attempt_completion>\n<result>\n"), f"Response should start with XML wrapper, got: {content[:100]}"
-    assert content.endswith("\n</result>\n</attempt_completion>\n"), f"Response should end with XML wrapper, got: {content[-100:]}"
+    # The response should be a tool call since Cline was detected in the same request
+    message = data["choices"][0]["message"]
+    assert message.get("content") is None, "Content should be None for tool calls"
+    assert message.get("tool_calls") is not None, "Tool calls should be present"
+    assert len(message["tool_calls"]) == 1, "Should have exactly one tool call"
+    assert data["choices"][0].get("finish_reason") == "tool_calls", "Finish reason should be tool_calls"
 
 
 def test_cline_hello_with_attempt_completion_only(interactive_client):
@@ -139,12 +144,12 @@ def test_cline_hello_with_attempt_completion_only(interactive_client):
     print(f"DEBUG: is_cline_agent after attempt_completion-only detection = {session.proxy_state.is_cline_agent}")
     print(f"DEBUG: session.agent = {session.agent}")
     
-    content = data["choices"][0]["message"]["content"]
-    print(f"Attempt_completion-only hello command response content: {content!r}")
-    
-    # The response should be wrapped in XML since <attempt_completion> was detected
-    assert content.startswith("<attempt_completion>\n<result>\n"), f"Response should start with XML wrapper, got: {content[:100]}"
-    assert content.endswith("\n</result>\n</attempt_completion>\n"), f"Response should end with XML wrapper, got: {content[-100:]}"
+    # The response should be a tool call since <attempt_completion> was detected
+    message = data["choices"][0]["message"]
+    assert message.get("content") is None, "Content should be None for tool calls"
+    assert message.get("tool_calls") is not None, "Tool calls should be present"
+    assert len(message["tool_calls"]) == 1, "Should have exactly one tool call"
+    assert data["choices"][0].get("finish_reason") == "tool_calls", "Finish reason should be tool_calls"
 
 
 def test_cline_hello_command_first_message(interactive_client):

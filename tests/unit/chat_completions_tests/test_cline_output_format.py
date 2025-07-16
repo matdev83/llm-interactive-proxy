@@ -25,33 +25,25 @@ def test_cline_output_format_exact(interactive_client):
     data = resp.json()
     assert data["id"] == "proxy_cmd_processed"
     
-    content = data["choices"][0]["message"]["content"]
-    print("=== EXACT OUTPUT FORMAT ===")
-    print(repr(content))
-    print("=== HUMAN READABLE ===")
-    print(content)
-    print("=== END OUTPUT ===")
+    # For Cline agent, the response should be a tool call
+    message = data["choices"][0]["message"]
+    assert message.get("content") is None, "Content should be None for tool calls"
+    assert message.get("tool_calls") is not None, "Tool calls should be present"
+    assert len(message["tool_calls"]) == 1, "Should have exactly one tool call"
     
-    # Verify the format is exactly as specified
-    lines = content.split('\n')
+    tool_call = message["tool_calls"][0]
+    assert tool_call["type"] == "function"
+    assert tool_call["function"]["name"] == "attempt_completion"
     
-    # Should start with <attempt_completion>
-    assert lines[0] == "<attempt_completion>"
-    # Should have <result> on second line
-    assert lines[1] == "<result>"
-    # Should end with </attempt_completion> (with trailing newline)
-    assert lines[-1] == ""  # Trailing newline creates empty last element
-    assert lines[-2] == "</attempt_completion>"
-    assert lines[-3] == "</result>"
+    # The arguments should be a JSON string containing the result
+    import json
+    try:
+        args_dict = json.loads(tool_call["function"]["arguments"])
+    except json.JSONDecodeError:
+        assert False, f"Failed to decode JSON arguments: {tool_call['function']['arguments']}"
     
-    # Should NOT contain markdown code blocks
-    assert "```xml" not in content
-    assert "```" not in content
-    
-    # Extract the actual result content (between <result> and </result>)
-    result_start = content.find("<result>\n") + len("<result>\n")
-    result_end = content.find("\n</result>")
-    actual_result = content[result_start:result_end]
+    assert "result" in args_dict, "'result' key missing in tool call arguments"
+    actual_result = args_dict["result"]
     
     print("=== ACTUAL RESULT CONTENT ===")
     print(repr(actual_result))
@@ -62,13 +54,6 @@ def test_cline_output_format_exact(interactive_client):
     # Note: "hello acknowledged" is excluded for Cline agents as confirmation messages
     # are only shown to non-Cline clients
     assert "hello acknowledged" not in actual_result
-    
-    # Verify the complete expected format
-    expected_start = "<attempt_completion>\n<result>\n"
-    expected_end = "\n</result>\n</attempt_completion>\n"
-    
-    assert content.startswith(expected_start), f"Content should start with '{expected_start}', got: {content[:50]}"
-    assert content.endswith(expected_end), f"Content should end with '{expected_end}', got: {content[-50:]}"
 
 
 def test_cline_output_format_other_commands(interactive_client):
@@ -91,24 +76,25 @@ def test_cline_output_format_other_commands(interactive_client):
     
     assert resp.status_code == 200
     data = resp.json()
-    content = data["choices"][0]["message"]["content"]
+    # Should be a tool call
+    message = data["choices"][0]["message"]
+    assert message.get("content") is None, "Content should be None for tool calls"
+    assert message.get("tool_calls") is not None, "Tool calls should be present"
+    assert len(message["tool_calls"]) == 1, "Should have exactly one tool call"
     
-    print("=== HELP COMMAND OUTPUT ===")
-    print(content)
-    print("=== END HELP OUTPUT ===")
+    tool_call = message["tool_calls"][0]
+    assert tool_call["type"] == "function"
+    assert tool_call["function"]["name"] == "attempt_completion"
     
-    # Should be wrapped in XML
-    assert content.startswith("<attempt_completion>\n<result>\n")
-    assert content.endswith("\n</result>\n</attempt_completion>\n")
+    # Extract result content from JSON arguments
+    import json
+    try:
+        args_dict = json.loads(tool_call["function"]["arguments"])
+    except json.JSONDecodeError:
+        assert False, f"Failed to decode JSON arguments: {tool_call['function']['arguments']}"
     
-    # Should NOT contain markdown code blocks
-    assert "```xml" not in content
-    assert "```" not in content
-    
-    # Extract result content
-    result_start = content.find("<result>\n") + len("<result>\n")
-    result_end = content.find("\n</result>")
-    actual_result = content[result_start:result_end]
+    assert "result" in args_dict, "'result' key missing in tool call arguments"
+    actual_result = args_dict["result"]
     
     # Should contain help information
-    assert "available commands:" in actual_result or "Available commands:" in actual_result or "Commands:" in actual_result 
+    assert "available commands:" in actual_result.lower() 

@@ -22,19 +22,18 @@ def test_cline_command_wrapping(client):
     resp = client.post("/v1/chat/completions", json=payload)
     data = resp.json()
     assert data["id"] == "proxy_cmd_processed"
-    content = data["choices"][0]["message"]["content"]
+    message = data["choices"][0]["message"]
 
-    assert content.startswith("<attempt_completion>\n<result>\n")
-    assert content.endswith("\n</result>\n</attempt_completion>\n")
+    assert message.get("content") is None
+    assert message.get("tool_calls") is not None
+    assert len(message["tool_calls"]) == 1
+    assert message["tool_calls"][0]["function"]["name"] == "attempt_completion"
 
-    # Verify the content inside <result> tag
-    start_tag = "<result>\n"
-    end_tag = "\n</result>"
-    start_index = content.find(start_tag) + len(start_tag)
-    end_index = content.find(end_tag)
-    assert start_index != -1 and end_index != -1, "Result tags not found"
-
-    result_content = content[start_index:end_index]
+    # Verify the content inside the tool call arguments
+    tool_call_args = message["tool_calls"][0]["function"]["arguments"]
+    import json
+    args_dict = json.loads(tool_call_args)
+    result_content = args_dict.get("result", "")
 
     project_name = client.app.state.project_metadata["name"]
     project_version = client.app.state.project_metadata["version"]

@@ -81,7 +81,7 @@ def test_oneoff_command(
             response_json = response.json()
             assert response_json["model"] == "gemini-2.0-flash-001"
         else:
-            assert response_json["model"] == "gemini-2.0-flash-001"
+            assert response_json["model"] == request_payload["model"]
 
         # Third request to ensure the one-off route is cleared
         # Note: The one-off route persists in the same session, so we expect it to still be active

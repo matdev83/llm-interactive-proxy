@@ -24,6 +24,7 @@ def test_real_cline_hello_response(interactive_client):
         mock_method.assert_not_called()
         
     print("=== FULL RESPONSE ===")
+    import json
     print(json.dumps(resp.json(), indent=2))
     
     print("\n=== RESPONSE CONTENT ===")
@@ -38,18 +39,15 @@ def test_real_cline_hello_response(interactive_client):
     data = resp.json()
     
     # Verify the response structure
-    assert "choices" in data
-    assert len(data["choices"]) > 0
-    assert "message" in data["choices"][0]
-    assert "content" in data["choices"][0]["message"]
-    assert "role" in data["choices"][0]["message"]
+    message = data["choices"][0]["message"]
+    assert message.get("tool_calls") is not None, "Response should contain tool_calls"
+    tool_call = message["tool_calls"][0]
+    assert tool_call["type"] == "function"
+    assert tool_call["function"]["name"] == "attempt_completion"
     
-    # The content should be XML wrapped
-    content = data["choices"][0]["message"]["content"]
-    assert content.startswith("<attempt_completion>")
-    assert content.endswith("</attempt_completion>\n")
-    assert "<result>" in content
-    assert "</result>" in content
+    import json
+    args = json.loads(tool_call["function"]["arguments"])
+    assert "result" in args
 
 
 def test_cline_pure_hello_command(interactive_client):
@@ -95,6 +93,7 @@ def test_cline_pure_hello_command(interactive_client):
         resp1 = interactive_client.post("/v1/chat/completions", json=establish_payload, headers=headers)
         
         print("\n=== ESTABLISH RESPONSE ===")
+        import json
         print(json.dumps(resp1.json(), indent=2))
         
         # Now send pure command
@@ -115,17 +114,18 @@ def test_cline_pure_hello_command(interactive_client):
                 print(f"  {call}")
         
     print("\n=== PURE COMMAND RESPONSE ===")
+    import json
     print(json.dumps(resp.json(), indent=2))
     
     assert resp.status_code == 200
     data = resp.json()
-    content = data["choices"][0]["message"]["content"]
-    
-    print(f"\nPure command content: {content!r}")
+    message = data["choices"][0]["message"]
     
     # Should be XML wrapped for Cline
-    assert content.startswith("<attempt_completion>")
-    assert content.endswith("</attempt_completion>\n")
+    assert message.get("content") is None
+    assert message.get("tool_calls") is not None
+    assert len(message["tool_calls"]) == 1
+    assert message["tool_calls"][0]["function"]["name"] == "attempt_completion"
 
 
 def test_cline_no_session_id(interactive_client):
@@ -150,17 +150,21 @@ def test_cline_no_session_id(interactive_client):
         mock_method.assert_not_called()
         
     print("\n=== NO SESSION ID RESPONSE ===")
+    import json
     print(json.dumps(resp.json(), indent=2))
     
     assert resp.status_code == 200
     data = resp.json()
-    content = data["choices"][0]["message"]["content"]
+    message = data["choices"][0]["message"]
     
+    content = message.get("content")
     print(f"\nNo session ID content: {content!r}")
     
     # Should still be XML wrapped for Cline
-    assert content.startswith("<attempt_completion>")
-    assert content.endswith("</attempt_completion>\n")
+    assert message.get("content") is None
+    assert message.get("tool_calls") is not None
+    assert len(message["tool_calls"]) == 1
+    assert message["tool_calls"][0]["function"]["name"] == "attempt_completion"
 
 
 def test_cline_non_command_message(interactive_client):
@@ -210,12 +214,14 @@ def test_cline_non_command_message(interactive_client):
         mock_method.assert_called_once()
         
     print("\n=== NON-COMMAND CLINE RESPONSE ===")
+    import json
     print(json.dumps(resp.json(), indent=2))
     
     assert resp.status_code == 200
     data = resp.json()
-    content = data["choices"][0]["message"]["content"]
+    message = data["choices"][0]["message"]
     
+    content = message.get("content")
     print(f"\nNon-command content: {content!r}")
     
     # This should NOT be XML wrapped because it's a normal LLM response, not a proxy command response
@@ -247,12 +253,14 @@ def test_cline_first_message_hello(interactive_client):
         mock_method.assert_not_called()
         
     print("\n=== FIRST MESSAGE HELLO RESPONSE ===")
+    import json
     print(json.dumps(resp.json(), indent=2))
     
     assert resp.status_code == 200
     data = resp.json()
-    content = data["choices"][0]["message"]["content"]
+    message = data["choices"][0]["message"]
     
+    content = message.get("content")
     print(f"\nFirst message hello content: {content!r}")
     
     # The question is: should this be XML wrapped or not?
@@ -290,17 +298,21 @@ def test_cline_first_message_with_detection(interactive_client):
         mock_method.assert_not_called()
         
     print("\n=== FIRST MESSAGE WITH DETECTION RESPONSE ===")
+    import json
     print(json.dumps(resp.json(), indent=2))
     
     assert resp.status_code == 200
     data = resp.json()
-    content = data["choices"][0]["message"]["content"]
+    message = data["choices"][0]["message"]
     
+    content = message.get("content")
     print(f"\nFirst message with detection content: {content!r}")
     
     # This should definitely be XML wrapped since detection happens in the same message
-    assert content.startswith("<attempt_completion>")
-    assert content.endswith("</attempt_completion>\n") 
+    assert message.get("content") is None
+    assert message.get("tool_calls") is not None
+    assert len(message["tool_calls"]) == 1
+    assert message["tool_calls"][0]["function"]["name"] == "attempt_completion" 
 
 
 def test_realistic_cline_hello_request(interactive_client):
@@ -339,19 +351,31 @@ When you complete a task, you should summarize what you did and confirm that it 
         mock_method.assert_not_called()
         
     print("\n=== REALISTIC CLINE HELLO RESPONSE ===")
+    import json
     print(json.dumps(resp.json(), indent=2))
     
     assert resp.status_code == 200
     data = resp.json()
-    content = data["choices"][0]["message"]["content"]
+    message = data["choices"][0]["message"]
     
+    content = message.get("content")
     print(f"\nRealistic Cline content: {content!r}")
     
     # This should be XML wrapped since it's a long message with a command (typical Cline pattern)
-    if content.startswith("<attempt_completion>"):
-        print("[OK] Content is XML wrapped (good for Cline)")
-        assert content.startswith("<attempt_completion>")
-        assert content.endswith("</attempt_completion>\n")
+    # Check if we have tool calls (new expected format for Cline)
+    if message.get("tool_calls") is not None:
+        print("[OK] Response has tool calls (good for Cline)")
+        assert message.get("content") is None, "Content should be None when tool calls present"
+        assert len(message["tool_calls"]) == 1, "Should have exactly one tool call"
+        assert message["tool_calls"][0]["function"]["name"] == "attempt_completion", "Should be attempt_completion function"
+        
+        import json
+        args = json.loads(message["tool_calls"][0]["function"]["arguments"])
+        assert "result" in args, "Tool call should have result in arguments"
+        print(f"[OK] Tool call result: {args['result'][:100]}...")
     else:
-        print("[X] Content is NOT XML wrapped (this could be the issue!)")
-        print("This might be why Cline shows the error about no assistant messages") 
+        print("[X] Response does NOT have tool calls (this could be the issue!)")
+        print("This might be why Cline shows the error about no tool use")
+        content = message.get("content", "")
+        if content and "<attempt_completion>" in content:
+            print("[INFO] Content has XML format but should be tool calls") 
