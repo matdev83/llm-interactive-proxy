@@ -359,6 +359,11 @@ class GeminiBackend(LLMBackend):
             model_name = model_name.split("/", 1)[1]
         if model_name.startswith("gemini/"):
             model_name = model_name.split("/", 1)[1]
+        # NEW: Strip provider prefixes like 'google/' that are used by OpenRouter
+        # Only keep the final path segment which is the actual Gemini model id.
+        if "/" in model_name:
+            logger.debug("Detected provider prefix in model name '%s'. Using last path segment as Gemini model id.", model_name)
+            model_name = model_name.rsplit("/", 1)[-1]
 
         logger.debug(f"Constructing Gemini API URL with model_name: {model_name}")
         base_api_url = f"{gemini_api_base_url.rstrip('/')}/v1beta/models/{model_name}"
