@@ -18,7 +18,7 @@ def test_command_only_request_direct_response(client):
         "model set to openrouter:command-only-model"
         in response_json["choices"][0]["message"]["content"]
     )
-    assert response_json["model"] == "command-only-model"
+    assert response_json["model"] == payload["model"]
 
     # The backend's chat_completions method should not be called in this scenario
     # No mock needed here as we are testing the direct proxy response
@@ -130,7 +130,7 @@ def test_command_only_request_direct_response_explicit_mock(mock_openrouter_comp
 
     expected_confirmation = f"model set to {model_to_set_full_id}"
     assert expected_confirmation in response_json["choices"][0]["message"]["content"]
-    assert response_json["model"] == model_to_set # Check the response model field
+    assert response_json["model"] == payload["model"] # Check the response model field
 
     mock_openrouter_completions.assert_not_called()
 

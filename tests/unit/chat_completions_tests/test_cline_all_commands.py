@@ -44,25 +44,25 @@ def test_cline_xml_wrapping_for_all_commands(interactive_client):
         data = resp.json()
         assert data["id"] == "proxy_cmd_processed", f"Command {command} not processed locally"
         
-        content = data["choices"][0]["message"]["content"]
-        print(f"Response for {command}:")
-        print(content)
-        print("---")
+        # Verify that the response is now a tool call
+        message = data["choices"][0]["message"]
+        assert message.get("content") is None, f"Content should be None for {command}"
+        assert message.get("tool_calls") is not None, f"Tool calls should be present for {command}"
+        assert len(message["tool_calls"]) == 1, f"Expected 1 tool call for {command}"
         
-        # Verify XML wrapping for ALL commands
-        assert content.startswith("<attempt_completion>\n<result>\n"), \
-            f"Command {command} response should start with XML wrapper, got: {content[:100]}"
-        assert content.endswith("\n</result>\n</attempt_completion>\n"), \
-            f"Command {command} response should end with XML wrapper, got: {content[-100:]}"
+        tool_call = message["tool_calls"][0]
+        assert tool_call["type"] == "function", f"Tool call type should be function for {command}"
+        assert tool_call["function"]["name"] == "attempt_completion", f"Tool call name should be attempt_completion for {command}"
         
-        # Should NOT contain markdown code blocks
-        assert "```xml" not in content, f"Command {command} should not contain markdown XML blocks"
-        assert "```" not in content, f"Command {command} should not contain any markdown code blocks"
+        # The arguments should be a JSON string containing the result
+        import json
+        try:
+            args_dict = json.loads(tool_call["function"]["arguments"])
+        except json.JSONDecodeError:
+            assert False, f"Failed to decode JSON arguments for {command}: {tool_call['function']['arguments']}"
         
-        # Extract the actual result content
-        result_start = content.find("<result>\n") + len("<result>\n")
-        result_end = content.find("\n</result>")
-        actual_result = content[result_start:result_end]
+        assert "result" in args_dict, f"'result' key missing in tool call arguments for {command}"
+        actual_result = args_dict["result"]
         
         # The result should contain some meaningful content (not empty)
         assert len(actual_result.strip()) > 0, f"Command {command} should produce non-empty result"
