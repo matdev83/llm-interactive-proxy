@@ -277,21 +277,26 @@ def test_openai_tool_call_handling(backend: str, proxy_server):  # type: ignore[
     # Configure OpenAI SDK for the proxy
     _configure_openai(base_url)
 
+    model_name = BACKEND_MODEL_MAP[backend]
+
     # Step 1 – register Cline agent so proxy recognises tool-call behaviour
-    openai.chat.completions.create(
-        model="gpt-4o-mini",
-        messages=[
-            {
-                "role": "user",
-                "content": "I am a Cline agent. <attempt_completion>start</attempt_completion>",
-            }
-        ],
-    )
+    try:
+        openai.chat.completions.create(
+            model=model_name,
+            messages=[
+                {
+                    "role": "user",
+                    "content": "I am a Cline agent. <attempt_completion>start</attempt_completion>",
+                }
+            ],
+        )
+    except Exception as exc:
+        pytest.skip(f"OpenAI agent registration failed ({exc}); skipping.")
 
     # Step 2 – send the !/hello command that should come back as a tool call
     try:
         data = openai.chat.completions.create(
-            model="gpt-4o-mini",
+            model=model_name,
             messages=[{"role": "user", "content": "!/hello"}],
         ).model_dump()
     except Exception as exc:

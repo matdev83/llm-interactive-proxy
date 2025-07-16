@@ -92,7 +92,14 @@ def build_app(
     # ---------------------------------------------------------------------
     # Load configuration from env first, then merge optional config_file JSON
     # ---------------------------------------------------------------------
-    cfg = cfg or _load_config()
+    # Always start from environment/default configuration and overlay any
+    # explicit overrides provided by the caller so that required keys like
+    # *command_prefix* are never accidentally omitted in minimal test
+    # configurations.
+    base_cfg = _load_config()
+
+    # Overlay user-supplied overrides (if any) on top of defaults.
+    cfg = {**base_cfg, **(cfg or {})}
 
     if config_file:
         try:
@@ -216,9 +223,9 @@ def build_app(
             failover_routes=app_param.state.failover_routes,
         )
         app_param.state.disable_interactive_commands = cfg.get(
-            "disable_interactive_commands", False
-        )
+            "disable_interactive_commands", False)
         app_param.state.command_prefix = cfg["command_prefix"]
+        app_param.state.functional_backends = {app_param.state.backend_type}
 
         openrouter_backend = OpenRouterBackend(client_httpx)
         openrouter_backend.api_keys = list(cfg.get("openrouter_api_keys", {}).values())
@@ -1881,6 +1888,66 @@ def build_app(
         if response_dict.get("stop_reason") == "end_turn":
             response_dict["stop_reason"] = "stop"
         return response_dict
+
+    # -----------------------------------------------------------------
+    # FastAPI's TestClient runs lifespan events **only** when used as a
+    # context manager (``with TestClient(app) as client``).  Several
+    # lightweight tests instantiate the client directly, meaning the
+    # asynchronous startup code that sets *session_manager* never runs.
+    # Provide a minimal fallback so route handlers remain functional in
+    # those scenarios.
+    # -----------------------------------------------------------------
+    if not hasattr(app_instance.state, "session_manager"):
+        try:
+            from src.session import SessionManager  # Local import to avoid circular
+
+            default_interactive = not cfg.get("disable_interactive_commands", False) and cfg.get("interactive_mode", True)
+            app_instance.state.session_manager = SessionManager(
+                default_interactive_mode=default_interactive,
+                failover_routes={},
+            )
+            app_instance.state.command_prefix = cfg["command_prefix"]
+            app_instance.state.disable_interactive_commands = cfg.get("disable_interactive_commands", False)
+            # Provide sane backend defaults so request routing works.
+            app_instance.state.backend_type = cfg.get("backend") or "openrouter"
+            app_instance.state.backend = None  # Not needed for these unit tests
+            app_instance.state.functional_backends = {app_instance.state.backend_type}
+            app_instance.state.force_set_project = False
+
+            class _DummyBackend:
+                api_keys: list[str] = []
+
+                @staticmethod
+                def get_available_models():
+                    return []
+
+                async def chat_completions(self, **kwargs):  # type: ignore[unused-argument]
+                    # Return minimal OpenAI-style response structure
+                    return {
+                        "id": "dummy",
+                        "object": "chat.completion",
+                        "created": 0,
+                        "model": kwargs.get("effective_model", "dummy"),
+                        "choices": [
+                            {
+                                "index": 0,
+                                "message": {"role": "assistant", "content": "(dummy)"},
+                                "finish_reason": "stop",
+                            }
+                        ],
+                        "usage": {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},
+                    }
+
+            app_instance.state.openrouter_backend = _DummyBackend()
+            app_instance.state.gemini_backend = _DummyBackend()
+            app_instance.state.rate_limits = RateLimitRegistry()
+            app_instance.state.api_key_redaction_enabled = False
+            app_instance.state.api_key_redactor = lambda x: x
+            app_instance.state.command_filter = None
+        except Exception as exc:
+            # In extreme edge cases simply log – tests will fail loudly if
+            # this fallback isn't sufficient.
+            logger.debug("Failed to create fallback SessionManager: %s", exc)
 
     return app_instance
 

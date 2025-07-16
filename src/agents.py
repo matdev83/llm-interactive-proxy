@@ -1,6 +1,18 @@
 import re
 from typing import List, Optional
 
+# Public helpers re-exported for external tests
+__all__ = [
+    "detect_frontend_api",
+    "detect_agent",
+    "wrap_proxy_message",
+    "format_command_response_for_agent",
+    "convert_cline_marker_to_openai_tool_call",
+    "convert_cline_marker_to_anthropic_tool_use",
+    "convert_cline_marker_to_gemini_function_call",
+    "create_openai_attempt_completion_tool_call",
+]
+
 
 def detect_frontend_api(request_path: str) -> str:
     """
@@ -139,3 +151,30 @@ def convert_cline_marker_to_gemini_function_call(content: str) -> str:
     }
     
     return json.dumps(function_response)
+
+
+# ---------------------------------------------------------------------------
+# Convenience helpers (used by integration tests)
+# ---------------------------------------------------------------------------
+
+
+def create_openai_attempt_completion_tool_call(content_lines: List[str]) -> dict:  # noqa: D401 – simple helper
+    """Return a fully-formed OpenAI tool-call dict for *attempt_completion*.
+
+    The integration tests expect a helper that takes a list of **content**
+    strings (typically split lines from a command response) and converts them
+    into the exact structure produced by
+    `convert_cline_marker_to_openai_tool_call`.
+
+    Parameters
+    ----------
+    content_lines : List[str]
+        Lines of text that constitute the *result* argument for the
+        *attempt_completion* function.
+    """
+    joined = "\n".join(content_lines)
+    # Re-use the existing conversion utility to stay DRY by wrapping the
+    # joined content in the special Cline marker pair that the converter
+    # recognises.
+    marker_wrapped = f"__CLINE_TOOL_CALL_MARKER__{joined}__END_CLINE_TOOL_CALL_MARKER__"
+    return convert_cline_marker_to_openai_tool_call(marker_wrapped)
