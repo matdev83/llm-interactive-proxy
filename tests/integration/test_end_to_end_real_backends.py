@@ -242,6 +242,11 @@ def test_end_to_end_chat_completion(client_type: str, backend: str, proxy_server
             pytest.skip(f"Gemini client request failed ({exc}); skipping scenario.")
 
         assert getattr(response, "candidates", None), "No candidates returned"
+        # Ensure backend did not propagate CLI failure message
+        cand0 = response.candidates[0]
+        if hasattr(cand0, "content") and cand0.content:
+            first_part_text = cand0.content.parts[0].text if hasattr(cand0.content.parts[0], "text") else str(cand0.content)
+            assert "gemini cli failed" not in first_part_text.lower(), first_part_text
 
     else:
         raise AssertionError(f"Unknown client type {client_type}")

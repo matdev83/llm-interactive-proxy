@@ -38,14 +38,16 @@ class GeminiCliBatchConnector(GeminiCliDirectConnector):
         super().__init__()
         # Override the public backend identifier
         self.name = "gemini-cli-batch"
-        # Expose a wider set of models so the welcome banner lists four models
-        # (unit-tests expect this count for the CLI batch backend).
+        # Batch backend only supports the *2.5* generation family.  Keep the
+        # public list limited to those two models so both the /models endpoint
+        # and the interactive banner report the correct capability set.
         self.available_models = [
-            "gemini-1.5-pro",
-            "gemini-1.5-flash",
             "gemini-2.5-pro",
             "gemini-2.5-flash",
         ]
+
+        # Fast lookup set for validation
+        self._allowed_models = set(self.available_models)
 
     async def chat_completions(
         self,
@@ -120,6 +122,14 @@ class GeminiCliBatchConnector(GeminiCliDirectConnector):
                 return StreamingResponse(stream_generator(), media_type="text/event-stream")
             else:
                 return response, {}
+
+        # Validate / normalise requested model – default to *gemini-2.5-pro*
+        if effective_model not in self._allowed_models:
+            logger.warning(
+                "[gemini-cli-batch] Model '%s' not supported – overriding to 'gemini-2.5-pro'",
+                effective_model,
+            )
+            effective_model = "gemini-2.5-pro"
 
         # In batch mode, we override the working directory to be the project directory
         self._gemini_working_dir = project
@@ -236,9 +246,17 @@ class GeminiCliBatchConnector(GeminiCliDirectConnector):
                 error_msg = stderr.decode('utf-8', errors='replace').strip()
                 raise Exception(f"Gemini CLI failed with exit code {process.returncode}: {error_msg}")
 
-            # Return stdout
-            result = stdout.decode('utf-8', errors='replace').strip()
-            logger.info(f"Gemini CLI completed successfully, output length: {len(result)}")
+            # Decode result and close pipes to silence Windows transport warnings
+            result = stdout.decode("utf-8", errors="replace").strip()
+
+            if process.stdout:
+                process.stdout.close()
+            if process.stderr:
+                process.stderr.close()
+
+            logger.info(
+                "Gemini CLI completed successfully (output length: %s)", len(result)
+            )
             return result
 
         except Exception as e:
