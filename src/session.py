@@ -1,11 +1,15 @@
 from __future__ import annotations
 
-from typing import List, Dict, Optional, Any
+import logging  # Add logging import
+from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from .proxy_logic import ProxyState
 import src.models as models
+
+from .proxy_logic import ProxyState
+
+logger = logging.getLogger(__name__)  # Add logger definition
 
 
 class SessionInteraction(BaseModel):
@@ -13,12 +17,12 @@ class SessionInteraction(BaseModel):
 
     prompt: str
     handler: str  # "proxy" or "backend"
-    backend: Optional[str] = None
-    model: Optional[str] = None
-    project: Optional[str] = None
-    parameters: Dict[str, Any] = {}
-    response: Optional[str] = None
-    usage: Optional[models.CompletionUsage] = None
+    backend: str | None = None
+    model: str | None = None
+    project: str | None = None
+    parameters: dict[str, Any] = {}
+    response: str | None = None
+    usage: models.CompletionUsage | None = None
 
 
 class Session(BaseModel):
@@ -28,8 +32,8 @@ class Session(BaseModel):
 
     session_id: str
     proxy_state: ProxyState
-    history: List[SessionInteraction] = Field(default_factory=list)
-    agent: Optional[str] = None
+    history: list[SessionInteraction] = Field(default_factory=list)
+    agent: str | None = None
 
     def add_interaction(self, interaction: SessionInteraction) -> None:
         self.history.append(interaction)
@@ -40,10 +44,10 @@ class SessionManager:
 
     def __init__(
         self,
-        default_interactive_mode: bool = False,
-        failover_routes: Optional[dict[str, dict[str, object]]] | None = None,
+        default_interactive_mode: bool = True,
+        failover_routes: dict[str, dict[str, object]] | None | None = None,
     ) -> None:
-        self.sessions: Dict[str, Session] = {}
+        self.sessions: dict[str, Session] = {}
         self.default_interactive_mode = default_interactive_mode
         self.failover_routes = failover_routes if failover_routes is not None else {}
 
@@ -56,4 +60,10 @@ class SessionManager:
                     failover_routes=self.failover_routes,
                 ),
             )
+            if logger.isEnabledFor(logging.INFO):
+                logger.info(f"Created new session: {session_id}")
+        if logger.isEnabledFor(logging.DEBUG):
+            logger.debug(
+                f"Retrieving session: {session_id}, ProxyState ID: {id(self.sessions[session_id].proxy_state)}"
+        )
         return self.sessions[session_id]

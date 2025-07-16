@@ -18,7 +18,7 @@ def test_detect_agent_aider():
 
 def test_wrap_proxy_message_cline():
     out = wrap_proxy_message("cline", "hi")
-    assert out.startswith("[Proxy Result]\n\n")
+    assert out == "hi" # wrap_proxy_message is now pass-through for cline
 
 
 def test_wrap_proxy_message_aider():

@@ -1,13 +1,15 @@
 import json
+
 import httpx
-from pytest_httpx import HTTPXMock
 import pytest
 import pytest_asyncio
+from pytest_httpx import HTTPXMock
 
 import src.models as models
 from src.connectors.gemini import GeminiBackend
 
 TEST_GEMINI_API_BASE_URL = "https://generativelanguage.googleapis.com"
+
 
 @pytest_asyncio.fixture(name="gemini_backend")
 async def gemini_backend_fixture():
@@ -16,10 +18,17 @@ async def gemini_backend_fixture():
 
 
 @pytest.mark.asyncio
-async def test_text_part_type_removed(gemini_backend: GeminiBackend, httpx_mock: HTTPXMock):
+async def test_text_part_type_removed(
+    gemini_backend: GeminiBackend, httpx_mock: HTTPXMock
+):
     request_data = models.ChatCompletionRequest(
         model="test-model",
-        messages=[models.ChatMessage(role="user", content=[models.MessageContentPartText(type="text", text="Hi")])],
+        messages=[
+            models.ChatMessage(
+                role="user",
+                content=[models.MessageContentPartText(type="text", text="Hi")],
+            )
+        ],
         temperature=None,
         top_p=None,
         n=None,
@@ -32,7 +41,9 @@ async def test_text_part_type_removed(gemini_backend: GeminiBackend, httpx_mock:
         user=None,
     )
     processed_messages = [
-        models.ChatMessage(role="user", content=[models.MessageContentPartText(type="text", text="Hi")])
+        models.ChatMessage(
+            role="user", content=[models.MessageContentPartText(type="text", text="Hi")]
+        )
     ]
     httpx_mock.add_response(
         url=f"{TEST_GEMINI_API_BASE_URL}/v1beta/models/test-model:generateContent",
@@ -62,7 +73,9 @@ async def test_text_part_type_removed(gemini_backend: GeminiBackend, httpx_mock:
 
 
 @pytest.mark.asyncio
-async def test_system_message_filtered(gemini_backend: GeminiBackend, httpx_mock: HTTPXMock):
+async def test_system_message_filtered(
+    gemini_backend: GeminiBackend, httpx_mock: HTTPXMock
+):
     request_data = models.ChatCompletionRequest(
         model="test-model",
         messages=[

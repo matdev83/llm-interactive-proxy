@@ -1,16 +1,19 @@
 from __future__ import annotations
 
-from typing import Dict, Any, List, Set
+import json
+import logging
+from typing import TYPE_CHECKING, Any, Callable, Tuple, Union
 
 from fastapi import FastAPI
 
-from .base import BaseCommand, CommandResult, register_command
 from ..command_prefix import validate_command_prefix
-
-from typing import TYPE_CHECKING
+from ..constants import SUPPORTED_BACKENDS
+from .base import BaseCommand, CommandContext, CommandResult, register_command
 
 if TYPE_CHECKING:
     from ..proxy_logic import ProxyState
+
+logger = logging.getLogger(__name__)
 
 
 @register_command
@@ -21,9 +24,17 @@ class SetCommand(BaseCommand):
     examples = [
         "!/set(model=openrouter:gpt-4)",
         "!/set(interactive=true)",
+        "!/set(reasoning-effort=high)",
+        "!/set(reasoning=effort=medium)",
+        "!/set(thinking-budget=2048)",
+        "!/set(gemini-generation-config={'thinkingConfig': {'thinkingBudget': 1024}})",
+        "!/set(temperature=0.7)",
     ]
 
-    def __init__(self, app: FastAPI | None = None, functional_backends: Set[str] | None = None) -> None:
+    HandlerOutput = Tuple[bool, Union[str, CommandResult, None], bool]
+
+    def __init__(self, app: FastAPI | None = None,
+                 functional_backends: set[str] | None = None) -> None:
         super().__init__(app, functional_backends)
 
     def _parse_bool(self, value: str) -> bool | None:
@@ -34,94 +45,386 @@ class SetCommand(BaseCommand):
             return False
         return None
 
-    def execute(self, args: Dict[str, Any], state: "ProxyState") -> CommandResult:
-        messages: List[str] = []
-        handled = False
-        backend_set_failed = False
-        if isinstance(args.get("backend"), str):
-            backend_val = args["backend"].strip().lower()
-            if backend_val not in {"openrouter", "gemini"}:
-                return CommandResult(self.name, False, f"backend {backend_val} not supported")
-            if backend_val not in self.functional_backends:
-                state.unset_override_backend()
-                backend_set_failed = True
-                return CommandResult(self.name, False, f"backend {backend_val} not functional")
-            state.set_override_backend(backend_val)
-            handled = True
-            messages.append(f"backend set to {backend_val}")
-        persistent_change = False
-        if isinstance(args.get("default-backend"), str):
-            backend_val = args["default-backend"].strip().lower()
-            if backend_val not in {"openrouter", "gemini"}:
-                return CommandResult(self.name, False, f"backend {backend_val} not supported")
-            if backend_val not in self.functional_backends:
-                return CommandResult(self.name, False, f"backend {backend_val} not functional")
-            if self.app is not None:
-                self.app.state.backend_type = backend_val
-                if backend_val == "gemini":
-                    self.app.state.backend = self.app.state.gemini_backend
+    def _handle_backend_setting(self, args: dict[str, Any], state: ProxyState) -> HandlerOutput:
+        backend_arg = args.get("backend")
+        if not isinstance(backend_arg, str):
+            return False, None, False
+
+        backend_val = backend_arg.strip().lower()
+        if backend_val not in SUPPORTED_BACKENDS:
+            return True, CommandResult(self.name, False, f"backend {backend_val} not supported"), False
+
+        # Check against functional_backends ONLY if a list of functional_backends is provided
+        if self.functional_backends is not None and backend_val not in self.functional_backends:
+            state.unset_override_backend()
+            return True, f"backend {backend_val} not functional (session override unset)", False
+
+        state.set_override_backend(backend_val)
+        return True, f"backend set to {backend_val}", False
+
+    def _handle_default_backend_setting(self, args: dict[str, Any], context: CommandContext | None = None) -> HandlerOutput:
+        backend_arg = args.get("default-backend")
+        if not isinstance(backend_arg, str):
+            return False, None, False
+
+        backend_val = backend_arg.strip().lower()
+        if backend_val not in SUPPORTED_BACKENDS:
+            return True, CommandResult(self.name, False, f"default-backend {backend_val} not supported"), False
+
+        if self.functional_backends is not None and backend_val not in self.functional_backends:
+            return True, CommandResult(self.name, False, f"default-backend {backend_val} not functional"), False
+
+        if context:
+            context.backend_type = backend_val
+        elif self.app:
+            # Fallback to direct app access for backward compatibility
+            self.app.state.backend_type = backend_val
+            self.app.state.backend = getattr(self.app.state, f"{backend_val}_backend", self.app.state.backend)
+        return True, f"default backend set to {backend_val}", True
+
+    def _handle_model_setting(self, args: dict[str, Any], state: ProxyState, backend_setting_failed_critically: bool, context: CommandContext | None = None) -> HandlerOutput:
+        model_arg = args.get("model")
+        if not isinstance(model_arg, str):
+            return False, None, False
+
+        if backend_setting_failed_critically:
+            return True, "model not set due to prior backend issue", False
+
+        model_val = model_arg.strip()
+        
+        # Use robust parsing that handles both slash and colon syntax
+        from src.models import parse_model_backend
+        backend_part, model_name = parse_model_backend(model_val)
+        if not backend_part:
+            return True, CommandResult(self.name, False, "model must be specified as <backend>:<model> or <backend>/<model>"), False
+        backend_part = backend_part.lower()
+
+        backend_obj = None
+        if context:
+            backend_obj = context.get_backend(backend_part)
+        elif self.app:
+            # Fallback to direct app access for backward compatibility
+            backend_obj = getattr(self.app.state, f"{backend_part}_backend", None)
+        
+        if not backend_obj:
+             return True, CommandResult(self.name, False, f"Backend '{backend_part}' for model not available/configured."), False
+
+        available = backend_obj.get_available_models()
+        if model_name in available:
+            state.set_override_model(backend_part, model_name)
+            return True, f"model set to {backend_part}:{model_name}", False
+        elif state.interactive_mode:
+            return True, CommandResult(self.name, False, f"model {backend_part}:{model_name} not available"), False
+
+        state.set_override_model(backend_part, model_name, invalid=True)
+        return True, f"model {backend_part}:{model_name} set (but may be invalid/unavailable)", False
+
+    def _handle_project_setting(self, args: dict[str, Any], state: ProxyState) -> HandlerOutput:
+        name_val_str: str | None = None
+        key_used: str | None = None
+        project_arg, pname_arg = args.get("project"), args.get("project-name")
+
+        if isinstance(project_arg, str):
+            name_val_str, key_used = project_arg, "project"
+        elif isinstance(pname_arg, str):
+            name_val_str, key_used = pname_arg, "project-name"
+        else:
+            return False, None, False
+
+        state.set_project(name_val_str)
+        return True, f"{key_used} set to {name_val_str}", False
+
+    def _handle_project_dir_setting(self, args: dict[str, Any], state: ProxyState) -> HandlerOutput:
+        dir_val_str: str | None = args.get("project-dir") or args.get("dir") or args.get("project-directory")
+        if not isinstance(dir_val_str, str):
+            return False, None, False
+
+        import os
+        if not os.path.isdir(dir_val_str):
+            return True, CommandResult(self.name, False, f"Directory '{dir_val_str}' not found."), False
+        if not os.access(dir_val_str, os.R_OK):
+            return True, CommandResult(self.name, False, f"Directory '{dir_val_str}' not readable."), False
+
+        state.set_project_dir(dir_val_str)
+        return True, f"project-dir set to {dir_val_str}", False
+
+    def _handle_interactive_mode_setting(self, args: dict[str, Any], state: ProxyState) -> HandlerOutput:
+        val_str: str | None = None
+        key_used: str | None = None
+        inter_arg, inter_mode_arg = args.get("interactive"), args.get("interactive-mode")
+
+        if isinstance(inter_arg, str):
+            val_str, key_used = inter_arg, "interactive"
+        elif isinstance(inter_mode_arg, str):
+            val_str, key_used = inter_mode_arg, "interactive-mode"
+        else:
+            return False, None, False
+
+        val = self._parse_bool(val_str)
+        if val is None:
+            return True, CommandResult(self.name, False, f"Invalid boolean value for {key_used}: {val_str}"), False
+
+        state.set_interactive_mode(val)
+        return True, f"{key_used} set to {val}", True
+
+    def _handle_api_key_redaction_setting(self, args: dict[str, Any], context: CommandContext | None = None) -> HandlerOutput:
+        key = "redact-api-keys-in-prompts"
+        val_arg = args.get(key)
+        if not isinstance(val_arg, str):
+            return False, None, False
+
+        val = self._parse_bool(val_arg)
+        if val is None:
+            return True, CommandResult(self.name, False, f"Invalid boolean value for {key}: {val_arg}"), False
+
+        if context:
+            context.api_key_redaction_enabled = val
+        elif self.app:
+            # Fallback to direct app access for backward compatibility
+            self.app.state.api_key_redaction_enabled = val
+        else:
+            return False, None, False
+        return True, f"{key} set to {val}", True
+
+    def _handle_command_prefix_setting(self, args: dict[str, Any], context: CommandContext | None = None) -> HandlerOutput:
+        key = "command-prefix"
+        val_arg = args.get(key)
+        if not isinstance(val_arg, str):
+            return False, None, False
+
+        error = validate_command_prefix(val_arg)
+        if error:
+            return True, CommandResult(self.name, False, error), False
+
+        if context:
+            context.command_prefix = val_arg
+        elif self.app:
+            # Fallback to direct app access for backward compatibility
+            self.app.state.command_prefix = val_arg
+        else:
+            return False, None, False
+        return True, f"{key} set to {val_arg}", True
+
+    def _handle_reasoning_effort_setting(self, args: dict[str, Any], state: ProxyState) -> HandlerOutput:
+        key = "reasoning-effort"
+        val_arg = args.get(key)
+        if not isinstance(val_arg, str):
+            return False, None, False
+
+        val = val_arg.strip().lower()
+        if val not in {"low", "medium", "high"}:
+            return True, CommandResult(self.name, False, f"reasoning-effort must be 'low', 'medium', or 'high', got: {val_arg}"), False
+
+        state.set_reasoning_effort(val)
+        return True, f"{key} set to {val}", False
+
+    def _handle_reasoning_config_setting(self, args: dict[str, Any], state: ProxyState) -> HandlerOutput:
+        key = "reasoning"
+        val_arg = args.get(key)
+        if not isinstance(val_arg, (dict, str)):
+            return False, None, False
+
+        if isinstance(val_arg, str):
+            # Simple string format like "effort=high" or "max_tokens=2000"
+            try:
+                if "=" in val_arg:
+                    k, v = val_arg.split("=", 1)
+                    k = k.strip()
+                    v = v.strip()
+                    if k == "effort" and v in {"low", "medium", "high"}:
+                        config = {"effort": v}
+                    elif k == "max_tokens" and v.isdigit():
+                        config = {"max_tokens": int(v)}
+                    elif k == "exclude" and v.lower() in {"true", "false"}:
+                        config = {"exclude": v.lower() == "true"}
+                    else:
+                        return True, CommandResult(self.name, False, f"Invalid reasoning parameter: {k}={v}"), False
                 else:
-                    self.app.state.backend = self.app.state.openrouter_backend
-            handled = True
-            messages.append(f"default backend set to {backend_val}")
-            persistent_change = True
-        if not backend_set_failed and isinstance(args.get("model"), str):
-            model_val = args["model"].strip()
-            if ":" not in model_val:
-                return CommandResult(self.name, False, "model must be specified as <backend>:<model>")
-            backend_part, model_name = model_val.split(":", 1)
-            backend_part = backend_part.lower()
-            backend_obj = None
-            if self.app is not None:
-                try:
-                    backend_obj = getattr(self.app.state, f"{backend_part}_backend", None)
-                except Exception:
-                    backend_obj = None
-            available = backend_obj.get_available_models() if backend_obj else []
-            if model_name in available:
-                state.set_override_model(backend_part, model_name)
-                handled = True
-                messages.append(f"model set to {backend_part}:{model_name}")
-            elif state.interactive_mode:
-                return CommandResult(
-                    self.name,
-                    False,
-                    f"model {backend_part}:{model_name} not available",
-                )
+                    return True, CommandResult(self.name, False, "Invalid reasoning format. Use key=value or dict format"), False
+            except ValueError:
+                return True, CommandResult(self.name, False, f"Invalid reasoning format: {val_arg}"), False
+        else:
+            # Dict format
+            config = val_arg
+
+        state.set_reasoning_config(config)
+        return True, f"{key} set to {config}", False
+
+    def _handle_thinking_budget_setting(self, args: dict[str, Any], state: ProxyState) -> HandlerOutput:
+        key = "thinking-budget"
+        val_arg = args.get(key)
+        if val_arg is None:
+            return False, None, False
+
+        try:
+            budget = int(val_arg)
+            if budget < 128 or budget > 32768:
+                return True, CommandResult(self.name, False, f"thinking-budget must be between 128 and 32768, got: {budget}"), False
+            
+            state.set_thinking_budget(budget)
+            return True, f"{key} set to {budget}", False
+        except (ValueError, TypeError):
+            return True, CommandResult(self.name, False, f"thinking-budget must be a valid integer, got: {val_arg}"), False
+
+    def _handle_gemini_generation_config_setting(self, args: dict[str, Any], state: ProxyState) -> HandlerOutput:
+        key = "gemini-generation-config"
+        val_arg = args.get(key)
+        if not isinstance(val_arg, (dict, str)):
+            return False, None, False
+
+        if isinstance(val_arg, str):
+            try:
+                config = json.loads(val_arg)
+            except json.JSONDecodeError:
+                return False, f"Invalid JSON format for {key}: {val_arg}", True
+        else:
+            config = val_arg
+
+        if not isinstance(config, dict):
+            return False, f"Invalid format for {key}, expected dict", True
+
+        try:
+            state.set_gemini_generation_config(config)
+            return True, f"gemini generation config set to: {config}", False
+        except Exception as e:
+            return False, f"Failed to set {key}: {e!s}", True
+
+    def _handle_temperature_setting(self, args: dict[str, Any], state: ProxyState) -> HandlerOutput:
+        key = "temperature"
+        val_arg = args.get(key)
+        if val_arg is None:
+            return False, None, False
+
+        try:
+            # Convert to float
+            if isinstance(val_arg, (str, int, float)):
+                temperature = float(val_arg)
             else:
-                state.set_override_model(backend_part, model_name, invalid=True)
-                handled = True
-        if isinstance(args.get("project"), str) or isinstance(args.get("project-name"), str):
-            name_val = str(args.get("project") or args.get("project-name"))
-            state.set_project(name_val)
-            handled = True
-            messages.append(f"project set to {name_val}")
-        for key in ("interactive", "interactive-mode"):
-            if isinstance(args.get(key), str):
-                val = self._parse_bool(args[key])
-                if val is not None:
-                    state.set_interactive_mode(val)
-                    handled = True
-                    messages.append(f"interactive mode set to {val}")
-                    persistent_change = True
-        if isinstance(args.get("redact-api-keys-in-prompts"), str) and self.app is not None:
-            val = self._parse_bool(args["redact-api-keys-in-prompts"])
-            if val is not None:
-                self.app.state.api_key_redaction_enabled = val
-                handled = True
-                messages.append(f"redact-api-keys-in-prompts set to {val}")
-                persistent_change = True
-        if isinstance(args.get("command-prefix"), str) and self.app is not None:
-            new_prefix = args["command-prefix"]
-            error = validate_command_prefix(new_prefix)
-            if error:
-                return CommandResult(self.name, False, error)
-            self.app.state.command_prefix = new_prefix
-            handled = True
-            messages.append(f"command prefix set to {new_prefix}")
-            persistent_change = True
-        if not handled:
-            return CommandResult(self.name, False, "set: no valid parameters")
-        if persistent_change and self.app is not None and getattr(self.app.state, "config_manager", None):
-            self.app.state.config_manager.save()
-        return CommandResult(self.name, True, "; ".join(messages))
+                return True, CommandResult(self.name, False, f"Invalid temperature format: {val_arg}"), False
+
+            state.set_temperature(temperature)
+            return True, f"temperature set to: {temperature}", False
+        except ValueError as e:
+            # Handle specific ValueError from set_temperature validation
+            if "Temperature must be between 0.0 and 2.0" in str(e):
+                return True, CommandResult(self.name, False, str(e)), False
+            else:
+                return True, CommandResult(self.name, False, f"Invalid temperature value: {val_arg}"), False
+        except Exception as e:
+            return True, CommandResult(self.name, False, str(e)), False
+
+    def _save_config_if_needed(self, any_persistent_change: bool, messages: list[str], context: CommandContext | None = None) -> None:
+        if not any_persistent_change:
+            return
+
+        if context:
+            try:
+                context.save_config()
+            except Exception as e:
+                logger.error(f"Failed to save configuration: {e}")
+                messages.append("(Warning: configuration not saved)")
+        elif self.app and hasattr(self.app.state, "config_manager"):
+            # Fallback to direct app access for backward compatibility
+            config_manager = getattr(self.app.state, "config_manager", None)
+            if config_manager:
+                try:
+                    config_manager.save()
+                except Exception as e:
+                    logger.error(f"Failed to save configuration: {e}")
+                    messages.append("(Warning: configuration not saved)")
+            else:
+                logger.warning("Config manager was None, not saving.")
+
+    def _get_handler_tasks(self, args: dict[str, Any], state: ProxyState, backend_setting_failed_critically: bool, context: CommandContext | None = None) -> list[Callable[[], HandlerOutput]]:
+        """Get the list of handler tasks for processing arguments."""
+        return [
+            lambda: self._handle_backend_setting(args, state),
+            lambda: self._handle_default_backend_setting(args, context),
+            lambda: self._handle_model_setting(args, state, backend_setting_failed_critically, context),
+            lambda: self._handle_project_setting(args, state),
+            lambda: self._handle_project_dir_setting(args, state),
+            lambda: self._handle_interactive_mode_setting(args, state),
+            lambda: self._handle_api_key_redaction_setting(args, context),
+            lambda: self._handle_command_prefix_setting(args, context),
+            lambda: self._handle_reasoning_effort_setting(args, state),
+            lambda: self._handle_reasoning_config_setting(args, state),
+            lambda: self._handle_thinking_budget_setting(args, state),
+            lambda: self._handle_gemini_generation_config_setting(args, state),
+            lambda: self._handle_temperature_setting(args, state),
+        ]
+
+    def _process_handler_tasks(self, tasks: list[Callable[[], HandlerOutput]]) -> tuple[bool, list[str], bool, bool]:
+        """Process handler tasks and return results."""
+        messages: list[str] = []
+        any_handled = False
+        any_persistent_change = False
+        backend_setting_failed_critically = False
+
+        for i, task_func in enumerate(tasks):
+            handled, result, persistent = task_func()
+            if not handled:
+                continue
+
+            any_handled = True
+            if isinstance(result, CommandResult):
+                # Early return for command result errors
+                raise ValueError(result)
+            if isinstance(result, str):
+                messages.append(result)
+                if i == 0 and "not functional" in result:
+                    backend_setting_failed_critically = True
+            if persistent:
+                any_persistent_change = True
+
+        return any_handled, messages, any_persistent_change, backend_setting_failed_critically
+
+    def execute(self, args: dict[str, Any], state: ProxyState) -> CommandResult:
+        """Execute the set command with the provided arguments."""
+        logger.debug(f"SetCommand.execute called with args: {args}")
+        
+        try:
+            backend_setting_failed_critically = False
+            tasks = self._get_handler_tasks(args, state, backend_setting_failed_critically)
+            any_handled, messages, any_persistent_change, _ = self._process_handler_tasks(tasks)
+
+            if not any_handled:
+                return CommandResult(self.name, False, "set: no valid parameters provided or action taken")
+
+            self._save_config_if_needed(any_persistent_change, messages)
+
+            final_message = "; ".join(filter(None, messages))
+            return CommandResult(self.name, True, final_message if final_message else "Settings processed.")
+        
+        except ValueError as e:
+            # Handle early return command results
+            if isinstance(e.args[0], CommandResult):
+                return e.args[0]
+            raise
+
+    def execute_with_context(
+        self, 
+        args: dict[str, Any], 
+        state: ProxyState, 
+        context: CommandContext | None = None
+    ) -> CommandResult:
+        """Execute command with context for better decoupling."""
+        logger.debug(f"SetCommand.execute_with_context called with args: {args}")
+        
+        try:
+            backend_setting_failed_critically = False
+            tasks = self._get_handler_tasks(args, state, backend_setting_failed_critically, context)
+            any_handled, messages, any_persistent_change, _ = self._process_handler_tasks(tasks)
+
+            if not any_handled:
+                return CommandResult(self.name, False, "set: no valid parameters provided or action taken")
+
+            self._save_config_if_needed(any_persistent_change, messages, context)
+
+            final_message = "; ".join(filter(None, messages))
+            return CommandResult(self.name, True, final_message if final_message else "Settings processed.")
+        
+        except ValueError as e:
+            # Handle early return command results
+            if isinstance(e.args[0], CommandResult):
+                return e.args[0]
+            raise

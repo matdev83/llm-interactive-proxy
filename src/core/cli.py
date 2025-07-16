@@ -1,13 +1,14 @@
 import argparse
-import os
 import logging
-import uvicorn
-from typing import Any, Dict
+import os
 import sys
-from src.command_prefix import validate_command_prefix
+from typing import Any, Callable, Dict, Optional
 
+import colorama
+import uvicorn
+
+from src.command_prefix import validate_command_prefix
 from src.core.config import _load_config
-from typing import Callable, Optional
 
 
 def _check_privileges() -> None:
@@ -20,9 +21,30 @@ def _check_privileges() -> None:
             import ctypes
 
             if ctypes.windll.shell32.IsUserAnAdmin() != 0:
-                raise SystemExit("Refusing to run with administrative privileges")
+                raise SystemExit(
+                    "Refusing to run with administrative privileges")
         except Exception:
             pass
+
+
+def _daemonize_unix() -> None:
+    """Daemonize the process on Unix-like systems."""
+    if os.fork() > 0:
+        sys.exit(0)  # exit first parent
+
+    os.chdir("/")
+    os.setsid()
+    os.umask(0)
+
+    if os.fork() > 0:
+        sys.exit(0)  # exit second parent
+
+    sys.stdout.flush()
+    sys.stderr.flush()
+    with open(os.devnull) as si, open(os.devnull, "a+") as so, open(os.devnull, "a+") as se:
+        os.dup2(si.fileno(), sys.stdin.fileno())
+        os.dup2(so.fileno(), sys.stdout.fileno())
+        os.dup2(se.fileno(), sys.stderr.fileno())
 
 
 def parse_cli_args(argv: list[str] | None = None) -> argparse.Namespace:
@@ -30,14 +52,14 @@ def parse_cli_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument(
         "--default-backend",
         dest="default_backend",
-        choices=["openrouter", "gemini"],
+        choices=["openrouter", "gemini", "gemini-cli-direct", "gemini-cli-batch", "gemini-cli-interactive"],
         default=os.getenv("LLM_BACKEND"),
         help="Default backend when multiple backends are functional",
     )
     parser.add_argument(
         "--backend",
         dest="default_backend",
-        choices=["openrouter", "gemini"],
+        choices=["openrouter", "gemini", "gemini-cli-direct", "gemini-cli-batch", "gemini-cli-interactive"],
         help=argparse.SUPPRESS,
     )
     parser.add_argument("--openrouter-api-key")
@@ -61,10 +83,10 @@ def parse_cli_args(argv: list[str] | None = None) -> argparse.Namespace:
         help="Path to persistent configuration file",
     )
     parser.add_argument(
-        "--interactive-mode",
+        "--disable-interactive-mode",
         action="store_true",
         default=None,
-        help="Enable interactive mode by default for new sessions",
+        help="Disable interactive mode by default for new sessions",
     )
     parser.add_argument(
         "--disable-redact-api-keys-in-prompts",
@@ -76,7 +98,7 @@ def parse_cli_args(argv: list[str] | None = None) -> argparse.Namespace:
         "--disable-auth",
         action="store_true",
         default=None,
-        help="Disable client API key authentication",
+        help="Disable client API key authentication (forces binding to 127.0.0.1 for security)",
     )
     parser.add_argument(
         "--force-set-project",
@@ -89,6 +111,31 @@ def parse_cli_args(argv: list[str] | None = None) -> argparse.Namespace:
         action="store_true",
         default=None,
         help="Disable all in-chat command processing",
+    )
+    parser.add_argument(
+        "--disable-accounting",
+        action="store_true",
+        default=None,
+        help="Disable LLM accounting (usage tracking and audit logging)",
+    )
+    parser.add_argument(
+        "--log-level",
+        dest="log_level",
+        choices=["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"],
+        default="INFO",
+        help="Set the logging level (e.g., INFO, DEBUG)",
+    )
+    parser.add_argument(
+        "--allow-admin",
+        action="store_true",
+        default=False,
+        help="Allow running server with administrative privileges (Windows UAC/admin or root)",
+    )
+    parser.add_argument(
+        "--daemon",
+        action="store_true",
+        default=False,
+        help="Run the server as a daemon (in the background). Requires --log to be set.",
     )
     return parser.parse_args(argv)
 
@@ -104,10 +151,11 @@ def apply_cli_args(args: argparse.Namespace) -> Dict[str, Any]:
         "port": "PROXY_PORT",
         "timeout": "PROXY_TIMEOUT",
         "command_prefix": "COMMAND_PREFIX",
-        "interactive_mode": "INTERACTIVE_MODE",
+        "disable_interactive_mode": "DISABLE_INTERACTIVE_MODE",
         "disable_auth": "DISABLE_AUTH",
         "force_set_project": "FORCE_SET_PROJECT",
         "disable_interactive_commands": "DISABLE_INTERACTIVE_COMMANDS",
+        "disable_accounting": "DISABLE_ACCOUNTING",
     }
     for attr, env_name in mappings.items():
         value = getattr(args, attr)
@@ -121,10 +169,19 @@ def apply_cli_args(args: argparse.Namespace) -> Dict[str, Any]:
         os.environ["REDACT_API_KEYS_IN_PROMPTS"] = "false"
     if getattr(args, "disable_auth", None):
         os.environ["DISABLE_AUTH"] = "true"
+        # Security: Force localhost when auth is disabled via CLI
+        if getattr(args, "host", None) and args.host != "127.0.0.1":
+            logging.warning(
+                "Authentication disabled via CLI. Forcing host to 127.0.0.1 for security (was: %s)",
+                args.host,
+            )
+        os.environ["PROXY_HOST"] = "127.0.0.1"
     if getattr(args, "force_set_project", None):
         os.environ["FORCE_SET_PROJECT"] = "true"
     if getattr(args, "disable_interactive_commands", None):
         os.environ["DISABLE_INTERACTIVE_COMMANDS"] = "true"
+    if getattr(args, "disable_accounting", None):
+        os.environ["DISABLE_ACCOUNTING"] = "true"
     return _load_config()
 
 
@@ -132,28 +189,58 @@ def main(
     argv: list[str] | None = None,
     build_app_fn: Optional[Callable[[Dict[str, Any] | None], Any]] = None,
 ) -> None:
+    if os.name == "nt":
+        colorama.init()
+
     args = parse_cli_args(argv)
+
+    if args.daemon:
+        if not args.log_file:
+            raise SystemExit("--log must be specified when running in daemon mode.")
+
+        if os.name == "nt":
+            import subprocess
+            import time
+
+            args_list = [
+                arg for arg in sys.argv[1:] if not arg.startswith("--daemon")
+            ]
+            command = [sys.executable, "-m", "src.core.cli", *args_list]
+            subprocess.Popen(
+                command,
+                creationflags=subprocess.DETACHED_PROCESS,
+                close_fds=True,
+            )
+            time.sleep(2)  # Give the child process a moment to start
+            sys.exit(0)
+        else:
+            _daemonize_unix()
+
     cfg = apply_cli_args(args)
     logging.basicConfig(
-        level=logging.DEBUG,
+        level=getattr(logging, args.log_level),
         format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
         filename=args.log_file,
     )
-    _check_privileges()
+    if not args.allow_admin:
+        _check_privileges()
 
+    # Security: Ensure localhost-only binding when authentication is disabled
     if cfg.get("disable_auth"):
         logging.warning("Client authentication is DISABLED")
         if cfg.get("proxy_host") != "127.0.0.1":
             logging.warning(
-                "Refusing to run with authentication disabled on non-localhost"
+                "Authentication disabled but host is %s. Forcing host to 127.0.0.1 for security.",
+                cfg.get("proxy_host"),
             )
-            sys.stdout.write(
-                "Authentication disabled but host not 127.0.0.1. Aborting.\n"
-            )
-            raise SystemExit(1)
+            cfg["proxy_host"] = "127.0.0.1"
 
     if build_app_fn is None:
         from src.main import build_app as build_app_fn
 
     app = build_app_fn(cfg, config_file=args.config_file)
     uvicorn.run(app, host=cfg["proxy_host"], port=cfg["proxy_port"])
+
+
+if __name__ == "__main__":
+    main()
