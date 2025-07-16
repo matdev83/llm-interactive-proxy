@@ -68,3 +68,4 @@ venv/*
 venv
 
 data/
+data/accounting.sqlite3
