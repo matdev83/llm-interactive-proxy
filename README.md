@@ -71,7 +71,7 @@ The proxy normalises requests internally, meaning **any front-end can be wired t
 
 1.  **Clone the repository:**
     ```bash
-    git clone https://github.com/Ymatdev83/llm-interactive-proxy.git
+    git clone https://github.com/matdev83/llm-interactive-proxy.git
     cd llm-interactive-proxy
     ```
 
