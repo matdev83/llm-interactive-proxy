@@ -11,8 +11,8 @@ from typing import Any, Dict
 from unittest.mock import AsyncMock, patch
 
 import pytest
-import uvicorn
 import requests
+import uvicorn
 
 from src.main import build_app
 
@@ -393,7 +393,7 @@ class TestErrorHandling:
             client = genai
             
             # This should raise an authentication error
-            with pytest.raises(requests.exceptions.RequestException):  # More specific exception
+            with pytest.raises(requests.exceptions.RequestException):
                 client.models.list()
         finally:
             server.stop()

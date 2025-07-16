@@ -517,10 +517,8 @@ def build_app(
 
         # Check for Gemini-style API key in x-goog-api-key header
         api_key_header = http_request.headers.get("x-goog-api-key")
-        if api_key_header:
-            # For Gemini API compatibility, accept the API key directly
-            if api_key_header == http_request.app.state.client_api_key:
-                return
+        if api_key_header and api_key_header == http_request.app.state.client_api_key:
+            return
 
         # Fallback to standard Bearer token authentication
         auth_header = http_request.headers.get("authorization")
@@ -1279,7 +1277,9 @@ def build_app(
         used_backend = current_backend_type
         used_model = effective_model
         success = False
-        while not success:
+        retries = 0
+        max_retries = 3  # Maximum number of retry attempts for rate-limited backends
+        while not success and retries < max_retries:
             earliest_retry: float | None = None
             attempted_any = False
             for b_attempt, m_attempt, kname_attempt, key_attempt in attempts:
@@ -1339,37 +1339,42 @@ def build_app(
                         last_error = e
                         attempted_any = True
                         continue
+                    retries += 1
                     raise
-            if not success:
-                if earliest_retry is None:
-                    error_msg_detail = last_error.detail if last_error else "all backends failed"
-                    status_code_to_return = last_error.status_code if last_error else 500
-                    response_content = {
-                        "id": "error",
-                        "object": "chat.completion",
-                        "created": int(time.time()),
-                        "model": effective_model,
-                        "choices": [
-                            {
-                                "index": 0,
-                                "message": {
-                                    "role": "assistant",
-                                    "content": f"All backends failed: {error_msg_detail}",
-                                },
-                                "finish_reason": "error",
-                            }
-                        ],
-                        "usage": {
-                            "prompt_tokens": 0,
-                            "completion_tokens": 0,
-                            "total_tokens": 0,
-                        },
-                        "error": error_msg_detail,
-                    }
-                    raise HTTPException(status_code=status_code_to_return, detail=response_content)
+            if not success and earliest_retry is None:
+                # No backends available and no retry times set - permanent failure
+                error_msg_detail = last_error.detail if last_error else "all backends failed"
+                status_code_to_return = last_error.status_code if last_error else 500
+                response_content = {
+                    "id": "error",
+                    "object": "chat.completion",
+                    "created": int(time.time()),
+                    "model": effective_model,
+                    "choices": [
+                        {
+                            "index": 0,
+                            "message": {
+                                "role": "assistant",
+                                "content": f"All backends failed: {error_msg_detail}",
+                            },
+                            "finish_reason": "error",
+                        }
+                    ],
+                    "usage": {
+                        "prompt_tokens": 0,
+                        "completion_tokens": 0,
+                        "total_tokens": 0,
+                    },
+                    "error": error_msg_detail,
+                }
+                raise HTTPException(status_code=status_code_to_return, detail=response_content)
+            elif not success and earliest_retry is not None:
+                # All backends are rate limited, wait for the earliest retry time
                 if not attempted_any:
-                    raise HTTPException(status_code=429, detail={"message": "Backend rate limited", "retry_after": int(earliest_retry - time.time())})
-                await asyncio.sleep(max(0, earliest_retry - time.time()))
+                    wait_time = max(0, earliest_retry - time.time())
+                    logger.debug(f"All backends rate limited, waiting {wait_time}s until {earliest_retry}")
+                    await asyncio.sleep(wait_time)
+                    retries += 1  # Increment retries after waiting
 
         # Start response processing phase
         with track_phase(perf_metrics, "response_processing"):

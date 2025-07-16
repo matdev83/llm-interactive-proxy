@@ -119,14 +119,19 @@ class TestRealWorldLoopDetection:
         # Wrap with loop detection
         wrapped_stream = wrap_streaming_content_with_loop_detection(mock_stream(), detector)
         
-        # Collect chunks until cancellation or completion
+        # Collect chunks until cancellation or completion with timeout
         collected_chunks = []
         cancellation_detected = False
+        chunk_count = 0
+        max_chunks = 100  # Prevent infinite loops
         
         async for chunk in wrapped_stream:
             collected_chunks.append(chunk)
+            chunk_count += 1
             if "Response cancelled" in chunk and "Loop detected" in chunk:
                 cancellation_detected = True
+                break
+            if chunk_count > max_chunks:  # Safety break
                 break
         
         # Should have detected and cancelled the stream

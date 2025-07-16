@@ -133,7 +133,7 @@ class TestLoopDetectionIntegration:
         config = LoopDetectionConfig(
             enabled=True,
             buffer_size=8192,
-            max_pattern_length=8192
+            max_pattern_length=1000
         )
         config.short_pattern_threshold.min_repetitions = 3
         config.short_pattern_threshold.min_total_length = 10

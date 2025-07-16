@@ -120,7 +120,6 @@ def test_provider_specific_reasoning():
                 # Extract response content
                 if "choices" in result and len(result["choices"]) > 0 and "reasoning_tokens" in str(result.get("usage", {})):
                     # Reasoning tokens detected in response
-                    pass
                     
                     # Check provider-specific information
                     provider_info = result.get("provider_info", {})
