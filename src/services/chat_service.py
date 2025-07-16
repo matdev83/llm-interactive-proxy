@@ -10,7 +10,7 @@ from fastapi import HTTPException, Request
 from starlette.responses import StreamingResponse
 
 from src import models
-from src.agents import detect_agent, wrap_proxy_message
+from src.agents import detect_agent, wrap_proxy_message, format_command_response_for_agent, detect_frontend_api, convert_cline_marker_to_openai_tool_call
 from src.command_config import CommandParserConfig
 from src.command_parser import CommandParser
 from src.constants import GEMINI_BACKENDS, BackendType
@@ -268,9 +268,9 @@ class ChatService:
             final_content = "\n".join(content_lines_for_agent) if content_lines_for_agent else "Command processed successfully."
             
             # Format response based on agent type
-            if session.agent == "cline":
+            if session.agent in {"cline", "roocode"}:
                 logger.debug("[CLINE_DEBUG] Returning as XML-wrapped content for Cline agent")
-                xml_wrapped_content = f"<attempt_completion>\n<result>\n{final_content}\n</result>\n</attempt_completion>\n"
+                # This line was replaced - now using centralized formatting
                 return models.CommandProcessedChatCompletionResponse(
                     id="proxy_cmd_processed",
                     object="chat.completion",

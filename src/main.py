@@ -17,7 +17,7 @@ from fastapi.testclient import TestClient
 from starlette.responses import StreamingResponse
 
 import src.models as models
-from src.agents import detect_agent, wrap_proxy_message
+from src.agents import detect_agent, wrap_proxy_message, format_command_response_for_agent, detect_frontend_api, convert_cline_marker_to_openai_tool_call
 from src.anthropic_converters import (
     anthropic_to_openai_request,
     openai_to_anthropic_response,
@@ -318,23 +318,20 @@ def build_app(
                     anthropic_ok = True
 
         # Initialize Gemini CLI batch (direct) backend
-        enable_cli = os.getenv("ENABLE_GEMINI_CLI", "").lower() == "true"
         # Gemini CLI *direct* backend is always considered functional because it does not
-        # depend on external API keys or project configuration. The *batch* variant remains
-        # optional behind the ENABLE_GEMINI_CLI flag to avoid spawning extra subprocesses in CI.
+        # depend on external API keys or project configuration. The *batch* variant is
+        # initialized when available or when explicitly requested via command line.
 
         gemini_cli_direct_ok = True  # Always available
 
-        if enable_cli or gemini_cli_batch_backend.get_available_models():
-            try:
-                await gemini_cli_batch_backend.initialize(
-                    google_cloud_project=cfg.get("google_cloud_project")
-                )
-                gemini_cli_batch_ok = bool(gemini_cli_batch_backend.get_available_models())
-            except Exception as e:
-                logger.error(f"Failed to initialize Gemini CLI Batch backend: {e}")
-                gemini_cli_batch_ok = False
-        else:
+        # Always try to initialize the batch backend - let it determine its own availability
+        try:
+            await gemini_cli_batch_backend.initialize(
+                google_cloud_project=cfg.get("google_cloud_project")
+            )
+            gemini_cli_batch_ok = bool(gemini_cli_batch_backend.get_available_models())
+        except Exception as e:
+            logger.error(f"Failed to initialize Gemini CLI Batch backend: {e}")
             gemini_cli_batch_ok = False
 
         # Initialize Gemini CLI interactive backend (may be disabled in CI)
@@ -797,7 +794,7 @@ def build_app(
 
                 # Include command results for Cline agents, but exclude simple confirmations for non-Cline agents
                 if confirmation_text:
-                    if session.agent == "cline":
+                    if session.agent in {"cline", "roocode"}:
                         # For Cline agents, include command results but exclude "hello acknowledged" confirmations
                         if confirmation_text != "hello acknowledged":
                             content_lines_for_agent.append(confirmation_text)
@@ -820,10 +817,19 @@ def build_app(
                 proxy_state.hello_requested = False
                 proxy_state.interactive_just_enabled = False
 
-                if session.agent == "cline":
-                    logger.debug("[CLINE_DEBUG] Returning as XML-wrapped content for Cline agent")
-                    # Format the response in the XML format expected by Cline tests
-                    xml_wrapped_content = f"<attempt_completion>\n<result>\n{final_content}\n</result>\n</attempt_completion>\n"
+                # Central handling for command responses - raw content, frontends handle formatting
+                logger.debug(f"[CLINE_DEBUG] Returning command response for agent: {session.agent}")
+                
+                # Central handling: Format response using agent-aware formatter
+                formatted_content = format_command_response_for_agent([final_content], session.agent)
+                
+                # OpenAI frontend: Convert Cline markers to tool calls
+                if session.agent in {"cline", "roocode"} and formatted_content.startswith("__CLINE_TOOL_CALL_MARKER__"):
+                    logger.debug("[CLINE_DEBUG] Converting Cline marker to OpenAI tool calls")
+                    
+                    # Convert marker to tool call
+                    tool_call = convert_cline_marker_to_openai_tool_call(formatted_content)
+                    
                     return models.CommandProcessedChatCompletionResponse(
                         id="proxy_cmd_processed",
                         object="chat.completion",
@@ -834,9 +840,17 @@ def build_app(
                                 index=0,
                                 message=models.ChatCompletionChoiceMessage(
                                     role="assistant",
-                                    content=xml_wrapped_content
+                                    content=None,
+                                    tool_calls=[models.ToolCall(
+                                        id=tool_call["id"],
+                                        type=tool_call["type"],
+                                        function=models.FunctionCall(
+                                            name=tool_call["function"]["name"],
+                                            arguments=tool_call["function"]["arguments"]
+                                        )
+                                    )]
                                 ),
-                                finish_reason="stop"
+                                finish_reason="tool_calls"
                             )
                         ],
                         usage=models.CompletionUsage(
@@ -846,13 +860,12 @@ def build_app(
                         )
                     )
                 else:
-                    logger.debug(f"[CLINE_DEBUG] Returning as regular assistant message for agent: {session.agent}")
-                    formatted_content = wrap_proxy_message(session.agent, final_content)
+                    # Regular content response (non-Cline or other frontends)
                     return models.CommandProcessedChatCompletionResponse(
                         id="proxy_cmd_processed",
                         object="chat.completion",
                         created=int(datetime.now(timezone.utc).timestamp()),
-                        model=proxy_state.get_effective_model(request_data.model),
+                        model=request_data.model,
                         choices=[
                             models.ChatCompletionChoice(
                                 index=0,
@@ -1085,6 +1098,7 @@ def build_app(
                                 else None
                             ),
                             command_filter=http_request.app.state.command_filter,
+                            agent=session.agent,
                         )
 
                         if isinstance(backend_result, tuple):
@@ -1387,6 +1401,8 @@ def build_app(
                         response="<streaming>",
                     )
                 )
+                
+                
                 return response_from_backend
 
             # Handle different types of responses from backends

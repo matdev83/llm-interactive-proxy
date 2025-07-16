@@ -155,7 +155,13 @@ class GeminiCliInteractiveConnector(LLMBackend):
             user_content = prompt_redactor.redact(user_content)
 
         # Send to CLI & get result
-        result = await self._send_prompt(user_content, effective_model)
+        # Normalize OpenRouter-style names like 'google/gemini-2.5-flash'
+        normalized_model = effective_model
+        if "/" in normalized_model:
+            logger.debug("Detected provider prefix in model name '%s' for CLI. Using last segment only.", normalized_model)
+            normalized_model = normalized_model.rsplit("/", 1)[-1]
+
+        result = await self._send_prompt(user_content, normalized_model)
 
         # Build OpenAI-compatible response (non-streaming only)
         response = {
