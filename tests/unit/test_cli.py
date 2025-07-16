@@ -271,44 +271,36 @@ def test_apply_cli_args_disable_auth_with_localhost_no_warning():
 
 def test_main_disable_auth_forces_localhost():
     """Test that main function forces localhost when disable_auth is set."""
-    with patch.dict(os.environ, {"DISABLE_AUTH": "true", "PROXY_HOST": "0.0.0.0"}, clear=True):
-        with patch("src.core.cli.logging.basicConfig"):
-            with patch("src.core.cli.logging") as mock_logging:
-                with patch("uvicorn.run") as mock_uvicorn:
-                    with patch("src.core.cli._check_privileges"):
-                        mock_app = MagicMock()
-                        mock_build_app = MagicMock(return_value=mock_app)
-                        
-                        main(["--port", "8080"], build_app_fn=mock_build_app)
-                        
-                        # Should force host to localhost
-                        mock_uvicorn.assert_called_once_with(mock_app, host="127.0.0.1", port=8080)
-                        # Should log warning about auth being disabled
-                        warning_calls = [str(call) for call in mock_logging.warning.call_args_list]
-                        auth_disabled_warnings = [call for call in warning_calls 
-                                                if "authentication is DISABLED" in call]
-                        assert len(auth_disabled_warnings) >= 1
+    with patch.dict(os.environ, {"DISABLE_AUTH": "true", "PROXY_HOST": "0.0.0.0"}, clear=True), patch("src.core.cli.logging.basicConfig"), patch("src.core.cli.logging") as mock_logging, patch("uvicorn.run") as mock_uvicorn, patch("src.core.cli._check_privileges"):
+        mock_app = MagicMock()
+        mock_build_app = MagicMock(return_value=mock_app)
+        
+        main(["--port", "8080"], build_app_fn=mock_build_app)
+        
+        # Should force host to localhost
+        mock_uvicorn.assert_called_once_with(mock_app, host="127.0.0.1", port=8080)
+        # Should log warning about auth being disabled
+        warning_calls = [str(call) for call in mock_logging.warning.call_args_list]
+        auth_disabled_warnings = [call for call in warning_calls 
+                                if "authentication is DISABLED" in call]
+        assert len(auth_disabled_warnings) >= 1
 
 
 def test_main_disable_auth_with_localhost_no_force():
     """Test that main function doesn't force localhost when it's already localhost."""
-    with patch.dict(os.environ, {"DISABLE_AUTH": "true", "PROXY_HOST": "127.0.0.1"}, clear=True):
-        with patch("src.core.cli.logging.basicConfig"):
-            with patch("src.core.cli.logging") as mock_logging:
-                with patch("uvicorn.run") as mock_uvicorn:
-                    with patch("src.core.cli._check_privileges"):
-                        mock_app = MagicMock()
-                        mock_build_app = MagicMock(return_value=mock_app)
-                        
-                        main(["--port", "8080"], build_app_fn=mock_build_app)
-                        
-                        # Should use localhost
-                        mock_uvicorn.assert_called_once_with(mock_app, host="127.0.0.1", port=8080)
-                        # Should log warning about auth being disabled but not about forcing host
-                        warning_calls = [str(call) for call in mock_logging.warning.call_args_list]
-                        auth_disabled_warnings = [call for call in warning_calls 
-                                                if "authentication is DISABLED" in call]
-                        assert len(auth_disabled_warnings) >= 1
+    with patch.dict(os.environ, {"DISABLE_AUTH": "true", "PROXY_HOST": "127.0.0.1"}, clear=True), patch("src.core.cli.logging.basicConfig"), patch("src.core.cli.logging") as mock_logging, patch("uvicorn.run") as mock_uvicorn, patch("src.core.cli._check_privileges"):
+        mock_app = MagicMock()
+        mock_build_app = MagicMock(return_value=mock_app)
+        
+        main(["--port", "8080"], build_app_fn=mock_build_app)
+        
+        # Should use localhost
+        mock_uvicorn.assert_called_once_with(mock_app, host="127.0.0.1", port=8080)
+        # Should log warning about auth being disabled but not about forcing host
+        warning_calls = [str(call) for call in mock_logging.warning.call_args_list]
+        auth_disabled_warnings = [call for call in warning_calls 
+                                if "authentication is DISABLED" in call]
+        assert len(auth_disabled_warnings) >= 1
 
 
 def test_main_auth_enabled_allows_custom_host():
