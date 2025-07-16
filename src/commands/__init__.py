@@ -1,33 +1,43 @@
-from .base import BaseCommand, CommandResult, register_command, command_registry, create_command_instances
+from .base import (
+    BaseCommand,
+    CommandResult,
+    command_registry,
+    create_command_instances,
+    register_command,
+)
+from .create_failover_route_cmd import CreateFailoverRouteCommand
+from .delete_failover_route_cmd import DeleteFailoverRouteCommand
+from .hello_cmd import HelloCommand
+from .help_cmd import HelpCommand
+from .list_failover_routes_cmd import ListFailoverRoutesCommand
+from .oneoff_cmd import OneoffCommand
+from .pwd_cmd import PwdCommand
+from .route_append_cmd import RouteAppendCommand
+from .route_clear_cmd import RouteClearCommand
+from .route_list_cmd import RouteListCommand
+from .route_prepend_cmd import RoutePrependCommand
 
 # Import command modules to ensure registration
-from .set_cmd import SetCommand  # noqa: F401
-from .unset_cmd import UnsetCommand  # noqa: F401
-from .hello_cmd import HelloCommand  # noqa: F401
-from .create_failover_route_cmd import CreateFailoverRouteCommand  # noqa: F401
-from .route_append_cmd import RouteAppendCommand  # noqa: F401
-from .route_prepend_cmd import RoutePrependCommand  # noqa: F401
-from .delete_failover_route_cmd import DeleteFailoverRouteCommand  # noqa: F401
-from .route_clear_cmd import RouteClearCommand  # noqa: F401
-from .list_failover_routes_cmd import ListFailoverRoutesCommand  # noqa: F401
-from .route_list_cmd import RouteListCommand  # noqa: F401
-from .help_cmd import HelpCommand  # noqa: F401
+from .set_cmd import SetCommand
+from .unset_cmd import UnsetCommand
 
 __all__ = [
     "BaseCommand",
     "CommandResult",
-    "register_command",
-    "command_registry",
-    "create_command_instances",
+    "CreateFailoverRouteCommand",
+    "DeleteFailoverRouteCommand",
+    "HelloCommand",
+    "HelpCommand",
+    "ListFailoverRoutesCommand",
+    "OneoffCommand",
+    "PwdCommand",
+    "RouteAppendCommand",
+    "RouteClearCommand",
+    "RouteListCommand",
+    "RoutePrependCommand",
     "SetCommand",
     "UnsetCommand",
-    "HelloCommand",
-    "CreateFailoverRouteCommand",
-    "RouteAppendCommand",
-    "RoutePrependCommand",
-    "DeleteFailoverRouteCommand",
-    "RouteClearCommand",
-    "ListFailoverRoutesCommand",
-    "RouteListCommand",
-    "HelpCommand",
+    "command_registry",
+    "create_command_instances",
+    "register_command",
 ]

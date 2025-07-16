@@ -1,0 +1,95 @@
+# Exclude common directories
+exclude = [
+    ".bzr",
+    ".direnv",
+    ".eggs",
+    ".git",
+    ".git-rewrite",
+    ".hg",
+    ".mypy_cache",
+    ".nox",
+    ".pants.d",
+    ".pytype",
+    ".ruff_cache",
+    ".svn",
+    ".tox",
+    ".venv",
+    "__pypackages__",
+    "_build",
+    "buck-out",
+    "build",
+    "dist",
+    "node_modules",
+    "venv",
+    ".pytest_cache",
+    "__pycache__",
+]
+
+# Same as Black.
+line-length = 88
+indent-width = 4
+
+# Assume Python 3.8+
+target-version = "py38"
+
+[lint]
+# Enable only rules that catch real issues, not formatting
+select = [
+    # Pyflakes - catches unused imports, undefined names, etc.
+    "F",
+    # pycodestyle errors - only serious runtime/syntax errors
+    "E9",   # Runtime errors
+    # isort - import sorting issues
+    "I",
+    # pep8-naming - naming convention violations
+    "N",
+    # pyupgrade - outdated syntax
+    "UP",
+    # flake8-bugbear - likely bugs
+    "B",
+    # flake8-simplify - code simplification
+    "SIM",
+    # flake8-comprehensions - list/dict/set comprehension issues
+    "C4",
+    # flake8-pie - unnecessary code
+    "PIE",
+    # Ruff-specific rules
+    "RUF",
+]
+
+# Ignore formatting and whitespace-related rules
+ignore = [
+    # Pycodestyle whitespace and newline rules
+    "E1", "E2", "E3",
+    "W1", "W2", "W3",
+    # Pydocstyle
+    "D",
+    # Specific formatting rules to ignore
+    "E501",  # Line too long
+    "E701",  # Multiple statements on one line
+    "E702",  # Multiple statements on one line (semicolon)
+    "E711",  # Comparison to None should be 'is' or 'is not'
+    "E712",  # Comparison to True should be 'is' or 'is not'
+    "E713",  # Test for membership should be 'not in'
+    "E714",  # Test for object identity should be 'is not'
+    "COM812", # Missing trailing comma
+    "COM819", # Trailing comma prohibited
+    "Q000", # Double quotes found but single quotes preferred
+
+    # Ignore some overly strict rules
+    "B008",  # Do not perform function calls in argument defaults
+    "B904",  # Within an except clause, raise exceptions with raise ... from err
+    "SIM108", # Use ternary operator instead of if-else-block
+    "RUF012", # Mutable class attributes should be annotated with `typing.ClassVar`
+]
+
+# Allow fix for all enabled rules (except those in unfixable)
+fixable = ["ALL"]
+unfixable = []
+
+# Allow unused variables when underscore-prefixed
+dummy-variable-rgx = "^(_+|(_+[a-zA-Z0-9_]*[a-zA-Z0-9]+?))$"
+
+[format]
+# Disable formatting entirely - we only want linting
+skip-magic-trailing-comma = true

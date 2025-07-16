@@ -8,21 +8,26 @@ import time
 
 import pytest
 
+pytestmark = pytest.mark.integration
+
+ORIG_KEY = os.getenv("GEMINI_API_KEY_1")
+
+
 
 @pytest.fixture(autouse=True)
 def patch_backend_discovery():
     # Override the autouse fixture from tests.conftest - we want real network calls
     yield
 
-
-from tests.conftest import ORIG_GEMINI_KEY as ORIG_KEY
+# Ensure the commented out version is not present if it was part of an error
+# from tests.conftest import ORIG_GEMINI_KEY as ORIG_KEY
 
 
 @pytest.fixture(autouse=True)
 def clean_env(monkeypatch):
     # Ensure only Gemini is functional for these end-to-end tests
     monkeypatch.setenv("LLM_BACKEND", "gemini")
-    if ORIG_KEY:
+    if ORIG_KEY: # ORIG_KEY is now defined due to the import above
         monkeypatch.setenv("GEMINI_API_KEY_1", ORIG_KEY)
     monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
     yield
@@ -53,6 +58,7 @@ def _run_client(cfg_path: str, port: int) -> str:
 
 def _start_server(port: int) -> subprocess.Popen:
     env = os.environ.copy()
+    env["DISABLE_AUTH"] = "true"  # Disable authentication for tests
     proc = subprocess.Popen(
         [
             "uvicorn",

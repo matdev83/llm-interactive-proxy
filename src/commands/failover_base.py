@@ -1,12 +1,10 @@
 from __future__ import annotations
 
-from typing import List
+from typing import TYPE_CHECKING
 
 from fastapi import FastAPI
 
-from .base import BaseCommand, CommandResult
-
-from typing import TYPE_CHECKING
+from .base import BaseCommand  # Removed CommandResult
 
 if TYPE_CHECKING:
     from ..proxy_logic import ProxyState
@@ -16,7 +14,10 @@ class FailoverBase(BaseCommand):
     def __init__(self, app: FastAPI | None = None, **kwargs) -> None:
         super().__init__(app=app, **kwargs)
 
-    def _ensure_interactive(self, state: "ProxyState", messages: List[str]) -> None:
+    def _ensure_interactive(
+            self,
+            state: ProxyState,
+            messages: list[str]) -> None:
         if not state.interactive_mode:
             state.set_interactive_mode(True)
             messages.append(

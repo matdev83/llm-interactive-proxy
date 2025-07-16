@@ -1,7 +1,7 @@
 [project]
 name = "llm-interactive-proxy"
 version = "0.1.0"
-description = "A short description of my project."
+description = "A short description of my project." # Pyroma might suggest a longer one, but this is fine for now.
 authors = [
     { name = "Your Name", email = "your.email@example.com" },
 ]
@@ -15,10 +15,28 @@ dependencies = [
     "tomli",
     "typer",
     "rich",
+    "llm-accounting",
+    "tiktoken",
+    "google-genai",
+    "anthropic",
 ]
 requires-python = ">=3.10"
 readme = "README.md"
-license = { text = "MIT" }
+license = { text = "MIT" } # License specified here
+keywords = ["llm", "proxy", "interactive", "api", "ai", "chatgpt", "openai", "gemini", "openrouter"]
+urls = { Home = "https://github.com/example-user/llm-interactive-proxy" } # Example URL
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License", # License classifier added
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Topic :: Internet :: Proxy Servers",
+    "Operating System :: OS Independent", # Common classifier
+]
 
 [project.optional-dependencies]
 dev = [
@@ -27,6 +45,7 @@ dev = [
     "pytest-httpx",
     "ruff",
     "black",
+    "requests",
 ]
 
 [build-system]

@@ -1,0 +1,86 @@
+{
+  "default_backend": "openrouter",
+  "interactive_mode": true,
+  "redact_api_keys_in_prompts": true,
+  "command_prefix": "!/",
+  "model_defaults": {
+    "openrouter:openai/o1": {
+      "reasoning": {
+        "reasoning_effort": "high",
+        "temperature": 0.3
+      }
+    },
+    "openrouter:openai/o1-mini": {
+      "reasoning": {
+        "reasoning_effort": "medium",
+        "temperature": 0.5
+      }
+    },
+    "openrouter:openai/o3-mini": {
+      "reasoning": {
+        "reasoning_effort": "high",
+        "reasoning": {
+          "effort": "high",
+          "max_tokens": 2000
+        },
+        "temperature": 0.4
+      }
+    },
+    "openrouter:deepseek/deepseek-r1": {
+      "reasoning": {
+        "reasoning": {
+          "effort": "medium",
+          "max_tokens": 1500
+        },
+        "temperature": 0.6
+      }
+    },
+    "gemini:gemini-2.5-pro": {
+      "reasoning": {
+        "thinking_budget": 2048,
+        "generation_config": {
+          "thinkingConfig": {
+            "thinkingBudget": 2048
+          },
+          "temperature": 0.7
+        },
+        "temperature": 0.7
+      }
+    },
+    "gemini:gemini-2.5-flash": {
+      "reasoning": {
+        "thinking_budget": 1024,
+        "generation_config": {
+          "thinkingConfig": {
+            "thinkingBudget": 1024
+          },
+          "temperature": 0.8
+        },
+        "temperature": 0.8
+      }
+    },
+    "gemini-exp-1206": {
+      "reasoning": {
+        "thinking_budget": 4096,
+        "temperature": 0.5
+      }
+    }
+  },
+  "failover_routes": {
+    "reasoning-models": {
+      "policy": "m",
+      "elements": [
+        "openrouter:openai/o1",
+        "openrouter:openai/o3-mini",
+        "gemini:gemini-2.5-pro"
+      ]
+    },
+    "fast-reasoning": {
+      "policy": "k",
+      "elements": [
+        "openrouter:openai/o1-mini",
+        "gemini:gemini-2.5-flash"
+      ]
+    }
+  }
+} 

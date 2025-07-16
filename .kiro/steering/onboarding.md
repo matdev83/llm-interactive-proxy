@@ -1,0 +1,1 @@
+Onboard yourself into the project by reading README.md and AGENTS.md files.

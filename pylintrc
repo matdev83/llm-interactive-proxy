@@ -1,0 +1,6 @@
+[MASTER]
+disable=
+    C0301, ; Line too long
+    C0303, ; Trailing whitespace
+    C0114, ; Missing module docstring
+    C0116  ; Missing function or method docstring

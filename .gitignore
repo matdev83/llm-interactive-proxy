@@ -1,7 +1,69 @@
-.venv
-__pycache__ 
-.pytest_cache
-*.egg-info
+# Python virtual environment
+.venv/
+venv/
+.env
+.env.local
+
+# Compiled Python files
+*.pyc
+__pycache__/
+
+# Distribution and build artifacts
+*.egg-info/
+dist/
+build/
+
+# IDE-specific files
+.idea/
+.vscode/
 .cline*
-dev/errors.txt
+.cursor*
+.cursorrules
+.cursorignore
+.cursorignore.md
+.cursorignore.txt
+.cursorignore.yml
+.cursorignore.yaml
+.cursorignore.json
+GEMINI.md
+.agent.md
+.kiro/
+
+
+# Test and coverage artifacts
+.pytest_cache/
+htmlcov/
+.mypy_cache/
+
+# Logs and temporary files
 logs/
+*.log
+debug.log
+temp/
+tmp/
+
+# OS-specific files
+.DS_Store
+
+# Configuration and sensitive files
+.envrc
+.secret
+credentials.json
+config.ini
+settings.py
+local_settings.py
+db.sqlite3
+
+# Other common ignores
+celerybeat-schedule
+pip-log.txt
+
+# Project-specific ignores (already present)
+dev/
+.dev/
+.cursor/
+data/
+venv/
+venv/*
+venv
+
