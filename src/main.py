@@ -54,7 +54,12 @@ from src.loop_detection.config import LoopDetectionConfig
 from src.performance_tracker import track_phase, track_request_performance
 from src.proxy_logic import ProxyState
 from src.rate_limit import RateLimitRegistry, parse_retry_delay
-from src.response_middleware import configure_loop_detection_middleware
+from src.response_middleware import (
+    configure_loop_detection_middleware,
+    configure_api_key_redaction_middleware,
+    RequestContext as ResponseContext,
+    get_response_middleware
+)
 from src.security import APIKeyRedactor, ProxyCommandFilter
 from src.session import (
     SessionInteraction,
@@ -110,6 +115,19 @@ def build_app(
                 cfg.update(file_cfg)
         except Exception as exc:
             logger.warning("Failed to load config file %s: %s", config_file, exc)
+
+    # ---------------------------------------------------------------------
+    # Configure logging
+    # ---------------------------------------------------------------------
+    log_file = cfg.get("log_file")
+    if log_file:
+        handler = logging.FileHandler(log_file, mode="a")
+        formatter = logging.Formatter(
+            "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+        )
+        handler.setFormatter(formatter)
+        logging.getLogger().addHandler(handler)
+        logging.getLogger().setLevel(logging.INFO)
 
     disable_auth = cfg.get("disable_auth", False)
     disable_accounting = cfg.get("disable_accounting", False)
@@ -393,6 +411,10 @@ def build_app(
         
         configure_loop_detection_middleware(loop_config, handle_loop_detected)
         logger.info(f"Loop detection initialized: enabled={loop_config.enabled}")
+        
+        # Configure API key redaction middleware
+        from src.response_middleware import configure_api_key_redaction_middleware
+        configure_api_key_redaction_middleware()
 
         # Generate the welcome banner at startup to show API key and model counts
         _welcome_banner(app_param, "startup")
@@ -453,6 +475,14 @@ def build_app(
 
         # Initialize emergency command filter
         app_param.state.command_filter = ProxyCommandFilter(cfg["command_prefix"])
+        
+        # Initialize request middleware
+        from src.request_middleware import configure_redaction_middleware
+        configure_redaction_middleware()
+        
+        # Configure API key redaction middleware for responses
+        from src.response_middleware import configure_api_key_redaction_middleware
+        configure_api_key_redaction_middleware()
 
         app_param.state.rate_limits = RateLimitRegistry()
         app_param.state.force_set_project = cfg.get("force_set_project", False)
@@ -1398,7 +1428,24 @@ def build_app(
 
         # Start response processing phase
         with track_phase(perf_metrics, "response_processing"):
-            if isinstance(response_from_backend, StreamingResponse):
+            # Create response context for middleware processing
+            response_context = ResponseContext(
+                session_id=session_id,
+                backend_type=used_backend,
+                model=used_model,
+                is_streaming=isinstance(response_from_backend, StreamingResponse),
+                request_data=request_data,
+                api_key_redactor=http_request.app.state.api_key_redactor if http_request.app.state.api_key_redaction_enabled else None
+            )
+            
+            # Process response through middleware
+            response_middleware = get_response_middleware()
+            processed_response = await response_middleware.process_response(
+                response_from_backend, 
+                response_context
+            )
+            
+            if isinstance(processed_response, StreamingResponse):
                 session.add_interaction(
                     SessionInteraction(
                         prompt=raw_prompt, handler="backend", backend=used_backend,
@@ -1409,16 +1456,16 @@ def build_app(
                 )
                 
                 
-                return response_from_backend
+                return processed_response
 
             # Handle different types of responses from backends
-            if isinstance(response_from_backend, dict):
-                backend_response_dict = response_from_backend
-            elif response_from_backend and hasattr(response_from_backend, 'model_dump'):
-                backend_response_dict = response_from_backend.model_dump(exclude_none=True)
-            elif callable(response_from_backend) or hasattr(response_from_backend, '__await__'):
+            if isinstance(processed_response, dict):
+                backend_response_dict = processed_response
+            elif processed_response and hasattr(processed_response, 'model_dump'):
+                backend_response_dict = processed_response.model_dump(exclude_none=True)
+            elif callable(processed_response) or hasattr(processed_response, '__await__'):
                 # Handle mock objects or coroutines that weren't properly awaited
-                logger.warning(f"Backend returned a callable/awaitable object instead of response: {type(response_from_backend)}")
+                logger.warning(f"Backend returned a callable/awaitable object instead of response: {type(processed_response)}")
                 backend_response_dict = {}
             else:
                 backend_response_dict = {}

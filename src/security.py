@@ -11,19 +11,51 @@ class APIKeyRedactor:
     def __init__(self, api_keys: Iterable[str] | None = None) -> None:
         # filter out falsy values
         self.api_keys = [k for k in (api_keys or []) if k]
+        # Pre-compile regex patterns for better performance
+        self._key_patterns = {}
+        for key in self.api_keys:
+            if key:
+                # Escape special regex characters and compile pattern
+                self._key_patterns[key] = re.compile(re.escape(key))
+
+    def _redact_cached(self, text: str) -> str:
+        """Cached version of redact for frequently processed content."""
+        # Simple manual caching to avoid memory leaks with lru_cache on methods
+        if not hasattr(self, '_redact_cache'):
+            self._redact_cache = {}
+        if text in self._redact_cache:
+            return self._redact_cache[text]
+        result = self._redact_internal(text)
+        if len(self._redact_cache) < 1024:  # Limit cache size
+            self._redact_cache[text] = result
+        return result
 
     def redact(self, text: str) -> str:
         """Replace any occurrences of known API keys in *text*."""
+        if not text:
+            return text
+            
+        # For short texts, use cached version for better performance
+        if len(text) < 1000:
+            return self._redact_cached(text)
+        else:
+            return self._redact_internal(text)
+            
+    def _redact_internal(self, text: str) -> str:
+        """Internal redact implementation."""
         redacted_text = text
+        
+        # Quick containment check before expensive regex operations
         for key in self.api_keys:
             if key and key in redacted_text:
                 if logger.isEnabledFor(logging.WARNING):
                     logger.warning(
                         "API key detected in prompt. Redacting before forwarding."
-                )
-                redacted_text = redacted_text.replace(
-                    key, "(API_KEY_HAS_BEEN_REDACTED)"
-                )
+                    )
+                # Use pre-compiled regex for replacement
+                pattern = self._key_patterns[key]
+                redacted_text = pattern.sub("(API_KEY_HAS_BEEN_REDACTED)", redacted_text)
+                
         return redacted_text
 
 

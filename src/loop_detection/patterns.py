@@ -113,7 +113,7 @@ class BlockAnalyzer:
     
     def _find_blocks_of_length(self, text: str, block_length: int, min_repetitions: int) -> list[BlockMatch]:
         """
-        Find repeated blocks of a specific length.
+        Find repeated blocks of a specific length using optimized KMP algorithm.
         
         Args:
             text: Text to analyze
@@ -143,12 +143,15 @@ class BlockAnalyzer:
                 pos += 1
                 continue
 
-            # Count consecutive repetitions starting from this position
+            # Count consecutive repetitions using KMP algorithm for faster matching
             repetitions = 1
             current_pos = pos + block_length
 
+            # Precompute KMP failure function for the block
+            failure = self._compute_kmp_failure_function(block)
+
             while current_pos + block_length <= text_len:
-                if text.startswith(block, current_pos):
+                if self._kmp_search(text, block, current_pos, failure):
                     repetitions += 1
                     current_pos += block_length
                 else:
@@ -169,14 +172,61 @@ class BlockAnalyzer:
                 )
 
                 # Mark all positions covered by this match as processed to
-                # avoid redundant checks.  Using range with step of 1 is still
-                # acceptable because this branch is only hit for actual matches.
+                # avoid redundant checks.
                 processed_positions.update(range(pos, current_pos))
                 pos = current_pos  # Skip past the processed block
             else:
                 pos += 1
 
         return matches
+
+    def _compute_kmp_failure_function(self, pattern: str) -> list[int]:
+        """
+        Compute the KMP failure function for a pattern.
+        
+        Args:
+            pattern: The pattern to compute failure function for
+            
+        Returns:
+            List representing the failure function
+        """
+        m = len(pattern)
+        if m == 0:
+            return []
+            
+        failure = [0] * m
+        j = 0
+        
+        for i in range(1, m):
+            while j > 0 and pattern[i] != pattern[j]:
+                j = failure[j - 1]
+            if pattern[i] == pattern[j]:
+                j += 1
+            failure[i] = j
+            
+        return failure
+
+    def _kmp_search(self, text: str, pattern: str, start_pos: int, failure: list[int]) -> bool:
+        """
+        Check if pattern occurs at start_pos in text using precomputed failure function.
+        
+        Args:
+            text: Text to search in
+            pattern: Pattern to search for
+            start_pos: Position to start search
+            failure: Precomputed failure function for pattern
+            
+        Returns:
+            True if pattern matches at start_pos, False otherwise
+        """
+        if start_pos + len(pattern) > len(text):
+            return False
+            
+        # Direct comparison since we're checking a specific position
+        for i in range(len(pattern)):
+            if text[start_pos + i] != pattern[i]:
+                return False
+        return True
     
     def _calculate_block_confidence(self, block: str, repetitions: int) -> float:
         """

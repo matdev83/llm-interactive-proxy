@@ -14,7 +14,8 @@ from starlette.responses import StreamingResponse
 
 from src.connectors.base import LLMBackend
 from src.models import ChatCompletionRequest
-from src.security import APIKeyRedactor, ProxyCommandFilter
+# API key redaction and command filtering are now handled by middleware
+# from src.security import APIKeyRedactor, ProxyCommandFilter
 
 logger = logging.getLogger(__name__)
 
@@ -65,8 +66,6 @@ class AnthropicBackend(LLMBackend):
         key_name: str | None = None,
         api_key: str | None = None,
         project: str | None = None,
-        prompt_redactor: APIKeyRedactor | None = None,
-        command_filter: ProxyCommandFilter | None = None,
         **kwargs,
     ) -> tuple[dict[str, Any], dict[str, str]] | StreamingResponse:
         """Send request to Anthropic Messages endpoint and return data in OpenAI format."""
@@ -81,8 +80,6 @@ class AnthropicBackend(LLMBackend):
             processed_messages,
             effective_model,
             project,
-            prompt_redactor,
-            command_filter,
         )
 
         headers = {
@@ -113,8 +110,6 @@ class AnthropicBackend(LLMBackend):
         processed_messages: list,
         effective_model: str,
         project: str | None,
-        prompt_redactor: APIKeyRedactor | None,
-        command_filter: ProxyCommandFilter | None,
     ) -> dict[str, Any]:
         payload: dict[str, Any] = {
             "model": effective_model,
@@ -134,15 +129,10 @@ class AnthropicBackend(LLMBackend):
                     system_prompt = json.dumps(msg.content)
                 continue
 
-            # Map content
+            # Map content - content is already processed by middleware
             content = msg.content
             if isinstance(content, str):
-                text = content
-                if command_filter:
-                    text = command_filter.filter_commands(text)
-                if prompt_redactor:
-                    text = prompt_redactor.redact(text)
-                anth_messages.append({"role": msg.role, "content": text})
+                anth_messages.append({"role": msg.role, "content": content})
             else:
                 # For list-of-parts, Anthropic only supports string or array of dict {"type":"text","text":...}
                 parts: list[Any] = []
@@ -151,10 +141,8 @@ class AnthropicBackend(LLMBackend):
                         # assume already valid
                         part_obj = part.copy()
                         if part_obj.get("type") == "text" and "text" in part_obj:
-                            if command_filter:
-                                part_obj["text"] = command_filter.filter_commands(part_obj["text"])
-                            if prompt_redactor:
-                                part_obj["text"] = prompt_redactor.redact(part_obj["text"])
+                            # Text content is already processed by middleware
+                            pass
                         parts.append(part_obj)
                     else:
                         # unknown part type -> stringify

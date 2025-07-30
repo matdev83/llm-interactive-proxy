@@ -1,0 +1,4 @@
+{
+  "backend": "gemini-cli-batch",
+  "log_file": "proxy.log"
+}

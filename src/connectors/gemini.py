@@ -15,7 +15,8 @@ from src.models import (
     MessageContentPartImage,
     MessageContentPartText,
 )
-from src.security import APIKeyRedactor, ProxyCommandFilter
+# API key redaction and command filtering are now handled by middleware
+# from src.security import APIKeyRedactor, ProxyCommandFilter
 
 logger = logging.getLogger(__name__)
 
@@ -114,19 +115,11 @@ class GeminiBackend(LLMBackend):
     def _convert_part_for_gemini(
         self,
         part: MessageContentPartText | MessageContentPartImage,
-        prompt_redactor: APIKeyRedactor | None,
-        command_filter: ProxyCommandFilter | None = None,
     ) -> dict[str, Any]:
         """Convert a MessageContentPart into Gemini API format."""
         if isinstance(part, MessageContentPartText):
-            text = part.text
-            # Apply command filter first (emergency filter)
-            if command_filter:
-                text = command_filter.filter_commands(text)
-            # Apply API key redaction second
-            if prompt_redactor:
-                text = prompt_redactor.redact(text)
-            return {"text": text}
+            # Text content is already processed by middleware
+            return {"text": part.text}
         if isinstance(part, MessageContentPartImage):
             url = part.image_url.url
             # Data URL -> inlineData
@@ -145,20 +138,13 @@ class GeminiBackend(LLMBackend):
                     "fileUri": url}}
         data = part.model_dump(exclude_unset=True)
         if data.get("type") == "text" and "text" in data:
-            # Apply command filter first (emergency filter)
-            if command_filter:
-                data["text"] = command_filter.filter_commands(data["text"])
-            # Apply API key redaction second
-            if prompt_redactor:
-                data["text"] = prompt_redactor.redact(data["text"])
+            # Text content is already processed by middleware
             data.pop("type", None)
         return data
 
     def _prepare_gemini_contents(
         self,
         processed_messages: list,
-        prompt_redactor: APIKeyRedactor | None,
-        command_filter: ProxyCommandFilter | None = None,
     ) -> list[dict[str, Any]]:
         payload_contents = []
         for msg in processed_messages:
@@ -167,17 +153,11 @@ class GeminiBackend(LLMBackend):
                 continue
 
             if isinstance(msg.content, str):
-                text = msg.content
-                # Apply command filter first (emergency filter)
-                if command_filter:
-                    text = command_filter.filter_commands(text)
-                # Apply API key redaction second
-                if prompt_redactor:
-                    text = prompt_redactor.redact(text)
-                parts = [{"text": text}]
+                # Content is already processed by middleware
+                parts = [{"text": msg.content}]
             else:
                 parts = [
-                    self._convert_part_for_gemini(part, prompt_redactor, command_filter)
+                    self._convert_part_for_gemini(part)
                     for part in msg.content
                 ]
 
@@ -306,8 +286,6 @@ class GeminiBackend(LLMBackend):
         key_name: str | None = None,
         api_key: str | None = None,
         project: str | None = None,
-        prompt_redactor: APIKeyRedactor | None = None,
-        command_filter: ProxyCommandFilter | None = None,
         **kwargs,
     ) -> dict[str, Any] | StreamingResponse:
         gemini_api_base_url = openrouter_api_base_url or kwargs.get(
@@ -320,7 +298,7 @@ class GeminiBackend(LLMBackend):
             )
 
         payload_contents = self._prepare_gemini_contents(
-            processed_messages, prompt_redactor, command_filter
+            processed_messages
         )
         payload = {"contents": payload_contents}
 

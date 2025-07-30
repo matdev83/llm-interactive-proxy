@@ -40,6 +40,10 @@ class LoopDetectionStreamingResponse(StreamingResponse):
     
     async def _wrap_content_with_detection(self, content: AsyncIterator[Any]) -> AsyncIterator[Any]:
         """Wrap content iterator to include loop detection."""
+        # Buffer for aggregating small chunks to reduce analysis overhead
+        chunk_buffer = ""
+        min_chunk_size = 64  # Minimum size before processing
+        
         try:
             async for chunk in content:
                 # Check if we've been cancelled
@@ -51,8 +55,17 @@ class LoopDetectionStreamingResponse(StreamingResponse):
                 if isinstance(chunk, (str, bytes)):
                     chunk_text = chunk.decode('utf-8') if isinstance(chunk, bytes) else chunk
                     
-                    # Check for loops
-                    detection_event = self.loop_detector.process_chunk(chunk_text)
+                    # Aggregate small chunks to reduce analysis overhead
+                    chunk_buffer += chunk_text
+                    if len(chunk_buffer) < min_chunk_size:
+                        # Yield the original chunk and continue buffering
+                        yield chunk
+                        continue
+                    
+                    # Process the buffered content
+                    detection_event = self.loop_detector.process_chunk(chunk_buffer)
+                    chunk_buffer = ""  # Clear buffer after processing
+                    
                     if detection_event:
                         logger.warning(f"Loop detected in streaming response: {detection_event.pattern[:50]}...")
                         
@@ -75,6 +88,27 @@ class LoopDetectionStreamingResponse(StreamingResponse):
                 # Yield the original chunk
                 yield chunk
                 
+            # Process any remaining buffered content
+            if not self._cancelled and chunk_buffer:
+                detection_event = self.loop_detector.process_chunk(chunk_buffer)
+                if detection_event:
+                    logger.warning(f"Loop detected in streaming response: {detection_event.pattern[:50]}...")
+                    
+                    # Trigger callback
+                    if self.on_loop_detected:
+                        try:
+                            self.on_loop_detected(detection_event)
+                        except Exception as e:
+                            logger.error(f"Error in loop detection callback: {e}")
+                    
+                    # Cancel the stream
+                    self._cancelled = True
+                    
+                    # Yield a final message indicating cancellation
+                    cancellation_message = self._create_cancellation_message(detection_event)
+                    if cancellation_message:
+                        yield cancellation_message
+                        
         except asyncio.CancelledError:
             logger.info("Streaming response cancelled")
             raise
@@ -121,6 +155,9 @@ async def wrap_streaming_content_with_loop_detection(
         return
     
     cancelled = False
+    # Buffer for aggregating small chunks to reduce analysis overhead
+    chunk_buffer = ""
+    min_chunk_size = 64  # Minimum size before processing
     
     try:
         async for chunk in content:
@@ -131,8 +168,17 @@ async def wrap_streaming_content_with_loop_detection(
             if isinstance(chunk, (str, bytes)):
                 chunk_text = chunk.decode('utf-8') if isinstance(chunk, bytes) else chunk
                 
-                # Check for loops
-                detection_event = loop_detector.process_chunk(chunk_text)
+                # Aggregate small chunks to reduce analysis overhead
+                chunk_buffer += chunk_text
+                if len(chunk_buffer) < min_chunk_size:
+                    # Yield the original chunk and continue buffering
+                    yield chunk
+                    continue
+                
+                # Process the buffered content
+                detection_event = loop_detector.process_chunk(chunk_buffer)
+                chunk_buffer = ""  # Clear buffer after processing
+                
                 if detection_event:
                     logger.warning(f"Loop detected: {detection_event.pattern[:50]}...")
                     
@@ -154,6 +200,26 @@ async def wrap_streaming_content_with_loop_detection(
             # Yield the original chunk
             yield chunk
             
+        # Process any remaining buffered content
+        if not cancelled and chunk_buffer:
+            detection_event = loop_detector.process_chunk(chunk_buffer)
+            if detection_event:
+                logger.warning(f"Loop detected: {detection_event.pattern[:50]}...")
+                
+                # Trigger callback
+                if on_loop_detected:
+                    try:
+                        on_loop_detected(detection_event)
+                    except Exception as e:
+                        logger.error(f"Error in loop detection callback: {e}")
+                
+                # Cancel the stream
+                cancelled = True
+                
+                # Yield a final cancellation message
+                cancellation_message = (                    f"data: [Response cancelled: Loop detected - Pattern "                    f"'{detection_event.pattern[:30]}...' repeated "                    f"{detection_event.repetition_count} times]\n\n"                )
+                yield cancellation_message
+        
     except asyncio.CancelledError:
         logger.info("Streaming content cancelled")
         raise

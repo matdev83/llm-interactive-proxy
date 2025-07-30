@@ -32,8 +32,6 @@ class LLMBackend(abc.ABC):
         key_name: str,
         api_key: str,
         project: str | None = None,
-        prompt_redactor: APIKeyRedactor | None = None,
-        command_filter: ProxyCommandFilter | None = None,
         agent: str | None = None,
     ) -> StreamingResponse | dict[str, Any]:
         """
@@ -49,8 +47,6 @@ class LLMBackend(abc.ABC):
                                          required for OpenRouter API. (Needs generalization)
             key_name: The environment variable name of the API key in use.
             api_key: The secret value of the API key.
-            prompt_redactor: Optional APIKeyRedactor used to sanitize messages.
-            command_filter: Optional ProxyCommandFilter to remove leaked proxy commands.
 
         Returns:
             A StreamingResponse if the request is for a stream, or a dictionary

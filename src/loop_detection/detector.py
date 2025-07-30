@@ -36,26 +36,34 @@ class ResponseBuffer:
         self.max_size = max_size
         self.buffer = deque(maxlen=max_size)
         self.total_length = 0
+        # Track actual stored content length for proper sliding window behavior
+        self.stored_length = 0
     
     def append(self, text: str) -> None:
         """Append text to the buffer.
-
-        The previous implementation tried to maintain ``total_length`` by
-        decrementing before the deque dropped an element and incrementing after
-        each append.  When ``deque.maxlen`` is reached the element is actually
-        *popped from the left **after*** the new element is appended, which
-        resulted in an off-by-one error.  The simple, cheap and correct
-        approach is to append the whole text first and then set
-        ``total_length`` from the real deque size (``len(self.buffer)``).
-        The small ``len`` call is negligible compared to the cost of pattern
-        analysis and removes the risk of drift.
+        
+        Stores text chunks instead of individual characters for better performance.
+        Manages sliding window behavior manually to maintain exact size limits.
         """
-
-        for char in text:
-            self.buffer.append(char)  # deque handles overflow automatically
-
-        # Keep authoritative count (avoids off-by-one errors)
-        self.total_length = len(self.buffer)
+        if not text:
+            return
+            
+        text_len = len(text)
+        
+        # If adding this text would exceed max_size, remove old content first
+        if self.stored_length + text_len > self.max_size:
+            # Remove old chunks until we have enough space
+            excess = self.stored_length + text_len - self.max_size
+            while excess > 0 and self.buffer:
+                old_chunk = self.buffer.popleft()
+                old_len = len(old_chunk)
+                self.stored_length -= old_len
+                excess -= old_len
+        
+        # Add the new text chunk
+        self.buffer.append(text)
+        self.stored_length += text_len
+        self.total_length += text_len
     
     def get_content(self) -> str:
         """Get the current buffer content as a string."""
@@ -70,10 +78,11 @@ class ResponseBuffer:
         """Clear the buffer."""
         self.buffer.clear()
         self.total_length = 0
+        self.stored_length = 0
     
     def size(self) -> int:
         """Get current buffer size."""
-        return len(self.buffer)
+        return self.stored_length
 
 
 class LoopDetector:
@@ -118,9 +127,11 @@ class LoopDetector:
         if not self.is_active or not chunk:
             return None
         
+        chunk_len = len(chunk)
+        
         # Add chunk to buffer
         self.buffer.append(chunk)
-        self.total_processed += len(chunk)
+        self.total_processed += chunk_len
 
         # Only analyze if we have enough content
         if self.buffer.size() < 50:  # Minimum content threshold
