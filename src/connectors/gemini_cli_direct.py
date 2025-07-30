@@ -17,7 +17,8 @@ from .base import LLMBackend
 
 if TYPE_CHECKING:
     from src.models import ChatCompletionRequest
-    from src.security import APIKeyRedactor, ProxyCommandFilter
+    # API key redaction and command filtering are now handled by middleware
+# from src.security import APIKeyRedactor, ProxyCommandFilter
 
 logger = logging.getLogger(__name__)
 
@@ -443,8 +444,6 @@ class GeminiCliDirectConnector(LLMBackend):
         key_name: Optional[str] = None,
         api_key: Optional[str] = None,
         project: Optional[str] = None,
-        prompt_redactor: Optional["APIKeyRedactor"] = None,
-        command_filter: Optional["ProxyCommandFilter"] = None,
         agent: Optional[str] = None,  # Added agent parameter
         **kwargs
     ) -> Union[Tuple[Dict[str, Any], Dict[str, str]], StreamingResponse]:
@@ -472,13 +471,9 @@ class GeminiCliDirectConnector(LLMBackend):
             if not prompt:
                 raise ValueError("Empty prompt")
 
+            # Prompt content is already processed by middleware
             # Apply emergency command filter if provided
-            if command_filter:
-                prompt = command_filter.filter_commands(prompt)
-
             # Apply API key redaction if provided
-            if prompt_redactor:
-                prompt = prompt_redactor.redact(prompt)
 
             # Check if sandbox mode is requested (could be a parameter)
             sandbox = kwargs.get("sandbox", False)

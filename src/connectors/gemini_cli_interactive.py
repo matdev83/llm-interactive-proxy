@@ -16,7 +16,8 @@ from .gemini_cli_batch import GeminiCliBatchConnector  # for helpers
 
 if TYPE_CHECKING:
     from src.models import ChatCompletionRequest
-    from src.security import APIKeyRedactor, ProxyCommandFilter
+    # API key redaction and command filtering are now handled by middleware
+# from src.security import APIKeyRedactor, ProxyCommandFilter
 
 logger = logging.getLogger(__name__)
 
@@ -131,8 +132,6 @@ class GeminiCliInteractiveConnector(LLMBackend):
         key_name: str | None = None,
         api_key: str | None = None,
         project: str | None = None,
-        prompt_redactor: APIKeyRedactor | None = None,
-        command_filter: ProxyCommandFilter | None = None,
         **kwargs,
     ) -> tuple[dict[str, Any], dict[str, str]] | StreamingResponse:
         """Send a single prompt through the interactive process."""
@@ -148,11 +147,8 @@ class GeminiCliInteractiveConnector(LLMBackend):
         if not user_content:
             raise ValueError("No user message provided")
 
+        # Prompt content is already processed by middleware
         # Apply filters / redaction
-        if command_filter:
-            user_content = command_filter.filter_commands(user_content)
-        if prompt_redactor:
-            user_content = prompt_redactor.redact(user_content)
 
         # Send to CLI & get result
         # Normalize OpenRouter-style names like 'google/gemini-2.5-flash'

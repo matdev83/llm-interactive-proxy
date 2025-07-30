@@ -20,7 +20,7 @@ from src.performance_tracker import track_phase
 from src.proxy_logic import ProxyState
 from src.rate_limit import parse_retry_delay
 from src.session import SessionInteraction
-
+from src.request_middleware import RequestContext, get_request_middleware
 logger = logging.getLogger(__name__)
 
 
@@ -49,12 +49,25 @@ class ChatService:
         # Log request details
         self._log_request_details(session_id, request_data, http_request)
         
-        # Process commands and detect agent
+# Process commands and detect agent
         with track_phase(perf_metrics, "command_processing"):
             processed_messages, commands_processed, confirmation_text = await self._process_commands(
                 request_data, proxy_state, session, http_request
             )
         
+        # Apply request middleware processing (redaction, filtering, etc.)
+        with track_phase(perf_metrics, "middleware_processing"):
+            request_context = RequestContext(
+                session_id=session_id,
+                backend_type="unknown",  # Will be updated per backend call
+                model="unknown",  # Will be updated per backend call
+                redaction_enabled=self.app.state.api_key_redaction_enabled,
+                api_key_redactor=self.app.state.api_key_redactor,
+                command_filter=self.app.state.command_filter
+            )
+            processed_messages = await get_request_middleware().process_request(
+                processed_messages, request_context
+            )        
         # Validate backend and model
         current_backend_type = self._validate_backend_and_model(proxy_state, http_request)
         
@@ -643,7 +656,7 @@ class ChatService:
                     request_data, processed_messages, model, key_name, api_key, proxy_state, tracker
                 )
     
-    async def _call_gemini_backend(self, request_data, processed_messages, model, key_name, api_key, proxy_state, tracker):
+async def _call_gemini_backend(self, request_data, processed_messages, model, key_name, api_key, proxy_state, tracker):
         """Call Gemini backend."""
         backend_result = await self.app.state.gemini_backend.chat_completions(
             request_data=request_data,
@@ -653,10 +666,7 @@ class ChatService:
             gemini_api_base_url=self.config["gemini_api_base_url"],
             key_name=key_name,
             api_key=api_key,
-            prompt_redactor=self.app.state.api_key_redactor if self.app.state.api_key_redaction_enabled else None,
-            command_filter=self.app.state.command_filter,
-        )
-        
+        )        
         if isinstance(backend_result, tuple):
             result, response_headers = backend_result
             tracker.set_response(result)
@@ -668,7 +678,7 @@ class ChatService:
         logger.debug(f"Result from Gemini backend chat_completions: {result}")
         return result
     
-    async def _call_gemini_cli_direct_backend(self, request_data, processed_messages, model, proxy_state, tracker):
+async def _call_gemini_cli_direct_backend(self, request_data, processed_messages, model, proxy_state, tracker):
         """Call Gemini CLI Direct backend."""
         backend_instance = (
             self.app.state.gemini_cli_batch_backend
@@ -681,10 +691,7 @@ class ChatService:
             processed_messages=processed_messages,
             effective_model=model,
             project=proxy_state.project,
-            prompt_redactor=self.app.state.api_key_redactor if self.app.state.api_key_redaction_enabled else None,
-            command_filter=self.app.state.command_filter,
-        )
-        
+        )        
         if isinstance(backend_result, tuple):
             result, response_headers = backend_result
             tracker.set_response(result)
@@ -696,17 +703,14 @@ class ChatService:
         logger.debug(f"Result from Gemini CLI Direct backend chat_completions: {result}")
         return result
     
-    async def _call_gemini_cli_interactive_backend(self, request_data, processed_messages, model, proxy_state, tracker):
+async def _call_gemini_cli_interactive_backend(self, request_data, processed_messages, model, proxy_state, tracker):
         """Call Gemini CLI Interactive backend."""
         backend_result = await self.app.state.gemini_cli_interactive_backend.chat_completions(
             request_data=request_data,
             processed_messages=processed_messages,
             effective_model=model,
             project=proxy_state.project,
-            prompt_redactor=self.app.state.api_key_redactor if self.app.state.api_key_redaction_enabled else None,
-            command_filter=self.app.state.command_filter,
         )
-
         if isinstance(backend_result, tuple):
             result, response_headers = backend_result
             tracker.set_response(result)
@@ -718,7 +722,7 @@ class ChatService:
         logger.debug(f"Result from Gemini CLI Interactive backend chat_completions: {result}")
         return result
     
-    async def _call_openrouter_backend(self, request_data, processed_messages, model, key_name, api_key, proxy_state, tracker):
+async def _call_openrouter_backend(self, request_data, processed_messages, model, key_name, api_key, proxy_state, tracker):
         """Call OpenRouter backend."""
         backend_result = await self.app.state.openrouter_backend.chat_completions(
             request_data=request_data,
@@ -729,10 +733,7 @@ class ChatService:
             key_name=key_name,
             api_key=api_key,
             project=proxy_state.project,
-            prompt_redactor=self.app.state.api_key_redactor if self.app.state.api_key_redaction_enabled else None,
-            command_filter=self.app.state.command_filter,
-        )
-        
+        )        
         if isinstance(backend_result, tuple):
             result, response_headers = backend_result
             tracker.set_response(result)

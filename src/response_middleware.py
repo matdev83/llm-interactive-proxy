@@ -1,12 +1,15 @@
 """
-Response processing middleware for handling cross-cutting concerns like loop detection.
+Response processing middleware for handling cross-cutting concerns like loop detection and API key redaction.
 
 This module provides a pluggable middleware system that can process responses
 from any backend without coupling the loop detection logic to individual connectors.
+
+Note: For request processing (e.g., API key redaction), see request_middleware.py
 """
 
 from __future__ import annotations
 
+import json
 import logging
 from typing import Any, Callable
 
@@ -17,6 +20,7 @@ from src.loop_detection.streaming import (
     analyze_complete_response_for_loops,
     wrap_streaming_content_with_loop_detection,
 )
+from src.security import APIKeyRedactor
 
 logger = logging.getLogger(__name__)
 
@@ -94,6 +98,7 @@ class RequestContext:
         model: str,
         is_streaming: bool,
         request_data: Any = None,
+        api_key_redactor: APIKeyRedactor | None = None,
         **kwargs
     ):
         self.session_id = session_id
@@ -101,6 +106,7 @@ class RequestContext:
         self.model = model
         self.is_streaming = is_streaming
         self.request_data = request_data
+        self.api_key_redactor = api_key_redactor
         self.metadata = kwargs
 
 
@@ -188,7 +194,19 @@ class LoopDetectionProcessor(ResponseProcessor):
     ) -> dict[str, Any]:
         """Process non-streaming response with loop detection."""
         
-        for idx, choice in enumerate(response.get("choices", [])):
+        # Handle both dict and Pydantic model responses
+        response_dict = response
+        if not isinstance(response, dict):
+            # Convert Pydantic model to dict
+            if hasattr(response, 'model_dump'):
+                response_dict = response.model_dump()
+            elif hasattr(response, '__dict__'):
+                response_dict = response.__dict__
+            else:
+                # If we can't convert, return as-is
+                return response
+        
+        for idx, choice in enumerate(response_dict.get("choices", [])):
             if not ("message" in choice and "content" in choice["message"]):
                 continue
 
@@ -209,7 +227,7 @@ class LoopDetectionProcessor(ResponseProcessor):
                     f"{detection_event.repetition_count} times]"
                 )
 
-        return response
+        return response_dict
     
     def cleanup_session(self, session_id: str):
         """Clean up detector for a session."""
@@ -217,8 +235,149 @@ class LoopDetectionProcessor(ResponseProcessor):
             del self._detectors[session_id]
 
 
+class APIKeyRedactionProcessor(ResponseProcessor):
+    """Response processor that handles API key redaction for any backend."""
+    
+    def should_process(
+        self, 
+        response: StreamingResponse | dict[str, Any], 
+        context: RequestContext
+    ) -> bool:
+        """Only process if we have an API key redactor."""
+        return context.api_key_redactor is not None
+    
+    async def process(
+        self,
+        response: StreamingResponse | dict[str, Any],
+        context: RequestContext
+    ) -> StreamingResponse | dict[str, Any]:
+        """Process response for API key redaction."""
+        if context.api_key_redactor is None:
+            return response
+            
+        if isinstance(response, StreamingResponse):
+            return await self._process_streaming_response(response, context)
+        else:
+            return await self._process_non_streaming_response(response, context)
+    
+    async def _process_streaming_response(
+        self,
+        response: StreamingResponse,
+        context: RequestContext
+    ) -> StreamingResponse:
+        """Process streaming response with API key redaction."""
+        if context.api_key_redactor is None:
+            return response
+            
+        original_content = response.body_iterator
+        
+        async def redacted_content():
+            async for chunk in original_content:
+                # For streaming responses, we need to parse and redact the content
+                if isinstance(chunk, bytes):
+                    chunk_str = chunk.decode('utf-8')
+                else:
+                    chunk_str = str(chunk)
+                
+                # Redact API keys in the chunk
+                redacted_chunk = self._redact_streaming_chunk(chunk_str, context.api_key_redactor)
+                
+                if isinstance(chunk, bytes):
+                    yield redacted_chunk.encode('utf-8')
+                else:
+                    yield redacted_chunk
+        
+        # Patch the iterator in-place and return the original object.
+        response.body_iterator = redacted_content()
+        return response
+    
+    def _redact_streaming_chunk(self, chunk: str, redactor: APIKeyRedactor) -> str:
+        """Redact API keys in a streaming chunk."""
+        # Handle SSE format (data: ... chunks)
+        if chunk.startswith("data:"):
+            # Extract the JSON part after "data: "
+            if chunk.strip() == "data: [DONE]":
+                return chunk
+                
+            try:
+                # Remove "data: " prefix and any trailing newlines
+                json_part = chunk[6:].strip()
+                if json_part:
+                    # Parse the JSON, redact content, then re-serialize
+                    data = json.loads(json_part)
+                    if isinstance(data, dict):
+                        # Redact in choices content
+                        for choice in data.get("choices", []):
+                            if isinstance(choice, dict):
+                                # Handle delta for streaming
+                                delta = choice.get("delta", {})
+                                if isinstance(delta, dict) and "content" in delta:
+                                    content = delta["content"]
+                                    if isinstance(content, str):
+                                        delta["content"] = redactor.redact(content)
+                                
+                                # Handle message for non-streaming style
+                                message = choice.get("message", {})
+                                if isinstance(message, dict) and "content" in message:
+                                    content = message["content"]
+                                    if isinstance(content, str):
+                                        message["content"] = redactor.redact(content)
+                    
+                    # Re-serialize the modified data
+                    return f"data: {json.dumps(data)}\n\n"
+            except (json.JSONDecodeError, Exception):
+                # If we can't parse/modify, return original chunk
+                pass
+        
+        # For non-SSE chunks or if parsing failed, try to redact the whole chunk
+        # This is a fallback for edge cases
+        return redactor.redact(chunk)
+    
+    async def _process_non_streaming_response(
+        self,
+        response: dict[str, Any],
+        context: RequestContext
+    ) -> dict[str, Any]:
+        """Process non-streaming response with API key redaction."""
+        if context.api_key_redactor is None:
+            return response
+            
+        # Handle both dict and Pydantic model responses
+        response_dict = response
+        if not isinstance(response, dict):
+            # Convert Pydantic model to dict
+            if hasattr(response, 'model_dump'):
+                response_dict = response.model_dump()
+            elif hasattr(response, '__dict__'):
+                response_dict = response.__dict__
+            else:
+                # If we can't convert, return as-is
+                return response
+            
+        # Redact API keys in response content
+        for choice in response_dict.get("choices", []):
+            if not ("message" in choice and "content" in choice["message"]):
+                continue
+
+            content = choice["message"]["content"]
+            if content and isinstance(content, str):
+                choice["message"]["content"] = context.api_key_redactor.redact(content)
+
+        return response_dict
+
+
 # Global middleware instance
 response_middleware = ResponseMiddleware()
+
+
+def configure_api_key_redaction_middleware():
+    """Configure the global API key redaction middleware."""
+    # Remove any existing API key redaction processors
+    response_middleware.remove_processor(APIKeyRedactionProcessor)
+    
+    # Add new API key redaction processor
+    processor = APIKeyRedactionProcessor()
+    response_middleware.add_processor(processor)
 
 
 def configure_loop_detection_middleware(
