@@ -1,11 +1,9 @@
 from __future__ import annotations
 
 import asyncio
-import json
 import logging
 import os
 import secrets
-import sys
 from typing import TYPE_CHECKING, Any
 
 from starlette.responses import StreamingResponse
@@ -115,7 +113,8 @@ class GeminiCliBatchConnector(GeminiCliDirectConnector):
         # The parent implementation of chat_completions calls _execute_gemini_cli,
         # which we have overridden below to handle file creation and cleanup.
         
-        return await super().chat_completions(
+        # Get the raw result from the parent implementation
+        result = await super().chat_completions(
             request_data,
             processed_messages,
             effective_model,
@@ -124,8 +123,42 @@ class GeminiCliBatchConnector(GeminiCliDirectConnector):
             key_name,
             api_key,
             project,
+            agent=agent,
             **kwargs,
         )
+        
+        # Handle Cline agent responses - convert raw text back to tool call format if needed
+        if agent in {"cline", "roocode"} and not request_data.stream:
+            # For Cline agents, check if the result contains Cline markers or should be converted
+            response_data, headers = result
+            content = response_data["choices"][0]["message"]["content"]
+            
+            # If this is a streaming response, return as-is
+            if isinstance(result, StreamingResponse):
+                return result
+                
+            # Check if the content is already in Cline marker format or should be converted
+            # This handles the case where local commands return markers that need conversion
+            if (content and 
+                content.startswith("__CLINE_TOOL_CALL_MARKER__") and 
+                content.endswith("__END_CLINE_TOOL_CALL_MARKER__")):
+                
+                # Convert to appropriate tool call format based on the frontend API
+                # For now, we'll use the OpenAI format since that's what the proxy expects
+                from src.agents import convert_cline_marker_to_openai_tool_call
+                tool_call = convert_cline_marker_to_openai_tool_call(content)
+                
+                # Convert to proper tool call response format
+                response_data["choices"][0]["message"] = {
+                    "role": "assistant",
+                    "content": None,
+                    "tool_calls": [tool_call]
+                }
+                response_data["choices"][0]["finish_reason"] = "tool_calls"
+                
+                return response_data, headers
+        
+        return result
 
     def _prepare_prompt_file(self, prompt: str) -> str:
         """Write the full prompt to a *CURRENT_PROMPT.md* file in the project dir."""
@@ -181,7 +214,7 @@ class GeminiCliBatchConnector(GeminiCliDirectConnector):
             
             # Read the output file
             try:
-                with open(output_file, "r", encoding="utf-8") as f:
+                with open(output_file, encoding="utf-8") as f:
                     result = f.read()
             except FileNotFoundError:
                 # If output file doesn't exist, use stdout
