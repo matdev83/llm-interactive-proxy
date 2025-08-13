@@ -31,7 +31,8 @@ class TestLoopDetectionIntegration:
             "loop_detection_enabled": True,
             "loop_detection_buffer_size": 1024,
             "loop_detection_max_pattern_length": 100,
-            "backend": "gemini-cli-direct"  # Use CLI backend to avoid API key issues
+            "backend": "gemini",  # Use gemini backend
+            "gemini_api_keys": {"test_key": "test_value"}  # Add dummy API key
         }
         
         app = build_app(cfg=config)
@@ -59,7 +60,8 @@ class TestLoopDetectionIntegration:
         config = {
             **base_config,
             "loop_detection_enabled": False,
-            "backend": "gemini-cli-direct"  # Use CLI backend to avoid API key issues
+            "backend": "gemini",  # Use gemini backend
+            "gemini_api_keys": {"test_key": "test_value"}  # Add dummy API key
         }
         
         app = build_app(cfg=config)
@@ -183,7 +185,8 @@ class TestLoopDetectionIntegration:
             base_config = _load_config()
             config = {
                 **base_config,
-                "backend": "gemini-cli-direct"  # Use CLI backend to avoid API key issues
+                "backend": "gemini",  # Use gemini backend
+                "gemini_api_keys": {"test_key": "test_value"}  # Add dummy API key
             }
             app = build_app(cfg=config)
             
@@ -281,7 +284,8 @@ class TestLoopDetectionCommands:
         config = {
             **base_config,
             "loop_detection_enabled": True,
-            "backend": "gemini-cli-direct"  # Use CLI backend to avoid API key issues
+            "backend": "gemini",  # Use gemini backend
+            "gemini_api_keys": {"test_key": "test_value"}  # Add dummy API key
         }
         app = build_app(cfg=config)
         

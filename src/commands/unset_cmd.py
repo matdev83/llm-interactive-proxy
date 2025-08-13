@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Callable, Mapping
 
 from fastapi import FastAPI
 
@@ -8,7 +8,7 @@ from ..constants import DEFAULT_COMMAND_PREFIX
 from .base import BaseCommand, CommandResult, register_command
 
 if TYPE_CHECKING:
-    from ..proxy_logic import ProxyState
+    from src.proxy_logic import ProxyState
 
 
 @register_command
@@ -21,17 +21,15 @@ class UnsetCommand(BaseCommand):
         "!/unset(interactive)",
     ]
 
-    def __init__(self, app: FastAPI | None = None,
-                 functional_backends: set[str] | None = None) -> None:
+    def __init__(
+        self, app: FastAPI | None = None, functional_backends: set[str] | None = None
+    ) -> None:
         super().__init__(app, functional_backends)
 
     def _unset_default_backend(self, state: ProxyState) -> str:
         if not self.app:
             return ""
-        initial_type = getattr(
-            self.app.state,
-            "initial_backend_type",
-            "openrouter")
+        initial_type = getattr(self.app.state, "initial_backend_type", "openrouter")
         self.app.state.backend_type = initial_type
         if initial_type == "gemini":
             self.app.state.backend = self.app.state.gemini_backend
@@ -53,8 +51,18 @@ class UnsetCommand(BaseCommand):
         )
         return "redact-api-keys-in-prompts unset"
 
-    def execute(self, args: dict[str, Any],
-                state: ProxyState) -> CommandResult:
+    def _create_unset_action(
+        self, method_name: str, message: str
+    ) -> Callable[[ProxyState], str]:
+        """Create an unset action that calls a method on ProxyState and returns a message."""
+
+        def action(state: ProxyState) -> str:
+            getattr(state, method_name)()
+            return message
+
+        return action
+
+    def execute(self, args: Mapping[str, Any], state: ProxyState) -> CommandResult:
         messages: list[str] = []
         persistent_change = False
         keys_to_unset = [k for k, v in args.items() if v is True]
@@ -62,24 +70,81 @@ class UnsetCommand(BaseCommand):
         # unset_actions map keys to (action_function, is_persistent_flag)
         # Action functions should return a message string if successful (and an action was taken),
         # or an empty string if no action was taken (e.g. self.app is None for some app-dependent actions).
-        unset_actions = {
-            "model": (lambda s: (s.unset_override_model(), "model unset")[1], False),
-            "backend": (lambda s: (s.unset_override_backend(), "backend unset")[1], False),
+        # type: ignore[func-returns-value]
+        unset_actions: dict[str, tuple[Callable[[ProxyState], str], bool]] = {
+            "model": (
+                self._create_unset_action("unset_override_model", "model unset"),
+                False,
+            ),
+            "backend": (
+                self._create_unset_action("unset_override_backend", "backend unset"),
+                False,
+            ),
             "default-backend": (self._unset_default_backend, True),
-            "project": (lambda s: (s.unset_project(), "project unset")[1], False),
-            "project-name": (lambda s: (s.unset_project(), "project unset")[1], False),
-            "project-dir": (lambda s: (s.unset_project_dir(), "project-dir unset")[1], False),
-            "dir": (lambda s: (s.unset_project_dir(), "project-dir unset")[1], False),
-            "project-directory": (lambda s: (s.unset_project_dir(), "project-dir unset")[1], False),
-            "interactive": (lambda s: (s.unset_interactive_mode(), "interactive mode unset")[1], True),
-            "interactive-mode": (lambda s: (s.unset_interactive_mode(), "interactive mode unset")[1], True),
+            "project": (
+                self._create_unset_action("unset_project", "project unset"),
+                False,
+            ),
+            "project-name": (
+                self._create_unset_action("unset_project", "project unset"),
+                False,
+            ),
+            "project-dir": (
+                self._create_unset_action("unset_project_dir", "project-dir unset"),
+                False,
+            ),
+            "dir": (
+                self._create_unset_action("unset_project_dir", "project-dir unset"),
+                False,
+            ),
+            "project-directory": (
+                self._create_unset_action(
+                    "unset_project_dir", "project-directory unset"
+                ),
+                False,
+            ),
+            "interactive": (
+                self._create_unset_action(
+                    "unset_interactive_mode", "interactive mode unset"
+                ),
+                True,
+            ),
+            "interactive-mode": (
+                self._create_unset_action(
+                    "unset_interactive_mode", "interactive mode unset"
+                ),
+                True,
+            ),
             "command-prefix": (self._unset_command_prefix, True),
             "redact-api-keys-in-prompts": (self._unset_redact_api_keys, True),
-            "reasoning-effort": (lambda s: (s.unset_reasoning_effort(), "reasoning effort unset")[1], False),
-            "reasoning": (lambda s: (s.unset_reasoning_config(), "reasoning config unset")[1], False),
-            "thinking-budget": (lambda s: (s.unset_thinking_budget(), "thinking budget unset")[1], False),
-            "gemini-generation-config": (lambda s: (s.unset_gemini_generation_config(), "gemini generation config unset")[1], False),
-            "temperature": (lambda s: (s.unset_temperature(), "temperature unset")[1], False),
+            "reasoning-effort": (
+                self._create_unset_action(
+                    "unset_reasoning_effort", "reasoning effort unset"
+                ),
+                False,
+            ),
+            "reasoning": (
+                self._create_unset_action(
+                    "unset_reasoning_config", "reasoning config unset"
+                ),
+                False,
+            ),
+            "thinking-budget": (
+                self._create_unset_action(
+                    "unset_thinking_budget", "thinking budget unset"
+                ),
+                False,
+            ),
+            "gemini-generation-config": (
+                self._create_unset_action(
+                    "unset_gemini_generation_config", "gemini generation config unset"
+                ),
+                False,
+            ),
+            "temperature": (
+                self._create_unset_action("unset_temperature", "temperature unset"),
+                False,
+            ),
         }
 
         for key in keys_to_unset:
@@ -93,11 +158,17 @@ class UnsetCommand(BaseCommand):
                     if is_action_persistent:
                         persistent_change = True
 
-        if not messages: # If no messages were generated, no actions were effectively performed.
+        if (
+            not messages
+        ):  # If no messages were generated, no actions were effectively performed.
             return CommandResult(self.name, False, "unset: nothing to do")
 
         # Save configuration if any persistent change occurred and app context is available.
-        if persistent_change and self.app and getattr(self.app.state, "config_manager", None):
+        if (
+            persistent_change
+            and self.app
+            and getattr(self.app.state, "config_manager", None)
+        ):
             self.app.state.config_manager.save()
 
         return CommandResult(self.name, True, "; ".join(messages))

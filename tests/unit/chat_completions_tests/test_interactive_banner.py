@@ -46,18 +46,12 @@ def test_hello_command_returns_banner(interactive_client):
         keys_count = len([k for k in interactive_client.app.state.gemini_backend.api_keys if k])
         backend_info.append(f"gemini (K:{keys_count}, M:{models_count})")
     
-    if hasattr(interactive_client.app.state, 'gemini_cli_batch_backend') and interactive_client.app.state.gemini_cli_batch_backend:
-        models_count = len(interactive_client.app.state.gemini_cli_batch_backend.get_available_models())
-        backend_info.append(f"gemini-cli-batch (M:{models_count})")
-    
-    if hasattr(interactive_client.app.state, 'gemini_cli_direct_backend') and interactive_client.app.state.gemini_cli_direct_backend:
-        models_count = len(interactive_client.app.state.gemini_cli_direct_backend.get_available_models())
-        backend_info.append(f"gemini-cli-direct (M:{models_count})")
-    
     if hasattr(interactive_client.app.state, 'openrouter_backend') and interactive_client.app.state.openrouter_backend:
         models_count = len(interactive_client.app.state.openrouter_backend.get_available_models())
         keys_count = len([k for k in interactive_client.app.state.openrouter_backend.api_keys if k])
         backend_info.append(f"openrouter (K:{keys_count}, M:{models_count})")
+    
+    # We've disabled Qwen OAuth backend for these tests
     
     backends_str_expected = ", ".join(sorted(backend_info))
 
@@ -119,18 +113,12 @@ def test_hello_command_returns_xml_banner_for_cline_agent(interactive_client):
         keys_count = len([k for k in interactive_client.app.state.gemini_backend.api_keys if k])
         backend_info.append(f"gemini (K:{keys_count}, M:{models_count})")
     
-    if hasattr(interactive_client.app.state, 'gemini_cli_batch_backend') and interactive_client.app.state.gemini_cli_batch_backend:
-        models_count = len(interactive_client.app.state.gemini_cli_batch_backend.get_available_models())
-        backend_info.append(f"gemini-cli-batch (M:{models_count})")
-    
-    if hasattr(interactive_client.app.state, 'gemini_cli_direct_backend') and interactive_client.app.state.gemini_cli_direct_backend:
-        models_count = len(interactive_client.app.state.gemini_cli_direct_backend.get_available_models())
-        backend_info.append(f"gemini-cli-direct (M:{models_count})")
-    
     if hasattr(interactive_client.app.state, 'openrouter_backend') and interactive_client.app.state.openrouter_backend:
         models_count = len(interactive_client.app.state.openrouter_backend.get_available_models())
         keys_count = len([k for k in interactive_client.app.state.openrouter_backend.api_keys if k])
         backend_info.append(f"openrouter (K:{keys_count}, M:{models_count})")
+    
+    # We've disabled Qwen OAuth backend for these tests
     
     backends_str_expected = ", ".join(sorted(backend_info))
 
@@ -202,4 +190,3 @@ def test_set_command_returns_xml_for_cline_agent(interactive_client):
     assert usage["prompt_tokens"] == 0
     assert usage["completion_tokens"] == 0
     assert usage["total_tokens"] == 0
-

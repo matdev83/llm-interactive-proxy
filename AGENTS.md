@@ -1,10 +1,14 @@
 # Agent Development Guidelines
 
+## Never Use Unicode Emojis
+- Use ASCII characters instead of emojis
+- Avoid using emojis in code comments or docstrings
+
 ## Build/Lint/Test Commands
 - Install dependencies: `./.venv/Scripts/python.exe -m pip install -e .[dev]`
 - Run all tests: `./.venv/Scripts/python.exe -m pytest`
 - Run specific test: `./.venv/Scripts/python.exe -m pytest tests/unit/test_file.py::test_name`
-- Lint code: `./.venv/Scripts/python.exe -m ruff check .`
+- Lint code: `./.venv/Scripts/python.exe -m ruff --fix check .`
 - Format code: `./.venv/Scripts/python.exe -m black .`
 
 ## Code Style Guidelines
@@ -19,7 +23,7 @@
 1. Write tests first (TDD)
 2. Run tests to confirm they fail: `./.venv/Scripts/python.exe -m pytest tests/unit/test_file.py::test_name`
 3. Implement minimal code to pass tests
-4. Run linter: `./.venv/Scripts/python.exe -m ruff check .`
+4. Run linter: `./.venv/Scripts/python.exe -m ruff --fix check .`
 5. Run all tests: `./.venv/Scripts/python.exe -m pytest`
 
 ## Code Quality Standards

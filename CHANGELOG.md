@@ -1,0 +1,3 @@
+2025-08-13 - Removal of Gemini CLI backends (gemini-cli-direct, gemini-cli-batch, gemini-cli-interactive) due to changes in CLI architecture. Added new qwen-oauth backend for Qwen models authentication via OAuth tokens.
+
+2025-08-14 - Separated OpenRouter and OpenAI backends into two distinct connectors. Added support for custom OpenAI API URLs via the `!set(openai_url=...)` command and the `OPENAI_API_BASE_URL` environment variable.

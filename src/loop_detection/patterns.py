@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -22,7 +23,7 @@ class BlockMatch:
     total_length: int
     confidence: float
 
-    # Legacy alias – many callers (tests) still expect ``.pattern`` instead of
+    # Legacy alias - many callers (tests) still expect ``.pattern`` instead of
     # the newer ``.block`` terminology.
     @property
     def pattern(self) -> str:
@@ -43,8 +44,8 @@ class BlockAnalyzer:
         max_block_length: int = 8192,
         whitelist: list[str] | None = None,
         block_scan_step: int = 8,
-        **legacy_kwargs,
-    ):
+        **legacy_kwargs: Any,
+    ) -> None:
         """Create a new ``BlockAnalyzer``.
 
         The constructor keeps its original *min_block_length* / *max_block_length*
@@ -60,7 +61,7 @@ class BlockAnalyzer:
 
         if legacy_kwargs:
             logger.debug("Ignored legacy/unknown kwargs in BlockAnalyzer.__init__: %s", legacy_kwargs)
-        # Enforce 100+ char minimum – we are only interested in *text block*
+        # Enforce 100+ char minimum - we are only interested in *text block*
         # repetitions, not low-level character sequences.
         self.min_block_length = max(min_block_length, 100)
         self.max_block_length = max_block_length
@@ -127,7 +128,7 @@ class BlockAnalyzer:
             return []
         
         matches = []
-        processed_positions = set()
+        processed_positions: set[int] = set()
 
         text_len = len(text)
         pos = 0
@@ -223,10 +224,7 @@ class BlockAnalyzer:
             return False
             
         # Direct comparison since we're checking a specific position
-        for i in range(len(pattern)):
-            if text[start_pos + i] != pattern[i]:
-                return False
-        return True
+        return all(text[start_pos + i] == pattern[i] for i in range(len(pattern)))
     
     def _calculate_block_confidence(self, block: str, repetitions: int) -> float:
         """
@@ -268,7 +266,7 @@ class BlockAnalyzer:
             return []
         
         final_matches = []
-        used_ranges = []
+        used_ranges: list[tuple[int, int]] = []
         
         for match in matches:
             start = match.start_position
@@ -324,13 +322,13 @@ class BlockAnalyzer:
         return ' '.join(block.lower().split())
 
     # ---------------------------------------------------------------------
-    # Backwards-compat helper methods – keep the old public surface intact
+    # Backwards-compat helper methods - keep the old public surface intact
     # ---------------------------------------------------------------------
 
     # Older code (and tests) used *pattern* terminology instead of the new
     # *block* nomenclature.  Provide thin wrappers so that nothing breaks.
 
-    def find_patterns_in_text(self, text: str, min_repetitions: int = 2):
+    def find_patterns_in_text(self, text: str, min_repetitions: int = 2) -> list[BlockMatch]:
         """Alias for :py:meth:`find_blocks_in_text`."""
         return self.find_blocks_in_text(text, min_repetitions)
 

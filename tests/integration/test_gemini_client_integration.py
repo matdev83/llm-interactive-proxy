@@ -111,6 +111,8 @@ class TestGeminiClientIntegration:
     """Test Gemini client integration with proxy server."""
     
     @pytest.mark.integration
+    @pytest.mark.network  # Uses real Google Gemini client
+    @pytest.mark.network  # Uses real Google Gemini client
     def test_models_list_with_gemini_client(self, gemini_client, proxy_server):
         """Test listing models through Gemini client."""
         if not GENAI_AVAILABLE:
@@ -169,6 +171,7 @@ class TestBackendIntegration:
         }
     
     @pytest.mark.integration
+    @pytest.mark.network  # Uses real Google Gemini client
     def test_openrouter_backend_via_gemini_client(self, gemini_client, proxy_server):
         """Test OpenRouter backend through Gemini client."""
         # Mock the backend to return a proper response
@@ -205,6 +208,7 @@ class TestBackendIntegration:
             assert candidate.content is not None
     
     @pytest.mark.integration
+    @pytest.mark.network  # Uses real Google Gemini client
     def test_gemini_backend_via_gemini_client(self, gemini_client, proxy_server, gemini_mock_response):
         """Test Gemini backend through Gemini client."""
         with patch.object(proxy_server.app.state.gemini_backend, 'chat_completions', 
@@ -225,6 +229,7 @@ class TestBackendIntegration:
             assert candidate.content is not None
     
     @pytest.mark.integration
+    @pytest.mark.network  # Uses real Google Gemini client
     def test_gemini_cli_direct_backend_via_gemini_client(self, gemini_client, proxy_server):
         """Test Gemini CLI Direct backend through Gemini client."""
         cli_response = {
@@ -265,6 +270,7 @@ class TestComplexConversions:
     """Test complex request/response conversions."""
     
     @pytest.mark.integration
+    @pytest.mark.network  # Uses real Google Gemini client
     def test_multipart_content_conversion(self, gemini_client, proxy_server):
         """Test conversion of multipart content (text + attachments)."""
         mock_response = {
@@ -298,6 +304,7 @@ class TestComplexConversions:
             assert len(response.candidates) > 0
     
     @pytest.mark.integration
+    @pytest.mark.network  # Uses real Google Gemini client
     def test_conversation_history_conversion(self, gemini_client, proxy_server):
         """Test conversion of multi-turn conversation."""
         mock_response = {
@@ -338,6 +345,7 @@ class TestStreamingIntegration:
     """Test streaming functionality with Gemini client."""
     
     @pytest.mark.integration
+    @pytest.mark.network  # Uses real Google Gemini client
     def test_streaming_content_generation(self, gemini_client, proxy_server):
         """Test streaming content generation through Gemini client."""
         # Mock streaming response
@@ -376,6 +384,7 @@ class TestErrorHandling:
     """Test error handling scenarios."""
     
     @pytest.mark.integration
+    @pytest.mark.network  # Uses real Google Gemini client
     def test_authentication_error(self, proxy_config):
         """Test authentication error handling."""
         if not GENAI_AVAILABLE:
@@ -399,6 +408,7 @@ class TestErrorHandling:
             server.stop()
     
     @pytest.mark.integration
+    @pytest.mark.network  # Uses real Google Gemini client
     def test_model_not_found_error(self, gemini_client, proxy_server):
         """Test model not found error handling."""
         with patch.object(proxy_server.app.state.openrouter_backend, 'chat_completions', 
@@ -414,6 +424,7 @@ class TestPerformanceAndReliability:
     """Test performance and reliability aspects."""
     
     @pytest.mark.integration
+    @pytest.mark.network  # Uses real Google Gemini client
     def test_concurrent_requests(self, gemini_client, proxy_server):
         """Test handling of concurrent requests."""
         mock_response = {
@@ -445,6 +456,7 @@ class TestPerformanceAndReliability:
             assert len(results) == 3
     
     @pytest.mark.integration
+    @pytest.mark.network  # Uses real Google Gemini client
     def test_large_content_handling(self, gemini_client, proxy_server):
         """Test handling of large content."""
         mock_response = {

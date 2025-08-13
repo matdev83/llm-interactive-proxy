@@ -1,6 +1,6 @@
 from typing import Any, Dict, List, Optional, Union
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
 # For multimodal content parts
@@ -39,11 +39,17 @@ class ChatMessage(BaseModel):
     """
 
     role: str
-    content: Union[str, List[MessageContentPart]]
+    content: Optional[Union[str, List[MessageContentPart]]] = None
     name: Optional[str] = None
-    # tool_calls: Optional[List[Any]] = None # Future extension for tool/function calling
-    # tool_call_id: Optional[str] = None   # Future extension for
-    # tool/function calling
+    tool_calls: Optional[List['ToolCall']] = None
+    tool_call_id: Optional[str] = None
+    
+    @model_validator(mode='after')
+    def validate_content_or_tool_calls(self) -> 'ChatMessage':
+        """Ensure that either content or tool_calls is present."""
+        if self.content is None and (self.tool_calls is None or len(self.tool_calls) == 0):
+            raise ValueError("Either 'content' or 'tool_calls' must be provided")
+        return self
 
 
 class FunctionCall(BaseModel):
@@ -59,6 +65,21 @@ class ToolCall(BaseModel):
     id: str
     type: str = "function"
     function: FunctionCall
+
+
+class FunctionDefinition(BaseModel):
+    """Represents a function definition for tool calling."""
+    
+    name: str
+    description: Optional[str] = None
+    parameters: Optional[Dict[str, Any]] = None
+
+
+class ToolDefinition(BaseModel):
+    """Represents a tool definition in a chat completion request."""
+    
+    type: str = "function"
+    function: FunctionDefinition
 
 
 class ChatCompletionRequest(BaseModel):
@@ -104,7 +125,11 @@ class ChatCompletionRequest(BaseModel):
         None,
         description="A unique identifier representing your end-user, which can help OpenAI monitor and detect abuse.",
     )
-    tools: Optional[List[ToolCall]] = None
+    tools: Optional[List['ToolDefinition']] = None
+    tool_choice: Optional[Union[str, Dict[str, Any]]] = Field(
+        None,
+        description="Controls which (if any) function is called by the model. 'none', 'auto', or specific function."
+    )
     
     # Reasoning parameters for o1, o3, o4-mini and other reasoning models
     reasoning_effort: Optional[str] = Field(

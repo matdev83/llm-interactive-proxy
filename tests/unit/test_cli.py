@@ -149,8 +149,9 @@ async def test_build_app_uses_interactive_env(monkeypatch):
     monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
     monkeypatch.delenv("DISABLE_INTERACTIVE_MODE", raising=False)
     monkeypatch.delenv("DISABLE_INTERACTIVE_COMMANDS", raising=False)
-    # Use gemini-cli-direct backend since it doesn't require API keys
-    monkeypatch.setenv("LLM_BACKEND", "gemini-cli-direct")
+    # Use gemini backend with a dummy key since it doesn't require API keys for testing
+    monkeypatch.setenv("LLM_BACKEND", "gemini")
+    monkeypatch.setenv("GEMINI_API_KEY", "dummy-key-for-testing")
     monkeypatch.setenv("LLM_INTERACTIVE_PROXY_API_KEY", "test-key")
     app = app_main_build_app()
     with TestClient(app): # Ensure lifespan runs

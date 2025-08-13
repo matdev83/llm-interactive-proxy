@@ -1,8 +1,6 @@
 """
 Unit tests for the API key redaction middleware system.
 """
-import json
-from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from starlette.responses import StreamingResponse
@@ -16,10 +14,10 @@ from src.request_middleware import (
 )
 from src.response_middleware import (
     RequestContext as ResponseContext,
+)
+from src.response_middleware import (
     ResponseMiddleware,
     ResponseProcessor,
-    configure_loop_detection_middleware,
-    get_response_middleware,
 )
 from src.security import APIKeyRedactor, ProxyCommandFilter
 

@@ -1,286 +1,142 @@
 from __future__ import annotations
 
-import json
 import logging
-from typing import Any, Callable
+from typing import Any, Callable, cast
 
 import httpx
-from fastapi import HTTPException  # Required for raising HTTP exceptions
+from fastapi import HTTPException
 from starlette.responses import StreamingResponse
 
-from src.connectors.base import LLMBackend
-
-# Assuming ChatCompletionRequest is in src.models
+from src.connectors.openai import OpenAIConnector
 from src.models import ChatCompletionRequest
-# API key redaction and command filtering are now handled by middleware
-# from src.security import APIKeyRedactor, ProxyCommandFilter
-
-# proxy_state and process_commands_in_messages are currently in src.proxy_logic
-# These are used in main.py *before* calling the backend.
-# The backend connector should ideally receive the final, processed payload.
-# For now, this means the OpenRouterBackend will expect 'processed_messages' and 'effective_model'
-# to be part of the request_data or handled before calling it.
-# Let's assume the call in main.py will be adjusted to pass the correct data.
 
 logger = logging.getLogger(__name__)
 
 
-class OpenRouterBackend(LLMBackend):
+class OpenRouterBackend(OpenAIConnector):
     """LLMBackend implementation for OpenRouter.ai."""
 
     def __init__(self, client: httpx.AsyncClient) -> None:
-        self.client = client
-        self.available_models: list[str] = []
+        super().__init__(client)
+        self.api_base_url = "https://openrouter.ai/api/v1"
+        self.headers_provider: Callable[[str, str], dict[str, str]] | None = None
+        self.key_name: str | None = None
+        self.api_keys: list[str] = []
+
+    def get_headers(self) -> dict[str, str]:
+        if not self.headers_provider or not self.key_name or not self.api_key:
+            raise HTTPException(
+                status_code=500,
+                detail="OpenRouter headers provider, key name, or API key not set.",
+            )
+        return self.headers_provider(self.key_name, self.api_key)
 
     async def initialize(
-        self,
-        *,
-        openrouter_api_base_url: str,
-        openrouter_headers_provider: Callable[[str, str], dict[str, str]],
-        key_name: str,
-        api_key: str,
+        self, *, api_key: str, api_base_url: str | None = None, **kwargs: Any
     ) -> None:
         """Fetch available models and cache them for later use."""
-        data = await self.list_models(
-            openrouter_api_base_url=openrouter_api_base_url,
-            openrouter_headers_provider=openrouter_headers_provider,
-            key_name=key_name,
-            api_key=api_key,
+        openrouter_headers_provider = cast(
+            Callable[[str, str], dict[str, str]],
+            kwargs.get("openrouter_headers_provider"),
         )
-        self.available_models = [
-            m.get("id") for m in data.get("data", []) if m.get("id")
-        ]
+        key_name = cast(str, kwargs.get("key_name"))
 
-    def get_available_models(self) -> list[str]:
-        """Return the list of cached model identifiers."""
-        return list(self.available_models)
+        if not callable(openrouter_headers_provider) or not isinstance(key_name, str):
+            raise TypeError(
+                "OpenRouterBackend requires 'openrouter_headers_provider' (Callable) "
+                "and 'key_name' (str) in kwargs."
+            )
 
-    
+        self.headers_provider = openrouter_headers_provider
+        self.key_name = key_name
+        # OpenRouter uses a fixed base URL, so we call the parent's initialize
+        # with our specific URL.
+        await super().initialize(api_key=api_key, api_base_url=self.api_base_url)
 
-    def _prepare_openrouter_payload(
+    def _prepare_payload(
         self,
         request_data: ChatCompletionRequest,
-        processed_messages: list,
+        processed_messages: list[Any],
         effective_model: str,
-        project: str | None,
     ) -> dict[str, Any]:
         """Constructs the payload for the OpenRouter API request."""
-        payload = request_data.model_dump(exclude_unset=True)
-        
+        payload = super()._prepare_payload(
+            request_data, processed_messages, effective_model
+        )
+
         # Ensure the model name includes the provider prefix for OpenRouter
-        # If the model doesn't contain a slash, it's likely just the model name
-        # and we need to add the openrouter/ prefix
         if "/" not in effective_model:
-            openrouter_model = f"openrouter/{effective_model}"
+            payload["model"] = f"openrouter/{effective_model}"
         else:
-            openrouter_model = effective_model
-            
-        payload["model"] = openrouter_model
-        # Ensure messages are in dict format, not Pydantic models
-        payload["messages"] = [
-            msg.model_dump(exclude_unset=True) for msg in processed_messages
-        ]
-        if project is not None:
-            payload["project"] = project
+            payload["model"] = effective_model
+
+        # Add project to payload if available
+        if "project" in request_data.model_dump(exclude_unset=True):
+            payload["project"] = request_data.model_dump(exclude_unset=True).get(
+                "project"
+            )
 
         # Always request usage information for billing tracking
         payload["usage"] = {"include": True}
 
-        # Add extra parameters (including reasoning parameters)
-        if request_data.extra_params:
-            payload.update(request_data.extra_params)
-
         return payload
 
-    async def chat_completions(
+    async def chat_completions(  # type: ignore[override]
         self,
-        request_data: ChatCompletionRequest,  # This is the original request
-        processed_messages: list,  # Messages after command processing
-        effective_model: str,  # Model after considering override
-        openrouter_api_base_url: str,
-        openrouter_headers_provider: Callable[[str, str], dict[str, str]],
-        key_name: str,
-        api_key: str,
+        request_data: ChatCompletionRequest,
+        processed_messages: list[Any],
+        effective_model: str,
         project: str | None = None,
+        **kwargs: Any,
     ) -> StreamingResponse | tuple[dict[str, Any], dict[str, str]]:
+        # Allow tests and callers to provide per-call OpenRouter settings via kwargs
+        headers_provider = kwargs.pop("openrouter_headers_provider", None)
+        key_name = kwargs.pop("key_name", None)
+        api_key = kwargs.pop("api_key", None)
+        api_base_url = kwargs.pop("openrouter_api_base_url", None)
 
-        openrouter_payload = self._prepare_openrouter_payload(
-            request_data,
-            processed_messages,
-            effective_model,
-            project,
-        )
+        if headers_provider is not None:
+            self.headers_provider = cast(
+                Callable[[str, str], dict[str, str]], headers_provider
+            )
+        if key_name is not None:
+            self.key_name = cast(str, key_name)
+        if api_key is not None:
+            self.api_key = cast(str, api_key)
+        if api_base_url:
+            self.api_base_url = cast(str, api_base_url)
 
-        logger.info(
-            f"Forwarding to OpenRouter. Effective model: {effective_model}. Stream: {request_data.stream}"
-        )
-        logger.debug(
-            f"Payload for OpenRouter: {json.dumps(openrouter_payload, indent=2)}"
-        )
-
-        headers = openrouter_headers_provider(key_name, api_key)
-        api_url = f"{openrouter_api_base_url}/chat/completions"
-
+        # The project argument is now handled within _prepare_payload
         try:
-            if request_data.stream:
-                return await self._handle_openrouter_streaming_response(
-                    api_url, openrouter_payload, headers
-                )
-            else:  # Non-streaming request
-                response_json, response_headers = await self._handle_openrouter_non_streaming_response(
-                    api_url, openrouter_payload, headers
-                )
-                return response_json, response_headers
-        except httpx.HTTPStatusError as e:
-            logger.error(
-                f"HTTP error from OpenRouter: {e.response.status_code} - {e.response.text}",
-                exc_info=True,
+            return await super().chat_completions(
+                request_data=request_data,
+                processed_messages=processed_messages,
+                effective_model=effective_model,
+                **kwargs,
             )
-            try:
-                error_detail = e.response.json()
-            except json.JSONDecodeError:
-                error_detail = e.response.text
-            raise HTTPException(
-                status_code=e.response.status_code,
-                detail=error_detail)
-        except httpx.RequestError as e:
-            logger.error(
-                f"Request error connecting to OpenRouter: {type(e).__name__} - {e!s}",
-                exc_info=True,
-            )
-            raise HTTPException(
-                status_code=503,
-                detail=f"Service unavailable: Could not connect to OpenRouter ({e!s})",
-            )
-        # HTTPException and other unexpected errors will now propagate up.
-
-    async def _handle_openrouter_non_streaming_response(
-        self, url: str, payload: dict[str, Any], headers: dict[str, str]
-    ) -> tuple[dict[str, Any], dict[str, str]]:
-        logger.debug("Initiating non-streaming request to OpenRouter.")
-        response = await self.client.post(url, json=payload, headers=headers)
-        logger.debug(f"OpenRouter non-stream response status: {response.status_code}")
-
-        if response.status_code >= 400: # Check for HTTP errors
-            try:
-                error_detail = response.json()
-            except json.JSONDecodeError: # If response is not JSON
-                error_detail = response.text
-            raise HTTPException(
-                status_code=response.status_code, detail=error_detail
-            )
-
-        response_json = response.json()
-        response_headers = dict(response.headers)
-        logger.debug(f"OpenRouter response JSON: {json.dumps(response_json, indent=2)}")
-        logger.debug(f"OpenRouter response headers: {response_headers}")
-        return response_json, response_headers
-
-    async def _handle_openrouter_streaming_response(
-        self, url: str, payload: dict[str, Any], headers: dict[str, str]
-    ) -> StreamingResponse:
-        logger.debug("Initiating stream request to OpenRouter.")
-
-        # Check for HTTP errors before creating the StreamingResponse
-        try:
-            request = self.client.build_request(
-                "POST", url, json=payload, headers=headers
-            )
-            response = await self.client.send(request, stream=True)
-            if response.status_code >= 400:
-                try:
-                    body_text = (await response.aread()).decode("utf-8")
-                except Exception:
-                    body_text = "Unable to read error response"
-                finally:
-                    await response.aclose()
-                logger.error(
-                    "HTTP error during OpenRouter stream: %s - %s",
-                    response.status_code,
-                    body_text,
-                )
+        except HTTPException as e:
+            # Adapt parent error details to OpenRouter-specific wording expected by tests
+            if (
+                e.status_code == 503
+                and isinstance(e.detail, str)
+                and "Could not connect to API" in e.detail
+            ):
                 raise HTTPException(
-                    status_code=response.status_code,
-                    detail={
-                        "message": f"OpenRouter stream error: {response.status_code} - {body_text}",
-                        "type": "openrouter_error",
-                        "code": response.status_code,
-                    },
-                )
-
-            async def stream_generator():
-                try:
-                    async for chunk in response.aiter_bytes():
-                        yield chunk
-                    logger.debug("OpenRouter stream finished.")
-                except Exception as e_gen: # pragma: no cover - for truly unexpected errors
-                    logger.error(f"Error in stream generator: {e_gen}", exc_info=True)
-                    # For errors after streaming has started, we can't raise HTTPException
-                    # Instead, we'll just log the error and stop the stream
-                finally:
-                    await response.aclose()
-
-            return StreamingResponse(stream_generator(), media_type="text/event-stream")
-        except httpx.RequestError as e:
-            logger.error(
-                f"Request error connecting to OpenRouter: {e}", exc_info=True)
-            raise HTTPException(
-                status_code=503,
-                detail=f"Service unavailable: Could not connect to OpenRouter ({e})",
-            )
-
-    async def list_models(
-        self,
-        *,
-        openrouter_api_base_url: str,
-        openrouter_headers_provider: Callable[[str, str], dict[str, str]],
-        key_name: str,
-        api_key: str,
-    ) -> dict[str, Any]:
-        """Fetch available models from OpenRouter."""
-        headers = openrouter_headers_provider(key_name, api_key)
-        try:
-            response = await self.client.get(
-                f"{openrouter_api_base_url}/models", headers=headers
-            )
-
-            if not response.is_success:
-                try:
-                    error_detail = response.json()
-                except json.JSONDecodeError:
-                    error_detail = response.text
-                raise HTTPException(
-                    status_code=response.status_code, detail=error_detail
-                )
-
-            return response.json()
-        except httpx.HTTPStatusError as e:
-            logger.error(
-                f"HTTP error from OpenRouter: {e.response.status_code} - {e.response.text}",
-                exc_info=True,
-            )
-            try:
-                error_detail = e.response.json()
-            except json.JSONDecodeError:
-                error_detail = e.response.text
-            raise HTTPException(
-                status_code=e.response.status_code,
-                detail=error_detail)
-        except httpx.RequestError as e:
-            logger.error(
-                f"Request error connecting to OpenRouter: {type(e).__name__} - {e!s}",
-                exc_info=True,
-            )
-            raise HTTPException(
-                status_code=503,
-                detail=f"Service unavailable: Could not connect to OpenRouter ({e!s})",
-            )
-        except Exception as e:
-            logger.error(
-                f"An unexpected error occurred in OpenRouterBackend.list_models: {type(e).__name__} - {e!s}",
-                exc_info=True,
-            )
-            raise HTTPException(
-                status_code=500,
-                detail=f"Internal server error in backend connector: {e!s}",
-            )
+                    status_code=503,
+                    detail=e.detail.replace(
+                        "Could not connect to API",
+                        "Could not connect to OpenRouter",
+                    ),
+                ) from None
+            if e.status_code >= 400 and isinstance(e.detail, dict):
+                msg = str(e.detail.get("message", ""))
+                if msg.startswith("API streaming error:"):
+                    new_detail = dict(e.detail)
+                    new_detail["message"] = msg.replace(
+                        "API streaming error:", "OpenRouter stream error:"
+                    )
+                    new_detail["type"] = "openrouter_error"
+                    raise HTTPException(
+                        status_code=e.status_code, detail=new_detail
+                    ) from None
+            raise

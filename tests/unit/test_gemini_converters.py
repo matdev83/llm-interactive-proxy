@@ -268,6 +268,41 @@ class TestResponseConversion:
             else:
                 assert gemini_response.candidates[0].finish_reason == expected_gemini_reason
 
+    def test_openai_tool_call_to_gemini_function_call_part(self):
+        """OpenAI tool_calls should be mapped to Gemini functionCall part."""
+        tool_call = {
+            "id": "call_123",
+            "type": "function",
+            "function": {
+                "name": "get_weather",
+                "arguments": "{\"city\": \"Paris\"}"
+            }
+        }
+        openai_response = ChatCompletionResponse(
+            id="test-id",
+            object="chat.completion",
+            created=123,
+            model="m",
+            choices=[
+                ChatCompletionChoice(
+                    index=0,
+                    message=ChatCompletionChoiceMessage(
+                        role="assistant",
+                        content=None,
+                        tool_calls=[tool_call],  # type: ignore[arg-type]
+                    ),
+                    finish_reason="tool_calls",
+                )
+            ],
+        )
+
+        gemini_response = openai_to_gemini_response(openai_response)
+        assert gemini_response.candidates is not None
+        cand = gemini_response.candidates[0]
+        assert cand.content is not None
+        assert cand.content.parts[0].function_call is not None
+        assert cand.finish_reason == FinishReason.TOOL_CALLS
+
 
 class TestUtilityFunctions:
     """Test utility functions."""

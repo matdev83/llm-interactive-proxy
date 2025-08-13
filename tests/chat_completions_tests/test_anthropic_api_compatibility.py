@@ -35,9 +35,7 @@ def test_app():
             # Mock the backend initialization to avoid real API calls
             app.state.openrouter_backend.get_available_models = MagicMock(return_value=["model1", "model2"])
             app.state.gemini_backend.get_available_models = MagicMock(return_value=["gemini/gemini-pro"])
-            app.state.gemini_cli_direct_backend.get_available_models = MagicMock(return_value=["gemini-cli-model"])
-            app.state.gemini_cli_batch_backend.get_available_models = MagicMock(return_value=["gemini-cli-batch-model"])
-            app.state.functional_backends = {"openrouter", "gemini", "gemini-cli-direct", "gemini-cli-batch"}
+            app.state.functional_backends = {"openrouter", "gemini"}
             yield client
 
 def test_anthropic_messages_non_streaming(test_app):
@@ -84,7 +82,7 @@ def test_anthropic_messages_non_streaming(test_app):
 
         assert response.status_code == 200
         response_data = response.json()
-        
+
         assert response_data["content"][0]["text"] == "This is a test response."
         assert response_data["stop_reason"] == "stop"
         assert response_data["usage"]["input_tokens"] == 10
@@ -94,9 +92,58 @@ def test_anthropic_messages_non_streaming(test_app):
         # Check the call arguments for the mocked function
         kwargs = mock_backend_chat_completions.call_args.kwargs
         openai_request = kwargs['request_data']
-        
+
         assert openai_request.model == "some-model"
         assert len(openai_request.messages) == 1
         assert openai_request.messages[0].role == "user"
         assert openai_request.messages[0].content == "Hello, world!"
         assert not openai_request.stream
+
+
+def test_anthropic_messages_with_tool_use_from_openai_tool_calls(test_app):
+    """OpenAI tool_calls should map to Anthropic tool_use content blocks."""
+    anthropic_request = {
+        "model": "some-model",
+        "max_tokens": 1024,
+        "messages": [{"role": "user", "content": "Hello!"}],
+    }
+
+    tool_call = {
+        "id": "call_1",
+        "type": "function",
+        "function": {"name": "get_weather", "arguments": "{\"city\":\"Paris\"}"},
+    }
+    mock_openai_response = ChatCompletionResponse(
+        id="chatcmpl-123",
+        object="chat.completion",
+        created=1677652288,
+        model="openrouter:some-model",
+        choices=[
+            ChatCompletionChoice(
+                index=0,
+                message=ChatCompletionChoiceMessage(
+                    role="assistant", content=None, tool_calls=[tool_call]  # type: ignore[arg-type]
+                ),
+                finish_reason="tool_calls",
+            )
+        ],
+        usage=CompletionUsage(prompt_tokens=10, completion_tokens=20, total_tokens=30),
+    )
+
+    with patch(
+        "src.connectors.openrouter.OpenRouterBackend.chat_completions",
+        new_callable=AsyncMock,
+    ) as mock_backend_chat_completions:
+        mock_backend_chat_completions.return_value = (
+            mock_openai_response.model_dump(exclude_none=True),
+            {},
+        )
+
+        response = test_app.post(
+            "/v1/messages", json=anthropic_request, headers={"x-api-key": "test_client_key"}
+        )
+
+        assert response.status_code == 200
+        response_data = response.json()
+        assert response_data["content"][0]["type"] == "tool_use"
+        assert response_data["content"][0]["name"] == "get_weather"

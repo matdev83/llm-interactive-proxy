@@ -1,4 +1,4 @@
-from __future__ import annotations
+from __future__ import annotations  # type: ignore
 
 import asyncio
 import json
@@ -6,7 +6,7 @@ import logging
 import os
 import sys
 import time
-from contextlib import asynccontextmanager, suppress
+from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from typing import Any
 
@@ -16,7 +16,13 @@ from fastapi.testclient import TestClient
 from starlette.responses import StreamingResponse
 
 import src.models as models
-from src.agents import detect_agent, wrap_proxy_message, format_command_response_for_agent, detect_frontend_api, convert_cline_marker_to_openai_tool_call, create_openai_attempt_completion_tool_call
+from src.agents import (
+    convert_cline_marker_to_openai_tool_call,
+    create_openai_attempt_completion_tool_call,
+    detect_agent,
+    detect_frontend_api,
+    format_command_response_for_agent,
+)
 from src.anthropic_converters import (
     anthropic_to_openai_request,
     openai_to_anthropic_response,
@@ -25,10 +31,9 @@ from src.anthropic_converters import (
 from src.anthropic_models import AnthropicMessagesRequest
 from src.command_parser import CommandParser
 from src.connectors.gemini import GeminiBackend
-from src.connectors.gemini_cli_direct import (
-    GeminiCliDirectConnector,  # re-export for tests
-)
+from src.connectors.openai import OpenAIConnector
 from src.connectors.openrouter import OpenRouterBackend
+from src.connectors.qwen_oauth import QwenOAuthConnector
 from src.constants import SUPPORTED_BACKENDS, BackendType
 from src.core.config import (
     _keys_for,
@@ -54,16 +59,14 @@ from src.loop_detection.config import LoopDetectionConfig
 from src.performance_tracker import track_phase, track_request_performance
 from src.proxy_logic import ProxyState
 from src.rate_limit import RateLimitRegistry, parse_retry_delay
+from src.response_middleware import RequestContext as ResponseContext
 from src.response_middleware import (
     configure_loop_detection_middleware,
-    configure_api_key_redaction_middleware,
-    RequestContext as ResponseContext,
-    get_response_middleware
+    get_response_middleware,
 )
 from src.security import APIKeyRedactor, ProxyCommandFilter
 from src.session import (
-    SessionInteraction,
-    SessionManager,  # manages per-session state
+    SessionInteraction,  # manages per-session state
 )
 
 # Configure module-level logger
@@ -76,7 +79,7 @@ if not hasattr(TestClient, "_patched_stream_kw"):
     _orig_post = TestClient.post  # type: ignore[attr-defined]
 
     def _patched_post(self, url, *args, stream: bool | None = None, **kwargs):  # type: ignore[override]
-        # FastAPI>=0.110 doesn't support the *stream* kwarg – pop it if present
+        # FastAPI>=0.110 doesn't support the *stream* kwarg - pop it if present
         if "stream" in kwargs:
             kwargs.pop("stream")
         # Ignore *stream* positional kwarg
@@ -135,17 +138,15 @@ def build_app(
     # ---------------------------------------------------------------------
     # Decide interactive-mode default **before** SessionManager is created
     # ---------------------------------------------------------------------
-    backend_env = cfg.get("backend", "") or os.getenv("LLM_BACKEND", "")
     interactive_mode_cfg = cfg.get("interactive_mode", True)
 
     default_interactive_mode_val: bool
-    if backend_env.startswith("gemini-cli-"):
-        # CLI back-ends are inherently interactive (local tooling)
-        default_interactive_mode_val = True
-    else:
-        default_interactive_mode_val = interactive_mode_cfg and not cfg.get("disable_interactive_commands")
+    # All backends except CLI are handled the same way now
+    default_interactive_mode_val = interactive_mode_cfg and not cfg.get(
+        "disable_interactive_commands"
+    )
 
-    # this variable will be used later when SessionManager is instantiated –
+    # this variable will be used later when SessionManager is instantiated -
     # we can pass through via closure.
     _default_interactive_mode_holder = default_interactive_mode_val
 
@@ -154,10 +155,9 @@ def build_app(
         if not api_key:
             api_key = "test-proxy-key"
             logger.warning(
-                "No client API key provided, using default test key: %s",
-                api_key)
-            if not any(isinstance(h, logging.StreamHandler)
-                       for h in logger.handlers):
+                "No client API key provided, using default test key: %s", api_key
+            )
+            if not any(isinstance(h, logging.StreamHandler) for h in logger.handlers):
                 sys.stdout.write(f"Generated client API key: {api_key}\n")
     else:
         api_key = api_key or None
@@ -175,10 +175,13 @@ def build_app(
     # by _welcome_banner if it's not shadowed.
     # The cleanest is to pass app to _welcome_banner.
 
-    def _welcome_banner(current_app: FastAPI, session_id: str, *, concise: bool = False) -> str:
+    def _welcome_banner(
+        current_app: FastAPI, session_id: str, *, concise: bool = False
+    ) -> str:
         project_name = current_app.state.project_metadata["name"]
         project_version = current_app.state.project_metadata["version"]
         backend_info = []
+
         # Use current_app.state.functional_backends instead of 'functional'
         # from closure
         # Helper to count non-sentinel API keys
@@ -186,29 +189,35 @@ def build_app(
             # Count all non-empty keys but cap at 2 to keep banner stable for tests
             return min(2, len([k for k in keys_list if k]))
 
+        if BackendType.OPENAI in current_app.state.functional_backends:
+            keys_count = min(
+                2, len([k for k in current_app.state.openai_backend.api_keys if k])
+            )
+            models_list = current_app.state.openai_backend.get_available_models()
+            models_count = 1 if concise else len(models_list)
+            backend_info.append(f"openai (K:{keys_count}, M:{models_count})")
+
         if BackendType.OPENROUTER in current_app.state.functional_backends:
-            keys_count = min(2, len([k for k in current_app.state.openrouter_backend.api_keys if k]))
+            keys_count = min(
+                2, len([k for k in current_app.state.openrouter_backend.api_keys if k])
+            )
             models_list = current_app.state.openrouter_backend.get_available_models()
             models_count = 1 if concise else len(models_list)
             backend_info.append(f"openrouter (K:{keys_count}, M:{models_count})")
 
         if BackendType.GEMINI in current_app.state.functional_backends:
-            keys_count = min(2, len([k for k in current_app.state.gemini_backend.api_keys if k]))
+            keys_count = min(
+                2, len([k for k in current_app.state.gemini_backend.api_keys if k])
+            )
             models_list = current_app.state.gemini_backend.get_available_models()
             models_count = 1 if concise else len(models_list) or 0
             backend_info.append(f"gemini (K:{keys_count}, M:{models_count})")
 
-        # Include CLI variant backends only in verbose banners
-        if not concise:
-            if BackendType.GEMINI_CLI_BATCH in current_app.state.functional_backends:
-                cli_batch_backend = current_app.state.gemini_cli_batch_backend
-                models_count = len(cli_batch_backend.get_available_models())
-                backend_info.append(f"gemini-cli-batch (M:{models_count})")
-
-            if BackendType.GEMINI_CLI_DIRECT in current_app.state.functional_backends:
-                cli_direct_backend = current_app.state.gemini_cli_direct_backend
-                models_count = len(cli_direct_backend.get_available_models())
-                backend_info.append(f"gemini-cli-direct (M:{models_count})")
+        if BackendType.QWEN_OAUTH in current_app.state.functional_backends:
+            qwen_oauth_backend = current_app.state.qwen_oauth_backend
+            models_list = qwen_oauth_backend.get_available_models()
+            models_count = 1 if concise else len(models_list)
+            backend_info.append(f"qwen-oauth (M:{models_count})")
 
         # Anthropic is intentionally excluded from the banner until its feature set
         # is considered stable across all execution environments.
@@ -218,7 +227,7 @@ def build_app(
             f"Hello, this is {project_name} {project_version}",
             f"Session id: {session_id}",
             f"Functional backends: {backends_str}",
-            f"Type {cfg['command_prefix']}help for list of available commands"
+            f"Type {cfg['command_prefix']}help for list of available commands",
         ]
         return "\n".join(banner_lines)
 
@@ -240,24 +249,29 @@ def build_app(
             failover_routes=app_param.state.failover_routes,
         )
         app_param.state.disable_interactive_commands = cfg.get(
-            "disable_interactive_commands", False)
+            "disable_interactive_commands", False
+        )
         app_param.state.command_prefix = cfg["command_prefix"]
         app_param.state.functional_backends = {app_param.state.backend_type}
 
+        openai_backend = OpenAIConnector(client_httpx)
         openrouter_backend = OpenRouterBackend(client_httpx)
         openrouter_backend.api_keys = list(cfg.get("openrouter_api_keys", {}).values())
         gemini_backend = GeminiBackend(client_httpx)
         # Anthropic backend uses the same shared httpx client
         from src.connectors.anthropic import AnthropicBackend
+
         anthropic_backend = AnthropicBackend(client_httpx)
-        gemini_cli_direct_backend = GeminiCliDirectConnector()
+        qwen_oauth_backend = QwenOAuthConnector(client_httpx)
+
         # Trim the configured keys to **at most two** so that tests relying on a
         # deterministic banner length remain stable.  Keep only non-empty keys
         # because empty strings are placeholders for *unset* environment
         # variables.
-        real_keys: list[str] = [k for k in cfg.get("gemini_api_keys", {}).values() if k]
-
-        gemini_backend.api_keys = real_keys[:2]
+        real_openai_keys: list[str] = [
+            k for k in cfg.get("openai_api_keys", {}).values() if k
+        ]
+        openai_backend.api_keys = real_openai_keys[:2]
 
         # Ensure we always expose at least one key so that the banner can show
         # "K:1" even when the user intentionally runs the proxy without a
@@ -265,41 +279,166 @@ def build_app(
         # deterministic sentinel value that the tests recognise.
         if len(gemini_backend.api_keys) < 2:
             gemini_backend.api_keys.append("local-cli")
-        # New variant backends
-        from src.connectors.gemini_cli_batch import (
-            GeminiCliBatchConnector,  # local import to avoid circular
-        )
-        from src.connectors.gemini_cli_interactive import GeminiCliInteractiveConnector
 
-        gemini_cli_batch_backend = GeminiCliBatchConnector()
-        if not getattr(gemini_cli_batch_backend, "get_available_models", None):
-            pass
-        else:
-            try:
-                if not gemini_cli_batch_backend.get_available_models():
-                    gemini_cli_batch_backend.available_models = [
-                        "gemini-1.5-pro",
-                        "gemini-1.5-flash",
-                    ]
-            except Exception:
-                gemini_cli_batch_backend.available_models = [
-                    "gemini-1.5-pro",
-                    "gemini-1.5-flash",
-                ]
-
-        gemini_cli_interactive_backend = GeminiCliInteractiveConnector()
-
+        app_param.state.openai_backend = openai_backend
         app_param.state.openrouter_backend = openrouter_backend
         app_param.state.gemini_backend = gemini_backend
         app_param.state.anthropic_backend = anthropic_backend
-        app_param.state.gemini_cli_batch_backend = gemini_cli_batch_backend
-        app_param.state.gemini_cli_interactive_backend = gemini_cli_interactive_backend
-        app_param.state.gemini_cli_direct_backend = gemini_cli_direct_backend
+        app_param.state.qwen_oauth_backend = qwen_oauth_backend
 
+        # Backend registry and unified callers to improve DIP adherence
+        app_param.state.backends = {
+            BackendType.OPENAI: openai_backend,
+            BackendType.OPENROUTER: openrouter_backend,
+            BackendType.GEMINI: gemini_backend,
+            BackendType.ANTHROPIC: anthropic_backend,
+            BackendType.QWEN_OAUTH: qwen_oauth_backend,
+        }
+
+        # Create backend-specific caller adapters with a unified interface
+        async def _call_openai_adapter(
+            *,
+            request_data,
+            processed_messages,
+            effective_model,
+            proxy_state,
+            session,
+            **_kwargs,
+        ):
+            return await app_param.state.openai_backend.chat_completions(
+                request_data=request_data,
+                processed_messages=processed_messages,
+                effective_model=effective_model,
+                openai_url=proxy_state.openai_url,
+            )
+
+        async def _call_openrouter_adapter(
+            *,
+            request_data,
+            processed_messages,
+            effective_model,
+            proxy_state,
+            session,
+            key_name=None,
+            api_key=None,
+            **_kwargs,
+        ):
+            return await app_param.state.openrouter_backend.chat_completions(
+                request_data=request_data,
+                processed_messages=processed_messages,
+                effective_model=effective_model,
+                openrouter_api_base_url=cfg["openrouter_api_base_url"],
+                openrouter_headers_provider=(
+                    lambda n, k: get_openrouter_headers(cfg, k)
+                ),
+                key_name=key_name,
+                api_key=api_key,
+                project=proxy_state.project,
+                prompt_redactor=(
+                    app_param.state.api_key_redactor
+                    if app_param.state.api_key_redaction_enabled
+                    else None
+                ),
+                command_filter=app_param.state.command_filter,
+            )
+
+        async def _call_gemini_adapter(
+            *,
+            request_data,
+            processed_messages,
+            effective_model,
+            proxy_state,
+            session,
+            key_name=None,
+            api_key=None,
+            **_kwargs,
+        ):
+            return await app_param.state.gemini_backend.chat_completions(
+                request_data=request_data,
+                processed_messages=processed_messages,
+                effective_model=effective_model,
+                project=proxy_state.project,
+                gemini_api_base_url=cfg["gemini_api_base_url"],
+                key_name=key_name,
+                api_key=api_key,
+                prompt_redactor=(
+                    app_param.state.api_key_redactor
+                    if app_param.state.api_key_redaction_enabled
+                    else None
+                ),
+                command_filter=app_param.state.command_filter,
+            )
+
+        async def _call_anthropic_adapter(
+            *,
+            request_data,
+            processed_messages,
+            effective_model,
+            proxy_state,
+            session,
+            key_name=None,
+            api_key=None,
+            **_kwargs,
+        ):
+            return await app_param.state.anthropic_backend.chat_completions(
+                request_data=request_data,
+                processed_messages=processed_messages,
+                effective_model=effective_model,
+                openrouter_api_base_url=cfg.get("anthropic_api_base_url"),
+                key_name=key_name,
+                api_key=api_key,
+                project=proxy_state.project,
+                prompt_redactor=(
+                    app_param.state.api_key_redactor
+                    if app_param.state.api_key_redaction_enabled
+                    else None
+                ),
+                command_filter=app_param.state.command_filter,
+            )
+
+        async def _call_qwen_oauth_adapter(
+            *,
+            request_data,
+            processed_messages,
+            effective_model,
+            proxy_state,
+            session,
+            **_kwargs,
+        ):
+            return await app_param.state.qwen_oauth_backend.chat_completions(
+                request_data=request_data,
+                processed_messages=processed_messages,
+                effective_model=effective_model,
+                key_name=None,
+                api_key=None,
+                project=proxy_state.project,
+                agent=session.agent,
+            )
+
+        app_param.state.backend_callers = {
+            BackendType.OPENAI: _call_openai_adapter,
+            BackendType.OPENROUTER: _call_openrouter_adapter,
+            BackendType.GEMINI: _call_gemini_adapter,
+            BackendType.ANTHROPIC: _call_anthropic_adapter,
+            BackendType.QWEN_OAUTH: _call_qwen_oauth_adapter,
+        }
+
+        openai_ok = False
         openrouter_ok = False
         gemini_ok = False
         anthropic_ok = False
-        gemini_cli_direct_ok = False
+        qwen_oauth_ok = False
+
+        if cfg.get("openai_api_keys"):
+            openai_api_keys_list = list(cfg["openai_api_keys"].items())
+            if openai_api_keys_list:
+                _, current_api_key = openai_api_keys_list[0]
+                await openai_backend.initialize(
+                    api_base_url=cfg.get("openai_api_base_url"),
+                    api_key=current_api_key,
+                )
+                if openai_backend.get_available_models():
+                    openai_ok = True
 
         if cfg.get("openrouter_api_keys"):
             openrouter_api_keys_list = list(cfg["openrouter_api_keys"].items())
@@ -341,59 +480,28 @@ def build_app(
                 if anthropic_backend.get_available_models():
                     anthropic_ok = True
 
-        # Initialize Gemini CLI batch (direct) backend
-        # Gemini CLI *direct* backend is always considered functional because it does not
-        # depend on external API keys or project configuration. The *batch* variant is
-        # initialized when available or when explicitly requested via command line.
-
-        gemini_cli_direct_ok = True  # Always available
-
-        # Always try to initialize the batch backend - let it determine its own availability
+        # Initialize Qwen OAuth backend
         try:
-            await gemini_cli_batch_backend.initialize(
-                google_cloud_project=cfg.get("google_cloud_project")
-            )
-            gemini_cli_batch_ok = bool(gemini_cli_batch_backend.get_available_models())
+            await qwen_oauth_backend.initialize()
+            qwen_oauth_ok = qwen_oauth_backend.is_functional
+            if qwen_oauth_ok:
+                logger.info("Qwen OAuth backend initialized successfully")
+            else:
+                logger.warning(
+                    "Qwen OAuth backend initialization failed - no OAuth credentials found"
+                )
         except Exception as e:
-            logger.error(f"Failed to initialize Gemini CLI Batch backend: {e}")
-            gemini_cli_batch_ok = False
-
-        # Initialize Gemini CLI interactive backend (may be disabled in CI)
-        try:
-            await gemini_cli_interactive_backend.initialize(
-                google_cloud_project=cfg.get("google_cloud_project")
-            )
-            # Keep interactive backend non-functional by default until fully supported in production
-            gemini_cli_interactive_ok = False
-        except Exception as e:
-            logger.warning(f"Interactive Gemini CLI backend unavailable: {e}")
-            gemini_cli_interactive_ok = False
-
-        # Provide deterministic model lists for CLI backends to keep banner counts stable during tests
-        if not getattr(gemini_cli_direct_backend, "get_available_models", None):
-            pass  # safety
-        else:
-            try:
-                if not gemini_cli_direct_backend.get_available_models():
-                    gemini_cli_direct_backend.available_models = [
-                        "gemini-1.5-pro",
-                        "gemini-1.5-flash",
-                    ]
-            except Exception:
-                gemini_cli_direct_backend.available_models = [
-                    "gemini-1.5-pro",
-                    "gemini-1.5-flash",
-                ]
+            logger.warning(f"Qwen OAuth backend unavailable: {e}")
+            qwen_oauth_ok = False
 
         functional = {
             name
             for name, ok in (
+                (BackendType.OPENAI, openai_ok),
                 (BackendType.OPENROUTER, openrouter_ok),
                 (BackendType.GEMINI, gemini_ok),
                 (BackendType.ANTHROPIC, anthropic_ok),
-                (BackendType.GEMINI_CLI_DIRECT, gemini_cli_direct_ok),
-                (BackendType.GEMINI_CLI_BATCH, gemini_cli_batch_ok),
-                (BackendType.GEMINI_CLI_INTERACTIVE, gemini_cli_interactive_ok),
+                (BackendType.QWEN_OAUTH, qwen_oauth_ok),
             )
             if ok
         }
@@ -403,18 +511,23 @@ def build_app(
         loop_config = LoopDetectionConfig(
             enabled=cfg.get("loop_detection_enabled", True),
             buffer_size=cfg.get("loop_detection_buffer_size", 2048),
-            max_pattern_length=cfg.get("loop_detection_max_pattern_length", 500)
+            max_pattern_length=cfg.get("loop_detection_max_pattern_length", 500),
         )
-        
+
         def handle_loop_detected(event, session_id):
-            logger.warning(f"Loop detected in session {session_id}: {event.pattern[:50]}...")
-        
+            logger.warning(
+                f"Loop detected in session {session_id}: {event.pattern[:50]}..."
+            )
+
         configure_loop_detection_middleware(loop_config, handle_loop_detected)
         logger.info(f"Loop detection initialized: enabled={loop_config.enabled}")
-        
+
         # Configure API key redaction middleware
-        from src.response_middleware import configure_api_key_redaction_middleware
-        configure_api_key_redaction_middleware()
+        from src.response_middleware import (
+            configure_api_key_redaction_middleware as config_middleware,
+        )
+
+        config_middleware()
 
         # Generate the welcome banner at startup to show API key and model counts
         _welcome_banner(app_param, "startup")
@@ -423,47 +536,38 @@ def build_app(
         backend_type = cfg.get("backend")
         if backend_type:
             if functional and backend_type not in functional:
-                raise ValueError(
-                    f"default backend {backend_type} is not functional"
-                )
+                raise ValueError(f"default backend {backend_type} is not functional")
         else:
             if len(functional) == 1:
                 backend_type = next(iter(functional))
             elif len(functional) > 1:
-                # Prefer a single *non-CLI* backend if exactly one exists.
-                cli_variants = {BackendType.GEMINI_CLI_DIRECT, BackendType.GEMINI_CLI_BATCH, BackendType.GEMINI_CLI_INTERACTIVE}
-                non_cli = functional - cli_variants
-                if len(non_cli) == 1:
-                    # Auto-select that backend when CLI variants are also functional.
-                    backend_type = next(iter(non_cli))
-                # If only CLI variants are available, pick *direct*
-                elif not non_cli and functional.issubset(cli_variants):
-                    backend_type = BackendType.GEMINI_CLI_DIRECT
-                else:
-                    # Ambiguous – require explicit selection.
-                    raise ValueError("Multiple functional backends, specify --default-backend")
+                # Auto-select that backend when only one exists.
+                backend_type = next(iter(functional))
             else:
                 backend_type = None
         app_param.state.backend_type = backend_type
         app_param.state.initial_backend_type = backend_type
 
+        # Use Any type to handle different backend types
+        current_backend: Any = None
         if backend_type == "gemini":
             current_backend = gemini_backend
-        elif backend_type in ["gemini-cli-direct", "gemini-cli-batch"]:
-            current_backend = gemini_cli_batch_backend
-        elif backend_type == "gemini-cli-interactive":
-            current_backend = gemini_cli_interactive_backend
         elif backend_type == "anthropic":
             current_backend = anthropic_backend
-        else: # Default to openrouter if not specified or not gemini/gemini-cli-direct
+        elif backend_type == "qwen-oauth":
+            current_backend = qwen_oauth_backend
+        elif backend_type == "openai":
+            current_backend = openai_backend
+        else:  # Default to openrouter if not specified
             current_backend = openrouter_backend
 
         app_param.state.backend = current_backend
 
-        all_keys = list(cfg.get("openrouter_api_keys", {}).values()) + list(
-            cfg.get("gemini_api_keys", {}).values()
-        ) + list(
-            cfg.get("anthropic_api_keys", {}).values()
+        all_keys = (
+            list(cfg.get("openai_api_keys", {}).values())
+            + list(cfg.get("openrouter_api_keys", {}).values())
+            + list(cfg.get("gemini_api_keys", {}).values())
+            + list(cfg.get("anthropic_api_keys", {}).values())
         )
         app_param.state.api_key_redactor = APIKeyRedactor(all_keys)
         app_param.state.default_api_key_redaction_enabled = cfg.get(
@@ -475,21 +579,24 @@ def build_app(
 
         # Initialize emergency command filter
         app_param.state.command_filter = ProxyCommandFilter(cfg["command_prefix"])
-        
+
         # Initialize request middleware
         from src.request_middleware import configure_redaction_middleware
+
         configure_redaction_middleware()
-        
+
         # Configure API key redaction middleware for responses
-        from src.response_middleware import configure_api_key_redaction_middleware
-        configure_api_key_redaction_middleware()
+        from src.response_middleware import (
+            configure_api_key_redaction_middleware as config_middleware_2,
+        )
+
+        config_middleware_2()
 
         app_param.state.rate_limits = RateLimitRegistry()
         app_param.state.force_set_project = cfg.get("force_set_project", False)
 
         if config_file:
-            app_param.state.config_manager = ConfigManager(
-                app_param, config_file)
+            app_param.state.config_manager = ConfigManager(app_param, config_file)
             app_param.state.config_manager.load()
         else:
             app_param.state.config_manager = None
@@ -503,31 +610,27 @@ def build_app(
         except Exception as exc:
             logger.debug("Failed to close shared httpx client: %s", exc)
 
-        # Terminate Gemini CLI background/interactive processes to avoid ResourceWarnings
-        with suppress(Exception):
-            await gemini_cli_interactive_backend.shutdown()
-
-        with suppress(Exception):
-            await gemini_cli_direct_backend.shutdown()
-
     app_instance = FastAPI(lifespan=lifespan)
 
     # After connectors are attached below we will override their key lists to
     # max two real keys so banner counts remain deterministic for tests.
 
     # -----------------------------------------------------------------
-    # Experimental Anthropic front-end – include router so that the
+    # Experimental Anthropic front-end - include router so that the
     # integration test suite can hit /anthropic/* endpoints even when the
     # backend is not fully wired.
     # -----------------------------------------------------------------
     try:
         from src.anthropic_router import router as anthropic_router_router
+
         app_instance.include_router(anthropic_router_router)
-    except Exception as _err:  # pragma: no cover – optional dependency
+    except Exception as _err:  # pragma: no cover - optional dependency
         logger.debug("Anthropic router not registered: %s", _err)
 
     app_instance.state.project_metadata = {
-        "name": project_name, "version": project_version}
+        "name": project_name,
+        "version": project_version,
+    }
     app_instance.state.client_api_key = api_key
     app_instance.state.disable_auth = disable_auth
     app_instance.state.config = cfg
@@ -575,36 +678,51 @@ def build_app(
         request_data: models.ChatCompletionRequest = Body(...),
     ):
         session_id = http_request.headers.get("x-session-id", "default")
-        
+
         with track_request_performance(session_id) as perf_metrics:
-            session = http_request.app.state.session_manager.get_session(
-                session_id)
+            session = http_request.app.state.session_manager.get_session(session_id)
             proxy_state: ProxyState = session.proxy_state
-            
+
             # Set initial context for performance tracking
-            perf_metrics.streaming = getattr(request_data, 'stream', False)
+            perf_metrics.streaming = getattr(request_data, "stream", False)
 
             # Add detailed logging for debugging Cline issues
             logger.debug("[CLINE_DEBUG] ========== NEW REQUEST ==========")
             logger.debug(f"[CLINE_DEBUG] Session ID: {session_id}")
-            logger.debug(f"[CLINE_DEBUG] User-Agent: {http_request.headers.get('user-agent', 'Unknown')}")
-            logger.debug(f"[CLINE_DEBUG] Authorization: {http_request.headers.get('authorization', 'None')[:20]}...")
-            logger.debug(f"[CLINE_DEBUG] Content-Type: {http_request.headers.get('content-type', 'Unknown')}")
+            logger.debug(
+                f"[CLINE_DEBUG] User-Agent: {http_request.headers.get('user-agent', 'Unknown')}"
+            )
+            logger.debug(
+                f"[CLINE_DEBUG] Authorization: {http_request.headers.get('authorization', 'None')[:20]}..."
+            )
+            logger.debug(
+                f"[CLINE_DEBUG] Content-Type: {http_request.headers.get('content-type', 'Unknown')}"
+            )
             logger.debug(f"[CLINE_DEBUG] Model requested: {request_data.model}")
-            logger.debug(f"[CLINE_DEBUG] Messages count: {len(request_data.messages) if request_data.messages else 0}")
-            
+            logger.debug(
+                f"[CLINE_DEBUG] Messages count: {len(request_data.messages) if request_data.messages else 0}"
+            )
+
             # Check if tools are included in the request
             if request_data.tools:
-                logger.debug(f"[CLINE_DEBUG] Tools provided: {len(request_data.tools)} tools")
+                logger.debug(
+                    f"[CLINE_DEBUG] Tools provided: {len(request_data.tools)} tools"
+                )
                 for i, tool in enumerate(request_data.tools):
                     logger.debug(f"[CLINE_DEBUG] Tool {i}: {tool.function.name}")
             else:
                 logger.debug("[CLINE_DEBUG] No tools provided in request")
-                
+
             if request_data.messages:
                 for i, msg in enumerate(request_data.messages):
-                    content_preview = str(msg.content)[:100] + "..." if len(str(msg.content)) > 100 else str(msg.content)
-                    logger.debug(f"[CLINE_DEBUG] Message {i}: role={msg.role}, content={content_preview}")
+                    content_preview = (
+                        str(msg.content)[:100] + "..."
+                        if len(str(msg.content)) > 100
+                        else str(msg.content)
+                    )
+                    logger.debug(
+                        f"[CLINE_DEBUG] Message {i}: role={msg.role}, content={content_preview}"
+                    )
             logger.debug("[CLINE_DEBUG] ================================")
 
             # Start command processing phase
@@ -616,23 +734,31 @@ def build_app(
                     elif isinstance(first.content, list):
                         # E501: Wrapped list comprehension
                         text = " ".join(
-                            p.text for p in first.content
+                            p.text
+                            for p in first.content
                             if isinstance(p, models.MessageContentPartText)
                         )
                     else:
                         text = ""
 
-                    if not proxy_state.is_cline_agent and "<attempt_completion>" in text:
+                    if (
+                        not proxy_state.is_cline_agent
+                        and "<attempt_completion>" in text
+                    ):
                         proxy_state.set_is_cline_agent(True)
                         # Also set session.agent to ensure XML wrapping works
                         if session.agent is None:
                             session.agent = "cline"
-                        logger.debug(f"[CLINE_DEBUG] Detected Cline agent via <attempt_completion> pattern. Session: {session_id}")
+                        logger.debug(
+                            f"[CLINE_DEBUG] Detected Cline agent via <attempt_completion> pattern. Session: {session_id}"
+                        )
 
                     if session.agent is None:
                         session.agent = detect_agent(text)
                         if session.agent:
-                            logger.debug(f"[CLINE_DEBUG] Detected agent via detect_agent(): {session.agent}. Session: {session_id}")
+                            logger.debug(
+                                f"[CLINE_DEBUG] Detected agent via detect_agent(): {session.agent}. Session: {session_id}"
+                            )
 
         current_backend_type = http_request.app.state.backend_type
         if proxy_state.override_backend:
@@ -649,14 +775,15 @@ def build_app(
                 raise HTTPException(status_code=400, detail=detail_msg)
             if current_backend_type not in SUPPORTED_BACKENDS:
                 raise HTTPException(
-                    status_code=400,
-                    detail=f"unknown backend {current_backend_type}")
+                    status_code=400, detail=f"unknown backend {current_backend_type}"
+                )
 
         parser = None
         confirmation_text = ""  # Initialize confirmation_text for both paths
-        
+
         if not http_request.app.state.disable_interactive_commands:
             from src.command_config import CommandParserConfig
+
             parser_config = CommandParserConfig(
                 proxy_state=proxy_state,
                 app=http_request.app,
@@ -666,11 +793,11 @@ def build_app(
             parser = CommandParser(
                 parser_config, command_prefix=http_request.app.state.command_prefix
             )
-            
+
             processed_messages, commands_processed = parser.process_messages(
                 request_data.messages
             )
-            
+
             # Generate confirmation text from command results
             if parser and parser.command_results:
                 confirmation_messages = []
@@ -680,25 +807,31 @@ def build_app(
                     else:
                         confirmation_messages.append(f"Error: {result.message}")
                 confirmation_text = "\n".join(confirmation_messages)
-            
+
             if parser.command_results and any(
-                    not result.success for result in parser.command_results):
+                not result.success for result in parser.command_results
+            ):
                 error_messages = [
-                    result.message for result in parser.command_results if not result.success]
+                    result.message
+                    for result in parser.command_results
+                    if not result.success
+                ]
                 # E501: Wrapped dict
                 return {
                     "id": "proxy_cmd_processed",
                     "object": "chat.completion",
                     "created": int(datetime.now(timezone.utc).timestamp()),
                     "model": request_data.model,
-                    "choices": [{
-                        "index": 0,
-                        "message": {
-                            "role": "assistant",
-                            "content": "; ".join(error_messages),
-                        },
-                        "finish_reason": "error",
-                    }],
+                    "choices": [
+                        {
+                            "index": 0,
+                            "message": {
+                                "role": "assistant",
+                                "content": "; ".join(error_messages),
+                            },
+                            "finish_reason": "error",
+                        }
+                    ],
                     "usage": {
                         "prompt_tokens": 0,
                         "completion_tokens": 0,
@@ -709,7 +842,9 @@ def build_app(
             processed_messages = request_data.messages
             commands_processed = False
 
-        current_backend_type = proxy_state.get_selected_backend(http_request.app.state.backend_type)
+        current_backend_type = proxy_state.get_selected_backend(
+            http_request.app.state.backend_type
+        )
 
         # Only show banner when explicitly requested via !/hello command
         show_banner = proxy_state.hello_requested
@@ -734,19 +869,21 @@ def build_app(
                 for msg in processed_messages:
                     if isinstance(msg.content, str) and msg.content.strip():
                         content = msg.content.strip()
-                        
+
                         # Use a smarter threshold to distinguish between:
                         # 1. Command-focused requests (short remaining content like "hi") -> return proxy response
                         # 2. Mixed content requests (substantial content) -> continue to backend
-                        
+
                         # For Cline agents, be more restrictive about what constitutes meaningful content
                         if proxy_state.is_cline_agent or session.agent == "cline":
                             # If it's short content that looks like XML markup, don't consider it meaningful
                             # This handles cases like "test" from "<attempt_completion>test</attempt_completion>"
                             if len(content) < 50:
-                                logger.debug(f"[CLINE_DEBUG] Ignoring short content for Cline agent: '{content}'")
+                                logger.debug(
+                                    f"[CLINE_DEBUG] Ignoring short content for Cline agent: '{content}'"
+                                )
                                 continue
-                            
+
                             # If it looks like a Cline agent prompt (contains typical agent instructions),
                             # don't consider it meaningful user content for LLM processing
                             cline_indicators = [
@@ -754,52 +891,91 @@ def build_app(
                                 "Your goal is to be helpful, accurate, and efficient",
                                 "You should always think step by step",
                                 "Make sure to handle errors gracefully",
-                                "Remember to be concise but thorough"
+                                "Remember to be concise but thorough",
                             ]
-                            if any(indicator in content for indicator in cline_indicators):
-                                logger.debug(f"[CLINE_DEBUG] Ignoring Cline agent prompt content (length: {len(content)})")
+                            if any(
+                                indicator in content for indicator in cline_indicators
+                            ):
+                                logger.debug(
+                                    f"[CLINE_DEBUG] Ignoring Cline agent prompt content (length: {len(content)})"
+                                )
                                 continue
                         else:
                             # For non-Cline agents, use a smarter heuristic to distinguish between:
                             # 1. Filler text around commands (should not trigger backend calls)
                             # 2. Actual LLM requests (should trigger backend calls)
-                            
+
                             # Short content should not trigger backend calls
                             if len(content.split()) <= 2:  # 2 words or less
-                                logger.debug(f"[COMMAND_DEBUG] Ignoring short remaining content: '{content}'")
+                                logger.debug(
+                                    f"[COMMAND_DEBUG] Ignoring short remaining content: '{content}'"
+                                )
                                 continue
-                            
+
                             # Check if the content looks like an actual instruction/request to an AI
                             # vs just filler text around a command
                             instruction_indicators = [
-                                "write", "create", "generate", "explain", "describe", "tell", "show",
-                                "help", "how", "what", "why", "where", "when", "please", "can you",
-                                "could you", "would you", "i need", "i want", "make", "build",
-                                "story", "code", "example", "list", "summary", "analysis"
+                                "write",
+                                "create",
+                                "generate",
+                                "explain",
+                                "describe",
+                                "tell",
+                                "show",
+                                "help",
+                                "how",
+                                "what",
+                                "why",
+                                "where",
+                                "when",
+                                "please",
+                                "can you",
+                                "could you",
+                                "would you",
+                                "i need",
+                                "i want",
+                                "make",
+                                "build",
+                                "story",
+                                "code",
+                                "example",
+                                "list",
+                                "summary",
+                                "analysis",
                             ]
-                            
+
                             content_lower = content.lower()
-                            has_instruction_words = any(indicator in content_lower for indicator in instruction_indicators)
-                            
+                            has_instruction_words = any(
+                                indicator in content_lower
+                                for indicator in instruction_indicators
+                            )
+
                             # If it has instruction words and is substantial (>5 words), consider it meaningful
                             if has_instruction_words and len(content.split()) > 5:
-                                logger.debug(f"[COMMAND_DEBUG] Found meaningful LLM request: '{content[:50]}...' ")
+                                logger.debug(
+                                    f"[COMMAND_DEBUG] Found meaningful LLM request: '{content[:50]}...' "
+                                )
                                 has_meaningful_content = True
                                 break
                             else:
-                                logger.debug(f"[COMMAND_DEBUG] Ignoring filler text around command: '{content[:50]}...' ")
+                                logger.debug(
+                                    f"[COMMAND_DEBUG] Ignoring filler text around command: '{content[:50]}...' "
+                                )
                                 continue
-                        
+
                         break
                     elif isinstance(msg.content, list) and msg.content:
                         # Check if list has any non-empty text parts
                         for part in msg.content:
-                            if isinstance(part, models.MessageContentPartText) and part.text.strip():
+                            if (
+                                isinstance(part, models.MessageContentPartText)
+                                and part.text.strip()
+                            ):
                                 has_meaningful_content = True
                                 break
                         if has_meaningful_content:
                             break
-            
+
             # If no meaningful content remains, return proxy response for command-only requests
             if not has_meaningful_content:
                 # Enhanced Cline detection: if commands were processed but no agent was detected yet,
@@ -808,24 +984,45 @@ def build_app(
                     first_message = request_data.messages[0]
                     if isinstance(first_message.content, str):
                         content = first_message.content
-                        logger.debug(f"[CLINE_DEBUG] Commands processed but no agent detected. Message length: {len(content)}. Session: {session_id}")
-                        logger.debug(f"[CLINE_DEBUG] Message content preview: {content[:200]}...")
+                        logger.debug(
+                            f"[CLINE_DEBUG] Commands processed but no agent detected. Message length: {len(content)}. Session: {session_id}"
+                        )
+                        logger.debug(
+                            f"[CLINE_DEBUG] Message content preview: {content[:200]}..."
+                        )
                         # Cline typically sends long prompts (agent instructions) followed by user commands
                         # If we see a command in a reasonably long message, it's likely Cline
-                        if len(content) > 100 and ("!/hello" in content or "!/" in content):
+                        if len(content) > 100 and (
+                            "!/hello" in content or "!/" in content
+                        ):
                             session.agent = "cline"
                             proxy_state.set_is_cline_agent(True)
-                            logger.debug(f"[CLINE_DEBUG] Enhanced detection: Set agent to Cline (long message with commands). Session: {session_id}")
+                            logger.debug(
+                                f"[CLINE_DEBUG] Enhanced detection: Set agent to Cline (long message with commands). Session: {session_id}"
+                            )
                         else:
-                            logger.debug(f"[CLINE_DEBUG] Enhanced detection: Did not match Cline pattern. Session: {session_id}")
+                            logger.debug(
+                                f"[CLINE_DEBUG] Enhanced detection: Did not match Cline pattern. Session: {session_id}"
+                            )
                 else:
-                    logger.debug(f"[CLINE_DEBUG] Commands processed, agent already detected: {session.agent}. Session: {session_id}")
+                    logger.debug(
+                        f"[CLINE_DEBUG] Commands processed, agent already detected: {session.agent}. Session: {session_id}"
+                    )
 
                 content_lines_for_agent = []
-                if proxy_state.interactive_mode and show_banner and not http_request.app.state.disable_interactive_commands:
+                if (
+                    proxy_state.interactive_mode
+                    and show_banner
+                    and not http_request.app.state.disable_interactive_commands
+                ):
                     # Use a concise banner for Cline agents *only* when the proxy starts in non-interactive mode.
-                    concise_banner = session.agent == "cline" and not http_request.app.state.session_manager.default_interactive_mode
-                    banner_content = _welcome_banner(http_request.app, session_id, concise=concise_banner)
+                    concise_banner = (
+                        session.agent == "cline"
+                        and not http_request.app.state.session_manager.default_interactive_mode
+                    )
+                    banner_content = _welcome_banner(
+                        http_request.app, session_id, concise=concise_banner
+                    )
                     content_lines_for_agent.append(banner_content)
 
                 # Include command results for Cline agents, but exclude simple confirmations for non-Cline agents
@@ -854,18 +1051,29 @@ def build_app(
                 proxy_state.interactive_just_enabled = False
 
                 # Central handling for command responses - raw content, frontends handle formatting
-                logger.debug(f"[CLINE_DEBUG] Returning command response for agent: {session.agent}")
-                
+                logger.debug(
+                    f"[CLINE_DEBUG] Returning command response for agent: {session.agent}"
+                )
+
                 # Central handling: Format response using agent-aware formatter
-                formatted_content = format_command_response_for_agent([final_content], session.agent)
-                
+                formatted_content = format_command_response_for_agent(
+                    [final_content], session.agent
+                )
+
                 # OpenAI frontend: Convert Cline markers to tool calls
-                if session.agent in {"cline", "roocode"} and formatted_content.startswith("__CLINE_TOOL_CALL_MARKER__"):
-                    logger.debug("[CLINE_DEBUG] Converting Cline marker to OpenAI tool calls")
-                    
+                if session.agent in {
+                    "cline",
+                    "roocode",
+                } and formatted_content.startswith("__CLINE_TOOL_CALL_MARKER__"):
+                    logger.debug(
+                        "[CLINE_DEBUG] Converting Cline marker to OpenAI tool calls"
+                    )
+
                     # Convert marker to tool call
-                    tool_call = convert_cline_marker_to_openai_tool_call(formatted_content)
-                    
+                    tool_call = convert_cline_marker_to_openai_tool_call(
+                        formatted_content
+                    )
+
                     return models.CommandProcessedChatCompletionResponse(
                         id="proxy_cmd_processed",
                         object="chat.completion",
@@ -877,23 +1085,25 @@ def build_app(
                                 message=models.ChatCompletionChoiceMessage(
                                     role="assistant",
                                     content=None,
-                                    tool_calls=[models.ToolCall(
-                                        id=tool_call["id"],
-                                        type=tool_call["type"],
-                                        function=models.FunctionCall(
-                                            name=tool_call["function"]["name"],
-                                            arguments=tool_call["function"]["arguments"]
+                                    tool_calls=[
+                                        models.ToolCall(
+                                            id=tool_call["id"],
+                                            type=tool_call["type"],
+                                            function=models.FunctionCall(
+                                                name=tool_call["function"]["name"],
+                                                arguments=tool_call["function"][
+                                                    "arguments"
+                                                ],
+                                            ),
                                         )
-                                    )]
+                                    ],
                                 ),
-                                finish_reason="tool_calls"
+                                finish_reason="tool_calls",
                             )
                         ],
                         usage=models.CompletionUsage(
-                            prompt_tokens=0,
-                            completion_tokens=0,
-                            total_tokens=0
-                        )
+                            prompt_tokens=0, completion_tokens=0, total_tokens=0
+                        ),
                     )
                 else:
                     # Regular content response (non-Cline or other frontends)
@@ -906,17 +1116,14 @@ def build_app(
                             models.ChatCompletionChoice(
                                 index=0,
                                 message=models.ChatCompletionChoiceMessage(
-                                    role="assistant",
-                                    content=formatted_content
+                                    role="assistant", content=formatted_content
                                 ),
-                                finish_reason="stop"
+                                finish_reason="stop",
                             )
                         ],
                         usage=models.CompletionUsage(
-                            prompt_tokens=0,
-                            completion_tokens=0,
-                            total_tokens=0
-                        )
+                            prompt_tokens=0, completion_tokens=0, total_tokens=0
+                        ),
                     )
             # If there's meaningful content remaining, continue to backend call
 
@@ -940,19 +1147,30 @@ def build_app(
             )
 
         effective_model = proxy_state.get_effective_model(request_data.model)
-        
+
         # Apply model-specific defaults if configured
-        if hasattr(http_request.app.state, 'model_defaults') and http_request.app.state.model_defaults:
+        if (
+            hasattr(http_request.app.state, "model_defaults")
+            and http_request.app.state.model_defaults
+        ):
             # Check for exact model match first
             if effective_model in http_request.app.state.model_defaults:
-                proxy_state.apply_model_defaults(effective_model, http_request.app.state.model_defaults[effective_model])
+                proxy_state.apply_model_defaults(
+                    effective_model,
+                    http_request.app.state.model_defaults[effective_model],
+                )
             else:
                 # Check for backend:model pattern match
-                current_backend = proxy_state.get_selected_backend(http_request.app.state.backend_type)
+                current_backend = proxy_state.get_selected_backend(
+                    http_request.app.state.backend_type
+                )
                 full_model_name = f"{current_backend}:{effective_model}"
                 if full_model_name in http_request.app.state.model_defaults:
-                    proxy_state.apply_model_defaults(full_model_name, http_request.app.state.model_defaults[full_model_name])
-        
+                    proxy_state.apply_model_defaults(
+                        full_model_name,
+                        http_request.app.state.model_defaults[full_model_name],
+                    )
+
         # Update performance metrics with backend and model info
         perf_metrics.backend_used = current_backend_type
         perf_metrics.model_used = effective_model
@@ -980,34 +1198,49 @@ def build_app(
             # For OpenRouter, add reasoning parameters to extra_params if not already set
             if not request_data.extra_params:
                 request_data.extra_params = {}
-            
-            if proxy_state.reasoning_effort and "reasoning_effort" not in request_data.extra_params:
-                request_data.extra_params["reasoning_effort"] = proxy_state.reasoning_effort
-            
-            if proxy_state.reasoning_config and "reasoning" not in request_data.extra_params:
+
+            if (
+                proxy_state.reasoning_effort
+                and "reasoning_effort" not in request_data.extra_params
+            ):
+                request_data.extra_params["reasoning_effort"] = (
+                    proxy_state.reasoning_effort
+                )
+
+            if (
+                proxy_state.reasoning_config
+                and "reasoning" not in request_data.extra_params
+            ):
                 request_data.extra_params["reasoning"] = proxy_state.reasoning_config
 
-        elif current_backend_type in ["gemini", "gemini-cli-direct", "gemini-cli-batch"]:
+        elif current_backend_type == "gemini":
             # For Gemini, handle thinking budget and generation config
             if not request_data.extra_params:
                 request_data.extra_params = {}
-            
+
             # Convert thinking budget to Gemini's generation config format
-            if proxy_state.thinking_budget and "generationConfig" not in request_data.extra_params:
+            if (
+                proxy_state.thinking_budget
+                and "generationConfig" not in request_data.extra_params
+            ):
                 request_data.extra_params["generationConfig"] = {
-                    "thinkingConfig": {
-                        "thinkingBudget": proxy_state.thinking_budget
-                    }
+                    "thinkingConfig": {"thinkingBudget": proxy_state.thinking_budget}
                 }
-            
+
             # Add generation config if provided
             if proxy_state.gemini_generation_config:
                 if "generationConfig" not in request_data.extra_params:
                     request_data.extra_params["generationConfig"] = {}
-                request_data.extra_params["generationConfig"].update(proxy_state.gemini_generation_config)
+                request_data.extra_params["generationConfig"].update(
+                    proxy_state.gemini_generation_config
+                )
 
         async def _call_backend(
-            b_type: str, model_str: str, key_name_str: str, api_key_str: str, agent: str | None
+            b_type: str,
+            model_str: str,
+            key_name_str: str,
+            api_key_str: str,
+            agent: str | None,
         ):
             # Extract username from request headers or use default
             username = http_request.headers.get("X-User-ID", "anonymous")
@@ -1016,24 +1249,131 @@ def build_app(
             @asynccontextmanager
             async def no_op_tracker():
                 class DummyTracker:
-                    def set_response(self, *args, **kwargs): pass
-                    def set_response_headers(self, *args, **kwargs): pass
-                    def set_cost(self, *args, **kwargs): pass
-                    def set_completion_id(self, *args, **kwargs): pass
+                    def set_response(self, *args, **kwargs):
+                        pass
+
+                    def set_response_headers(self, *args, **kwargs):
+                        pass
+
+                    def set_cost(self, *args, **kwargs):
+                        pass
+
+                    def set_completion_id(self, *args, **kwargs):
+                        pass
+
                 yield DummyTracker()
 
-            tracker_context = track_llm_request(
-                model=model_str,
-                backend=b_type,
-                messages=processed_messages,
-                username=username,
-                project=proxy_state.project,
-                session=session_id,
-                caller_name=f"{b_type}_backend"
-            ) if not http_request.app.state.disable_accounting else no_op_tracker()
+            tracker_context = (
+                track_llm_request(
+                    model=model_str,
+                    backend=b_type,
+                    messages=processed_messages,  # type: ignore[arg-type]
+                    username=username,
+                    project=proxy_state.project,
+                    session=session_id,
+                    caller_name=f"{b_type}_backend",
+                )
+                if not http_request.app.state.disable_accounting
+                else no_op_tracker()
+            )
 
             async with tracker_context as tracker:
-                if b_type == BackendType.GEMINI:
+                # If unified backend callers are available, use them to reduce coupling
+                backend_callers = getattr(
+                    http_request.app.state, "backend_callers", None
+                )
+                if backend_callers and b_type in backend_callers:
+                    bucket_map = {
+                        "openai": "openai",
+                        "openrouter": "openrouter",
+                        "gemini": "gemini",
+                        "anthropic": "anthropic",
+                        "qwen-oauth": None,  # no rate limiting configured
+                    }
+                    bucket = bucket_map.get(b_type)
+                    # Rate limit check if applicable
+                    if bucket:
+                        retry_at = http_request.app.state.rate_limits.get(
+                            bucket, model_str, key_name_str
+                        )
+                        if retry_at:
+                            detail_dict = {
+                                "message": "Backend rate limited, retry later",
+                                "retry_after": int(retry_at - time.time()),
+                            }
+                            raise HTTPException(status_code=429, detail=detail_dict)
+
+                    try:
+                        adapter = backend_callers[b_type]
+                        backend_result = await adapter(
+                            request_data=request_data,
+                            processed_messages=processed_messages,
+                            effective_model=model_str,
+                            proxy_state=proxy_state,
+                            session=session,
+                            key_name=key_name_str,
+                            api_key=api_key_str,
+                        )
+
+                        if isinstance(backend_result, tuple):
+                            result, response_headers = backend_result
+                            tracker.set_response(result)
+                            tracker.set_response_headers(response_headers)
+                        else:
+                            result = backend_result
+                            tracker.set_response(result)
+
+                        return result
+                    except HTTPException as e:
+                        if e.status_code == 429 and bucket:
+                            delay = parse_retry_delay(e.detail)
+                            if delay:
+                                http_request.app.state.rate_limits.set(
+                                    bucket, model_str, key_name_str, delay
+                                )
+                        raise
+
+                if b_type == BackendType.OPENAI:
+                    # Rate limiting for OpenAI - assuming a similar structure to Gemini/OpenRouter
+                    retry_at = http_request.app.state.rate_limits.get(
+                        "openai", model_str, key_name_str
+                    )
+                    if retry_at:
+                        detail_dict = {
+                            "message": "Backend rate limited, retry later",
+                            "retry_after": int(retry_at - time.time()),
+                        }
+                        raise HTTPException(status_code=429, detail=detail_dict)
+                    try:
+                        backend_result = await http_request.app.state.openai_backend.chat_completions(
+                            request_data=request_data,
+                            processed_messages=processed_messages,
+                            effective_model=model_str,
+                            openai_url=proxy_state.openai_url,
+                        )
+
+                        if isinstance(backend_result, tuple):
+                            result, response_headers = backend_result
+                            tracker.set_response(result)
+                            tracker.set_response_headers(response_headers)
+                        else:
+                            result = backend_result
+                            tracker.set_response(result)
+
+                        logger.debug(
+                            f"Result from OpenAI backend chat_completions: {result}"
+                        )
+                        return result
+                    except HTTPException as e:
+                        if e.status_code == 429:
+                            delay = parse_retry_delay(e.detail)
+                            if delay:
+                                http_request.app.state.rate_limits.set(
+                                    "openai", model_str, key_name_str, delay
+                                )
+                        raise
+
+                elif b_type == BackendType.GEMINI:
                     retry_at = http_request.app.state.rate_limits.get(
                         "gemini", model_str, key_name_str
                     )
@@ -1045,22 +1385,20 @@ def build_app(
                         }
                         raise HTTPException(status_code=429, detail=detail_dict)
                     try:
-                        backend_result = (
-                            await http_request.app.state.gemini_backend.chat_completions(
-                                request_data=request_data,
-                                processed_messages=processed_messages,
-                                effective_model=model_str,
-                                project=proxy_state.project,
-                                gemini_api_base_url=cfg["gemini_api_base_url"],
-                                key_name=key_name_str,
-                                api_key=api_key_str,
-                                prompt_redactor=(
-                                    http_request.app.state.api_key_redactor
-                                    if http_request.app.state.api_key_redaction_enabled
-                                    else None
-                                ),
-                                command_filter=http_request.app.state.command_filter,
-                            )
+                        backend_result = await http_request.app.state.gemini_backend.chat_completions(
+                            request_data=request_data,
+                            processed_messages=processed_messages,
+                            effective_model=model_str,
+                            project=proxy_state.project,
+                            gemini_api_base_url=cfg["gemini_api_base_url"],
+                            key_name=key_name_str,
+                            api_key=api_key_str,
+                            prompt_redactor=(
+                                http_request.app.state.api_key_redactor
+                                if http_request.app.state.api_key_redaction_enabled
+                                else None
+                            ),
+                            command_filter=http_request.app.state.command_filter,
                         )
 
                         if isinstance(backend_result, tuple):
@@ -1084,78 +1422,6 @@ def build_app(
                                     "gemini", model_str, key_name_str, delay
                                 )
                         raise
-                elif b_type == BackendType.GEMINI_CLI_DIRECT:
-                    # Direct Gemini CLI calls - no API keys needed
-                    try:
-                        backend_result = await http_request.app.state.gemini_cli_direct_backend.chat_completions(
-                            request_data=request_data,
-                            processed_messages=processed_messages,
-                            effective_model=model_str,
-                            project=proxy_state.project,
-                            prompt_redactor=(
-                                http_request.app.state.api_key_redactor
-                                if http_request.app.state.api_key_redaction_enabled
-                                else None
-                            ),
-                            command_filter=http_request.app.state.command_filter,
-                        )
-
-                        if isinstance(backend_result, tuple):
-                            result, response_headers = backend_result
-                            tracker.set_response(result)
-                            tracker.set_response_headers(response_headers)
-                        else:
-                            # Streaming response
-                            result = backend_result
-                            tracker.set_response(result)
-
-                        logger.debug(
-                            f"Result from Gemini CLI Direct backend chat_completions: {result}"
-                        )
-                        return result
-                    except HTTPException as e:
-                        logger.error(f"Error from Gemini CLI Direct backend: {e.status_code} - {e.detail}")
-                        raise
-                    except Exception as e:
-                        logger.error(f"Unexpected error from Gemini CLI Direct backend: {e}", exc_info=True)
-                        raise HTTPException(status_code=500, detail=f"Gemini CLI Direct backend error: {e!s}")
-
-                elif b_type == BackendType.GEMINI_CLI_BATCH:
-                    # Batch (one-shot) Gemini CLI backend – same interface as direct variant
-                    try:
-                        backend_result = await http_request.app.state.gemini_cli_batch_backend.chat_completions(
-                            request_data=request_data,
-                            processed_messages=processed_messages,
-                            effective_model=model_str,
-                            project=proxy_state.project_dir,
-                            prompt_redactor=(
-                                http_request.app.state.api_key_redactor
-                                if http_request.app.state.api_key_redaction_enabled
-                                else None
-                            ),
-                            command_filter=http_request.app.state.command_filter,
-                            agent=session.agent,
-                        )
-
-                        if isinstance(backend_result, tuple):
-                            result, response_headers = backend_result
-                            tracker.set_response(result)
-                            tracker.set_response_headers(response_headers)
-                        else:
-                            # Streaming response
-                            result = backend_result
-                            tracker.set_response(result)
-
-                        logger.debug(
-                            f"Result from Gemini CLI Batch backend chat_completions: {result}"
-                        )
-                        return result
-                    except HTTPException as e:
-                        logger.error(f"Error from Gemini CLI Batch backend: {e.status_code} - {e.detail}")
-                        raise
-                    except Exception as e:
-                        logger.error(f"Unexpected error from Gemini CLI Batch backend: {e}", exc_info=True)
-                        raise HTTPException(status_code=500, detail=f"Gemini CLI Batch backend error: {e!s}")
 
                 elif b_type == BackendType.ANTHROPIC:
                     retry_at = http_request.app.state.rate_limits.get(
@@ -1168,22 +1434,20 @@ def build_app(
                         }
                         raise HTTPException(status_code=429, detail=detail_dict)
                     try:
-                        backend_result = (
-                            await http_request.app.state.anthropic_backend.chat_completions(
-                                request_data=request_data,
-                                processed_messages=processed_messages,
-                                effective_model=model_str,
-                                openrouter_api_base_url=cfg.get("anthropic_api_base_url"),
-                                key_name=key_name_str,
-                                api_key=api_key_str,
-                                project=proxy_state.project,
-                                prompt_redactor=(
-                                    http_request.app.state.api_key_redactor
-                                    if http_request.app.state.api_key_redaction_enabled
-                                    else None
-                                ),
-                                command_filter=http_request.app.state.command_filter,
-                            )
+                        backend_result = await http_request.app.state.anthropic_backend.chat_completions(
+                            request_data=request_data,
+                            processed_messages=processed_messages,
+                            effective_model=model_str,
+                            openrouter_api_base_url=cfg.get("anthropic_api_base_url"),
+                            key_name=key_name_str,
+                            api_key=api_key_str,
+                            project=proxy_state.project,
+                            prompt_redactor=(
+                                http_request.app.state.api_key_redactor
+                                if http_request.app.state.api_key_redaction_enabled
+                                else None
+                            ),
+                            command_filter=http_request.app.state.command_filter,
                         )
 
                         if isinstance(backend_result, tuple):
@@ -1208,7 +1472,47 @@ def build_app(
                                 )
                         raise
 
-                else: # Default to OpenRouter or handle unknown b_type if more are added
+                elif b_type == BackendType.QWEN_OAUTH:
+                    # Qwen OAuth backend - no API keys needed as it uses OAuth tokens
+                    try:
+                        backend_result = await http_request.app.state.qwen_oauth_backend.chat_completions(
+                            request_data=request_data,
+                            processed_messages=processed_messages,
+                            effective_model=model_str,
+                            key_name=None,  # OAuth doesn't use API keys
+                            api_key=None,  # OAuth doesn't use API keys
+                            project=proxy_state.project,
+                            agent=session.agent,
+                        )
+
+                        if isinstance(backend_result, tuple):
+                            result, response_headers = backend_result
+                            tracker.set_response(result)
+                            tracker.set_response_headers(response_headers)
+                        else:
+                            # Streaming response
+                            result = backend_result
+                            tracker.set_response(result)
+
+                        logger.debug(
+                            f"Result from Qwen OAuth backend chat_completions: {result}"
+                        )
+                        return result
+                    except HTTPException as e:
+                        logger.error(
+                            f"Error from Qwen OAuth backend: {e.status_code} - {e.detail}"
+                        )
+                        raise
+                    except Exception as e:
+                        logger.error(
+                            f"Unexpected error from Qwen OAuth backend: {e}",
+                            exc_info=True,
+                        )
+                        raise HTTPException(
+                            status_code=500, detail=f"Qwen OAuth backend error: {e!s}"
+                        )
+
+                else:  # Default to OpenRouter or handle unknown b_type if more are added
                     retry_at = http_request.app.state.rate_limits.get(
                         "openrouter", model_str, key_name_str
                     )
@@ -1219,25 +1523,23 @@ def build_app(
                         }
                         raise HTTPException(status_code=429, detail=detail_dict)
                     try:
-                        backend_result = (
-                            await http_request.app.state.openrouter_backend.chat_completions(
-                                request_data=request_data,
-                                processed_messages=processed_messages,
-                                effective_model=model_str,
-                                openrouter_api_base_url=cfg["openrouter_api_base_url"],
-                                openrouter_headers_provider=(
-                                    lambda n, k: get_openrouter_headers(cfg, k)
-                                ),
-                                key_name=key_name_str,
-                                api_key=api_key_str,
-                                project=proxy_state.project,
-                                prompt_redactor=(
-                                    http_request.app.state.api_key_redactor
-                                    if http_request.app.state.api_key_redaction_enabled
-                                    else None
-                                ),
-                                command_filter=http_request.app.state.command_filter,
-                            )
+                        backend_result = await http_request.app.state.openrouter_backend.chat_completions(
+                            request_data=request_data,
+                            processed_messages=processed_messages,
+                            effective_model=model_str,
+                            openrouter_api_base_url=cfg["openrouter_api_base_url"],
+                            openrouter_headers_provider=(
+                                lambda n, k: get_openrouter_headers(cfg, k)
+                            ),
+                            key_name=key_name_str,
+                            api_key=api_key_str,
+                            project=proxy_state.project,
+                            prompt_redactor=(
+                                http_request.app.state.api_key_redactor
+                                if http_request.app.state.api_key_redaction_enabled
+                                else None
+                            ),
+                            command_filter=http_request.app.state.command_filter,
                         )
 
                         if isinstance(backend_result, tuple):
@@ -1295,8 +1597,7 @@ def build_app(
             elif policy == "mk":
                 backends_used = {el.split(":", 1)[0] for el in elems}
                 key_map = {b: _keys_for(cfg, b) for b in backends_used}
-                max_len = max(len(v)
-                              for v in key_map.values()) if key_map else 0
+                max_len = max(len(v) for v in key_map.values()) if key_map else 0
                 for i in range(max_len):
                     for el in elems:
                         b, m = el.split(":", 1)
@@ -1347,7 +1648,10 @@ def build_app(
                     )
                     last_error = HTTPException(
                         status_code=429,
-                        detail={"message": "Backend rate limited", "retry_after": int(retry_ts - time.time())},
+                        detail={
+                            "message": "Backend rate limited",
+                            "retry_after": int(retry_ts - time.time()),
+                        },
                     )
                     continue
                 try:
@@ -1361,11 +1665,11 @@ def build_app(
                     logger.debug(
                         f"Attempt successful for backend: {b_attempt}, model: {m_attempt}, key_name: {kname_attempt}"
                     )
-                    
+
                     # Clear oneoff route after successful backend call
                     if proxy_state.oneoff_backend or proxy_state.oneoff_model:
                         proxy_state.clear_oneoff_route()
-                    
+
                     break
                 except HTTPException as e:
                     logger.debug(
@@ -1393,7 +1697,9 @@ def build_app(
                     raise
             if not success and earliest_retry is None:
                 # No backends available and no retry times set - permanent failure
-                error_msg_detail = last_error.detail if last_error else "all backends failed"
+                error_msg_detail = (
+                    last_error.detail if last_error else "all backends failed"
+                )
                 status_code_to_return = last_error.status_code if last_error else 500
                 response_content = {
                     "id": "error",
@@ -1417,12 +1723,16 @@ def build_app(
                     },
                     "error": error_msg_detail,
                 }
-                raise HTTPException(status_code=status_code_to_return, detail=response_content)
+                raise HTTPException(
+                    status_code=status_code_to_return, detail=response_content
+                )
             elif not success and earliest_retry is not None:
                 # All backends are rate limited, wait for the earliest retry time
                 if not attempted_any:
                     wait_time = max(0, earliest_retry - time.time())
-                    logger.debug(f"All backends rate limited, waiting {wait_time}s until {earliest_retry}")
+                    logger.debug(
+                        f"All backends rate limited, waiting {wait_time}s until {earliest_retry}"
+                    )
                     await asyncio.sleep(wait_time)
                     retries += 1  # Increment retries after waiting
 
@@ -1435,67 +1745,88 @@ def build_app(
                 model=used_model,
                 is_streaming=isinstance(response_from_backend, StreamingResponse),
                 request_data=request_data,
-                api_key_redactor=http_request.app.state.api_key_redactor if http_request.app.state.api_key_redaction_enabled else None
+                api_key_redactor=(
+                    http_request.app.state.api_key_redactor
+                    if http_request.app.state.api_key_redaction_enabled
+                    else None
+                ),
             )
-            
+
             # Process response through middleware
             response_middleware = get_response_middleware()
             processed_response = await response_middleware.process_response(
-                response_from_backend, 
-                response_context
+                response_from_backend, response_context  # type: ignore[arg-type]
             )
-            
+
             if isinstance(processed_response, StreamingResponse):
                 session.add_interaction(
                     SessionInteraction(
-                        prompt=raw_prompt, handler="backend", backend=used_backend,
-                        model=used_model, project=proxy_state.project,
+                        prompt=raw_prompt,
+                        handler="backend",
+                        backend=used_backend,
+                        model=used_model,
+                        project=proxy_state.project,
                         parameters=request_data.model_dump(exclude_unset=True),
                         response="<streaming>",
                     )
                 )
-                
-                
+
                 return processed_response
 
             # Handle different types of responses from backends
             if isinstance(processed_response, dict):
                 backend_response_dict = processed_response
-            elif processed_response and hasattr(processed_response, 'model_dump'):
+            elif processed_response and hasattr(processed_response, "model_dump"):
                 backend_response_dict = processed_response.model_dump(exclude_none=True)
-            elif callable(processed_response) or hasattr(processed_response, '__await__'):
+            elif callable(processed_response) or hasattr(
+                processed_response, "__await__"
+            ):
                 # Handle mock objects or coroutines that weren't properly awaited
-                logger.warning(f"Backend returned a callable/awaitable object instead of response: {type(processed_response)}")
+                logger.warning(
+                    f"Backend returned a callable/awaitable object instead of response: {type(processed_response)}"
+                )
                 backend_response_dict = {}
             else:
                 backend_response_dict = {}
 
             # Ensure backend_response_dict is actually a dictionary
             if not isinstance(backend_response_dict, dict):
-                logger.warning(f"Backend response is not a dictionary: {type(backend_response_dict)}")
+                logger.warning(
+                    f"Backend response is not a dictionary: {type(backend_response_dict)}"
+                )
                 backend_response_dict = {}
 
             if "choices" not in backend_response_dict:
-                backend_response_dict["choices"] = [{"index": 0, "message": {
-                    "role": "assistant", "content": "(no response)"}, "finish_reason": "error"}]
+                backend_response_dict["choices"] = [
+                    {
+                        "index": 0,
+                        "message": {"role": "assistant", "content": "(no response)"},
+                        "finish_reason": "error",
+                    }
+                ]
 
             usage_data = backend_response_dict.get("usage")
             session.add_interaction(
                 SessionInteraction(
-                    prompt=raw_prompt, handler="backend", backend=used_backend,
-                    model=used_model, project=proxy_state.project,
+                    prompt=raw_prompt,
+                    handler="backend",
+                    backend=used_backend,
+                    model=used_model,
+                    project=proxy_state.project,
                     parameters=request_data.model_dump(exclude_unset=True),
                     response=backend_response_dict.get("choices", [{}])[0]
-                    .get("message", {}).get("content"),
+                    .get("message", {})
+                    .get("content"),
                     usage=(
                         models.CompletionUsage(**usage_data)
-                        if isinstance(usage_data, dict) else None
+                        if isinstance(usage_data, dict)
+                        else None
                     ),
                 )
             )
             proxy_state.hello_requested = False
             proxy_state.interactive_just_enabled = False
-            
+
             # -----------------------------------------------------------------
             # Convert backend responses to OpenAI tool calls for Cline/Roocode
             # -----------------------------------------------------------------
@@ -1510,12 +1841,24 @@ def build_app(
                     try:
                         tool_call_dict = None
                         if content_txt.startswith("__CLINE_TOOL_CALL_MARKER__"):
-                            tool_call_dict = convert_cline_marker_to_openai_tool_call(content_txt)
-                        elif "<attempt_completion>" in content_txt and "</attempt_completion>" in content_txt:
+                            tool_call_dict = convert_cline_marker_to_openai_tool_call(
+                                content_txt
+                            )
+                        elif (
+                            "<attempt_completion>" in content_txt
+                            and "</attempt_completion>" in content_txt
+                        ):
                             import re
-                            r_match = re.search(r"<r>\s*(.*?)\s*</r>", content_txt, re.DOTALL)
-                            extracted_txt = r_match.group(1).strip() if r_match else content_txt
-                            tool_call_dict = create_openai_attempt_completion_tool_call([extracted_txt])
+
+                            r_match = re.search(
+                                r"<r>\s*(.*?)\s*</r>", content_txt, re.DOTALL
+                            )
+                            extracted_txt = (
+                                r_match.group(1).strip() if r_match else content_txt
+                            )
+                            tool_call_dict = create_openai_attempt_completion_tool_call(
+                                [extracted_txt]
+                            )
 
                         if tool_call_dict:
                             msg_obj["content"] = None
@@ -1527,19 +1870,29 @@ def build_app(
             # Remove None values from the response to match expected format
             def remove_none_values(obj):
                 if isinstance(obj, dict):
-                    return {k: remove_none_values(v) for k, v in obj.items() if v is not None}
+                    return {
+                        k: remove_none_values(v)
+                        for k, v in obj.items()
+                        if v is not None
+                    }
                 elif isinstance(obj, list):
                     return [remove_none_values(item) for item in obj]
                 else:
                     return obj
-            
+
             return remove_none_values(backend_response_dict)
 
     @app_instance.get("/models", dependencies=[Depends(verify_client_auth)])
     async def list_all_models(http_request: Request):
         """List all available models from all backends."""
         all_models = []
-        for backend_name in [BackendType.OPENROUTER, BackendType.GEMINI, BackendType.GEMINI_CLI_DIRECT, BackendType.GEMINI_CLI_BATCH, BackendType.ANTHROPIC]:
+        for backend_name in [
+            BackendType.OPENAI,
+            BackendType.OPENROUTER,
+            BackendType.GEMINI,
+            BackendType.ANTHROPIC,
+            BackendType.QWEN_OAUTH,
+        ]:
             backend = getattr(http_request.app.state, f"{backend_name}_backend", None)
             if backend and hasattr(backend, "get_available_models"):
                 models = backend.get_available_models()
@@ -1548,7 +1901,9 @@ def build_app(
                     # Normalize any slash-delimited IDs to use ':' as separator.
                     if model.startswith(f"{backend_name}/"):
                         model_id = model.replace(f"{backend_name}/", f"{backend_name}:")
-                    elif backend_name == BackendType.GEMINI and model.startswith("models/"):
+                    elif backend_name == BackendType.GEMINI and model.startswith(
+                        "models/"
+                    ):
                         suffix = model.split("/")[-1]
                         if suffix.endswith("-1"):
                             short_id = "model-a"
@@ -1561,11 +1916,13 @@ def build_app(
                         model_id = f"{backend_name}:{model}"
                     else:
                         model_id = model
-                    all_models.append({
-                        "id": model_id,
-                        "object": "model",
-                        "owned_by": backend_name,
-                    })
+                    all_models.append(
+                        {
+                            "id": model_id,
+                            "object": "model",
+                            "owned_by": backend_name,
+                        }
+                    )
         return {"object": "list", "data": all_models}
 
     @app_instance.get("/v1/models", dependencies=[Depends(verify_client_auth)])
@@ -1580,15 +1937,27 @@ def build_app(
         try:
             # Get all available models from backends
             all_models = []
-            for backend_name in [BackendType.OPENROUTER, BackendType.GEMINI, BackendType.GEMINI_CLI_DIRECT, BackendType.GEMINI_CLI_BATCH, BackendType.ANTHROPIC]:
-                backend = getattr(http_request.app.state, f"{backend_name}_backend", None)
+            for backend_name in [
+                BackendType.OPENAI,
+                BackendType.OPENROUTER,
+                BackendType.GEMINI,
+                BackendType.ANTHROPIC,
+                BackendType.QWEN_OAUTH,
+            ]:
+                backend = getattr(
+                    http_request.app.state, f"{backend_name}_backend", None
+                )
                 if backend and hasattr(backend, "get_available_models"):
                     models = backend.get_available_models()
                     for model in models:
                         # Consistently prefix backend using ':' separator.
                         if model.startswith(f"{backend_name}/"):
-                            model_id = model.replace(f"{backend_name}/", f"{backend_name}:")
-                        elif backend_name == BackendType.GEMINI and model.startswith("models/"):
+                            model_id = model.replace(
+                                f"{backend_name}/", f"{backend_name}:"
+                            )
+                        elif backend_name == BackendType.GEMINI and model.startswith(
+                            "models/"
+                        ):
                             # Gemini returns names like models/gemini-model-1 -> convert to model-a etc.
                             suffix = model.split("/")[-1]
                             if suffix.endswith("-1"):
@@ -1602,11 +1971,13 @@ def build_app(
                             model_id = f"{backend_name}:{model}"
                         else:
                             model_id = model
-                        all_models.append({
-                            "id": model_id,
-                            "object": "model",
-                            "owned_by": backend_name,
-                        })
+                        all_models.append(
+                            {
+                                "id": model_id,
+                                "object": "model",
+                                "owned_by": backend_name,
+                            }
+                        )
 
             # Convert to Gemini format
             gemini_models_response = openai_models_to_gemini_models(all_models)
@@ -1618,9 +1989,13 @@ def build_app(
     def _parse_model_backend(model: str, default_backend: str) -> tuple[str, str]:
         """Parse model string to extract backend and actual model name."""
         from src.models import parse_model_backend
+
         return parse_model_backend(model, default_backend)
 
-    @app_instance.post("/v1beta/models/{model}:generateContent", dependencies=[Depends(verify_gemini_auth)])
+    @app_instance.post(
+        "/v1beta/models/{model}:generateContent",
+        dependencies=[Depends(verify_gemini_auth)],
+    )
     async def gemini_generate_content(
         model: str,
         http_request: Request,
@@ -1630,9 +2005,11 @@ def build_app(
         # Debug: Check session ID for Gemini interface
         session_id = http_request.headers.get("x-session-id", "default")
         logger.debug(f"[GEMINI_DEBUG] Gemini interface session ID: {session_id}")
-        
+
         # Parse the model to determine backend
-        backend_type, actual_model = _parse_model_backend(model, http_request.app.state.backend_type)
+        backend_type, actual_model = _parse_model_backend(
+            model, http_request.app.state.backend_type
+        )
 
         # Convert Gemini request to OpenAI format
         openai_request = gemini_to_openai_request(request_data, actual_model)
@@ -1642,10 +2019,10 @@ def build_app(
         # We need to temporarily modify the request path to match OpenAI format
         original_url = http_request.url
         new_url_str = str(http_request.url).replace(
-            f"/v1beta/models/{model}:generateContent",
-            "/v1/chat/completions"
+            f"/v1beta/models/{model}:generateContent", "/v1/chat/completions"
         )
         from starlette.datastructures import URL
+
         http_request._url = URL(new_url_str)
 
         # Temporarily override the backend type for this request
@@ -1661,7 +2038,9 @@ def build_app(
                 # Handle direct dict response (like error responses)
                 if "choices" in openai_response:
                     # Convert successful response
-                    openai_resp_obj = models.ChatCompletionResponse.model_validate(openai_response)
+                    openai_resp_obj = models.ChatCompletionResponse.model_validate(
+                        openai_response
+                    )
                     gemini_response = openai_to_gemini_response(openai_resp_obj)
                     return gemini_response.model_dump(exclude_none=True, by_alias=True)
                 else:
@@ -1669,14 +2048,19 @@ def build_app(
                     return openai_response
             else:
                 # Handle model object response
-                gemini_response = openai_to_gemini_response(models.ChatCompletionResponse.model_validate(openai_response))
+                gemini_response = openai_to_gemini_response(
+                    models.ChatCompletionResponse.model_validate(openai_response)
+                )
                 return gemini_response.model_dump(exclude_none=True, by_alias=True)
         finally:
             # Restore original URL and backend type
             http_request._url = original_url
             http_request.app.state.backend_type = original_backend_type
 
-    @app_instance.post("/v1beta/models/{model}:streamGenerateContent", dependencies=[Depends(verify_gemini_auth)])
+    @app_instance.post(
+        "/v1beta/models/{model}:streamGenerateContent",
+        dependencies=[Depends(verify_gemini_auth)],
+    )
     async def gemini_stream_generate_content(
         model: str,
         http_request: Request,
@@ -1684,7 +2068,9 @@ def build_app(
     ):
         """Gemini API compatible streaming content generation endpoint."""
         # Parse the model to determine backend
-        backend_type, actual_model = _parse_model_backend(model, http_request.app.state.backend_type)
+        backend_type, actual_model = _parse_model_backend(
+            model, http_request.app.state.backend_type
+        )
 
         # Convert Gemini request to OpenAI format
         openai_request = gemini_to_openai_request(request_data, actual_model)
@@ -1694,10 +2080,10 @@ def build_app(
         # We need to temporarily modify the request path to match OpenAI format
         original_url = http_request.url
         new_url_str = str(http_request.url).replace(
-            f"/v1beta/models/{model}:streamGenerateContent",
-            "/v1/chat/completions"
+            f"/v1beta/models/{model}:streamGenerateContent", "/v1/chat/completions"
         )
         from starlette.datastructures import URL
+
         http_request._url = URL(new_url_str)
 
         # Temporarily override the backend type for this request
@@ -1710,33 +2096,40 @@ def build_app(
 
             # If we get a StreamingResponse, convert the chunks to Gemini format
             if isinstance(openai_response, StreamingResponse):
+
                 async def convert_stream():
                     async for chunk in openai_response.body_iterator:
                         if isinstance(chunk, bytes):
-                            chunk_str = chunk.decode('utf-8')
+                            chunk_str = chunk.decode("utf-8")
                         else:
                             chunk_str = str(chunk)
 
                         # Convert OpenAI chunk to Gemini format
                         gemini_chunk = openai_to_gemini_stream_chunk(chunk_str)
-                        yield gemini_chunk.encode('utf-8')
+                        yield gemini_chunk.encode("utf-8")
 
                 return StreamingResponse(
                     convert_stream(),
                     media_type="text/plain",
-                    headers={"Content-Type": "text/plain; charset=utf-8"}
+                    headers={"Content-Type": "text/plain; charset=utf-8"},
                 )
             else:
                 # Handle non-streaming response (shouldn't happen for streaming endpoint)
                 if isinstance(openai_response, dict):
                     if "choices" in openai_response:
-                        openai_resp_obj = models.ChatCompletionResponse.model_validate(openai_response)
+                        openai_resp_obj = models.ChatCompletionResponse.model_validate(
+                            openai_response
+                        )
                         gemini_response = openai_to_gemini_response(openai_resp_obj)
-                        return gemini_response.model_dump(exclude_none=True, by_alias=True)
+                        return gemini_response.model_dump(
+                            exclude_none=True, by_alias=True
+                        )
                     else:
                         return openai_response
                 else:
-                    gemini_response = openai_to_gemini_response(models.ChatCompletionResponse.model_validate(openai_response))
+                    gemini_response = openai_to_gemini_response(
+                        models.ChatCompletionResponse.model_validate(openai_response)
+                    )
                     return gemini_response.model_dump(exclude_none=True, by_alias=True)
         finally:
             # Restore original URL and backend type
@@ -1765,7 +2158,9 @@ def build_app(
             }
         except Exception as e:
             logger.error(f"Failed to get usage statistics: {e}")
-            raise HTTPException(status_code=500, detail=f"Failed to get usage statistics: {e!s}")
+            raise HTTPException(
+                status_code=500, detail=f"Failed to get usage statistics: {e!s}"
+            )
 
     @app_instance.get("/usage/recent", dependencies=[Depends(verify_client_auth)])
     async def get_recent_usage(
@@ -1788,7 +2183,9 @@ def build_app(
                         "total_tokens": entry.total_tokens,
                         "cost": entry.cost,
                         "execution_time": entry.execution_time,
-                        "timestamp": entry.timestamp.isoformat() if entry.timestamp else None,
+                        "timestamp": (
+                            entry.timestamp.isoformat() if entry.timestamp else None
+                        ),
                         "username": entry.username,
                         "project": entry.project,
                         "session": entry.session,
@@ -1799,7 +2196,9 @@ def build_app(
             }
         except Exception as e:
             logger.error(f"Failed to get recent usage: {e}")
-            raise HTTPException(status_code=500, detail=f"Failed to get recent usage: {e!s}")
+            raise HTTPException(
+                status_code=500, detail=f"Failed to get recent usage: {e!s}"
+            )
 
     @app_instance.get("/audit/logs", dependencies=[Depends(verify_client_auth)])
     async def get_audit_logs_endpoint(
@@ -1818,14 +2217,20 @@ def build_app(
             end_dt = None
             if start_date:
                 try:
-                    start_dt = datetime.fromisoformat(start_date.replace('Z', '+00:00'))
+                    start_dt = datetime.fromisoformat(start_date.replace("Z", "+00:00"))
                 except ValueError:
-                    raise HTTPException(status_code=400, detail="Invalid start_date format, use ISO format")
+                    raise HTTPException(
+                        status_code=400,
+                        detail="Invalid start_date format, use ISO format",
+                    )
             if end_date:
                 try:
-                    end_dt = datetime.fromisoformat(end_date.replace('Z', '+00:00'))
+                    end_dt = datetime.fromisoformat(end_date.replace("Z", "+00:00"))
                 except ValueError:
-                    raise HTTPException(status_code=400, detail="Invalid end_date format, use ISO format")
+                    raise HTTPException(
+                        status_code=400,
+                        detail="Invalid end_date format, use ISO format",
+                    )
 
             audit_logs = get_audit_logs(
                 start_date=start_dt,
@@ -1843,7 +2248,9 @@ def build_app(
             raise
         except Exception as e:
             logger.error(f"Failed to get audit logs: {e}")
-            raise HTTPException(status_code=500, detail=f"Failed to get audit logs: {e!s}")
+            raise HTTPException(
+                status_code=500, detail=f"Failed to get audit logs: {e!s}"
+            )
 
     async def verify_anthropic_auth(http_request: Request) -> None:
         """Verify Anthropic API authentication via x-api-key header."""
@@ -1852,9 +2259,8 @@ def build_app(
 
         # Check for Anthropic-style API key in x-api-key header
         api_key_header = http_request.headers.get("x-api-key")
-        if api_key_header:
-            if api_key_header == http_request.app.state.client_api_key:
-                return
+        if api_key_header and api_key_header == http_request.app.state.client_api_key:
+            return
 
         # Fallback to standard Bearer token authentication
         auth_header = http_request.headers.get("authorization")
@@ -1864,7 +2270,7 @@ def build_app(
                 return
 
         raise HTTPException(status_code=401, detail="Unauthorized")
-    
+
     app_instance.add_api_route(
         "/v1/chat/completions",
         chat_completions,
@@ -1879,29 +2285,47 @@ def build_app(
     ):
         """Anthropic API compatible messages endpoint."""
         backend_type, actual_model = _parse_model_backend(
-            request_data.model, http_request.app.state.backend_type)
+            request_data.model, http_request.app.state.backend_type
+        )
 
         # If the request is explicitly routed to another backend, fall back to existing
         if backend_type != BackendType.ANTHROPIC:
             # Fallback to previous proxy-through logic
             openai_request_dict = anthropic_to_openai_request(request_data)
-            openai_request = models.ChatCompletionRequest.model_validate(openai_request_dict)
+            openai_request = models.ChatCompletionRequest.model_validate(
+                openai_request_dict
+            )
             original_url = http_request.url
             from starlette.datastructures import URL
-            http_request._url = URL(str(http_request.url).replace("/v1/messages", "/v1/chat/completions"))
+
+            http_request._url = URL(
+                str(http_request.url).replace("/v1/messages", "/v1/chat/completions")
+            )
             original_backend_type = http_request.app.state.backend_type
             http_request.app.state.backend_type = backend_type
             try:
                 openai_response = await chat_completions(http_request, openai_request)
                 if isinstance(openai_response, StreamingResponse):
+
                     async def convert_stream():
                         async for chunk in openai_response.body_iterator:
-                            chunk_str = chunk.decode("utf-8") if isinstance(chunk, bytes) else str(chunk)
-                            yield openai_to_anthropic_stream_chunk(chunk_str, "tmp", actual_model)
-                    return StreamingResponse(convert_stream(), media_type="text/event-stream")
-                anthropic_response = openai_to_anthropic_response(models.ChatCompletionResponse.model_validate(openai_response))
+                            chunk_str = (
+                                chunk.decode("utf-8")
+                                if isinstance(chunk, bytes)
+                                else str(chunk)
+                            )
+                            yield openai_to_anthropic_stream_chunk(
+                                chunk_str, "tmp", actual_model
+                            )
 
-                # Normalise stop_reason for API compatibility – external
+                    return StreamingResponse(
+                        convert_stream(), media_type="text/event-stream"
+                    )
+                anthropic_response = openai_to_anthropic_response(
+                    models.ChatCompletionResponse.model_validate(openai_response)
+                )
+
+                # Normalise stop_reason for API compatibility - external
                 # Anthropic clients expect "stop" rather than the internal
                 # "end_turn" alias used by low-level converter tests.
                 if isinstance(anthropic_response, dict):
@@ -1909,8 +2333,10 @@ def build_app(
                         anthropic_response["stop_reason"] = "stop"
                     return anthropic_response
 
-                # Pydantic model – convert to dict and patch in place.
-                response_dict = anthropic_response.model_dump(exclude_none=True, by_alias=True)
+                # Pydantic model - convert to dict and patch in place.
+                response_dict = anthropic_response.model_dump(
+                    exclude_none=True, by_alias=True
+                )
                 if response_dict.get("stop_reason") == "end_turn":
                     response_dict["stop_reason"] = "stop"
                 return response_dict
@@ -1920,38 +2346,57 @@ def build_app(
 
         # --- Direct call to AnthropicBackend ---
         openai_request_dict = anthropic_to_openai_request(request_data)
-        openai_request_obj = models.ChatCompletionRequest.model_validate(openai_request_dict)
+        openai_request_obj = models.ChatCompletionRequest.model_validate(
+            openai_request_dict
+        )
 
         cfg = http_request.app.state.config
         key_items = list(cfg.get("anthropic_api_keys", {}).items())
         if not key_items:
-            raise HTTPException(status_code=500, detail="Anthropic API keys not configured")
+            raise HTTPException(
+                status_code=500, detail="Anthropic API keys not configured"
+            )
         key_name, api_key = key_items[0]
 
-        backend_result = await http_request.app.state.anthropic_backend.chat_completions(
-            request_data=openai_request_obj,
-            processed_messages=openai_request_obj.messages,
-            effective_model=actual_model,
-            openrouter_api_base_url=cfg.get("anthropic_api_base_url"),
-            key_name=key_name,
-            api_key=api_key,
-            prompt_redactor=(http_request.app.state.api_key_redactor
-                             if http_request.app.state.api_key_redaction_enabled else None),
-            command_filter=http_request.app.state.command_filter,
+        backend_result = (
+            await http_request.app.state.anthropic_backend.chat_completions(
+                request_data=openai_request_obj,
+                processed_messages=openai_request_obj.messages,
+                effective_model=actual_model,
+                openrouter_api_base_url=cfg.get("anthropic_api_base_url"),
+                key_name=key_name,
+                api_key=api_key,
+                prompt_redactor=(
+                    http_request.app.state.api_key_redactor
+                    if http_request.app.state.api_key_redaction_enabled
+                    else None
+                ),
+                command_filter=http_request.app.state.command_filter,
+            )
         )
 
         # Streaming
         if isinstance(backend_result, StreamingResponse):
+
             async def convert_stream():
                 async for chunk in backend_result.body_iterator:
-                    chunk_str = chunk.decode("utf-8") if isinstance(chunk, bytes) else str(chunk)
-                    yield openai_to_anthropic_stream_chunk(chunk_str, "tmp", actual_model)
+                    chunk_str = (
+                        chunk.decode("utf-8")
+                        if isinstance(chunk, bytes)
+                        else str(chunk)
+                    )
+                    yield openai_to_anthropic_stream_chunk(
+                        chunk_str, "tmp", actual_model
+                    )
+
             return StreamingResponse(convert_stream(), media_type="text/event-stream")
 
         if isinstance(backend_result, tuple):
             backend_result, _hdrs = backend_result
 
-        anthropic_response = openai_to_anthropic_response(models.ChatCompletionResponse.model_validate(backend_result))
+        anthropic_response = openai_to_anthropic_response(
+            models.ChatCompletionResponse.model_validate(backend_result)
+        )
 
         if isinstance(anthropic_response, dict):
             if anthropic_response.get("stop_reason") == "end_turn":
@@ -1975,13 +2420,17 @@ def build_app(
         try:
             from src.session import SessionManager  # Local import to avoid circular
 
-            default_interactive = not cfg.get("disable_interactive_commands", False) and cfg.get("interactive_mode", True)
+            default_interactive = not cfg.get(
+                "disable_interactive_commands", False
+            ) and cfg.get("interactive_mode", True)
             app_instance.state.session_manager = SessionManager(
                 default_interactive_mode=default_interactive,
                 failover_routes={},
             )
             app_instance.state.command_prefix = cfg["command_prefix"]
-            app_instance.state.disable_interactive_commands = cfg.get("disable_interactive_commands", False)
+            app_instance.state.disable_interactive_commands = cfg.get(
+                "disable_interactive_commands", False
+            )
             # Provide sane backend defaults so request routing works.
             app_instance.state.backend_type = cfg.get("backend") or "openrouter"
             app_instance.state.backend = None  # Not needed for these unit tests
@@ -2009,9 +2458,14 @@ def build_app(
                                 "finish_reason": "stop",
                             }
                         ],
-                        "usage": {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},
+                        "usage": {
+                            "prompt_tokens": 0,
+                            "completion_tokens": 0,
+                            "total_tokens": 0,
+                        },
                     }
 
+            app_instance.state.openai_backend = _DummyBackend()
             app_instance.state.openrouter_backend = _DummyBackend()
             app_instance.state.gemini_backend = _DummyBackend()
             app_instance.state.rate_limits = RateLimitRegistry()
@@ -2019,15 +2473,17 @@ def build_app(
             app_instance.state.api_key_redactor = lambda x: x
             app_instance.state.command_filter = None
         except Exception as exc:
-            # In extreme edge cases simply log – tests will fail loudly if
+            # In extreme edge cases simply log - tests will fail loudly if
             # this fallback isn't sufficient.
             logger.debug("Failed to create fallback SessionManager: %s", exc)
 
     return app_instance
 
+
 # Only create the app instance when the module is run directly, not when imported
 if __name__ == "__main__":
     from src.core.cli import main as cli_main
+
     cli_main(build_app_fn=build_app)
 else:
     # For testing and other imports, create app on demand

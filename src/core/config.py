@@ -134,7 +134,7 @@ def _keys_for(cfg: Dict[str, Any], b_type: str) -> list[tuple[str, str]]:
         return list(cfg["openrouter_api_keys"].items())
     if b_type == "anthropic":
         return list(cfg["anthropic_api_keys"].items())
-    if b_type in {"gemini-cli-direct", "gemini-cli-batch", "gemini-cli-interactive"}:
-        # Gemini CLI backends don't need API keys - they call the local CLI app.
-        return [(b_type, "no-key-needed")]
+    if b_type == "qwen-oauth":
+        # Qwen OAuth backend uses OAuth tokens, not API keys
+        return [(b_type, "oauth-token")]
     return []

@@ -172,9 +172,8 @@ class CommandProcessor:
         if not msg_content_list:
             return [], False, False
 
-        new_parts: List[models.MessageContentPart] = [] # Initialize new_parts here
         original_parts_copy = [part.model_copy(deep=True) for part in msg_content_list]
-
+        # new_parts is already initialized above
 
         for original_part in original_parts_copy: # Iterate over copy
             processed_part_current_iteration: Optional[models.MessageContentPart] = None

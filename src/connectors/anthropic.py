@@ -1,12 +1,13 @@
 """
 Anthropic backend connector - provides chat_completions and model discovery for the Anthropic Messages API.
 """
+
 from __future__ import annotations
 
 import json
 import logging
 import time
-from typing import Any, AsyncGenerator, Callable
+from typing import Any, AsyncGenerator, Callable, cast
 
 import httpx
 from fastapi import HTTPException
@@ -14,6 +15,7 @@ from starlette.responses import StreamingResponse
 
 from src.connectors.base import LLMBackend
 from src.models import ChatCompletionRequest
+
 # API key redaction and command filtering are now handled by middleware
 # from src.security import APIKeyRedactor, ProxyCommandFilter
 
@@ -44,11 +46,17 @@ class AnthropicBackend(LLMBackend):
         """Fetch model list from Anthropic and cache."""
         base_url = anthropic_api_base_url or ANTHROPIC_DEFAULT_BASE_URL
         try:
-            data = await self.list_models(base_url=base_url, key_name=key_name, api_key=api_key)
+            data = await self.list_models(
+                base_url=base_url, key_name=key_name, api_key=api_key
+            )
         except HTTPException as e:
             logger.warning("Could not list Anthropic models: %s", e.detail)
             return
-        self.available_models = [m.get("name", m.get("id")) for m in data if isinstance(m, dict)]
+        self.available_models = [
+            str(m.get("name", m.get("id")))
+            for m in data
+            if isinstance(m, dict) and m.get("name", m.get("id")) is not None
+        ]
 
     def get_available_models(self) -> list[str]:
         return list(self.available_models)
@@ -56,21 +64,24 @@ class AnthropicBackend(LLMBackend):
     # -----------------------------------------------------------
     # Core entry - called by proxy
     # -----------------------------------------------------------
-    async def chat_completions(
+    async def chat_completions(  # type: ignore[override]
         self,
         request_data: ChatCompletionRequest,
-        processed_messages: list,
+        processed_messages: list[Any],
         effective_model: str,
-        openrouter_api_base_url: str | None = None,  # absorbs positional arg in base class
-        openrouter_headers_provider: Callable[[str, str], dict[str, str]] | None = None,  # unused
-        key_name: str | None = None,
-        api_key: str | None = None,
+        openrouter_api_base_url: str,
+        openrouter_headers_provider: Callable[[str, str], dict[str, str]],
+        key_name: str,
+        api_key: str,
         project: str | None = None,
-        **kwargs,
+        agent: str | None = None,
+        **kwargs: Any,
     ) -> tuple[dict[str, Any], dict[str, str]] | StreamingResponse:
         """Send request to Anthropic Messages endpoint and return data in OpenAI format."""
         if api_key is None:
-            raise HTTPException(status_code=500, detail="Anthropic API key not configured")
+            raise HTTPException(
+                status_code=500, detail="Anthropic API key not configured"
+            )
 
         base_url = (openrouter_api_base_url or ANTHROPIC_DEFAULT_BASE_URL).rstrip("/")
         url = f"{base_url}/messages"
@@ -89,12 +100,16 @@ class AnthropicBackend(LLMBackend):
         }
 
         logger.info(
-            "Forwarding to Anthropic. Model: %s Stream: %s", effective_model, request_data.stream
+            "Forwarding to Anthropic. Model: %s Stream: %s",
+            effective_model,
+            request_data.stream,
         )
         logger.debug("Anthropic payload: %s", json.dumps(anthropic_payload, indent=2))
 
         if request_data.stream:
-            return await self._handle_streaming_response(url, anthropic_payload, headers, effective_model)
+            return await self._handle_streaming_response(
+                url, anthropic_payload, headers, effective_model
+            )
         else:
             response_json, response_headers = await self._handle_non_streaming_response(
                 url, anthropic_payload, headers, effective_model
@@ -107,7 +122,7 @@ class AnthropicBackend(LLMBackend):
     def _prepare_anthropic_payload(
         self,
         request_data: ChatCompletionRequest,
-        processed_messages: list,
+        processed_messages: list[Any],
         effective_model: str,
         project: str | None,
     ) -> dict[str, Any]:
@@ -261,12 +276,18 @@ class AnthropicBackend(LLMBackend):
             ],
         }
 
-    def _convert_full_response(self, data: dict[str, Any], model: str) -> dict[str, Any]:
+    def _convert_full_response(
+        self, data: dict[str, Any], model: str
+    ) -> dict[str, Any]:
         """Convert full Anthropic message response to OpenAI format."""
         # Anthropic response example:
         # {"id":"...","content":[{"type":"text","text":"..."}],"role":"assistant","stop_reason":"stop","usage":{"input_tokens":X,"output_tokens":Y}}
         content_blocks = data.get("content", [])
-        text = "".join(block.get("text", "") for block in content_blocks if block.get("type") == "text")
+        text = "".join(
+            block.get("text", "")
+            for block in content_blocks
+            if block.get("type") == "text"
+        )
         usage = data.get("usage", {})
         return {
             "id": data.get("id", ""),
@@ -283,14 +304,17 @@ class AnthropicBackend(LLMBackend):
             "usage": {
                 "prompt_tokens": usage.get("input_tokens", 0),
                 "completion_tokens": usage.get("output_tokens", 0),
-                "total_tokens": usage.get("input_tokens", 0) + usage.get("output_tokens", 0),
+                "total_tokens": usage.get("input_tokens", 0)
+                + usage.get("output_tokens", 0),
             },
         }
 
     # -----------------------------------------------------------
     # Model listing
     # -----------------------------------------------------------
-    async def list_models(self, *, base_url: str, key_name: str, api_key: str) -> list[dict[str, Any]]:
+    async def list_models(
+        self, *, base_url: str, key_name: str, api_key: str
+    ) -> list[dict[str, Any]]:
         url = f"{base_url}/models"
         headers = {
             "x-api-key": api_key,
@@ -303,4 +327,6 @@ class AnthropicBackend(LLMBackend):
             except json.JSONDecodeError:
                 detail = response.text
             raise HTTPException(status_code=response.status_code, detail=detail)
-        return response.json().get("models", response.json())
+        return cast(
+            list[dict[str, Any]], response.json().get("models", response.json())
+        )

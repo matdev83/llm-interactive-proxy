@@ -5,7 +5,6 @@ from unittest.mock import AsyncMock, patch
 import pytest
 from fastapi.testclient import TestClient
 
-import src.main as app_main
 from src.connectors import GeminiBackend, OpenRouterBackend
 from src.main import build_app
 
@@ -21,14 +20,6 @@ def mock_testing_session():
         GeminiBackend,
         "list_models",
         AsyncMock(return_value={"models": [{"name": "models/gemini-model-1"}, {"name": "models/gemini-model-2"}]}),
-    ), patch.object(
-        app_main.GeminiCliDirectConnector,
-        "initialize",
-        AsyncMock(return_value=None),
-    ), patch.object(
-        app_main.GeminiCliDirectConnector,
-        "get_available_models",
-        lambda self: ["gemini-1.5-pro", "gemini-1.5-flash"],
     ):
         yield
 
@@ -42,6 +33,8 @@ def configured_app():
         os.environ["GEMINI_API_KEY"] = "dummy-gemini-key"
         os.environ["LLM_INTERACTIVE_PROXY_API_KEY"] = "test-proxy-key"
         os.environ["LLM_BACKEND"] = "openrouter"
+        # Disable Qwen OAuth for tests
+        os.environ["QWEN_OAUTH_DISABLE"] = "true"
 
         app = build_app()
         yield app
@@ -50,7 +43,9 @@ def configured_app():
 @pytest.fixture
 def client(configured_app):
     """TestClient for the configured FastAPI app."""
-    with TestClient(configured_app) as c:
+    # Disable Qwen OAuth backend for these tests
+    with patch('src.connectors.qwen_oauth.QwenOAuthConnector._load_oauth_credentials', return_value=False), \
+         TestClient(configured_app) as c:
         c.headers.update({"Authorization": "Bearer test-proxy-key"})
         yield c
 
@@ -87,6 +82,8 @@ def configured_interactive_app():
         os.environ["DISABLE_INTERACTIVE_MODE"] = "false"
         os.environ["LLM_INTERACTIVE_PROXY_API_KEY"] = "test-proxy-key"
         os.environ["LLM_BACKEND"] = "openrouter"
+        # Disable Qwen OAuth for tests
+        os.environ["QWEN_OAUTH_DISABLE"] = "true"
 
         app = build_app()
         yield app
@@ -95,7 +92,9 @@ def configured_interactive_app():
 @pytest.fixture
 def interactive_client(configured_interactive_app):
     """TestClient for the configured FastAPI app in interactive mode."""
-    with TestClient(configured_interactive_app) as c:
+    # Disable Qwen OAuth backend for these tests
+    with patch('src.connectors.qwen_oauth.QwenOAuthConnector._load_oauth_credentials', return_value=False), \
+         TestClient(configured_interactive_app) as c:
         c.headers.update({"Authorization": "Bearer test-proxy-key"})
         yield c
 

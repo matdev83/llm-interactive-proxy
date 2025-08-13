@@ -34,7 +34,7 @@ class ResponseBuffer:
     
     def __init__(self, max_size: int = 2048):
         self.max_size = max_size
-        self.buffer = deque(maxlen=max_size)
+        self.buffer: deque[str] = deque(maxlen=max_size)
         self.total_length = 0
         # Track actual stored content length for proper sliding window behavior
         self.stored_length = 0
@@ -244,10 +244,13 @@ class LoopDetector:
     
     def get_stats(self) -> dict:
         """Get detector statistics."""
+        # These should never be None after initialization
+        assert self.config.short_pattern_threshold is not None
+        assert self.config.medium_pattern_threshold is not None
+        assert self.config.long_pattern_threshold is not None
+        
         return {
-            "enabled": self.is_active,
-            "total_processed": self.total_processed,
-            "buffer_size": self.buffer.size(),
+            "is_active": self.is_active,
             "last_detection_position": self.last_detection_position,
             "config": {
                 "buffer_size": self.config.buffer_size,

@@ -6,14 +6,11 @@ DEFAULT_COMMAND_PREFIX = "!/"
 
 class BackendType(str, Enum):
     """Enum for supported backend types."""
+    OPENAI = "openai"
     OPENROUTER = "openrouter"
     GEMINI = "gemini"
-    GEMINI_CLI_DIRECT = "gemini-cli-direct"
-
-    # New explicit variants after refactor
-    GEMINI_CLI_BATCH = "gemini-cli-batch"
-    GEMINI_CLI_INTERACTIVE = "gemini-cli-interactive"
     ANTHROPIC = "anthropic"
+    QWEN_OAUTH = "qwen-oauth"
 
 
 class AgentType(str, Enum):
@@ -42,17 +39,13 @@ class ConfigKey(str, Enum):
 
 # Helper constants
 SUPPORTED_BACKENDS: Set[str] = {
+    BackendType.OPENAI,
     BackendType.OPENROUTER,
     BackendType.GEMINI,
-    BackendType.GEMINI_CLI_DIRECT,
-    BackendType.GEMINI_CLI_BATCH,
-    BackendType.GEMINI_CLI_INTERACTIVE,
     BackendType.ANTHROPIC,
+    BackendType.QWEN_OAUTH,
 }
 
 GEMINI_BACKENDS: Set[str] = {
     BackendType.GEMINI,
-    BackendType.GEMINI_CLI_DIRECT,
-    BackendType.GEMINI_CLI_BATCH,
-    BackendType.GEMINI_CLI_INTERACTIVE
 }

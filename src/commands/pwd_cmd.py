@@ -1,11 +1,11 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Mapping
 
 from .base import BaseCommand, CommandResult, register_command
 
 if TYPE_CHECKING:
-    from ..proxy_logic import ProxyState
+    from src.proxy_logic import ProxyState
 
 
 @register_command
@@ -15,7 +15,7 @@ class PwdCommand(BaseCommand):
     description = "Print the current project directory."
     examples = ["!/pwd"]
 
-    def execute(self, args: dict[str, Any], state: ProxyState) -> CommandResult:
+    def execute(self, args: Mapping[str, Any], state: ProxyState) -> CommandResult:
         if state.project_dir:
             return CommandResult(self.name, True, state.project_dir)
         else:

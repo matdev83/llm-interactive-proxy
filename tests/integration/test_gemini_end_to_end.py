@@ -8,7 +8,7 @@ import time
 
 import pytest
 
-pytestmark = pytest.mark.integration
+pytestmark = [pytest.mark.integration, pytest.mark.network]  # Requires real network calls
 
 ORIG_KEY = os.getenv("GEMINI_API_KEY_1")
 

@@ -15,6 +15,7 @@ API_KEY = "your-proxy-api-key"  # Replace with your actual proxy API key
 
 
 @pytest.mark.integration
+@pytest.mark.network  # Requires real API access
 def test_provider_specific_reasoning():
     """Test provider-specific reasoning functionality with different configurations."""
     
@@ -147,6 +148,7 @@ def test_provider_specific_reasoning():
         time.sleep(1)
 
 @pytest.mark.integration
+@pytest.mark.network  # Requires real API access
 def test_in_chat_reasoning_commands():
     """Demonstrate in-chat reasoning commands for different providers."""
     
