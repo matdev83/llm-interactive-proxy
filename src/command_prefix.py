@@ -10,9 +10,16 @@ _PREFIX_VALIDATION_RULES = [
     # This rule assumes whitespace has been checked:
     # if it passed the 'any space' check, then all chars are non-whitespace.
     # So, we only need to check if they are printable.
-    (lambda p: not all(c in string.printable for c in p), "command prefix must contain only printable characters"),
-    (lambda p: len(p) == 2 and p[0] == p[1], "two character prefixes cannot repeat the same character"),
+    (
+        lambda p: not all(c in string.printable for c in p),
+        "command prefix must contain only printable characters",
+    ),
+    (
+        lambda p: len(p) == 2 and p[0] == p[1],
+        "two character prefixes cannot repeat the same character",
+    ),
 ]
+
 
 def validate_command_prefix(prefix: str) -> str | None:
     """Return error message if prefix is invalid, otherwise None."""
@@ -21,7 +28,7 @@ def validate_command_prefix(prefix: str) -> str | None:
         return "command prefix must be a non-empty string"
 
     for check, message in _PREFIX_VALIDATION_RULES:
-        if check(prefix):
+        if check(prefix):  # type: ignore[no-untyped-call]
             return message
 
     return None

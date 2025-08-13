@@ -8,10 +8,12 @@ These tests verify that Cline agents receive proper tool calls for both:
 The tests simulate the exact scenarios from debug logs where Cline was failing.
 """
 
-import pytest
 import json
 import re
+
+import pytest
 from fastapi.testclient import TestClient
+
 from src.main import build_app
 
 
@@ -126,12 +128,11 @@ class TestClineBackendResponses:
         """Test that backend responses with XML content are converted to tool calls."""
         
         # This test simulates the backend response transformation logic
-        # since we can't easily trigger the exact gemini-cli-batch error in tests
         
         from src.agents import create_openai_attempt_completion_tool_call
         
-        # Simulate XML content from backend (like gemini-cli-batch error)
-        xml_content = '<attempt_completion>\n<r>\nTo use gemini-cli-batch, you need to set the project-dir first. Use the !/set(project-dir=...) command to configure the Google Cloud project.\n</r>\n</attempt_completion>'
+        # Simulate XML content from backend
+        xml_content = '<attempt_completion>\n<r>\nTo use the proxy, you need to configure your API keys properly.\n</r>\n</attempt_completion>'
         
         # Test XML detection
         has_xml = "<attempt_completion>" in xml_content and "</attempt_completion>" in xml_content
@@ -142,8 +143,7 @@ class TestClineBackendResponses:
         assert match is not None, "Should extract content from XML"
         
         extracted_content = match.group(1).strip()
-        assert "gemini-cli-batch" in extracted_content
-        assert "project-dir" in extracted_content
+        assert "API keys" in extracted_content
         
         # Test tool call creation
         tool_call = create_openai_attempt_completion_tool_call([extracted_content])
@@ -157,7 +157,10 @@ class TestClineBackendResponses:
     def test_backend_response_transformation_logic(self, client):
         """Test the backend response transformation logic directly."""
         
-        from src.agents import detect_frontend_api, create_openai_attempt_completion_tool_call
+        from src.agents import (
+            create_openai_attempt_completion_tool_call,
+            detect_frontend_api,
+        )
         
         # Simulate a backend response with XML content
         backend_response = {

@@ -38,11 +38,13 @@ class ConfigManager:
                 
             if backend_value in self.app.state.functional_backends:
                 self.app.state.backend_type = backend_value
-                if backend_value == "gemini":
-                    self.app.state.backend = self.app.state.gemini_backend
-                elif backend_value == "gemini-cli-direct":
-                    self.app.state.backend = self.app.state.gemini_cli_direct_backend
+                # Convert backend name to valid attribute name (replace hyphens with underscores)
+                backend_attr = backend_value.replace("-", "_")
+                backend_obj = getattr(self.app.state, f"{backend_attr}_backend", None)
+                if backend_obj:
+                    self.app.state.backend = backend_obj
                 else:
+                    # Fallback to openrouter if backend object not found
                     self.app.state.backend = self.app.state.openrouter_backend
             else:
                 raise ValueError(

@@ -44,7 +44,8 @@ async def test_chat_completions_streaming_success(
     # Gemini returns a streaming JSON array split across chunks
     stream_chunks = [
         b'[{"candidates": [{"content": {"parts": [{"text": "Hello"}]}}]}',
-        b',\n{"candidates": [{"finishReason": "STOP"}]}',
+        b',\n{"candidates": [{"content": {"parts": [{"functionCall": {"name": "attempt_completion", "args": {"result": "ok"}}}], "role": "model"}}]}',
+        b',\n{"candidates": [{"finishReason": "TOOL_CALLS"}]}',
         b"]",
     ]
     httpx_mock.add_response(
@@ -76,6 +77,9 @@ async def test_chat_completions_streaming_success(
     parts = joined.split(b"\n\n")
     first = json.loads(parts[0][len(b"data: ") :])
     assert first["choices"][0]["delta"]["content"] == "Hello"
+    # Ensure functionCall chunk yields a later finish with tool_calls
+    last_payload = json.loads(parts[-3][len(b"data: ") :])
+    assert last_payload["choices"][0]["finish_reason"] in (None, "tool_calls")
     assert parts[-2] == b"data: [DONE]"
 
     request = httpx_mock.get_request()

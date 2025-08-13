@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import json
 import logging
-from typing import Any, Callable
+from typing import Any, AsyncGenerator, Callable
 
 from starlette.responses import StreamingResponse
 
@@ -28,61 +28,61 @@ logger = logging.getLogger(__name__)
 class ResponseMiddleware:
     """
     Middleware for processing responses from any backend.
-    
+
     This provides a pluggable architecture where different middleware components
     can be added without modifying individual backend connectors.
     """
-    
-    def __init__(self):
+
+    def __init__(self) -> None:
         self.middleware_stack: list[ResponseProcessor] = []
-    
+
     def add_processor(self, processor: ResponseProcessor) -> None:
         """Add a response processor to the middleware stack."""
         self.middleware_stack.append(processor)
-    
+
     def remove_processor(self, processor_type: type) -> None:
         """Remove all processors of a specific type."""
-        self.middleware_stack = [p for p in self.middleware_stack if not isinstance(p, processor_type)]
-    
+        self.middleware_stack = [
+            p for p in self.middleware_stack if not isinstance(p, processor_type)
+        ]
+
     async def process_response(
         self,
         response: StreamingResponse | dict[str, Any],
-        request_context: RequestContext
+        request_context: RequestContext,
     ) -> StreamingResponse | dict[str, Any]:
         """
         Process a response through all middleware processors.
-        
+
         Args:
             response: The response from the backend (streaming or dict)
             request_context: Context information about the request
-            
+
         Returns:
             Processed response
         """
         processed_response = response
-        
+
         for processor in self.middleware_stack:
             if processor.should_process(processed_response, request_context):
-                processed_response = await processor.process(processed_response, request_context)
-        
+                processed_response = await processor.process(
+                    processed_response, request_context
+                )
+
         return processed_response
 
 
 class ResponseProcessor:
     """Base class for response processors."""
-    
+
     def should_process(
-        self, 
-        response: StreamingResponse | dict[str, Any], 
-        context: RequestContext
+        self, response: StreamingResponse | dict[str, Any], context: RequestContext
     ) -> bool:
         """Determine if this processor should handle the response."""
         return True
-    
+
     async def process(
-        self,
-        response: StreamingResponse | dict[str, Any],
-        context: RequestContext
+        self, response: StreamingResponse | dict[str, Any], context: RequestContext
     ) -> StreamingResponse | dict[str, Any]:
         """Process the response."""
         return response
@@ -90,7 +90,7 @@ class ResponseProcessor:
 
 class RequestContext:
     """Context information for request processing."""
-    
+
     def __init__(
         self,
         session_id: str,
@@ -99,8 +99,8 @@ class RequestContext:
         is_streaming: bool,
         request_data: Any = None,
         api_key_redactor: APIKeyRedactor | None = None,
-        **kwargs
-    ):
+        **kwargs: Any,
+    ) -> None:
         self.session_id = session_id
         self.backend_type = backend_type
         self.model = model
@@ -112,100 +112,103 @@ class RequestContext:
 
 class LoopDetectionProcessor(ResponseProcessor):
     """Response processor that handles loop detection for any backend."""
-    
+
     def __init__(
         self,
         config: LoopDetectionConfig,
-        on_loop_detected: Callable[[LoopDetectionEvent, str], None] | None = None
+        on_loop_detected: Callable[[LoopDetectionEvent, str], None] | None = None,
     ):
         self.config = config
         self.on_loop_detected = on_loop_detected
         self._detectors: dict[str, LoopDetector] = {}  # Per-session detectors
-    
+
     def should_process(
-        self, 
-        response: StreamingResponse | dict[str, Any], 
-        context: RequestContext
+        self, response: StreamingResponse | dict[str, Any], context: RequestContext
     ) -> bool:
         """Only process if loop detection is enabled."""
         return self.config.enabled
-    
+
     def _get_or_create_detector(self, session_id: str) -> LoopDetector:
         """Get or create a loop detector for the session."""
         if session_id not in self._detectors:
             self._detectors[session_id] = LoopDetector(
                 config=self.config,
-                on_loop_detected=lambda event: self._handle_loop_detection(event, session_id)
+                on_loop_detected=lambda event: self._handle_loop_detection(
+                    event, session_id
+                ),
             )
         return self._detectors[session_id]
-    
-    def _handle_loop_detection(self, event: LoopDetectionEvent, session_id: str):
+
+    def _handle_loop_detection(
+        self, event: LoopDetectionEvent, session_id: str
+    ) -> None:
         """Handle loop detection events."""
-        logger.warning(f"Loop detected in session {session_id}: "
-                      f"pattern='{event.pattern[:50]}...', "
-                      f"repetitions={event.repetition_count}, "
-                      f"confidence={event.confidence:.2f}")
-        
+        logger.warning(
+            f"Loop detected in session {session_id}: "
+            f"pattern='{event.pattern[:50]}...', "
+            f"repetitions={event.repetition_count}, "
+            f"confidence={event.confidence:.2f}"
+        )
+
         if self.on_loop_detected:
             self.on_loop_detected(event, session_id)
-    
+
     async def process(
-        self,
-        response: StreamingResponse | dict[str, Any],
-        context: RequestContext
+        self, response: StreamingResponse | dict[str, Any], context: RequestContext
     ) -> StreamingResponse | dict[str, Any]:
         """Process response for loop detection."""
         detector = self._get_or_create_detector(context.session_id)
-        
+
         if isinstance(response, StreamingResponse):
             return await self._process_streaming_response(response, detector, context)
         else:
-            return await self._process_non_streaming_response(response, detector, context)
-    
+            return await self._process_non_streaming_response(
+                response, detector, context
+            )
+
     async def _process_streaming_response(
         self,
         response: StreamingResponse,
         detector: LoopDetector,
-        context: RequestContext
+        context: RequestContext,
     ) -> StreamingResponse:
         """Process streaming response with loop detection."""
-        
+
         # Reuse the *same* StreamingResponse instance to preserve headers,
         # cookies, background tasks and, most importantly, to make sure the
         # original response object gets properly closed by Starlette/Uvicorn.
 
         original_content = response.body_iterator
 
-        async def loop_detected_content():
+        async def loop_detected_content() -> AsyncGenerator[Any, None]:
             async for chunk in wrap_streaming_content_with_loop_detection(
-                original_content, detector, self.on_loop_detected
+                original_content.__aiter__(),
+                detector,
+                lambda event: self._handle_loop_detection(event, context.session_id),
             ):
                 yield chunk
 
         # Patch the iterator in-place and return the original object.
         response.body_iterator = loop_detected_content()
         return response
-    
+
     async def _process_non_streaming_response(
-        self,
-        response: dict[str, Any],
-        detector: LoopDetector,
-        context: RequestContext
+        self, response: dict[str, Any], detector: LoopDetector, context: RequestContext
     ) -> dict[str, Any]:
         """Process non-streaming response with loop detection."""
-        
+
         # Handle both dict and Pydantic model responses
         response_dict = response
         if not isinstance(response, dict):
             # Convert Pydantic model to dict
-            if hasattr(response, 'model_dump'):
+            if hasattr(response, "model_dump"):
                 response_dict = response.model_dump()
-            elif hasattr(response, '__dict__'):
+            elif hasattr(response, "__dict__"):
                 response_dict = response.__dict__
             else:
                 # If we can't convert, return as-is
                 return response
-        
+
         for idx, choice in enumerate(response_dict.get("choices", [])):
             if not ("message" in choice and "content" in choice["message"]):
                 continue
@@ -228,8 +231,8 @@ class LoopDetectionProcessor(ResponseProcessor):
                 )
 
         return response_dict
-    
-    def cleanup_session(self, session_id: str):
+
+    def cleanup_session(self, session_id: str) -> None:
         """Clean up detector for a session."""
         if session_id in self._detectors:
             del self._detectors[session_id]
@@ -237,60 +240,59 @@ class LoopDetectionProcessor(ResponseProcessor):
 
 class APIKeyRedactionProcessor(ResponseProcessor):
     """Response processor that handles API key redaction for any backend."""
-    
+
     def should_process(
-        self, 
-        response: StreamingResponse | dict[str, Any], 
-        context: RequestContext
+        self, response: StreamingResponse | dict[str, Any], context: RequestContext
     ) -> bool:
         """Only process if we have an API key redactor."""
         return context.api_key_redactor is not None
-    
+
     async def process(
-        self,
-        response: StreamingResponse | dict[str, Any],
-        context: RequestContext
+        self, response: StreamingResponse | dict[str, Any], context: RequestContext
     ) -> StreamingResponse | dict[str, Any]:
         """Process response for API key redaction."""
         if context.api_key_redactor is None:
             return response
-            
+
         if isinstance(response, StreamingResponse):
             return await self._process_streaming_response(response, context)
         else:
             return await self._process_non_streaming_response(response, context)
-    
+
     async def _process_streaming_response(
-        self,
-        response: StreamingResponse,
-        context: RequestContext
+        self, response: StreamingResponse, context: RequestContext
     ) -> StreamingResponse:
         """Process streaming response with API key redaction."""
         if context.api_key_redactor is None:
             return response
-            
+
         original_content = response.body_iterator
-        
-        async def redacted_content():
+
+        async def redacted_content() -> AsyncGenerator[Any, None]:
             async for chunk in original_content:
                 # For streaming responses, we need to parse and redact the content
                 if isinstance(chunk, bytes):
-                    chunk_str = chunk.decode('utf-8')
+                    chunk_str = chunk.decode("utf-8")
                 else:
                     chunk_str = str(chunk)
-                
+
                 # Redact API keys in the chunk
-                redacted_chunk = self._redact_streaming_chunk(chunk_str, context.api_key_redactor)
-                
+                if context.api_key_redactor:
+                    redacted_chunk = self._redact_streaming_chunk(
+                        chunk_str, context.api_key_redactor
+                    )
+                else:
+                    redacted_chunk = chunk_str
+
                 if isinstance(chunk, bytes):
-                    yield redacted_chunk.encode('utf-8')
+                    yield redacted_chunk.encode("utf-8")
                 else:
                     yield redacted_chunk
-        
+
         # Patch the iterator in-place and return the original object.
         response.body_iterator = redacted_content()
         return response
-    
+
     def _redact_streaming_chunk(self, chunk: str, redactor: APIKeyRedactor) -> str:
         """Redact API keys in a streaming chunk."""
         # Handle SSE format (data: ... chunks)
@@ -298,7 +300,7 @@ class APIKeyRedactionProcessor(ResponseProcessor):
             # Extract the JSON part after "data: "
             if chunk.strip() == "data: [DONE]":
                 return chunk
-                
+
             try:
                 # Remove "data: " prefix and any trailing newlines
                 json_part = chunk[6:].strip()
@@ -315,45 +317,43 @@ class APIKeyRedactionProcessor(ResponseProcessor):
                                     content = delta["content"]
                                     if isinstance(content, str):
                                         delta["content"] = redactor.redact(content)
-                                
+
                                 # Handle message for non-streaming style
                                 message = choice.get("message", {})
                                 if isinstance(message, dict) and "content" in message:
                                     content = message["content"]
                                     if isinstance(content, str):
                                         message["content"] = redactor.redact(content)
-                    
+
                     # Re-serialize the modified data
                     return f"data: {json.dumps(data)}\n\n"
             except (json.JSONDecodeError, Exception):
                 # If we can't parse/modify, return original chunk
                 pass
-        
+
         # For non-SSE chunks or if parsing failed, try to redact the whole chunk
         # This is a fallback for edge cases
         return redactor.redact(chunk)
-    
+
     async def _process_non_streaming_response(
-        self,
-        response: dict[str, Any],
-        context: RequestContext
+        self, response: dict[str, Any], context: RequestContext
     ) -> dict[str, Any]:
         """Process non-streaming response with API key redaction."""
         if context.api_key_redactor is None:
             return response
-            
+
         # Handle both dict and Pydantic model responses
         response_dict = response
         if not isinstance(response, dict):
             # Convert Pydantic model to dict
-            if hasattr(response, 'model_dump'):
+            if hasattr(response, "model_dump"):
                 response_dict = response.model_dump()
-            elif hasattr(response, '__dict__'):
+            elif hasattr(response, "__dict__"):
                 response_dict = response.__dict__
             else:
                 # If we can't convert, return as-is
                 return response
-            
+
         # Redact API keys in response content
         for choice in response_dict.get("choices", []):
             if not ("message" in choice and "content" in choice["message"]):
@@ -370,11 +370,11 @@ class APIKeyRedactionProcessor(ResponseProcessor):
 response_middleware = ResponseMiddleware()
 
 
-def configure_api_key_redaction_middleware():
+def configure_api_key_redaction_middleware() -> None:
     """Configure the global API key redaction middleware."""
     # Remove any existing API key redaction processors
     response_middleware.remove_processor(APIKeyRedactionProcessor)
-    
+
     # Add new API key redaction processor
     processor = APIKeyRedactionProcessor()
     response_middleware.add_processor(processor)
@@ -382,12 +382,12 @@ def configure_api_key_redaction_middleware():
 
 def configure_loop_detection_middleware(
     config: LoopDetectionConfig,
-    on_loop_detected: Callable[[LoopDetectionEvent, str], None] | None = None
-):
+    on_loop_detected: Callable[[LoopDetectionEvent, str], None] | None = None,
+) -> None:
     """Configure the global loop detection middleware."""
     # Remove any existing loop detection processors
     response_middleware.remove_processor(LoopDetectionProcessor)
-    
+
     # Add new loop detection processor if enabled
     if config.enabled:
         processor = LoopDetectionProcessor(config, on_loop_detected)

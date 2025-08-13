@@ -82,7 +82,7 @@ class CommandParser:
         Returns True if a command was found and an attempt to execute it was made.
         """
         msg_to_process = modified_messages[target_idx]
-        processed_content = None
+        processed_content: str | List[models.MessageContentPart] | None = None
         command_found_in_target_msg = False
         content_modified_by_cmd = False # Tracks if the content was actually changed by the command
 

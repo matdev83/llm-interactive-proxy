@@ -7,7 +7,7 @@ from pytest_httpx import HTTPXMock
 
 import src.models as models
 from src.connectors.openrouter import OpenRouterBackend
-from src.request_middleware import RequestMiddleware, RedactionProcessor, RequestContext
+from src.request_middleware import RedactionProcessor, RequestContext, RequestMiddleware
 from src.security import APIKeyRedactor
 
 TEST_OPENROUTER_API_BASE_URL = "https://openrouter.ai/api/v1"

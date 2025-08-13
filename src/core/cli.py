@@ -27,24 +27,22 @@ def _check_privileges() -> None:
             pass
 
 
-def _daemonize_unix() -> None:
+def _daemonize() -> None:
     """Daemonize the process on Unix-like systems."""
-    if os.fork() > 0:
-        sys.exit(0)  # exit first parent
+    if hasattr(os, 'fork') and hasattr(os, 'setsid'):
+        if os.fork() > 0:
+            sys.exit(0)  # exit first parent
 
-    os.chdir("/")
-    os.setsid()
-    os.umask(0)
+        os.chdir("/")
+        if hasattr(os, 'setsid'):
+            os.setsid()  # type: ignore[attr-defined]
+        os.umask(0)
 
-    if os.fork() > 0:
-        sys.exit(0)  # exit second parent
-
-    sys.stdout.flush()
-    sys.stderr.flush()
-    with open(os.devnull) as si, open(os.devnull, "a+") as so, open(os.devnull, "a+") as se:
-        os.dup2(si.fileno(), sys.stdin.fileno())
-        os.dup2(so.fileno(), sys.stdout.fileno())
-        os.dup2(se.fileno(), sys.stderr.fileno())
+        if os.fork() > 0:
+            sys.exit(0)  # exit second parent
+    else:
+        # On Windows, we can't daemonize, so we just continue
+        pass
 
 
 def parse_cli_args(argv: list[str] | None = None) -> argparse.Namespace:
@@ -52,14 +50,14 @@ def parse_cli_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument(
         "--default-backend",
         dest="default_backend",
-        choices=["openrouter", "gemini", "gemini-cli-direct", "gemini-cli-batch", "gemini-cli-interactive"],
+        choices=["openrouter", "gemini", "anthropic", "qwen-oauth"],
         default=os.getenv("LLM_BACKEND"),
         help="Default backend when multiple backends are functional",
     )
     parser.add_argument(
         "--backend",
         dest="default_backend",
-        choices=["openrouter", "gemini", "gemini-cli-direct", "gemini-cli-batch", "gemini-cli-interactive"],
+        choices=["openrouter", "gemini", "anthropic", "qwen-oauth"],
         help=argparse.SUPPRESS,
     )
     parser.add_argument("--openrouter-api-key")
@@ -214,7 +212,7 @@ def main(
             time.sleep(2)  # Give the child process a moment to start
             sys.exit(0)
         else:
-            _daemonize_unix()
+            _daemonize()
 
     cfg = apply_cli_args(args)
     logging.basicConfig(
@@ -236,10 +234,12 @@ def main(
             cfg["proxy_host"] = "127.0.0.1"
 
     if build_app_fn is None:
-        from src.main import build_app as build_app_fn
+        from src.main import build_app as build_app_fn  # type: ignore[assignment]
 
-    app = build_app_fn(cfg, config_file=args.config_file)
-    uvicorn.run(app, host=cfg["proxy_host"], port=cfg["proxy_port"])
+    config_file = getattr(args, "config_file", None)
+    if build_app_fn is not None:
+        app = build_app_fn(cfg, config_file=config_file)  # type: ignore[call-arg]
+        uvicorn.run(app, host=cfg["proxy_host"], port=cfg["proxy_port"])
 
 
 if __name__ == "__main__":

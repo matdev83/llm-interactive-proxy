@@ -5,10 +5,6 @@ This project is a *swiss-army knife* for anyone hacking on language models and a
 ## Core Features
 
 - **Multi-Protocol Gateway**: Use any client (OpenAI, Anthropic, Gemini) with any backend. The proxy handles the protocol conversion automatically.
-- **Dynamic Model Override**: Force an application to use a specific model via in-chat commands (`!/set(model=...)`) without changing client code.
-- **Automated API Key Rotation**: Configure multiple API keys for a backend (e.g., `GEMINI_API_KEY_1`, `GEMINI_API_KEY_2`). The proxy automatically rotates them to maximize usage and bypass rate limits.
-- **Resilient Failover Routing**: Define fallback rules to automatically switch to different models or backends if a request fails. See the example use case below.
-- **Gemini CLI Gateway**: Expose your local, free-tier Gemini CLI as a standard API endpoint for any client to use.
 - **Advanced Loop Detection**: Automatically detects and halts repetitive loops in real-time. Enabled by default and configurable via `LOOP_DETECTION_*` environment variables.
 - **Comprehensive Usage Tracking**: Logs all requests to a local database with endpoints (`/usage/stats`, `/usage/recent`) for monitoring costs and performance.
 - **In-Chat Command System**: Control the proxy on the fly using commands inside your prompts (e.g., `!/help`, `!/set(backend=...)`).
@@ -21,14 +17,15 @@ The proxy normalises requests internally, meaning **any front-end can be wired t
 
 | Client-Side (front-end) Protocol | Path prefix       | Typical SDK    |
 | -------------------------------- | ----------------- | -------------- |
-| OpenAI / OpenRouter              | `/v1/*`           | `openai`       |
+| OpenAI                           | `/v1/*`           | `openai`       |
+| OpenRouter                       | `/v1/*`           | `openai`       |
 | Anthropic Messages API           | `/anthropic/v1/*` | `anthropic`    |
 | Google Gemini Generative AI      | `/v1beta/*`       | `google-genai` |
 
 **Examples:**
 - **Anthropic SDK ➜ OpenRouter**: Set `base_url="http://proxy/anthropic/v1"` and request model `openrouter:gpt-4`.
 - **OpenAI client ➜ Gemini model**: Request model `gemini:gemini-1.5-pro` with your OpenAI client.
-- **Any client ➜ Gemini CLI**: Route heavy workloads to your local free-tier CLI by requesting a model like `gemini-cli-direct:gemini-1.5-pro`.
+- **OpenAI client ➜ Custom OpenAI-compatible API**: Use `!/set(openai_url=https://custom-api.example.com/v1)` to redirect requests to a custom endpoint.
 
 ## Example Use Cases
 
@@ -59,13 +56,20 @@ The proxy normalises requests internally, meaning **any front-end can be wired t
       ```
     - **How it works**: The proxy logs every request to a local database. The `/usage/stats` and `/usage/recent` endpoints provide immediate access to detailed analytics, helping you monitor costs and performance without any external setup.
 
+4.  **Use Custom OpenAI-Compatible APIs**
+    - **Scenario**: You want to use a local LLM server or a third-party API that's compatible with the OpenAI API format.
+    - **Action (In-chat command)**:
+      ```
+      !/set(openai_url=http://localhost:1234/v1)
+      ```
+    - **How it works**: The proxy will redirect all OpenAI API requests to your custom endpoint while maintaining all the proxy's features like usage tracking, command processing, and security.
+
 ## Getting Started
 
 ### Prerequisites
 
 - Python 3.8+
 - `pip` for installing packages
-- For the `gemini-cli-direct` backend: [Google Gemini CLI](https://github.com/google-gemini/gemini-cli) installed and authenticated.
 
 ### Installation
 
@@ -94,18 +98,20 @@ The proxy normalises requests internally, meaning **any front-end can be wired t
 1.  **Create a `.env` file** in the project root.
 2.  **Add your backend API keys**. The proxy supports single keys or numbered keys for rotation (e.g., `OPENROUTER_API_KEY_1`, `OPENROUTER_API_KEY_2`).
     ```env
+    # Example for OpenAI
+    OPENAI_API_KEY="your_openai_api_key"
+    # Optional: Custom OpenAI API URL
+    # OPENAI_API_BASE_URL="https://custom-openai-api.example.com/v1"
+
     # Example for OpenRouter
     OPENROUTER_API_KEY="your_openrouter_api_key"
 
-    # Example for Gemini (supports rotation)
+    # Example for Google Gemini (supports rotation)
     GEMINI_API_KEY_1="first_gemini_key"
     GEMINI_API_KEY_2="second_gemini_key"
 
     # Example for Anthropic
     ANTHROPIC_API_KEY="your_anthropic_key"
-
-    # Required for Gemini CLI backends
-    GOOGLE_CLOUD_PROJECT="your-google-cloud-project-id"
 
     # Set a key for clients to access this proxy
     LLM_INTERACTIVE_PROXY_API_KEY="a_secret_key_for_your_clients"
@@ -145,7 +151,7 @@ Control the proxy on the fly by embedding commands in your prompts (default pref
 - `!/help`: List all available commands.
 - `!/set(model=backend:model_name)`: Override the model for the current session.
 - `!/set(backend=openrouter)`: Switch the backend for the current session.
-- `!/oneoff(gemini-cli-direct:gemini-1.5-pro)`: Use a specific backend/model for the next request only.
+- `!/set(openai_url=https://api.example.com/v1)`: Set a custom URL for the OpenAI API.
 - `!/create-failover-route(...)`: Define custom failover logic.
 
 ## Roadmap

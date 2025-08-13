@@ -22,7 +22,7 @@ class APIKeyRedactor:
         """Cached version of redact for frequently processed content."""
         # Simple manual caching to avoid memory leaks with lru_cache on methods
         if not hasattr(self, '_redact_cache'):
-            self._redact_cache = {}
+            self._redact_cache: dict[str, str] = {}
         if text in self._redact_cache:
             return self._redact_cache[text]
         result = self._redact_internal(text)

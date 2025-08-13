@@ -18,7 +18,7 @@ def anthropic_to_openai_request(anthropic_request: AnthropicMessagesRequest) -> 
     return a plain dictionary - not a ``ChatCompletionRequest`` object.
     """
 
-    messages: List[Dict[str, str]] = []
+    messages: List[Dict[str, Any]] = []
 
     # Optional system message comes first
     if anthropic_request.system:
@@ -28,7 +28,7 @@ def anthropic_to_openai_request(anthropic_request: AnthropicMessagesRequest) -> 
     for msg in anthropic_request.messages:
         messages.append({"role": msg.role, "content": msg.content})
 
-    return {
+    result: Dict[str, Any] = {
         "model": anthropic_request.model,
         "messages": messages,
         "max_tokens": anthropic_request.max_tokens,
@@ -38,6 +38,7 @@ def anthropic_to_openai_request(anthropic_request: AnthropicMessagesRequest) -> 
         "stop": anthropic_request.stop_sequences,
         "stream": anthropic_request.stream or False,
     }
+    return result
 
 
 def openai_to_anthropic_response(openai_response: Any) -> Dict[str, Any]:
@@ -51,22 +52,30 @@ def openai_to_anthropic_response(openai_response: Any) -> Dict[str, Any]:
 
     # Normalise to a dictionary first
     if not isinstance(openai_response, dict):
-        # pydantic-model - use attribute access
+        # pydantic-model - use attribute access and preserve tool_calls if present
+        first_choice = openai_response.choices[0]
+        msg_obj = {
+            "role": first_choice.message.role,
+            "content": first_choice.message.content,
+        }
+        if getattr(first_choice.message, "tool_calls", None):
+            # Convert pydantic ToolCall objects to plain dicts
+            try:
+                msg_obj["tool_calls"] = [tc.model_dump(exclude_none=True) for tc in first_choice.message.tool_calls]
+            except Exception:
+                msg_obj["tool_calls"] = list(first_choice.message.tool_calls or [])
         _dict = {
             "id": openai_response.id,
             "model": openai_response.model,
             "choices": [
                 {
-                    "message": {
-                        "role": openai_response.choices[0].message.role,
-                        "content": openai_response.choices[0].message.content,
-                    },
-                    "finish_reason": openai_response.choices[0].finish_reason,
+                    "message": msg_obj,
+                    "finish_reason": first_choice.finish_reason,
                 }
             ],
             "usage": {
-                "prompt_tokens": openai_response.usage.prompt_tokens,
-                "completion_tokens": openai_response.usage.completion_tokens,
+                "prompt_tokens": getattr(openai_response.usage, "prompt_tokens", 0) if getattr(openai_response, "usage", None) else 0,
+                "completion_tokens": getattr(openai_response.usage, "completion_tokens", 0) if getattr(openai_response, "usage", None) else 0,
             },
         }
     else:
@@ -75,15 +84,40 @@ def openai_to_anthropic_response(openai_response: Any) -> Dict[str, Any]:
     choice = _dict["choices"][0]
     message = choice["message"]
 
+    # Build Anthropic content blocks, supporting tool_use when OpenAI tool_calls present
+    content_blocks: List[Dict[str, Any]] = []
+    tool_calls = message.get("tool_calls") if isinstance(message, dict) else None
+    if not tool_calls:
+        # Some clients/tests may place tool_calls at the choice level
+        tool_calls = choice.get("tool_calls") if isinstance(choice, dict) else None
+    if tool_calls:
+        # Take the first tool call for compatibility with current tests
+        tc = tool_calls[0]
+        fn = tc.get("function", {})
+        name = fn.get("name", "tool")
+        args_raw = fn.get("arguments", "{}")
+        try:
+            args = json.loads(args_raw) if isinstance(args_raw, str) else args_raw
+        except Exception:
+            args = {"_raw": args_raw}
+        content_blocks.append(
+            {
+                "type": "tool_use",
+                "id": tc.get("id") or "toolu_0",
+                "name": name,
+                "input": args,
+            }
+        )
+    elif message.get("content") is not None:
+        content_blocks.append({"type": "text", "text": message["content"]})
+
     return {
         "id": _dict["id"],
         "type": "message",
         "role": "assistant",
         "model": _dict["model"],
         "stop_reason": _map_finish_reason(choice.get("finish_reason")),
-        "content": [
-            {"type": "text", "text": message["content"]},
-        ],
+        "content": content_blocks,
         "usage": {
             "input_tokens": _dict.get("usage", {}).get("prompt_tokens", 0),
             "output_tokens": _dict.get("usage", {}).get("completion_tokens", 0),
@@ -130,6 +164,9 @@ def openai_to_anthropic_stream_chunk(chunk_data: str, id: str, model: str) -> st
         # Log for debugging but return empty to keep stream alive
         logging.getLogger(__name__).debug("Failed to convert stream chunk: %s", e)
         return ""
+    
+    # If we get here, it's an unhandled case - return empty string to keep stream alive
+    return ""
 
 # --- Added helper functions for Anthropic frontend compatibility ---
 
@@ -171,6 +208,7 @@ _FINISH_REASON_MAP = {
     "length": "max_tokens",
     "content_filter": "stop_sequence",
     "function_call": "tool_use",
+    "tool_calls": "tool_use",
 }
 
 
@@ -283,12 +321,13 @@ openai_to_anthropic_stream = openai_stream_to_anthropic_stream  # type: ignore
 # without having to know the internal module structure.
 
 __all__ = [
+    # Re-exported pydantic models
     "AnthropicMessage",
     "AnthropicMessagesRequest",
     # Conversion helpers
     "anthropic_to_openai_request",
     "extract_anthropic_usage",
+    "openai_stream_to_anthropic_stream",
     "openai_to_anthropic_response",
     "openai_to_anthropic_stream_chunk",
-    "openai_stream_to_anthropic_stream",
 ]

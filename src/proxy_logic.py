@@ -37,6 +37,9 @@ class ProxyState:
         # Temperature configuration
         self.temperature: Optional[float] = None
 
+        # OpenAI URL configuration
+        self.openai_url: Optional[str] = None
+
     def set_override_model(
         self, backend: str, model_name: str, *, invalid: bool = False
     ) -> None:
@@ -136,18 +139,15 @@ class ProxyState:
             route["elements"] = []
 
     def append_route_element(self, name: str, element: str) -> None:
-        route = self.failover_routes.setdefault(
-            name, {"policy": "k", "elements": []})
+        route = self.failover_routes.setdefault(name, {"policy": "k", "elements": []})
         route.setdefault("elements", []).append(element)
 
     def prepend_route_element(self, name: str, element: str) -> None:
-        route = self.failover_routes.setdefault(
-            name, {"policy": "k", "elements": []})
+        route = self.failover_routes.setdefault(name, {"policy": "k", "elements": []})
         route.setdefault("elements", []).insert(0, element)
 
     def list_routes(self) -> dict[str, str]:
-        return {n: r.get("policy", "")
-                for n, r in self.failover_routes.items()}
+        return {n: r.get("policy", "") for n, r in self.failover_routes.items()}
 
     def list_route(self, name: str) -> list[str]:
         route = self.failover_routes.get(name)
@@ -213,7 +213,9 @@ class ProxyState:
     def set_temperature(self, temperature: float) -> None:
         """Set the temperature for the model."""
         if temperature < 0.0 or temperature > 2.0:
-            raise ValueError("Temperature must be between 0.0 and 2.0 (OpenAI supports up to 2.0, Gemini up to 1.0)")
+            raise ValueError(
+                "Temperature must be between 0.0 and 2.0 (OpenAI supports up to 2.0, Gemini up to 1.0)"
+            )
         if logger.isEnabledFor(logging.INFO):
             logger.info(f"Setting temperature to: {temperature}")
         self.temperature = temperature
@@ -224,49 +226,78 @@ class ProxyState:
             logger.info("Unsetting temperature.")
         self.temperature = None
 
-    def apply_model_defaults(self, model_name: str, model_defaults: Dict[str, Any]) -> None:
+    def set_openai_url(self, url: str) -> None:
+        """Set the base URL for OpenAI API calls."""
+        if not url.startswith(("http://", "https://")):
+            raise ValueError("OpenAI URL must start with http:// or https://")
+        if logger.isEnabledFor(logging.INFO):
+            logger.info(f"Setting OpenAI URL to: {url}")
+        self.openai_url = url
+
+    def unset_openai_url(self) -> None:
+        """Clear the OpenAI URL setting."""
+        if logger.isEnabledFor(logging.INFO):
+            logger.info("Unsetting OpenAI URL.")
+        self.openai_url = None
+
+    def apply_model_defaults(
+        self, model_name: str, model_defaults: Dict[str, Any]
+    ) -> None:
         """Apply model-specific default configurations."""
         from src.models import ModelDefaults  # Import here to avoid circular imports
-        
+
         try:
             # Parse model defaults if it's a dict
             if isinstance(model_defaults, dict):
                 model_config = ModelDefaults(**model_defaults)
             else:
                 model_config = model_defaults
-                
+
             # Apply reasoning defaults if they exist and current values are not set
             if model_config.reasoning:
                 reasoning_config = model_config.reasoning
-                
+
                 # Apply OpenAI/OpenRouter reasoning defaults
                 if reasoning_config.reasoning_effort and not self.reasoning_effort:
                     if logger.isEnabledFor(logging.INFO):
-                        logger.info(f"Applying default reasoning effort '{reasoning_config.reasoning_effort}' for model {model_name}")
+                        logger.info(
+                            f"Applying default reasoning effort '{reasoning_config.reasoning_effort}' for model {model_name}"
+                        )
                     self.reasoning_effort = reasoning_config.reasoning_effort
-                    
+
                 if reasoning_config.reasoning and not self.reasoning_config:
                     if logger.isEnabledFor(logging.INFO):
-                        logger.info(f"Applying default reasoning config for model {model_name}")
+                        logger.info(
+                            f"Applying default reasoning config for model {model_name}"
+                        )
                     self.reasoning_config = reasoning_config.reasoning
-                    
+
                 # Apply Gemini reasoning defaults
                 if reasoning_config.thinking_budget and not self.thinking_budget:
                     if logger.isEnabledFor(logging.INFO):
-                        logger.info(f"Applying default thinking budget {reasoning_config.thinking_budget} for model {model_name}")
+                        logger.info(
+                            f"Applying default thinking budget {reasoning_config.thinking_budget} for model {model_name}"
+                        )
                     self.thinking_budget = reasoning_config.thinking_budget
-                    
-                if reasoning_config.generation_config and not self.gemini_generation_config:
+
+                if (
+                    reasoning_config.generation_config
+                    and not self.gemini_generation_config
+                ):
                     if logger.isEnabledFor(logging.INFO):
-                        logger.info(f"Applying default generation config for model {model_name}")
+                        logger.info(
+                            f"Applying default generation config for model {model_name}"
+                        )
                     self.gemini_generation_config = reasoning_config.generation_config
-                    
+
                 # Apply temperature defaults
                 if reasoning_config.temperature and not self.temperature:
                     if logger.isEnabledFor(logging.INFO):
-                        logger.info(f"Applying default temperature {reasoning_config.temperature} for model {model_name}")
+                        logger.info(
+                            f"Applying default temperature {reasoning_config.temperature} for model {model_name}"
+                        )
                     self.temperature = reasoning_config.temperature
-                    
+
         except Exception as e:
             if logger.isEnabledFor(logging.WARNING):
                 logger.warning(f"Failed to apply model defaults for {model_name}: {e}")
@@ -288,6 +319,7 @@ class ProxyState:
         self.thinking_budget = None
         self.gemini_generation_config = None
         self.temperature = None
+        self.openai_url = None
 
     def get_effective_model(self, requested_model: str) -> str:
         if self.oneoff_model:

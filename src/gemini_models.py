@@ -2,6 +2,7 @@
 Pydantic models for Google Gemini API request/response structures.
 These models match the official Gemini API format for compatibility.
 """
+
 from enum import Enum
 from typing import Any, Dict, List, Optional
 
@@ -10,6 +11,7 @@ from pydantic import BaseModel, Field
 
 class HarmCategory(str, Enum):
     """Harm categories for safety settings."""
+
     HARM_CATEGORY_UNSPECIFIED = "HARM_CATEGORY_UNSPECIFIED"
     HARM_CATEGORY_DEROGATORY = "HARM_CATEGORY_DEROGATORY"
     HARM_CATEGORY_TOXICITY = "HARM_CATEGORY_TOXICITY"
@@ -26,6 +28,7 @@ class HarmCategory(str, Enum):
 
 class HarmBlockThreshold(str, Enum):
     """Harm block thresholds for safety settings."""
+
     HARM_BLOCK_THRESHOLD_UNSPECIFIED = "HARM_BLOCK_THRESHOLD_UNSPECIFIED"
     BLOCK_LOW_AND_ABOVE = "BLOCK_LOW_AND_ABOVE"
     BLOCK_MEDIUM_AND_ABOVE = "BLOCK_MEDIUM_AND_ABOVE"
@@ -35,6 +38,7 @@ class HarmBlockThreshold(str, Enum):
 
 class HarmProbability(str, Enum):
     """Harm probability levels."""
+
     HARM_PROBABILITY_UNSPECIFIED = "HARM_PROBABILITY_UNSPECIFIED"
     NEGLIGIBLE = "NEGLIGIBLE"
     LOW = "LOW"
@@ -44,6 +48,7 @@ class HarmProbability(str, Enum):
 
 class FinishReason(str, Enum):
     """Finish reasons for candidate responses."""
+
     FINISH_REASON_UNSPECIFIED = "FINISH_REASON_UNSPECIFIED"
     STOP = "STOP"
     MAX_TOKENS = "MAX_TOKENS"
@@ -56,12 +61,14 @@ class FinishReason(str, Enum):
 
 class SafetySetting(BaseModel):
     """Safety setting for a specific harm category."""
+
     category: HarmCategory
     threshold: HarmBlockThreshold
 
 
 class SafetyRating(BaseModel):
     """Safety rating for a specific harm category."""
+
     category: HarmCategory
     probability: HarmProbability
     blocked: Optional[bool] = None
@@ -69,45 +76,60 @@ class SafetyRating(BaseModel):
 
 class Blob(BaseModel):
     """Raw bytes data with MIME type."""
+
     mime_type: str
     data: str  # Base64 encoded data
 
 
 class FileData(BaseModel):
     """Reference to a file uploaded via the File API."""
+
     mime_type: str
     file_uri: str
 
 
 class Part(BaseModel):
-    """A part of a content message."""
+    """A part of a content message.
+
+    Extended to support Gemini function calling protocol via ``functionCall`` and
+    ``functionResponse`` fields in addition to text and data parts.
+    """
+
+    model_config = {"populate_by_name": True}
     text: Optional[str] = None
     inline_data: Optional[Blob] = None
     file_data: Optional[FileData] = None
+    # Gemini tool-calling fields
+    function_call: Optional[Dict[str, Any]] = Field(None, alias="functionCall")
+    function_response: Optional[Dict[str, Any]] = Field(None, alias="functionResponse")
 
     def model_post_init(self, __context: Any) -> None:
-        """Ensure exactly one field is set."""
+        """Ensure only one kind of payload is present per part."""
         fields_set = sum(
             [
                 self.text is not None,
                 self.inline_data is not None,
                 self.file_data is not None,
+                self.function_call is not None,
+                self.function_response is not None,
             ]
         )
         if fields_set > 1:
             raise ValueError(
-                "Exactly one of text, inline_data, or file_data must be set"
+                "Exactly one of text, inline_data, file_data, functionCall, or functionResponse must be set"
             )
 
 
 class Content(BaseModel):
     """Content of a conversation turn."""
+
     parts: List[Part]
     role: Optional[str] = None  # "user", "model", or "function"
 
 
 class GenerationConfig(BaseModel):
     """Configuration options for model generation."""
+
     model_config = {"populate_by_name": True}
 
     stop_sequences: Optional[List[str]] = Field(None, alias="stopSequences")
@@ -122,6 +144,7 @@ class GenerationConfig(BaseModel):
 
 class GenerateContentRequest(BaseModel):
     """Request for generating content with Gemini."""
+
     model_config = {"populate_by_name": True}
 
     contents: List[Content]
@@ -129,23 +152,28 @@ class GenerateContentRequest(BaseModel):
     tool_config: Optional[Dict[str, Any]] = Field(None, alias="toolConfig")
     safety_settings: Optional[List[SafetySetting]] = Field(None, alias="safetySettings")
     system_instruction: Optional[Content] = Field(None, alias="systemInstruction")
-    generation_config: Optional[GenerationConfig] = Field(None, alias="generationConfig")
+    generation_config: Optional[GenerationConfig] = Field(
+        None, alias="generationConfig"
+    )
     cached_content: Optional[str] = Field(None, alias="cachedContent")
 
 
 class PromptFeedback(BaseModel):
     """Feedback about the prompt."""
+
     block_reason: Optional[str] = None
     safety_ratings: Optional[List[SafetyRating]] = None
 
 
 class CitationMetadata(BaseModel):
     """Citation metadata for generated content."""
+
     citation_sources: Optional[List[Dict[str, Any]]] = None
 
 
 class Candidate(BaseModel):
     """A generated candidate response."""
+
     model_config = {"populate_by_name": True}
 
     content: Optional[Content] = None
@@ -159,16 +187,20 @@ class Candidate(BaseModel):
 
 class UsageMetadata(BaseModel):
     """Usage metadata for the generation request."""
+
     model_config = {"populate_by_name": True}
 
     prompt_token_count: Optional[int] = Field(None, alias="promptTokenCount")
     candidates_token_count: Optional[int] = Field(None, alias="candidatesTokenCount")
     total_token_count: Optional[int] = Field(None, alias="totalTokenCount")
-    cached_content_token_count: Optional[int] = Field(None, alias="cachedContentTokenCount")
+    cached_content_token_count: Optional[int] = Field(
+        None, alias="cachedContentTokenCount"
+    )
 
 
 class GenerateContentResponse(BaseModel):
     """Response from generating content with Gemini."""
+
     model_config = {"populate_by_name": True}
 
     candidates: Optional[List[Candidate]] = None
@@ -178,6 +210,7 @@ class GenerateContentResponse(BaseModel):
 
 class Model(BaseModel):
     """Information about a Gemini model."""
+
     name: str
     base_model_id: Optional[str] = None
     version: str
@@ -194,6 +227,7 @@ class Model(BaseModel):
 
 class ListModelsResponse(BaseModel):
     """Response from listing available models."""
+
     models: List[Model]
     next_page_token: Optional[str] = None
 
@@ -201,6 +235,7 @@ class ListModelsResponse(BaseModel):
 # Streaming response models
 class GenerateContentStreamResponse(BaseModel):
     """Streaming response chunk from generating content."""
+
     candidates: Optional[List[Candidate]] = None
     prompt_feedback: Optional[PromptFeedback] = None
     usage_metadata: Optional[UsageMetadata] = None

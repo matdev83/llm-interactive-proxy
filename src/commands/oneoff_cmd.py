@@ -8,7 +8,7 @@ from fastapi import FastAPI
 from .base import BaseCommand, CommandResult, register_command
 
 if TYPE_CHECKING:
-    from ..proxy_logic import ProxyState
+    from src.proxy_logic import ProxyState
 
 logger = logging.getLogger(__name__)
 

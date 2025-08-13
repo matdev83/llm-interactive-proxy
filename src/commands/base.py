@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING, Any, Mapping, Protocol
 if TYPE_CHECKING:
     from fastapi import FastAPI
 
-    from ..proxy_logic import ProxyState
+    from src.proxy_logic import ProxyState
 
 logger = logging.getLogger(__name__)
 
@@ -75,7 +75,8 @@ class AppCommandContext:
     def backend_type(self, value: str) -> None:
         self.app.state.backend_type = value
         # Also update the backend reference
-        backend_attr = f"{value}_backend"
+        # Convert backend name to valid attribute name (replace hyphens with underscores)
+        backend_attr = f"{value.replace('-', '_')}_backend"
         if hasattr(self.app.state, backend_attr):
             self.app.state.backend = getattr(self.app.state, backend_attr)
     
@@ -144,7 +145,7 @@ class BaseCommand:
 
 
 # Registry -----------------------------------------------------------------
-command_registry: Mapping[str, type[BaseCommand]] = {}
+command_registry: dict[str, type[BaseCommand]] = {}
 
 
 def register_command(cls: type[BaseCommand]) -> type[BaseCommand]:

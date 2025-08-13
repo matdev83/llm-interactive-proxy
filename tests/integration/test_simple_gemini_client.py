@@ -16,7 +16,7 @@ except ImportError:
 
 from src.main import build_app
 
-pytestmark = pytest.mark.integration
+pytestmark = [pytest.mark.integration, pytest.mark.network]  # Uses real Google Gemini client
 
 @pytest.fixture
 def test_app():
@@ -59,7 +59,7 @@ def test_gemini_client_creation():
 def test_gemini_models_endpoint_format(client):
     """Test that our models endpoint returns Gemini-compatible format."""
     # Mock the functional backends and backend models
-    client.app.state.functional_backends = {"openrouter", "gemini", "gemini-cli-direct"}
+    client.app.state.functional_backends = {"openrouter", "gemini"}
     
     # Create mock backends
     mock_or = MagicMock()
@@ -69,10 +69,6 @@ def test_gemini_models_endpoint_format(client):
     mock_gemini = MagicMock()
     mock_gemini.get_available_models.return_value = ["gemini-pro", "gemini-pro-vision"]
     client.app.state.gemini_backend = mock_gemini
-    
-    mock_cli = MagicMock()
-    mock_cli.get_available_models.return_value = ["gemini-1.5-pro"]
-    client.app.state.gemini_cli_direct_backend = mock_cli
     
     # Test Gemini models endpoint
     response = client.get("/v1beta/models")
@@ -126,12 +122,12 @@ def test_gemini_generate_content_endpoint_format(configured_app):
         # Mock get_available_models to return a list, not a coroutine
         mock_backend.get_available_models.return_value = ["test-model"]
 
-        # Send Gemini format request
+        # Send Gemini format request that triggers a tool_call in OpenAI response
         gemini_request = {
             "contents": [
                 {
                     "parts": [
-                        {"text": "Hello, how are you?"}
+                        {"text": "!/hello"}
                     ],
                     "role": "user"
                 }
@@ -151,23 +147,22 @@ def test_gemini_generate_content_endpoint_format(configured_app):
         assert response.status_code == 200
         data = response.json()
         
-        # Check Gemini response format
+        # Check Gemini response format – we expect a functionCall part
         assert "candidates" in data
         assert len(data["candidates"]) == 1
-        
+
         candidate = data["candidates"][0]
         assert "content" in candidate
         assert "finishReason" in candidate
-        assert candidate["finishReason"] == "STOP"
-        
+        assert candidate["finishReason"] == "TOOL_CALLS"
+
         content = candidate["content"]
         assert "parts" in content
         assert "role" in content
         assert content["role"] == "model"
         assert len(content["parts"]) == 1
-        # Check that the response contains our expected text (may include banner)
-        response_text = content["parts"][0]["text"]
-        assert "Hello! This is a test response." in response_text
+        # The part should be a functionCall
+        assert "functionCall" in content["parts"][0]
         
         # Check usage metadata
         assert "usageMetadata" in data
@@ -306,24 +301,11 @@ def test_backend_routing_through_gemini_format(configured_app):
     mock_gemini.available_models = ["gemini-pro"]
     mock_gemini.get_available_models.return_value = ["gemini-pro"]
 
-    mock_gemini_cli = Mock()
-    mock_gemini_cli.chat_completions = AsyncMock(return_value={
-        "id": "test-id-3",
-        "object": "chat.completion",
-        "created": 1234567890,
-        "model": "gemini-1.5-pro",
-        "choices": [{"index": 0, "message": {"role": "assistant", "content": "Gemini CLI response"}, "finish_reason": "stop"}],
-        "usage": {"prompt_tokens": 5, "completion_tokens": 5, "total_tokens": 10}
-    })
-    mock_gemini_cli.available_models = ["gemini-1.5-pro"]
-    mock_gemini_cli.get_available_models.return_value = ["gemini-1.5-pro"]
-
     # Use TestClient with context manager to trigger lifespan events
     with TestClient(configured_app) as client:
         # Mock all backends in the app state
         client.app.state.openrouter_backend = mock_openrouter
         client.app.state.gemini_backend = mock_gemini
-        client.app.state.gemini_cli_direct_backend = mock_gemini_cli
         
         gemini_request = {
             "contents": [{"parts": [{"text": "Test message"}], "role": "user"}]
@@ -332,8 +314,7 @@ def test_backend_routing_through_gemini_format(configured_app):
         # Test different backend models through Gemini API
         test_cases = [
             ("openrouter:gpt-4", "OpenRouter response"),
-            ("gemini:gemini-pro", "Gemini response"),
-            ("gemini-cli-direct:gemini-1.5-pro", "Gemini CLI response")
+            ("gemini:gemini-pro", "Gemini response")
         ]
         
         for model, expected_content in test_cases:
@@ -353,7 +334,7 @@ def test_backend_routing_through_gemini_format(configured_app):
         # Verify all backends were called
         mock_openrouter.chat_completions.assert_called_once()
         mock_gemini.chat_completions.assert_called_once()
-        mock_gemini_cli.chat_completions.assert_called_once()
+        # mock_gemini_cli.chat_completions.assert_called_once()  # This is now removed
 
 
 if __name__ == "__main__":

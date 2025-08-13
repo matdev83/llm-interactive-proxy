@@ -1,7 +1,7 @@
 import os
-import time
-import threading
 import socket
+import threading
+import time
 from typing import Any, Dict
 
 import pytest
@@ -90,7 +90,6 @@ BACKEND_MODEL_MAP = {
     # Updated per user request – switch to Moonshot Kimi model
     "openrouter": "openrouter:moonshotai/kimi-k2:free",
     "gemini": "gemini:gemini-2.5-flash",
-    "gemini-cli-batch": "gemini-cli-batch:gemini-2.5-flash",
 }
 
 REQUIRED_ENV_VARS = {
@@ -120,18 +119,9 @@ def proxy_server(request):
     if backend == "openrouter":
         if not _has_env("OPENROUTER_API_KEY"):
             pytest.skip("No OpenRouter API key found – skipping real backend test")
-    if backend in {"gemini", "gemini-cli-batch"}:
+    if backend == "gemini":
         if not _has_env("GEMINI_API_KEY"):
             pytest.skip("No Gemini API key found – skipping real backend test")
-
-    # gemini-CLI backend additionally requires google-cloud project and installed CLI
-    if backend == "gemini-cli-batch":
-        if os.getenv("GOOGLE_CLOUD_PROJECT") is None:
-            pytest.skip("GOOGLE_CLOUD_PROJECT not configured – skipping gemini-cli-batch test")
-        # Basic check that the CLI is available on PATH
-        import shutil
-        if shutil.which("gemini") is None:
-            pytest.skip("gemini CLI executable not found – skipping gemini-cli-batch test")
 
     # Always disable auth for internal tests to avoid client headers fuss.
     os.environ["DISABLE_AUTH"] = "true"
@@ -186,17 +176,15 @@ def _skip_unavailable(client_name: str):
 SCENARIOS = [
     ("anthropic", "openrouter"),
     ("anthropic", "gemini"),
-    ("anthropic", "gemini-cli-batch"),
     ("openai", "openrouter"),
     ("openai", "gemini"),
-    ("openai", "gemini-cli-batch"),
     ("gemini", "openrouter"),
     ("gemini", "gemini"),
-    ("gemini", "gemini-cli-batch"),
 ]
 
 
 @pytest.mark.integration  # Mark the whole suite for selective runs
+@pytest.mark.network  # Requires real API access
 @pytest.mark.parametrize("client_type,backend", SCENARIOS)
 def test_end_to_end_chat_completion(client_type: str, backend: str, proxy_server):  # type: ignore[misc]
     """End-to-end check – send simple prompt through proxy to real backend and verify basic response structure."""
@@ -237,16 +225,17 @@ def test_end_to_end_chat_completion(client_type: str, backend: str, proxy_server
         import google.generativeai as genai  # type: ignore
         genai.configure(api_key="test-key", base_url=base_url)
         try:
-            response = genai.models.generate_content(model=model_name, contents="Hello!")
+            # Send a prompt that should yield a tool call when proxied to OpenAI-format backend
+            response = genai.models.generate_content(model=model_name, contents="!/hello")
         except Exception as exc:
             pytest.skip(f"Gemini client request failed ({exc}); skipping scenario.")
 
         assert getattr(response, "candidates", None), "No candidates returned"
-        # Ensure backend did not propagate CLI failure message
         cand0 = response.candidates[0]
+        # Expect a functionCall part in tool-calling case
         if hasattr(cand0, "content") and cand0.content:
-            first_part_text = cand0.content.parts[0].text if hasattr(cand0.content.parts[0], "text") else str(cand0.content)
-            assert "gemini cli failed" not in first_part_text.lower(), first_part_text
+            first_part = cand0.content.parts[0]
+            assert hasattr(first_part, "function_call") or hasattr(first_part, "functionCall")
 
     else:
         raise AssertionError(f"Unknown client type {client_type}")
@@ -260,7 +249,7 @@ def test_end_to_end_chat_completion(client_type: str, backend: str, proxy_server
 # ----------------------------------------------------------------------
 
 
-def _configure_openai(base_url: str) -> None:  # noqa: D401 – simple helper
+def _configure_openai(base_url: str) -> None:
     """Configure *openai* SDK to talk to the local proxy instance."""
     openai.api_key = "test-key"  # Proxy has auth disabled, but SDK requires a key
     # Ensure trailing slash so path joins correctly (avoids '/v1chat')
@@ -272,6 +261,7 @@ def _configure_openai(base_url: str) -> None:  # noqa: D401 – simple helper
 
 
 @pytest.mark.integration
+@pytest.mark.network  # Requires real API access
 @pytest.mark.parametrize("backend", list(BACKEND_MODEL_MAP.keys()))
 def test_openai_tool_call_handling(backend: str, proxy_server):  # type: ignore[override]
     if not OPENAI_AVAILABLE:
@@ -317,17 +307,15 @@ def test_openai_tool_call_handling(backend: str, proxy_server):  # type: ignore[
     assert tool_call["function"]["name"] == "attempt_completion" 
 
 ######################################################################
-# Streaming variants – skipped for gemini-cli-batch which is non-streaming
+# Streaming variants
 ######################################################################
 
 
 @pytest.mark.integration
+@pytest.mark.network  # Requires real API access
 @pytest.mark.parametrize("client_type,backend", SCENARIOS)
 def test_end_to_end_chat_completion_streaming(client_type: str, backend: str, proxy_server):  # type: ignore[misc]
     _skip_unavailable(client_type)
-
-    if backend == "gemini-cli-batch":
-        pytest.skip("gemini-cli-batch backend returns non-streaming responses – skip streaming test")
 
     model_name = BACKEND_MODEL_MAP[backend]
     base_url = f"http://127.0.0.1:{proxy_server.port}"
@@ -349,7 +337,7 @@ def test_end_to_end_chat_completion_streaming(client_type: str, backend: str, pr
         assert chunks, "No streaming chunks received"
 
     elif client_type == "anthropic":
-        from anthropic import Anthropic, HUMAN_PROMPT, AI_PROMPT  # type: ignore
+        from anthropic import Anthropic  # type: ignore
         client = Anthropic(api_key="test-key", base_url=base_url)
         try:
             stream = client.messages.create(

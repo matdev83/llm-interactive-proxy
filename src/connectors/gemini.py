@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 import logging
 import time
-from typing import Any, AsyncGenerator
+from typing import Any, AsyncGenerator, Callable, cast
 
 import httpx
 from fastapi import HTTPException
@@ -15,6 +15,7 @@ from src.models import (
     MessageContentPartImage,
     MessageContentPartText,
 )
+
 # API key redaction and command filtering are now handled by middleware
 # from src.security import APIKeyRedactor, ProxyCommandFilter
 
@@ -27,6 +28,7 @@ class GeminiBackend(LLMBackend):
     def __init__(self, client: httpx.AsyncClient) -> None:
         self.client = client
         self.available_models: list[str] = []
+        self.api_keys: list[str] = []
 
     async def initialize(
         self,
@@ -49,10 +51,9 @@ class GeminiBackend(LLMBackend):
         """Return cached Gemini model names."""
         return list(self.available_models)
 
-    def _convert_stream_chunk(
-            self, data: dict[str, Any], model: str) -> dict[str, Any]:
+    def _convert_stream_chunk(self, data: dict[str, Any], model: str) -> dict[str, Any]:
         """Convert a Gemini streaming JSON chunk to OpenAI format."""
-        candidate = {}
+        candidate: dict[str, Any] = {}
         text = ""
         if data.get("candidates"):
             candidate = data["candidates"][0] or {}
@@ -80,17 +81,41 @@ class GeminiBackend(LLMBackend):
     def _convert_full_response(
         self, data: dict[str, Any], model: str
     ) -> dict[str, Any]:
-        """Convert a Gemini JSON response to OpenAI format."""
-        candidate = {}
+        """Convert a Gemini JSON response to OpenAI format, including function calls."""
+        candidate: dict[str, Any] = {}
         text = ""
+        tool_call_obj: dict[str, Any] | None = None
         if data.get("candidates"):
             candidate = data["candidates"][0] or {}
             parts = candidate.get("content", {}).get("parts", [])
             for part in parts:
-                if isinstance(part, dict) and "text" in part:
-                    text += part["text"]
+                if isinstance(part, dict):
+                    if part.get("functionCall"):
+                        fc = part["functionCall"]
+                        try:
+                            args_str = json.dumps(fc.get("args", {}))
+                        except Exception:
+                            args_str = "{}"
+                        tool_call_obj = {
+                            "id": "call_0",
+                            "type": "function",
+                            "function": {
+                                "name": fc.get("name", "function"),
+                                "arguments": args_str,
+                            },
+                        }
+                    elif "text" in part:
+                        text += part["text"]
         finish = candidate.get("finishReason")
         usage = data.get("usageMetadata", {})
+
+        message: dict[str, Any] = {"role": "assistant", "content": text}
+        finish_reason = finish.lower() if isinstance(finish, str) else None
+        if tool_call_obj is not None:
+            message["content"] = None
+            message["tool_calls"] = [tool_call_obj]
+            finish_reason = "tool_calls"
+
         return {
             "id": data.get("id", ""),
             "object": "chat.completion",
@@ -99,10 +124,8 @@ class GeminiBackend(LLMBackend):
             "choices": [
                 {
                     "index": candidate.get("index", 0),
-                    "message": {"role": "assistant", "content": text},
-                    "finish_reason": (
-                        finish.lower() if isinstance(finish, str) else None
-                    ),
+                    "message": message,
+                    "finish_reason": finish_reason,
                 }
             ],
             "usage": {
@@ -133,9 +156,8 @@ class GeminiBackend(LLMBackend):
                 return {"inlineData": {"mimeType": mime, "data": b64_data}}
             # Otherwise treat as remote file URI
             return {
-                "fileData": {
-                    "mimeType": "application/octet-stream",
-                    "fileUri": url}}
+                "fileData": {"mimeType": "application/octet-stream", "fileUri": url}
+            }
         data = part.model_dump(exclude_unset=True)
         if data.get("type") == "text" and "text" in data:
             # Text content is already processed by middleware
@@ -144,7 +166,7 @@ class GeminiBackend(LLMBackend):
 
     def _prepare_gemini_contents(
         self,
-        processed_messages: list,
+        processed_messages: list[Any],
     ) -> list[dict[str, Any]]:
         payload_contents = []
         for msg in processed_messages:
@@ -153,36 +175,33 @@ class GeminiBackend(LLMBackend):
                 continue
 
             if isinstance(msg.content, str):
-                # Content is already processed by middleware
-                parts = [{"text": msg.content}]
+                # If this is a tool or function role, represent it as functionResponse for Gemini
+                if msg.role in ["tool", "function"]:
+                    # Try to parse JSON payload; otherwise wrap string
+                    try:
+                        input_obj = json.loads(msg.content)
+                    except Exception:
+                        input_obj = {"output": msg.content}
+                    parts: list[dict[str, Any]] = [
+                        {
+                            "functionResponse": {
+                                "name": getattr(msg, "name", "tool") or "tool",
+                                "response": input_obj,
+                            }
+                        }
+                    ]
+                else:
+                    # Content is already processed by middleware
+                    parts = [{"text": msg.content}]
             else:
-                parts = [
-                    self._convert_part_for_gemini(part)
-                    for part in msg.content
-                ]
+                parts = [self._convert_part_for_gemini(part) for part in msg.content]
 
             # Map roles to 'user' or 'model' as required by Gemini API
             if msg.role == "user":
                 gemini_role = "user"
             elif msg.role in ["tool", "function"]:
+                # Tool/function results are treated as coming from the user side in Gemini
                 gemini_role = "user"
-                # For tool/function messages, wrap content in a tool_response part
-                # This part seems to construct a text representation and also pass structured content.
-                # Ensuring `msg.content` is serializable if it's complex.
-                try:
-                    tool_content_str = json.dumps(msg.content)
-                except TypeError:
-                    tool_content_str = str(msg.content) # Fallback if not directly serializable
-
-                parts = [
-                    {
-                        # Consider if "text" part should be a more structured representation or just a summary
-                        "text": f"tool_code: {tool_content_str}",
-                        # Assuming 'tool_response' is the expected field name by Gemini for this.
-                        # If Gemini expects a specific structure for tool responses, this needs to align.
-                        "tool_response": msg.content,
-                    }
-                ]
             else:  # e.g., assistant
                 gemini_role = "model"
 
@@ -242,13 +261,16 @@ class GeminiBackend(LLMBackend):
                                 for item in obj:
                                     if isinstance(item, dict):
                                         converted = self._convert_stream_chunk(
-                                            item, effective_model)
+                                            item, effective_model
+                                        )
                                         yield f"data: {json.dumps(converted)}\n\n".encode()
                                     else:
                                         logger.warning(
                                             f"Unexpected item type in Gemini stream: {type(item)}"
                                         )
-                            elif isinstance(obj, dict): # Ensure obj is a dict before processing
+                            elif isinstance(
+                                obj, dict
+                            ):  # Ensure obj is a dict before processing
                                 converted = self._convert_stream_chunk(
                                     obj, effective_model
                                 )
@@ -265,64 +287,78 @@ class GeminiBackend(LLMBackend):
                 finally:
                     await response.aclose()
 
-            return StreamingResponse(
-                stream_generator(), media_type="text/event-stream"
-            )
+            return StreamingResponse(stream_generator(), media_type="text/event-stream")
         except httpx.RequestError as e:
-            logger.error(
-                f"Request error connecting to Gemini: {e}", exc_info=True)
+            logger.error(f"Request error connecting to Gemini: {e}", exc_info=True)
             raise HTTPException(
                 status_code=503,
                 detail=f"Service unavailable: Could not connect to Gemini ({e})",
             )
 
-    async def chat_completions(
+    async def chat_completions(  # type: ignore[override]
         self,
         request_data: ChatCompletionRequest,
-        processed_messages: list,
+        processed_messages: list[Any],
         effective_model: str,
-        openrouter_api_base_url: str | None = None,  # absorb unused param
-        openrouter_headers_provider: object = None,  # absorb unused param
+        openrouter_api_base_url: str | None = None,
+        openrouter_headers_provider: Callable[[str, str], dict[str, str]] | None = None,
         key_name: str | None = None,
         api_key: str | None = None,
         project: str | None = None,
-        **kwargs,
+        agent: str | None = None,
+        gemini_api_base_url: str | None = None,
+        prompt_redactor: Any = None,
+        command_filter: Any = None,
+        **kwargs: Any,
     ) -> dict[str, Any] | StreamingResponse:
-        gemini_api_base_url = openrouter_api_base_url or kwargs.get(
-            "gemini_api_base_url"
+        # Use gemini_api_base_url parameter if provided, otherwise use openrouter_api_base_url or kwargs
+        _gemini_api_base_url = (
+            gemini_api_base_url
+            or openrouter_api_base_url
+            or kwargs.get("gemini_api_base_url")
         )
-        if not gemini_api_base_url or not api_key:
+        _api_key = api_key or kwargs.get("api_key")
+
+        if not _gemini_api_base_url or not _api_key:
             raise HTTPException(
                 status_code=500,
                 detail="Gemini API base URL and API key must be provided.",
             )
 
-        payload_contents = self._prepare_gemini_contents(
-            processed_messages
-        )
-        payload = {"contents": payload_contents}
+        payload_contents = self._prepare_gemini_contents(processed_messages)
+        payload: dict[str, Any] = {"contents": payload_contents}
 
         # Handle Gemini-specific reasoning parameters
-        if hasattr(request_data, 'thinking_budget') and request_data.thinking_budget:
+        if hasattr(request_data, "thinking_budget") and request_data.thinking_budget:
             if "generationConfig" not in payload:
                 payload["generationConfig"] = {}
             if "thinkingConfig" not in payload["generationConfig"]:
                 payload["generationConfig"]["thinkingConfig"] = {}
-            payload["generationConfig"]["thinkingConfig"]["thinkingBudget"] = request_data.thinking_budget
+            payload["generationConfig"]["thinkingConfig"][
+                "thinkingBudget"
+            ] = request_data.thinking_budget
 
-        if hasattr(request_data, 'generation_config') and request_data.generation_config:
+        if (
+            hasattr(request_data, "generation_config")
+            and request_data.generation_config
+        ):
             if "generationConfig" not in payload:
                 payload["generationConfig"] = {}
             payload["generationConfig"].update(request_data.generation_config)
 
         # Handle temperature parameter
-        if hasattr(request_data, 'temperature') and request_data.temperature is not None:
+        if (
+            hasattr(request_data, "temperature")
+            and request_data.temperature is not None
+        ):
             if "generationConfig" not in payload:
                 payload["generationConfig"] = {}
             # Validate temperature range for Gemini (0.0 to 1.0)
             temperature = request_data.temperature
             if temperature > 1.0:
-                logger.warning(f"Temperature {temperature} > 1.0 for Gemini, clamping to 1.0")
+                logger.warning(
+                    f"Temperature {temperature} > 1.0 for Gemini, clamping to 1.0"
+                )
                 temperature = 1.0
             payload["generationConfig"]["temperature"] = temperature
 
@@ -340,12 +376,15 @@ class GeminiBackend(LLMBackend):
         # NEW: Strip provider prefixes like 'google/' that are used by OpenRouter
         # Only keep the final path segment which is the actual Gemini model id.
         if "/" in model_name:
-            logger.debug("Detected provider prefix in model name '%s'. Using last path segment as Gemini model id.", model_name)
+            logger.debug(
+                "Detected provider prefix in model name '%s'. Using last path segment as Gemini model id.",
+                model_name,
+            )
             model_name = model_name.rsplit("/", 1)[-1]
 
         logger.debug(f"Constructing Gemini API URL with model_name: {model_name}")
-        base_api_url = f"{gemini_api_base_url.rstrip('/')}/v1beta/models/{model_name}"
-        headers = {"x-goog-api-key": api_key}
+        base_api_url = f"{_gemini_api_base_url.rstrip('/')}/v1beta/models/{model_name}"
+        headers = {"x-goog-api-key": _api_key}
 
         if request_data.stream:
             return await self._handle_gemini_streaming_response(
@@ -379,8 +418,7 @@ class GeminiBackend(LLMBackend):
             logger.debug(f"Gemini response headers: {dict(response.headers)}")
             return self._convert_full_response(data, effective_model)
         except httpx.RequestError as e:
-            logger.error(
-                f"Request error connecting to Gemini: {e}", exc_info=True)
+            logger.error(f"Request error connecting to Gemini: {e}", exc_info=True)
             raise HTTPException(
                 status_code=503,
                 detail=f"Service unavailable: Could not connect to Gemini ({e})",
@@ -405,11 +443,9 @@ class GeminiBackend(LLMBackend):
                 raise HTTPException(
                     status_code=response.status_code, detail=error_detail
                 )
-            return response.json()
+            return cast(dict[str, Any], response.json())
         except httpx.RequestError as e:
-            logger.error(
-                f"Request error connecting to Gemini: {e}",
-                exc_info=True)
+            logger.error(f"Request error connecting to Gemini: {e}", exc_info=True)
             raise HTTPException(
                 status_code=503,
                 detail=f"Service unavailable: Could not connect to Gemini ({e})",

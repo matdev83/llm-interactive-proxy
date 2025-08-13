@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Mapping
 
 from fastapi import FastAPI
 
@@ -8,7 +8,7 @@ from .base import CommandResult, register_command  # Removed BaseCommand
 from .failover_base import FailoverBase
 
 if TYPE_CHECKING:
-    from ..proxy_logic import ProxyState
+    from src.proxy_logic import ProxyState
 
 
 @register_command
@@ -18,12 +18,12 @@ class ListFailoverRoutesCommand(FailoverBase):
     description = "List configured failover routes"
     examples = ["!/list-failover-routes"]
 
-    def __init__(self, app: FastAPI | None = None,
-                 functional_backends: set[str] | None = None) -> None:
+    def __init__(
+        self, app: FastAPI | None = None, functional_backends: set[str] | None = None
+    ) -> None:
         super().__init__(app=app, functional_backends=functional_backends)
 
-    def execute(self, args: dict[str, Any],
-                state: ProxyState) -> CommandResult:
+    def execute(self, args: Mapping[str, Any], state: ProxyState) -> CommandResult:
         msgs: list[str] = []
         self._ensure_interactive(state, msgs)
         data = state.list_routes()

@@ -3,14 +3,14 @@ from typing import List, Optional
 
 # Public helpers re-exported for external tests
 __all__ = [
-    "detect_frontend_api",
-    "detect_agent",
-    "wrap_proxy_message",
-    "format_command_response_for_agent",
-    "convert_cline_marker_to_openai_tool_call",
     "convert_cline_marker_to_anthropic_tool_use",
     "convert_cline_marker_to_gemini_function_call",
+    "convert_cline_marker_to_openai_tool_call",
     "create_openai_attempt_completion_tool_call",
+    "detect_agent",
+    "detect_frontend_api",
+    "format_command_response_for_agent",
+    "wrap_proxy_message",
 ]
 
 
@@ -87,8 +87,8 @@ def convert_cline_marker_to_openai_tool_call(content: str) -> dict:
     Convert Cline marker to OpenAI tool call format.
     Frontend-specific implementation for OpenAI API.
     """
-    import secrets
     import json
+    import secrets
     
     # Extract content from marker
     if content.startswith("__CLINE_TOOL_CALL_MARKER__") and content.endswith("__END_CLINE_TOOL_CALL_MARKER__"):
@@ -111,8 +111,8 @@ def convert_cline_marker_to_anthropic_tool_use(content: str) -> str:
     Convert Cline marker to Anthropic tool_use format.
     Frontend-specific implementation for Anthropic API.
     """
-    import secrets
     import json
+    import secrets
     
     # Extract content from marker
     if content.startswith("__CLINE_TOOL_CALL_MARKER__") and content.endswith("__END_CLINE_TOOL_CALL_MARKER__"):
@@ -158,7 +158,7 @@ def convert_cline_marker_to_gemini_function_call(content: str) -> str:
 # ---------------------------------------------------------------------------
 
 
-def create_openai_attempt_completion_tool_call(content_lines: List[str]) -> dict:  # noqa: D401 – simple helper
+def create_openai_attempt_completion_tool_call(content_lines: List[str]) -> dict:
     """Return a fully-formed OpenAI tool-call dict for *attempt_completion*.
 
     The integration tests expect a helper that takes a list of **content**

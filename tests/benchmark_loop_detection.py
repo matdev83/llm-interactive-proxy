@@ -3,9 +3,9 @@
 Benchmark script for loop detection performance improvements.
 """
 
-import time
-import sys
 import os
+import sys
+import time
 
 # Add current directory to path so we can import the modules
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))

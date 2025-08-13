@@ -190,7 +190,8 @@ class TestLoopDetectionSimpleIntegration:
         test_config = {
             **base_config,
             "loop_detection_enabled": True,
-            "backend": "gemini-cli-direct",  # Use CLI backend to avoid API issues
+            "backend": "gemini",  # Use gemini backend
+            "gemini_api_keys": {"test_key": "test_value"},  # Add dummy API key
             "disable_auth": True,  # Disable auth for testing
         }
         

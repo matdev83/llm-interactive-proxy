@@ -6,7 +6,7 @@ Provides /anthropic/v1/messages and /anthropic/v1/models endpoints.
 from __future__ import annotations
 
 import logging
-from typing import Any
+from typing import Any, AsyncGenerator
 
 from fastapi import APIRouter, HTTPException, Request
 from starlette.responses import Response, StreamingResponse
@@ -37,7 +37,7 @@ async def anthropic_messages(
 ) -> Any:
     """
     Anthropic /v1/messages endpoint - chat completions.
-    
+
     Converts Anthropic request format to OpenAI format, processes through
     the existing proxy logic, then converts response back to Anthropic format.
     """
@@ -57,17 +57,30 @@ async def anthropic_messages(
     # --- Step 2: Temporarily switch backend type so chat_completions routes to Anthropic backend
     # If the parent app doesn't expose required state (unit tests using a bare FastAPI instance),
     # fall back to legacy 501 behaviour so that existing tests pass.
-    if not hasattr(http_request.app, "state") or not hasattr(http_request.app.state, "chat_completions_func"):
-        raise HTTPException(status_code=501, detail="Anthropic endpoint not yet fully integrated - use OpenAI endpoint with anthropic backend")
+    if not hasattr(http_request.app, "state") or not hasattr(
+        http_request.app.state, "chat_completions_func"
+    ):
+        raise HTTPException(
+            status_code=501,
+            detail="Anthropic endpoint not yet fully integrated - use OpenAI endpoint with anthropic backend",
+        )
 
-    original_backend_type = getattr(http_request.app.state, "backend_type", BackendType.OPENROUTER)
+    original_backend_type = getattr(
+        http_request.app.state, "backend_type", BackendType.OPENROUTER
+    )
     http_request.app.state.backend_type = BackendType.ANTHROPIC
 
     try:
         import inspect
+
         chat_completions_fn = http_request.app.state.chat_completions_func
-        if chat_completions_fn is None or not inspect.iscoroutinefunction(chat_completions_fn):
-            raise HTTPException(status_code=501, detail="Anthropic endpoint not yet fully integrated - use OpenAI endpoint with anthropic backend")
+        if chat_completions_fn is None or not inspect.iscoroutinefunction(
+            chat_completions_fn
+        ):
+            raise HTTPException(
+                status_code=501,
+                detail="Anthropic endpoint not yet fully integrated - use OpenAI endpoint with anthropic backend",
+            )
 
         openai_response = await chat_completions_fn(openai_request_obj, http_request)
 
@@ -88,7 +101,7 @@ async def anthropic_messages(
 async def anthropic_models() -> dict[str, Any]:
     """
     Anthropic /v1/models endpoint - list available models.
-    
+
     Returns a list of available Anthropic models in OpenAI-compatible format.
     """
     try:
@@ -99,28 +112,30 @@ async def anthropic_models() -> dict[str, Any]:
         raise HTTPException(status_code=500, detail=str(e))
 
 
-def _convert_streaming_response(openai_stream_response) -> Response:
+def _convert_streaming_response(openai_stream_response: StreamingResponse) -> Response:
     """
     Convert OpenAI streaming response to Anthropic streaming format.
-    
+
     Args:
         openai_stream_response: OpenAI StreamingResponse
-        
+
     Returns:
         Anthropic-compatible StreamingResponse
     """
-    
+
     if isinstance(openai_stream_response, StreamingResponse):
         # Create a new streaming response that converts chunks
-        async def anthropic_stream_generator():
+        async def anthropic_stream_generator() -> AsyncGenerator[bytes, None]:
             async for chunk in openai_stream_response.body_iterator:
                 if isinstance(chunk, bytes):
-                    chunk = chunk.decode('utf-8')
-                
+                    chunk_str = chunk.decode("utf-8")
+                else:
+                    chunk_str = str(chunk)
+
                 # Convert each OpenAI chunk to Anthropic format
-                anthropic_chunk = openai_stream_to_anthropic_stream(chunk)
-                yield anthropic_chunk.encode('utf-8')
-        
+                anthropic_chunk = openai_stream_to_anthropic_stream(chunk_str)
+                yield anthropic_chunk.encode("utf-8")
+
         return StreamingResponse(
             anthropic_stream_generator(),
             media_type="text/plain",
@@ -132,7 +147,7 @@ def _convert_streaming_response(openai_stream_response) -> Response:
         )
     else:
         # If it's not a streaming response, return as-is
-        return openai_stream_response
+        return openai_stream_response  # type: ignore[return-value]
 
 
 # Health check endpoint for Anthropic router
