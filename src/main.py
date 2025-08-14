@@ -587,7 +587,7 @@ def build_app(
 
         logger.info(
             f"Tool call loop detection initialized: enabled={tool_loop_config.enabled}, "
-            f"mode={tool_loop_config.mode.value}, max_repeats={tool_loop_config.max_repeats}"
+            f"mode={tool_loop_config.mode}, max_repeats={tool_loop_config.max_repeats}"
         )
 
         # Configure API key redaction middleware
@@ -1926,6 +1926,227 @@ def build_app(
                         "finish_reason": "error",
                     }
                 ]
+
+            # -----------------------------------------------------------------
+            # Tool-call loop detection and enforcement (non-streaming responses)
+            # -----------------------------------------------------------------
+            try:
+                from src.tool_call_loop.config import ToolCallLoopConfig
+                from src.tool_call_loop.tracker import ToolCallTracker
+
+                server_cfg: ToolCallLoopConfig | None = getattr(
+                    http_request.app.state, "tool_loop_config", None
+                )
+                if server_cfg:
+                    # Ensure trackers dict exists
+                    if not hasattr(http_request.app.state, "tool_loop_trackers"):
+                        http_request.app.state.tool_loop_trackers = {}
+                    # Build effective config from session overrides → server defaults
+                    eff_enabled = (
+                        proxy_state.tool_loop_detection_enabled
+                        if proxy_state.tool_loop_detection_enabled is not None
+                        else server_cfg.enabled
+                    )
+                    eff_max = (
+                        proxy_state.tool_loop_max_repeats
+                        if proxy_state.tool_loop_max_repeats is not None
+                        else server_cfg.max_repeats
+                    )
+                    eff_ttl = (
+                        proxy_state.tool_loop_ttl_seconds
+                        if proxy_state.tool_loop_ttl_seconds is not None
+                        else server_cfg.ttl_seconds
+                    )
+                    eff_mode = (
+                        proxy_state.tool_loop_mode
+                        if proxy_state.tool_loop_mode is not None
+                        else server_cfg.mode
+                    )
+
+                    effective_cfg = ToolCallLoopConfig(
+                        enabled=eff_enabled,
+                        max_repeats=eff_max,
+                        ttl_seconds=eff_ttl,
+                        mode=eff_mode,
+                    )
+
+                    # Create tracker per session if missing
+                    if session_id not in http_request.app.state.tool_loop_trackers:
+                        http_request.app.state.tool_loop_trackers[session_id] = (
+                            ToolCallTracker(effective_cfg)
+                        )
+                    tracker = http_request.app.state.tool_loop_trackers.get(session_id)
+
+                    if tracker and tracker.config.enabled:
+                        # Update tracker config if overrides changed mid-session
+                        tracker.config = effective_cfg
+
+                        modified_choices: list[dict] = []
+                        rebuilt_response = False
+
+                        for choice in backend_response_dict.get("choices", []):
+                            msg = choice.get("message", {})
+                            tcalls = msg.get("tool_calls", [])
+                            if not tcalls:
+                                modified_choices.append(choice)
+                                continue
+
+                            blocked = False
+                            reason: str | None = None
+                            repeat_count: int | None = None
+                            first_tool_name = ""
+                            first_args = "{}"
+                            for t in tcalls:
+                                if t.get("type") == "function":
+                                    f = t.get("function", {})
+                                    tname = f.get("name", "")
+                                    targs = f.get("arguments", "{}")
+                                    if tname:
+                                        first_tool_name = first_tool_name or tname
+                                        first_args = (
+                                            first_args if first_tool_name else targs
+                                        )
+                                        blocked, reason, repeat_count = (
+                                            tracker.track_tool_call(tname, targs)
+                                        )
+                                        if blocked:
+                                            break
+
+                            if blocked:
+                                # If in chance_then_break and this is the first warning, perform transparent retry
+                                is_chance = (
+                                    tracker.config.mode.name.lower()
+                                    == "chance_then_break"
+                                )
+                                is_warning = (
+                                    isinstance(reason, str)
+                                    and "warning" in reason.lower()
+                                )
+                                if is_chance and is_warning:
+                                    # Build guidance text and append as assistant message
+                                    guidance_text = (
+                                        f"Tool call loop warning: The last tool invocation repeated the same function with identical "
+                                        f"parameters {repeat_count or tracker.config.max_repeats} times within the last {tracker.config.ttl_seconds} seconds.\n"
+                                        "Before invoking any tool again, pause and reflect on your plan.\n"
+                                        "- Verify that the tool name and parameters are correct and necessary.\n"
+                                        "- If the tool previously failed or produced no progress, adjust inputs or choose a different approach.\n"
+                                        "- Only call a tool if it is strictly required for the next step, otherwise continue with reasoning or a textual reply.\n"
+                                        f"Tool you attempted: {first_tool_name} with arguments: {first_args}.\n"
+                                        "Respond with either: (a) revised reasoning and a corrected single tool call with improved parameters; or (b) a textual explanation of the next steps without calling any tool."
+                                    )
+
+                                    # Mutate request to include guidance and re-call backend once
+                                    new_msgs = list(request_data.messages or [])
+                                    new_msgs.append(
+                                        models.ChatMessage(
+                                            role="assistant", content=guidance_text
+                                        )
+                                    )
+                                    request_data = models.ChatCompletionRequest(
+                                        **request_data.model_dump(exclude_unset=True)
+                                    )
+                                    request_data.messages = new_msgs
+                                    processed_messages = [
+                                        models.ChatMessage.model_validate(m)
+                                        for m in new_msgs
+                                    ]
+
+                                    # Choose keys for used backend
+                                    k_list = _keys_for(cfg, used_backend)
+                                    if not k_list:
+                                        # Fallback: keep original response unchanged
+                                        modified_choices.append(choice)
+                                        continue
+                                    kname_retry, key_retry = k_list[0]
+
+                                    second = await _call_backend(
+                                        used_backend,
+                                        used_model,
+                                        kname_retry,
+                                        key_retry,
+                                        session.agent,
+                                    )
+
+                                    # Normalize second response
+                                    if isinstance(second, dict):
+                                        second_dict = second
+                                    elif second and hasattr(second, "model_dump"):
+                                        second_dict = second.model_dump(
+                                            exclude_none=True
+                                        )
+                                    else:
+                                        second_dict = {}
+
+                                    # Re-check tool calls in second response
+                                    new_choices = []
+                                    for ch in second_dict.get("choices", []):
+                                        m2 = ch.get("message", {})
+                                        t2 = m2.get("tool_calls", [])
+                                        if t2:
+                                            inner_blocked = False
+                                            inner_reason = None
+                                            inner_count = None
+                                            for t in t2:
+                                                if t.get("type") == "function":
+                                                    f2 = t.get("function", {})
+                                                    tn2 = f2.get("name", "")
+                                                    ta2 = f2.get("arguments", "{}")
+                                                    if tn2:
+                                                        (
+                                                            inner_blocked,
+                                                            inner_reason,
+                                                            inner_count,
+                                                        ) = tracker.track_tool_call(
+                                                            tn2,
+                                                            ta2,
+                                                            # Force block if it's the same tool call again
+                                                            force_block=(
+                                                                tn2 == first_tool_name
+                                                                and ta2 == first_args
+                                                            ),
+                                                        )
+                                                        if inner_blocked:
+                                                            break
+                                            if inner_blocked:
+                                                new_choices.append(
+                                                    {
+                                                        "index": ch.get("index", 0),
+                                                        "message": {
+                                                            "role": "assistant",
+                                                            "content": inner_reason,
+                                                        },
+                                                        "finish_reason": "error",
+                                                    }
+                                                )
+                                            else:
+                                                new_choices.append(ch)
+                                        else:
+                                            new_choices.append(ch)
+
+                                    if new_choices:
+                                        backend_response_dict["choices"] = new_choices
+                                    # Mark that we rebuilt the response via transparent retry
+                                    rebuilt_response = True
+                                    # Stop processing further choices since we rebuilt response
+                                    break
+                                else:
+                                    modified_choices.append(
+                                        {
+                                            "index": choice.get("index", 0),
+                                            "message": {
+                                                "role": "assistant",
+                                                "content": reason,
+                                            },
+                                            "finish_reason": "error",
+                                        }
+                                    )
+                            else:
+                                modified_choices.append(choice)
+
+                        if modified_choices and not rebuilt_response:
+                            backend_response_dict["choices"] = modified_choices
+            except Exception as loop_exc:
+                logger.debug(f"Tool-call loop detection error ignored: {loop_exc}")
 
             usage_data = backend_response_dict.get("usage")
             session.add_interaction(

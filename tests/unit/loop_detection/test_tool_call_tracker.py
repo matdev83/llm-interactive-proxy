@@ -1,172 +1,322 @@
-"""Tests for the ToolCallTracker class."""
+"""Unit tests for the tool call loop detection tracker."""
 
 import datetime
 import json
-from typing import Any, Dict
 
 import pytest
-from src.loop_detection.tool_call_tracker import ToolCallSignature, ToolCallTracker
-from src.loop_detection.config import LoopDetectionConfig
-
-
-@pytest.fixture
-def config() -> LoopDetectionConfig:
-    """Create a test configuration."""
-    return LoopDetectionConfig(
-        enabled=True,
-        max_repeats=3,
-        ttl_seconds=60,
-        mode="consecutive"
-    )
+from src.tool_call_loop.config import ToolCallLoopConfig, ToolLoopMode
+from src.tool_call_loop.tracker import ToolCallSignature, ToolCallTracker
 
 
 class TestToolCallSignature:
-    """Test the ToolCallSignature class."""
+    """Tests for the ToolCallSignature class."""
 
-    def test_signature_creation(self) -> None:
-        """Test creating ToolCallSignature instances."""
-        sig = ToolCallSignature("test_tool", '{"arg": "value"}')
-        
-        assert sig.tool_name == "test_tool"
-        assert sig.arguments_json == '{"arg": "value"}'
-        assert sig.timestamp is not None
+    def test_from_tool_call_valid_json(self):
+        """Test creating a signature from a tool call with valid JSON arguments."""
+        tool_name = "test_tool"
+        arguments = '{"arg1": "value1", "arg2": 42}'
 
-    def test_signature_equality(self) -> None:
-        """Test ToolCallSignature equality comparison."""
-        sig1 = ToolCallSignature("test_tool", '{"arg": "value"}')
-        sig2 = ToolCallSignature("test_tool", '{"arg": "value"}')
-        sig3 = ToolCallSignature("other_tool", '{"arg": "value"}')
-        sig4 = ToolCallSignature("test_tool", '{"other": "value"}')
-        
-        assert sig1 == sig2
-        assert sig1 != sig3
-        assert sig1 != sig4
+        signature = ToolCallSignature.from_tool_call(tool_name, arguments)
 
-    def test_get_full_signature(self) -> None:
+        assert signature.tool_name == tool_name
+        assert signature.raw_arguments == arguments
+        # Check that the arguments are canonicalized (sorted keys)
+        expected_canonical = json.dumps(json.loads(arguments), sort_keys=True)
+        assert signature.arguments_signature == expected_canonical
+
+    def test_from_tool_call_invalid_json(self):
+        """Test creating a signature from a tool call with invalid JSON arguments."""
+        tool_name = "test_tool"
+        arguments = "invalid json"
+
+        signature = ToolCallSignature.from_tool_call(tool_name, arguments)
+
+        assert signature.tool_name == tool_name
+        assert signature.raw_arguments == arguments
+        # Invalid JSON should be used as-is
+        assert signature.arguments_signature == arguments
+
+    def test_get_full_signature(self):
         """Test getting the full signature string."""
-        sig = ToolCallSignature("test_tool", '{"arg": "value"}')
-        expected = "test_tool:{\"arg\": \"value\"}"
-        assert sig.get_full_signature() == expected
+        tool_name = "test_tool"
+        arguments = '{"arg": "value"}'
 
-    def test_is_expired(self) -> None:
-        """Test checking if a signature is expired."""
-        sig = ToolCallSignature("test_tool", '{"arg": "value"}')
-        
-        # Should not be expired immediately
-        assert not sig.is_expired(60)
-        
-        # Manually set timestamp to past
-        sig.timestamp = datetime.datetime.now() - datetime.timedelta(seconds=70)
-        assert sig.is_expired(60)
+        signature = ToolCallSignature.from_tool_call(tool_name, arguments)
+
+        # Full signature should be tool_name:arguments_signature
+        expected_full_sig = (
+            f"{tool_name}:{json.dumps(json.loads(arguments), sort_keys=True)}"
+        )
+        assert signature.get_full_signature() == expected_full_sig
+
+    def test_is_expired(self):
+        """Test checking if a signature has expired."""
+        # Create a signature with a timestamp in the past
+        signature = ToolCallSignature(
+            timestamp=datetime.datetime.now() - datetime.timedelta(seconds=10),
+            tool_name="test_tool",
+            arguments_signature='{"arg": "value"}',
+            raw_arguments='{"arg": "value"}',
+        )
+
+        # Should be expired with TTL of 5 seconds
+        assert signature.is_expired(5) is True
+        # Should not be expired with TTL of 15 seconds
+        assert signature.is_expired(15) is False
 
 
 class TestToolCallTracker:
-    """Test the ToolCallTracker class."""
+    """Tests for the ToolCallTracker class."""
 
-    def test_tracker_initialization(self, config: LoopDetectionConfig) -> None:
-        """Test that tracker initializes correctly."""
+    @pytest.fixture
+    def config(self):
+        """Create a default configuration for testing."""
+        return ToolCallLoopConfig(
+            enabled=True, max_repeats=3, ttl_seconds=60, mode=ToolLoopMode.BREAK
+        )
+
+    def test_init(self, config):
+        """Test initializing the tracker."""
         tracker = ToolCallTracker(config)
-        
+
         assert tracker.config == config
-        assert len(tracker.signatures) == 0
-        assert len(tracker.consecutive_repeats) == 0
+        assert tracker.signatures == []
+        assert tracker.consecutive_repeats == {}
+        assert tracker.chance_given == {}
 
-    def test_track_first_tool_call(self, config: LoopDetectionConfig) -> None:
-        """Test tracking the first call to a tool."""
+    def test_prune_expired_no_signatures(self, config):
+        """Test pruning when there are no signatures."""
         tracker = ToolCallTracker(config)
-        
+
+        pruned = tracker.prune_expired()
+
+        assert pruned == 0
+        assert tracker.signatures == []
+
+    def test_prune_expired_with_expired(self, config):
+        """Test pruning with expired signatures."""
+        tracker = ToolCallTracker(config)
+
+        # Add an expired signature
+        expired_sig = ToolCallSignature(
+            timestamp=datetime.datetime.now()
+            - datetime.timedelta(seconds=config.ttl_seconds + 10),
+            tool_name="test_tool",
+            arguments_signature='{"arg": "value"}',
+            raw_arguments='{"arg": "value"}',
+        )
+        tracker.signatures.append(expired_sig)
+        tracker.consecutive_repeats[expired_sig.get_full_signature()] = 2
+
+        # Add a non-expired signature
+        valid_sig = ToolCallSignature(
+            timestamp=datetime.datetime.now(),
+            tool_name="test_tool2",
+            arguments_signature='{"arg": "value2"}',
+            raw_arguments='{"arg": "value2"}',
+        )
+        tracker.signatures.append(valid_sig)
+        tracker.consecutive_repeats[valid_sig.get_full_signature()] = 1
+
+        pruned = tracker.prune_expired()
+
+        assert pruned == 1
+        assert len(tracker.signatures) == 1
+        assert tracker.signatures[0] == valid_sig
+        # Check that the consecutive count for the expired signature is removed
+        assert expired_sig.get_full_signature() not in tracker.consecutive_repeats
+        assert valid_sig.get_full_signature() in tracker.consecutive_repeats
+
+    def test_track_tool_call_disabled(self, config):
+        """Test tracking when disabled."""
+        config.enabled = False
+        tracker = ToolCallTracker(config)
+
         should_block, reason, count = tracker.track_tool_call(
             "test_tool", '{"arg": "value"}'
         )
-        
+
         assert should_block is False
         assert reason is None
         assert count is None
+        # No signature should be added when disabled
+        assert len(tracker.signatures) == 0
+
+    def test_track_tool_call_first_call(self, config):
+        """Test tracking the first call."""
+        tracker = ToolCallTracker(config)
+
+        should_block, reason, count = tracker.track_tool_call(
+            "test_tool", '{"arg": "value"}'
+        )
+
+        assert should_block is False
+        assert reason is None
+        assert count is None
+        # Signature should be added
         assert len(tracker.signatures) == 1
-        assert len(tracker.consecutive_repeats) == 1
-        
-        full_sig = "test_tool:{\"arg\": \"value\"}"
+        assert tracker.signatures[0].tool_name == "test_tool"
+        # Consecutive count should be initialized
+        full_sig = tracker.signatures[0].get_full_signature()
         assert tracker.consecutive_repeats[full_sig] == 1
 
-    def test_track_repeated_tool_call_below_threshold(self, config: LoopDetectionConfig) -> None:
-        """Test tracking repeated calls below the blocking threshold."""
+    def test_track_tool_call_different_calls(self, config):
+        """Test tracking different tool calls."""
         tracker = ToolCallTracker(config)
-        
-        # Make repeated calls up to threshold - 1
-        for i in range(config.max_repeats - 1):
+
+        # First call
+        tracker.track_tool_call("test_tool", '{"arg": "value1"}')
+        # Different tool
+        tracker.track_tool_call("different_tool", '{"arg": "value1"}')
+        # Same tool, different args
+        tracker.track_tool_call("test_tool", '{"arg": "value2"}')
+
+        # Should have 3 signatures
+        assert len(tracker.signatures) == 3
+        # Each should have a consecutive count of 1
+        assert len(tracker.consecutive_repeats) == 3
+        for sig in tracker.signatures:
+            assert tracker.consecutive_repeats[sig.get_full_signature()] == 1
+
+    def test_track_tool_call_repeated_below_threshold(self, config):
+        """Test tracking repeated calls below the threshold."""
+        tracker = ToolCallTracker(config)
+
+        # Make repeated calls but not enough to trigger blocking
+        for _ in range(config.max_repeats - 1):
             should_block, reason, count = tracker.track_tool_call(
                 "test_tool", '{"arg": "value"}'
             )
             assert should_block is False
-            assert reason is None
-            assert count is None
-        
-        assert len(tracker.signatures) == 1
-        full_sig = "test_tool:{\"arg\": \"value\"}"
+
+        # Check that the consecutive count is correct
+        assert len(tracker.signatures) == config.max_repeats - 1
+        full_sig = tracker.signatures[0].get_full_signature()
         assert tracker.consecutive_repeats[full_sig] == config.max_repeats - 1
 
-    def test_track_repeated_tool_call_at_threshold(self, config: LoopDetectionConfig) -> None:
-        """Test tracking repeated calls at the blocking threshold."""
+    def test_track_tool_call_repeated_at_threshold_break_mode(self, config):
+        """Test tracking repeated calls at the threshold with break mode."""
+        config.mode = ToolLoopMode.BREAK
         tracker = ToolCallTracker(config)
-        
-        # Make repeated calls up to threshold
-        for i in range(config.max_repeats - 1):
-            tracker.track_tool_call("test_tool", '{"arg": "value"}')
-        
-        # The threshold call should block
+
+        # Make repeated calls to trigger blocking
+        for _ in range(config.max_repeats - 1):
+            should_block, reason, count = tracker.track_tool_call(
+                "test_tool", '{"arg": "value"}'
+            )
+            assert should_block is False
+
+        # The last call should be blocked
         should_block, reason, count = tracker.track_tool_call(
             "test_tool", '{"arg": "value"}'
         )
-        
+
         assert should_block is True
-        assert reason == "consecutive_repeats"
+        assert reason is not None
+        assert "Tool call loop detected" in reason
         assert count == config.max_repeats
-        assert len(tracker.signatures) == 1
-        full_sig = "test_tool:{\"arg\": \"value\"}"
-        assert tracker.consecutive_repeats[full_sig] == config.max_repeats
 
-    def test_track_different_tool_calls(self, config: LoopDetectionConfig) -> None:
-        """Test tracking calls to different tools."""
+    def test_track_tool_call_repeated_at_threshold_chance_mode(self, config):
+        """Test tracking repeated calls at the threshold with chance_then_break mode."""
+        config.mode = ToolLoopMode.CHANCE_THEN_BREAK
         tracker = ToolCallTracker(config)
-        
-        # Call different tools
-        tracker.track_tool_call("tool1", '{"arg": "value1"}')
-        tracker.track_tool_call("tool2", '{"arg": "value2"}')
-        tracker.track_tool_call("tool1", '{"arg": "value1"}')
-        
-        assert len(tracker.signatures) == 2
-        assert len(tracker.consecutive_repeats) == 2
-        
-        sig1 = "tool1:{\"arg\": \"value1\"}"
-        sig2 = "tool2:{\"arg\": \"value2\"}"
-        assert tracker.consecutive_repeats[sig1] == 2
-        assert tracker.consecutive_repeats[sig2] == 1
 
-    def test_track_tool_call_with_different_args(self, config: LoopDetectionConfig) -> None:
-        """Test that calls with different arguments are treated separately."""
-        tracker = ToolCallTracker(config)
-        
-        # Call same tool with different arguments
-        tracker.track_tool_call("test_tool", '{"arg": "value1"}')
-        tracker.track_tool_call("test_tool", '{"arg": "value2"}')
-        tracker.track_tool_call("test_tool", '{"arg": "value1"}')
-        
-        assert len(tracker.signatures) == 2
-        assert len(tracker.consecutive_repeats) == 2
-        
-        sig1 = "test_tool:{\"arg\": \"value1\"}"
-        sig2 = "test_tool:{\"arg\": \"value2\"}"
-        assert tracker.consecutive_repeats[sig1] == 2
-        assert tracker.consecutive_repeats[sig2] == 1
+        # Make repeated calls to trigger the chance
+        for _ in range(config.max_repeats - 1):
+            should_block, reason, count = tracker.track_tool_call(
+                "test_tool", '{"arg": "value"}'
+            )
+            assert should_block is False
 
-    def test_track_tool_call_with_ttl_expiry(self, config: LoopDetectionConfig) -> None:
-        """Test that TTL expiry resets consecutive counting."""
+        # The call at the threshold should be blocked with a chance
+        should_block, reason, count = tracker.track_tool_call(
+            "test_tool", '{"arg": "value"}'
+        )
+
+        assert should_block is True
+        assert reason is not None
+        assert "Tool call loop warning" in reason
+        assert count == config.max_repeats
+
+        # Check that chance was given
+        full_sig = tracker.signatures[0].get_full_signature()
+        assert tracker.chance_given[full_sig] is True
+
+    def test_track_tool_call_after_chance_different_call(self, config):
+        """Test tracking a different call after a chance was given."""
+        config.mode = ToolLoopMode.CHANCE_THEN_BREAK
         tracker = ToolCallTracker(config)
-        
+
+        # Make repeated calls to trigger the chance
+        for _ in range(config.max_repeats):
+            tracker.track_tool_call("test_tool", '{"arg": "value"}')
+
+        # Now make a different call
+        should_block, reason, count = tracker.track_tool_call(
+            "test_tool", '{"arg": "different"}'
+        )
+
+        assert should_block is False
+        assert reason is None
+        assert count is None
+
+        # Check that the chance is not applied to the new signature
+        # Note: The chance for the old signature remains in the dict,
+        # but it's not used for the new signature
+        full_sig = f"test_tool:{json.dumps({'arg': 'different'}, sort_keys=True)}"
+        assert full_sig not in tracker.chance_given
+
+    def test_track_tool_call_after_chance_same_call(self, config):
+        """Test tracking the same call after a chance was given."""
+        config.mode = ToolLoopMode.CHANCE_THEN_BREAK
+        tracker = ToolCallTracker(config)
+
+        # Make repeated calls to trigger the chance
+        for _ in range(config.max_repeats):
+            tracker.track_tool_call("test_tool", '{"arg": "value"}')
+
+        # Now make the same call again
+        should_block, reason, count = tracker.track_tool_call(
+            "test_tool", '{"arg": "value"}'
+        )
+
+        assert should_block is True
+        assert reason is not None
+        assert "After guidance" in reason
+        assert count == config.max_repeats + 1
+
+    def test_track_tool_call_reset_after_different(self, config):
+        """Test that consecutive count resets after a different call."""
+        tracker = ToolCallTracker(config)
+
         # Make some repeated calls
         for _ in range(config.max_repeats - 1):
             tracker.track_tool_call("test_tool", '{"arg": "value"}')
-            
+
+        # Make a different call
+        tracker.track_tool_call("different_tool", '{"arg": "value"}')
+
+        # Now make the original call again - should not block
+        should_block, reason, count = tracker.track_tool_call(
+            "test_tool", '{"arg": "value"}'
+        )
+
+        assert should_block is False
+        assert reason is None
+        assert count is None
+
+        # Check that the consecutive count was reset
+        full_sig = f"test_tool:{json.dumps({'arg': 'value'}, sort_keys=True)}"
+        assert tracker.consecutive_repeats[full_sig] == 1
+
+    def test_track_tool_call_with_ttl_expiry(self, config):
+        """Test that TTL expiry resets consecutive counting."""
+        tracker = ToolCallTracker(config)
+
+        # Make some repeated calls
+        for _ in range(config.max_repeats - 1):
+            tracker.track_tool_call("test_tool", '{"arg": "value"}')
+
         # Manually set the timestamp of the signatures to be in the past
         for sig in tracker.signatures:
             sig.timestamp = datetime.datetime.now() - datetime.timedelta(
@@ -177,11 +327,11 @@ class TestToolCallTracker:
         should_block, reason, count = tracker.track_tool_call(
             "test_tool", '{"arg": "value"}'
         )
-        
+
         assert should_block is False
         assert reason is None
         assert count is None
-        
+
         # Check that old signatures were pruned
         assert len(tracker.signatures) == 1
         # Check that the consecutive count was reset
