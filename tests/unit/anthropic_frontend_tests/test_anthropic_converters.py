@@ -34,7 +34,7 @@ class TestAnthropicConverters:
             temperature=0.7,
             top_p=0.9,
             system="You are helpful",
-            stream=True
+            stream=True,
         )
         assert req.model == "claude-3-sonnet-20240229"
         assert len(req.messages) == 1
@@ -49,11 +49,11 @@ class TestAnthropicConverters:
         anthropic_req = AnthropicMessagesRequest(
             model="claude-3-sonnet-20240229",
             messages=[AnthropicMessage(role="user", content="Hello")],
-            max_tokens=100
+            max_tokens=100,
         )
-        
+
         openai_req = anthropic_to_openai_request(anthropic_req)
-        
+
         assert openai_req["model"] == "claude-3-sonnet-20240229"
         assert openai_req["max_tokens"] == 100
         assert openai_req["stream"] is False
@@ -67,11 +67,11 @@ class TestAnthropicConverters:
             model="claude-3-haiku-20240307",
             messages=[AnthropicMessage(role="user", content="Hello")],
             max_tokens=50,
-            system="You are a helpful assistant"
+            system="You are a helpful assistant",
         )
-        
+
         openai_req = anthropic_to_openai_request(anthropic_req)
-        
+
         assert len(openai_req["messages"]) == 2
         assert openai_req["messages"][0]["role"] == "system"
         assert openai_req["messages"][0]["content"] == "You are a helpful assistant"
@@ -88,11 +88,11 @@ class TestAnthropicConverters:
             top_p=0.95,
             top_k=40,  # Should be dropped
             stop_sequences=["STOP", "END"],
-            stream=True
+            stream=True,
         )
-        
+
         openai_req = anthropic_to_openai_request(anthropic_req)
-        
+
         assert openai_req["temperature"] == 0.8
         assert openai_req["top_p"] == 0.95
         assert "top_k" not in openai_req  # Should be dropped
@@ -110,20 +110,16 @@ class TestAnthropicConverters:
                     "index": 0,
                     "message": {
                         "role": "assistant",
-                        "content": "Hello! How can I help you?"
+                        "content": "Hello! How can I help you?",
                     },
-                    "finish_reason": "stop"
+                    "finish_reason": "stop",
                 }
             ],
-            "usage": {
-                "prompt_tokens": 10,
-                "completion_tokens": 15,
-                "total_tokens": 25
-            }
+            "usage": {"prompt_tokens": 10, "completion_tokens": 15, "total_tokens": 25},
         }
-        
+
         anthropic_response = openai_to_anthropic_response(openai_response)
-        
+
         assert anthropic_response["id"] == "chatcmpl-123"
         assert anthropic_response["type"] == "message"
         assert anthropic_response["role"] == "assistant"
@@ -138,9 +134,9 @@ class TestAnthropicConverters:
     def test_openai_stream_to_anthropic_stream_start(self):
         """Test OpenAI stream chunk to Anthropic stream conversion - start."""
         openai_chunk = 'data: {"id": "chatcmpl-123", "object": "chat.completion.chunk", "choices": [{"index": 0, "delta": {"role": "assistant"}}]}'
-        
+
         anthropic_chunk = openai_stream_to_anthropic_stream(openai_chunk)
-        
+
         assert anthropic_chunk.startswith("data: ")
         assert "message_start" in anthropic_chunk
         assert "assistant" in anthropic_chunk
@@ -148,9 +144,9 @@ class TestAnthropicConverters:
     def test_openai_stream_to_anthropic_stream_content(self):
         """Test OpenAI stream chunk to Anthropic stream conversion - content."""
         openai_chunk = 'data: {"id": "chatcmpl-123", "object": "chat.completion.chunk", "choices": [{"index": 0, "delta": {"content": "Hello"}}]}'
-        
+
         anthropic_chunk = openai_stream_to_anthropic_stream(openai_chunk)
-        
+
         assert anthropic_chunk.startswith("data: ")
         assert "content_block_delta" in anthropic_chunk
         assert "Hello" in anthropic_chunk
@@ -158,9 +154,9 @@ class TestAnthropicConverters:
     def test_openai_stream_to_anthropic_stream_finish(self):
         """Test OpenAI stream chunk to Anthropic stream conversion - finish."""
         openai_chunk = 'data: {"id": "chatcmpl-123", "object": "chat.completion.chunk", "choices": [{"index": 0, "delta": {}, "finish_reason": "stop"}]}'
-        
+
         anthropic_chunk = openai_stream_to_anthropic_stream(openai_chunk)
-        
+
         assert anthropic_chunk.startswith("data: ")
         assert "message_delta" in anthropic_chunk
         assert "end_turn" in anthropic_chunk
@@ -168,9 +164,9 @@ class TestAnthropicConverters:
     def test_openai_stream_to_anthropic_stream_invalid(self):
         """Test handling of invalid OpenAI stream chunks."""
         invalid_chunk = "invalid data"
-        
+
         anthropic_chunk = openai_stream_to_anthropic_stream(invalid_chunk)
-        
+
         # Should pass through unchanged
         assert anthropic_chunk == invalid_chunk
 
@@ -186,17 +182,17 @@ class TestAnthropicConverters:
     def test_get_anthropic_models(self):
         """Test Anthropic models endpoint response."""
         models_response = get_anthropic_models()
-        
+
         assert models_response["object"] == "list"
         assert "data" in models_response
         assert len(models_response["data"]) > 0
-        
+
         # Check for expected models
         model_ids = [model["id"] for model in models_response["data"]]
         assert "claude-3-5-sonnet-20241022" in model_ids
         assert "claude-3-5-haiku-20241022" in model_ids
         assert "claude-3-opus-20240229" in model_ids
-        
+
         # Check model structure
         first_model = models_response["data"][0]
         assert "id" in first_model
@@ -207,15 +203,10 @@ class TestAnthropicConverters:
 
     def test_extract_anthropic_usage_dict(self):
         """Test usage extraction from dictionary response."""
-        response = {
-            "usage": {
-                "input_tokens": 50,
-                "output_tokens": 75
-            }
-        }
-        
+        response = {"usage": {"input_tokens": 50, "output_tokens": 75}}
+
         usage = extract_anthropic_usage(response)
-        
+
         assert usage["input_tokens"] == 50
         assert usage["output_tokens"] == 75
         assert usage["total_tokens"] == 125
@@ -225,12 +216,12 @@ class TestAnthropicConverters:
         mock_usage = Mock()
         mock_usage.input_tokens = 30
         mock_usage.output_tokens = 45
-        
+
         mock_response = Mock()
         mock_response.usage = mock_usage
-        
+
         usage = extract_anthropic_usage(mock_response)
-        
+
         assert usage["input_tokens"] == 30
         assert usage["output_tokens"] == 45
         assert usage["total_tokens"] == 75
@@ -238,7 +229,7 @@ class TestAnthropicConverters:
     def test_extract_anthropic_usage_empty(self):
         """Test usage extraction with empty/invalid response."""
         usage = extract_anthropic_usage({})
-        
+
         assert usage["input_tokens"] == 0
         assert usage["output_tokens"] == 0
         assert usage["total_tokens"] == 0
@@ -251,14 +242,14 @@ class TestAnthropicConverters:
             messages=[
                 AnthropicMessage(role="user", content="What is 2+2?"),
                 AnthropicMessage(role="assistant", content="2+2 equals 4."),
-                AnthropicMessage(role="user", content="What about 3+3?")
+                AnthropicMessage(role="user", content="What about 3+3?"),
             ],
             max_tokens=50,
-            system="You are a math tutor"
+            system="You are a math tutor",
         )
-        
+
         openai_req = anthropic_to_openai_request(anthropic_req)
-        
+
         # Should have system + 3 conversation messages
         assert len(openai_req["messages"]) == 4
         assert openai_req["messages"][0]["role"] == "system"

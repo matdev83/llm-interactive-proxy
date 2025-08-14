@@ -37,6 +37,16 @@ class LoopDetectionConfig:
     # detection.  A value of 0 (or negative) disables the interval optimisation.
     analysis_interval: int = 64
 
+    # Hash-chunk algorithm parameters (ported from gemini-cli)
+    # Size of the fixed window used to hash and compare content chunks
+    content_chunk_size: int = 50
+    # Number of repeated identical chunks required (within close proximity)
+    # before flagging a loop. Higher default reduces false positives for
+    # naturally repetitive prose; distance heuristic still applies.
+    content_loop_threshold: int = 10
+    # Maximum characters of recent history to keep when scanning
+    max_history_length: int = 1000
+
     # Pattern thresholds
     short_pattern_threshold: PatternThresholds | None = None
     medium_pattern_threshold: PatternThresholds | None = None
@@ -84,6 +94,14 @@ class LoopDetectionConfig:
 
         if "analysis_interval" in config_dict:
             config.analysis_interval = int(config_dict["analysis_interval"])
+
+        # New hash-chunk parameters
+        if "content_chunk_size" in config_dict:
+            config.content_chunk_size = int(config_dict["content_chunk_size"])
+        if "content_loop_threshold" in config_dict:
+            config.content_loop_threshold = int(config_dict["content_loop_threshold"])
+        if "max_history_length" in config_dict:
+            config.max_history_length = int(config_dict["max_history_length"])
 
         if "whitelist" in config_dict:
             config.whitelist = list(config_dict["whitelist"])
@@ -137,6 +155,20 @@ class LoopDetectionConfig:
 
         if "LOOP_DETECTION_ANALYSIS_INTERVAL" in env_dict:
             config.analysis_interval = int(env_dict["LOOP_DETECTION_ANALYSIS_INTERVAL"])
+
+        # New hash-chunk parameters (optional)
+        if "LOOP_DETECTION_CONTENT_CHUNK_SIZE" in env_dict:
+            config.content_chunk_size = int(
+                env_dict["LOOP_DETECTION_CONTENT_CHUNK_SIZE"]
+            )
+        if "LOOP_DETECTION_CONTENT_LOOP_THRESHOLD" in env_dict:
+            config.content_loop_threshold = int(
+                env_dict["LOOP_DETECTION_CONTENT_LOOP_THRESHOLD"]
+            )
+        if "LOOP_DETECTION_MAX_HISTORY_LENGTH" in env_dict:
+            config.max_history_length = int(
+                env_dict["LOOP_DETECTION_MAX_HISTORY_LENGTH"]
+            )
 
         # Threshold environment variables
         if (

@@ -4,9 +4,9 @@ Performance tracking system for measuring execution times across the full reques
 
 import logging
 import time
+from collections.abc import Generator
 from contextlib import contextmanager
 from dataclasses import dataclass, field
-from typing import Dict, Generator, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -16,23 +16,23 @@ class PerformanceMetrics:
     """Container for performance metrics during a request."""
 
     request_start: float = field(default_factory=time.time)
-    command_processing_time: Optional[float] = None
-    backend_selection_time: Optional[float] = None
-    backend_call_time: Optional[float] = None
-    response_processing_time: Optional[float] = None
-    total_time: Optional[float] = None
+    command_processing_time: float | None = None
+    backend_selection_time: float | None = None
+    backend_call_time: float | None = None
+    response_processing_time: float | None = None
+    total_time: float | None = None
 
     # Additional context
-    backend_used: Optional[str] = None
-    model_used: Optional[str] = None
-    session_id: Optional[str] = None
+    backend_used: str | None = None
+    model_used: str | None = None
+    session_id: str | None = None
     commands_processed: bool = False
     streaming: bool = False
 
     def __post_init__(self) -> None:
         """Initialize timing markers."""
-        self._markers: Dict[str, float] = {}
-        self._current_phase: Optional[str] = None
+        self._markers: dict[str, float] = {}
+        self._current_phase: str | None = None
 
     def start_phase(self, phase_name: str) -> None:
         """Start timing a specific phase."""
@@ -125,7 +125,7 @@ class PerformanceMetrics:
 
 @contextmanager
 def track_request_performance(
-    session_id: Optional[str] = None,
+    session_id: str | None = None,
 ) -> Generator[PerformanceMetrics, None, None]:
     """Context manager for tracking performance across a full request."""
     metrics = PerformanceMetrics()

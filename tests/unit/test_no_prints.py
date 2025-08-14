@@ -8,7 +8,7 @@ ALLOWED_FILES = {
 }
 
 
-def test_no_print_statements():
+def test_no_print_statements() -> None:
     repo_root = pathlib.Path(__file__).resolve().parents[2]
     for path in repo_root.rglob("*.py"):
         if (

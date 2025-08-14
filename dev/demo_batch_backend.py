@@ -1,15 +1,18 @@
-import tempfile, json
-import sys, pathlib
-from fastapi.testclient import TestClient
+import pathlib
+import sys
+import tempfile
 from unittest.mock import patch
+
+from fastapi.testclient import TestClient
 
 # Ensure project root is on sys.path when script run directly
 project_root = pathlib.Path(__file__).resolve().parents[1]
 if str(project_root) not in sys.path:
     sys.path.insert(0, str(project_root))
 
-from src.main import build_app
 from src.connectors.gemini_cli_direct import GeminiCliDirectConnector
+from src.main import build_app
+
 
 # Stub the actual CLI call so we don't need Gemini installed
 async def _fake_execute(self, prompt: str, model: str | None = None, sandbox: bool = False):
@@ -55,4 +58,4 @@ def run_demo() -> None:
 
 
 if __name__ == "__main__":
-    run_demo() 
+    run_demo()

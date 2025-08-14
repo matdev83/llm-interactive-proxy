@@ -522,7 +522,8 @@ def build_app(
             await qwen_oauth_backend.initialize()
             qwen_oauth_ok = qwen_oauth_backend.is_functional
             if qwen_oauth_ok:
-                logger.info("Qwen OAuth backend initialized successfully")
+                if logger.isEnabledFor(logging.INFO):
+                    logger.info("Qwen OAuth backend initialized successfully")
             else:
                 logger.warning(
                     "Qwen OAuth backend initialization failed - no OAuth credentials found"
@@ -569,7 +570,8 @@ def build_app(
             )
 
         configure_loop_detection_middleware(loop_config, handle_loop_detected)
-        logger.info(f"Loop detection initialized: enabled={loop_config.enabled}")
+        if logger.isEnabledFor(logging.INFO):
+            logger.info("Loop detection initialized: enabled=%s", loop_config.enabled)
 
         # Initialize tool call loop detection
         from src.tool_call_loop.config import ToolCallLoopConfig
@@ -585,10 +587,13 @@ def build_app(
         app_param.state.tool_loop_trackers = {}
         app_param.state.tool_loop_config = tool_loop_config
 
-        logger.info(
-            f"Tool call loop detection initialized: enabled={tool_loop_config.enabled}, "
-            f"mode={tool_loop_config.mode}, max_repeats={tool_loop_config.max_repeats}"
-        )
+        if logger.isEnabledFor(logging.INFO):
+            logger.info(
+                "Tool call loop detection initialized: enabled=%s, mode=%s, max_repeats=%s",
+                tool_loop_config.enabled,
+                tool_loop_config.mode,
+                tool_loop_config.max_repeats,
+            )
 
         # Configure API key redaction middleware
         from src.response_middleware import (
@@ -679,7 +684,8 @@ def build_app(
         try:
             await client_httpx.aclose()
         except Exception as exc:
-            logger.debug("Failed to close shared httpx client: %s", exc)
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug("Failed to close shared httpx client: %s", exc)
 
     app_instance = FastAPI(lifespan=lifespan)
 
@@ -696,7 +702,8 @@ def build_app(
 
         app_instance.include_router(anthropic_router_router)
     except Exception as _err:  # pragma: no cover - optional dependency
-        logger.debug("Anthropic router not registered: %s", _err)
+        if logger.isEnabledFor(logging.DEBUG):
+            logger.debug("Anthropic router not registered: %s", _err)
 
     app_instance.state.project_metadata = {
         "name": project_name,
@@ -758,31 +765,40 @@ def build_app(
             perf_metrics.streaming = getattr(request_data, "stream", False)
 
             # Add detailed logging for debugging Cline issues
-            logger.debug("[CLINE_DEBUG] ========== NEW REQUEST ==========")
-            logger.debug(f"[CLINE_DEBUG] Session ID: {session_id}")
-            logger.debug(
-                f"[CLINE_DEBUG] User-Agent: {http_request.headers.get('user-agent', 'Unknown')}"
-            )
-            logger.debug(
-                f"[CLINE_DEBUG] Authorization: {http_request.headers.get('authorization', 'None')[:20]}..."
-            )
-            logger.debug(
-                f"[CLINE_DEBUG] Content-Type: {http_request.headers.get('content-type', 'Unknown')}"
-            )
-            logger.debug(f"[CLINE_DEBUG] Model requested: {request_data.model}")
-            logger.debug(
-                f"[CLINE_DEBUG] Messages count: {len(request_data.messages) if request_data.messages else 0}"
-            )
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug("[CLINE_DEBUG] ========== NEW REQUEST ==========")
+                logger.debug("[CLINE_DEBUG] Session ID: %s", session_id)
+                logger.debug(
+                    "[CLINE_DEBUG] User-Agent: %s",
+                    http_request.headers.get("user-agent", "Unknown"),
+                )
+                logger.debug(
+                    "[CLINE_DEBUG] Authorization: %s...",
+                    http_request.headers.get("authorization", "None")[:20],
+                )
+                logger.debug(
+                    "[CLINE_DEBUG] Content-Type: %s",
+                    http_request.headers.get("content-type", "Unknown"),
+                )
+                logger.debug("[CLINE_DEBUG] Model requested: %s", request_data.model)
+                logger.debug(
+                    "[CLINE_DEBUG] Messages count: %s",
+                    len(request_data.messages) if request_data.messages else 0,
+                )
 
             # Check if tools are included in the request
             if request_data.tools:
-                logger.debug(
-                    f"[CLINE_DEBUG] Tools provided: {len(request_data.tools)} tools"
-                )
+                if logger.isEnabledFor(logging.DEBUG):
+                    logger.debug(
+                        "[CLINE_DEBUG] Tools provided: %s tools",
+                        len(request_data.tools),
+                    )
                 for i, tool in enumerate(request_data.tools):
-                    logger.debug(f"[CLINE_DEBUG] Tool {i}: {tool.function.name}")
+                    if logger.isEnabledFor(logging.DEBUG):
+                        logger.debug("[CLINE_DEBUG] Tool %s: %s", i, tool.function.name)
             else:
-                logger.debug("[CLINE_DEBUG] No tools provided in request")
+                if logger.isEnabledFor(logging.DEBUG):
+                    logger.debug("[CLINE_DEBUG] No tools provided in request")
 
             if request_data.messages:
                 for i, msg in enumerate(request_data.messages):
@@ -791,10 +807,15 @@ def build_app(
                         if len(str(msg.content)) > 100
                         else str(msg.content)
                     )
-                    logger.debug(
-                        f"[CLINE_DEBUG] Message {i}: role={msg.role}, content={content_preview}"
-                    )
-            logger.debug("[CLINE_DEBUG] ================================")
+                    if logger.isEnabledFor(logging.DEBUG):
+                        logger.debug(
+                            "[CLINE_DEBUG] Message %s: role=%s, content=%s",
+                            i,
+                            msg.role,
+                            content_preview,
+                        )
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug("[CLINE_DEBUG] ================================")
 
             # Start command processing phase
             with track_phase(perf_metrics, "command_processing"):
@@ -1932,54 +1953,15 @@ def build_app(
             # -----------------------------------------------------------------
             try:
                 from src.tool_call_loop.config import ToolCallLoopConfig
-                from src.tool_call_loop.tracker import ToolCallTracker
 
                 server_cfg: ToolCallLoopConfig | None = getattr(
                     http_request.app.state, "tool_loop_config", None
                 )
                 if server_cfg:
-                    # Ensure trackers dict exists
-                    if not hasattr(http_request.app.state, "tool_loop_trackers"):
-                        http_request.app.state.tool_loop_trackers = {}
-                    # Build effective config from session overrides → server defaults
-                    eff_enabled = (
-                        proxy_state.tool_loop_detection_enabled
-                        if proxy_state.tool_loop_detection_enabled is not None
-                        else server_cfg.enabled
-                    )
-                    eff_max = (
-                        proxy_state.tool_loop_max_repeats
-                        if proxy_state.tool_loop_max_repeats is not None
-                        else server_cfg.max_repeats
-                    )
-                    eff_ttl = (
-                        proxy_state.tool_loop_ttl_seconds
-                        if proxy_state.tool_loop_ttl_seconds is not None
-                        else server_cfg.ttl_seconds
-                    )
-                    eff_mode = (
-                        proxy_state.tool_loop_mode
-                        if proxy_state.tool_loop_mode is not None
-                        else server_cfg.mode
-                    )
-
-                    effective_cfg = ToolCallLoopConfig(
-                        enabled=eff_enabled,
-                        max_repeats=eff_max,
-                        ttl_seconds=eff_ttl,
-                        mode=eff_mode,
-                    )
-
-                    # Create tracker per session if missing
-                    if session_id not in http_request.app.state.tool_loop_trackers:
-                        http_request.app.state.tool_loop_trackers[session_id] = (
-                            ToolCallTracker(effective_cfg)
-                        )
-                    tracker = http_request.app.state.tool_loop_trackers.get(session_id)
+                    # Use ProxyState's method to get or create tracker (thread-safe)
+                    tracker = proxy_state.get_or_create_tool_call_tracker(server_cfg)
 
                     if tracker and tracker.config.enabled:
-                        # Update tracker config if overrides changed mid-session
-                        tracker.config = effective_cfg
 
                         modified_choices: list[dict] = []
                         rebuilt_response = False
@@ -2146,7 +2128,8 @@ def build_app(
                         if modified_choices and not rebuilt_response:
                             backend_response_dict["choices"] = modified_choices
             except Exception as loop_exc:
-                logger.debug(f"Tool-call loop detection error ignored: {loop_exc}")
+                if logger.isEnabledFor(logging.DEBUG):
+                    logger.debug("Tool-call loop detection error ignored: %s", loop_exc)
 
             usage_data = backend_response_dict.get("usage")
             session.add_interaction(
@@ -2208,7 +2191,10 @@ def build_app(
                             msg_obj["tool_calls"] = [tool_call_dict]
                             choice_obj["finish_reason"] = "tool_calls"
                     except Exception as conv_exc:
-                        logger.debug("Cline tool-call conversion error: %s", conv_exc)
+                        if logger.isEnabledFor(logging.DEBUG):
+                            logger.debug(
+                                "Cline tool-call conversion error: %s", conv_exc
+                            )
 
             # Remove None values from the response to match expected format
             def remove_none_values(obj):
@@ -2349,7 +2335,8 @@ def build_app(
         """Gemini API compatible content generation endpoint (non-streaming)."""
         # Debug: Check session ID for Gemini interface
         session_id = http_request.headers.get("x-session-id", "default")
-        logger.debug(f"[GEMINI_DEBUG] Gemini interface session ID: {session_id}")
+        if logger.isEnabledFor(logging.DEBUG):
+            logger.debug("[GEMINI_DEBUG] Gemini interface session ID: %s", session_id)
 
         # Parse the model to determine backend
         backend_type, actual_model = _parse_model_backend(
@@ -2820,7 +2807,8 @@ def build_app(
         except Exception as exc:
             # In extreme edge cases simply log - tests will fail loudly if
             # this fallback isn't sufficient.
-            logger.debug("Failed to create fallback SessionManager: %s", exc)
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug("Failed to create fallback SessionManager: %s", exc)
 
     return app_instance
 

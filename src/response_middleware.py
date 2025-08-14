@@ -11,7 +11,8 @@ from __future__ import annotations
 
 import json
 import logging
-from typing import Any, AsyncGenerator, Callable
+from collections.abc import AsyncGenerator, Callable
+from typing import Any
 
 from starlette.responses import StreamingResponse
 
@@ -125,7 +126,15 @@ class LoopDetectionProcessor(ResponseProcessor):
     def should_process(
         self, response: StreamingResponse | dict[str, Any], context: RequestContext
     ) -> bool:
-        """Only process if loop detection is enabled."""
+        """Decide if loop detection should run based on tiered settings."""
+        # Session-level override via ProxyState (passed through context.metadata)
+        session_override = (
+            context.metadata.get("loop_detection_enabled") if context.metadata else None
+        )
+        if isinstance(session_override, bool):
+            return session_override
+        # Backend/model-level defaults via model defaults are already applied into ProxyState
+        # so if not provided, fall back to global/server default
         return self.config.enabled
 
     def _get_or_create_detector(self, session_id: str) -> LoopDetector:
@@ -181,10 +190,22 @@ class LoopDetectionProcessor(ResponseProcessor):
         original_content = response.body_iterator
 
         async def loop_detected_content() -> AsyncGenerator[Any, None]:
+            # Provide a generic upstream cancel hook that will try to close the
+            # original iterator if supported, without backend-specific code.
+            async def cancel_upstream() -> None:
+                try:
+                    aclose = getattr(original_content, "aclose", None)
+                    if callable(aclose):
+                        await aclose()  # type: ignore[misc]
+                except Exception:
+                    # Ignore errors from upstream cancellation attempts
+                    pass
+
             async for chunk in wrap_streaming_content_with_loop_detection(
                 original_content.__aiter__(),
                 detector,
                 lambda event: self._handle_loop_detection(event, context.session_id),
+                cancel_upstream,
             ):
                 yield chunk
 

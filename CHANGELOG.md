@@ -14,3 +14,6 @@
   - Supports "break" and "chance_then_break" modes
   - Configurable via environment variables, model defaults, and session commands
   - TTL-based pruning to avoid false positives
+- Performance improvements:
+  - Added isEnabledFor() guards to all logging calls to prevent unnecessary string serialization
+  - Replaced f-strings with %-style formatting in logging calls for better performance

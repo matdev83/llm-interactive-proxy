@@ -1,15 +1,14 @@
 import json
-from typing import Dict, List  # Removed Any, Callable, Union
 
 import httpx
 import pytest
 import pytest_asyncio
 
-# from fastapi import HTTPException # F401: Removed
-from pytest_httpx import HTTPXMock
-
 # from starlette.responses import StreamingResponse # F401: Removed
 import src.models as models
+
+# from fastapi import HTTPException # F401: Removed
+from pytest_httpx import HTTPXMock
 from src.connectors.openrouter import OpenRouterBackend
 
 # Default OpenRouter settings for tests
@@ -18,7 +17,7 @@ TEST_OPENROUTER_API_BASE_URL = (
 )
 
 
-def mock_get_openrouter_headers(key_name: str, api_key: str) -> Dict[str, str]:
+def mock_get_openrouter_headers(api_key: str) -> dict[str, str]:
     return {
         "Authorization": f"Bearer {api_key}",
         "Content-Type": "application/json",
@@ -42,7 +41,7 @@ def sample_chat_request_data() -> models.ChatCompletionRequest:
         temperature=None,
         top_p=None,
         n=None,
-        stream=False, # Explicitly set stream to False for non-streaming tests
+        stream=False,  # Explicitly set stream to False for non-streaming tests
         stop=None,
         max_tokens=None,
         presence_penalty=None,
@@ -54,7 +53,7 @@ def sample_chat_request_data() -> models.ChatCompletionRequest:
 
 
 @pytest.fixture
-def sample_processed_messages() -> List[models.ChatMessage]:
+def sample_processed_messages() -> list[models.ChatMessage]:
     return [models.ChatMessage(role="user", content="Hello")]
 
 
@@ -65,7 +64,7 @@ async def test_chat_completions_non_streaming_success(
     openrouter_backend: OpenRouterBackend,
     httpx_mock: HTTPXMock,
     sample_chat_request_data: models.ChatCompletionRequest,
-    sample_processed_messages: List[models.ChatMessage],
+    sample_processed_messages: list[models.ChatMessage],
 ):
     sample_chat_request_data.stream = False
     effective_model = "openai/gpt-3.5-turbo"
@@ -90,7 +89,6 @@ async def test_chat_completions_non_streaming_success(
         effective_model=effective_model,
         openrouter_api_base_url=TEST_OPENROUTER_API_BASE_URL,
         openrouter_headers_provider=mock_get_openrouter_headers,
-        key_name="OPENROUTER_API_KEY_1",
         api_key="FAKE_KEY",
     )
     # Explicitly cast to Tuple for type checking, as it's a non-streaming test

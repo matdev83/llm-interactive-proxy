@@ -1,5 +1,4 @@
 import re
-from typing import Dict, List, Set
 
 from fastapi import FastAPI
 
@@ -15,7 +14,7 @@ class CommandParserConfig:
         proxy_state: ProxyState,
         app: FastAPI,
         preserve_unknown: bool,
-        functional_backends: Set[str] | None = None,
+        functional_backends: set[str] | None = None,
     ):
         self.proxy_state = proxy_state
         self.app = app
@@ -31,9 +30,9 @@ class CommandProcessorConfig:
         proxy_state: ProxyState,
         app: FastAPI,
         command_pattern: re.Pattern,
-        handlers: Dict[str, BaseCommand],
+        handlers: dict[str, BaseCommand],
         preserve_unknown: bool,
-        command_results: List[CommandResult],
+        command_results: list[CommandResult],
     ):
         self.proxy_state = proxy_state
         self.app = app

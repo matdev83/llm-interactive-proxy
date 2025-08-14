@@ -6,7 +6,8 @@ Provides /anthropic/v1/messages and /anthropic/v1/models endpoints.
 from __future__ import annotations
 
 import logging
-from typing import Any, AsyncGenerator
+from collections.abc import AsyncGenerator
+from typing import Any
 
 from fastapi import APIRouter, HTTPException, Request
 from starlette.responses import Response, StreamingResponse

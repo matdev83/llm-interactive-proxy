@@ -60,7 +60,10 @@ class ProxyState:
     ) -> None:
         if logger.isEnabledFor(logging.DEBUG):
             logger.debug(
-                f"ProxyState.set_override_model called with: backend={backend}, model_name={model_name}, invalid={invalid}"
+                "ProxyState.set_override_model called with: backend=%s, model_name=%s, invalid=%s",
+                backend,
+                model_name,
+                invalid,
             )
         self.override_backend = backend
         self.override_model = model_name
@@ -69,7 +72,7 @@ class ProxyState:
     def set_oneoff_route(self, backend: str, model_name: str) -> None:
         """Sets a one-off route for the very next request."""
         if logger.isEnabledFor(logging.INFO):
-            logger.info(f"Setting one-off route to: {backend}:{model_name}")
+            logger.info("Setting one-off route to: %s:%s", backend, model_name)
         self.oneoff_backend = backend
         self.oneoff_model = model_name
 
@@ -85,7 +88,9 @@ class ProxyState:
         """Override only the backend to use for this session."""
         if logger.isEnabledFor(logging.INFO):
             logger.info(
-                f"Setting override backend to: {backend} for ProxyState ID: {id(self)}"
+                "Setting override backend to: %s for ProxyState ID: %s",
+                backend,
+                id(self),
             )
         self.override_backend = backend
         self.override_model = None
@@ -108,7 +113,7 @@ class ProxyState:
 
     def set_project(self, project_name: str) -> None:
         if logger.isEnabledFor(logging.INFO):
-            logger.info(f"Setting project to: {project_name}")
+            logger.info("Setting project to: %s", project_name)
         self.project = project_name
 
     def unset_project(self) -> None:
@@ -118,7 +123,7 @@ class ProxyState:
 
     def set_project_dir(self, project_dir: str) -> None:
         if logger.isEnabledFor(logging.INFO):
-            logger.info(f"Setting project directory to: {project_dir}")
+            logger.info("Setting project directory to: %s", project_dir)
         self.project_dir = project_dir
 
     def unset_project_dir(self) -> None:
@@ -128,7 +133,7 @@ class ProxyState:
 
     def set_interactive_mode(self, value: bool) -> None:
         if logger.isEnabledFor(logging.INFO):
-            logger.info(f"Setting interactive mode to: {value}")
+            logger.info("Setting interactive mode to: %s", value)
         if value and not self.interactive_mode:
             self.interactive_just_enabled = True
         else:
@@ -172,13 +177,13 @@ class ProxyState:
 
     def set_is_cline_agent(self, value: bool) -> None:
         if logger.isEnabledFor(logging.INFO):
-            logger.info(f"Setting is_cline_agent to: {value}")
+            logger.info("Setting is_cline_agent to: %s", value)
         self.is_cline_agent = value
 
     def set_reasoning_effort(self, effort: str) -> None:
         """Set reasoning effort level for reasoning models."""
         if logger.isEnabledFor(logging.INFO):
-            logger.info(f"Setting reasoning effort to: {effort}")
+            logger.info("Setting reasoning effort to: %s", effort)
         self.reasoning_effort = effort
 
     def unset_reasoning_effort(self) -> None:
@@ -190,7 +195,7 @@ class ProxyState:
     def set_reasoning_config(self, config: dict[str, Any]) -> None:
         """Set unified reasoning configuration for OpenRouter."""
         if logger.isEnabledFor(logging.INFO):
-            logger.info(f"Setting reasoning config to: {config}")
+            logger.info("Setting reasoning config to: %s", config)
         self.reasoning_config = config
 
     def unset_reasoning_config(self) -> None:
@@ -204,7 +209,7 @@ class ProxyState:
         if budget < 128 or budget > 32768:
             raise ValueError("Thinking budget must be between 128 and 32768 tokens")
         if logger.isEnabledFor(logging.INFO):
-            logger.info(f"Setting Gemini thinking budget to: {budget}")
+            logger.info("Setting Gemini thinking budget to: %s", budget)
         self.thinking_budget = budget
 
     def unset_thinking_budget(self) -> None:
@@ -216,7 +221,7 @@ class ProxyState:
     def set_gemini_generation_config(self, config: dict[str, Any]) -> None:
         """Set Gemini generation configuration."""
         if logger.isEnabledFor(logging.INFO):
-            logger.info(f"Setting Gemini generation config to: {config}")
+            logger.info("Setting Gemini generation config to: %s", config)
         self.gemini_generation_config = config
 
     def unset_gemini_generation_config(self) -> None:
@@ -232,7 +237,7 @@ class ProxyState:
                 "Temperature must be between 0.0 and 2.0 (OpenAI supports up to 2.0, Gemini up to 1.0)"
             )
         if logger.isEnabledFor(logging.INFO):
-            logger.info(f"Setting temperature to: {temperature}")
+            logger.info("Setting temperature to: %s", temperature)
         self.temperature = temperature
 
     def unset_temperature(self) -> None:
@@ -246,7 +251,7 @@ class ProxyState:
         if not url.startswith(("http://", "https://")):
             raise ValueError("OpenAI URL must start with http:// or https://")
         if logger.isEnabledFor(logging.INFO):
-            logger.info(f"Setting OpenAI URL to: {url}")
+            logger.info("Setting OpenAI URL to: %s", url)
         self.openai_url = url
 
     def unset_openai_url(self) -> None:
@@ -258,7 +263,7 @@ class ProxyState:
     # Loop detection ---------------------------------------------------------
     def set_loop_detection_enabled(self, enabled: bool) -> None:
         if logger.isEnabledFor(logging.INFO):
-            logger.info(f"Setting loop detection enabled override to: {enabled}")
+            logger.info("Setting loop detection enabled override to: %s", enabled)
         self.loop_detection_enabled = enabled
 
     def unset_loop_detection_enabled(self) -> None:
@@ -270,7 +275,7 @@ class ProxyState:
     def set_tool_loop_detection_enabled(self, enabled: bool) -> None:
         if logger.isEnabledFor(logging.INFO):
             logger.info(
-                f"Setting tool call loop detection enabled override to: {enabled}"
+                "Setting tool call loop detection enabled override to: %s", enabled
             )
         self.tool_loop_detection_enabled = enabled
 
@@ -283,7 +288,7 @@ class ProxyState:
         if max_repeats < 2:
             raise ValueError("Tool call loop max repeats must be at least 2")
         if logger.isEnabledFor(logging.INFO):
-            logger.info(f"Setting tool call loop max repeats to: {max_repeats}")
+            logger.info("Setting tool call loop max repeats to: %s", max_repeats)
         self.tool_loop_max_repeats = max_repeats
 
     def unset_tool_loop_max_repeats(self) -> None:
@@ -295,7 +300,7 @@ class ProxyState:
         if ttl_seconds < 1:
             raise ValueError("Tool call loop TTL seconds must be positive")
         if logger.isEnabledFor(logging.INFO):
-            logger.info(f"Setting tool call loop TTL seconds to: {ttl_seconds}")
+            logger.info("Setting tool call loop TTL seconds to: %s", ttl_seconds)
         self.tool_loop_ttl_seconds = ttl_seconds
 
     def unset_tool_loop_ttl_seconds(self) -> None:
@@ -319,7 +324,7 @@ class ProxyState:
             enum_mode = mode
 
         if logger.isEnabledFor(logging.INFO):
-            logger.info(f"Setting tool call loop mode to: {enum_mode.value}")
+            logger.info("Setting tool call loop mode to: %s", enum_mode.value)
         self.tool_loop_mode = enum_mode
 
     def unset_tool_loop_mode(self) -> None:
@@ -348,14 +353,16 @@ class ProxyState:
                 if reasoning_config.reasoning_effort and not self.reasoning_effort:
                     if logger.isEnabledFor(logging.INFO):
                         logger.info(
-                            f"Applying default reasoning effort '{reasoning_config.reasoning_effort}' for model {model_name}"
+                            "Applying default reasoning effort '%s' for model %s",
+                            reasoning_config.reasoning_effort,
+                            model_name,
                         )
                     self.reasoning_effort = reasoning_config.reasoning_effort
 
                 if reasoning_config.reasoning and not self.reasoning_config:
                     if logger.isEnabledFor(logging.INFO):
                         logger.info(
-                            f"Applying default reasoning config for model {model_name}"
+                            "Applying default reasoning config for model %s", model_name
                         )
                     self.reasoning_config = reasoning_config.reasoning
 
@@ -363,7 +370,9 @@ class ProxyState:
                 if reasoning_config.thinking_budget and not self.thinking_budget:
                     if logger.isEnabledFor(logging.INFO):
                         logger.info(
-                            f"Applying default thinking budget {reasoning_config.thinking_budget} for model {model_name}"
+                            "Applying default thinking budget %s for model %s",
+                            reasoning_config.thinking_budget,
+                            model_name,
                         )
                     self.thinking_budget = reasoning_config.thinking_budget
 
@@ -373,7 +382,8 @@ class ProxyState:
                 ):
                     if logger.isEnabledFor(logging.INFO):
                         logger.info(
-                            f"Applying default generation config for model {model_name}"
+                            "Applying default generation config for model %s",
+                            model_name,
                         )
                     self.gemini_generation_config = reasoning_config.generation_config
 
@@ -381,7 +391,9 @@ class ProxyState:
                 if reasoning_config.temperature and not self.temperature:
                     if logger.isEnabledFor(logging.INFO):
                         logger.info(
-                            f"Applying default temperature {reasoning_config.temperature} for model {model_name}"
+                            "Applying default temperature %s for model %s",
+                            reasoning_config.temperature,
+                            model_name,
                         )
                     self.temperature = reasoning_config.temperature
 
@@ -392,7 +404,9 @@ class ProxyState:
             ):
                 if logger.isEnabledFor(logging.INFO):
                     logger.info(
-                        f"Applying default loop_detection_enabled={model_config.loop_detection_enabled} for model {model_name}"
+                        "Applying default loop_detection_enabled=%s for model %s",
+                        model_config.loop_detection_enabled,
+                        model_name,
                     )
                 self.loop_detection_enabled = model_config.loop_detection_enabled
 
@@ -403,7 +417,9 @@ class ProxyState:
             ):
                 if logger.isEnabledFor(logging.INFO):
                     logger.info(
-                        f"Applying default tool_loop_detection_enabled={model_config.tool_loop_detection_enabled} for model {model_name}"
+                        "Applying default tool_loop_detection_enabled=%s for model %s",
+                        model_config.tool_loop_detection_enabled,
+                        model_name,
                     )
                 self.tool_loop_detection_enabled = (
                     model_config.tool_loop_detection_enabled
@@ -422,7 +438,9 @@ class ProxyState:
                 if max_repeats_value is not None:
                     if logger.isEnabledFor(logging.INFO):
                         logger.info(
-                            f"Applying default tool_loop_max_repeats={max_repeats_value} for model {model_name}"
+                            "Applying default tool_loop_max_repeats=%s for model %s",
+                            max_repeats_value,
+                            model_name,
                         )
                     self.tool_loop_max_repeats = max_repeats_value
 
@@ -439,7 +457,9 @@ class ProxyState:
                 if ttl_value is not None:
                     if logger.isEnabledFor(logging.INFO):
                         logger.info(
-                            f"Applying default tool_loop_ttl_seconds={ttl_value} for model {model_name}"
+                            "Applying default tool_loop_ttl_seconds=%s for model %s",
+                            ttl_value,
+                            model_name,
                         )
                     self.tool_loop_ttl_seconds = ttl_value
 
@@ -457,14 +477,18 @@ class ProxyState:
                 if mode_value is not None:
                     if logger.isEnabledFor(logging.INFO):
                         logger.info(
-                            f"Applying default tool_loop_mode={mode_value} for model {model_name}"
+                            "Applying default tool_loop_mode=%s for model %s",
+                            mode_value,
+                            model_name,
                         )
                     # Use setter to normalize/validate
                     self.set_tool_loop_mode(mode_value)  # type: ignore[arg-type]
 
         except Exception as e:
             if logger.isEnabledFor(logging.WARNING):
-                logger.warning(f"Failed to apply model defaults for {model_name}: {e}")
+                logger.warning(
+                    "Failed to apply model defaults for %s: %s", model_name, e
+                )
 
     def reset(self) -> None:
         if logger.isEnabledFor(logging.INFO):
@@ -495,13 +519,17 @@ class ProxyState:
         if self.oneoff_model:
             if logger.isEnabledFor(logging.INFO):
                 logger.info(
-                    f"Using one-off model '{self.oneoff_model}' instead of '{requested_model}'"
+                    "Using one-off model '%s' instead of '%s'",
+                    self.oneoff_model,
+                    requested_model,
                 )
             return self.oneoff_model
         if self.override_model:
             if logger.isEnabledFor(logging.INFO):
                 logger.info(
-                    f"Overriding requested model '{requested_model}' with '{self.override_model}'"
+                    "Overriding requested model '%s' with '%s'",
+                    requested_model,
+                    self.override_model,
                 )
             return self.override_model
         return requested_model
@@ -509,7 +537,7 @@ class ProxyState:
     def get_selected_backend(self, default_backend: str) -> str:
         if self.oneoff_backend:
             if logger.isEnabledFor(logging.INFO):
-                logger.info(f"Using one-off backend '{self.oneoff_backend}'")
+                logger.info("Using one-off backend '%s'", self.oneoff_backend)
             return self.oneoff_backend
         return self.override_backend or default_backend
 

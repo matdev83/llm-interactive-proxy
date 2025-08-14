@@ -2,7 +2,6 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 from fastapi.testclient import TestClient
-
 from src.main import build_app
 
 
@@ -29,7 +28,11 @@ def test_openai_frontend_to_gemini_backend_multimodal(client):
     client.app.state.backend_type = "gemini"
 
     # Ensure backend exists on app state and patch its chat_completions
-    if not hasattr(client.app.state, "gemini_backend") or client.app.state.gemini_backend is None:
+    if (
+        not hasattr(client.app.state, "gemini_backend")
+        or client.app.state.gemini_backend is None
+    ):
+
         class _GB:  # minimal stub
             async def chat_completions(self, *args, **kwargs):
                 return {
@@ -38,20 +41,35 @@ def test_openai_frontend_to_gemini_backend_multimodal(client):
                     "created": 0,
                     "model": "gemini:gemini-pro",
                     "choices": [
-                        {"index": 0, "message": {"role": "assistant", "content": "ok"}, "finish_reason": "stop"}
+                        {
+                            "index": 0,
+                            "message": {"role": "assistant", "content": "ok"},
+                            "finish_reason": "stop",
+                        }
                     ],
-                    "usage": {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},
+                    "usage": {
+                        "prompt_tokens": 0,
+                        "completion_tokens": 0,
+                        "total_tokens": 0,
+                    },
                 }
+
         client.app.state.gemini_backend = _GB()
 
-    with patch.object(client.app.state.gemini_backend, "chat_completions", new_callable=AsyncMock) as mock_gemini:
+    with patch.object(
+        client.app.state.gemini_backend, "chat_completions", new_callable=AsyncMock
+    ) as mock_gemini:
         mock_gemini.return_value = {
             "id": "x",
             "object": "chat.completion",
             "created": 0,
             "model": "gemini:gemini-pro",
             "choices": [
-                {"index": 0, "message": {"role": "assistant", "content": "ok"}, "finish_reason": "stop"}
+                {
+                    "index": 0,
+                    "message": {"role": "assistant", "content": "ok"},
+                    "finish_reason": "stop",
+                }
             ],
             "usage": {"prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2},
         }
@@ -63,7 +81,10 @@ def test_openai_frontend_to_gemini_backend_multimodal(client):
                     "role": "user",
                     "content": [
                         {"type": "text", "text": "Describe this"},
-                        {"type": "image_url", "image_url": {"url": "http://example.com/img.jpg"}},
+                        {
+                            "type": "image_url",
+                            "image_url": {"url": "http://example.com/img.jpg"},
+                        },
                     ],
                 }
             ],
@@ -81,13 +102,28 @@ def test_openai_frontend_to_gemini_backend_multimodal(client):
 
 def test_gemini_frontend_to_openai_backend_multimodal(client):
     # Ensure openrouter backend exists on state and patch it directly
-    if not hasattr(client.app.state, "openrouter_backend") or client.app.state.openrouter_backend is None:
+    if (
+        not hasattr(client.app.state, "openrouter_backend")
+        or client.app.state.openrouter_backend is None
+    ):
+
         class _OR:
             async def chat_completions(self, *args, **kwargs):
-                return {"choices": [{"index": 0, "message": {"role": "assistant", "content": "ok"}, "finish_reason": "stop"}]}, {}
+                return {
+                    "choices": [
+                        {
+                            "index": 0,
+                            "message": {"role": "assistant", "content": "ok"},
+                            "finish_reason": "stop",
+                        }
+                    ]
+                }, {}
+
         client.app.state.openrouter_backend = _OR()
 
-    with patch.object(client.app.state.openrouter_backend, "chat_completions", new_callable=AsyncMock) as mock_or:
+    with patch.object(
+        client.app.state.openrouter_backend, "chat_completions", new_callable=AsyncMock
+    ) as mock_or:
         mock_or.return_value = (
             {
                 "id": "y",
@@ -95,9 +131,17 @@ def test_gemini_frontend_to_openai_backend_multimodal(client):
                 "created": 0,
                 "model": "openrouter:gpt-4",
                 "choices": [
-                    {"index": 0, "message": {"role": "assistant", "content": "ok"}, "finish_reason": "stop"}
+                    {
+                        "index": 0,
+                        "message": {"role": "assistant", "content": "ok"},
+                        "finish_reason": "stop",
+                    }
                 ],
-                "usage": {"prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2},
+                "usage": {
+                    "prompt_tokens": 1,
+                    "completion_tokens": 1,
+                    "total_tokens": 2,
+                },
             },
             {},
         )
@@ -113,7 +157,9 @@ def test_gemini_frontend_to_openai_backend_multimodal(client):
                 }
             ]
         }
-        r = client.post("/v1beta/models/openrouter:gpt-4:generateContent", json=gemini_request)
+        r = client.post(
+            "/v1beta/models/openrouter:gpt-4:generateContent", json=gemini_request
+        )
         assert r.status_code == 200
         assert mock_or.await_count == 1
         # Verify OpenAI-shaped request had expected text placeholder
@@ -122,4 +168,3 @@ def test_gemini_frontend_to_openai_backend_multimodal(client):
         assert openai_req is not None
         assert isinstance(openai_req.messages[0].content, str)
         assert openai_req.messages[0].content.endswith("[Attachment: image/png]")
-

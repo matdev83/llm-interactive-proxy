@@ -36,9 +36,11 @@ def test_set_model_command_integration(client):
     # Access proxy_state from the app state within the test client
     session = client.app.state.session_manager.get_session("default")  # type: ignore
     assert session.proxy_state.override_model == "override-model"
-    assert session.proxy_state.override_backend == "openrouter" # !/set(model=...) also sets backend
+    assert (
+        session.proxy_state.override_backend == "openrouter"
+    )  # !/set(model=...) also sets backend
 
-    mock_method.assert_not_called() # Backend should not be called
+    mock_method.assert_not_called()  # Backend should not be called
 
     response_json = response.json()
     assert response_json["id"] == "proxy_cmd_processed"
@@ -84,8 +86,7 @@ def test_unset_model_command_integration(client):
     # However, this assertion is failing (None == "openrouter"). Let's comment out for now to check other parts.
     # assert session.proxy_state.override_backend == "openrouter"
 
-
-    mock_method.assert_not_called() # Backend should not be called
+    mock_method.assert_not_called()  # Backend should not be called
 
     response_json = response.json()
     assert response_json["id"] == "proxy_cmd_processed"

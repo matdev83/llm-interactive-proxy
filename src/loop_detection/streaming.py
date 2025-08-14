@@ -9,7 +9,8 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from typing import Any, AsyncIterator, Callable
+from collections.abc import AsyncIterator, Awaitable, Callable
+from typing import Any
 
 from starlette.responses import StreamingResponse
 
@@ -54,7 +55,7 @@ class LoopDetectionStreamingResponse(StreamingResponse):
                     break
 
                 # Process chunk for loop detection
-                if isinstance(chunk, (str, bytes)):
+                if isinstance(chunk, str | bytes):
                     chunk_text = (
                         chunk.decode("utf-8") if isinstance(chunk, bytes) else chunk
                     )
@@ -72,6 +73,15 @@ class LoopDetectionStreamingResponse(StreamingResponse):
                     )
                     chunk_buffer = ""  # Clear buffer after processing
                     if cancellation_message is not None:
+                        # Best-effort upstream cancellation: try to close the
+                        # underlying async iterator if supported to stop token burn.
+                        try:
+                            aclose = getattr(content, "aclose", None)
+                            if callable(aclose):
+                                await aclose()  # type: ignore[misc]
+                        except Exception:
+                            # Swallow errors from upstream close attempts
+                            pass
                         yield cancellation_message
                         break
 
@@ -143,6 +153,7 @@ async def wrap_streaming_content_with_loop_detection(
     content: AsyncIterator[Any],
     loop_detector: LoopDetector | None = None,
     on_loop_detected: Callable[[LoopDetectionEvent], None] | None = None,
+    cancel_upstream: Callable[[], Awaitable[None]] | None = None,
 ) -> AsyncIterator[Any]:
     """
     Wrap streaming content with loop detection.
@@ -167,7 +178,7 @@ async def wrap_streaming_content_with_loop_detection(
                 break
 
             # Process chunk for loop detection
-            if isinstance(chunk, (str, bytes)):
+            if isinstance(chunk, str | bytes):
                 chunk_text = (
                     chunk.decode("utf-8") if isinstance(chunk, bytes) else chunk
                 )
@@ -193,8 +204,18 @@ async def wrap_streaming_content_with_loop_detection(
                         except Exception as e:
                             logger.error(f"Error in loop detection callback: {e}")
 
-                    # Cancel the stream
+                    # Cancel the stream and attempt to stop upstream immediately
                     cancelled = True
+                    try:
+                        if cancel_upstream is not None:
+                            await cancel_upstream()
+                        else:
+                            aclose = getattr(content, "aclose", None)
+                            if callable(aclose):
+                                await aclose()  # type: ignore[misc]
+                    except Exception:
+                        # Ignore cancellation errors
+                        pass
 
                     # Yield a final cancellation message
                     cancellation_message = (
@@ -221,8 +242,17 @@ async def wrap_streaming_content_with_loop_detection(
                     except Exception as e:
                         logger.error(f"Error in loop detection callback: {e}")
 
-                # Cancel the stream
+                # Cancel the stream and attempt upstream cancellation
                 cancelled = True
+                try:
+                    if cancel_upstream is not None:
+                        await cancel_upstream()
+                    else:
+                        aclose = getattr(content, "aclose", None)
+                        if callable(aclose):
+                            await aclose()  # type: ignore[misc]
+                except Exception:
+                    pass
 
                 # Yield a final cancellation message
                 cancellation_message = (

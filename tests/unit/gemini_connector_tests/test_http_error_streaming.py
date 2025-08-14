@@ -2,10 +2,10 @@ from unittest.mock import AsyncMock
 
 import httpx
 import pytest
-from fastapi import HTTPException
 
 # from starlette.responses import StreamingResponse # F401: Removed
 import src.models as models
+from fastapi import HTTPException
 from src.connectors.gemini import GeminiBackend
 
 TEST_GEMINI_API_BASE_URL = "https://generativelanguage.googleapis.com"

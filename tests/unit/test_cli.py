@@ -3,7 +3,6 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 from fastapi.testclient import TestClient  # Add import
-
 from src.constants import DEFAULT_COMMAND_PREFIX  # Removed DEFAULT_PROXY_TIMEOUT
 from src.core.cli import apply_cli_args, main, parse_cli_args
 from src.main import build_app as app_main_build_app
@@ -63,7 +62,9 @@ def test_cli_redaction_flag(monkeypatch):
     monkeypatch.delenv("GEMINI_API_KEY", raising=False)
     for i in range(1, 21):
         monkeypatch.delenv(f"GEMINI_API_KEY_{i}", raising=False)
-    args = parse_cli_args(["--disable-interactive-mode"]) # This was duplicated, keeping one
+    args = parse_cli_args(
+        ["--disable-interactive-mode"]
+    )  # This was duplicated, keeping one
     cfg = apply_cli_args(args)
     assert os.environ["DISABLE_INTERACTIVE_MODE"] == "True"
     assert cfg["interactive_mode"] is False
@@ -116,7 +117,9 @@ def test_main_log_file(monkeypatch, tmp_path):
         recorded.update(kwargs)
 
     monkeypatch.setattr(cli.logging, "basicConfig", fake_basic_config)
-    monkeypatch.setattr(cli.uvicorn, "run", lambda app, host, port: None) # app is fine here
+    monkeypatch.setattr(
+        cli.uvicorn, "run", lambda app, host, port: None
+    )  # app is fine here
     monkeypatch.setattr(cli, "_check_privileges", lambda: None)
 
     cli.main(["--log", str(log_file)])
@@ -133,7 +136,7 @@ async def test_build_app_uses_env(monkeypatch):
     monkeypatch.setenv("GEMINI_API_KEY", "KEY")
     monkeypatch.setenv("COMMAND_PREFIX", "??/")
     app = app_main_build_app()
-    with TestClient(app): # Ensure lifespan runs
+    with TestClient(app):  # Ensure lifespan runs
         assert app.state.backend_type == "gemini"
         assert hasattr(app.state, "gemini_backend")
         assert app.state.command_prefix == "??/"
@@ -154,7 +157,7 @@ async def test_build_app_uses_interactive_env(monkeypatch):
     monkeypatch.setenv("GEMINI_API_KEY", "dummy-key-for-testing")
     monkeypatch.setenv("LLM_INTERACTIVE_PROXY_API_KEY", "test-key")
     app = app_main_build_app()
-    with TestClient(app): # Ensure lifespan runs
+    with TestClient(app):  # Ensure lifespan runs
         session = app.state.session_manager.get_session("s1")
         assert session.proxy_state.interactive_mode is True
 
@@ -251,7 +254,10 @@ def test_apply_cli_args_basic():
 def test_apply_cli_args_disable_auth_forces_localhost():
     """Test that disable_auth via CLI forces host to localhost."""
     args = parse_cli_args(["--disable-auth", "--host", "0.0.0.0"])
-    with patch.dict(os.environ, {}, clear=True), patch("src.core.cli.logging") as mock_logging:
+    with (
+        patch.dict(os.environ, {}, clear=True),
+        patch("src.core.cli.logging") as mock_logging,
+    ):
         cfg = apply_cli_args(args)
         assert cfg["proxy_host"] == "127.0.0.1"
         assert cfg["disable_auth"] is True
@@ -262,7 +268,10 @@ def test_apply_cli_args_disable_auth_forces_localhost():
 def test_apply_cli_args_disable_auth_with_localhost_no_warning():
     """Test that disable_auth with localhost doesn't trigger warning."""
     args = parse_cli_args(["--disable-auth", "--host", "127.0.0.1"])
-    with patch.dict(os.environ, {}, clear=True), patch("src.core.cli.logging") as mock_logging:
+    with (
+        patch.dict(os.environ, {}, clear=True),
+        patch("src.core.cli.logging") as mock_logging,
+    ):
         cfg = apply_cli_args(args)
         assert cfg["proxy_host"] == "127.0.0.1"
         assert cfg["disable_auth"] is True
@@ -272,49 +281,78 @@ def test_apply_cli_args_disable_auth_with_localhost_no_warning():
 
 def test_main_disable_auth_forces_localhost():
     """Test that main function forces localhost when disable_auth is set."""
-    with patch.dict(os.environ, {"DISABLE_AUTH": "true", "PROXY_HOST": "0.0.0.0"}, clear=True), patch("src.core.cli.logging.basicConfig"), patch("src.core.cli.logging") as mock_logging, patch("uvicorn.run") as mock_uvicorn, patch("src.core.cli._check_privileges"):
+    with (
+        patch.dict(
+            os.environ, {"DISABLE_AUTH": "true", "PROXY_HOST": "0.0.0.0"}, clear=True
+        ),
+        patch("src.core.cli.logging.basicConfig"),
+        patch("src.core.cli.logging") as mock_logging,
+        patch("uvicorn.run") as mock_uvicorn,
+        patch("src.core.cli._check_privileges"),
+    ):
         mock_app = MagicMock()
         mock_build_app = MagicMock(return_value=mock_app)
-        
+
         main(["--port", "8080"], build_app_fn=mock_build_app)
-        
+
         # Should force host to localhost
         mock_uvicorn.assert_called_once_with(mock_app, host="127.0.0.1", port=8080)
         # Should log warning about auth being disabled
         warning_calls = [str(call) for call in mock_logging.warning.call_args_list]
-        auth_disabled_warnings = [call for call in warning_calls 
-                                if "authentication is DISABLED" in call]
+        auth_disabled_warnings = [
+            call for call in warning_calls if "authentication is DISABLED" in call
+        ]
         assert len(auth_disabled_warnings) >= 1
 
 
 def test_main_disable_auth_with_localhost_no_force():
     """Test that main function doesn't force localhost when it's already localhost."""
-    with patch.dict(os.environ, {"DISABLE_AUTH": "true", "PROXY_HOST": "127.0.0.1"}, clear=True), patch("src.core.cli.logging.basicConfig"), patch("src.core.cli.logging") as mock_logging, patch("uvicorn.run") as mock_uvicorn, patch("src.core.cli._check_privileges"):
+    with (
+        patch.dict(
+            os.environ, {"DISABLE_AUTH": "true", "PROXY_HOST": "127.0.0.1"}, clear=True
+        ),
+        patch("src.core.cli.logging.basicConfig"),
+        patch("src.core.cli.logging") as mock_logging,
+        patch("uvicorn.run") as mock_uvicorn,
+        patch("src.core.cli._check_privileges"),
+    ):
         mock_app = MagicMock()
         mock_build_app = MagicMock(return_value=mock_app)
-        
+
         main(["--port", "8080"], build_app_fn=mock_build_app)
-        
+
         # Should use localhost
         mock_uvicorn.assert_called_once_with(mock_app, host="127.0.0.1", port=8080)
         # Should log warning about auth being disabled but not about forcing host
         warning_calls = [str(call) for call in mock_logging.warning.call_args_list]
-        auth_disabled_warnings = [call for call in warning_calls 
-                                if "authentication is DISABLED" in call]
+        auth_disabled_warnings = [
+            call for call in warning_calls if "authentication is DISABLED" in call
+        ]
         assert len(auth_disabled_warnings) >= 1
 
 
 def test_main_auth_enabled_allows_custom_host():
     """Test that main function allows custom host when auth is enabled."""
-    with patch.dict(os.environ, {"DISABLE_AUTH": "false", "PROXY_HOST": "0.0.0.0"}, clear=True), patch("src.core.cli.logging.basicConfig"), patch("src.core.cli.logging") as mock_logging, patch("uvicorn.run") as mock_uvicorn, patch("src.core.cli._check_privileges"):
-                        mock_app = MagicMock()
-                        mock_build_app = MagicMock(return_value=mock_app)
-                        
-                        main(["--port", "8080"], build_app_fn=mock_build_app)
-                        
-                        # Should use custom host when auth is enabled
-                        mock_uvicorn.assert_called_once_with(mock_app, host="0.0.0.0", port=8080)
-                        # Should not log warning about auth being disabled
-                        auth_warnings = [call for call in mock_logging.warning.call_args_list 
-                                       if "authentication is DISABLED" in str(call)]
-                        assert len(auth_warnings) == 0
+    with (
+        patch.dict(
+            os.environ, {"DISABLE_AUTH": "false", "PROXY_HOST": "0.0.0.0"}, clear=True
+        ),
+        patch("src.core.cli.logging.basicConfig"),
+        patch("src.core.cli.logging") as mock_logging,
+        patch("uvicorn.run") as mock_uvicorn,
+        patch("src.core.cli._check_privileges"),
+    ):
+        mock_app = MagicMock()
+        mock_build_app = MagicMock(return_value=mock_app)
+
+        main(["--port", "8080"], build_app_fn=mock_build_app)
+
+        # Should use custom host when auth is enabled
+        mock_uvicorn.assert_called_once_with(mock_app, host="0.0.0.0", port=8080)
+        # Should not log warning about auth being disabled
+        auth_warnings = [
+            call
+            for call in mock_logging.warning.call_args_list
+            if "authentication is DISABLED" in str(call)
+        ]
+        assert len(auth_warnings) == 0

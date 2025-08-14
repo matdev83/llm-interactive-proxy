@@ -8,7 +8,6 @@ def _load_project_metadata() -> tuple[str, str]:
     try:
         data = tomli.loads(pyproject.read_text())
         meta = data.get("project", {})
-        return meta.get(
-            "name", "llm-interactive-proxy"), meta.get("version", "0.0.0")
+        return meta.get("name", "llm-interactive-proxy"), meta.get("version", "0.0.0")
     except Exception:
         return "llm-interactive-proxy", "0.0.0"

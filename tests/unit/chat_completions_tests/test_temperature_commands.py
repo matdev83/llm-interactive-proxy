@@ -13,15 +13,15 @@ class TestTemperatureCommands:
         }
 
         with patch.object(
-            client.app.state.openrouter_backend, "chat_completions", new_callable=AsyncMock
+            client.app.state.openrouter_backend,
+            "chat_completions",
+            new_callable=AsyncMock,
         ) as mock_method:
             mock_method.return_value = mock_backend_response
 
             payload = {
                 "model": "openrouter:gpt-4",
-                "messages": [
-                    {"role": "user", "content": "!/set(temperature=0.7)"}
-                ],
+                "messages": [{"role": "user", "content": "!/set(temperature=0.7)"}],
             }
             response = client.post("/v1/chat/completions", json=payload)
 
@@ -40,9 +40,7 @@ class TestTemperatureCommands:
         """Test setting temperature with valid integer value."""
         payload = {
             "model": "openrouter:gpt-4",
-            "messages": [
-                {"role": "user", "content": "!/set(temperature=1)"}
-            ],
+            "messages": [{"role": "user", "content": "!/set(temperature=1)"}],
         }
         response = client.post("/v1/chat/completions", json=payload)
 
@@ -54,9 +52,7 @@ class TestTemperatureCommands:
         """Test setting temperature with string representation of number."""
         payload = {
             "model": "openrouter:gpt-4",
-            "messages": [
-                {"role": "user", "content": "!/set(temperature=\"0.5\")"}
-            ],
+            "messages": [{"role": "user", "content": '!/set(temperature="0.5")'}],
         }
         response = client.post("/v1/chat/completions", json=payload)
 
@@ -68,9 +64,7 @@ class TestTemperatureCommands:
         """Test setting temperature to zero (deterministic)."""
         payload = {
             "model": "openrouter:gpt-4",
-            "messages": [
-                {"role": "user", "content": "!/set(temperature=0.0)"}
-            ],
+            "messages": [{"role": "user", "content": "!/set(temperature=0.0)"}],
         }
         response = client.post("/v1/chat/completions", json=payload)
 
@@ -82,9 +76,7 @@ class TestTemperatureCommands:
         """Test setting temperature to maximum OpenAI value (2.0)."""
         payload = {
             "model": "openrouter:gpt-4",
-            "messages": [
-                {"role": "user", "content": "!/set(temperature=2.0)"}
-            ],
+            "messages": [{"role": "user", "content": "!/set(temperature=2.0)"}],
         }
         response = client.post("/v1/chat/completions", json=payload)
 
@@ -96,9 +88,7 @@ class TestTemperatureCommands:
         """Test setting temperature with invalid negative value."""
         payload = {
             "model": "openrouter:gpt-4",
-            "messages": [
-                {"role": "user", "content": "!/set(temperature=-0.5)"}
-            ],
+            "messages": [{"role": "user", "content": "!/set(temperature=-0.5)"}],
         }
         response = client.post("/v1/chat/completions", json=payload)
 
@@ -115,9 +105,7 @@ class TestTemperatureCommands:
         """Test setting temperature with value too high."""
         payload = {
             "model": "openrouter:gpt-4",
-            "messages": [
-                {"role": "user", "content": "!/set(temperature=3.0)"}
-            ],
+            "messages": [{"role": "user", "content": "!/set(temperature=3.0)"}],
         }
         response = client.post("/v1/chat/completions", json=payload)
 
@@ -134,9 +122,7 @@ class TestTemperatureCommands:
         """Test setting temperature with invalid string value."""
         payload = {
             "model": "openrouter:gpt-4",
-            "messages": [
-                {"role": "user", "content": "!/set(temperature=high)"}
-            ],
+            "messages": [{"role": "user", "content": "!/set(temperature=high)"}],
         }
         response = client.post("/v1/chat/completions", json=payload)
 
@@ -159,9 +145,7 @@ class TestTemperatureCommands:
         # Now unset it
         payload = {
             "model": "openrouter:gpt-4",
-            "messages": [
-                {"role": "user", "content": "!/unset(temperature)"}
-            ],
+            "messages": [{"role": "user", "content": "!/unset(temperature)"}],
         }
         response = client.post("/v1/chat/completions", json=payload)
 
@@ -177,9 +161,7 @@ class TestTemperatureCommands:
         # Set temperature
         payload1 = {
             "model": "openrouter:gpt-4",
-            "messages": [
-                {"role": "user", "content": "!/set(temperature=0.6)"}
-            ],
+            "messages": [{"role": "user", "content": "!/set(temperature=0.6)"}],
         }
         response1 = client.post("/v1/chat/completions", json=payload1)
         assert response1.status_code == 200
@@ -190,25 +172,25 @@ class TestTemperatureCommands:
         }
 
         with patch.object(
-            client.app.state.openrouter_backend, "chat_completions", new_callable=AsyncMock
+            client.app.state.openrouter_backend,
+            "chat_completions",
+            new_callable=AsyncMock,
         ) as mock_method:
             mock_method.return_value = mock_backend_response
 
             payload2 = {
                 "model": "openrouter:gpt-4",
-                "messages": [
-                    {"role": "user", "content": "Generate a creative story."}
-                ],
+                "messages": [{"role": "user", "content": "Generate a creative story."}],
             }
             response2 = client.post("/v1/chat/completions", json=payload2)
 
         assert response2.status_code == 200
-        
+
         # Verify temperature was passed to backend
         mock_method.assert_called_once()
         call_args = mock_method.call_args
         request_data = call_args[1]["request_data"]  # keyword argument
-        assert hasattr(request_data, 'temperature')
+        assert hasattr(request_data, "temperature")
         assert request_data.temperature == 0.6
 
     def test_temperature_with_message_content(self, client):
@@ -218,20 +200,25 @@ class TestTemperatureCommands:
         }
 
         with patch.object(
-            client.app.state.openrouter_backend, "chat_completions", new_callable=AsyncMock
+            client.app.state.openrouter_backend,
+            "chat_completions",
+            new_callable=AsyncMock,
         ) as mock_method:
             mock_method.return_value = mock_backend_response
 
             payload = {
                 "model": "openrouter:gpt-4",
                 "messages": [
-                    {"role": "user", "content": "!/set(temperature=0.9) Write a creative story about robots."}
+                    {
+                        "role": "user",
+                        "content": "!/set(temperature=0.9) Write a creative story about robots.",
+                    }
                 ],
             }
             response = client.post("/v1/chat/completions", json=payload)
 
         assert response.status_code == 200
-        
+
         # Temperature should be set
         session = client.app.state.session_manager.get_session("default")
         assert session.proxy_state.temperature == 0.9
@@ -256,7 +243,9 @@ class TestTemperatureAPIParameters:
         }
 
         with patch.object(
-            client.app.state.openrouter_backend, "chat_completions", new_callable=AsyncMock
+            client.app.state.openrouter_backend,
+            "chat_completions",
+            new_callable=AsyncMock,
         ) as mock_method:
             mock_method.return_value = mock_backend_response
 
@@ -270,12 +259,12 @@ class TestTemperatureAPIParameters:
             response = client.post("/v1/chat/completions", json=payload)
 
         assert response.status_code == 200
-        
+
         # Verify temperature was passed to backend
         mock_method.assert_called_once()
         call_args = mock_method.call_args
         request_data = call_args[1]["request_data"]
-        assert hasattr(request_data, 'temperature')
+        assert hasattr(request_data, "temperature")
         assert request_data.temperature == 0.4
 
     def test_api_temperature_overrides_session_setting(self, client):
@@ -289,7 +278,9 @@ class TestTemperatureAPIParameters:
         }
 
         with patch.object(
-            client.app.state.openrouter_backend, "chat_completions", new_callable=AsyncMock
+            client.app.state.openrouter_backend,
+            "chat_completions",
+            new_callable=AsyncMock,
         ) as mock_method:
             mock_method.return_value = mock_backend_response
 
@@ -303,7 +294,7 @@ class TestTemperatureAPIParameters:
             response = client.post("/v1/chat/completions", json=payload)
 
         assert response.status_code == 200
-        
+
         # Verify API temperature was used, not session temperature
         mock_method.assert_called_once()
         call_args = mock_method.call_args
@@ -318,33 +309,29 @@ class TestTemperatureModelDefaults:
         """Test that model defaults are applied when no session/API temperature is set."""
         # Mock model defaults in app state
         from src.models import ModelDefaults, ModelReasoningConfig
-        
-        model_defaults = ModelDefaults(
-            reasoning=ModelReasoningConfig(temperature=0.3)
-        )
-        client.app.state.model_defaults = {
-            "openrouter:gpt-4": model_defaults
-        }
+
+        model_defaults = ModelDefaults(reasoning=ModelReasoningConfig(temperature=0.3))
+        client.app.state.model_defaults = {"openrouter:gpt-4": model_defaults}
 
         mock_backend_response = {
             "choices": [{"message": {"content": "Response with default temperature."}}]
         }
 
         with patch.object(
-            client.app.state.openrouter_backend, "chat_completions", new_callable=AsyncMock
+            client.app.state.openrouter_backend,
+            "chat_completions",
+            new_callable=AsyncMock,
         ) as mock_method:
             mock_method.return_value = mock_backend_response
 
             payload = {
                 "model": "openrouter:gpt-4",
-                "messages": [
-                    {"role": "user", "content": "Generate a response."}
-                ],
+                "messages": [{"role": "user", "content": "Generate a response."}],
             }
             response = client.post("/v1/chat/completions", json=payload)
 
         assert response.status_code == 200
-        
+
         # Verify model default temperature was applied
         session = client.app.state.session_manager.get_session("default")
         assert session.proxy_state.temperature == 0.3
@@ -359,13 +346,9 @@ class TestTemperatureModelDefaults:
         """Test that session temperature overrides model defaults."""
         # Mock model defaults
         from src.models import ModelDefaults, ModelReasoningConfig
-        
-        model_defaults = ModelDefaults(
-            reasoning=ModelReasoningConfig(temperature=0.3)
-        )
-        client.app.state.model_defaults = {
-            "openrouter:gpt-4": model_defaults
-        }
+
+        model_defaults = ModelDefaults(reasoning=ModelReasoningConfig(temperature=0.3))
+        client.app.state.model_defaults = {"openrouter:gpt-4": model_defaults}
 
         # Set session temperature (should override model default)
         session = client.app.state.session_manager.get_session("default")
@@ -376,20 +359,20 @@ class TestTemperatureModelDefaults:
         }
 
         with patch.object(
-            client.app.state.openrouter_backend, "chat_completions", new_callable=AsyncMock
+            client.app.state.openrouter_backend,
+            "chat_completions",
+            new_callable=AsyncMock,
         ) as mock_method:
             mock_method.return_value = mock_backend_response
 
             payload = {
                 "model": "openrouter:gpt-4",
-                "messages": [
-                    {"role": "user", "content": "Generate a response."}
-                ],
+                "messages": [{"role": "user", "content": "Generate a response."}],
             }
             response = client.post("/v1/chat/completions", json=payload)
 
         assert response.status_code == 200
-        
+
         # Session temperature should remain (not overridden by model default)
         assert session.proxy_state.temperature == 0.9
 
@@ -406,32 +389,32 @@ class TestTemperatureProxyState:
     def test_proxy_state_set_temperature_valid(self):
         """Test setting valid temperature values in ProxyState."""
         from src.proxy_logic import ProxyState
-        
+
         proxy_state = ProxyState()
-        
+
         # Test various valid values
         proxy_state.set_temperature(0.0)
         assert proxy_state.temperature == 0.0
-        
+
         proxy_state.set_temperature(0.5)
         assert proxy_state.temperature == 0.5
-        
+
         proxy_state.set_temperature(1.0)
         assert proxy_state.temperature == 1.0
-        
+
         proxy_state.set_temperature(2.0)
         assert proxy_state.temperature == 2.0
 
     def test_proxy_state_set_temperature_invalid(self):
         """Test setting invalid temperature values in ProxyState."""
         from src.proxy_logic import ProxyState
-        
+
         proxy_state = ProxyState()
-        
+
         # Test negative value
         with pytest.raises(ValueError, match="Temperature must be between 0.0 and 2.0"):
             proxy_state.set_temperature(-0.1)
-        
+
         # Test too high value
         with pytest.raises(ValueError, match="Temperature must be between 0.0 and 2.0"):
             proxy_state.set_temperature(2.1)
@@ -439,22 +422,22 @@ class TestTemperatureProxyState:
     def test_proxy_state_unset_temperature(self):
         """Test unsetting temperature in ProxyState."""
         from src.proxy_logic import ProxyState
-        
+
         proxy_state = ProxyState()
         proxy_state.set_temperature(0.7)
         assert proxy_state.temperature == 0.7
-        
+
         proxy_state.unset_temperature()
         assert proxy_state.temperature is None
 
     def test_proxy_state_reset_clears_temperature(self):
         """Test that reset() clears temperature setting."""
         from src.proxy_logic import ProxyState
-        
+
         proxy_state = ProxyState()
         proxy_state.set_temperature(0.8)
         assert proxy_state.temperature == 0.8
-        
+
         proxy_state.reset()
         assert proxy_state.temperature is None
 
@@ -462,17 +445,15 @@ class TestTemperatureProxyState:
         """Test applying model defaults with temperature."""
         from src.models import ModelDefaults, ModelReasoningConfig
         from src.proxy_logic import ProxyState
-        
+
         proxy_state = ProxyState()
-        
+
         # Create model defaults with temperature
-        model_defaults = ModelDefaults(
-            reasoning=ModelReasoningConfig(temperature=0.6)
-        )
-        
+        model_defaults = ModelDefaults(reasoning=ModelReasoningConfig(temperature=0.6))
+
         # Apply defaults
-        proxy_state.apply_model_defaults("test-model", model_defaults)
-        
+        proxy_state.apply_model_defaults("test-model", model_defaults.__dict__)
+
         # Temperature should be applied
         assert proxy_state.temperature == 0.6
 
@@ -480,17 +461,15 @@ class TestTemperatureProxyState:
         """Test that model defaults don't override existing temperature."""
         from src.models import ModelDefaults, ModelReasoningConfig
         from src.proxy_logic import ProxyState
-        
+
         proxy_state = ProxyState()
         proxy_state.set_temperature(0.9)  # Set existing temperature
-        
+
         # Create model defaults with different temperature
-        model_defaults = ModelDefaults(
-            reasoning=ModelReasoningConfig(temperature=0.3)
-        )
-        
+        model_defaults = ModelDefaults(reasoning=ModelReasoningConfig(temperature=0.3))
+
         # Apply defaults
-        proxy_state.apply_model_defaults("test-model", model_defaults)
-        
+        proxy_state.apply_model_defaults("test-model", model_defaults.__dict__)
+
         # Existing temperature should not be overridden
-        assert proxy_state.temperature == 0.9 
+        assert proxy_state.temperature == 0.9

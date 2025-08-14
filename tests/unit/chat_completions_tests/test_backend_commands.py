@@ -6,14 +6,18 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from fastapi.testclient import TestClient
 from pytest_httpx import HTTPXMock
-
 from src.proxy_logic import ProxyState
 
 logger = logging.getLogger(__name__)
 
-@patch('src.connectors.GeminiBackend.chat_completions', new_callable=AsyncMock)
-@patch('src.connectors.OpenRouterBackend.chat_completions', new_callable=AsyncMock)
-def test_set_backend_command_integration(mock_openrouter_completions_method: AsyncMock, mock_gemini_completions_method: AsyncMock, client: TestClient):
+
+@patch("src.connectors.GeminiBackend.chat_completions", new_callable=AsyncMock)
+@patch("src.connectors.OpenRouterBackend.chat_completions", new_callable=AsyncMock)
+def test_set_backend_command_integration(
+    mock_openrouter_completions_method: AsyncMock,
+    mock_gemini_completions_method: AsyncMock,
+    client: TestClient,
+):
     client.app.state.functional_backends = {"openrouter", "gemini"}
     # mock_backend_response no longer needed as backend shouldn't be called for LLM response
 
@@ -26,7 +30,9 @@ def test_set_backend_command_integration(mock_openrouter_completions_method: Asy
     mock_proxy_state.override_model = None
     mock_proxy_state.invalid_override = False
     mock_proxy_state.project = None
-    mock_proxy_state.interactive_mode = True # Assuming interactive for banner checks later
+    mock_proxy_state.interactive_mode = (
+        True  # Assuming interactive for banner checks later
+    )
     mock_proxy_state.interactive_just_enabled = False
     mock_proxy_state.hello_requested = False
     mock_proxy_state.is_cline_agent = False
@@ -39,18 +45,23 @@ def test_set_backend_command_integration(mock_openrouter_completions_method: Asy
     mock_proxy_state.temperature = None
     mock_proxy_state.oneoff_backend = None
     mock_proxy_state.oneoff_model = None
-    mock_proxy_state.get_effective_model.return_value = "some-model" # Ensure this returns a string
+    mock_proxy_state.get_effective_model.return_value = (
+        "some-model"  # Ensure this returns a string
+    )
     mock_proxy_state.get_selected_backend.return_value = "openrouter"  # Default backend
 
     # Mocking the side effect of set_override_backend directly on the mock_proxy_state
     # This ensures that when CommandParser calls state.set_override_backend(), our mock_proxy_state reflects the change.
     def side_effect_set_override_backend(backend_name):
         mock_proxy_state.override_backend = backend_name
-        mock_proxy_state.override_model = None # As per original logic
+        mock_proxy_state.override_model = None  # As per original logic
         mock_proxy_state.invalid_override = False
-        logger.info(f"Mock ProxyState (side_effect): Setting override_backend to {backend_name}")
-            # No need to call original_set_override_backend from here, it causes recursion.
-            # The MagicMock automatically records the call.
+        logger.info(
+            f"Mock ProxyState (side_effect): Setting override_backend to {backend_name}"
+        )
+        # No need to call original_set_override_backend from here, it causes recursion.
+        # The MagicMock automatically records the call.
+
     mock_proxy_state.set_override_backend.side_effect = side_effect_set_override_backend
 
     mock_session = MagicMock()
@@ -60,9 +71,11 @@ def test_set_backend_command_integration(mock_openrouter_completions_method: Asy
     client.app.state.gemini_backend.available_models = ["gemini-model"]
     client.app.state.openrouter_backend.available_models = ["openrouter-model"]
 
-    with patch.object(client.app.state.session_manager, "get_session", return_value=mock_session):
+    with patch.object(
+        client.app.state.session_manager, "get_session", return_value=mock_session
+    ):
         payload = {
-            "model": "some-model", # This initial model is not used for backend selection if command overrides
+            "model": "some-model",  # This initial model is not used for backend selection if command overrides
             "messages": [{"role": "user", "content": "!/set(backend=gemini) hi"}],
         }
         response = client.post("/v1/chat/completions", json=payload)
@@ -73,22 +86,28 @@ def test_set_backend_command_integration(mock_openrouter_completions_method: Asy
 
     # Check that the command was executed on the (mocked) ProxyState
     mock_proxy_state.set_override_backend.assert_called_once_with("gemini")
-    assert mock_proxy_state.override_backend == "gemini" # Verifies side effect if used, or direct attribute change
+    assert (
+        mock_proxy_state.override_backend == "gemini"
+    )  # Verifies side effect if used, or direct attribute change
 
     # Check that the response contains the command's confirmation message
     content = response_json["choices"][0]["message"]["content"]
-    assert "backend set to gemini" in content # Specific message from SetCommand
+    assert "backend set to gemini" in content  # Specific message from SetCommand
 
     # Ensure neither backend was actually called for LLM response
     mock_gemini_completions_method.assert_not_called()
     mock_openrouter_completions_method.assert_not_called()
 
 
-@patch('src.connectors.GeminiBackend.chat_completions', new_callable=AsyncMock)
-@patch('src.connectors.OpenRouterBackend.chat_completions', new_callable=AsyncMock)
-def test_unset_backend_command_integration(mock_openrouter_completions_method: AsyncMock, mock_gemini_completions_method: AsyncMock, client: TestClient):
+@patch("src.connectors.GeminiBackend.chat_completions", new_callable=AsyncMock)
+@patch("src.connectors.OpenRouterBackend.chat_completions", new_callable=AsyncMock)
+def test_unset_backend_command_integration(
+    mock_openrouter_completions_method: AsyncMock,
+    mock_gemini_completions_method: AsyncMock,
+    client: TestClient,
+):
     mock_proxy_state = MagicMock(spec=ProxyState)
-    mock_proxy_state.override_backend = "gemini" # Start with a backend set
+    mock_proxy_state.override_backend = "gemini"  # Start with a backend set
     mock_proxy_state.override_model = None
     mock_proxy_state.invalid_override = False
     mock_proxy_state.project = None
@@ -105,7 +124,7 @@ def test_unset_backend_command_integration(mock_openrouter_completions_method: A
     mock_proxy_state.temperature = None
     mock_proxy_state.oneoff_backend = None
     mock_proxy_state.oneoff_model = None
-    mock_proxy_state.get_effective_model.return_value = "some-model" # Ensure this returns a string (already correctly indented in the read file)
+    mock_proxy_state.get_effective_model.return_value = "some-model"  # Ensure this returns a string (already correctly indented in the read file)
     mock_proxy_state.get_selected_backend.return_value = "openrouter"  # Default backend
 
     def side_effect_unset_override_backend():
@@ -114,7 +133,10 @@ def test_unset_backend_command_integration(mock_openrouter_completions_method: A
         mock_proxy_state.invalid_override = False
         logger.info("Mock ProxyState (side_effect): Unsetting override_backend")
         # No need to call original_unset_override_backend from here.
-    mock_proxy_state.unset_override_backend.side_effect = side_effect_unset_override_backend
+
+    mock_proxy_state.unset_override_backend.side_effect = (
+        side_effect_unset_override_backend
+    )
 
     mock_session = MagicMock()
     mock_session.proxy_state = mock_proxy_state
@@ -122,7 +144,9 @@ def test_unset_backend_command_integration(mock_openrouter_completions_method: A
     client.app.state.gemini_backend.available_models = ["gemini-model"]
     client.app.state.openrouter_backend.available_models = ["openrouter-model"]
 
-    with patch.object(client.app.state.session_manager, "get_session", return_value=mock_session):
+    with patch.object(
+        client.app.state.session_manager, "get_session", return_value=mock_session
+    ):
         payload = {
             "model": "some-model",
             "messages": [{"role": "user", "content": "!/unset(backend) hi"}],
@@ -137,7 +161,7 @@ def test_unset_backend_command_integration(mock_openrouter_completions_method: A
     assert mock_proxy_state.override_backend is None
 
     content = response_json["choices"][0]["message"]["content"]
-    assert "backend unset" in content # Specific message from UnsetCommand
+    assert "backend unset" in content  # Specific message from UnsetCommand
 
     mock_gemini_completions_method.assert_not_called()
     mock_openrouter_completions_method.assert_not_called()
@@ -175,7 +199,9 @@ def test_set_backend_rejects_nonfunctional(client: TestClient, httpx_mock: HTTPX
         mock_proxy_state.oneoff_backend = None
         mock_proxy_state.oneoff_model = None
         mock_proxy_state.get_effective_model.return_value = "some-model"
-        mock_proxy_state.get_selected_backend.return_value = "openrouter"  # Default backend
+        mock_proxy_state.get_selected_backend.return_value = (
+            "openrouter"  # Default backend
+        )
 
         mock_session = MagicMock()
         mock_session.proxy_state = mock_proxy_state
@@ -190,9 +216,7 @@ def test_set_backend_rejects_nonfunctional(client: TestClient, httpx_mock: HTTPX
             response = client.post("/v1/chat/completions", json=payload)
 
             assert response.status_code == 200
-            assert (
-                mock_proxy_state.override_backend is None
-            )
+            assert mock_proxy_state.override_backend is None
             content = response.json()["choices"][0]["message"]["content"]
             assert "backend gemini not functional" in content
     finally:
@@ -235,24 +259,30 @@ def test_set_default_backend_command_integration(client: TestClient):
     async def mock_openrouter_chat_completions(*args, **kwargs):
         return mock_backend_response
 
-    with patch.object(
-        client.app.state.gemini_backend,
-        "chat_completions",
-        new=mock_gemini_chat_completions,
-    ), patch.object(
-        client.app.state.openrouter_backend,
-        "chat_completions",
-        new=mock_openrouter_chat_completions,
-    ), patch.object(
-        client.app.state.gemini_backend,
-        "get_available_models",
-        return_value=["gemini-model"],
-    ), patch.object(
-        client.app.state.openrouter_backend,
-        "get_available_models",
-        return_value=["openrouter-model"],
-    ), patch.object(
-        client.app.state.session_manager, "get_session", return_value=mock_session
+    with (
+        patch.object(
+            client.app.state.gemini_backend,
+            "chat_completions",
+            new=mock_gemini_chat_completions,
+        ),
+        patch.object(
+            client.app.state.openrouter_backend,
+            "chat_completions",
+            new=mock_openrouter_chat_completions,
+        ),
+        patch.object(
+            client.app.state.gemini_backend,
+            "get_available_models",
+            return_value=["gemini-model"],
+        ),
+        patch.object(
+            client.app.state.openrouter_backend,
+            "get_available_models",
+            return_value=["openrouter-model"],
+        ),
+        patch.object(
+            client.app.state.session_manager, "get_session", return_value=mock_session
+        ),
     ):
         payload = {
             "model": "some-model",
@@ -301,24 +331,30 @@ def test_unset_default_backend_command_integration(client: TestClient):
     async def mock_openrouter_chat_completions(*args, **kwargs):
         return mock_backend_response
 
-    with patch.object(
-        client.app.state.gemini_backend,
-        "chat_completions",
-        new=mock_gemini_chat_completions,
-    ), patch.object(
-        client.app.state.openrouter_backend,
-        "chat_completions",
-        new=mock_openrouter_chat_completions,
-    ), patch.object(
-        client.app.state.gemini_backend,
-        "get_available_models",
-        return_value=["gemini-model"],
-    ), patch.object(
-        client.app.state.openrouter_backend,
-        "get_available_models",
-        return_value=["openrouter-model"],
-    ), patch.object(
-        client.app.state.session_manager, "get_session", return_value=mock_session
+    with (
+        patch.object(
+            client.app.state.gemini_backend,
+            "chat_completions",
+            new=mock_gemini_chat_completions,
+        ),
+        patch.object(
+            client.app.state.openrouter_backend,
+            "chat_completions",
+            new=mock_openrouter_chat_completions,
+        ),
+        patch.object(
+            client.app.state.gemini_backend,
+            "get_available_models",
+            return_value=["gemini-model"],
+        ),
+        patch.object(
+            client.app.state.openrouter_backend,
+            "get_available_models",
+            return_value=["openrouter-model"],
+        ),
+        patch.object(
+            client.app.state.session_manager, "get_session", return_value=mock_session
+        ),
     ):
         payload = {
             "model": "some-model",
@@ -326,7 +362,5 @@ def test_unset_default_backend_command_integration(client: TestClient):
         }
         response = client.post("/v1/chat/completions", json=payload)
     assert response.status_code == 200
-    assert (
-        client.app.state.backend_type == "openrouter"
-    )
+    assert client.app.state.backend_type == "openrouter"
     assert client.app.state.backend == client.app.state.openrouter_backend

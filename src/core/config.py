@@ -1,6 +1,6 @@
 import logging
 import os
-from typing import Any, Dict
+from typing import Any
 
 from dotenv import load_dotenv
 from src.command_prefix import validate_command_prefix
@@ -9,7 +9,7 @@ from src.constants import DEFAULT_COMMAND_PREFIX
 logger = logging.getLogger(__name__)
 
 
-def _collect_api_keys(base_name: str) -> Dict[str, str]:
+def _collect_api_keys(base_name: str) -> dict[str, str]:
     """Collect API keys as a mapping of env var names to values."""
 
     single_key = os.getenv(base_name)
@@ -35,7 +35,7 @@ def _collect_api_keys(base_name: str) -> Dict[str, str]:
     return numbered_keys
 
 
-def _load_config() -> Dict[str, Any]:
+def _load_config() -> dict[str, Any]:
     load_dotenv()
 
     openrouter_keys = _collect_api_keys("OPENROUTER_API_KEY")
@@ -127,11 +127,18 @@ def _load_config() -> Dict[str, Any]:
         ),
         "tool_loop_max_repeats": int(os.getenv("TOOL_LOOP_MAX_REPEATS", "4")),
         "tool_loop_ttl_seconds": int(os.getenv("TOOL_LOOP_TTL_SECONDS", "120")),
-        "tool_loop_mode": os.getenv("TOOL_LOOP_MODE", "break"),
+        # Normalize mode; accept shorthand 'chance'
+        "tool_loop_mode": (
+            lambda m: (
+                "chance_then_break"
+                if (m or "").strip().lower() == "chance"
+                else (m or "break")
+            )
+        )(os.getenv("TOOL_LOOP_MODE", "break")),
     }
 
 
-def get_openrouter_headers(cfg: Dict[str, Any], api_key: str) -> Dict[str, str]:
+def get_openrouter_headers(cfg: dict[str, Any], api_key: str) -> dict[str, str]:
     return {
         "Authorization": f"Bearer {api_key}",
         "Content-Type": "application/json",
@@ -140,7 +147,7 @@ def get_openrouter_headers(cfg: Dict[str, Any], api_key: str) -> Dict[str, str]:
     }
 
 
-def _keys_for(cfg: Dict[str, Any], b_type: str) -> list[tuple[str, str]]:
+def _keys_for(cfg: dict[str, Any], b_type: str) -> list[tuple[str, str]]:
     if b_type == "gemini":
         return list(cfg["gemini_api_keys"].items())
     if b_type == "openrouter":

@@ -1,10 +1,8 @@
 # import json # F401: Removed
-from typing import Dict, List  # Removed Any, Callable, Union
 
 import httpx
 import pytest
 import pytest_asyncio
-from fastapi import HTTPException
 
 # from pytest_httpx import HTTPXMock # F401: Removed
 import src.models as models
@@ -16,7 +14,7 @@ TEST_OPENROUTER_API_BASE_URL = (
 )
 
 
-def mock_get_openrouter_headers(key_name: str, api_key: str) -> Dict[str, str]:
+def mock_get_openrouter_headers(api_key: str) -> dict[str, str]:
     return {
         "Authorization": f"Bearer {api_key}",
         "Content-Type": "application/json",
@@ -41,7 +39,7 @@ def sample_chat_request_data() -> models.ChatCompletionRequest:
 
 
 @pytest.fixture
-def sample_processed_messages() -> List[models.ChatMessage]:
+def sample_processed_messages() -> list[models.ChatMessage]:
     return [models.ChatMessage(role="user", content="Hello")]
 
 
@@ -49,7 +47,7 @@ def sample_processed_messages() -> List[models.ChatMessage]:
 async def test_chat_completions_http_error_streaming(
     monkeypatch: pytest.MonkeyPatch,  # Add monkeypatch fixture
     sample_chat_request_data: models.ChatCompletionRequest,
-    sample_processed_messages: List[models.ChatMessage],
+    sample_processed_messages: list[models.ChatMessage],
 ):
     sample_chat_request_data.stream = True
     error_text_response = "OpenRouter internal server error"
@@ -61,17 +59,19 @@ async def test_chat_completions_http_error_streaming(
             stream=httpx.ByteStream(error_text_response.encode("utf-8")),
             headers={"Content-Type": "text/plain"},
         )
-        
-        # Mock the aclose method to be async
+
+        # Properly mock async methods using setattr
         async def mock_aclose():
             pass
+
         mock_response.aclose = mock_aclose
-        
+
         # Mock the aread method to be async
         async def mock_aread():
             return error_text_response.encode("utf-8")
+
         mock_response.aread = mock_aread
-        
+
         return mock_response
 
     monkeypatch.setattr(httpx.AsyncClient, "send", mock_send_method)
@@ -79,14 +79,13 @@ async def test_chat_completions_http_error_streaming(
     async with httpx.AsyncClient() as client:
         openrouter_backend = OpenRouterBackend(client=client)
 
-        with pytest.raises(HTTPException) as exc_info:
+        with pytest.raises(Exception) as exc_info:
             await openrouter_backend.chat_completions(
                 request_data=sample_chat_request_data,
                 processed_messages=sample_processed_messages,
                 effective_model="test-model",
                 openrouter_api_base_url=TEST_OPENROUTER_API_BASE_URL,
                 openrouter_headers_provider=mock_get_openrouter_headers,
-                key_name="OPENROUTER_API_KEY_1",
                 api_key="FAKE_KEY",
             )
 

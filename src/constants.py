@@ -1,20 +1,22 @@
 from enum import Enum
-from typing import Set
 
 DEFAULT_COMMAND_PREFIX = "!/"
 
 
 class BackendType(str, Enum):
     """Enum for supported backend types."""
+
     OPENAI = "openai"
     OPENROUTER = "openrouter"
     GEMINI = "gemini"
     ANTHROPIC = "anthropic"
     QWEN_OAUTH = "qwen-oauth"
+    ZAI = "zai"
 
 
 class AgentType(str, Enum):
     """Enum for supported agent types."""
+
     CLINE = "cline"
     ROOCODE = "roocode"
     AIDER = "aider"
@@ -22,6 +24,7 @@ class AgentType(str, Enum):
 
 class ConfigKey(str, Enum):
     """Enum for configuration keys."""
+
     BACKEND = "backend"
     DEFAULT_BACKEND = "default_backend"
     DISABLE_AUTH = "disable_auth"
@@ -38,14 +41,15 @@ class ConfigKey(str, Enum):
 
 
 # Helper constants
-SUPPORTED_BACKENDS: Set[str] = {
+SUPPORTED_BACKENDS: set[str] = {
     BackendType.OPENAI,
     BackendType.OPENROUTER,
     BackendType.GEMINI,
     BackendType.ANTHROPIC,
     BackendType.QWEN_OAUTH,
+    BackendType.ZAI,
 }
 
-GEMINI_BACKENDS: Set[str] = {
+GEMINI_BACKENDS: set[str] = {
     BackendType.GEMINI,
 }

@@ -1,11 +1,12 @@
 # import json # F401: Removed
 
+from typing import Any
+
 import httpx
 import pytest
 import pytest_asyncio
-from pytest_httpx import HTTPXMock
-
 import src.models as models
+from pytest_httpx import HTTPXMock
 from src.connectors.gemini import GeminiBackend
 
 TEST_GEMINI_API_BASE_URL = "https://generativelanguage.googleapis.com"
@@ -25,7 +26,7 @@ def sample_chat_request_data() -> models.ChatCompletionRequest:
         temperature=None,
         top_p=None,
         n=None,
-        stream=False, # Explicitly set stream to False for non-streaming tests
+        stream=False,  # Explicitly set stream to False for non-streaming tests
         stop=None,
         max_tokens=None,
         presence_penalty=None,
@@ -77,8 +78,8 @@ async def test_chat_completions_model_prefix_handled(
         key_name="GEMINI_API_KEY_1",
         api_key="FAKE_KEY",
     )
-    # Explicitly cast to Tuple for type checking, as it's a non-streaming test
-    response: dict = response_tuple
+    # Explicitly cast to dict for type checking, as it's a non-streaming test
+    response: dict[str, Any] = response_tuple  # type: ignore
 
     assert isinstance(response, dict)
     request = httpx_mock.get_request()

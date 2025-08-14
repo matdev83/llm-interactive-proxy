@@ -9,9 +9,10 @@ This module implements two separate tracking systems:
 import logging
 import os
 import time
+from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 from datetime import datetime
-from typing import Any, AsyncGenerator, Optional, TypedDict, Union
+from typing import Any, TypedDict
 
 import tiktoken
 from fastapi.responses import StreamingResponse
@@ -20,40 +21,40 @@ from llm_accounting import LLMAccounting  # type: ignore
 logger = logging.getLogger(__name__)
 
 # Global LLM accounting instance
-_llm_accounting: Optional[LLMAccounting] = None
+_llm_accounting: LLMAccounting | None = None
 
 # Token encoding cache
 _token_encoders: dict[str, tiktoken.Encoding] = {}
 
 
 class RateLimitInfo(TypedDict, total=False):
-    requests_remaining: Optional[str]
-    requests_reset: Optional[str]
-    tokens_remaining: Optional[str]
-    tokens_reset: Optional[str]
-    quota_remaining: Optional[str]
-    quota_reset: Optional[str]
+    requests_remaining: str | None
+    requests_reset: str | None
+    tokens_remaining: str | None
+    tokens_reset: str | None
+    quota_remaining: str | None
+    quota_reset: str | None
 
 
 class ProviderInfo(TypedDict, total=False):
-    provider: Optional[str]
-    model: Optional[str]
-    request_id: Optional[str]
-    note: Optional[str]
+    provider: str | None
+    model: str | None
+    request_id: str | None
+    note: str | None
 
 
 class BillingInfo(TypedDict, total=False):
     backend: str
     cost: float
-    upstream_cost: Optional[float]
+    upstream_cost: float | None
     provider_info: ProviderInfo
     rate_limit_info: RateLimitInfo
     usage: dict[str, int]
-    prompt_tokens: Optional[int]
-    completion_tokens: Optional[int]
-    total_tokens: Optional[int]
-    reasoning_tokens: Optional[int]
-    cached_tokens: Optional[int]
+    prompt_tokens: int | None
+    completion_tokens: int | None
+    total_tokens: int | None
+    reasoning_tokens: int | None
+    cached_tokens: int | None
 
 
 def is_accounting_disabled() -> bool:
@@ -138,7 +139,7 @@ def count_tokens(text: str, model: str = "gpt-3.5-turbo") -> int:
         return len(text) // 4
 
 
-def extract_prompt_from_messages(messages: list[Union[dict[str, Any], Any]]) -> str:
+def extract_prompt_from_messages(messages: list[dict[str, Any] | Any]) -> str:
     """
     Extract the full prompt text from OpenAI-style messages.
 
@@ -182,7 +183,7 @@ def extract_prompt_from_messages(messages: list[Union[dict[str, Any], Any]]) -> 
     return "\n".join(prompt_parts)
 
 
-def extract_response_text(response: Union[dict[str, Any], StreamingResponse]) -> str:
+def extract_response_text(response: dict[str, Any] | StreamingResponse) -> str:
     """
     Extract response text from backend response.
 
@@ -284,7 +285,7 @@ def _apply_anthropic_header_info(billing_info: BillingInfo) -> None:
 
 
 def extract_billing_info_from_response(
-    response: Union[dict[str, Any], StreamingResponse], backend: str
+    response: dict[str, Any] | StreamingResponse, backend: str
 ) -> BillingInfo:
     """
     Extract billing information from response body based on backend.
@@ -404,16 +405,16 @@ def _apply_anthropic_usage_from_streaming(
 
 def track_usage_metrics(
     model: str,
-    prompt_tokens: Optional[int] = None,
-    completion_tokens: Optional[int] = None,
-    total_tokens: Optional[int] = None,
+    prompt_tokens: int | None = None,
+    completion_tokens: int | None = None,
+    total_tokens: int | None = None,
     cost: float = 0.0,
     execution_time: float = 0.0,
-    backend: Optional[str] = None,
-    username: Optional[str] = None,
-    project: Optional[str] = None,
-    session: Optional[str] = None,
-    caller_name: Optional[str] = None,
+    backend: str | None = None,
+    username: str | None = None,
+    project: str | None = None,
+    session: str | None = None,
+    caller_name: str | None = None,
     reasoning_tokens: int = 0,
     cached_tokens: int = 0,
 ) -> None:
@@ -460,11 +461,11 @@ def log_audit_trail(
     model: str,
     prompt_text: str,
     response_text: str,
-    backend: Optional[str] = None,
-    username: Optional[str] = None,
-    project: Optional[str] = None,
-    session: Optional[str] = None,
-    remote_completion_id: Optional[str] = None,
+    backend: str | None = None,
+    username: str | None = None,
+    project: str | None = None,
+    session: str | None = None,
+    remote_completion_id: str | None = None,
 ) -> None:
     """
     Log audit trail for compliance and security monitoring.
@@ -508,11 +509,11 @@ def log_audit_trail(
 async def track_llm_request(
     model: str,
     backend: str,
-    messages: list[Union[dict[str, Any], Any]],
-    username: Optional[str] = None,
-    project: Optional[str] = None,
-    session: Optional[str] = None,
-    caller_name: Optional[str] = None,
+    messages: list[dict[str, Any] | Any],
+    username: str | None = None,
+    project: str | None = None,
+    session: str | None = None,
+    caller_name: str | None = None,
     **kwargs: Any,
 ) -> AsyncGenerator[Any, None]:
     """
@@ -527,14 +528,12 @@ async def track_llm_request(
 
     class RequestTracker:
         def __init__(self) -> None:
-            self.response: Optional[Union[dict[str, Any], StreamingResponse]] = None
+            self.response: dict[str, Any] | StreamingResponse | None = None
             self.response_headers: dict[str, str] = {}
             self.cost = 0.0
-            self.remote_completion_id: Optional[str] = None
+            self.remote_completion_id: str | None = None
 
-        def set_response(
-            self, response: Union[dict[str, Any], StreamingResponse]
-        ) -> None:
+        def set_response(self, response: dict[str, Any] | StreamingResponse) -> None:
             """Set the response and extract information."""
             self.response = response
 
@@ -641,9 +640,9 @@ async def track_llm_request(
 
 def get_usage_stats(
     days: int = 30,
-    backend: Optional[str] = None,
-    project: Optional[str] = None,
-    username: Optional[str] = None,
+    backend: str | None = None,
+    project: str | None = None,
+    username: str | None = None,
 ) -> dict[str, Any]:
     """
     Get usage statistics from the accounting system.
@@ -668,10 +667,10 @@ def get_usage_stats(
 
 
 def get_audit_logs(
-    start_date: Optional[datetime] = None,
-    end_date: Optional[datetime] = None,
-    username: Optional[str] = None,
-    limit: Optional[int] = None,
+    start_date: datetime | None = None,
+    end_date: datetime | None = None,
+    username: str | None = None,
+    limit: int | None = None,
 ) -> list[dict[str, Any]]:
     """
     Get audit log entries from the accounting system.

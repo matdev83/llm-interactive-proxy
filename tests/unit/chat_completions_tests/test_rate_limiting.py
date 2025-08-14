@@ -38,9 +38,7 @@ def test_rate_limit_memory(
         method="POST",
         status_code=200,
         json={
-            "candidates": [
-                {"content": {"parts": [{"text": "ok"}]}}
-            ],
+            "candidates": [{"content": {"parts": [{"text": "ok"}]}}],
             "usageMetadata": {
                 "promptTokenCount": 0,
                 "candidatesTokenCount": 0,

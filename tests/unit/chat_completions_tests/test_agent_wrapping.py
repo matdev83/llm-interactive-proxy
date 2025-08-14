@@ -32,6 +32,7 @@ def test_cline_command_wrapping(client):
     # Verify the content inside the tool call arguments
     tool_call_args = message["tool_calls"][0]["function"]["arguments"]
     import json
+
     args_dict = json.loads(tool_call_args)
     result_content = args_dict.get("result", "")
 
@@ -39,25 +40,28 @@ def test_cline_command_wrapping(client):
     project_version = client.app.state.project_metadata["version"]
     # Get the actual backends from the app state to make test robust
     backend_info = []
-    if hasattr(client.app.state, 'gemini_backend') and client.app.state.gemini_backend:
+    if hasattr(client.app.state, "gemini_backend") and client.app.state.gemini_backend:
         models_count = len(client.app.state.gemini_backend.get_available_models())
         keys_count = len([k for k in client.app.state.gemini_backend.api_keys if k])
         backend_info.append(f"gemini (K:{keys_count}, M:{models_count})")
-    
-    if hasattr(client.app.state, 'openrouter_backend') and client.app.state.openrouter_backend:
+
+    if (
+        hasattr(client.app.state, "openrouter_backend")
+        and client.app.state.openrouter_backend
+    ):
         models_count = len(client.app.state.openrouter_backend.get_available_models())
         keys_count = len([k for k in client.app.state.openrouter_backend.api_keys if k])
         backend_info.append(f"openrouter (K:{keys_count}, M:{models_count})")
-    
+
     # We've disabled Qwen OAuth backend for these tests
-    
+
     backends_str_expected = ", ".join(sorted(backend_info))
 
     expected_lines = [
         f"Hello, this is {project_name} {project_version}",
-        "Session id: default", # Default session ID
+        "Session id: default",  # Default session ID
         f"Functional backends: {backends_str_expected}",
-        f"Type {client.app.state.command_prefix}help for list of available commands"
+        f"Type {client.app.state.command_prefix}help for list of available commands",
         # Note: "hello acknowledged" is excluded for Cline agents as confirmation messages
         # are only shown to non-Cline clients
     ]

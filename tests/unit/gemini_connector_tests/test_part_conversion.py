@@ -3,9 +3,8 @@ import json
 import httpx
 import pytest
 import pytest_asyncio
-from pytest_httpx import HTTPXMock
-
 import src.models as models
+from pytest_httpx import HTTPXMock
 from src.connectors.gemini import GeminiBackend
 
 TEST_GEMINI_API_BASE_URL = "https://generativelanguage.googleapis.com"

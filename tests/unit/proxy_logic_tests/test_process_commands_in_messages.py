@@ -1,7 +1,6 @@
 from unittest.mock import Mock
 
 import pytest
-
 import src.models as models
 from src.command_parser import process_commands_in_messages
 from src.proxy_logic import ProxyState
@@ -355,10 +354,7 @@ class TestProcessCommandsInMessages:
         current_proxy_state = ProxyState()
         msg = models.ChatMessage(
             role="user",
-            content=(
-                "<task>\n!/hello\n</task>\n"
-                "# detail"
-            ),
+            content=("<task>\n!/hello\n</task>\n" "# detail"),
         )
         processed_messages, processed = process_commands_in_messages(
             [msg], current_proxy_state, app=self.mock_app
@@ -370,16 +366,13 @@ class TestProcessCommandsInMessages:
         current_proxy_state = ProxyState()
         msg = models.ChatMessage(
             role="user",
-            content=(
-                "# prefix line\n"
-                "!/set(model=openrouter:foo, project=bar)"
-            ),
+            content=("# prefix line\n" "!/set(model=openrouter:foo, project=bar)"),
         )
         processed_messages, processed = process_commands_in_messages(
             [msg], current_proxy_state, app=self.mock_app
         )
         assert processed
-        assert len(processed_messages) == 1 # Message should be retained as empty
-        assert processed_messages[0].content == "" # Content becomes empty
+        assert len(processed_messages) == 1  # Message should be retained as empty
+        assert processed_messages[0].content == ""  # Content becomes empty
         assert current_proxy_state.override_model == "foo"
         assert current_proxy_state.project == "bar"

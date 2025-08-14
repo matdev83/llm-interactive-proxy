@@ -1,14 +1,12 @@
 import json
-from typing import Dict, List
 
 import httpx
 import pytest
 import pytest_asyncio
-from pytest_httpx import HTTPXMock
-from starlette.responses import StreamingResponse
-
 import src.models as models
+from pytest_httpx import HTTPXMock
 from src.connectors.openrouter import OpenRouterBackend
+from starlette.responses import StreamingResponse
 
 # Default OpenRouter settings for tests
 TEST_OPENROUTER_API_BASE_URL = (
@@ -16,7 +14,7 @@ TEST_OPENROUTER_API_BASE_URL = (
 )
 
 
-def mock_get_openrouter_headers(key_name: str, api_key: str) -> Dict[str, str]:
+def mock_get_openrouter_headers(api_key: str) -> dict[str, str]:
     return {
         "Authorization": f"Bearer {api_key}",
         "Content-Type": "application/json",
@@ -41,7 +39,7 @@ def sample_chat_request_data() -> models.ChatCompletionRequest:
 
 
 @pytest.fixture
-def sample_processed_messages() -> List[models.ChatMessage]:
+def sample_processed_messages() -> list[models.ChatMessage]:
     return [models.ChatMessage(role="user", content="Hello")]
 
 
@@ -50,7 +48,7 @@ async def test_chat_completions_streaming_success(
     openrouter_backend: OpenRouterBackend,
     httpx_mock: HTTPXMock,
     sample_chat_request_data: models.ChatCompletionRequest,
-    sample_processed_messages: List[models.ChatMessage],
+    sample_processed_messages: list[models.ChatMessage],
 ):
     sample_chat_request_data.stream = True
     effective_model = "openai/gpt-4"
@@ -83,7 +81,6 @@ async def test_chat_completions_streaming_success(
         effective_model=effective_model,
         openrouter_api_base_url=TEST_OPENROUTER_API_BASE_URL,
         openrouter_headers_provider=mock_get_openrouter_headers,
-        key_name="OPENROUTER_API_KEY_1",
         api_key="FAKE_KEY",
     )
 
@@ -92,7 +89,10 @@ async def test_chat_completions_streaming_success(
     # Consume the stream and check content
     content = b""
     async for chunk in response.body_iterator:
-        content += chunk
+        if isinstance(chunk, str):
+            content += chunk.encode("utf-8")
+        else:
+            content += chunk
 
     expected_content = b"".join(stream_chunks)
     assert content == expected_content

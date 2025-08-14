@@ -3,9 +3,8 @@ import json
 import httpx
 import pytest
 import pytest_asyncio
-from pytest_httpx import HTTPXMock
-
 import src.models as models
+from pytest_httpx import HTTPXMock
 from src.connectors.gemini import GeminiBackend
 
 TEST_GEMINI_API_BASE_URL = "https://generativelanguage.googleapis.com"
@@ -50,7 +49,11 @@ async def test_multimodal_data_url_converts_to_inline_data(
                     "index": 0,
                 }
             ],
-            "usageMetadata": {"promptTokenCount": 1, "candidatesTokenCount": 1, "totalTokenCount": 2},
+            "usageMetadata": {
+                "promptTokenCount": 1,
+                "candidatesTokenCount": 1,
+                "totalTokenCount": 2,
+            },
         },
         status_code=200,
         headers={"Content-Type": "application/json"},
@@ -110,7 +113,11 @@ async def test_multimodal_http_url_converts_to_file_data(
                     "index": 0,
                 }
             ],
-            "usageMetadata": {"promptTokenCount": 1, "candidatesTokenCount": 1, "totalTokenCount": 2},
+            "usageMetadata": {
+                "promptTokenCount": 1,
+                "candidatesTokenCount": 1,
+                "totalTokenCount": 2,
+            },
         },
         status_code=200,
         headers={"Content-Type": "application/json"},
@@ -134,4 +141,3 @@ async def test_multimodal_http_url_converts_to_file_data(
     assert any("fileData" in p for p in parts), parts
     file_data = next(p["fileData"] for p in parts if "fileData" in p)
     assert file_data["fileUri"] == "http://example.com/cat.jpg"
-

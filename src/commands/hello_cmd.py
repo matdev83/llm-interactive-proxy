@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, Mapping  # Removed List, Set
+from collections.abc import Mapping  # Removed List, Set
+from typing import TYPE_CHECKING, Any
 
 from .base import BaseCommand, CommandResult, register_command
 

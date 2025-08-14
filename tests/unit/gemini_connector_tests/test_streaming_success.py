@@ -3,11 +3,10 @@ import json
 import httpx
 import pytest
 import pytest_asyncio
-from pytest_httpx import HTTPXMock
-from starlette.responses import StreamingResponse
-
 import src.models as models
+from pytest_httpx import HTTPXMock
 from src.connectors.gemini import GeminiBackend
+from starlette.responses import StreamingResponse
 
 TEST_GEMINI_API_BASE_URL = "https://generativelanguage.googleapis.com"
 
@@ -73,7 +72,12 @@ async def test_chat_completions_streaming_success(
     async for chunk in response.body_iterator:
         chunks.append(chunk)
 
-    joined = b"".join(chunks)
+    joined = b"".join(
+        [
+            chunk if isinstance(chunk, bytes) else chunk.encode("utf-8")
+            for chunk in chunks
+        ]
+    )
     parts = joined.split(b"\n\n")
     first = json.loads(parts[0][len(b"data: ") :])
     assert first["choices"][0]["delta"]["content"] == "Hello"

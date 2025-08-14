@@ -10,10 +10,6 @@ from pathlib import Path
 from typing import (
     TYPE_CHECKING,
     Any,
-    Dict,
-    Optional,
-    Tuple,
-    Union,
 )
 
 import httpx
@@ -30,7 +26,7 @@ logger = logging.getLogger(__name__)
 
 class QwenOAuthConnector(OpenAIConnector):
     """Connector that uses OAuth tokens from qwen-code CLI.
-    
+
     This is a specialized OpenAI-compatible connector that uses OAuth tokens
     instead of API keys for authentication.
     """
@@ -41,7 +37,7 @@ class QwenOAuthConnector(OpenAIConnector):
         self._default_endpoint = "https://dashscope.aliyuncs.com/compatible-mode/v1"
         self.api_base_url = self._default_endpoint
         self.is_functional = False
-        self._oauth_credentials: Optional[Dict[str, Any]] = None
+        self._oauth_credentials: dict[str, Any] | None = None
 
     def get_headers(self) -> dict[str, str]:
         """Override to use OAuth access token instead of API key."""
@@ -51,11 +47,15 @@ class QwenOAuthConnector(OpenAIConnector):
                 status_code=401,
                 detail="No valid Qwen OAuth access token available. Please authenticate using qwen-code CLI.",
             )
-        return {"Authorization": f"Bearer {access_token}", "Content-Type": "application/json", "Accept": "application/json"}
+        return {
+            "Authorization": f"Bearer {access_token}",
+            "Content-Type": "application/json",
+            "Accept": "application/json",
+        }
 
     async def initialize(self, **kwargs: Any) -> None:
         """Initialize backend by loading OAuth credentials.
-        
+
         This overrides the parent class method to load OAuth credentials from a file
         instead of requiring an API key to be passed in.
         """
@@ -104,7 +104,7 @@ class QwenOAuthConnector(OpenAIConnector):
             if not self._oauth_credentials.get("access_token"):
                 logger.warning("No access token found in Qwen OAuth credentials")
                 return False
-                
+
             # Update the API base URL from the OAuth credentials
             self.api_base_url = self._get_endpoint_url()
 
@@ -115,7 +115,7 @@ class QwenOAuthConnector(OpenAIConnector):
             logger.error(f"Error loading Qwen OAuth credentials: {e}")
             return False
 
-    def _get_access_token(self) -> Optional[str]:
+    def _get_access_token(self) -> str | None:
         """Get the current access token"""
         if not self._oauth_credentials:
             return None
@@ -267,9 +267,9 @@ class QwenOAuthConnector(OpenAIConnector):
         processed_messages: list[Any],
         effective_model: str,
         **kwargs: Any,
-    ) -> Union[Tuple[Dict[str, Any], Dict[str, str]], StreamingResponse]:
+    ) -> tuple[dict[str, Any], dict[str, str]] | StreamingResponse:
         """Handle chat completions using Qwen OAuth API.
-        
+
         This overrides the parent class method to handle OAuth token refresh
         before making API requests.
         """
@@ -285,7 +285,7 @@ class QwenOAuthConnector(OpenAIConnector):
             model_name = effective_model
             if model_name.startswith("qwen-oauth:"):
                 model_name = model_name[11:]  # Remove "qwen-oauth:" prefix
-                
+
             # Create a modified request_data with the correct model name
             modified_request = request_data.model_copy(deep=True)
             modified_request.model = model_name

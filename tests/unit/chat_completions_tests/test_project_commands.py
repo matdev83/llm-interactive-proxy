@@ -123,6 +123,6 @@ def test_force_set_project_allows_after_set(client: TestClient):
             response_query = client.post("/v1/chat/completions", json=query_payload)
             assert response_query.status_code == 200
             assert response_query.json()["choices"][0]["message"]["content"] == "ok"
-            mock_method.assert_called_once() # Ensure backend was called
+            mock_method.assert_called_once()  # Ensure backend was called
     finally:
         client.app.state.force_set_project = original_force_set_project

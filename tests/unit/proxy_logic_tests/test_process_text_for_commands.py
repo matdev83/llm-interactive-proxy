@@ -1,7 +1,6 @@
 from unittest.mock import Mock
 
 import pytest
-
 from src.command_parser import (
     CommandParser,
     CommandParserConfig,
@@ -211,7 +210,7 @@ class TestProcessTextForCommands:
         processed_text = processed_messages[0].content if processed_messages else ""
         assert (
             processed_text == "set: no valid parameters provided or action taken"
-        ) # Match the actual message from SetCommand
+        )  # Match the actual message from SetCommand
         assert commands_found
         assert current_proxy_state.override_model is None  # State should not change
 
@@ -362,7 +361,9 @@ class TestProcessTextForCommands:
         assert found
         assert processed == "Hi"
         assert not parser.command_results[0].success
-        assert "cmd not found" in parser.command_results[0].message # Match actual error message
+        assert (
+            "cmd not found" in parser.command_results[0].message
+        )  # Match actual error message
 
     def test_set_invalid_model_interactive(self):
         state = ProxyState(interactive_mode=True)

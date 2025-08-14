@@ -1,14 +1,13 @@
 # import json # F401: Removed
-from typing import Dict, List  # Removed Any, Callable, Union
 
 import httpx
 import pytest
 import pytest_asyncio
-from fastapi import HTTPException  # Used
-from pytest_httpx import HTTPXMock
 
 # from starlette.responses import StreamingResponse # F401: Removed
 import src.models as models
+from fastapi import HTTPException  # Used
+from pytest_httpx import HTTPXMock
 from src.connectors.openrouter import OpenRouterBackend
 
 # Default OpenRouter settings for tests
@@ -17,7 +16,7 @@ TEST_OPENROUTER_API_BASE_URL = (
 )
 
 
-def mock_get_openrouter_headers(key_name: str, api_key: str) -> Dict[str, str]:
+def mock_get_openrouter_headers(api_key: str) -> dict[str, str]:
     return {
         "Authorization": f"Bearer {api_key}",
         "Content-Type": "application/json",
@@ -42,7 +41,7 @@ def sample_chat_request_data() -> models.ChatCompletionRequest:
 
 
 @pytest.fixture
-def sample_processed_messages() -> List[models.ChatMessage]:
+def sample_processed_messages() -> list[models.ChatMessage]:
     return [models.ChatMessage(role="user", content="Hello")]
 
 
@@ -52,7 +51,7 @@ async def test_chat_completions_request_error(
     openrouter_backend: OpenRouterBackend,
     httpx_mock: HTTPXMock,
     sample_chat_request_data: models.ChatCompletionRequest,
-    sample_processed_messages: List[models.ChatMessage],
+    sample_processed_messages: list[models.ChatMessage],
 ):
     httpx_mock.add_exception(httpx.ConnectError("Connection failed"))
 
@@ -63,7 +62,6 @@ async def test_chat_completions_request_error(
             effective_model="test-model",
             openrouter_api_base_url=TEST_OPENROUTER_API_BASE_URL,
             openrouter_headers_provider=mock_get_openrouter_headers,
-            key_name="OPENROUTER_API_KEY_1",
             api_key="FAKE_KEY",
         )
 

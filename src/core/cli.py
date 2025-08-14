@@ -2,11 +2,11 @@ import argparse
 import logging
 import os
 import sys
-from typing import Any, Callable, Dict, Optional
+from collections.abc import Callable
+from typing import Any
 
 import colorama
 import uvicorn
-
 from src.command_prefix import validate_command_prefix
 from src.core.config import _load_config
 
@@ -49,20 +49,21 @@ def parse_cli_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument(
         "--default-backend",
         dest="default_backend",
-        choices=["openrouter", "gemini", "anthropic", "qwen-oauth"],
+        choices=["openrouter", "gemini", "anthropic", "qwen-oauth", "zai"],
         default=os.getenv("LLM_BACKEND"),
         help="Default backend when multiple backends are functional",
     )
     parser.add_argument(
         "--backend",
         dest="default_backend",
-        choices=["openrouter", "gemini", "anthropic", "qwen-oauth"],
+        choices=["openrouter", "gemini", "anthropic", "qwen-oauth", "zai"],
         help=argparse.SUPPRESS,
     )
     parser.add_argument("--openrouter-api-key")
     parser.add_argument("--openrouter-api-base-url")
     parser.add_argument("--gemini-api-key")
     parser.add_argument("--gemini-api-base-url")
+    parser.add_argument("--zai-api-key")
     parser.add_argument("--host")
     parser.add_argument("--port", type=int)
     parser.add_argument("--timeout", type=int)
@@ -137,7 +138,7 @@ def parse_cli_args(argv: list[str] | None = None) -> argparse.Namespace:
     return parser.parse_args(argv)
 
 
-def apply_cli_args(args: argparse.Namespace) -> Dict[str, Any]:
+def apply_cli_args(args: argparse.Namespace) -> dict[str, Any]:
     _apply_env_mappings(args)
     _validate_and_apply_prefix(args)
     _apply_feature_flags(args)
@@ -152,6 +153,7 @@ def _apply_env_mappings(args: argparse.Namespace) -> None:
         "openrouter_api_base_url": "OPENROUTER_API_BASE_URL",
         "gemini_api_key": "GEMINI_API_KEY",
         "gemini_api_base_url": "GEMINI_API_BASE_URL",
+        "zai_api_key": "ZAI_API_KEY",
         "host": "PROXY_HOST",
         "port": "PROXY_PORT",
         "timeout": "PROXY_TIMEOUT",
@@ -202,7 +204,7 @@ def _apply_security_flags(args: argparse.Namespace) -> None:
 
 def main(
     argv: list[str] | None = None,
-    build_app_fn: Optional[Callable[[Dict[str, Any] | None], Any]] = None,
+    build_app_fn: Callable[[dict[str, Any] | None], Any] | None = None,
 ) -> None:
     if os.name == "nt":
         colorama.init()
@@ -258,7 +260,7 @@ def _configure_logging(args: argparse.Namespace) -> None:
     )
 
 
-def _enforce_localhost_if_auth_disabled(cfg: Dict[str, Any]) -> None:
+def _enforce_localhost_if_auth_disabled(cfg: dict[str, Any]) -> None:
     if not cfg.get("disable_auth"):
         return
     logging.warning("Client authentication is DISABLED")
