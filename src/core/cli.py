@@ -21,20 +21,19 @@ def _check_privileges() -> None:
             import ctypes
 
             if ctypes.windll.shell32.IsUserAnAdmin() != 0:
-                raise SystemExit(
-                    "Refusing to run with administrative privileges")
+                raise SystemExit("Refusing to run with administrative privileges")
         except Exception:
             pass
 
 
 def _daemonize() -> None:
     """Daemonize the process on Unix-like systems."""
-    if hasattr(os, 'fork') and hasattr(os, 'setsid'):
+    if hasattr(os, "fork") and hasattr(os, "setsid"):
         if os.fork() > 0:
             sys.exit(0)  # exit first parent
 
         os.chdir("/")
-        if hasattr(os, 'setsid'):
+        if hasattr(os, "setsid"):
             os.setsid()  # type: ignore[attr-defined]
         os.umask(0)
 
@@ -139,6 +138,14 @@ def parse_cli_args(argv: list[str] | None = None) -> argparse.Namespace:
 
 
 def apply_cli_args(args: argparse.Namespace) -> Dict[str, Any]:
+    _apply_env_mappings(args)
+    _validate_and_apply_prefix(args)
+    _apply_feature_flags(args)
+    _apply_security_flags(args)
+    return _load_config()
+
+
+def _apply_env_mappings(args: argparse.Namespace) -> None:
     mappings = {
         "default_backend": "LLM_BACKEND",
         "openrouter_api_key": "OPENROUTER_API_KEY",
@@ -159,28 +166,38 @@ def apply_cli_args(args: argparse.Namespace) -> Dict[str, Any]:
         value = getattr(args, attr)
         if value is not None:
             os.environ[env_name] = str(value)
-    if args.command_prefix is not None:
-        err = validate_command_prefix(str(args.command_prefix))
-        if err:
-            raise ValueError(f"Invalid command prefix: {err}")
+
+
+def _validate_and_apply_prefix(args: argparse.Namespace) -> None:
+    if args.command_prefix is None:
+        return
+    err = validate_command_prefix(str(args.command_prefix))
+    if err:
+        raise ValueError(f"Invalid command prefix: {err}")
+
+
+def _apply_feature_flags(args: argparse.Namespace) -> None:
     if getattr(args, "disable_redact_api_keys_in_prompts", None):
         os.environ["REDACT_API_KEYS_IN_PROMPTS"] = "false"
-    if getattr(args, "disable_auth", None):
-        os.environ["DISABLE_AUTH"] = "true"
-        # Security: Force localhost when auth is disabled via CLI
-        if getattr(args, "host", None) and args.host != "127.0.0.1":
-            logging.warning(
-                "Authentication disabled via CLI. Forcing host to 127.0.0.1 for security (was: %s)",
-                args.host,
-            )
-        os.environ["PROXY_HOST"] = "127.0.0.1"
     if getattr(args, "force_set_project", None):
         os.environ["FORCE_SET_PROJECT"] = "true"
     if getattr(args, "disable_interactive_commands", None):
         os.environ["DISABLE_INTERACTIVE_COMMANDS"] = "true"
     if getattr(args, "disable_accounting", None):
         os.environ["DISABLE_ACCOUNTING"] = "true"
-    return _load_config()
+
+
+def _apply_security_flags(args: argparse.Namespace) -> None:
+    if not getattr(args, "disable_auth", None):
+        return
+    os.environ["DISABLE_AUTH"] = "true"
+    # Security: Force localhost when auth is disabled via CLI
+    if getattr(args, "host", None) and args.host != "127.0.0.1":
+        logging.warning(
+            "Authentication disabled via CLI. Forcing host to 127.0.0.1 for security (was: %s)",
+            args.host,
+        )
+    os.environ["PROXY_HOST"] = "127.0.0.1"
 
 
 def main(
@@ -192,46 +209,15 @@ def main(
 
     args = parse_cli_args(argv)
 
-    if args.daemon:
-        if not args.log_file:
-            raise SystemExit("--log must be specified when running in daemon mode.")
-
-        if os.name == "nt":
-            import subprocess
-            import time
-
-            args_list = [
-                arg for arg in sys.argv[1:] if not arg.startswith("--daemon")
-            ]
-            command = [sys.executable, "-m", "src.core.cli", *args_list]
-            subprocess.Popen(
-                command,
-                creationflags=subprocess.DETACHED_PROCESS,
-                close_fds=True,
-            )
-            time.sleep(2)  # Give the child process a moment to start
-            sys.exit(0)
-        else:
-            _daemonize()
+    if _maybe_run_as_daemon(args):
+        return
 
     cfg = apply_cli_args(args)
-    logging.basicConfig(
-        level=getattr(logging, args.log_level),
-        format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-        filename=args.log_file,
-    )
+    _configure_logging(args)
     if not args.allow_admin:
         _check_privileges()
 
-    # Security: Ensure localhost-only binding when authentication is disabled
-    if cfg.get("disable_auth"):
-        logging.warning("Client authentication is DISABLED")
-        if cfg.get("proxy_host") != "127.0.0.1":
-            logging.warning(
-                "Authentication disabled but host is %s. Forcing host to 127.0.0.1 for security.",
-                cfg.get("proxy_host"),
-            )
-            cfg["proxy_host"] = "127.0.0.1"
+    _enforce_localhost_if_auth_disabled(cfg)
 
     if build_app_fn is None:
         from src.main import build_app as build_app_fn  # type: ignore[assignment]
@@ -240,6 +226,48 @@ def main(
     if build_app_fn is not None:
         app = build_app_fn(cfg, config_file=config_file)  # type: ignore[call-arg]
         uvicorn.run(app, host=cfg["proxy_host"], port=cfg["proxy_port"])
+
+
+def _maybe_run_as_daemon(args: argparse.Namespace) -> bool:
+    if not args.daemon:
+        return False
+    if not args.log_file:
+        raise SystemExit("--log must be specified when running in daemon mode.")
+    if os.name == "nt":
+        import subprocess
+        import time
+
+        args_list = [arg for arg in sys.argv[1:] if not arg.startswith("--daemon")]
+        command = [sys.executable, "-m", "src.core.cli", *args_list]
+        subprocess.Popen(
+            command,
+            creationflags=subprocess.DETACHED_PROCESS,
+            close_fds=True,
+        )
+        time.sleep(2)
+        sys.exit(0)
+    _daemonize()
+    return True
+
+
+def _configure_logging(args: argparse.Namespace) -> None:
+    logging.basicConfig(
+        level=getattr(logging, args.log_level),
+        format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+        filename=args.log_file,
+    )
+
+
+def _enforce_localhost_if_auth_disabled(cfg: Dict[str, Any]) -> None:
+    if not cfg.get("disable_auth"):
+        return
+    logging.warning("Client authentication is DISABLED")
+    if cfg.get("proxy_host") != "127.0.0.1":
+        logging.warning(
+            "Authentication disabled but host is %s. Forcing host to 127.0.0.1 for security.",
+            cfg.get("proxy_host"),
+        )
+        cfg["proxy_host"] = "127.0.0.1"
 
 
 if __name__ == "__main__":

@@ -311,61 +311,77 @@ class GeminiBackend(LLMBackend):
         command_filter: Any = None,
         **kwargs: Any,
     ) -> dict[str, Any] | StreamingResponse:
-        # Use gemini_api_base_url parameter if provided, otherwise use openrouter_api_base_url or kwargs
-        _gemini_api_base_url = (
+        # Resolve base configuration
+        base_api_url, headers = self._resolve_gemini_api_config(
+            gemini_api_base_url, openrouter_api_base_url, api_key, **kwargs
+        )
+
+        # Build payload
+        payload: dict[str, Any] = {
+            "contents": self._prepare_gemini_contents(processed_messages)
+        }
+        self._apply_generation_config(payload, request_data)
+        if request_data.extra_params:
+            payload.update(request_data.extra_params)
+
+        # Normalize model id and construct URL
+        model_name = self._normalize_model_name(effective_model)
+        logger.debug(f"Constructing Gemini API URL with model_name: {model_name}")
+        model_url = f"{base_api_url}/v1beta/models/{model_name}"
+
+        # Streaming vs non-streaming
+        if request_data.stream:
+            return await self._handle_gemini_streaming_response(
+                model_url, payload, headers, effective_model
+            )
+        return await self._handle_gemini_non_streaming_response(
+            model_url, payload, headers, effective_model
+        )
+
+    def _resolve_gemini_api_config(
+        self,
+        gemini_api_base_url: str | None,
+        openrouter_api_base_url: str | None,
+        api_key: str | None,
+        **kwargs: Any,
+    ) -> tuple[str, dict[str, str]]:
+        base = (
             gemini_api_base_url
             or openrouter_api_base_url
             or kwargs.get("gemini_api_base_url")
         )
-        _api_key = api_key or kwargs.get("api_key")
-
-        if not _gemini_api_base_url or not _api_key:
+        key = api_key or kwargs.get("api_key")
+        if not base or not key:
             raise HTTPException(
                 status_code=500,
                 detail="Gemini API base URL and API key must be provided.",
             )
+        return base.rstrip("/"), {"x-goog-api-key": key}
 
-        payload_contents = self._prepare_gemini_contents(processed_messages)
-        payload: dict[str, Any] = {"contents": payload_contents}
-
-        # Handle Gemini-specific reasoning parameters
-        if hasattr(request_data, "thinking_budget") and request_data.thinking_budget:
-            if "generationConfig" not in payload:
-                payload["generationConfig"] = {}
-            if "thinkingConfig" not in payload["generationConfig"]:
-                payload["generationConfig"]["thinkingConfig"] = {}
-            payload["generationConfig"]["thinkingConfig"][
+    def _apply_generation_config(
+        self, payload: dict[str, Any], request_data: ChatCompletionRequest
+    ) -> None:
+        # thinking budget
+        if getattr(request_data, "thinking_budget", None):
+            payload.setdefault("generationConfig", {}).setdefault("thinkingConfig", {})[
                 "thinkingBudget"
-            ] = request_data.thinking_budget
-
-        if (
-            hasattr(request_data, "generation_config")
-            and request_data.generation_config
-        ):
-            if "generationConfig" not in payload:
-                payload["generationConfig"] = {}
-            payload["generationConfig"].update(request_data.generation_config)
-
-        # Handle temperature parameter
-        if (
-            hasattr(request_data, "temperature")
-            and request_data.temperature is not None
-        ):
-            if "generationConfig" not in payload:
-                payload["generationConfig"] = {}
-            # Validate temperature range for Gemini (0.0 to 1.0)
-            temperature = request_data.temperature
+            ] = request_data.thinking_budget  # type: ignore[index]
+        # generation config blob
+        if getattr(request_data, "generation_config", None):
+            payload.setdefault("generationConfig", {}).update(
+                request_data.generation_config  # type: ignore[arg-type]
+            )
+        # temperature clamped to [0,1]
+        temperature = getattr(request_data, "temperature", None)
+        if temperature is not None:
             if temperature > 1.0:
                 logger.warning(
                     f"Temperature {temperature} > 1.0 for Gemini, clamping to 1.0"
                 )
                 temperature = 1.0
-            payload["generationConfig"]["temperature"] = temperature
+            payload.setdefault("generationConfig", {})["temperature"] = temperature
 
-        # Add extra parameters (may override or supplement the above)
-        if request_data.extra_params:
-            payload.update(request_data.extra_params)
-
+    def _normalize_model_name(self, effective_model: str) -> str:
         model_name = effective_model
         if model_name.startswith("gemini:"):
             model_name = model_name.split(":", 1)[1]
@@ -373,28 +389,13 @@ class GeminiBackend(LLMBackend):
             model_name = model_name.split("/", 1)[1]
         if model_name.startswith("gemini/"):
             model_name = model_name.split("/", 1)[1]
-        # NEW: Strip provider prefixes like 'google/' that are used by OpenRouter
-        # Only keep the final path segment which is the actual Gemini model id.
         if "/" in model_name:
             logger.debug(
                 "Detected provider prefix in model name '%s'. Using last path segment as Gemini model id.",
                 model_name,
             )
             model_name = model_name.rsplit("/", 1)[-1]
-
-        logger.debug(f"Constructing Gemini API URL with model_name: {model_name}")
-        base_api_url = f"{_gemini_api_base_url.rstrip('/')}/v1beta/models/{model_name}"
-        headers = {"x-goog-api-key": _api_key}
-
-        if request_data.stream:
-            return await self._handle_gemini_streaming_response(
-                base_api_url, payload, headers, effective_model
-            )
-
-        response_json = await self._handle_gemini_non_streaming_response(
-            base_api_url, payload, headers, effective_model
-        )
-        return response_json
+        return model_name
 
     async def _handle_gemini_non_streaming_response(
         self,

@@ -5,7 +5,14 @@ This project is a *swiss-army knife* for anyone hacking on language models and a
 ## Core Features
 
 - **Multi-Protocol Gateway**: Use any client (OpenAI, Anthropic, Gemini) with any backend. The proxy handles the protocol conversion automatically.
-- **Advanced Loop Detection**: Automatically detects and halts repetitive loops in real-time. Enabled by default and configurable via `LOOP_DETECTION_*` environment variables.
+- **Advanced Loop Detection**: High-performance, streaming loop detection (hash-based) that automatically halts repetitive loops and stops upstream token generation. When a loop is detected, the proxy sends an SSE line to the client: `data: [Response cancelled: Loop detected - Pattern '<…>' repeated N times]` and attempts to cancel the upstream stream. Behavior is tiered-configurable:
+  - Server-wide defaults via `LOOP_DETECTION_*` env vars
+  - Backend/model defaults via model defaults (`loop_detection_enabled`)
+  - Session override via `!/set(loop-detection=true|false)`
+- **Tool Call Loop Detection**: Prevents repetitive tool calls that may indicate a model is stuck in a loop. Tracks tool call signatures and intervenes when the same tool is called repeatedly with identical parameters. Configurable with:
+  - Server-wide defaults via `TOOL_LOOP_*` env vars
+  - Backend/model defaults via model defaults (`tool_loop_detection_enabled`)
+  - Session override via `!/set(tool-loop-*=value)`
 - **Comprehensive Usage Tracking**: Logs all requests to a local database with endpoints (`/usage/stats`, `/usage/recent`) for monitoring costs and performance.
 - **In-Chat Command System**: Control the proxy on the fly using commands inside your prompts (e.g., `!/help`, `!/set(backend=...)`).
 - **Security**: Automatically redacts API keys and other secrets from prompts before they are sent to the LLM.
@@ -25,6 +32,7 @@ The proxy normalises requests internally, meaning **any front-end can be wired t
 **Examples:**
 - **Anthropic SDK ➜ OpenRouter**: Set `base_url="http://proxy/anthropic/v1"` and request model `openrouter:gpt-4`.
 - **OpenAI client ➜ Gemini model**: Request model `gemini:gemini-1.5-pro` with your OpenAI client.
+- **OpenAI client ➜ ZAI model**: Request model `zai:glm-4.5-flash` with your OpenAI client.
 - **OpenAI client ➜ Custom OpenAI-compatible API**: Use `!/set(openai_url=https://custom-api.example.com/v1)` to redirect requests to a custom endpoint.
 
 ## Example Use Cases
@@ -113,12 +121,44 @@ The proxy normalises requests internally, meaning **any front-end can be wired t
     # Example for Anthropic
     ANTHROPIC_API_KEY="your_anthropic_key"
 
+    # Example for ZAI (Zhipu AI)
+    ZAI_API_KEY="your_zai_api_key"
+    # Or with rotation:
+    # ZAI_API_KEY_1="your_first_zai_api_key"
+    # ZAI_API_KEY_2="your_second_zai_api_key"
+
     # Set a key for clients to access this proxy
     LLM_INTERACTIVE_PROXY_API_KEY="a_secret_key_for_your_clients"
     ```
-3.  **Select the default backend** (optional, defaults to the first one configured).
+4.  **Loop Detection (server-wide defaults)**
     ```env
-    LLM_BACKEND=gemini
+    # Enable/disable globally
+    LOOP_DETECTION_ENABLED=true
+    # Buffering and algorithm parameters (optional, sensible defaults):
+    LOOP_DETECTION_BUFFER_SIZE=2048
+    LOOP_DETECTION_MAX_PATTERN_LENGTH=500
+    LOOP_DETECTION_CONTENT_CHUNK_SIZE=50
+    LOOP_DETECTION_CONTENT_LOOP_THRESHOLD=10
+    LOOP_DETECTION_MAX_HISTORY_LENGTH=1000
+    ```
+
+5.  **Tool Call Loop Detection (server-wide defaults)**
+    ```env
+    # Enable/disable globally
+    TOOL_LOOP_DETECTION_ENABLED=true
+    # Maximum number of consecutive identical tool calls before action is taken
+    TOOL_LOOP_MAX_REPEATS=4
+    # Time window in seconds for considering tool calls part of a pattern
+    TOOL_LOOP_TTL_SECONDS=120
+    # How to handle detected tool call loops: "break" or "chance_then_break"
+    TOOL_LOOP_MODE=break
+    ```
+
+6.  **Model Defaults (per backend/model)**
+    - You can provide per-model defaults (persisted config) that include `loop_detection_enabled` and `tool_loop_detection_enabled` to opt-in/out for specific models. Session overrides still take precedence.
+7.  **Select the default backend** (optional, defaults to the first one configured).
+    ```env
+    LLM_BACKEND=zai
     ```
 
 ### Running the Server
@@ -130,6 +170,8 @@ python src/core/cli.py
 ```
 
 The server will start on `http://127.0.0.1:8000`. For a full list of CLI arguments and environment variables for advanced configuration, run `python src/core/cli.py --help`.
+
+Supported backends for the `--default-backend` argument include: `openrouter`, `gemini`, `anthropic`, `qwen-oauth`, and `zai`.
 
 ## Usage
 
@@ -153,6 +195,11 @@ Control the proxy on the fly by embedding commands in your prompts (default pref
 - `!/set(backend=openrouter)`: Switch the backend for the current session.
 - `!/set(openai_url=https://api.example.com/v1)`: Set a custom URL for the OpenAI API.
 - `!/create-failover-route(...)`: Define custom failover logic.
+- `!/set(loop-detection=true|false)`: Enable/disable loop detection for the current session (overrides server and model defaults).
+- `!/set(tool-loop-detection=true|false)`: Enable/disable tool call loop detection for the current session.
+- `!/set(tool-loop-max-repeats=4)`: Set maximum number of consecutive identical tool calls before action is taken.
+- `!/set(tool-loop-ttl=120)`: Set time window in seconds for considering tool calls part of a pattern.
+- `!/set(tool-loop-mode=break|chance_then_break)`: Set how to handle detected tool call loops.
 
 ## Roadmap
 
@@ -178,6 +225,7 @@ Contributions are welcome! Please follow the standard fork-and-pull-request work
 ├── src/                  # Source code
 │   ├── commands/         # In-chat command implementations
 │   ├── connectors/       # Backend connectors (OpenRouter, Gemini, etc.)
+│   │   └── zai.py        # ZAI (Zhipu AI) backend connector
 │   ├── core/             # Core application logic (CLI, config)
 │   ├── main.py           # FastAPI application and endpoints
 │   └── proxy_logic.py    # Core logic for command parsing, state management

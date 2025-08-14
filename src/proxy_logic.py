@@ -1,6 +1,8 @@
 import logging
 from typing import Any, Dict, Optional  # Add Dict import
 
+from src.tool_call_loop.config import ToolLoopMode
+
 logger = logging.getLogger(__name__)
 
 
@@ -39,6 +41,15 @@ class ProxyState:
 
         # OpenAI URL configuration
         self.openai_url: Optional[str] = None
+
+        # Loop detection session-level override (None = use defaults)
+        self.loop_detection_enabled: Optional[bool] = None
+
+        # Tool call loop detection session-level overrides (None = use defaults)
+        self.tool_loop_detection_enabled: Optional[bool] = None
+        self.tool_loop_max_repeats: Optional[int] = None
+        self.tool_loop_ttl_seconds: Optional[int] = None
+        self.tool_loop_mode: Optional[ToolLoopMode] = None
 
     def set_override_model(
         self, backend: str, model_name: str, *, invalid: bool = False
@@ -240,6 +251,78 @@ class ProxyState:
             logger.info("Unsetting OpenAI URL.")
         self.openai_url = None
 
+    # Loop detection ---------------------------------------------------------
+    def set_loop_detection_enabled(self, enabled: bool) -> None:
+        if logger.isEnabledFor(logging.INFO):
+            logger.info(f"Setting loop detection enabled override to: {enabled}")
+        self.loop_detection_enabled = enabled
+
+    def unset_loop_detection_enabled(self) -> None:
+        if logger.isEnabledFor(logging.INFO):
+            logger.info("Unsetting loop detection enabled override (None)")
+        self.loop_detection_enabled = None
+
+    # Tool call loop detection -------------------------------------------------
+    def set_tool_loop_detection_enabled(self, enabled: bool) -> None:
+        if logger.isEnabledFor(logging.INFO):
+            logger.info(
+                f"Setting tool call loop detection enabled override to: {enabled}"
+            )
+        self.tool_loop_detection_enabled = enabled
+
+    def unset_tool_loop_detection_enabled(self) -> None:
+        if logger.isEnabledFor(logging.INFO):
+            logger.info("Unsetting tool call loop detection enabled override (None)")
+        self.tool_loop_detection_enabled = None
+
+    def set_tool_loop_max_repeats(self, max_repeats: int) -> None:
+        if max_repeats < 2:
+            raise ValueError("Tool call loop max repeats must be at least 2")
+        if logger.isEnabledFor(logging.INFO):
+            logger.info(f"Setting tool call loop max repeats to: {max_repeats}")
+        self.tool_loop_max_repeats = max_repeats
+
+    def unset_tool_loop_max_repeats(self) -> None:
+        if logger.isEnabledFor(logging.INFO):
+            logger.info("Unsetting tool call loop max repeats (None)")
+        self.tool_loop_max_repeats = None
+
+    def set_tool_loop_ttl_seconds(self, ttl_seconds: int) -> None:
+        if ttl_seconds < 1:
+            raise ValueError("Tool call loop TTL seconds must be positive")
+        if logger.isEnabledFor(logging.INFO):
+            logger.info(f"Setting tool call loop TTL seconds to: {ttl_seconds}")
+        self.tool_loop_ttl_seconds = ttl_seconds
+
+    def unset_tool_loop_ttl_seconds(self) -> None:
+        if logger.isEnabledFor(logging.INFO):
+            logger.info("Unsetting tool call loop TTL seconds (None)")
+        self.tool_loop_ttl_seconds = None
+
+    def set_tool_loop_mode(self, mode: str | ToolLoopMode) -> None:
+        """Set tool call loop mode; supports string with 'chance' alias and enum input."""
+        if isinstance(mode, str):
+            mode_str = mode.strip().lower()
+            if mode_str == "chance":
+                mode_str = "chance_then_break"
+            try:
+                enum_mode = ToolLoopMode(mode_str)
+            except ValueError:
+                raise ValueError(
+                    "Tool call loop mode must be one of: break, chance_then_break"
+                )
+        else:
+            enum_mode = mode
+
+        if logger.isEnabledFor(logging.INFO):
+            logger.info(f"Setting tool call loop mode to: {enum_mode.value}")
+        self.tool_loop_mode = enum_mode
+
+    def unset_tool_loop_mode(self) -> None:
+        if logger.isEnabledFor(logging.INFO):
+            logger.info("Unsetting tool call loop mode (None)")
+        self.tool_loop_mode = None
+
     def apply_model_defaults(
         self, model_name: str, model_defaults: Dict[str, Any]
     ) -> None:
@@ -298,6 +381,83 @@ class ProxyState:
                         )
                     self.temperature = reasoning_config.temperature
 
+            # Apply loop detection default if provided and not overridden in session
+            if (
+                getattr(model_config, "loop_detection_enabled", None) is not None
+                and self.loop_detection_enabled is None
+            ):
+                if logger.isEnabledFor(logging.INFO):
+                    logger.info(
+                        f"Applying default loop_detection_enabled={model_config.loop_detection_enabled} for model {model_name}"
+                    )
+                self.loop_detection_enabled = model_config.loop_detection_enabled
+
+            # Apply tool call loop detection defaults if provided and not overridden in session
+            if (
+                getattr(model_config, "tool_loop_detection_enabled", None) is not None
+                and self.tool_loop_detection_enabled is None
+            ):
+                if logger.isEnabledFor(logging.INFO):
+                    logger.info(
+                        f"Applying default tool_loop_detection_enabled={model_config.tool_loop_detection_enabled} for model {model_name}"
+                    )
+                self.tool_loop_detection_enabled = (
+                    model_config.tool_loop_detection_enabled
+                )
+
+            if self.tool_loop_max_repeats is None:
+                max_repeats_value = None
+                if (
+                    getattr(model_config, "tool_loop_detection_max_repeats", None)
+                    is not None
+                ):
+                    max_repeats_value = model_config.tool_loop_detection_max_repeats
+                elif getattr(model_config, "tool_loop_max_repeats", None) is not None:
+                    max_repeats_value = model_config.tool_loop_max_repeats
+
+                if max_repeats_value is not None:
+                    if logger.isEnabledFor(logging.INFO):
+                        logger.info(
+                            f"Applying default tool_loop_max_repeats={max_repeats_value} for model {model_name}"
+                        )
+                    self.tool_loop_max_repeats = max_repeats_value
+
+            if self.tool_loop_ttl_seconds is None:
+                ttl_value = None
+                if (
+                    getattr(model_config, "tool_loop_detection_ttl_seconds", None)
+                    is not None
+                ):
+                    ttl_value = model_config.tool_loop_detection_ttl_seconds
+                elif getattr(model_config, "tool_loop_ttl_seconds", None) is not None:
+                    ttl_value = model_config.tool_loop_ttl_seconds
+
+                if ttl_value is not None:
+                    if logger.isEnabledFor(logging.INFO):
+                        logger.info(
+                            f"Applying default tool_loop_ttl_seconds={ttl_value} for model {model_name}"
+                        )
+                    self.tool_loop_ttl_seconds = ttl_value
+
+            # Mode: support spec field name and previous name; accept str or enum
+            if self.tool_loop_mode is None:
+                mode_value = None
+                if (
+                    hasattr(model_config, "tool_loop_detection_mode")
+                    and model_config.tool_loop_detection_mode is not None
+                ):
+                    mode_value = model_config.tool_loop_detection_mode
+                elif getattr(model_config, "tool_loop_mode", None) is not None:
+                    mode_value = model_config.tool_loop_mode
+
+                if mode_value is not None:
+                    if logger.isEnabledFor(logging.INFO):
+                        logger.info(
+                            f"Applying default tool_loop_mode={mode_value} for model {model_name}"
+                        )
+                    # Use setter to normalize/validate
+                    self.set_tool_loop_mode(mode_value)  # type: ignore[arg-type]
+
         except Exception as e:
             if logger.isEnabledFor(logging.WARNING):
                 logger.warning(f"Failed to apply model defaults for {model_name}: {e}")
@@ -320,6 +480,11 @@ class ProxyState:
         self.gemini_generation_config = None
         self.temperature = None
         self.openai_url = None
+        self.loop_detection_enabled = None
+        self.tool_loop_detection_enabled = None
+        self.tool_loop_max_repeats = None
+        self.tool_loop_ttl_seconds = None
+        self.tool_loop_mode = None
 
     def get_effective_model(self, requested_model: str) -> str:
         if self.oneoff_model:

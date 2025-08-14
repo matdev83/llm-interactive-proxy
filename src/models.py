@@ -41,27 +41,29 @@ class ChatMessage(BaseModel):
     role: str
     content: Optional[Union[str, List[MessageContentPart]]] = None
     name: Optional[str] = None
-    tool_calls: Optional[List['ToolCall']] = None
+    tool_calls: Optional[List["ToolCall"]] = None
     tool_call_id: Optional[str] = None
-    
-    @model_validator(mode='after')
-    def validate_content_or_tool_calls(self) -> 'ChatMessage':
+
+    @model_validator(mode="after")
+    def validate_content_or_tool_calls(self) -> "ChatMessage":
         """Ensure that either content or tool_calls is present."""
-        if self.content is None and (self.tool_calls is None or len(self.tool_calls) == 0):
+        if self.content is None and (
+            self.tool_calls is None or len(self.tool_calls) == 0
+        ):
             raise ValueError("Either 'content' or 'tool_calls' must be provided")
         return self
 
 
 class FunctionCall(BaseModel):
     """Represents a function call within a tool call."""
-    
+
     name: str
     arguments: str
 
 
 class ToolCall(BaseModel):
     """Represents a tool call in a chat completion response."""
-    
+
     id: str
     type: str = "function"
     function: FunctionCall
@@ -69,7 +71,7 @@ class ToolCall(BaseModel):
 
 class FunctionDefinition(BaseModel):
     """Represents a function definition for tool calling."""
-    
+
     name: str
     description: Optional[str] = None
     parameters: Optional[Dict[str, Any]] = None
@@ -77,7 +79,7 @@ class FunctionDefinition(BaseModel):
 
 class ToolDefinition(BaseModel):
     """Represents a tool definition in a chat completion request."""
-    
+
     type: str = "function"
     function: FunctionDefinition
 
@@ -125,46 +127,46 @@ class ChatCompletionRequest(BaseModel):
         None,
         description="A unique identifier representing your end-user, which can help OpenAI monitor and detect abuse.",
     )
-    tools: Optional[List['ToolDefinition']] = None
+    tools: Optional[List["ToolDefinition"]] = None
     tool_choice: Optional[Union[str, Dict[str, Any]]] = Field(
         None,
-        description="Controls which (if any) function is called by the model. 'none', 'auto', or specific function."
+        description="Controls which (if any) function is called by the model. 'none', 'auto', or specific function.",
     )
-    
+
     # Reasoning parameters for o1, o3, o4-mini and other reasoning models
     reasoning_effort: Optional[str] = Field(
-        None, 
-        description="Constrains effort on reasoning for reasoning models. Supported values: 'low', 'medium', 'high'."
+        None,
+        description="Constrains effort on reasoning for reasoning models. Supported values: 'low', 'medium', 'high'.",
     )
     reasoning: Optional[Dict[str, Any]] = Field(
         None,
-        description="Unified reasoning configuration for OpenRouter. Can include 'effort', 'max_tokens', 'exclude', etc."
+        description="Unified reasoning configuration for OpenRouter. Can include 'effort', 'max_tokens', 'exclude', etc.",
     )
 
     # Gemini-specific reasoning parameters
     thinking_budget: Optional[int] = Field(
         None,
-        description="Gemini thinking budget (128-32768 tokens). Controls tokens allocated for reasoning in Gemini models."
+        description="Gemini thinking budget (128-32768 tokens). Controls tokens allocated for reasoning in Gemini models.",
     )
     generation_config: Optional[Dict[str, Any]] = Field(
         None,
-        description="Gemini generation configuration including thinkingConfig, temperature, etc."
+        description="Gemini generation configuration including thinkingConfig, temperature, etc.",
     )
 
     # Temperature configuration
     temperature: Optional[float] = Field(
         None,
-        description="Controls randomness in the model's output. Range: 0.0 to 2.0 (OpenAI) or 0.0 to 1.0 (Gemini)"
+        description="Controls randomness in the model's output. Range: 0.0 to 2.0 (OpenAI) or 0.0 to 1.0 (Gemini)",
     )
-    
+
     extra_params: Optional[Dict[str, Any]] = None
     # Add other OpenAI parameters as needed, e.g., functions, tool_choice
 
 
 class ChatCompletionChoiceMessage(BaseModel):
     """Represents the message content within a chat completion choice."""
-    
-    model_config = ConfigDict(extra='ignore')
+
+    model_config = ConfigDict(extra="ignore")
 
     role: str
     content: Optional[str] = None
@@ -216,9 +218,9 @@ class CommandProcessedChatCompletionResponse(BaseModel):
 
 def parse_model_backend(model: str, default_backend: str = "") -> tuple[str, str]:
     """Parse model string to extract backend and actual model name.
-    
+
     Handles multiple formats:
-    - backend:model (e.g., "openrouter:gpt-4") 
+    - backend:model (e.g., "openrouter:gpt-4")
     - backend/model (e.g., "openrouter/gpt-4")
     - backend:model:version (e.g., "openrouter:anthropic/claude-3-haiku:beta")
     - backend/model:version (e.g., "openrouter/anthropic/claude-3-haiku:beta")
@@ -232,9 +234,9 @@ def parse_model_backend(model: str, default_backend: str = "") -> tuple[str, str
         Tuple of (backend_type, model_name)
     """
     # Find the first occurrence of either ':' or '/'
-    colon_pos = model.find(':')
-    slash_pos = model.find('/')
-    
+    colon_pos = model.find(":")
+    slash_pos = model.find("/")
+
     # Determine which separator comes first (or if only one exists)
     separator_pos = -1
     if colon_pos != -1 and slash_pos != -1:
@@ -246,50 +248,76 @@ def parse_model_backend(model: str, default_backend: str = "") -> tuple[str, str
     elif slash_pos != -1:
         # Only slash exists
         separator_pos = slash_pos
-    
+
     if separator_pos != -1:
         # Split at the first separator
         backend = model[:separator_pos]
-        model_name = model[separator_pos + 1:]
+        model_name = model[separator_pos + 1 :]
         return backend, model_name
     else:
         # No separator found, use default backend
         return default_backend, model
 
+
 # Model-specific reasoning configuration for config files
 class ModelReasoningConfig(BaseModel):
     """Configuration for model-specific reasoning defaults."""
-    
+
     # OpenAI/OpenRouter reasoning parameters
     reasoning_effort: Optional[str] = Field(
-        None,
-        description="Default reasoning effort for this model (low/medium/high)"
+        None, description="Default reasoning effort for this model (low/medium/high)"
     )
     reasoning: Optional[Dict[str, Any]] = Field(
-        None,
-        description="Default OpenRouter unified reasoning configuration"
+        None, description="Default OpenRouter unified reasoning configuration"
     )
-    
+
     # Gemini reasoning parameters
     thinking_budget: Optional[int] = Field(
-        None,
-        description="Default Gemini thinking budget (128-32768 tokens)"
+        None, description="Default Gemini thinking budget (128-32768 tokens)"
     )
     generation_config: Optional[Dict[str, Any]] = Field(
-        None,
-        description="Default Gemini generation configuration"
+        None, description="Default Gemini generation configuration"
     )
 
     # Temperature configuration
     temperature: Optional[float] = Field(
         None,
-        description="Default temperature for this model (0.0-2.0 for OpenAI, 0.0-1.0 for Gemini)"
+        description="Default temperature for this model (0.0-2.0 for OpenAI, 0.0-1.0 for Gemini)",
     )
+
 
 class ModelDefaults(BaseModel):
     """Model-specific default configurations."""
-    
+
     reasoning: Optional[ModelReasoningConfig] = Field(
-        None,
-        description="Reasoning configuration defaults for this model"
+        None, description="Reasoning configuration defaults for this model"
     )
+
+    # Loop detection default override for this model (backend/model or model)
+    loop_detection_enabled: Optional[bool] = Field(
+        None, description="Enable/disable loop detection by default for this model"
+    )
+
+    # Tool call loop detection default overrides for this model
+    # Spec-preferred names
+    tool_loop_detection_enabled: Optional[bool] = Field(
+        None,
+        description="Enable/disable tool call loop detection by default for this model",
+    )
+    tool_loop_detection_max_repeats: Optional[int] = Field(
+        None,
+        description="Maximum number of consecutive identical tool calls before action is taken",
+    )
+    tool_loop_detection_ttl_seconds: Optional[int] = Field(
+        None,
+        description="Time window in seconds for considering tool calls part of a pattern",
+    )
+    tool_loop_detection_mode: Optional[str] = Field(
+        None,
+        description="How to handle detected tool call loops ('break' or 'chance_then_break')",
+    )
+
+    # Backward-compat aliases (read-only in apply_model_defaults)
+    tool_loop_max_repeats: Optional[int] = None
+    tool_loop_ttl_seconds: Optional[int] = None
+    tool_loop_mode: Optional[str] = None

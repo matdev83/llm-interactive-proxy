@@ -223,62 +223,64 @@ def extract_billing_info_from_headers(
     }
 
     if backend == "openrouter":
-        # OpenRouter billing headers
-        # Note: OpenRouter includes usage info in response body when usage.include=true
-        # But also provides some billing info in headers
-        if "x-ratelimit-requests-remaining" in headers:
-            billing_info["rate_limit_info"]["requests_remaining"] = headers.get(
-                "x-ratelimit-requests-remaining"
-            )
-        if "x-ratelimit-requests-reset" in headers:
-            billing_info["rate_limit_info"]["requests_reset"] = headers.get(
-                "x-ratelimit-requests-reset"
-            )
-        if "x-ratelimit-tokens-remaining" in headers:
-            billing_info["rate_limit_info"]["tokens_remaining"] = headers.get(
-                "x-ratelimit-tokens-remaining"
-            )
-        if "x-ratelimit-tokens-reset" in headers:
-            billing_info["rate_limit_info"]["tokens_reset"] = headers.get(
-                "x-ratelimit-tokens-reset"
-            )
-
-        # Provider information
-        if "x-or-provider" in headers:
-            billing_info["provider_info"]["provider"] = headers.get("x-or-provider")
-        if "x-or-model" in headers:
-            billing_info["provider_info"]["model"] = headers.get("x-or-model")
-
+        _apply_openrouter_header_info(headers, billing_info)
     elif backend == "gemini":
-        # Gemini API billing headers (usage metadata is in response body)
-        # Rate limiting headers
-        if "x-goog-quota-remaining" in headers:
-            billing_info["rate_limit_info"]["quota_remaining"] = headers.get(
-                "x-goog-quota-remaining"
-            )
-        if "x-goog-quota-reset" in headers:
-            billing_info["rate_limit_info"]["quota_reset"] = headers.get(
-                "x-goog-quota-reset"
-            )
-
-        # Request ID for tracking
-        if "x-goog-request-id" in headers:
-            billing_info["provider_info"]["request_id"] = headers.get(
-                "x-goog-request-id"
-            )
-
+        _apply_gemini_header_info(headers, billing_info)
     elif backend == "anthropic":
-        # Anthropic headers currently carry no usage information.  Keep a note
-        billing_info["provider_info"][
-            "note"
-        ] = "Anthropic backend - usage info in response only"
-        billing_info["usage"] = {
-            "prompt_tokens": 0,
-            "completion_tokens": 0,
-            "total_tokens": 0,
-        }
+        _apply_anthropic_header_info(billing_info)
 
     return billing_info
+
+
+def _apply_openrouter_header_info(
+    headers: dict[str, str], billing_info: BillingInfo
+) -> None:
+    if "x-ratelimit-requests-remaining" in headers:
+        billing_info["rate_limit_info"]["requests_remaining"] = headers.get(
+            "x-ratelimit-requests-remaining"
+        )
+    if "x-ratelimit-requests-reset" in headers:
+        billing_info["rate_limit_info"]["requests_reset"] = headers.get(
+            "x-ratelimit-requests-reset"
+        )
+    if "x-ratelimit-tokens-remaining" in headers:
+        billing_info["rate_limit_info"]["tokens_remaining"] = headers.get(
+            "x-ratelimit-tokens-remaining"
+        )
+    if "x-ratelimit-tokens-reset" in headers:
+        billing_info["rate_limit_info"]["tokens_reset"] = headers.get(
+            "x-ratelimit-tokens-reset"
+        )
+    if "x-or-provider" in headers:
+        billing_info["provider_info"]["provider"] = headers.get("x-or-provider")
+    if "x-or-model" in headers:
+        billing_info["provider_info"]["model"] = headers.get("x-or-model")
+
+
+def _apply_gemini_header_info(
+    headers: dict[str, str], billing_info: BillingInfo
+) -> None:
+    if "x-goog-quota-remaining" in headers:
+        billing_info["rate_limit_info"]["quota_remaining"] = headers.get(
+            "x-goog-quota-remaining"
+        )
+    if "x-goog-quota-reset" in headers:
+        billing_info["rate_limit_info"]["quota_reset"] = headers.get(
+            "x-goog-quota-reset"
+        )
+    if "x-goog-request-id" in headers:
+        billing_info["provider_info"]["request_id"] = headers.get("x-goog-request-id")
+
+
+def _apply_anthropic_header_info(billing_info: BillingInfo) -> None:
+    billing_info["provider_info"][
+        "note"
+    ] = "Anthropic backend - usage info in response only"
+    billing_info["usage"] = {
+        "prompt_tokens": 0,
+        "completion_tokens": 0,
+        "total_tokens": 0,
+    }
 
 
 def extract_billing_info_from_response(
@@ -313,68 +315,14 @@ def extract_billing_info_from_response(
 
     if isinstance(response, dict):
         if backend == "openrouter":
-            # OpenRouter provides detailed usage info when usage.include=true is set
-            usage = response.get("usage", {})
-            if usage:
-                billing_info["prompt_tokens"] = usage.get("prompt_tokens")
-                billing_info["completion_tokens"] = usage.get("completion_tokens")
-                billing_info["total_tokens"] = usage.get("total_tokens")
-                billing_info["cost"] = usage.get("cost", 0.0)
-
-                # Detailed token information
-                completion_details = usage.get("completion_tokens_details", {})
-                if completion_details:
-                    billing_info["reasoning_tokens"] = completion_details.get(
-                        "reasoning_tokens", 0
-                    )
-
-                prompt_details = usage.get("prompt_tokens_details", {})
-                if prompt_details:
-                    billing_info["cached_tokens"] = prompt_details.get(
-                        "cached_tokens", 0
-                    )
-
-                # Cost breakdown
-                cost_details = usage.get("cost_details", {})
-                if cost_details:
-                    billing_info["upstream_cost"] = cost_details.get(
-                        "upstream_inference_cost"
-                    )
-
+            _apply_openrouter_usage_from_response(response, billing_info)
         elif backend == "gemini":
-            # Gemini provides usageMetadata in response
-            usage = response.get("usageMetadata", {})
-            if usage:
-                billing_info["prompt_tokens"] = usage.get("promptTokenCount", 0)
-                billing_info["completion_tokens"] = usage.get("candidatesTokenCount", 0)
-                billing_info["total_tokens"] = usage.get("totalTokenCount", 0)
-
-                # Gemini doesn't provide cost in response - would need to calculate based on pricing
-                # For now, we'll leave cost as 0.0 and let the accounting system handle it
-
+            _apply_gemini_usage_from_response(response, billing_info)
         elif backend == "anthropic":
-            from src.anthropic_converters import extract_anthropic_usage
-
-            usage_info = extract_anthropic_usage(response)
-            billing_info["usage"]["prompt_tokens"] = usage_info["input_tokens"]
-            billing_info["usage"]["completion_tokens"] = usage_info["output_tokens"]
-            billing_info["usage"]["total_tokens"] = usage_info["total_tokens"]
-            billing_info["prompt_tokens"] = usage_info["input_tokens"]
-            billing_info["completion_tokens"] = usage_info["output_tokens"]
-            billing_info["total_tokens"] = usage_info["total_tokens"]
-            billing_info["provider_info"]["note"] = "Anthropic backend response usage"
+            _apply_anthropic_usage_from_dict(response, billing_info)
 
     elif backend == "anthropic" and hasattr(response, "usage"):
-        from src.anthropic_converters import extract_anthropic_usage
-
-        usage_info = extract_anthropic_usage(response)
-        billing_info["usage"]["prompt_tokens"] = usage_info["input_tokens"]
-        billing_info["usage"]["completion_tokens"] = usage_info["output_tokens"]
-        billing_info["usage"]["total_tokens"] = usage_info["total_tokens"]
-        billing_info["prompt_tokens"] = usage_info["input_tokens"]
-        billing_info["completion_tokens"] = usage_info["output_tokens"]
-        billing_info["total_tokens"] = usage_info["total_tokens"]
-        billing_info["provider_info"]["note"] = "Anthropic backend response usage"
+        _apply_anthropic_usage_from_streaming(response, billing_info)
 
     elif isinstance(response, StreamingResponse) and backend == "anthropic":
         # For streaming responses, usage info may not be readily available
@@ -387,6 +335,71 @@ def extract_billing_info_from_response(
         billing_info["total_tokens"] = 0
 
     return billing_info
+
+
+def _apply_openrouter_usage_from_response(
+    response: dict[str, Any], billing_info: BillingInfo
+) -> None:
+    usage = response.get("usage", {})
+    if not usage:
+        return
+    billing_info["prompt_tokens"] = usage.get("prompt_tokens")
+    billing_info["completion_tokens"] = usage.get("completion_tokens")
+    billing_info["total_tokens"] = usage.get("total_tokens")
+    billing_info["cost"] = usage.get("cost", 0.0)
+
+    completion_details = usage.get("completion_tokens_details", {})
+    if completion_details:
+        billing_info["reasoning_tokens"] = completion_details.get("reasoning_tokens", 0)
+
+    prompt_details = usage.get("prompt_tokens_details", {})
+    if prompt_details:
+        billing_info["cached_tokens"] = prompt_details.get("cached_tokens", 0)
+
+    cost_details = usage.get("cost_details", {})
+    if cost_details:
+        billing_info["upstream_cost"] = cost_details.get("upstream_inference_cost")
+
+
+def _apply_gemini_usage_from_response(
+    response: dict[str, Any], billing_info: BillingInfo
+) -> None:
+    usage = response.get("usageMetadata", {})
+    if not usage:
+        return
+    billing_info["prompt_tokens"] = usage.get("promptTokenCount", 0)
+    billing_info["completion_tokens"] = usage.get("candidatesTokenCount", 0)
+    billing_info["total_tokens"] = usage.get("totalTokenCount", 0)
+
+
+def _apply_anthropic_usage_from_dict(
+    response: dict[str, Any], billing_info: BillingInfo
+) -> None:
+    from src.anthropic_converters import extract_anthropic_usage
+
+    usage_info = extract_anthropic_usage(response)
+    billing_info["usage"]["prompt_tokens"] = usage_info["input_tokens"]
+    billing_info["usage"]["completion_tokens"] = usage_info["output_tokens"]
+    billing_info["usage"]["total_tokens"] = usage_info["total_tokens"]
+    billing_info["prompt_tokens"] = usage_info["input_tokens"]
+    billing_info["completion_tokens"] = usage_info["output_tokens"]
+    billing_info["total_tokens"] = usage_info["total_tokens"]
+    billing_info["provider_info"]["note"] = "Anthropic backend response usage"
+
+
+def _apply_anthropic_usage_from_streaming(
+    response: Any, billing_info: BillingInfo
+) -> None:
+    from src.anthropic_converters import extract_anthropic_usage
+
+    usage_info = extract_anthropic_usage(response)
+    billing_info["usage"]["prompt_tokens"] = usage_info["input_tokens"]
+    billing_info["usage"]["completion_tokens"] = usage_info["output_tokens"]
+    billing_info["usage"]["total_tokens"] = usage_info["total_tokens"]
+    billing_info["prompt_tokens"] = usage_info["input_tokens"]
+    billing_info["completion_tokens"] = usage_info["output_tokens"]
+    billing_info["total_tokens"] = usage_info["total_tokens"]
+    billing_info["provider_info"]["note"] = "Anthropic backend response usage"
 
 
 def track_usage_metrics(

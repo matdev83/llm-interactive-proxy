@@ -19,6 +19,8 @@ class UnsetCommand(BaseCommand):
     examples = [
         "!/unset(model)",
         "!/unset(interactive)",
+        "!/unset(tool-loop-detection)",
+        "!/unset(tool-loop-max-repeats, tool-loop-ttl, tool-loop-mode)",
     ]
 
     def __init__(
@@ -63,15 +65,21 @@ class UnsetCommand(BaseCommand):
         return action
 
     def execute(self, args: Mapping[str, Any], state: ProxyState) -> CommandResult:
-        messages: list[str] = []
-        persistent_change = False
         keys_to_unset = [k for k, v in args.items() if v is True]
+        actions = self._build_unset_actions()
+        messages, persistent_change = self._apply_unset_actions(
+            keys_to_unset, state, actions
+        )
+        if not messages:
+            return CommandResult(self.name, False, "unset: nothing to do")
+        self._save_if_persistent(persistent_change)
+        return CommandResult(self.name, True, "; ".join(messages))
 
-        # unset_actions map keys to (action_function, is_persistent_flag)
-        # Action functions should return a message string if successful (and an action was taken),
-        # or an empty string if no action was taken (e.g. self.app is None for some app-dependent actions).
+    def _build_unset_actions(
+        self,
+    ) -> dict[str, tuple[Callable[[ProxyState], str], bool]]:
         # type: ignore[func-returns-value]
-        unset_actions: dict[str, tuple[Callable[[ProxyState], str], bool]] = {
+        return {
             "model": (
                 self._create_unset_action("unset_override_model", "model unset"),
                 False,
@@ -145,30 +153,96 @@ class UnsetCommand(BaseCommand):
                 self._create_unset_action("unset_temperature", "temperature unset"),
                 False,
             ),
+            "openai_url": (
+                self._create_unset_action("unset_openai_url", "OpenAI URL unset"),
+                False,
+            ),
+            "loop-detection": (
+                self._create_unset_action(
+                    "unset_loop_detection_enabled", "loop detection unset"
+                ),
+                False,
+            ),
+            "tool-loop-detection": (
+                self._create_unset_action(
+                    "unset_tool_loop_detection_enabled",
+                    "tool call loop detection unset",
+                ),
+                False,
+            ),
+            "tool-loop-max-repeats": (
+                self._create_unset_action(
+                    "unset_tool_loop_max_repeats", "tool call loop max repeats unset"
+                ),
+                False,
+            ),
+            "tool_loop_max_repeats": (
+                self._create_unset_action(
+                    "unset_tool_loop_max_repeats", "tool call loop max repeats unset"
+                ),
+                False,
+            ),
+            "tool-loop-repeats": (
+                self._create_unset_action(
+                    "unset_tool_loop_max_repeats", "tool call loop max repeats unset"
+                ),
+                False,
+            ),
+            "tool-loop-ttl": (
+                self._create_unset_action(
+                    "unset_tool_loop_ttl_seconds", "tool call loop TTL seconds unset"
+                ),
+                False,
+            ),
+            "tool-loop-ttl-seconds": (
+                self._create_unset_action(
+                    "unset_tool_loop_ttl_seconds", "tool call loop TTL seconds unset"
+                ),
+                False,
+            ),
+            "tool_loop_ttl_seconds": (
+                self._create_unset_action(
+                    "unset_tool_loop_ttl_seconds", "tool call loop TTL seconds unset"
+                ),
+                False,
+            ),
+            "tool-loop-mode": (
+                self._create_unset_action(
+                    "unset_tool_loop_mode", "tool call loop mode unset"
+                ),
+                False,
+            ),
+            "tool_loop_mode": (
+                self._create_unset_action(
+                    "unset_tool_loop_mode", "tool call loop mode unset"
+                ),
+                False,
+            ),
         }
 
+    def _apply_unset_actions(
+        self,
+        keys_to_unset: list[str],
+        state: ProxyState,
+        actions: dict[str, tuple[Callable[[ProxyState], str], bool]],
+    ) -> tuple[list[str], bool]:
+        messages: list[str] = []
+        persistent_change = False
         for key in keys_to_unset:
-            if key in unset_actions:
-                action_func, is_action_persistent = unset_actions[key]
-                message = action_func(state)
+            if key not in actions:
+                continue
+            action_func, is_persistent = actions[key]
+            message = action_func(state)
+            if not message:
+                continue
+            messages.append(message)
+            if is_persistent:
+                persistent_change = True
+        return messages, persistent_change
 
-                if message:
-                    messages.append(message)
-                    # If any action taken was persistent, mark the overall change as persistent.
-                    if is_action_persistent:
-                        persistent_change = True
-
-        if (
-            not messages
-        ):  # If no messages were generated, no actions were effectively performed.
-            return CommandResult(self.name, False, "unset: nothing to do")
-
-        # Save configuration if any persistent change occurred and app context is available.
-        if (
-            persistent_change
-            and self.app
-            and getattr(self.app.state, "config_manager", None)
-        ):
-            self.app.state.config_manager.save()
-
-        return CommandResult(self.name, True, "; ".join(messages))
+    def _save_if_persistent(self, persistent_change: bool) -> None:
+        if not persistent_change or not self.app:
+            return
+        config_manager = getattr(self.app.state, "config_manager", None)
+        if config_manager:
+            config_manager.save()

@@ -59,8 +59,8 @@ celerybeat-schedule
 pip-log.txt
 
 # Project-specific ignores (already present)
-dev/
-.dev/
+#dev/
+#.dev/
 .cursor/
 data/
 venv/

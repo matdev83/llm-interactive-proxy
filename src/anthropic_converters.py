@@ -1,5 +1,5 @@
-
 """Converter functions between Anthropic API format and OpenAI format."""
+
 import json
 import logging
 from typing import Any, Dict, List
@@ -10,7 +10,9 @@ from src.anthropic_models import (
 )
 
 
-def anthropic_to_openai_request(anthropic_request: AnthropicMessagesRequest) -> Dict[str, Any]:
+def anthropic_to_openai_request(
+    anthropic_request: AnthropicMessagesRequest,
+) -> Dict[str, Any]:
     """Convert Anthropic `MessagesRequest` into the *dict* shape expected by the
     OpenAI Chat Completions endpoint.
 
@@ -42,56 +44,68 @@ def anthropic_to_openai_request(anthropic_request: AnthropicMessagesRequest) -> 
 
 
 def openai_to_anthropic_response(openai_response: Any) -> Dict[str, Any]:
-    """Convert an OpenAI chat completion *response* into Anthropic format.
-
-    The helper copes with two input styles used in the code-base:
-
-    1. A raw ``dict`` coming from a REST call.
-    2. A ``ChatCompletionResponse`` pydantic model.
-    """
-
-    # Normalise to a dictionary first
-    if not isinstance(openai_response, dict):
-        # pydantic-model - use attribute access and preserve tool_calls if present
-        first_choice = openai_response.choices[0]
-        msg_obj = {
-            "role": first_choice.message.role,
-            "content": first_choice.message.content,
-        }
-        if getattr(first_choice.message, "tool_calls", None):
-            # Convert pydantic ToolCall objects to plain dicts
-            try:
-                msg_obj["tool_calls"] = [tc.model_dump(exclude_none=True) for tc in first_choice.message.tool_calls]
-            except Exception:
-                msg_obj["tool_calls"] = list(first_choice.message.tool_calls or [])
-        _dict = {
-            "id": openai_response.id,
-            "model": openai_response.model,
-            "choices": [
-                {
-                    "message": msg_obj,
-                    "finish_reason": first_choice.finish_reason,
-                }
-            ],
-            "usage": {
-                "prompt_tokens": getattr(openai_response.usage, "prompt_tokens", 0) if getattr(openai_response, "usage", None) else 0,
-                "completion_tokens": getattr(openai_response.usage, "completion_tokens", 0) if getattr(openai_response, "usage", None) else 0,
-            },
-        }
-    else:
-        _dict = openai_response
-
-    choice = _dict["choices"][0]
+    """Convert an OpenAI chat completion response into Anthropic format."""
+    oai_dict = _normalize_openai_response_to_dict(openai_response)
+    choice = oai_dict["choices"][0]
     message = choice["message"]
+    content_blocks = _build_content_blocks(choice, message)
+    usage = oai_dict.get("usage", {})
+    return {
+        "id": oai_dict["id"],
+        "type": "message",
+        "role": "assistant",
+        "model": oai_dict["model"],
+        "stop_reason": _map_finish_reason(choice.get("finish_reason")),
+        "content": content_blocks,
+        "usage": {
+            "input_tokens": usage.get("prompt_tokens", 0),
+            "output_tokens": usage.get("completion_tokens", 0),
+        },
+    }
 
-    # Build Anthropic content blocks, supporting tool_use when OpenAI tool_calls present
-    content_blocks: List[Dict[str, Any]] = []
-    tool_calls = message.get("tool_calls") if isinstance(message, dict) else None
-    if not tool_calls:
-        # Some clients/tests may place tool_calls at the choice level
-        tool_calls = choice.get("tool_calls") if isinstance(choice, dict) else None
+
+def _normalize_openai_response_to_dict(openai_response: Any) -> Dict[str, Any]:
+    if isinstance(openai_response, dict):
+        return openai_response
+    # pydantic-like model path
+    first_choice = openai_response.choices[0]
+    msg_obj: Dict[str, Any] = {
+        "role": first_choice.message.role,
+        "content": first_choice.message.content,
+    }
+    tool_calls = getattr(first_choice.message, "tool_calls", None)
     if tool_calls:
-        # Take the first tool call for compatibility with current tests
+        try:
+            msg_obj["tool_calls"] = [
+                tc.model_dump(exclude_none=True) for tc in tool_calls
+            ]
+        except Exception:
+            msg_obj["tool_calls"] = list(tool_calls or [])
+    usage_obj = getattr(openai_response, "usage", None)
+    return {
+        "id": openai_response.id,
+        "model": openai_response.model,
+        "choices": [
+            {
+                "message": msg_obj,
+                "finish_reason": first_choice.finish_reason,
+            }
+        ],
+        "usage": {
+            "prompt_tokens": getattr(usage_obj, "prompt_tokens", 0) if usage_obj else 0,
+            "completion_tokens": (
+                getattr(usage_obj, "completion_tokens", 0) if usage_obj else 0
+            ),
+        },
+    }
+
+
+def _build_content_blocks(
+    choice: Dict[str, Any], message: Dict[str, Any]
+) -> List[Dict[str, Any]]:
+    content_blocks: List[Dict[str, Any]] = []
+    tool_calls = _extract_tool_calls(choice, message)
+    if tool_calls:
         tc = tool_calls[0]
         fn = tc.get("function", {})
         name = fn.get("name", "tool")
@@ -108,21 +122,20 @@ def openai_to_anthropic_response(openai_response: Any) -> Dict[str, Any]:
                 "input": args,
             }
         )
-    elif message.get("content") is not None:
+        return content_blocks
+    if message.get("content") is not None:
         content_blocks.append({"type": "text", "text": message["content"]})
+    return content_blocks
 
-    return {
-        "id": _dict["id"],
-        "type": "message",
-        "role": "assistant",
-        "model": _dict["model"],
-        "stop_reason": _map_finish_reason(choice.get("finish_reason")),
-        "content": content_blocks,
-        "usage": {
-            "input_tokens": _dict.get("usage", {}).get("prompt_tokens", 0),
-            "output_tokens": _dict.get("usage", {}).get("completion_tokens", 0),
-        },
-    }
+
+def _extract_tool_calls(
+    choice: Dict[str, Any], message: Dict[str, Any]
+) -> List[Dict[str, Any]] | None:
+    if isinstance(message, dict) and message.get("tool_calls"):
+        return message.get("tool_calls")
+    if isinstance(choice, dict) and choice.get("tool_calls"):
+        return choice.get("tool_calls")
+    return None
 
 
 def openai_to_anthropic_stream_chunk(chunk_data: str, id: str, model: str) -> str:
@@ -134,7 +147,7 @@ def openai_to_anthropic_stream_chunk(chunk_data: str, id: str, model: str) -> st
 
         # Terminal marker
         if chunk_data.strip() == "[DONE]":
-            return "event: message_stop\ndata: {\"type\": \"message_stop\"}\n\n"
+            return 'event: message_stop\ndata: {"type": "message_stop"}\n\n'
 
         openai_chunk: Dict[str, Any] = json.loads(chunk_data)
         choice: Dict[str, Any] = openai_chunk.get("choices", [{}])[0]
@@ -164,11 +177,13 @@ def openai_to_anthropic_stream_chunk(chunk_data: str, id: str, model: str) -> st
         # Log for debugging but return empty to keep stream alive
         logging.getLogger(__name__).debug("Failed to convert stream chunk: %s", e)
         return ""
-    
+
     # If we get here, it's an unhandled case - return empty string to keep stream alive
     return ""
 
+
 # --- Added helper functions for Anthropic frontend compatibility ---
+
 
 def extract_anthropic_usage(response: Any) -> Dict[str, int]:
     """Extract usage information from an Anthropic API response.
@@ -194,7 +209,9 @@ def extract_anthropic_usage(response: Any) -> Dict[str, int]:
             input_tokens = int(getattr(usage_obj, "input_tokens", 0) or 0)
             output_tokens = int(getattr(usage_obj, "output_tokens", 0) or 0)
     except Exception:  # pragma: no cover - never break caller on edge-cases
-        logging.getLogger(__name__).debug("Failed to extract anthropic usage", exc_info=True)
+        logging.getLogger(__name__).debug(
+            "Failed to extract anthropic usage", exc_info=True
+        )
 
     return {
         "input_tokens": input_tokens,
@@ -232,7 +249,9 @@ def openai_stream_to_anthropic_stream(chunk_data: str) -> str:
     """
     # Preserve the original *data:* prefix - tests assert on it.
     prefix = "data: "
-    payload_str = chunk_data[len(prefix):] if chunk_data.startswith("data: ") else chunk_data
+    payload_str = (
+        chunk_data[len(prefix) :] if chunk_data.startswith("data: ") else chunk_data
+    )
 
     try:
         if payload_str.strip() == "[DONE]":
@@ -312,6 +331,7 @@ def get_anthropic_models() -> Dict[str, Any]:
     ]
 
     return {"object": "list", "data": models}
+
 
 # Backwards-compat alias so existing imports still resolve
 openai_to_anthropic_stream = openai_stream_to_anthropic_stream  # type: ignore

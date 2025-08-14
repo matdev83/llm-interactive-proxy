@@ -217,102 +217,113 @@ class ChatService:
         http_request: Request,
     ) -> tuple[list[models.ChatMessage], bool, str]:
         """Process commands in messages and detect agent."""
-
         # Detect agent from first message
-        if request_data.messages:
-            first = request_data.messages[0]
-            if isinstance(first.content, str):
-                text = first.content
-            elif isinstance(first.content, list):
-                text = " ".join(
-                    p.text
-                    for p in first.content
-                    if isinstance(p, models.MessageContentPartText)
-                )
-            else:
-                text = ""
-
-            # Detect Cline agent
-            if not proxy_state.is_cline_agent and "<attempt_completion>" in text:
-                proxy_state.set_is_cline_agent(True)
-                if session.agent is None:
-                    session.agent = "cline"
-                logger.info(
-                    "[CLINE_DEBUG] Detected Cline agent via <attempt_completion> pattern."
-                )
-
-            # Detect other agents
-            if session.agent is None:
-                session.agent = detect_agent(text)
-                if session.agent:
-                    logger.info(
-                        f"[CLINE_DEBUG] Detected agent via detect_agent(): {session.agent}"
-                    )
+        self._detect_agent_from_first_message(request_data, proxy_state, session)
 
         # Process commands if interactive commands are enabled
         if not self.app.state.disable_interactive_commands:
-            parser_config = CommandParserConfig(
-                proxy_state=proxy_state,
-                app=self.app,
-                preserve_unknown=not proxy_state.interactive_mode,
-                functional_backends=self.app.state.functional_backends,
+            processed_messages, commands_processed, confirmation_text = (
+                self._run_command_parser(request_data, proxy_state)
             )
-            parser = CommandParser(
-                parser_config, command_prefix=self.app.state.command_prefix
-            )
-
-            processed_messages, commands_processed = parser.process_messages(
-                request_data.messages
-            )
-
-            # Generate confirmation text
-            confirmation_text = ""
-            if parser and parser.command_results:
-                confirmation_messages = []
-                for result in parser.command_results:
-                    if result.success:
-                        confirmation_messages.append(result.message)
-                    else:
-                        confirmation_messages.append(f"Error: {result.message}")
-                confirmation_text = "\n".join(confirmation_messages)
-
-            # Handle command errors
-            if parser.command_results and any(
-                not result.success for result in parser.command_results
-            ):
-                error_messages = [
-                    result.message
-                    for result in parser.command_results
-                    if not result.success
-                ]
-                raise HTTPException(
-                    status_code=400,
-                    detail={
-                        "id": "proxy_cmd_processed",
-                        "object": "chat.completion",
-                        "created": int(datetime.now(timezone.utc).timestamp()),
-                        "model": request_data.model,
-                        "choices": [
-                            {
-                                "index": 0,
-                                "message": {
-                                    "role": "assistant",
-                                    "content": "; ".join(error_messages),
-                                },
-                                "finish_reason": "error",
-                            }
-                        ],
-                        "usage": {
-                            "prompt_tokens": 0,
-                            "completion_tokens": 0,
-                            "total_tokens": 0,
-                        },
-                    },
-                )
-
             return processed_messages, commands_processed, confirmation_text
 
         return request_data.messages, False, ""
+
+    def _detect_agent_from_first_message(
+        self,
+        request_data: models.ChatCompletionRequest,
+        proxy_state: ProxyState,
+        session: Any,
+    ) -> None:
+        if not request_data.messages:
+            return
+        first = request_data.messages[0]
+        if isinstance(first.content, str):
+            text = first.content
+        elif isinstance(first.content, list):
+            text = " ".join(
+                p.text
+                for p in first.content
+                if isinstance(p, models.MessageContentPartText)
+            )
+        else:
+            text = ""
+
+        if not proxy_state.is_cline_agent and "<attempt_completion>" in text:
+            proxy_state.set_is_cline_agent(True)
+            if session.agent is None:
+                session.agent = "cline"
+            logger.info(
+                "[CLINE_DEBUG] Detected Cline agent via <attempt_completion> pattern."
+            )
+
+        if session.agent is None:
+            session.agent = detect_agent(text)
+            if session.agent:
+                logger.info(
+                    f"[CLINE_DEBUG] Detected agent via detect_agent(): {session.agent}"
+                )
+
+    def _run_command_parser(
+        self, request_data: models.ChatCompletionRequest, proxy_state: ProxyState
+    ) -> tuple[list[models.ChatMessage], bool, str]:
+        parser_config = CommandParserConfig(
+            proxy_state=proxy_state,
+            app=self.app,
+            preserve_unknown=not proxy_state.interactive_mode,
+            functional_backends=self.app.state.functional_backends,
+        )
+        parser = CommandParser(
+            parser_config, command_prefix=self.app.state.command_prefix
+        )
+
+        processed_messages, commands_processed = parser.process_messages(
+            request_data.messages
+        )
+
+        confirmation_text = self._build_confirmation_text(parser)
+        self._raise_if_command_errors(parser, request_data)
+        return processed_messages, commands_processed, confirmation_text
+
+    def _build_confirmation_text(self, parser: CommandParser) -> str:
+        if not parser or not parser.command_results:
+            return ""
+        lines = [
+            (r.message if r.success else f"Error: {r.message}")
+            for r in parser.command_results
+        ]
+        return "\n".join(lines)
+
+    def _raise_if_command_errors(
+        self, parser: CommandParser, request_data: models.ChatCompletionRequest
+    ) -> None:
+        if not parser.command_results or all(r.success for r in parser.command_results):
+            return
+        error_messages = [r.message for r in parser.command_results if not r.success]
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "id": "proxy_cmd_processed",
+                "object": "chat.completion",
+                "created": int(datetime.now(timezone.utc).timestamp()),
+                "model": request_data.model,
+                "choices": [
+                    {
+                        "index": 0,
+                        "message": {
+                            "role": "assistant",
+                            "content": "; ".join(error_messages),
+                        },
+                        "finish_reason": "error",
+                    }
+                ],
+                "usage": {
+                    "prompt_tokens": 0,
+                    "completion_tokens": 0,
+                    "total_tokens": 0,
+                },
+            },
+        )
 
     def _validate_backend_and_model(
         self, proxy_state: ProxyState, http_request: Request
@@ -768,64 +779,85 @@ class ChatService:
         self, effective_model: str, current_backend_type: str, proxy_state: ProxyState
     ) -> list[tuple[str, str, str, str]]:
         """Build list of backend attempts for failover."""
-        attempts = []
         route = proxy_state.failover_routes.get(effective_model)
+        if not route:
+            return [self._default_attempt(current_backend_type, effective_model)]
 
-        if route:
-            elements = route.get("elements", [])
-            if isinstance(elements, dict):
-                elems = list(elements.values())
-            elif isinstance(elements, list):
-                elems = elements
-            else:
-                elems = []
+        elements = route.get("elements", [])
+        elems = self._normalize_elements(elements)
+        policy = route.get("policy", "k")
 
-            policy = route.get("policy", "k")
+        if policy == "k" and elems:
+            return self._attempts_for_single_backend(elems[0])
+        if policy == "m":
+            return self._attempts_for_models(elems)
+        if policy == "km":
+            return self._attempts_for_all_keys_all_models(elems)
+        if policy == "mk":
+            return self._attempts_round_robin_keys(elems)
+        return [self._default_attempt(current_backend_type, effective_model)]
 
-            if policy == "k" and elems:
-                b, m = elems[0].split(":", 1)
-                for kname, key_val in _keys_for(self.config, b):
-                    attempts.append((b, m, kname, key_val))
-            elif policy == "m":
-                for el in elems:
-                    b, m = el.split(":", 1)
-                    keys = _keys_for(self.config, b)
-                    if not keys:
-                        continue
-                    kname, key_val = keys[0]
-                    attempts.append((b, m, kname, key_val))
-            elif policy == "km":
-                for el in elems:
-                    b, m = el.split(":", 1)
-                    for kname, key_val in _keys_for(self.config, b):
-                        attempts.append((b, m, kname, key_val))
-            elif policy == "mk":
-                backends_used = {el.split(":", 1)[0] for el in elems}
-                key_map = {b: _keys_for(self.config, b) for b in backends_used}
-                max_len = max(len(v) for v in key_map.values()) if key_map else 0
-                for i in range(max_len):
-                    for el in elems:
-                        b, m = el.split(":", 1)
-                        if i < len(key_map[b]):
-                            kname, key_val = key_map[b][i]
-                            attempts.append((b, m, kname, key_val))
-        else:
-            # Default to current backend
-            default_keys = _keys_for(self.config, current_backend_type)
-            if not default_keys:
-                raise HTTPException(
-                    status_code=500,
-                    detail=f"No API keys configured for the default backend: {current_backend_type}",
-                )
-            attempts.append(
-                (
-                    current_backend_type,
-                    effective_model,
-                    default_keys[0][0],
-                    default_keys[0][1],
-                )
+    def _normalize_elements(self, elements: Any) -> list[str]:
+        if isinstance(elements, dict):
+            return list(elements.values())
+        if isinstance(elements, list):
+            return elements
+        return []
+
+    def _default_attempt(self, backend: str, model: str) -> tuple[str, str, str, str]:
+        keys = _keys_for(self.config, backend)
+        if not keys:
+            raise HTTPException(
+                status_code=500,
+                detail=f"No API keys configured for the default backend: {backend}",
             )
+        kname, key_val = keys[0]
+        return (backend, model, kname, key_val)
 
+    def _attempts_for_single_backend(
+        self, element: str
+    ) -> list[tuple[str, str, str, str]]:
+        backend, model = element.split(":", 1)
+        return [
+            (backend, model, kname, key)
+            for kname, key in _keys_for(self.config, backend)
+        ]
+
+    def _attempts_for_models(
+        self, elements: list[str]
+    ) -> list[tuple[str, str, str, str]]:
+        attempts: list[tuple[str, str, str, str]] = []
+        for el in elements:
+            backend, model = el.split(":", 1)
+            keys = _keys_for(self.config, backend)
+            if keys:
+                kname, key_val = keys[0]
+                attempts.append((backend, model, kname, key_val))
+        return attempts
+
+    def _attempts_for_all_keys_all_models(
+        self, elements: list[str]
+    ) -> list[tuple[str, str, str, str]]:
+        attempts: list[tuple[str, str, str, str]] = []
+        for el in elements:
+            backend, model = el.split(":", 1)
+            for kname, key_val in _keys_for(self.config, backend):
+                attempts.append((backend, model, kname, key_val))
+        return attempts
+
+    def _attempts_round_robin_keys(
+        self, elements: list[str]
+    ) -> list[tuple[str, str, str, str]]:
+        attempts: list[tuple[str, str, str, str]] = []
+        backends_used = {el.split(":", 1)[0] for el in elements}
+        key_map = {b: _keys_for(self.config, b) for b in backends_used}
+        max_len = max((len(v) for v in key_map.values()), default=0)
+        for i in range(max_len):
+            for el in elements:
+                backend, model = el.split(":", 1)
+                if i < len(key_map.get(backend, [])):
+                    kname, key_val = key_map[backend][i]
+                    attempts.append((backend, model, kname, key_val))
         return attempts
 
     async def _call_single_backend(
