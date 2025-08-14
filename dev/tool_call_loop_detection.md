@@ -80,25 +80,25 @@ Add a server-side tool-call loop detector that tracks model-issued tool calls an
 - [x] Add examples to command help/docs.
 
 ### Phase 4: Tracker implementation
-- [ ] Implement `src/tool_call_loop/tracker.py` with TTL pruning and repeat counting.
-- [ ] Initialize `app.state.tool_loop_trackers` at app startup.
-- [ ] Add DEBUG logs for recorded signatures and pruning.
+- [x] Implement `src/tool_call_loop/tracker.py` with TTL pruning and repeat counting.
+- [x] Initialize `app.state.tool_loop_trackers` at app startup.
+- [x] Add DEBUG logs for recorded signatures and pruning.
 
 ### Phase 5: Enforcement integration
-- [ ] In `ChatService._process_backend_response`, extract tool calls and compute signatures.
-- [ ] Resolve effective config (session → model → server) and short-circuit when disabled.
-- [ ] Implement "break" mode: synthesize error and block forwarding.
-- [ ] Implement "chance_then_break" mode: inject guidance tool-failure message, re-call backend once; allow if signature changes, else break.
-- [ ] Ensure streaming path is unaffected.
+- [x] In `ChatService._process_backend_response`, extract tool calls and compute signatures.
+- [x] Resolve effective config (session → model → server) and short-circuit when disabled.
+- [x] Implement "break" mode: synthesize error and block forwarding.
+- [x] Implement "chance_then_break" mode: inject guidance tool-failure message, re-call backend once; allow if signature changes, else break.
+- [x] Ensure streaming path is unaffected.
 
 ### Phase 6: Tests
-- [ ] Unit tests for tracker (TTL, repeat counting, consecutive behavior).
-- [ ] Integration tests for both modes and precedence order.
-- [ ] Tests for disabled mode and TTL expiry behavior.
+- [x] Unit tests for tracker (TTL, repeat counting, consecutive behavior).
+- [x] Integration tests for both modes and precedence order.
+- [x] Tests for disabled mode and TTL expiry behavior.
 
 ### Phase 7: Documentation & polish
-- [ ] Update `README.md` with configuration keys and examples.
-- [ ] Add troubleshooting notes for false positives and model behaviors.
-- [ ] Ensure logs are clear and actionable (no secrets, concise context).
+- [x] Update `README.md` with configuration keys and examples.
+- [x] Add troubleshooting notes for false positives and model behaviors.
+- [x] Ensure logs are clear and actionable (no secrets, concise context).
 
 

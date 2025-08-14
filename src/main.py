@@ -34,6 +34,7 @@ from src.connectors.gemini import GeminiBackend
 from src.connectors.openai import OpenAIConnector
 from src.connectors.openrouter import OpenRouterBackend
 from src.connectors.qwen_oauth import QwenOAuthConnector
+from src.connectors.zai import ZAIConnector
 from src.constants import SUPPORTED_BACKENDS, BackendType
 from src.core.config import (
     _keys_for,
@@ -219,8 +220,13 @@ def build_app(
             models_count = 1 if concise else len(models_list)
             backend_info.append(f"qwen-oauth (M:{models_count})")
 
-        # Anthropic is intentionally excluded from the banner until its feature set
-        # is considered stable across all execution environments.
+        if BackendType.ZAI in current_app.state.functional_backends:
+            keys_count = min(
+                2, len([k for k in current_app.state.zai_backend.api_keys if k])
+            )
+            models_list = current_app.state.zai_backend.get_available_models()
+            models_count = 1 if concise else len(models_list)
+            backend_info.append(f"zai (K:{keys_count}, M:{models_count})")
 
         backends_str = ", ".join(sorted(backend_info))
         banner_lines = [
@@ -263,6 +269,7 @@ def build_app(
 
         anthropic_backend = AnthropicBackend(client_httpx)
         qwen_oauth_backend = QwenOAuthConnector(client_httpx)
+        zai_backend = ZAIConnector(client_httpx)
 
         # Trim the configured keys to **at most two** so that tests relying on a
         # deterministic banner length remain stable.  Keep only non-empty keys
@@ -285,6 +292,7 @@ def build_app(
         app_param.state.gemini_backend = gemini_backend
         app_param.state.anthropic_backend = anthropic_backend
         app_param.state.qwen_oauth_backend = qwen_oauth_backend
+        app_param.state.zai_backend = zai_backend
 
         # Backend registry and unified callers to improve DIP adherence
         app_param.state.backends = {
@@ -293,6 +301,7 @@ def build_app(
             BackendType.GEMINI: gemini_backend,
             BackendType.ANTHROPIC: anthropic_backend,
             BackendType.QWEN_OAUTH: qwen_oauth_backend,
+            BackendType.ZAI: zai_backend,
         }
 
         # Create backend-specific caller adapters with a unified interface
@@ -415,12 +424,39 @@ def build_app(
                 agent=session.agent,
             )
 
+        async def _call_zai_adapter(
+            *,
+            request_data,
+            processed_messages,
+            effective_model,
+            proxy_state,
+            session,
+            key_name=None,
+            api_key=None,
+            **_kwargs,
+        ):
+            return await app_param.state.zai_backend.chat_completions(
+                request_data=request_data,
+                processed_messages=processed_messages,
+                effective_model=effective_model,
+                key_name=key_name,
+                api_key=api_key,
+                project=proxy_state.project,
+                prompt_redactor=(
+                    app_param.state.api_key_redactor
+                    if app_param.state.api_key_redaction_enabled
+                    else None
+                ),
+                command_filter=app_param.state.command_filter,
+            )
+
         app_param.state.backend_callers = {
             BackendType.OPENAI: _call_openai_adapter,
             BackendType.OPENROUTER: _call_openrouter_adapter,
             BackendType.GEMINI: _call_gemini_adapter,
             BackendType.ANTHROPIC: _call_anthropic_adapter,
             BackendType.QWEN_OAUTH: _call_qwen_oauth_adapter,
+            BackendType.ZAI: _call_zai_adapter,
         }
 
         openai_ok = False
@@ -428,6 +464,7 @@ def build_app(
         gemini_ok = False
         anthropic_ok = False
         qwen_oauth_ok = False
+        zai_ok = False
 
         if cfg.get("openai_api_keys"):
             openai_api_keys_list = list(cfg["openai_api_keys"].items())
@@ -494,6 +531,17 @@ def build_app(
             logger.warning(f"Qwen OAuth backend unavailable: {e}")
             qwen_oauth_ok = False
 
+        # Initialize ZAI backend
+        if cfg.get("zai_api_keys"):
+            zai_api_keys_list = list(cfg["zai_api_keys"].items())
+            if zai_api_keys_list:
+                key_name, current_api_key = zai_api_keys_list[0]
+                await zai_backend.initialize(
+                    api_key=current_api_key,
+                )
+                if zai_backend.get_available_models():
+                    zai_ok = True
+
         functional = {
             name
             for name, ok in (
@@ -502,6 +550,7 @@ def build_app(
                 (BackendType.GEMINI, gemini_ok),
                 (BackendType.ANTHROPIC, anthropic_ok),
                 (BackendType.QWEN_OAUTH, qwen_oauth_ok),
+                (BackendType.ZAI, zai_ok),
             )
             if ok
         }
@@ -521,6 +570,25 @@ def build_app(
 
         configure_loop_detection_middleware(loop_config, handle_loop_detected)
         logger.info(f"Loop detection initialized: enabled={loop_config.enabled}")
+
+        # Initialize tool call loop detection
+        from src.tool_call_loop.config import ToolCallLoopConfig
+
+        tool_loop_config = ToolCallLoopConfig(
+            enabled=cfg.get("tool_loop_detection_enabled", True),
+            max_repeats=cfg.get("tool_loop_max_repeats", 4),
+            ttl_seconds=cfg.get("tool_loop_ttl_seconds", 120),
+            mode=cfg.get("tool_loop_mode", "break"),
+        )
+
+        # Initialize empty tracker dictionary - will be populated per session
+        app_param.state.tool_loop_trackers = {}
+        app_param.state.tool_loop_config = tool_loop_config
+
+        logger.info(
+            f"Tool call loop detection initialized: enabled={tool_loop_config.enabled}, "
+            f"mode={tool_loop_config.mode.value}, max_repeats={tool_loop_config.max_repeats}"
+        )
 
         # Configure API key redaction middleware
         from src.response_middleware import (
@@ -556,6 +624,8 @@ def build_app(
             current_backend = anthropic_backend
         elif backend_type == "qwen-oauth":
             current_backend = qwen_oauth_backend
+        elif backend_type == "zai":
+            current_backend = zai_backend
         elif backend_type == "openai":
             current_backend = openai_backend
         else:  # Default to openrouter if not specified
@@ -568,6 +638,7 @@ def build_app(
             + list(cfg.get("openrouter_api_keys", {}).values())
             + list(cfg.get("gemini_api_keys", {}).values())
             + list(cfg.get("anthropic_api_keys", {}).values())
+            + list(cfg.get("zai_api_keys", {}).values())
         )
         app_param.state.api_key_redactor = APIKeyRedactor(all_keys)
         app_param.state.default_api_key_redaction_enabled = cfg.get(
@@ -1289,6 +1360,7 @@ def build_app(
                         "gemini": "gemini",
                         "anthropic": "anthropic",
                         "qwen-oauth": None,  # no rate limiting configured
+                        "zai": "zai",
                     }
                     bucket = bucket_map.get(b_type)
                     # Rate limit check if applicable
@@ -1511,6 +1583,56 @@ def build_app(
                         raise HTTPException(
                             status_code=500, detail=f"Qwen OAuth backend error: {e!s}"
                         )
+
+                elif b_type == BackendType.ZAI:
+                    retry_at = http_request.app.state.rate_limits.get(
+                        "zai", model_str, key_name_str
+                    )
+                    if retry_at:
+                        detail_dict = {  # E501
+                            "message": "Backend rate limited, retry later",
+                            "retry_after": int(retry_at - time.time()),
+                        }
+                        raise HTTPException(status_code=429, detail=detail_dict)
+                    try:
+                        backend_result = (
+                            await http_request.app.state.zai_backend.chat_completions(
+                                request_data=request_data,
+                                processed_messages=processed_messages,
+                                effective_model=model_str,
+                                key_name=key_name_str,
+                                api_key=api_key_str,
+                                project=proxy_state.project,
+                                prompt_redactor=(
+                                    http_request.app.state.api_key_redactor
+                                    if http_request.app.state.api_key_redaction_enabled
+                                    else None
+                                ),
+                                command_filter=http_request.app.state.command_filter,
+                            )
+                        )
+
+                        if isinstance(backend_result, tuple):
+                            result, response_headers = backend_result
+                            tracker.set_response(result)
+                            tracker.set_response_headers(response_headers)
+                        else:
+                            # Streaming response
+                            result = backend_result
+                            tracker.set_response(result)
+
+                        logger.debug(
+                            f"Result from ZAI backend chat_completions: {result}"
+                        )
+                        return result
+                    except HTTPException as e:
+                        if e.status_code == 429:
+                            delay = parse_retry_delay(e.detail)
+                            if delay:
+                                http_request.app.state.rate_limits.set(
+                                    "zai", model_str, key_name_str, delay
+                                )
+                        raise
 
                 else:  # Default to OpenRouter or handle unknown b_type if more are added
                     retry_at = http_request.app.state.rate_limits.get(
@@ -1892,6 +2014,7 @@ def build_app(
             BackendType.GEMINI,
             BackendType.ANTHROPIC,
             BackendType.QWEN_OAUTH,
+            BackendType.ZAI,
         ]:
             backend = getattr(http_request.app.state, f"{backend_name}_backend", None)
             if backend and hasattr(backend, "get_available_models"):
@@ -1943,6 +2066,7 @@ def build_app(
                 BackendType.GEMINI,
                 BackendType.ANTHROPIC,
                 BackendType.QWEN_OAUTH,
+                BackendType.ZAI,
             ]:
                 backend = getattr(
                     http_request.app.state, f"{backend_name}_backend", None

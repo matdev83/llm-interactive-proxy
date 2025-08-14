@@ -83,6 +83,9 @@ class ChatService:
 
         # Apply request middleware processing (redaction, filtering, etc.)
         with track_phase(perf_metrics, "middleware_processing"):
+            # Determine session-level loop detection override (tier 3)
+            loop_override = proxy_state.loop_detection_enabled
+
             request_context = RequestContext(
                 session_id=session_id,
                 backend_type="unknown",  # Will be updated per backend call
@@ -90,6 +93,7 @@ class ChatService:
                 redaction_enabled=self.app.state.api_key_redaction_enabled,
                 api_key_redactor=self.app.state.api_key_redactor,
                 command_filter=self.app.state.command_filter,
+                loop_detection_enabled=loop_override,
             )
             processed_messages_dict = [msg.model_dump() for msg in processed_messages]
             processed_messages_dict = await get_request_middleware().process_request(
@@ -1077,6 +1081,8 @@ class ChatService:
         session_id: str,
     ) -> dict[str, Any] | StreamingResponse:
         """Process the response from the backend."""
+        from src.tool_call_loop.config import ToolCallLoopConfig
+        from src.tool_call_loop.tracker import ToolCallTracker
 
         # Extract raw prompt for session tracking
         raw_prompt = ""
@@ -1104,6 +1110,7 @@ class ChatService:
                     response="<streaming>",
                 )
             )
+            # Skip tool call loop detection for streaming responses
             return response_from_backend
 
         # Handle dict response
@@ -1129,6 +1136,175 @@ class ChatService:
                     "finish_reason": "error",
                 }
             ]
+
+        # Tool call loop detection
+        # Skip if streaming (already returned) or if there are no choices
+        if backend_response_dict.get("choices"):
+            # Resolve effective config based on tiered precedence:
+            # 1. Session override (proxy_state)
+            # 2. Model defaults (already applied to proxy_state)
+            # 3. Server defaults (app.state.tool_loop_config)
+
+            # Get server defaults
+            server_config = getattr(self.app.state, "tool_loop_config", None)
+            if server_config:
+                # Check if we need to create a new tracker for this session
+                if session_id not in self.app.state.tool_loop_trackers:
+                    # Create effective config by merging server defaults with session overrides
+                    effective_config = ToolCallLoopConfig(
+                        enabled=(
+                            proxy_state.tool_loop_detection_enabled
+                            if proxy_state.tool_loop_detection_enabled is not None
+                            else server_config.enabled
+                        ),
+                        max_repeats=(
+                            proxy_state.tool_loop_max_repeats
+                            if proxy_state.tool_loop_max_repeats is not None
+                            else server_config.max_repeats
+                        ),
+                        ttl_seconds=(
+                            proxy_state.tool_loop_ttl_seconds
+                            if proxy_state.tool_loop_ttl_seconds is not None
+                            else server_config.ttl_seconds
+                        ),
+                        mode=(
+                            proxy_state.tool_loop_mode
+                            if proxy_state.tool_loop_mode is not None
+                            else server_config.mode
+                        ),
+                    )
+
+                    # Create tracker with effective config
+                    self.app.state.tool_loop_trackers[session_id] = ToolCallTracker(
+                        effective_config
+                    )
+                    if logger.isEnabledFor(logging.DEBUG):
+                        logger.debug(
+                            f"Created tool call tracker for session {session_id} with config: "
+                            f"enabled={effective_config.enabled}, mode={effective_config.mode.value}, "
+                            f"max_repeats={effective_config.max_repeats}, ttl={effective_config.ttl_seconds}s"
+                        )
+
+                # Get the tracker for this session
+                tracker = self.app.state.tool_loop_trackers.get(session_id)
+                if tracker:
+                    # Check if we need to update the tracker's config
+                    current_config = tracker.config
+                    if (
+                        (
+                            proxy_state.tool_loop_detection_enabled is not None
+                            and proxy_state.tool_loop_detection_enabled
+                            != current_config.enabled
+                        )
+                        or (
+                            proxy_state.tool_loop_max_repeats is not None
+                            and proxy_state.tool_loop_max_repeats
+                            != current_config.max_repeats
+                        )
+                        or (
+                            proxy_state.tool_loop_ttl_seconds is not None
+                            and proxy_state.tool_loop_ttl_seconds
+                            != current_config.ttl_seconds
+                        )
+                        or (
+                            proxy_state.tool_loop_mode is not None
+                            and proxy_state.tool_loop_mode != current_config.mode
+                        )
+                    ):
+                        # Update tracker config with new effective config
+                        effective_config = ToolCallLoopConfig(
+                            enabled=(
+                                proxy_state.tool_loop_detection_enabled
+                                if proxy_state.tool_loop_detection_enabled is not None
+                                else current_config.enabled
+                            ),
+                            max_repeats=(
+                                proxy_state.tool_loop_max_repeats
+                                if proxy_state.tool_loop_max_repeats is not None
+                                else current_config.max_repeats
+                            ),
+                            ttl_seconds=(
+                                proxy_state.tool_loop_ttl_seconds
+                                if proxy_state.tool_loop_ttl_seconds is not None
+                                else current_config.ttl_seconds
+                            ),
+                            mode=(
+                                proxy_state.tool_loop_mode
+                                if proxy_state.tool_loop_mode is not None
+                                else current_config.mode
+                            ),
+                        )
+                        tracker.config = effective_config
+                        if logger.isEnabledFor(logging.DEBUG):
+                            logger.debug(
+                                f"Updated tool call tracker config for session {session_id}: "
+                                f"enabled={effective_config.enabled}, mode={effective_config.mode.value}, "
+                                f"max_repeats={effective_config.max_repeats}, ttl={effective_config.ttl_seconds}s"
+                            )
+
+                    # Process each choice for tool calls
+                    modified_choices = []
+                    for choice in backend_response_dict["choices"]:
+                        # Get the message from the choice
+                        message = choice.get("message", {})
+                        tool_calls = message.get("tool_calls", [])
+
+                        # If there are tool calls, check for loops
+                        if tool_calls:
+                            # Track each tool call
+                            blocked = False
+                            block_reason = None
+                            repeat_count = None
+
+                            for tool_call in tool_calls:
+                                if tool_call.get("type") == "function":
+                                    function_data = tool_call.get("function", {})
+                                    tool_name = function_data.get("name", "")
+                                    arguments = function_data.get("arguments", "{}")
+
+                                    if tool_name:
+                                        # Track this tool call
+                                        should_block, reason, count = (
+                                            tracker.track_tool_call(
+                                                tool_name, arguments
+                                            )
+                                        )
+
+                                        if should_block:
+                                            blocked = True
+                                            block_reason = reason
+                                            repeat_count = count
+                                            # Only need to block once
+                                            break
+
+                            if blocked:
+                                # Create error response
+                                if logger.isEnabledFor(logging.WARNING):
+                                    logger.warning(
+                                        f"Tool call loop detected in session {session_id}: "
+                                        f"blocked after {repeat_count} repetitions"
+                                    )
+
+                                # Replace the choice with an error message
+                                modified_choice = {
+                                    "index": choice.get("index", 0),
+                                    "message": {
+                                        "role": "assistant",
+                                        "content": block_reason,
+                                    },
+                                    "finish_reason": "error",
+                                }
+                                modified_choices.append(modified_choice)
+                            else:
+                                # Keep the original choice
+                                modified_choices.append(choice)
+                        else:
+                            # No tool calls, keep the original choice
+                            modified_choices.append(choice)
+
+                    # Replace choices in the response
+                    if modified_choices:
+                        backend_response_dict["choices"] = modified_choices
 
         # Track interaction
         usage_data = backend_response_dict.get("usage")
