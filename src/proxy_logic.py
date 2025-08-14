@@ -1,7 +1,8 @@
 import logging
-from typing import Any, Dict, Optional  # Add Dict import
+from typing import Any  # Add Dict import
 
-from src.tool_call_loop.config import ToolLoopMode
+from src.tool_call_loop.config import ToolCallLoopConfig, ToolLoopMode
+from src.tool_call_loop.tracker import ToolCallTracker
 
 logger = logging.getLogger(__name__)
 
@@ -12,44 +13,47 @@ class ProxyState:
     def __init__(
         self,
         interactive_mode: bool = True,
-        failover_routes: Optional[Dict[str, Dict[str, Any]]] = None,
+        failover_routes: dict[str, dict[str, Any]] | None = None,
     ) -> None:
-        self.override_backend: Optional[str] = None
-        self.override_model: Optional[str] = None
-        self.oneoff_backend: Optional[str] = None
-        self.oneoff_model: Optional[str] = None
+        self.override_backend: str | None = None
+        self.override_model: str | None = None
+        self.oneoff_backend: str | None = None
+        self.oneoff_model: str | None = None
         self.invalid_override: bool = False
-        self.project: Optional[str] = None
-        self.project_dir: Optional[str] = None
+        self.project: str | None = None
+        self.project_dir: str | None = None
         self.interactive_mode: bool = interactive_mode
         self.interactive_just_enabled: bool = False
         self.hello_requested: bool = False
         self.is_cline_agent: bool = False
-        self.failover_routes: Dict[str, Dict[str, Any]] = (
+        self.failover_routes: dict[str, dict[str, Any]] = (
             failover_routes if failover_routes is not None else {}
         )
         # Reasoning configuration
-        self.reasoning_effort: Optional[str] = None
-        self.reasoning_config: Optional[Dict[str, Any]] = None
+        self.reasoning_effort: str | None = None
+        self.reasoning_config: dict[str, Any] | None = None
 
         # Gemini-specific reasoning configuration
-        self.thinking_budget: Optional[int] = None
-        self.gemini_generation_config: Optional[Dict[str, Any]] = None
+        self.thinking_budget: int | None = None
+        self.gemini_generation_config: dict[str, Any] | None = None
 
         # Temperature configuration
-        self.temperature: Optional[float] = None
+        self.temperature: float | None = None
 
         # OpenAI URL configuration
-        self.openai_url: Optional[str] = None
+        self.openai_url: str | None = None
 
         # Loop detection session-level override (None = use defaults)
-        self.loop_detection_enabled: Optional[bool] = None
+        self.loop_detection_enabled: bool | None = None
 
         # Tool call loop detection session-level overrides (None = use defaults)
-        self.tool_loop_detection_enabled: Optional[bool] = None
-        self.tool_loop_max_repeats: Optional[int] = None
-        self.tool_loop_ttl_seconds: Optional[int] = None
-        self.tool_loop_mode: Optional[ToolLoopMode] = None
+        self.tool_loop_detection_enabled: bool | None = None
+        self.tool_loop_max_repeats: int | None = None
+        self.tool_loop_ttl_seconds: int | None = None
+        self.tool_loop_mode: ToolLoopMode | None = None
+
+        # Per-session tool call tracker (for thread safety)
+        self.tool_call_tracker: ToolCallTracker | None = None
 
     def set_override_model(
         self, backend: str, model_name: str, *, invalid: bool = False
@@ -183,7 +187,7 @@ class ProxyState:
             logger.info("Unsetting reasoning effort.")
         self.reasoning_effort = None
 
-    def set_reasoning_config(self, config: Dict[str, Any]) -> None:
+    def set_reasoning_config(self, config: dict[str, Any]) -> None:
         """Set unified reasoning configuration for OpenRouter."""
         if logger.isEnabledFor(logging.INFO):
             logger.info(f"Setting reasoning config to: {config}")
@@ -209,7 +213,7 @@ class ProxyState:
             logger.info("Unsetting Gemini thinking budget.")
         self.thinking_budget = None
 
-    def set_gemini_generation_config(self, config: Dict[str, Any]) -> None:
+    def set_gemini_generation_config(self, config: dict[str, Any]) -> None:
         """Set Gemini generation configuration."""
         if logger.isEnabledFor(logging.INFO):
             logger.info(f"Setting Gemini generation config to: {config}")
@@ -324,7 +328,7 @@ class ProxyState:
         self.tool_loop_mode = None
 
     def apply_model_defaults(
-        self, model_name: str, model_defaults: Dict[str, Any]
+        self, model_name: str, model_defaults: dict[str, Any]
     ) -> None:
         """Apply model-specific default configurations."""
         from src.models import ModelDefaults  # Import here to avoid circular imports
@@ -485,6 +489,7 @@ class ProxyState:
         self.tool_loop_max_repeats = None
         self.tool_loop_ttl_seconds = None
         self.tool_loop_mode = None
+        self.tool_call_tracker = None
 
     def get_effective_model(self, requested_model: str) -> str:
         if self.oneoff_model:
@@ -507,6 +512,66 @@ class ProxyState:
                 logger.info(f"Using one-off backend '{self.oneoff_backend}'")
             return self.oneoff_backend
         return self.override_backend or default_backend
+
+    def get_or_create_tool_call_tracker(
+        self, server_config: ToolCallLoopConfig
+    ) -> ToolCallTracker:
+        """Get or create a tool call tracker for this session.
+
+        This method ensures thread safety by storing the tracker in the ProxyState
+        instance rather than in a shared dictionary.
+
+        Args:
+            server_config: The server-level tool call loop configuration
+
+        Returns:
+            A ToolCallTracker instance for this session
+        """
+        # Create session-level override config if any overrides are set
+        session_cfg = None
+        if any(
+            x is not None
+            for x in [
+                self.tool_loop_detection_enabled,
+                self.tool_loop_max_repeats,
+                self.tool_loop_ttl_seconds,
+                self.tool_loop_mode,
+            ]
+        ):
+            session_cfg = ToolCallLoopConfig(
+                enabled=(
+                    self.tool_loop_detection_enabled
+                    if self.tool_loop_detection_enabled is not None
+                    else True
+                ),
+                max_repeats=(
+                    self.tool_loop_max_repeats
+                    if self.tool_loop_max_repeats is not None
+                    else 4
+                ),
+                ttl_seconds=(
+                    self.tool_loop_ttl_seconds
+                    if self.tool_loop_ttl_seconds is not None
+                    else 120
+                ),
+                mode=(
+                    self.tool_loop_mode
+                    if self.tool_loop_mode is not None
+                    else ToolLoopMode.BREAK
+                ),
+            )
+
+        # Merge server config with session overrides
+        effective_cfg = server_config.merge_with(session_cfg)
+
+        # Create tracker if missing
+        if self.tool_call_tracker is None:
+            self.tool_call_tracker = ToolCallTracker(effective_cfg)
+        else:
+            # Update tracker config if overrides changed mid-session
+            self.tool_call_tracker.config = effective_cfg
+
+        return self.tool_call_tracker
 
 
 # Re-export command parsing helpers from the dedicated module for backward compatibility

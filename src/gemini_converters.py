@@ -5,7 +5,7 @@ to the internal OpenAI format used by existing backends.
 """
 
 import json
-from typing import Any, Dict, List
+from typing import Any
 
 from src.gemini_models import (
     Blob,
@@ -29,7 +29,7 @@ from src.models import (
 )
 
 
-def gemini_to_openai_messages(contents: List[Content]) -> List[ChatMessage]:
+def gemini_to_openai_messages(contents: list[Content]) -> list[ChatMessage]:
     """Convert Gemini contents to OpenAI messages format."""
     messages = []
 
@@ -63,18 +63,24 @@ def gemini_to_openai_messages(contents: List[Content]) -> List[ChatMessage]:
     return messages
 
 
-def openai_to_gemini_contents(messages: List[ChatMessage]) -> List[Content]:
+def openai_to_gemini_contents(messages: list[ChatMessage]) -> list[Content]:
     """Convert OpenAI messages to Gemini contents format."""
     contents = []
+    system_messages = []
 
     for message in messages:
+        # Collect system messages separately (we'll handle them later)
+        if message.role == "system":
+            system_messages.append(message)
+            continue
+
         # Determine role mapping
         role = "user"  # Default role
         if message.role == "assistant":
             role = "model"
         elif message.role == "function":
             role = "function"
-        elif message.role in ["user", "system"]:
+        elif message.role == "user":
             role = "user"
 
         # Create content with text or parts
@@ -84,10 +90,13 @@ def openai_to_gemini_contents(messages: List[ChatMessage]) -> List[Content]:
             contents.append(content)
         elif isinstance(message.content, list):
             parts_maybe = [_openai_part_to_gemini_part(p) for p in message.content]
-            parts: List[Part] = [p for p in parts_maybe if p is not None]
+            parts: list[Part] = [p for p in parts_maybe if p is not None]
             if parts:
                 content = Content(parts=parts, role=role)
                 contents.append(content)
+
+    # Note: We don't use system messages directly in Gemini API
+    # but we could add them as a user message if needed in the future
 
     return contents
 
@@ -240,7 +249,7 @@ def openai_to_gemini_stream_chunk(chunk_data: str) -> str:
 
 
 def openai_models_to_gemini_models(
-    openai_models: List[Dict[str, Any]],
+    openai_models: list[dict[str, Any]],
 ) -> ListModelsResponse:
     """Convert OpenAI models list to Gemini models format."""
     gemini_models = []
@@ -284,8 +293,8 @@ def is_streaming_request(path: str) -> bool:
     return ":streamGenerateContent" in path
 
 
-def _parts_to_text(parts: List[Part]) -> str:
-    lines: List[str] = []
+def _parts_to_text(parts: list[Part]) -> str:
+    lines: list[str] = []
     for part in parts:
         if part.text:
             lines.append(part.text)
@@ -314,7 +323,7 @@ def _openai_part_to_gemini_part(
     return None
 
 
-def _tool_call_to_function_call(tool_call: Dict[str, Any] | Any) -> Part:
+def _tool_call_to_function_call(tool_call: dict[str, Any] | Any) -> Part:
     try:
         args_obj = json.loads(tool_call["function"]["arguments"])  # type: ignore[index]
         name = tool_call["function"]["name"]  # type: ignore[index]
@@ -327,7 +336,7 @@ def _tool_call_to_function_call(tool_call: Dict[str, Any] | Any) -> Part:
     return Part(function_call=fc)  # type: ignore[call-arg]
 
 
-def _openai_delta_to_part(choice_fragment: Dict[str, Any]) -> Part | None:
+def _openai_delta_to_part(choice_fragment: dict[str, Any]) -> Part | None:
     delta = choice_fragment.get("delta")
     if not isinstance(delta, dict):
         return None
