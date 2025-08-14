@@ -122,7 +122,7 @@ class ToolCallTracker:
         return pruned_count
 
     def track_tool_call(
-        self, tool_name: str, arguments: str
+        self, tool_name: str, arguments: str, force_block: bool = False
     ) -> tuple[bool, str | None, int | None]:
         """Track a tool call and check if it exceeds the repetition threshold.
 
@@ -136,9 +136,16 @@ class ToolCallTracker:
             - reason: Reason message if blocked, None otherwise
             - repeat_count: Number of consecutive repeats if blocked, None otherwise
         """
-        # Skip tracking if disabled
-        if not self.config.enabled:
+        # Skip tracking if disabled (unless forced)
+        if not self.config.enabled and not force_block:
             return False, None, None
+
+        # Handle forced block (for transparent retry when same tool call is repeated)
+        if force_block:
+            reason = self._format_block_reason(
+                tool_name, self.config.max_repeats, second_chance=True
+            )
+            return True, reason, self.config.max_repeats
 
         # Prune expired signatures first
         self.prune_expired()
