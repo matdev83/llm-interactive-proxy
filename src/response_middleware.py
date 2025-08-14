@@ -305,27 +305,9 @@ class APIKeyRedactionProcessor(ResponseProcessor):
                 # Remove "data: " prefix and any trailing newlines
                 json_part = chunk[6:].strip()
                 if json_part:
-                    # Parse the JSON, redact content, then re-serialize
                     data = json.loads(json_part)
                     if isinstance(data, dict):
-                        # Redact in choices content
-                        for choice in data.get("choices", []):
-                            if isinstance(choice, dict):
-                                # Handle delta for streaming
-                                delta = choice.get("delta", {})
-                                if isinstance(delta, dict) and "content" in delta:
-                                    content = delta["content"]
-                                    if isinstance(content, str):
-                                        delta["content"] = redactor.redact(content)
-
-                                # Handle message for non-streaming style
-                                message = choice.get("message", {})
-                                if isinstance(message, dict) and "content" in message:
-                                    content = message["content"]
-                                    if isinstance(content, str):
-                                        message["content"] = redactor.redact(content)
-
-                    # Re-serialize the modified data
+                        self._redact_openai_sse_json(data, redactor)
                     return f"data: {json.dumps(data)}\n\n"
             except (json.JSONDecodeError, Exception):
                 # If we can't parse/modify, return original chunk
@@ -334,6 +316,28 @@ class APIKeyRedactionProcessor(ResponseProcessor):
         # For non-SSE chunks or if parsing failed, try to redact the whole chunk
         # This is a fallback for edge cases
         return redactor.redact(chunk)
+
+    def _redact_openai_sse_json(
+        self, data: dict[str, Any], redactor: APIKeyRedactor
+    ) -> None:
+        """Redact content fields inside an OpenAI SSE JSON object in place."""
+        for choice in data.get("choices", []):
+            if not isinstance(choice, dict):
+                continue
+            delta = choice.get("delta", {})
+            if (
+                isinstance(delta, dict)
+                and "content" in delta
+                and isinstance(delta["content"], str)
+            ):
+                delta["content"] = redactor.redact(delta["content"])
+            message = choice.get("message", {})
+            if (
+                isinstance(message, dict)
+                and "content" in message
+                and isinstance(message["content"], str)
+            ):
+                message["content"] = redactor.redact(message["content"])
 
     async def _process_non_streaming_response(
         self, response: dict[str, Any], context: RequestContext

@@ -56,20 +56,8 @@ def gemini_to_openai_messages(contents: List[Content]) -> List[ChatMessage]:
         if has_tool_response:
             continue
 
-        # Combine all text parts into a single message
-        text_parts = []
-        for part in content.parts:
-            if part.text:
-                text_parts.append(part.text)
-            elif part.inline_data:
-                # For now, we'll indicate that there's an image/file attachment
-                # The actual handling of binary data would need more sophisticated processing
-                text_parts.append(f"[Attachment: {part.inline_data.mime_type}]")
-            elif part.file_data:
-                text_parts.append(f"[File: {part.file_data.file_uri}]")
-
-        if text_parts:
-            message_content = "\n".join(text_parts)
+        message_content = _parts_to_text(content.parts)
+        if message_content:
             messages.append(ChatMessage(role=role, content=message_content))
 
     return messages
@@ -95,24 +83,8 @@ def openai_to_gemini_contents(messages: List[ChatMessage]) -> List[Content]:
             content = Content(parts=[part], role=role)
             contents.append(content)
         elif isinstance(message.content, list):
-            parts = []
-            for part_item in message.content:
-                if isinstance(part_item, MessageContentPartText):
-                    parts.append(Part(text=part_item.text))  # type: ignore[call-arg]
-                elif isinstance(part_item, MessageContentPartImage):
-                    # Convert OpenAI image_url to Gemini inlineData (data: URIs) or fileData (http/https)
-                    url = part_item.image_url.url
-                    if url.startswith("data:"):
-                        try:
-                            header, b64_data = url.split(",", 1)
-                            mime = header.split(";")[0][5:]
-                            parts.append(Part(inline_data=Blob(mime_type=mime, data=b64_data)))  # type: ignore[call-arg]
-                        except Exception:
-                            # Fallback for malformed data URLs
-                            parts.append(Part(text=f"[Image: {url}]"))  # type: ignore[call-arg]
-                    else:
-                        # Use fileData for external resources so Gemini can fetch it
-                        parts.append(Part(file_data=FileData(mime_type="application/octet-stream", file_uri=url)))  # type: ignore[call-arg]
+            parts_maybe = [_openai_part_to_gemini_part(p) for p in message.content]
+            parts: List[Part] = [p for p in parts_maybe if p is not None]
             if parts:
                 content = Content(parts=parts, role=role)
                 contents.append(content)
@@ -180,19 +152,9 @@ def openai_to_gemini_response(
         if choice.message:
             # Properly map OpenAI tool_calls to Gemini functionCall part
             if choice.message.tool_calls:
-                tool_call = choice.message.tool_calls[0]
-                args_obj: dict[str, Any]
-                try:
-                    args_obj = json.loads(tool_call.function.arguments)
-                except Exception:
-                    # If arguments are not valid JSON, fall back to string payload
-                    args_obj = {"_raw": tool_call.function.arguments}
-
-                fc = {"name": tool_call.function.name, "args": args_obj}
-                part = Part(function_call=fc)  # type: ignore[call-arg]
+                part = _tool_call_to_function_call(choice.message.tool_calls[0])
                 content = Content(parts=[part], role="model")
             elif choice.message.content:
-                # Handle regular text content
                 part = Part(text=choice.message.content)  # type: ignore[call-arg]
                 content = Content(parts=[part], role="model")
 
@@ -246,12 +208,8 @@ def openai_to_gemini_stream_chunk(chunk_data: str) -> str:
         if "choices" in openai_chunk:
             for choice in openai_chunk["choices"]:
                 content = None
-                if (
-                    "delta" in choice
-                    and "content" in choice["delta"]
-                    and choice["delta"]["content"]
-                ):
-                    part = Part(text=choice["delta"]["content"])  # type: ignore[call-arg]
+                part = _openai_delta_to_part(choice)
+                if part is not None:
                     content = Content(parts=[part], role="model")
 
                 finish_reason = None
@@ -324,3 +282,56 @@ def extract_model_from_gemini_path(path: str) -> str:
 def is_streaming_request(path: str) -> bool:
     """Check if the request is for streaming based on the path."""
     return ":streamGenerateContent" in path
+
+
+def _parts_to_text(parts: List[Part]) -> str:
+    lines: List[str] = []
+    for part in parts:
+        if part.text:
+            lines.append(part.text)
+        elif part.inline_data:
+            lines.append(f"[Attachment: {part.inline_data.mime_type}]")
+        elif part.file_data:
+            lines.append(f"[File: {part.file_data.file_uri}]")
+    return "\n".join(lines) if lines else ""
+
+
+def _openai_part_to_gemini_part(
+    part_item: MessageContentPartText | MessageContentPartImage | Any,
+) -> Part | None:
+    if isinstance(part_item, MessageContentPartText):
+        return Part(text=part_item.text)  # type: ignore[call-arg]
+    if isinstance(part_item, MessageContentPartImage):
+        url = part_item.image_url.url
+        if url.startswith("data:"):
+            try:
+                header, b64_data = url.split(",", 1)
+                mime = header.split(";")[0][5:]
+                return Part(inline_data=Blob(mime_type=mime, data=b64_data))  # type: ignore[call-arg]
+            except Exception:
+                return Part(text=f"[Image: {url}]")  # type: ignore[call-arg]
+        return Part(file_data=FileData(mime_type="application/octet-stream", file_uri=url))  # type: ignore[call-arg]
+    return None
+
+
+def _tool_call_to_function_call(tool_call: Dict[str, Any] | Any) -> Part:
+    try:
+        args_obj = json.loads(tool_call["function"]["arguments"])  # type: ignore[index]
+        name = tool_call["function"]["name"]  # type: ignore[index]
+    except Exception:
+        args_obj = {
+            "_raw": getattr(getattr(tool_call, "function", {}), "arguments", "")
+        }
+        name = getattr(getattr(tool_call, "function", {}), "name", "function")
+    fc = {"name": name, "args": args_obj}
+    return Part(function_call=fc)  # type: ignore[call-arg]
+
+
+def _openai_delta_to_part(choice_fragment: Dict[str, Any]) -> Part | None:
+    delta = choice_fragment.get("delta")
+    if not isinstance(delta, dict):
+        return None
+    content = delta.get("content")
+    if not content:
+        return None
+    return Part(text=content)  # type: ignore[call-arg]

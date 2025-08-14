@@ -77,8 +77,31 @@ class PerformanceMetrics:
         if not self.total_time:
             self.finalize()
 
-        # Build performance summary
-        summary_parts = [
+        summary_parts = self._format_summary_prefix()
+
+        timing_parts = self._format_timing_parts()
+        if timing_parts:
+            summary_parts.append(f"breakdown=[{', '.join(timing_parts)}]")
+
+        accounted_time = sum(
+            t
+            for t in [
+                self.command_processing_time,
+                self.backend_selection_time,
+                self.backend_call_time,
+                self.response_processing_time,
+            ]
+            if t is not None
+        )
+        if accounted_time and self.total_time:
+            overhead = self.total_time - accounted_time
+            summary_parts.append(f"overhead={overhead:.3f}s")
+
+        if logger.isEnabledFor(logging.INFO):
+            logger.info(" | ".join(summary_parts))
+
+    def _format_summary_prefix(self) -> list[str]:
+        return [
             f"PERF_SUMMARY session={self.session_id or 'unknown'}",
             f"total={self.total_time:.3f}s",
             f"backend={self.backend_used or 'unknown'}",
@@ -87,39 +110,17 @@ class PerformanceMetrics:
             f"commands={self.commands_processed}",
         ]
 
-        # Add timing breakdown
-        timing_parts = []
+    def _format_timing_parts(self) -> list[str]:
+        parts: list[str] = []
         if self.command_processing_time is not None:
-            timing_parts.append(f"cmd_proc={self.command_processing_time:.3f}s")
+            parts.append(f"cmd_proc={self.command_processing_time:.3f}s")
         if self.backend_selection_time is not None:
-            timing_parts.append(f"backend_sel={self.backend_selection_time:.3f}s")
+            parts.append(f"backend_sel={self.backend_selection_time:.3f}s")
         if self.backend_call_time is not None:
-            timing_parts.append(f"backend_call={self.backend_call_time:.3f}s")
+            parts.append(f"backend_call={self.backend_call_time:.3f}s")
         if self.response_processing_time is not None:
-            timing_parts.append(f"resp_proc={self.response_processing_time:.3f}s")
-
-        if timing_parts:
-            summary_parts.append(f"breakdown=[{', '.join(timing_parts)}]")
-
-        # Calculate overhead (time not accounted for in specific phases)
-        accounted_time = sum(
-            filter(
-                None,
-                [
-                    self.command_processing_time,
-                    self.backend_selection_time,
-                    self.backend_call_time,
-                    self.response_processing_time,
-                ],
-            )
-        )
-
-        if accounted_time and self.total_time:
-            overhead = self.total_time - accounted_time
-            summary_parts.append(f"overhead={overhead:.3f}s")
-
-        if logger.isEnabledFor(logging.INFO):
-            logger.info(" | ".join(summary_parts))
+            parts.append(f"resp_proc={self.response_processing_time:.3f}s")
+        return parts
 
 
 @contextmanager

@@ -67,34 +67,12 @@ class LoopDetectionStreamingResponse(StreamingResponse):
                         continue
 
                     # Process the buffered content
-                    detection_event = (
-                        self.loop_detector.process_chunk(chunk_buffer)
-                        if self.loop_detector is not None
-                        else None
+                    cancellation_message = self._analyze_buffer_and_maybe_cancel(
+                        chunk_buffer
                     )
                     chunk_buffer = ""  # Clear buffer after processing
-
-                    if detection_event:
-                        logger.warning(
-                            f"Loop detected in streaming response: {detection_event.pattern[:50]}..."
-                        )
-
-                        # Trigger callback
-                        if self.on_loop_detected:
-                            try:
-                                self.on_loop_detected(detection_event)
-                            except Exception as e:
-                                logger.error(f"Error in loop detection callback: {e}")
-
-                        # Cancel the stream
-                        self._cancelled = True
-
-                        # Yield a final message indicating cancellation
-                        cancellation_message = self._create_cancellation_message(
-                            detection_event
-                        )
-                        if cancellation_message:
-                            yield cancellation_message
+                    if cancellation_message is not None:
+                        yield cancellation_message
                         break
 
                 # Yield the original chunk
@@ -102,32 +80,11 @@ class LoopDetectionStreamingResponse(StreamingResponse):
 
             # Process any remaining buffered content
             if not self._cancelled and chunk_buffer:
-                detection_event = (
-                    self.loop_detector.process_chunk(chunk_buffer)
-                    if self.loop_detector is not None
-                    else None
+                cancellation_message = self._analyze_buffer_and_maybe_cancel(
+                    chunk_buffer
                 )
-                if detection_event:
-                    logger.warning(
-                        f"Loop detected in streaming response: {detection_event.pattern[:50]}..."
-                    )
-
-                    # Trigger callback
-                    if self.on_loop_detected:
-                        try:
-                            self.on_loop_detected(detection_event)
-                        except Exception as e:
-                            logger.error(f"Error in loop detection callback: {e}")
-
-                    # Cancel the stream
-                    self._cancelled = True
-
-                    # Yield a final message indicating cancellation
-                    cancellation_message = self._create_cancellation_message(
-                        detection_event
-                    )
-                    if cancellation_message:
-                        yield cancellation_message
+                if cancellation_message is not None:
+                    yield cancellation_message
 
         except asyncio.CancelledError:
             logger.info("Streaming response cancelled")
@@ -137,6 +94,29 @@ class LoopDetectionStreamingResponse(StreamingResponse):
             # Continue streaming on error to avoid breaking the response
             async for chunk in content:
                 yield chunk
+
+    def _analyze_buffer_and_maybe_cancel(self, buffer_text: str) -> str | None:
+        """Analyze buffered text and, if a loop is detected, cancel and return a cancellation message."""
+        if self.loop_detector is None:
+            return None
+        detection_event = self.loop_detector.process_chunk(buffer_text)
+        if not detection_event:
+            return None
+        logger.warning(
+            f"Loop detected in streaming response: {detection_event.pattern[:50]}..."
+        )
+        self._trigger_callback_safely(detection_event)
+        self._cancelled = True
+        return self._create_cancellation_message(detection_event)
+
+    def _trigger_callback_safely(self, detection_event: LoopDetectionEvent) -> None:
+        """Invoke the callback safely if provided."""
+        if not self.on_loop_detected:
+            return
+        try:
+            self.on_loop_detected(detection_event)
+        except Exception as e:
+            logger.error(f"Error in loop detection callback: {e}")
 
     def _create_cancellation_message(
         self, detection_event: LoopDetectionEvent

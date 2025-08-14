@@ -30,6 +30,11 @@ class SetCommand(BaseCommand):
         "!/set(gemini-generation-config={'thinkingConfig': {'thinkingBudget': 1024}})",
         "!/set(temperature=0.7)",
         "!/set(openai_url=https://api.example.com/v1)",
+        "!/set(loop-detection=true)",
+        "!/set(tool-loop-detection=true)",
+        "!/set(tool-loop-max-repeats=4)",
+        "!/set(tool-loop-ttl=120)",
+        "!/set(tool-loop-mode=break)",
     ]
 
     HandlerOutput = Tuple[bool, Union[str, CommandResult, None], bool]
@@ -563,7 +568,174 @@ class SetCommand(BaseCommand):
             lambda: self._handle_gemini_generation_config_setting(args, state),
             lambda: self._handle_temperature_setting(args, state),
             lambda: self._handle_openai_url_setting(args, state),
+            lambda: self._handle_loop_detection_setting(args, state),
+            lambda: self._handle_tool_loop_detection_setting(args, state),
+            lambda: self._handle_tool_loop_max_repeats_setting(args, state),
+            lambda: self._handle_tool_loop_ttl_seconds_setting(args, state),
+            lambda: self._handle_tool_loop_mode_setting(args, state),
         ]
+
+    def _handle_loop_detection_setting(
+        self, args: Mapping[str, Any], state: ProxyState
+    ) -> HandlerOutput:
+        key_variants = ["loop-detection", "loop_detection", "loop"]
+        val_arg: str | None = None
+        used_key: str | None = None
+        for k in key_variants:
+            v = args.get(k)
+            if isinstance(v, str):
+                val_arg = v
+                used_key = k
+                break
+        if val_arg is None:
+            return False, None, False
+
+        val = self._parse_bool(val_arg)
+        if val is None:
+            return (
+                True,
+                CommandResult(
+                    self.name, False, f"Invalid boolean for {used_key}: {val_arg}"
+                ),
+                False,
+            )
+
+        state.set_loop_detection_enabled(val)
+        return True, f"{used_key} set to {val}", False
+
+    def _handle_tool_loop_detection_setting(
+        self, args: Mapping[str, Any], state: ProxyState
+    ) -> HandlerOutput:
+        key_variants = ["tool-loop-detection", "tool_loop_detection", "tool-loop"]
+        val_arg: str | None = None
+        used_key: str | None = None
+        for k in key_variants:
+            v = args.get(k)
+            if isinstance(v, str):
+                val_arg = v
+                used_key = k
+                break
+        if val_arg is None:
+            return False, None, False
+
+        val = self._parse_bool(val_arg)
+        if val is None:
+            return (
+                True,
+                CommandResult(
+                    self.name, False, f"Invalid boolean for {used_key}: {val_arg}"
+                ),
+                False,
+            )
+
+        state.set_tool_loop_detection_enabled(val)
+        return True, f"{used_key} set to {val}", False
+
+    def _handle_tool_loop_max_repeats_setting(
+        self, args: Mapping[str, Any], state: ProxyState
+    ) -> HandlerOutput:
+        key_variants = [
+            "tool-loop-max-repeats",
+            "tool_loop_max_repeats",
+            "tool-loop-repeats",
+        ]
+        val_arg = None
+        used_key = None
+        for k in key_variants:
+            v = args.get(k)
+            if v is not None:
+                val_arg = v
+                used_key = k
+                break
+        if val_arg is None:
+            return False, None, False
+
+        try:
+            max_repeats = int(val_arg)
+            state.set_tool_loop_max_repeats(max_repeats)
+            return True, f"{used_key} set to {max_repeats}", False
+        except ValueError as e:
+            if "must be at least 2" in str(e):
+                return True, CommandResult(self.name, False, str(e)), False
+            else:
+                return (
+                    True,
+                    CommandResult(
+                        self.name,
+                        False,
+                        f"Invalid integer value for {used_key}: {val_arg}",
+                    ),
+                    False,
+                )
+        except Exception as e:
+            return True, CommandResult(self.name, False, str(e)), False
+
+    def _handle_tool_loop_ttl_seconds_setting(
+        self, args: Mapping[str, Any], state: ProxyState
+    ) -> HandlerOutput:
+        key_variants = [
+            "tool-loop-ttl-seconds",
+            "tool_loop_ttl_seconds",
+            "tool-loop-ttl",
+        ]
+        val_arg = None
+        used_key = None
+        for k in key_variants:
+            v = args.get(k)
+            if v is not None:
+                val_arg = v
+                used_key = k
+                break
+        if val_arg is None:
+            return False, None, False
+
+        try:
+            ttl_seconds = int(val_arg)
+            state.set_tool_loop_ttl_seconds(ttl_seconds)
+            return True, f"{used_key} set to {ttl_seconds}", False
+        except ValueError as e:
+            if "must be positive" in str(e):
+                return True, CommandResult(self.name, False, str(e)), False
+            else:
+                return (
+                    True,
+                    CommandResult(
+                        self.name,
+                        False,
+                        f"Invalid integer value for {used_key}: {val_arg}",
+                    ),
+                    False,
+                )
+        except Exception as e:
+            return True, CommandResult(self.name, False, str(e)), False
+
+    def _handle_tool_loop_mode_setting(
+        self, args: Mapping[str, Any], state: ProxyState
+    ) -> HandlerOutput:
+        key_variants = ["tool-loop-mode", "tool_loop_mode"]
+        val_arg: str | None = None
+        used_key: str | None = None
+        for k in key_variants:
+            v = args.get(k)
+            if isinstance(v, str):
+                val_arg = v
+                used_key = k
+                break
+        if val_arg is None:
+            return False, None, False
+
+        try:
+            mode = val_arg.strip().lower()
+            # Handle shorthand "chance" for "chance_then_break"
+            if mode == "chance":
+                mode = "chance_then_break"
+
+            state.set_tool_loop_mode(mode)
+            return True, f"{used_key} set to {mode}", False
+        except ValueError as e:
+            return True, CommandResult(self.name, False, str(e)), False
+        except Exception as e:
+            return True, CommandResult(self.name, False, str(e)), False
 
     def _process_handler_tasks(
         self, tasks: list[Callable[[], HandlerOutput]]

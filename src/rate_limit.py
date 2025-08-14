@@ -12,16 +12,11 @@ class RateLimitRegistry:
         self._until: dict[tuple[str, str, str], float] = {}
 
     def set(
-            self,
-            backend: str,
-            model: str | None,
-            key_name: str,
-            delay_seconds: float) -> None:
-        self._until[(backend, model or "", key_name)
-                    ] = time.time() + delay_seconds
+        self, backend: str, model: str | None, key_name: str, delay_seconds: float
+    ) -> None:
+        self._until[(backend, model or "", key_name)] = time.time() + delay_seconds
 
-    def get(self, backend: str, model: str | None,
-            key_name: str) -> float | None:
+    def get(self, backend: str, model: str | None, key_name: str) -> float | None:
         key = (backend, model or "", key_name)
         ts = self._until.get(key)
         if ts is None:
@@ -31,12 +26,18 @@ class RateLimitRegistry:
             return None
         return ts
 
-    def earliest(self, combos: Iterable[tuple[str, str, str]] | None = None) -> float | None:
+    def earliest(
+        self, combos: Iterable[tuple[str, str, str]] | None = None
+    ) -> float | None:
         """Return the earliest retry timestamp for the given combinations."""
         items = (
-            ((b, m or "", k), self._until.get((b, m or "", k)))
-            for b, m, k in (combos or [])
-        ) if combos else self._until.items()
+            (
+                ((b, m or "", k), self._until.get((b, m or "", k)))
+                for b, m, k in (combos or [])
+            )
+            if combos
+            else self._until.items()
+        )
         valid_times = [t for _, t in items if t is not None]
         if not valid_times:
             return None
@@ -64,45 +65,40 @@ def _find_retry_delay_in_details(details_list: list) -> float | None:
         try:
             return float(delay_str[:-1])
         except ValueError:
-            pass # Malformed delay string in this item, try next
+            pass  # Malformed delay string in this item, try next
 
     return None
 
 
 def parse_retry_delay(detail: object) -> float | None:
     """Parse retry delay (seconds) from backend 429 error details."""
-    data_dict: dict[str, Any] | None = None
+    data_dict = _as_dict(detail)
+    if not data_dict:
+        return None
+    err_obj = data_dict.get("error", data_dict)
+    if not isinstance(err_obj, dict):
+        return None
+    details = err_obj.get("details")
+    if not isinstance(details, list):
+        return None
+    return _find_retry_delay_in_details(details)
+
+
+def _as_dict(detail: object) -> dict[str, Any] | None:
+    """Best-effort conversion of an error detail payload into a dict."""
+    if isinstance(detail, dict):
+        return detail
     if isinstance(detail, str):
         try:
-            loaded_json = json.loads(detail)
-            if isinstance(loaded_json, dict):
-                data_dict = loaded_json
-            else:
-                return None
+            loaded = json.loads(detail)
+            return loaded if isinstance(loaded, dict) else None
         except json.JSONDecodeError:
             start = detail.find("{")
             end = detail.rfind("}")
             if start != -1 and end != -1 and end > start:
                 try:
-                    data_dict = json.loads(detail[start : end + 1])
+                    loaded = json.loads(detail[start : end + 1])
+                    return loaded if isinstance(loaded, dict) else None
                 except json.JSONDecodeError:
                     return None
-            else:
-                return None
-    elif isinstance(detail, dict):
-        data_dict = detail
-
-    if not data_dict:
-        return None
-
-    err_obj = data_dict.get("error", data_dict)
-    if not isinstance(err_obj, dict):
-        return None
-
-    details = err_obj.get("details")
-    # _find_retry_delay_in_details will handle if details is None or not a list,
-    # but explicit check here keeps parse_retry_delay cleaner about what it passes.
-    if not isinstance(details, list):
-        return None
-
-    return _find_retry_delay_in_details(details)
+    return None
