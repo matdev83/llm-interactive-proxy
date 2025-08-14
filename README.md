@@ -9,10 +9,15 @@ This project is a *swiss-army knife* for anyone hacking on language models and a
   - Server-wide defaults via `LOOP_DETECTION_*` env vars
   - Backend/model defaults via model defaults (`loop_detection_enabled`)
   - Session override via `!/set(loop-detection=true|false)`
-- **Tool Call Loop Detection**: Prevents repetitive tool calls that may indicate a model is stuck in a loop. Tracks tool call signatures and intervenes when the same tool is called repeatedly with identical parameters. Configurable with:
-  - Server-wide defaults via `TOOL_LOOP_*` env vars
-  - Backend/model defaults via model defaults (`tool_loop_detection_enabled`)
-  - Session override via `!/set(tool-loop-*=value)`
+- **Tool Call Loop Detection**: Prevents repetitive tool calls that may indicate a model is stuck in a loop. Tracks tool call signatures and intervenes when the same tool is called repeatedly with identical parameters. Features:
+  - **Signature-based tracking**: Identifies identical tool calls by name and arguments
+  - **TTL-based pruning**: Avoids false positives by considering only recent calls
+  - **Two modes**: "break" (stops repeating calls immediately) and "chance_then_break" (gives one chance to fix before breaking)
+  - **Tiered configuration**:
+    - Server-wide defaults via `TOOL_LOOP_*` env vars
+    - Backend/model defaults via model defaults (`tool_loop_detection_enabled`, etc.)
+    - Session override via `!/set(tool-loop-*=value)` commands
+  - **Streaming compatibility**: Works with both streaming and non-streaming responses
 - **Comprehensive Usage Tracking**: Logs all requests to a local database with endpoints (`/usage/stats`, `/usage/recent`) for monitoring costs and performance.
 - **In-Chat Command System**: Control the proxy on the fly using commands inside your prompts (e.g., `!/help`, `!/set(backend=...)`).
 - **Security**: Automatically redacts API keys and other secrets from prompts before they are sent to the LLM.
@@ -200,6 +205,36 @@ Control the proxy on the fly by embedding commands in your prompts (default pref
 - `!/set(tool-loop-max-repeats=4)`: Set maximum number of consecutive identical tool calls before action is taken.
 - `!/set(tool-loop-ttl=120)`: Set time window in seconds for considering tool calls part of a pattern.
 - `!/set(tool-loop-mode=break|chance_then_break)`: Set how to handle detected tool call loops.
+
+## Troubleshooting
+
+### Content Loop Detection
+
+If you're seeing false positives with content loop detection (legitimate responses being cut off):
+
+1. **Adjust the buffer size**: `LOOP_DETECTION_BUFFER_SIZE=4096` (default is 2048)
+2. **Increase the pattern length**: `LOOP_DETECTION_MAX_PATTERN_LENGTH=1000` (default is 500)
+3. **Disable for specific sessions**: Use `!/set(loop-detection=false)` in your prompt
+4. **Disable globally**: Set `LOOP_DETECTION_ENABLED=false`
+
+### Tool Call Loop Detection
+
+If you're experiencing issues with tool call loop detection:
+
+1. **False positives** (legitimate repeated tool calls being blocked):
+   - **Increase the threshold**: `TOOL_LOOP_MAX_REPEATS=6` (default is 4)
+   - **Reduce the TTL**: `TOOL_LOOP_TTL_SECONDS=60` (default is 120) to consider only very recent calls
+   - **Try chance mode**: `TOOL_LOOP_MODE=chance_then_break` to give the model one chance to fix itself
+   - **Disable for specific sessions**: Use `!/set(tool-loop-detection=false)` in your prompt
+
+2. **False negatives** (loops not being caught):
+   - **Decrease the threshold**: `TOOL_LOOP_MAX_REPEATS=3` (default is 4)
+   - **Increase the TTL**: `TOOL_LOOP_TTL_SECONDS=180` (default is 120) to consider older calls
+   - **Use break mode**: `TOOL_LOOP_MODE=break` to immediately stop repetitive calls
+
+3. **Debugging**:
+   - Enable debug logging to see detailed information about tool call tracking
+   - Examine the signatures being tracked to ensure they're capturing the right information
 
 ## Roadmap
 
