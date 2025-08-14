@@ -45,7 +45,9 @@ def test_get_openrouter_headers_no_api_key(client):
 
     assert response.status_code == 500
     response_json = response.json()
-    assert "Simulated backend error due to bad headers" in response_json["detail"]["error"]
+    assert (
+        "Simulated backend error due to bad headers" in response_json["detail"]["error"]
+    )
 
 
 def test_invalid_model_noninteractive(client):

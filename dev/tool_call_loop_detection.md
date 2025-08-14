@@ -12,6 +12,19 @@ Add a server-side tool-call loop detector that tracks model-issued tool calls an
   - **break (default)**: When threshold is reached, stop forwarding the tool call to the client and return an error to the user.
   - **chance_then_break**: On first detection, do not forward the call. Instead inject a tool-failure message instructing the model to self-reflect and correct. If the next tool call differs, allow it; if it repeats the same signature again, break.
 
+### Logging
+- **WARNING level**: All detected loops must be logged at WARNING level with crucial details:
+  - Session ID
+  - Tool name
+  - Repetition count
+  - TTL window
+  - Truncated signature (first ~50 chars)
+  - Model and backend in use
+  - Resolution action taken (break or chance given)
+  - Timestamp
+- **Format**: `Tool call loop detected in session {session_id}: tool={tool_name}, repeats={count}/{max_repeats}, window={ttl}s, model={model}, backend={backend}, action={action}, signature={signature[:50]}...`
+- **DEBUG level**: Additional details like full signatures and parameters should be logged at DEBUG level only.
+
 ### Tiered configuration (mirrors in-chat loop detection)
 - **Server-level defaults** (env/config):
   - `TOOL_LOOP_DETECTION_ENABLED` (bool, default true)
@@ -20,7 +33,7 @@ Add a server-side tool-call loop detector that tracks model-issued tool calls an
   - `TOOL_LOOP_MODE` ("break" | "chance_then_break", default "break")
 - **Backend+model overrides**:
   - Extend `ModelDefaults` with optional fields: `tool_loop_detection_enabled`, `tool_loop_detection_max_repeats`, `tool_loop_detection_ttl_seconds`, `tool_loop_detection_mode`.
-  - Apply into `ProxyState.apply_model_defaults` only if session doesn’t already override.
+  - Apply into `ProxyState.apply_model_defaults` only if session doesn't already override.
 - **Session-level overrides**:
   - Extend `ProxyState` with optional properties and setters/unsetters for the above.
   - Add in-chat commands to set/unset:
@@ -38,7 +51,7 @@ Add a server-side tool-call loop detector that tracks model-issued tool calls an
 - **On threshold**:
   - Mode "break": synthesize a user-facing error (OpenAI-like response with `finish_reason="error"`) and do not forward the tool call.
   - Mode "chance_then_break": inject a single tool-failure message back to the model with guidance text; accept next call if signature changes; otherwise break on next identical signature.
-- **Streaming**: Skip tool-call enforcement for streaming responses (we don’t build `tool_calls` there). Continue existing in-chat loop detection for text streams.
+- **Streaming**: Skip tool-call enforcement for streaming responses (we don't build `tool_calls` there). Continue existing in-chat loop detection for text streams.
 
 ### Wiring and state
 - New module `src/tool_call_loop/config.py` providing `ToolCallLoopConfig` with `from_env_vars` and `from_dict` helpers.
@@ -58,47 +71,48 @@ Add a server-side tool-call loop detector that tracks model-issued tool calls an
 - In-chat commands: `!/set(tool-loop-…)` and `!/unset(tool-loop-…)` as listed above.
 
 ### Error response shape
-- Mirror the proxy’s command error envelope: one choice with assistant message containing a concise explanation like:
+- Mirror the proxy's command error envelope: one choice with assistant message containing a concise explanation like:
   - "Tool call loop detected: '<tool_name>' invoked with identical params <N> times within <TTL>s. Session stopped to prevent unintended looping."
   - Include a guidance hint to adjust inputs or strategy.
 
 ## TODO (phased checklist)
 
 ### Phase 1: Scaffolding & configuration
-- [x] Create `src/tool_call_loop/config.py` with `ToolCallLoopConfig` and validation.
-- [x] Add env config keys to `src/core/config.py` and propagate to app `config` dict.
-- [x] Document defaults and env usage.
+- [ ] Create `src/tool_call_loop/config.py` with `ToolCallLoopConfig` and validation.
+- [ ] Add env config keys to `src/core/config.py` and propagate to app `config` dict.
+- [ ] Document defaults and env usage.
 
 ### Phase 2: Session and model-tier overrides
-- [x] Extend `src/models.py` `ModelDefaults` with tool-loop fields.
-- [x] Update `ProxyState` with session-level fields and setters/unsetters.
-- [x] Apply model defaults in `ProxyState.apply_model_defaults` (respect session override precedence).
+- [ ] Extend `src/models.py` `ModelDefaults` with tool-loop fields.
+- [ ] Update `ProxyState` with session-level fields and setters/unsetters.
+- [ ] Apply model defaults in `ProxyState.apply_model_defaults` (respect session override precedence).
 
 ### Phase 3: Command interface
-- [x] Update `src/commands/set_cmd.py` to accept `tool-loop-*` keys with validation.
-- [x] Update `src/commands/unset_cmd.py` to unset the new keys.
-- [x] Add examples to command help/docs.
+- [ ] Update `src/commands/set_cmd.py` to accept `tool-loop-*` keys with validation.
+- [ ] Update `src/commands/unset_cmd.py` to unset the new keys.
+- [ ] Add examples to command help/docs.
 
 ### Phase 4: Tracker implementation
-- [x] Implement `src/tool_call_loop/tracker.py` with TTL pruning and repeat counting.
-- [x] Initialize `app.state.tool_loop_trackers` at app startup.
-- [x] Add DEBUG logs for recorded signatures and pruning.
+- [ ] Implement `src/tool_call_loop/tracker.py` with TTL pruning and repeat counting.
+- [ ] Initialize `app.state.tool_loop_trackers` at app startup.
+- [ ] Add DEBUG logs for recorded signatures and pruning.
+- [ ] Add WARNING logs for detected loops with all crucial details.
 
 ### Phase 5: Enforcement integration
-- [x] In `ChatService._process_backend_response`, extract tool calls and compute signatures.
-- [x] Resolve effective config (session → model → server) and short-circuit when disabled.
-- [x] Implement "break" mode: synthesize error and block forwarding.
-- [x] Implement "chance_then_break" mode: inject guidance tool-failure message, re-call backend once; allow if signature changes, else break.
-- [x] Ensure streaming path is unaffected.
+- [ ] In `ChatService._process_backend_response`, extract tool calls and compute signatures.
+- [ ] Resolve effective config (session → model → server) and short-circuit when disabled.
+- [ ] Implement "break" mode: synthesize error and block forwarding.
+- [ ] Implement "chance_then_break" mode: inject guidance tool-failure message, re-call backend once; allow if signature changes, else break.
+- [ ] Ensure streaming path is unaffected.
+- [ ] Log all loop detections at WARNING level with detailed context.
 
 ### Phase 6: Tests
-- [x] Unit tests for tracker (TTL, repeat counting, consecutive behavior).
-- [x] Integration tests for both modes and precedence order.
-- [x] Tests for disabled mode and TTL expiry behavior.
+- [ ] Unit tests for tracker (TTL, repeat counting, consecutive behavior).
+- [ ] Integration tests for both modes and precedence order.
+- [ ] Tests for disabled mode and TTL expiry behavior.
+- [ ] Verify logs contain all required fields at appropriate levels.
 
 ### Phase 7: Documentation & polish
-- [x] Update `README.md` with configuration keys and examples.
-- [x] Add troubleshooting notes for false positives and model behaviors.
-- [x] Ensure logs are clear and actionable (no secrets, concise context).
-
-
+- [ ] Update `README.md` with configuration keys and examples.
+- [ ] Add troubleshooting notes for false positives and model behaviors.
+- [ ] Ensure logs are clear and actionable (no secrets, concise context).

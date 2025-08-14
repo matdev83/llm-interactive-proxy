@@ -46,6 +46,7 @@ dev = [
     "ruff",
     "black",
     "requests",
+    "bandit",
 ]
 
 [build-system]

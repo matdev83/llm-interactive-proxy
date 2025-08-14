@@ -1,4 +1,4 @@
-from typing import Any, Dict
+from typing import Any
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -9,7 +9,10 @@ oneoff_test_cases = [
         "oneoff_with_prompt",
         {
             "messages": [
-                {"role": "user", "content": "!/oneoff(gemini/gemini-2.0-flash-001)\nHello!"},
+                {
+                    "role": "user",
+                    "content": "!/oneoff(gemini/gemini-2.0-flash-001)\nHello!",
+                },
             ],
             "model": "openrouter/auto",
         },
@@ -18,7 +21,10 @@ oneoff_test_cases = [
         "oneoff_alias_with_prompt",
         {
             "messages": [
-                {"role": "user", "content": "!/oneoff(gemini/gemini-2.0-flash-001)\nHello!"},
+                {
+                    "role": "user",
+                    "content": "!/oneoff(gemini/gemini-2.0-flash-001)\nHello!",
+                },
             ],
             "model": "openrouter/auto",
         },
@@ -34,33 +40,44 @@ oneoff_test_cases = [
     ),
 ]
 
+
 @pytest.mark.parametrize("test_id, request_payload", oneoff_test_cases)
 def test_oneoff_command(
     test_id: str,
-    request_payload: Dict[str, Any],
+    request_payload: dict[str, Any],
     client: TestClient,
     mock_gemini_backend,
 ):
     # Mock the backend to avoid real API calls
     mock_response = {
         "id": "test-response",
-        "object": "chat.completion", 
+        "object": "chat.completion",
         "created": 1234567890,
         "model": "gemini-2.0-flash-001",
-        "choices": [{
-            "index": 0,
-            "message": {"role": "assistant", "content": "Test response"},
-            "finish_reason": "stop"
-        }],
-        "usage": {"prompt_tokens": 10, "completion_tokens": 20, "total_tokens": 30}
+        "choices": [
+            {
+                "index": 0,
+                "message": {"role": "assistant", "content": "Test response"},
+                "finish_reason": "stop",
+            }
+        ],
+        "usage": {"prompt_tokens": 10, "completion_tokens": 20, "total_tokens": 30},
     }
-    
+
     # Patch the actual backend methods that get called
-    with patch.object(client.app.state.openrouter_backend, 'chat_completions', 
-                      new=AsyncMock(return_value=(mock_response, {}))), \
-         patch.object(client.app.state.gemini_backend, 'chat_completions', 
-                      new=AsyncMock(return_value=(mock_response, {}))):
-        
+    with (
+        patch.object(
+            client.app.state.openrouter_backend,
+            "chat_completions",
+            new=AsyncMock(return_value=(mock_response, {})),
+        ),
+        patch.object(
+            client.app.state.gemini_backend,
+            "chat_completions",
+            new=AsyncMock(return_value=(mock_response, {})),
+        ),
+    ):
+
         # First request with the one-off command
         response = client.post("/v1/chat/completions", json=request_payload)
         assert response.status_code == 200
@@ -70,7 +87,7 @@ def test_oneoff_command(
             # The response includes banner + confirmation, so check if the confirmation is in the content
             content = response_json["choices"][0]["message"]["content"]
             assert "One-off route set to gemini/gemini-2.0-flash-001." in content
-            
+
             # Second request with the prompt
             follow_up_payload = {
                 "messages": [{"role": "user", "content": "Hello!"}],

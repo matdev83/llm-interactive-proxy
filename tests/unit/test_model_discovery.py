@@ -1,7 +1,6 @@
 from unittest.mock import AsyncMock, patch
 
 from fastapi.testclient import TestClient
-
 from src import main as app_main
 from src.connectors import GeminiBackend, OpenRouterBackend
 
@@ -61,9 +60,12 @@ def test_auto_default_backend(monkeypatch):
         monkeypatch.delenv(f"GEMINI_API_KEY_{i}", raising=False)
         monkeypatch.delenv(f"OPENROUTER_API_KEY_{i}", raising=False)
         monkeypatch.delenv(f"ANTHROPIC_API_KEY_{i}", raising=False)
-    
+
     # Also ensure Qwen OAuth credentials are not available by mocking the credential loading
-    with patch('src.connectors.qwen_oauth.QwenOAuthConnector._load_oauth_credentials', return_value=False):
+    with patch(
+        "src.connectors.qwen_oauth.QwenOAuthConnector._load_oauth_credentials",
+        return_value=False,
+    ):
         # With no API keys set and no OAuth credentials, no backends should be functional
         app = app_main.build_app()
         from fastapi.testclient import TestClient
@@ -87,14 +89,21 @@ def test_multiple_backends_requires_arg(monkeypatch):
         monkeypatch.delenv(f"OPENROUTER_API_KEY_{i}", raising=False)
     resp_or = {"data": [{"id": "x"}]}
     resp_ge = {"models": [{"name": "g"}]}
-    with patch.object(
-        OpenRouterBackend, "list_models", new=AsyncMock(return_value=resp_or)
-    ), patch.object(
-        GeminiBackend, "list_models", new=AsyncMock(return_value=resp_ge)
-    ), patch('src.connectors.qwen_oauth.QwenOAuthConnector._load_oauth_credentials', return_value=False):
+    with (
+        patch.object(
+            OpenRouterBackend, "list_models", new=AsyncMock(return_value=resp_or)
+        ),
+        patch.object(GeminiBackend, "list_models", new=AsyncMock(return_value=resp_ge)),
+        patch(
+            "src.connectors.qwen_oauth.QwenOAuthConnector._load_oauth_credentials",
+            return_value=False,
+        ),
+    ):
         app = app_main.build_app()
         from fastapi.testclient import TestClient
 
-        with TestClient(app, headers={"Authorization": "Bearer test-proxy-key"}) as client:
+        with TestClient(
+            app, headers={"Authorization": "Bearer test-proxy-key"}
+        ) as client:
             # Should have selected one of the backends
-            assert client.app.state.backend_type in ['openrouter', 'gemini']
+            assert client.app.state.backend_type in ["openrouter", "gemini"]

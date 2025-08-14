@@ -15,7 +15,7 @@ class GeminiAPIClient:
     Example client for interacting with the LLM Interactive Proxy 
     using Gemini API format.
     """
-    
+
     def __init__(self, base_url: str, api_key: str):
         """
         Initialize the Gemini API client.
@@ -27,7 +27,7 @@ class GeminiAPIClient:
         self.base_url = base_url.rstrip('/')
         self.api_key = api_key
         self.session = requests.Session()
-        
+
     def _get_headers(self) -> Dict[str, str]:
         """Get headers for Gemini API requests."""
         return {
@@ -36,7 +36,7 @@ class GeminiAPIClient:
             # Fallback to Bearer token if needed
             "Authorization": f"Bearer {self.api_key}"
         }
-    
+
     def list_models(self) -> Dict[str, Any]:
         """
         List available models in Gemini API format.
@@ -48,7 +48,7 @@ class GeminiAPIClient:
         response = self.session.get(url, headers=self._get_headers())
         response.raise_for_status()
         return response.json()
-    
+
     def generate_content(self, model: str, contents: list, **kwargs) -> Dict[str, Any]:
         """
         Generate content using Gemini API format.
@@ -62,16 +62,16 @@ class GeminiAPIClient:
             Generated response in Gemini format
         """
         url = f"{self.base_url}/v1beta/models/{model}:generateContent"
-        
+
         payload = {
             "contents": contents,
             **kwargs
         }
-        
+
         response = self.session.post(url, headers=self._get_headers(), json=payload)
         response.raise_for_status()
         return response.json()
-    
+
     def stream_generate_content(self, model: str, contents: list, **kwargs):
         """
         Generate content with streaming using Gemini API format.
@@ -85,20 +85,20 @@ class GeminiAPIClient:
             Streaming response chunks in Gemini format
         """
         url = f"{self.base_url}/v1beta/models/{model}:streamGenerateContent"
-        
+
         payload = {
             "contents": contents,
             **kwargs
         }
-        
+
         response = self.session.post(
-            url, 
-            headers=self._get_headers(), 
+            url,
+            headers=self._get_headers(),
             json=payload,
             stream=True
         )
         response.raise_for_status()
-        
+
         for line in response.iter_lines():
             if line:
                 line_str = line.decode('utf-8')
@@ -114,20 +114,20 @@ class GeminiAPIClient:
 
 def main():
     """Example usage of the Gemini API client."""
-    
+
     # Initialize client
     # Replace with your actual proxy URL and API key
     client = GeminiAPIClient(
         base_url="http://localhost:8000",
         api_key="your-api-key-here"
     )
-    
+
     # Use logging instead of print for examples
     import logging
     logging.basicConfig(level=logging.INFO)
     logger = logging.getLogger(__name__)
     logger.info("=== Gemini API Compatibility Example ===")
-    
+
     # 1. List available models
     logger.info("1. Listing available models...")
     try:
@@ -135,10 +135,10 @@ def main():
         logger.info(f"Found {len(models.get('models', []))} models:")
         for model in models.get('models', [])[:3]:  # Show first 3
             logger.info(f"  - {model['name']} ({model['display_name']})")
-        logger.info()
+        logger.info("")  # Empty line
     except Exception as e:
         logger.info(f"Error listing models: {e}\n")
-    
+
     # 2. Simple content generation
     logger.info("2. Simple content generation...")
     try:
@@ -155,14 +155,14 @@ def main():
                 "max_output_tokens": 100
             }
         )
-        
+
         if response.get('candidates'):
             content = response['candidates'][0]['content']['parts'][0]['text']
             logger.info(f"Response: {content}")
-        logger.info()
+        logger.info("")  # Empty line
     except Exception as e:
         logger.info(f"Error generating content: {e}\n")
-    
+
     # 3. Content generation with system instruction
     logger.info("3. Content generation with system instruction...")
     try:
@@ -183,18 +183,18 @@ def main():
                 "max_output_tokens": 200
             }
         )
-        
+
         if response.get('candidates'):
             content = response['candidates'][0]['content']['parts'][0]['text']
             logger.info(f"Response: {content[:200]}...")
-        logger.info()
+        logger.info("")  # Empty line
     except Exception as e:
         logger.info(f"Error with system instruction: {e}\n")
-    
+
     # 4. Streaming content generation
     logger.info("4. Streaming content generation...")
     try:
-        logger.info("Streaming response: ", end="", flush=True)
+        print("Streaming response: ", end="", flush=True)
         for chunk in client.stream_generate_content(
             model="gemini-pro",
             contents=[
@@ -212,11 +212,11 @@ def main():
                 candidate = chunk['candidates'][0]
                 if candidate.get('content') and candidate['content'].get('parts'):
                     text = candidate['content']['parts'][0].get('text', '')
-                    logger.info(text, end="", flush=True)
-        logger.info("\n")
+                    print(text, end="", flush=True)
+        print()  # New line
     except Exception as e:
         logger.info(f"Error with streaming: {e}\n")
-    
+
     # 5. Multi-turn conversation
     logger.info("5. Multi-turn conversation...")
     try:
@@ -234,7 +234,7 @@ def main():
                 "role": "user"
             }
         ]
-        
+
         response = client.generate_content(
             model="gemini-pro",
             contents=conversation_contents,
@@ -243,16 +243,16 @@ def main():
                 "max_output_tokens": 150
             }
         )
-        
+
         if response.get('candidates'):
             content = response['candidates'][0]['content']['parts'][0]['text']
             logger.info(f"Assistant: {content}")
-        logger.info()
+        logger.info("")  # Empty line
     except Exception as e:
         logger.info(f"Error with conversation: {e}\n")
-    
+
     logger.info("=== Example completed ===")
 
 
 if __name__ == "__main__":
-    main() 
+    main()

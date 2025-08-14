@@ -2,7 +2,8 @@ from __future__ import annotations
 
 import json
 import logging
-from typing import TYPE_CHECKING, Any, Callable, Mapping, Tuple, Union
+from collections.abc import Callable, Mapping
+from typing import TYPE_CHECKING, Any
 
 from fastapi import FastAPI
 
@@ -37,7 +38,7 @@ class SetCommand(BaseCommand):
         "!/set(tool-loop-mode=break)",
     ]
 
-    HandlerOutput = Tuple[bool, Union[str, CommandResult, None], bool]
+    HandlerOutput = tuple[bool, str | CommandResult | None, bool]
 
     def __init__(
         self, app: FastAPI | None = None, functional_backends: set[str] | None = None
@@ -348,7 +349,7 @@ class SetCommand(BaseCommand):
     ) -> HandlerOutput:
         key = "reasoning"
         val_arg = args.get(key)
-        if not isinstance(val_arg, (dict, str)):
+        if not isinstance(val_arg, dict | str):
             return False, None, False
 
         if isinstance(val_arg, str):
@@ -438,7 +439,7 @@ class SetCommand(BaseCommand):
     ) -> HandlerOutput:
         key = "gemini-generation-config"
         val_arg = args.get(key)
-        if not isinstance(val_arg, (dict, str)):
+        if not isinstance(val_arg, dict | str):
             return False, None, False
 
         if isinstance(val_arg, str):
@@ -468,7 +469,7 @@ class SetCommand(BaseCommand):
 
         try:
             # Convert to float
-            if isinstance(val_arg, (str, int, float)):
+            if isinstance(val_arg, str | int | float):
                 temperature = float(val_arg)
             else:
                 return (

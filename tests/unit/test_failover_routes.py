@@ -1,7 +1,7 @@
+from typing import Any
 from unittest.mock import Mock
 
 import pytest
-
 from src.command_parser import CommandParser, CommandParserConfig
 from src.models import ChatMessage
 from src.proxy_logic import ProxyState
@@ -38,7 +38,13 @@ class TestFailoverRoutes:
             preserve_unknown=True,
         )
         parser = CommandParser(config, command_prefix="!/")
-        parser.process_messages([ChatMessage(role="user", content="!/create-failover-route(name=foo,policy=k)")])
+        parser.process_messages(
+            [
+                ChatMessage(
+                    role="user", content="!/create-failover-route(name=foo,policy=k)"
+                )
+            ]
+        )
         assert state.interactive_mode is True
         assert "foo" in state.failover_routes
         assert state.failover_routes["foo"]["policy"] == "k"
@@ -52,17 +58,45 @@ class TestFailoverRoutes:
             preserve_unknown=True,
         )
         parser = CommandParser(config, command_prefix="!/")
-        parser.process_messages([ChatMessage(role="user", content="!/create-failover-route(name=bar,policy=m)")])
-        parser.process_messages([ChatMessage(role="user", content="!/route-append(name=bar,openrouter:model-a)")])
-        parser.process_messages([ChatMessage(role="user", content="!/route-prepend(name=bar,gemini:model-b)")])
-        parser.process_messages([ChatMessage(role="user", content="!/route-clear(name=bar)")])
+        parser.process_messages(
+            [
+                ChatMessage(
+                    role="user", content="!/create-failover-route(name=bar,policy=m)"
+                )
+            ]
+        )
+        parser.process_messages(
+            [
+                ChatMessage(
+                    role="user", content="!/route-append(name=bar,openrouter:model-a)"
+                )
+            ]
+        )
+        parser.process_messages(
+            [
+                ChatMessage(
+                    role="user", content="!/route-prepend(name=bar,gemini:model-b)"
+                )
+            ]
+        )
+        parser.process_messages(
+            [ChatMessage(role="user", content="!/route-clear(name=bar)")]
+        )
         assert state.list_route("bar") == []
-        parser.process_messages([ChatMessage(role="user", content="!/route-append(name=bar,gemini:model-c)")])
-        parser.process_messages([ChatMessage(role="user", content="!/route-list(name=bar)")])
+        parser.process_messages(
+            [
+                ChatMessage(
+                    role="user", content="!/route-append(name=bar,gemini:model-c)"
+                )
+            ]
+        )
+        parser.process_messages(
+            [ChatMessage(role="user", content="!/route-list(name=bar)")]
+        )
         assert state.list_route("bar") == ["gemini:model-c"]
 
     def test_routes_are_server_wide(self):
-        shared = {}
+        shared: dict[str, Any] = {}
         state1 = ProxyState(failover_routes=shared)
         config1 = CommandParserConfig(
             proxy_state=state1,
@@ -71,8 +105,20 @@ class TestFailoverRoutes:
             preserve_unknown=True,
         )
         parser1 = CommandParser(config1, command_prefix="!/")
-        parser1.process_messages([ChatMessage(role="user", content="!/create-failover-route(name=r,policy=k)")])
-        parser1.process_messages([ChatMessage(role="user", content="!/route-append(name=r,openrouter:model-a)")])
+        parser1.process_messages(
+            [
+                ChatMessage(
+                    role="user", content="!/create-failover-route(name=r,policy=k)"
+                )
+            ]
+        )
+        parser1.process_messages(
+            [
+                ChatMessage(
+                    role="user", content="!/route-append(name=r,openrouter:model-a)"
+                )
+            ]
+        )
 
         state2 = ProxyState(interactive_mode=True, failover_routes=shared)
         config2 = CommandParserConfig(
@@ -83,5 +129,7 @@ class TestFailoverRoutes:
         )
         parser2 = CommandParser(config2, command_prefix="!/")
         assert state2.list_route("r") == ["openrouter:model-a"]
-        parser2.process_messages([ChatMessage(role="user", content="!/route-append(name=r,gemini:model-b)")])
+        parser2.process_messages(
+            [ChatMessage(role="user", content="!/route-append(name=r,gemini:model-b)")]
+        )
         assert state1.list_route("r") == ["openrouter:model-a", "gemini:model-b"]

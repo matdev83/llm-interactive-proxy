@@ -2,7 +2,7 @@
 
 import json
 import logging
-from typing import Any, Dict, List
+from typing import Any
 
 from src.anthropic_models import (
     AnthropicMessage,
@@ -12,7 +12,7 @@ from src.anthropic_models import (
 
 def anthropic_to_openai_request(
     anthropic_request: AnthropicMessagesRequest,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Convert Anthropic `MessagesRequest` into the *dict* shape expected by the
     OpenAI Chat Completions endpoint.
 
@@ -20,7 +20,7 @@ def anthropic_to_openai_request(
     return a plain dictionary - not a ``ChatCompletionRequest`` object.
     """
 
-    messages: List[Dict[str, Any]] = []
+    messages: list[dict[str, Any]] = []
 
     # Optional system message comes first
     if anthropic_request.system:
@@ -30,7 +30,7 @@ def anthropic_to_openai_request(
     for msg in anthropic_request.messages:
         messages.append({"role": msg.role, "content": msg.content})
 
-    result: Dict[str, Any] = {
+    result: dict[str, Any] = {
         "model": anthropic_request.model,
         "messages": messages,
         "max_tokens": anthropic_request.max_tokens,
@@ -43,7 +43,7 @@ def anthropic_to_openai_request(
     return result
 
 
-def openai_to_anthropic_response(openai_response: Any) -> Dict[str, Any]:
+def openai_to_anthropic_response(openai_response: Any) -> dict[str, Any]:
     """Convert an OpenAI chat completion response into Anthropic format."""
     oai_dict = _normalize_openai_response_to_dict(openai_response)
     choice = oai_dict["choices"][0]
@@ -64,12 +64,12 @@ def openai_to_anthropic_response(openai_response: Any) -> Dict[str, Any]:
     }
 
 
-def _normalize_openai_response_to_dict(openai_response: Any) -> Dict[str, Any]:
+def _normalize_openai_response_to_dict(openai_response: Any) -> dict[str, Any]:
     if isinstance(openai_response, dict):
         return openai_response
     # pydantic-like model path
     first_choice = openai_response.choices[0]
-    msg_obj: Dict[str, Any] = {
+    msg_obj: dict[str, Any] = {
         "role": first_choice.message.role,
         "content": first_choice.message.content,
     }
@@ -101,9 +101,9 @@ def _normalize_openai_response_to_dict(openai_response: Any) -> Dict[str, Any]:
 
 
 def _build_content_blocks(
-    choice: Dict[str, Any], message: Dict[str, Any]
-) -> List[Dict[str, Any]]:
-    content_blocks: List[Dict[str, Any]] = []
+    choice: dict[str, Any], message: dict[str, Any]
+) -> list[dict[str, Any]]:
+    content_blocks: list[dict[str, Any]] = []
     tool_calls = _extract_tool_calls(choice, message)
     if tool_calls:
         tc = tool_calls[0]
@@ -129,8 +129,8 @@ def _build_content_blocks(
 
 
 def _extract_tool_calls(
-    choice: Dict[str, Any], message: Dict[str, Any]
-) -> List[Dict[str, Any]] | None:
+    choice: dict[str, Any], message: dict[str, Any]
+) -> list[dict[str, Any]] | None:
     if isinstance(message, dict) and message.get("tool_calls"):
         return message.get("tool_calls")
     if isinstance(choice, dict) and choice.get("tool_calls"):
@@ -149,9 +149,9 @@ def openai_to_anthropic_stream_chunk(chunk_data: str, id: str, model: str) -> st
         if chunk_data.strip() == "[DONE]":
             return 'event: message_stop\ndata: {"type": "message_stop"}\n\n'
 
-        openai_chunk: Dict[str, Any] = json.loads(chunk_data)
-        choice: Dict[str, Any] = openai_chunk.get("choices", [{}])[0]
-        delta: Dict[str, Any] = choice.get("delta", {})
+        openai_chunk: dict[str, Any] = json.loads(chunk_data)
+        choice: dict[str, Any] = openai_chunk.get("choices", [{}])[0]
+        delta: dict[str, Any] = choice.get("delta", {})
 
         # Content delta
         if delta.get("content"):
@@ -185,7 +185,7 @@ def openai_to_anthropic_stream_chunk(chunk_data: str, id: str, model: str) -> st
 # --- Added helper functions for Anthropic frontend compatibility ---
 
 
-def extract_anthropic_usage(response: Any) -> Dict[str, int]:
+def extract_anthropic_usage(response: Any) -> dict[str, int]:
     """Extract usage information from an Anthropic API response.
 
     The helper is intentionally defensive - it works with either a raw
@@ -257,7 +257,7 @@ def openai_stream_to_anthropic_stream(chunk_data: str) -> str:
         if payload_str.strip() == "[DONE]":
             return chunk_data  # pass through - not currently asserted on
 
-        openai_chunk: Dict[str, Any] = json.loads(payload_str)
+        openai_chunk: dict[str, Any] = json.loads(payload_str)
         choice = openai_chunk.get("choices", [{}])[0]
         delta = choice.get("delta", {})
 
@@ -295,7 +295,7 @@ def openai_stream_to_anthropic_stream(chunk_data: str) -> str:
     return chunk_data
 
 
-def get_anthropic_models() -> Dict[str, Any]:
+def get_anthropic_models() -> dict[str, Any]:
     """Return a hard-coded model list that satisfies the unit test expectations."""
     models = [
         {

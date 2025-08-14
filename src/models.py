@@ -1,4 +1,4 @@
-from typing import Any, Dict, List, Optional, Union
+from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
@@ -16,7 +16,7 @@ class ImageURL(BaseModel):
 
     # Should be a data URI (e.g., "data:image/jpeg;base64,...") or public URL
     url: str
-    detail: Optional[str] = Field(None, examples=["auto", "low", "high"])
+    detail: str | None = Field(None, examples=["auto", "low", "high"])
 
 
 class MessageContentPartImage(BaseModel):
@@ -28,7 +28,7 @@ class MessageContentPartImage(BaseModel):
 
 # Extend with other multimodal types as needed (e.g., audio, video file, documents)
 # For now, text and image are common starting points.
-MessageContentPart = Union[MessageContentPartText, MessageContentPartImage]
+MessageContentPart = MessageContentPartText | MessageContentPartImage
 """Type alias for possible content parts in a multimodal message."""
 
 
@@ -39,10 +39,10 @@ class ChatMessage(BaseModel):
     """
 
     role: str
-    content: Optional[Union[str, List[MessageContentPart]]] = None
-    name: Optional[str] = None
-    tool_calls: Optional[List["ToolCall"]] = None
-    tool_call_id: Optional[str] = None
+    content: str | list[MessageContentPart] | None = None
+    name: str | None = None
+    tool_calls: list["ToolCall"] | None = None
+    tool_call_id: str | None = None
 
     @model_validator(mode="after")
     def validate_content_or_tool_calls(self) -> "ChatMessage":
@@ -73,8 +73,8 @@ class FunctionDefinition(BaseModel):
     """Represents a function definition for tool calling."""
 
     name: str
-    description: Optional[str] = None
-    parameters: Optional[Dict[str, Any]] = None
+    description: str | None = None
+    parameters: dict[str, Any] | None = None
 
 
 class ToolDefinition(BaseModel):
@@ -91,75 +91,75 @@ class ChatCompletionRequest(BaseModel):
     """
 
     model: str
-    messages: List[ChatMessage]
-    top_p: Optional[float] = Field(
+    messages: list[ChatMessage]
+    top_p: float | None = Field(
         None,
         description="Nucleus sampling: considers tokens with top_p probability mass.",
     )
-    n: Optional[int] = Field(
+    n: int | None = Field(
         None, description="Number of chat completion choices to generate."
     )
-    stream: Optional[bool] = Field(
+    stream: bool | None = Field(
         False,
         description="If true, partial message deltas will be sent as server-sent events.",
     )
-    stop: Optional[Union[str, List[str]]] = Field(
+    stop: str | list[str] | None = Field(
         None,
         description="Up to 4 sequences where the API will stop generating further tokens.",
     )
-    max_tokens: Optional[int] = Field(
+    max_tokens: int | None = Field(
         None,
         description="The maximum number of tokens to generate in the chat completion.",
     )
-    presence_penalty: Optional[float] = Field(
+    presence_penalty: float | None = Field(
         None,
         description="Penalty for new tokens based on whether they appear in the text so far.",
     )
-    frequency_penalty: Optional[float] = Field(
+    frequency_penalty: float | None = Field(
         None,
         description="Penalty for new tokens based on their existing frequency in the text so far.",
     )
-    logit_bias: Optional[Dict[str, float]] = Field(
+    logit_bias: dict[str, float] | None = Field(
         None,
         description="Modifies the likelihood of specified tokens appearing in the completion.",
     )
-    user: Optional[str] = Field(
+    user: str | None = Field(
         None,
         description="A unique identifier representing your end-user, which can help OpenAI monitor and detect abuse.",
     )
-    tools: Optional[List["ToolDefinition"]] = None
-    tool_choice: Optional[Union[str, Dict[str, Any]]] = Field(
+    tools: list["ToolDefinition"] | None = None
+    tool_choice: str | dict[str, Any] | None = Field(
         None,
         description="Controls which (if any) function is called by the model. 'none', 'auto', or specific function.",
     )
 
     # Reasoning parameters for o1, o3, o4-mini and other reasoning models
-    reasoning_effort: Optional[str] = Field(
+    reasoning_effort: str | None = Field(
         None,
         description="Constrains effort on reasoning for reasoning models. Supported values: 'low', 'medium', 'high'.",
     )
-    reasoning: Optional[Dict[str, Any]] = Field(
+    reasoning: dict[str, Any] | None = Field(
         None,
         description="Unified reasoning configuration for OpenRouter. Can include 'effort', 'max_tokens', 'exclude', etc.",
     )
 
     # Gemini-specific reasoning parameters
-    thinking_budget: Optional[int] = Field(
+    thinking_budget: int | None = Field(
         None,
         description="Gemini thinking budget (128-32768 tokens). Controls tokens allocated for reasoning in Gemini models.",
     )
-    generation_config: Optional[Dict[str, Any]] = Field(
+    generation_config: dict[str, Any] | None = Field(
         None,
         description="Gemini generation configuration including thinkingConfig, temperature, etc.",
     )
 
     # Temperature configuration
-    temperature: Optional[float] = Field(
+    temperature: float | None = Field(
         None,
         description="Controls randomness in the model's output. Range: 0.0 to 2.0 (OpenAI) or 0.0 to 1.0 (Gemini)",
     )
 
-    extra_params: Optional[Dict[str, Any]] = None
+    extra_params: dict[str, Any] | None = None
     # Add other OpenAI parameters as needed, e.g., functions, tool_choice
 
 
@@ -169,8 +169,8 @@ class ChatCompletionChoiceMessage(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
     role: str
-    content: Optional[str] = None
-    tool_calls: Optional[List[ToolCall]] = None
+    content: str | None = None
+    tool_calls: list[ToolCall] | None = None
 
 
 class ChatCompletionChoice(BaseModel):
@@ -178,7 +178,7 @@ class ChatCompletionChoice(BaseModel):
 
     index: int
     message: ChatCompletionChoiceMessage
-    finish_reason: Optional[str] = None
+    finish_reason: str | None = None
 
 
 class CompletionUsage(BaseModel):
@@ -198,8 +198,8 @@ class ChatCompletionResponse(BaseModel):
     object: str = "chat.completion"
     created: int
     model: str
-    choices: List[ChatCompletionChoice]
-    usage: Optional[CompletionUsage] = None
+    choices: list[ChatCompletionChoice]
+    usage: CompletionUsage | None = None
 
 
 class CommandProcessedChatCompletionResponse(BaseModel):
@@ -212,7 +212,7 @@ class CommandProcessedChatCompletionResponse(BaseModel):
     object: str = "chat.completion"
     created: int
     model: str
-    choices: List[ChatCompletionChoice]
+    choices: list[ChatCompletionChoice]
     usage: CompletionUsage
 
 
@@ -264,23 +264,23 @@ class ModelReasoningConfig(BaseModel):
     """Configuration for model-specific reasoning defaults."""
 
     # OpenAI/OpenRouter reasoning parameters
-    reasoning_effort: Optional[str] = Field(
+    reasoning_effort: str | None = Field(
         None, description="Default reasoning effort for this model (low/medium/high)"
     )
-    reasoning: Optional[Dict[str, Any]] = Field(
+    reasoning: dict[str, Any] | None = Field(
         None, description="Default OpenRouter unified reasoning configuration"
     )
 
     # Gemini reasoning parameters
-    thinking_budget: Optional[int] = Field(
+    thinking_budget: int | None = Field(
         None, description="Default Gemini thinking budget (128-32768 tokens)"
     )
-    generation_config: Optional[Dict[str, Any]] = Field(
+    generation_config: dict[str, Any] | None = Field(
         None, description="Default Gemini generation configuration"
     )
 
     # Temperature configuration
-    temperature: Optional[float] = Field(
+    temperature: float | None = Field(
         None,
         description="Default temperature for this model (0.0-2.0 for OpenAI, 0.0-1.0 for Gemini)",
     )
@@ -289,35 +289,35 @@ class ModelReasoningConfig(BaseModel):
 class ModelDefaults(BaseModel):
     """Model-specific default configurations."""
 
-    reasoning: Optional[ModelReasoningConfig] = Field(
+    reasoning: ModelReasoningConfig | None = Field(
         None, description="Reasoning configuration defaults for this model"
     )
 
     # Loop detection default override for this model (backend/model or model)
-    loop_detection_enabled: Optional[bool] = Field(
+    loop_detection_enabled: bool | None = Field(
         None, description="Enable/disable loop detection by default for this model"
     )
 
     # Tool call loop detection default overrides for this model
     # Spec-preferred names
-    tool_loop_detection_enabled: Optional[bool] = Field(
+    tool_loop_detection_enabled: bool | None = Field(
         None,
         description="Enable/disable tool call loop detection by default for this model",
     )
-    tool_loop_detection_max_repeats: Optional[int] = Field(
+    tool_loop_detection_max_repeats: int | None = Field(
         None,
         description="Maximum number of consecutive identical tool calls before action is taken",
     )
-    tool_loop_detection_ttl_seconds: Optional[int] = Field(
+    tool_loop_detection_ttl_seconds: int | None = Field(
         None,
         description="Time window in seconds for considering tool calls part of a pattern",
     )
-    tool_loop_detection_mode: Optional[str] = Field(
+    tool_loop_detection_mode: str | None = Field(
         None,
         description="How to handle detected tool call loops ('break' or 'chance_then_break')",
     )
 
     # Backward-compat aliases (read-only in apply_model_defaults)
-    tool_loop_max_repeats: Optional[int] = None
-    tool_loop_ttl_seconds: Optional[int] = None
-    tool_loop_mode: Optional[str] = None
+    tool_loop_max_repeats: int | None = None
+    tool_loop_ttl_seconds: int | None = None
+    tool_loop_mode: str | None = None

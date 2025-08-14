@@ -41,18 +41,32 @@ def test_hello_command_returns_banner(interactive_client):
     project_version = interactive_client.app.state.project_metadata["version"]
     # Get the actual backends from the app state to make test robust
     backend_info = []
-    if hasattr(interactive_client.app.state, 'gemini_backend') and interactive_client.app.state.gemini_backend:
-        models_count = len(interactive_client.app.state.gemini_backend.get_available_models())
-        keys_count = len([k for k in interactive_client.app.state.gemini_backend.api_keys if k])
+    if (
+        hasattr(interactive_client.app.state, "gemini_backend")
+        and interactive_client.app.state.gemini_backend
+    ):
+        models_count = len(
+            interactive_client.app.state.gemini_backend.get_available_models()
+        )
+        keys_count = len(
+            [k for k in interactive_client.app.state.gemini_backend.api_keys if k]
+        )
         backend_info.append(f"gemini (K:{keys_count}, M:{models_count})")
-    
-    if hasattr(interactive_client.app.state, 'openrouter_backend') and interactive_client.app.state.openrouter_backend:
-        models_count = len(interactive_client.app.state.openrouter_backend.get_available_models())
-        keys_count = len([k for k in interactive_client.app.state.openrouter_backend.api_keys if k])
+
+    if (
+        hasattr(interactive_client.app.state, "openrouter_backend")
+        and interactive_client.app.state.openrouter_backend
+    ):
+        models_count = len(
+            interactive_client.app.state.openrouter_backend.get_available_models()
+        )
+        keys_count = len(
+            [k for k in interactive_client.app.state.openrouter_backend.api_keys if k]
+        )
         backend_info.append(f"openrouter (K:{keys_count}, M:{models_count})")
-    
+
     # We've disabled Qwen OAuth backend for these tests
-    
+
     backends_str_expected = ", ".join(sorted(backend_info))
 
     expected_lines = [
@@ -60,12 +74,12 @@ def test_hello_command_returns_banner(interactive_client):
         "Session id: default",
         f"Functional backends: {backends_str_expected}",
         f"Type {interactive_client.app.state.command_prefix}help for list of available commands",
-        "hello acknowledged" # Confirmation from HelloCommand
+        "hello acknowledged",  # Confirmation from HelloCommand
     ]
     expected_content = "\n".join(expected_lines)
     content = message["content"]
     assert content == expected_content
-    assert "<attempt_completion>" not in content # Should be plain
+    assert "<attempt_completion>" not in content  # Should be plain
 
 
 def test_hello_command_returns_xml_banner_for_cline_agent(interactive_client):
@@ -78,8 +92,8 @@ def test_hello_command_returns_xml_banner_for_cline_agent(interactive_client):
             "model": "m",
             "messages": [
                 {"role": "user", "content": "This is a message from a cline user."},
-                {"role": "user", "content": "!/hello"}
-            ]
+                {"role": "user", "content": "!/hello"},
+            ],
         }
         resp = interactive_client.post("/v1/chat/completions", json=payload)
         mock_method.assert_not_called()
@@ -97,7 +111,7 @@ def test_hello_command_returns_xml_banner_for_cline_agent(interactive_client):
 
     message = choice["message"]
     assert message["role"] == "assistant"
-    content = message["content"]
+    message["content"]
 
     assert message.get("content") is None
     assert message.get("tool_calls") is not None
@@ -108,25 +122,39 @@ def test_hello_command_returns_xml_banner_for_cline_agent(interactive_client):
     project_version = interactive_client.app.state.project_metadata["version"]
     # Get the actual backends from the app state to make test robust
     backend_info = []
-    if hasattr(interactive_client.app.state, 'gemini_backend') and interactive_client.app.state.gemini_backend:
-        models_count = len(interactive_client.app.state.gemini_backend.get_available_models())
-        keys_count = len([k for k in interactive_client.app.state.gemini_backend.api_keys if k])
+    if (
+        hasattr(interactive_client.app.state, "gemini_backend")
+        and interactive_client.app.state.gemini_backend
+    ):
+        models_count = len(
+            interactive_client.app.state.gemini_backend.get_available_models()
+        )
+        keys_count = len(
+            [k for k in interactive_client.app.state.gemini_backend.api_keys if k]
+        )
         backend_info.append(f"gemini (K:{keys_count}, M:{models_count})")
-    
-    if hasattr(interactive_client.app.state, 'openrouter_backend') and interactive_client.app.state.openrouter_backend:
-        models_count = len(interactive_client.app.state.openrouter_backend.get_available_models())
-        keys_count = len([k for k in interactive_client.app.state.openrouter_backend.api_keys if k])
+
+    if (
+        hasattr(interactive_client.app.state, "openrouter_backend")
+        and interactive_client.app.state.openrouter_backend
+    ):
+        models_count = len(
+            interactive_client.app.state.openrouter_backend.get_available_models()
+        )
+        keys_count = len(
+            [k for k in interactive_client.app.state.openrouter_backend.api_keys if k]
+        )
         backend_info.append(f"openrouter (K:{keys_count}, M:{models_count})")
-    
+
     # We've disabled Qwen OAuth backend for these tests
-    
+
     backends_str_expected = ", ".join(sorted(backend_info))
 
     expected_lines = [
         f"Hello, this is {project_name} {project_version}",
         "Session id: default",
         f"Functional backends: {backends_str_expected}",
-        f"Type {interactive_client.app.state.command_prefix}help for list of available commands"
+        f"Type {interactive_client.app.state.command_prefix}help for list of available commands",
         # Note: "hello acknowledged" is excluded for Cline agents as confirmation messages
         # are only shown to non-Cline clients
     ]
@@ -135,6 +163,7 @@ def test_hello_command_returns_xml_banner_for_cline_agent(interactive_client):
     # Extract content from tool call arguments
     tool_call_args = message["tool_calls"][0]["function"]["arguments"]
     import json
+
     args_dict = json.loads(tool_call_args)
     actual_result_content = args_dict.get("result", "")
 
@@ -157,8 +186,11 @@ def test_set_command_returns_xml_for_cline_agent(interactive_client):
             "model": "m",
             "messages": [
                 {"role": "user", "content": "This is from cline for a set command."},
-                {"role": "user", "content": "!/set(backend=openrouter)"} # Changed to use parentheses
-            ]
+                {
+                    "role": "user",
+                    "content": "!/set(backend=openrouter)",
+                },  # Changed to use parentheses
+            ],
         }
         resp = interactive_client.post("/v1/chat/completions", json=payload)
         mock_method.assert_not_called()
@@ -169,7 +201,7 @@ def test_set_command_returns_xml_for_cline_agent(interactive_client):
 
     message = data["choices"][0]["message"]
     assert message["role"] == "assistant"
-    content = message["content"]
+    message["content"]
 
     assert message.get("content") is None
     assert message.get("tool_calls") is not None
@@ -179,6 +211,7 @@ def test_set_command_returns_xml_for_cline_agent(interactive_client):
     # Extract content from tool call arguments
     tool_call_args = message["tool_calls"][0]["function"]["arguments"]
     import json
+
     args_dict = json.loads(tool_call_args)
     actual_result_content = args_dict.get("result", "")
 

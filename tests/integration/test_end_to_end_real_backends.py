@@ -2,41 +2,33 @@ import os
 import socket
 import threading
 import time
-from typing import Any, Dict
+from typing import Any
 
 import pytest
 import requests
 import uvicorn
-
 from src.main import build_app
 
-# Optional client libraries – skip related scenarios if missing.
+# Optional client libraries - skip related scenarios if missing.
 try:
     import openai
+
     OPENAI_AVAILABLE = True
 except ImportError:
     OPENAI_AVAILABLE = False
 
-try:
-    import google.generativeai as genai  # type: ignore
-    GENAI_AVAILABLE = True
-except ImportError:
-    GENAI_AVAILABLE = False
-
-try:
-    from anthropic import Anthropic  # type: ignore
-    ANTHROPIC_AVAILABLE = True
-except ImportError:
-    ANTHROPIC_AVAILABLE = False
+GENAI_AVAILABLE = False
+ANTHROPIC_AVAILABLE = False
 
 ######################################################################
-# Helper – lightweight proxy server wrapper identical to other suites
+# Helper - lightweight proxy server wrapper identical to other suites
 ######################################################################
+
 
 class _ProxyServer:
     """Run the FastAPI app under Uvicorn in a thread for integration tests."""
 
-    def __init__(self, cfg: Dict[str, Any]):
+    def __init__(self, cfg: dict[str, Any]):
         self.cfg = cfg
         # Pick an ephemeral port so tests can run in parallel
         self.port = self._find_free_port()
@@ -54,10 +46,13 @@ class _ProxyServer:
     # --------------------------------------------------------------
     def start(self) -> None:
         def _run() -> None:
-            config = uvicorn.Config(self.app, host="127.0.0.1", port=self.port, log_level="error")
+            config = uvicorn.Config(
+                self.app, host="127.0.0.1", port=self.port, log_level="error"
+            )
             self.server = uvicorn.Server(config)
-            # Uvicorn <0.25 blocks forever – run inside event loop.
+            # Uvicorn <0.25 blocks forever - run inside event loop.
             import asyncio
+
             asyncio.run(self.server.serve())
 
         self._thread = threading.Thread(target=_run, daemon=True)
@@ -82,12 +77,13 @@ class _ProxyServer:
         if self._thread:
             self._thread.join(timeout=5)
 
+
 ######################################################################
 # Fixtures
 ######################################################################
 
 BACKEND_MODEL_MAP = {
-    # Updated per user request – switch to Moonshot Kimi model
+    # Updated per user request - switch to Moonshot Kimi model
     "openrouter": "openrouter:moonshotai/kimi-k2:free",
     "gemini": "gemini:gemini-2.5-flash",
 }
@@ -101,7 +97,7 @@ REQUIRED_ENV_VARS = {
 @pytest.fixture(scope="function")
 def proxy_server(request):
     """Start proxy configured for the backend under test."""
-    # Determine backend being tested – it can arrive either via direct parameterisation
+    # Determine backend being tested - it can arrive either via direct parameterisation
     # of *this* fixture (indirect=True) or via a separate "backend" parameter on the
     # test function.  Fallback to *openrouter* when nothing was supplied so that the
     # file can still be run in isolation.
@@ -116,34 +112,42 @@ def proxy_server(request):
     def _has_env(prefix: str) -> bool:
         return any(k.startswith(prefix) and os.getenv(k) for k in os.environ)
 
-    if backend == "openrouter":
-        if not _has_env("OPENROUTER_API_KEY"):
-            pytest.skip("No OpenRouter API key found – skipping real backend test")
-    if backend == "gemini":
-        if not _has_env("GEMINI_API_KEY"):
-            pytest.skip("No Gemini API key found – skipping real backend test")
+    if backend == "openrouter" and not _has_env("OPENROUTER_API_KEY"):
+        pytest.skip("No OpenRouter API key found - skipping real backend test")
+    if backend == "gemini" and not _has_env("GEMINI_API_KEY"):
+        pytest.skip("No Gemini API key found - skipping real backend test")
 
     # Always disable auth for internal tests to avoid client headers fuss.
     os.environ["DISABLE_AUTH"] = "true"
 
-    # Build config dict – rely on env vars for API keys so real keys aren’t
+    # Build config dict - rely on env vars for API keys so real keys aren't
     # hard-coded in repository.
-    cfg: Dict[str, Any] = {
+    cfg: dict[str, Any] = {
         "backend": backend,
         "interactive_mode": False,
         "command_prefix": "!/",
         "disable_auth": True,
         "disable_accounting": True,
         "proxy_timeout": 60,
-        # Base URLs – fall back to defaults used by production code
-        "openrouter_api_base_url": os.getenv("OPENROUTER_API_BASE_URL", "https://openrouter.ai/api/v1"),
-        "gemini_api_base_url": os.getenv("GEMINI_API_BASE_URL", "https://generativelanguage.googleapis.com/v1beta"),
-        # Collect keys from environment – mapping required by build_app
-        "openrouter_api_keys": {k: v for k, v in os.environ.items() if k.startswith("OPENROUTER_API_KEY") and v},
-        "gemini_api_keys": {k: v for k, v in os.environ.items() if k.startswith("GEMINI_API_KEY") and v},
+        # Base URLs - fall back to defaults used by production code
+        "openrouter_api_base_url": os.getenv(
+            "OPENROUTER_API_BASE_URL", "https://openrouter.ai/api/v1"
+        ),
+        "gemini_api_base_url": os.getenv(
+            "GEMINI_API_BASE_URL", "https://generativelanguage.googleapis.com/v1beta"
+        ),
+        # Collect keys from environment - mapping required by build_app
+        "openrouter_api_keys": {
+            k: v
+            for k, v in os.environ.items()
+            if k.startswith("OPENROUTER_API_KEY") and v
+        },
+        "gemini_api_keys": {
+            k: v for k, v in os.environ.items() if k.startswith("GEMINI_API_KEY") and v
+        },
         "app_site_url": "http://localhost",
         "app_x_title": "integration-tests",
-        # CLI-batch doesn’t need Gemini API keys but build_app expects a mapping
+        # CLI-batch doesn't need Gemini API keys but build_app expects a mapping
     }
 
     server = _ProxyServer(cfg)
@@ -153,9 +157,11 @@ def proxy_server(request):
     finally:
         server.stop()
 
+
 ######################################################################
 # Parametrisation helpers
 ######################################################################
+
 
 def _available(client_name: str) -> bool:
     return {
@@ -169,8 +175,9 @@ def _skip_unavailable(client_name: str):
     if not _available(client_name):
         pytest.skip(f"Required client library for {client_name} not installed")
 
+
 ######################################################################
-# Test matrix – real backend round-trips
+# Test matrix - real backend round-trips
 ######################################################################
 
 SCENARIOS = [
@@ -187,7 +194,7 @@ SCENARIOS = [
 @pytest.mark.network  # Requires real API access
 @pytest.mark.parametrize("client_type,backend", SCENARIOS)
 def test_end_to_end_chat_completion(client_type: str, backend: str, proxy_server):  # type: ignore[misc]
-    """End-to-end check – send simple prompt through proxy to real backend and verify basic response structure."""
+    """End-to-end check - send simple prompt through proxy to real backend and verify basic response structure."""
     _skip_unavailable(client_type)
 
     model_name = BACKEND_MODEL_MAP[backend]
@@ -202,20 +209,23 @@ def test_end_to_end_chat_completion(client_type: str, backend: str, proxy_server
                 stream=False,
             )
         except Exception as exc:
-            pytest.skip(f"OpenAI request failed ({exc}); skipping scenario – ensure backend/model available and API key valid.")
+            pytest.skip(
+                f"OpenAI request failed ({exc}); skipping scenario - ensure backend/model available and API key valid."
+            )
 
         assert resp.choices, "No choices returned"
         assert resp.choices[0].message.role == "assistant"
 
     elif client_type == "anthropic":
         from anthropic import Anthropic  # type: ignore
+
         client = Anthropic(api_key="test-key", base_url=base_url)
         try:
             resp = client.messages.create(
                 model=model_name,
                 max_tokens=32,
                 messages=[{"role": "user", "content": "Hello!"}],
-            )
+            )  # type: ignore
         except Exception as exc:
             pytest.skip(f"Anthropic request failed ({exc}); skipping scenario.")
 
@@ -223,10 +233,13 @@ def test_end_to_end_chat_completion(client_type: str, backend: str, proxy_server
 
     elif client_type == "gemini":
         import google.generativeai as genai  # type: ignore
+
         genai.configure(api_key="test-key", base_url=base_url)
         try:
             # Send a prompt that should yield a tool call when proxied to OpenAI-format backend
-            response = genai.models.generate_content(model=model_name, contents="!/hello")
+            response = genai.models.generate_content(
+                model=model_name, contents="!/hello"
+            )
         except Exception as exc:
             pytest.skip(f"Gemini client request failed ({exc}); skipping scenario.")
 
@@ -235,10 +248,13 @@ def test_end_to_end_chat_completion(client_type: str, backend: str, proxy_server
         # Expect a functionCall part in tool-calling case
         if hasattr(cand0, "content") and cand0.content:
             first_part = cand0.content.parts[0]
-            assert hasattr(first_part, "function_call") or hasattr(first_part, "functionCall")
+            assert hasattr(first_part, "function_call") or hasattr(
+                first_part, "functionCall"
+            )
 
     else:
         raise AssertionError(f"Unknown client type {client_type}")
+
 
 ######################################################################
 # OpenAI-specific tool-call handling (representative scenario)
@@ -265,7 +281,7 @@ def _configure_openai(base_url: str) -> None:
 @pytest.mark.parametrize("backend", list(BACKEND_MODEL_MAP.keys()))
 def test_openai_tool_call_handling(backend: str, proxy_server):  # type: ignore[override]
     if not OPENAI_AVAILABLE:
-        pytest.skip("openai python package not installed – skipping tool-call test")
+        pytest.skip("openai python package not installed - skipping tool-call test")
 
     base_url = f"http://127.0.0.1:{proxy_server.port}"
 
@@ -274,7 +290,7 @@ def test_openai_tool_call_handling(backend: str, proxy_server):  # type: ignore[
 
     model_name = BACKEND_MODEL_MAP[backend]
 
-    # Step 1 – register Cline agent so proxy recognises tool-call behaviour
+    # Step 1 - register Cline agent so proxy recognises tool-call behaviour
     try:
         openai.chat.completions.create(
             model=model_name,
@@ -288,7 +304,7 @@ def test_openai_tool_call_handling(backend: str, proxy_server):  # type: ignore[
     except Exception as exc:
         pytest.skip(f"OpenAI agent registration failed ({exc}); skipping.")
 
-    # Step 2 – send the !/hello command that should come back as a tool call
+    # Step 2 - send the !/hello command that should come back as a tool call
     try:
         data = openai.chat.completions.create(
             model=model_name,
@@ -304,7 +320,8 @@ def test_openai_tool_call_handling(backend: str, proxy_server):  # type: ignore[
     assert choice["finish_reason"] == "tool_calls"
     tool_call = msg["tool_calls"][0]
     assert tool_call["type"] == "function"
-    assert tool_call["function"]["name"] == "attempt_completion" 
+    assert tool_call["function"]["name"] == "attempt_completion"
+
 
 ######################################################################
 # Streaming variants
@@ -338,6 +355,7 @@ def test_end_to_end_chat_completion_streaming(client_type: str, backend: str, pr
 
     elif client_type == "anthropic":
         from anthropic import Anthropic  # type: ignore
+
         client = Anthropic(api_key="test-key", base_url=base_url)
         try:
             stream = client.messages.create(
@@ -354,6 +372,7 @@ def test_end_to_end_chat_completion_streaming(client_type: str, backend: str, pr
 
     elif client_type == "gemini":
         import google.generativeai as genai  # type: ignore
+
         genai.configure(api_key="test-key", base_url=base_url)
         try:
             stream = genai.models.generate_content(
@@ -368,4 +387,4 @@ def test_end_to_end_chat_completion_streaming(client_type: str, backend: str, pr
         assert first_chunk is not None, "No stream chunks from Gemini client"
 
     else:
-        raise AssertionError(f"Unknown client type {client_type}") 
+        raise AssertionError(f"Unknown client type {client_type}")

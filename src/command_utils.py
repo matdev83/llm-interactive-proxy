@@ -27,10 +27,12 @@ def is_content_effectively_empty(content: Any) -> bool:
             if part.text.strip():
                 return False  # Contains a non-empty text part
         return True  # All parts are empty text parts, or list was empty initially
-    return False # Should not be reached if content is always str or list
+    return False  # Should not be reached if content is always str or list
 
 
-def is_original_purely_command(original_content: Any, command_pattern: re.Pattern) -> bool:
+def is_original_purely_command(
+    original_content: Any, command_pattern: re.Pattern
+) -> bool:
     """Checks if the original message content was purely a command, ignoring comments."""
     if not isinstance(original_content, str):
         # Assuming commands can only be in string content for "purely command" messages
@@ -39,7 +41,9 @@ def is_original_purely_command(original_content: Any, command_pattern: re.Patter
     # Remove comment lines first
     content_without_comments = COMMENT_LINE_PATTERN.sub("", original_content).strip()
 
-    if not content_without_comments: # If only comments or empty after stripping comments
+    if (
+        not content_without_comments
+    ):  # If only comments or empty after stripping comments
         return False
 
     match = command_pattern.match(content_without_comments)
@@ -55,9 +59,9 @@ def is_tool_call_result(text: str) -> bool:
     # "[read_file for 'filename'] Result:"
     tool_result_patterns = [
         r'^\s*\[[\w_]+(?:\s+for\s+[\'"][^\'"\]]+[\'"])?\]\s+Result:',
-        r'^\s*\[[\w_]+\]\s+Result:',
+        r"^\s*\[[\w_]+\]\s+Result:",
     ]
-    
+
     for pattern in tool_result_patterns:
         if re.match(pattern, text, re.IGNORECASE):
             logger.debug("Detected tool call result pattern: %s", pattern)
@@ -71,7 +75,7 @@ def extract_feedback_from_tool_result(text: str) -> str:
     # <feedback>
     # !/command or user input
     # </feedback>
-    feedback_pattern = r'<feedback>\s*(.*?)\s*</feedback>'
+    feedback_pattern = r"<feedback>\s*(.*?)\s*</feedback>"
     match = re.search(feedback_pattern, text, re.DOTALL | re.IGNORECASE)
     if match:
         feedback_content = match.group(1).strip()
@@ -88,7 +92,7 @@ def get_text_for_command_check(content: Any) -> str:
     elif isinstance(content, list):
         for part in content:
             if isinstance(part, models.MessageContentPartText):
-                text_to_check += part.text + " " # Add space to simulate separate words
+                text_to_check += part.text + " "  # Add space to simulate separate words
 
     # CRITICAL FIX: Handle tool call results with embedded feedback
     if is_tool_call_result(text_to_check):
@@ -97,7 +101,9 @@ def get_text_for_command_check(content: Any) -> str:
         if not feedback_text:
             logger.debug("Skipping command detection in tool call result content")
             return ""
-        logger.debug("Found feedback in tool call result, checking for commands in feedback")
+        logger.debug(
+            "Found feedback in tool call result, checking for commands in feedback"
+        )
         return COMMENT_LINE_PATTERN.sub("", feedback_text).strip()
 
     # Remove comments and strip whitespace for accurate command pattern matching

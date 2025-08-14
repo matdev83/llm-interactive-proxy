@@ -2,7 +2,8 @@ from __future__ import annotations
 
 import json
 import time
-from typing import Any, Iterable
+from collections.abc import Iterable
+from typing import Any
 
 
 class RateLimitRegistry:

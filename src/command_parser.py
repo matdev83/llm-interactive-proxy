@@ -1,6 +1,6 @@
 import logging
 import re
-from typing import Any, Dict, List, Optional, Set, Tuple
+from typing import Any
 
 from fastapi import FastAPI
 
@@ -31,8 +31,8 @@ class CommandParser:
     ) -> None:
         self.config = config
         self.command_pattern = get_command_pattern(command_prefix)
-        self.handlers: Dict[str, BaseCommand] = {}
-        self.command_results: List[CommandResult] = []
+        self.handlers: dict[str, BaseCommand] = {}
+        self.command_results: list[CommandResult] = []
 
         for cmd_instance in create_command_instances(
             config.app, config.functional_backends
@@ -73,7 +73,7 @@ class CommandParser:
         return get_text_for_command_check(content)
 
     def _execute_commands_in_target_message(
-        self, target_idx: int, modified_messages: List[models.ChatMessage]
+        self, target_idx: int, modified_messages: list[models.ChatMessage]
     ) -> bool:
         """Processes commands in the specified message and updates it.
         Returns True if a command was found and an attempt to execute it was made.
@@ -94,7 +94,7 @@ class CommandParser:
 
     def _process_content(
         self, msg_to_process: models.ChatMessage
-    ) -> tuple[str | List[models.MessageContentPart] | None, bool, bool]:
+    ) -> tuple[str | list[models.MessageContentPart] | None, bool, bool]:
         if isinstance(msg_to_process.content, str):
             return self.command_processor.handle_string_content(msg_to_process.content)
         if isinstance(msg_to_process.content, list):
@@ -104,9 +104,9 @@ class CommandParser:
     def _maybe_use_error_message(
         self,
         original_content: Any,
-        processed_content: str | List[models.MessageContentPart] | None,
+        processed_content: str | list[models.MessageContentPart] | None,
         modified: bool,
-    ) -> tuple[str | List[models.MessageContentPart] | None, bool]:
+    ) -> tuple[str | list[models.MessageContentPart] | None, bool]:
         if (
             self._is_original_purely_command(original_content)
             and self._is_content_effectively_empty(processed_content)
@@ -122,7 +122,7 @@ class CommandParser:
         msg_to_process: models.ChatMessage,
         target_idx: int,
         original_content: Any,
-        processed_content: str | List[models.MessageContentPart] | None,
+        processed_content: str | list[models.MessageContentPart] | None,
         modified: bool,
     ) -> None:
         if modified and processed_content is not None:
@@ -147,11 +147,11 @@ class CommandParser:
 
     def _filter_empty_messages(
         self,
-        processed_messages: List[models.ChatMessage],
-        original_messages: List[models.ChatMessage],
-    ) -> List[models.ChatMessage]:
+        processed_messages: list[models.ChatMessage],
+        original_messages: list[models.ChatMessage],
+    ) -> list[models.ChatMessage]:
         """Filters out messages that became empty, unless they were purely commands."""
-        final_messages: List[models.ChatMessage] = []
+        final_messages: list[models.ChatMessage] = []
         for original_msg_idx, current_msg_state in enumerate(processed_messages):
             is_empty = is_content_effectively_empty(current_msg_state.content)
 
@@ -180,8 +180,8 @@ class CommandParser:
         return final_messages
 
     def process_messages(
-        self, messages: List[models.ChatMessage]
-    ) -> Tuple[List[models.ChatMessage], bool]:
+        self, messages: list[models.ChatMessage]
+    ) -> tuple[list[models.ChatMessage], bool]:
         self.command_results.clear()
         if not messages:
             logger.debug("process_messages received empty messages list.")
@@ -233,8 +233,8 @@ def _process_text_for_commands(
     current_proxy_state: ProxyState,
     command_pattern: re.Pattern,
     app: FastAPI,
-    functional_backends: Set[str] | None = None,
-) -> Tuple[str, bool]:
+    functional_backends: set[str] | None = None,
+) -> tuple[str, bool]:
     # This function is primarily for testing and specific internal uses where a
     # CommandParser instance is not fully initialized with all handlers.
     # It creates a minimal parser to process a single text string.
@@ -263,11 +263,11 @@ def _process_text_for_commands(
 
 
 def process_commands_in_messages(
-    messages: List[models.ChatMessage],
+    messages: list[models.ChatMessage],
     current_proxy_state: ProxyState,
-    app: Optional[FastAPI] = None,
+    app: FastAPI | None = None,
     command_prefix: str = DEFAULT_COMMAND_PREFIX,
-) -> Tuple[List[models.ChatMessage], bool]:
+) -> tuple[list[models.ChatMessage], bool]:
     """
     Processes a list of chat messages to identify and execute embedded commands.
 
@@ -278,7 +278,7 @@ def process_commands_in_messages(
         logger.debug("process_commands_in_messages received empty messages list.")
         return messages, False
 
-    functional_backends: Optional[Set[str]] = None
+    functional_backends: set[str] | None = None
     if app and hasattr(app, "state") and hasattr(app.state, "functional_backends"):
         functional_backends = app.state.functional_backends
     else:

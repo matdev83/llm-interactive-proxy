@@ -13,12 +13,7 @@ def test_pwd_command_with_project_dir_set(client: TestClient):
         mock_method.return_value = {"choices": [{"message": {"content": "ok"}}]}
         payload = {
             "model": "some-model",
-            "messages": [
-                {
-                    "role": "user",
-                    "content": "!/pwd"
-                }
-            ],
+            "messages": [{"role": "user", "content": "!/pwd"}],
         }
         response = client.post("/v1/chat/completions", json=payload)
 
@@ -37,15 +32,13 @@ def test_pwd_command_without_project_dir_set(client: TestClient):
         mock_method.return_value = {"choices": [{"message": {"content": "ok"}}]}
         payload = {
             "model": "some-model",
-            "messages": [
-                {
-                    "role": "user",
-                    "content": "!/pwd"
-                }
-            ],
+            "messages": [{"role": "user", "content": "!/pwd"}],
         }
         response = client.post("/v1/chat/completions", json=payload)
 
     assert response.status_code == 200
     response_json = response.json()
-    assert "Project directory not set." in response_json["choices"][0]["message"]["content"]
+    assert (
+        "Project directory not set."
+        in response_json["choices"][0]["message"]["content"]
+    )

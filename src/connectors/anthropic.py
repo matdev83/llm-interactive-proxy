@@ -7,7 +7,8 @@ from __future__ import annotations
 import json
 import logging
 import time
-from typing import Any, AsyncGenerator, Callable, cast
+from collections.abc import AsyncGenerator, Callable
+from typing import Any, cast
 
 import httpx
 from fastapi import HTTPException
@@ -99,12 +100,16 @@ class AnthropicBackend(LLMBackend):
             "content-type": "application/json",
         }
 
-        logger.info(
-            "Forwarding to Anthropic. Model: %s Stream: %s",
-            effective_model,
-            request_data.stream,
-        )
-        logger.debug("Anthropic payload: %s", json.dumps(anthropic_payload, indent=2))
+        if logger.isEnabledFor(logging.INFO):
+            logger.info(
+                "Forwarding to Anthropic. Model: %s Stream: %s",
+                effective_model,
+                request_data.stream,
+            )
+        if logger.isEnabledFor(logging.DEBUG):
+            logger.debug(
+                "Anthropic payload: %s", json.dumps(anthropic_payload, indent=2)
+            )
 
         if request_data.stream:
             return await self._handle_streaming_response(

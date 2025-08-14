@@ -1,6 +1,6 @@
 import logging
 import re
-from typing import Iterable
+from collections.abc import Iterable
 
 logger = logging.getLogger(__name__)
 
@@ -21,7 +21,7 @@ class APIKeyRedactor:
     def _redact_cached(self, text: str) -> str:
         """Cached version of redact for frequently processed content."""
         # Simple manual caching to avoid memory leaks with lru_cache on methods
-        if not hasattr(self, '_redact_cache'):
+        if not hasattr(self, "_redact_cache"):
             self._redact_cache: dict[str, str] = {}
         if text in self._redact_cache:
             return self._redact_cache[text]
@@ -34,17 +34,17 @@ class APIKeyRedactor:
         """Replace any occurrences of known API keys in *text*."""
         if not text:
             return text
-            
+
         # For short texts, use cached version for better performance
         if len(text) < 1000:
             return self._redact_cached(text)
         else:
             return self._redact_internal(text)
-            
+
     def _redact_internal(self, text: str) -> str:
         """Internal redact implementation."""
         redacted_text = text
-        
+
         # Quick containment check before expensive regex operations
         for key in self.api_keys:
             if key and key in redacted_text:
@@ -54,8 +54,10 @@ class APIKeyRedactor:
                     )
                 # Use pre-compiled regex for replacement
                 pattern = self._key_patterns[key]
-                redacted_text = pattern.sub("(API_KEY_HAS_BEEN_REDACTED)", redacted_text)
-                
+                redacted_text = pattern.sub(
+                    "(API_KEY_HAS_BEEN_REDACTED)", redacted_text
+                )
+
         return redacted_text
 
 
@@ -72,7 +74,7 @@ class ProxyCommandFilter:
         # Pattern to match any proxy command: prefix followed by command name and optional arguments
         self.command_pattern = re.compile(
             rf"{prefix_escaped}(?:(?:hello|help)(?!\()\b|[\w-]+(?:\([^)]*\))?)",
-            re.IGNORECASE
+            re.IGNORECASE,
         )
 
     def set_command_prefix(self, new_prefix: str) -> None:

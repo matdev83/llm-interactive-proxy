@@ -2,7 +2,7 @@ import argparse
 import json
 import logging
 import os
-from typing import List, Dict, Any
+from typing import Any, Dict, List
 
 import openai
 
@@ -20,7 +20,7 @@ def validate_output_filename(filename: str) -> str:
 
 
 def load_config(path: str) -> Dict[str, Any]:
-    with open(path, 'r', encoding='utf-8') as f:
+    with open(path, encoding='utf-8') as f:
         return json.load(f)
 
 

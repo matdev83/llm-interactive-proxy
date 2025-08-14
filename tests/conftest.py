@@ -4,7 +4,6 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 from fastapi.testclient import TestClient
-
 from src.connectors import GeminiBackend, OpenRouterBackend
 from src.main import build_app
 
@@ -12,14 +11,28 @@ from src.main import build_app
 @pytest.fixture(scope="session", autouse=True)
 def mock_testing_session():
     """Main session-scoped fixture to patch backends and other services."""
-    with patch.object(
-        OpenRouterBackend,
-        "list_models",
-        AsyncMock(return_value={"data": [{"id": "openrouter/model-a"}, {"id": "openrouter/model-b"}]}),
-    ), patch.object(
-        GeminiBackend,
-        "list_models",
-        AsyncMock(return_value={"models": [{"name": "models/gemini-model-1"}, {"name": "models/gemini-model-2"}]}),
+    with (
+        patch.object(
+            OpenRouterBackend,
+            "list_models",
+            AsyncMock(
+                return_value={
+                    "data": [{"id": "openrouter/model-a"}, {"id": "openrouter/model-b"}]
+                }
+            ),
+        ),
+        patch.object(
+            GeminiBackend,
+            "list_models",
+            AsyncMock(
+                return_value={
+                    "models": [
+                        {"name": "models/gemini-model-1"},
+                        {"name": "models/gemini-model-2"},
+                    ]
+                }
+            ),
+        ),
     ):
         yield
 
@@ -27,7 +40,7 @@ def mock_testing_session():
 @pytest.fixture(scope="session")
 def configured_app():
     """Fixture to provide a FastAPI app with configured backends for testing."""
-    with patch('src.core.config.load_dotenv'):
+    with patch("src.core.config.load_dotenv"):
         os.environ["OPENROUTER_API_KEY_1"] = "dummy-openrouter-key-1"
         os.environ["OPENROUTER_API_KEY_2"] = "dummy-openrouter-key-2"
         os.environ["GEMINI_API_KEY"] = "dummy-gemini-key"
@@ -44,8 +57,13 @@ def configured_app():
 def client(configured_app):
     """TestClient for the configured FastAPI app."""
     # Disable Qwen OAuth backend for these tests
-    with patch('src.connectors.qwen_oauth.QwenOAuthConnector._load_oauth_credentials', return_value=False), \
-         TestClient(configured_app) as c:
+    with (
+        patch(
+            "src.connectors.qwen_oauth.QwenOAuthConnector._load_oauth_credentials",
+            return_value=False,
+        ),
+        TestClient(configured_app) as c,
+    ):
         c.headers.update({"Authorization": "Bearer test-proxy-key"})
         yield c
 
@@ -75,7 +93,7 @@ def mock_gemini_backend(client):
 @pytest.fixture(scope="session")
 def configured_interactive_app():
     """Fixture to provide a FastAPI app configured for interactive mode."""
-    with patch('src.core.config.load_dotenv'):
+    with patch("src.core.config.load_dotenv"):
         os.environ["OPENROUTER_API_KEY_1"] = "dummy-openrouter-key-1"
         os.environ["OPENROUTER_API_KEY_2"] = "dummy-openrouter-key-2"
         os.environ["GEMINI_API_KEY"] = "dummy-gemini-key"
@@ -93,8 +111,13 @@ def configured_interactive_app():
 def interactive_client(configured_interactive_app):
     """TestClient for the configured FastAPI app in interactive mode."""
     # Disable Qwen OAuth backend for these tests
-    with patch('src.connectors.qwen_oauth.QwenOAuthConnector._load_oauth_credentials', return_value=False), \
-         TestClient(configured_interactive_app) as c:
+    with (
+        patch(
+            "src.connectors.qwen_oauth.QwenOAuthConnector._load_oauth_credentials",
+            return_value=False,
+        ),
+        TestClient(configured_interactive_app) as c,
+    ):
         c.headers.update({"Authorization": "Bearer test-proxy-key"})
         yield c
 
@@ -102,7 +125,7 @@ def interactive_client(configured_interactive_app):
 @pytest.fixture
 def configured_commands_disabled_app():
     """Fixture to provide a FastAPI app with commands disabled."""
-    with patch('src.core.config.load_dotenv'):
+    with patch("src.core.config.load_dotenv"):
         os.environ["OPENROUTER_API_KEY_1"] = "dummy-openrouter-key-1"
         os.environ["GEMINI_API_KEY"] = "dummy-gemini-key"
         os.environ["DISABLE_INTERACTIVE_COMMANDS"] = "true"
@@ -124,7 +147,7 @@ def commands_disabled_client(configured_commands_disabled_app):
 @pytest.fixture(autouse=True)
 def clean_env(monkeypatch):
     """Cleans up environment variables before and after each test."""
-    with patch('src.core.config.load_dotenv'):
+    with patch("src.core.config.load_dotenv"):
         original_env = os.environ.copy()
         yield
         os.environ.clear()

@@ -3,9 +3,8 @@ import json
 import httpx
 import pytest
 import pytest_asyncio
-from pytest_httpx import HTTPXMock
-
 import src.models as models
+from pytest_httpx import HTTPXMock
 from src.connectors.openrouter import OpenRouterBackend
 from src.request_middleware import RedactionProcessor, RequestContext, RequestMiddleware
 from src.security import APIKeyRedactor
@@ -13,7 +12,7 @@ from src.security import APIKeyRedactor
 TEST_OPENROUTER_API_BASE_URL = "https://openrouter.ai/api/v1"
 
 
-def mock_get_openrouter_headers(key_name: str, api_key: str):
+def mock_get_openrouter_headers(api_key: str):
     return {
         "Authorization": f"Bearer {api_key}",
         "Content-Type": "application/json",
@@ -48,34 +47,35 @@ async def test_prompt_redaction(
     httpx_mock.add_response(
         status_code=200, json={"choices": [{"message": {"content": "ok"}}]}
     )
-    
+
     # Test request middleware redaction
     middleware = RequestMiddleware()
     processor = RedactionProcessor()
     middleware.add_processor(processor)
-    
+
     redactor = APIKeyRedactor(["SECRET"])
     context = RequestContext(
-        "test-session", 
-        "openrouter", 
+        "test-session",
+        "openrouter",
         "model",
         redaction_enabled=True,
-        api_key_redactor=redactor
+        api_key_redactor=redactor,
     )
-    
+
     # Convert ChatMessage objects to dictionaries for middleware processing
     message_dicts = [msg.model_dump() for msg in sample_request.messages]
-    
+
     # Process messages through middleware
     processed_messages = await middleware.process_request(message_dicts, context)
-    
+
     # Verify middleware correctly redacted the content
     assert processed_messages[0]["content"] == "leak (API_KEY_HAS_BEEN_REDACTED)"
-    
+
     # Convert processed dictionaries back to ChatMessage objects for backend
     from src.models import ChatMessage
+
     processed_chat_messages = [ChatMessage(**msg) for msg in processed_messages]
-    
+
     # Send processed messages to backend
     await openrouter_backend.chat_completions(
         request_data=sample_request,
@@ -83,7 +83,6 @@ async def test_prompt_redaction(
         effective_model="model",
         openrouter_api_base_url=TEST_OPENROUTER_API_BASE_URL,
         openrouter_headers_provider=mock_get_openrouter_headers,
-        key_name="OPENROUTER_API_KEY_1",
         api_key="FAKE",
     )
     request = httpx_mock.get_request()

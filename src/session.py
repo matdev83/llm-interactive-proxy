@@ -65,5 +65,5 @@ class SessionManager:
         if logger.isEnabledFor(logging.DEBUG):
             logger.debug(
                 f"Retrieving session: {session_id}, ProxyState ID: {id(self.sessions[session_id].proxy_state)}"
-        )
+            )
         return self.sessions[session_id]

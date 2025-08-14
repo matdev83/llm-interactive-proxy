@@ -1,15 +1,14 @@
 import json
-from typing import Dict, List  # Removed Any, Callable, Union
 
 import httpx
 import pytest
 import pytest_asyncio
 
-# from fastapi import HTTPException # F401: Removed
-from pytest_httpx import HTTPXMock
-
 # from starlette.responses import StreamingResponse # F401: Removed
 import src.models as models
+
+# from fastapi import HTTPException # F401: Removed
+from pytest_httpx import HTTPXMock
 from src.connectors.openrouter import OpenRouterBackend
 
 # Default OpenRouter settings for tests
@@ -18,7 +17,7 @@ TEST_OPENROUTER_API_BASE_URL = (
 )
 
 
-def mock_get_openrouter_headers(key_name: str, api_key: str) -> Dict[str, str]:
+def mock_get_openrouter_headers(api_key: str) -> dict[str, str]:
     return {
         "Authorization": f"Bearer {api_key}",
         "Content-Type": "application/json",
@@ -43,7 +42,9 @@ def sample_chat_request_data() -> models.ChatCompletionRequest:
 
 
 @pytest.fixture
-def sample_processed_messages() -> List[models.ChatMessage]: # This is unused in this specific file though
+def sample_processed_messages() -> (
+    list[models.ChatMessage]
+):  # This is unused in this specific file though
     return [models.ChatMessage(role="user", content="Hello")]
 
 
@@ -87,24 +88,23 @@ async def fixture_api_request_and_data(
         effective_model=effective_model,
         openrouter_api_base_url=TEST_OPENROUTER_API_BASE_URL,
         openrouter_headers_provider=mock_get_openrouter_headers,
-        key_name="OPENROUTER_API_KEY_1",
         api_key="FAKE_KEY",
     )
 
     sent_request = httpx_mock.get_request()
-    assert sent_request is not None # Ensure request was made
+    assert sent_request is not None  # Ensure request was made
 
     return {
         "sent_request": sent_request,
         "sent_payload": json.loads(sent_request.content),
         "original_request_data": sample_chat_request_data,
-        "processed_messages_fixture": processed_msgs, # Renamed to avoid clash
+        "processed_messages_fixture": processed_msgs,  # Renamed to avoid clash
         "effective_model": effective_model,
     }
 
 
 @pytest.mark.asyncio
-async def test_openrouter_headers_are_correct(api_request_and_data: Dict):
+async def test_openrouter_headers_are_correct(api_request_and_data: dict):
     request = api_request_and_data["sent_request"]
     assert request.headers["Authorization"] == "Bearer FAKE_KEY"
     assert request.headers["Content-Type"] == "application/json"
@@ -113,7 +113,7 @@ async def test_openrouter_headers_are_correct(api_request_and_data: Dict):
 
 
 @pytest.mark.asyncio
-async def test_openrouter_payload_basic_fields_and_model(api_request_and_data: Dict):
+async def test_openrouter_payload_basic_fields_and_model(api_request_and_data: dict):
     sent_payload = api_request_and_data["sent_payload"]
     effective_model = api_request_and_data["effective_model"]
     assert sent_payload["model"] == effective_model
@@ -123,26 +123,31 @@ async def test_openrouter_payload_basic_fields_and_model(api_request_and_data: D
 
 
 @pytest.mark.asyncio
-async def test_openrouter_payload_message_count(api_request_and_data: Dict):
+async def test_openrouter_payload_message_count(api_request_and_data: dict):
     sent_payload = api_request_and_data["sent_payload"]
     assert len(sent_payload["messages"]) == 3
 
+
 @pytest.mark.asyncio
-async def test_openrouter_payload_first_message_structure(api_request_and_data: Dict):
+async def test_openrouter_payload_first_message_structure(api_request_and_data: dict):
     message_one_payload = api_request_and_data["sent_payload"]["messages"][0]
     assert message_one_payload["role"] == "user"
     assert message_one_payload["content"] == "Hello"
     assert isinstance(message_one_payload, dict)
 
+
 @pytest.mark.asyncio
-async def test_openrouter_payload_second_message_structure(api_request_and_data: Dict):
+async def test_openrouter_payload_second_message_structure(api_request_and_data: dict):
     message_two_payload = api_request_and_data["sent_payload"]["messages"][1]
     assert message_two_payload["role"] == "assistant"
     assert message_two_payload["content"] == "Hi there!"
     assert isinstance(message_two_payload, dict)
 
+
 @pytest.mark.asyncio
-async def test_openrouter_payload_third_message_multipart_structure(api_request_and_data: Dict):
+async def test_openrouter_payload_third_message_multipart_structure(
+    api_request_and_data: dict,
+):
     message_three_payload = api_request_and_data["sent_payload"]["messages"][2]
     assert message_three_payload["role"] == "user"
     assert isinstance(message_three_payload["content"], list)
@@ -158,27 +163,36 @@ async def test_openrouter_payload_third_message_multipart_structure(api_request_
     assert isinstance(content_part_two, dict)
     assert isinstance(content_part_two["image_url"], dict)
 
+
 @pytest.mark.asyncio
-async def test_openrouter_payload_unset_fields_are_excluded(api_request_and_data: Dict):
+async def test_openrouter_payload_unset_fields_are_excluded(api_request_and_data: dict):
     sent_payload = api_request_and_data["sent_payload"]
-    assert "n" not in sent_payload # Example of a field that wasn't set
-    assert "logit_bias" not in sent_payload # Another example
+    assert "n" not in sent_payload  # Example of a field that wasn't set
+    assert "logit_bias" not in sent_payload  # Another example
 
 
 @pytest.mark.asyncio
-async def test_openrouter_original_request_data_unmodified(api_request_and_data: Dict):
+async def test_openrouter_original_request_data_unmodified(api_request_and_data: dict):
     original_request = api_request_and_data["original_request_data"]
     # Check if original request_data was not modified (important due to model_dump)
-    assert original_request.model == "test-model" # Was not overridden by effective_model
+    assert (
+        original_request.model == "test-model"
+    )  # Was not overridden by effective_model
     assert original_request.messages[0].content == "Hello"
-    assert original_request.max_tokens == 100 # Value was set on original object
+    assert original_request.max_tokens == 100  # Value was set on original object
 
 
 @pytest.mark.asyncio
-async def test_openrouter_processed_messages_remain_pydantic(api_request_and_data: Dict):
+async def test_openrouter_processed_messages_remain_pydantic(
+    api_request_and_data: dict,
+):
     # The connector receives 'processed_messages' which are already Pydantic models.
     # It then dumps them to dicts for the payload, but original list should be of Pydantic objects.
     processed_msgs_fixture = api_request_and_data["processed_messages_fixture"]
     assert isinstance(processed_msgs_fixture[0], models.ChatMessage)
-    assert isinstance(processed_msgs_fixture[2].content[0], models.MessageContentPartText)
-    assert isinstance(processed_msgs_fixture[2].content[1], models.MessageContentPartImage) # Specific type
+    assert isinstance(
+        processed_msgs_fixture[2].content[0], models.MessageContentPartText
+    )
+    assert isinstance(
+        processed_msgs_fixture[2].content[1], models.MessageContentPartImage
+    )  # Specific type

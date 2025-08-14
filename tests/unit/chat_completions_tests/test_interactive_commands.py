@@ -19,8 +19,10 @@ def test_unknown_command_error(interactive_client):
     assert "cmd not found" in data["choices"][0]["message"]["content"].lower()
 
 
-@patch('src.connectors.OpenRouterBackend.chat_completions', new_callable=AsyncMock)
-def test_set_command_confirmation(mock_openrouter_completions: AsyncMock, interactive_client):
+@patch("src.connectors.OpenRouterBackend.chat_completions", new_callable=AsyncMock)
+def test_set_command_confirmation(
+    mock_openrouter_completions: AsyncMock, interactive_client
+):
     # Ensure model is available for the !/set command
     # conftest mock_model_discovery populates ["m1", "m2", "model-a"]
     # Using a model name that is part of the standard mock setup
@@ -28,12 +30,19 @@ def test_set_command_confirmation(mock_openrouter_completions: AsyncMock, intera
     full_model_id_to_set = f"openrouter:{model_to_set}"
     if not interactive_client.app.state.openrouter_backend.available_models:
         interactive_client.app.state.openrouter_backend.available_models = []
-    if model_to_set not in interactive_client.app.state.openrouter_backend.available_models:
-         interactive_client.app.state.openrouter_backend.available_models.append(model_to_set)
+    if (
+        model_to_set
+        not in interactive_client.app.state.openrouter_backend.available_models
+    ):
+        interactive_client.app.state.openrouter_backend.available_models.append(
+            model_to_set
+        )
 
     payload = {
-        "model": "initial-model", # This is the model that would be used if no command overrides
-        "messages": [{"role": "user", "content": f"hello !/set(model={full_model_id_to_set})"}],
+        "model": "initial-model",  # This is the model that would be used if no command overrides
+        "messages": [
+            {"role": "user", "content": f"hello !/set(model={full_model_id_to_set})"}
+        ],
     }
     response = interactive_client.post("/v1/chat/completions", json=payload)
 
@@ -54,15 +63,18 @@ def test_set_command_confirmation(mock_openrouter_completions: AsyncMock, intera
 
 def test_set_backend_confirmation(interactive_client):
     mock_backend_response = {"choices": [{"message": {"content": "resp"}}]}
-    with patch.object(
-        interactive_client.app.state.gemini_backend,
-        "chat_completions",
-        new_callable=AsyncMock,
-    ) as gem_mock, patch.object(
-        interactive_client.app.state.openrouter_backend,
-        "chat_completions",
-        new_callable=AsyncMock,
-    ) as open_mock:
+    with (
+        patch.object(
+            interactive_client.app.state.gemini_backend,
+            "chat_completions",
+            new_callable=AsyncMock,
+        ) as gem_mock,
+        patch.object(
+            interactive_client.app.state.openrouter_backend,
+            "chat_completions",
+            new_callable=AsyncMock,
+        ) as open_mock,
+    ):
         gem_mock.return_value = mock_backend_response
         payload = {
             "model": "m",
@@ -78,8 +90,8 @@ def test_set_backend_confirmation(interactive_client):
     open_mock.assert_not_called()
 
     content = response_json["choices"][0]["message"]["content"]
-    assert "backend set to gemini" in content # Command confirmation
-    assert "resp" not in content # Backend mock "resp" should not be in the content
+    assert "backend set to gemini" in content  # Command confirmation
+    assert "resp" not in content  # Backend mock "resp" should not be in the content
 
     session = interactive_client.app.state.session_manager.get_session("default")
     assert session.proxy_state.override_backend == "gemini"
@@ -128,7 +140,7 @@ def test_set_redaction_flag(interactive_client):
     response_json = resp.json()
     assert response_json["id"] == "proxy_cmd_processed"
 
-    mock_method.assert_not_called() # Backend should not be called
+    mock_method.assert_not_called()  # Backend should not be called
 
     # Verify the state was changed
     assert interactive_client.app.state.api_key_redaction_enabled is False
@@ -161,10 +173,13 @@ def test_unset_redaction_flag(interactive_client):
     response_json = resp.json()
     assert response_json["id"] == "proxy_cmd_processed"
 
-    mock_method.assert_not_called() # Backend should not be called
+    mock_method.assert_not_called()  # Backend should not be called
 
     # Verify the state was changed (reverted to default)
-    assert interactive_client.app.state.api_key_redaction_enabled is interactive_client.app.state.default_api_key_redaction_enabled
+    assert (
+        interactive_client.app.state.api_key_redaction_enabled
+        is interactive_client.app.state.default_api_key_redaction_enabled
+    )
 
     content = response_json["choices"][0]["message"]["content"]
     assert "redact-api-keys-in-prompts unset" in content

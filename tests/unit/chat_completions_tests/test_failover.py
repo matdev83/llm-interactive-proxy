@@ -1,7 +1,6 @@
 import pytest
 from fastapi.testclient import TestClient
 from pytest_httpx import HTTPXMock
-
 from src.main import build_app
 
 
@@ -64,7 +63,6 @@ def test_failover_missing_keys(monkeypatch, httpx_mock: HTTPXMock):
     monkeypatch.setenv("LLM_BACKEND", "gemini")
 
     from fastapi.testclient import TestClient
-
     from src import main as app_main
 
     app = app_main.build_app()
@@ -99,4 +97,3 @@ def test_failover_missing_keys(monkeypatch, httpx_mock: HTTPXMock):
         )
         assert resp.status_code == 500
         assert resp.json()["detail"]["error"] == "all backends failed"
-

@@ -2,9 +2,10 @@ from __future__ import annotations
 
 import logging
 import time
+from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
-from typing import Any, AsyncGenerator, Protocol, cast
+from typing import Any, Protocol, cast
 
 from fastapi import HTTPException, Request
 from starlette.responses import StreamingResponse
@@ -158,7 +159,7 @@ class ChatService:
 
         # Process response
         with track_phase(perf_metrics, "response_processing"):
-            return self._process_backend_response(
+            return await self._process_backend_response(
                 response_from_backend,
                 request_data,
                 session,
@@ -1070,7 +1071,7 @@ class ChatService:
         logger.debug(f"Result from OpenRouter backend chat_completions: {result}")
         return cast(dict[str, Any] | StreamingResponse, result)
 
-    def _process_backend_response(
+    async def _process_backend_response(
         self,
         response_from_backend: dict[str, Any] | StreamingResponse,
         request_data: models.ChatCompletionRequest,
@@ -1278,23 +1279,144 @@ class ChatService:
                                             break
 
                             if blocked:
-                                # Create error response
-                                if logger.isEnabledFor(logging.WARNING):
-                                    logger.warning(
-                                        f"Tool call loop detected in session {session_id}: "
-                                        f"blocked after {repeat_count} repetitions"
+                                # If we're in chance_then_break mode and this is the first warning,
+                                # perform an interactive mitigation: inject guidance back to the LLM and
+                                # immediately re-call the backend once, transparently to the client.
+                                if (
+                                    tracker.config.mode.name.lower()
+                                    == "chance_then_break"
+                                    and isinstance(block_reason, str)
+                                    and "warning" in block_reason.lower()
+                                ):
+                                    if logger.isEnabledFor(logging.INFO):
+                                        logger.info(
+                                            f"Tool call loop warning in session {session_id}: performing interactive mitigation"
+                                        )
+                                    # Build guidance text and append as assistant message
+                                    guidance_text = (
+                                        self._build_tool_loop_guidance_prompt(
+                                            tool_name=tool_name,
+                                            arguments=arguments,
+                                            repeat_count=repeat_count
+                                            or tracker.config.max_repeats,
+                                            ttl_seconds=tracker.config.ttl_seconds,
+                                        )
+                                    )
+                                    guidance_msg = models.ChatMessage(
+                                        role="assistant", content=guidance_text
+                                    )
+                                    new_messages = list(request_data.messages or [])
+                                    new_messages.append(guidance_msg)
+
+                                    updated_request = models.ChatCompletionRequest(
+                                        **request_data.model_dump(exclude_unset=True)
+                                    )
+                                    updated_request.messages = new_messages
+
+                                    # Rebuild processed messages for second call (no command processing)
+                                    processed_messages_second = [
+                                        models.ChatMessage.model_validate(m)
+                                        for m in new_messages
+                                    ]
+
+                                    second_response, used_backend2, used_model2 = (
+                                        await self._call_backend_with_failover(
+                                            updated_request,
+                                            processed_messages_second,
+                                            used_model,
+                                            used_backend,
+                                            proxy_state,
+                                            perf_metrics=None,  # not used inside
+                                        )
                                     )
 
-                                # Replace the choice with an error message
-                                modified_choice = {
-                                    "index": choice.get("index", 0),
-                                    "message": {
-                                        "role": "assistant",
-                                        "content": block_reason,
-                                    },
-                                    "finish_reason": "error",
-                                }
-                                modified_choices.append(modified_choice)
+                                    # Normalize second response to dict
+                                    if isinstance(second_response, StreamingResponse):
+                                        # Streaming is not expected here; return as-is
+                                        return second_response
+                                    if isinstance(second_response, dict):
+                                        backend_response_dict = second_response
+                                    elif hasattr(second_response, "model_dump"):
+                                        backend_response_dict = (
+                                            second_response.model_dump(
+                                                exclude_none=True
+                                            )
+                                        )
+                                    else:
+                                        backend_response_dict = {}
+
+                                    # Re-run tool call check on the second response once
+                                    new_choices = []
+                                    for ch in backend_response_dict.get("choices", []):
+                                        msg = ch.get("message", {})
+                                        tcalls = msg.get("tool_calls", [])
+                                        if tcalls:
+                                            inner_blocked = False
+                                            inner_reason = None
+                                            inner_count = None
+                                            for t in tcalls:
+                                                if t.get("type") == "function":
+                                                    fdata = t.get("function", {})
+                                                    tname = fdata.get("name", "")
+                                                    targs = fdata.get("arguments", "{}")
+                                                    if tname:
+                                                        (
+                                                            inner_blocked,
+                                                            inner_reason,
+                                                            inner_count,
+                                                        ) = tracker.track_tool_call(
+                                                            tname, targs
+                                                        )
+                                                        if inner_blocked:
+                                                            break
+                                            if inner_blocked:
+                                                if logger.isEnabledFor(logging.WARNING):
+                                                    logger.warning(
+                                                        f"Tool call loop persisted after guidance in session {session_id}: "
+                                                        f"blocked after {inner_count} repetitions"
+                                                    )
+                                                new_choices.append(
+                                                    {
+                                                        "index": ch.get("index", 0),
+                                                        "message": {
+                                                            "role": "assistant",
+                                                            "content": inner_reason,
+                                                        },
+                                                        "finish_reason": "error",
+                                                    }
+                                                )
+                                            else:
+                                                new_choices.append(ch)
+                                        else:
+                                            new_choices.append(ch)
+
+                                    if new_choices:
+                                        backend_response_dict["choices"] = new_choices
+
+                                    # Replace current modified choices with those from second response
+                                    modified_choices = backend_response_dict.get(
+                                        "choices", []
+                                    )
+                                    # Exit the outer loop early since we've rebuilt the response
+                                    break
+                                else:
+                                    # Create error response
+                                    if logger.isEnabledFor(logging.WARNING):
+                                        logger.warning(
+                                            f"Tool call loop detected in session {session_id}: "
+                                            f"blocked after {repeat_count} repetitions"
+                                        )
+
+                                    # Replace the choice with an error message
+                                    modified_choice = {
+                                        "index": choice.get("index", 0),
+                                        "message": {
+                                            "role": "assistant",
+                                            "content": block_reason,
+                                        },
+                                        "finish_reason": "error",
+                                    }
+                                    modified_choices.append(modified_choice)
                             else:
                                 # Keep the original choice
                                 modified_choices.append(choice)
@@ -1344,3 +1466,22 @@ class ChatService:
             return [self._remove_none_values(item) for item in obj]
         else:
             return obj
+
+    def _build_tool_loop_guidance_prompt(
+        self, *, tool_name: str, arguments: str, repeat_count: int, ttl_seconds: int
+    ) -> str:
+        """Construct guidance for chance_then_break interactive mitigation.
+
+        The prompt is crafted to nudge the model to self-reflect and correct
+        tool-calling behavior without exposing proxy internals to the user.
+        """
+        return (
+            "Tool call loop warning: The last tool invocation repeated the same function with identical "
+            f"parameters {repeat_count} times within the last {ttl_seconds} seconds.\n"
+            "Before invoking any tool again, pause and reflect on your plan.\n"
+            "- Verify that the tool name and parameters are correct and necessary.\n"
+            "- If the tool previously failed or produced no progress, adjust inputs or choose a different approach.\n"
+            "- Only call a tool if it is strictly required for the next step, otherwise continue with reasoning or a textual reply.\n"
+            f"Tool you attempted: {tool_name} with arguments: {arguments}.\n"
+            "Respond with either: (a) revised reasoning and a corrected single tool call with improved parameters; or (b) a textual explanation of the next steps without calling any tool."
+        )

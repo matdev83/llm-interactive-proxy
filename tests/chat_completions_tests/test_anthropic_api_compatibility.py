@@ -1,14 +1,16 @@
+from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from fastapi.testclient import TestClient
-
 from src.main import build_app
 from src.models import (
     ChatCompletionChoice,
     ChatCompletionChoiceMessage,
     ChatCompletionResponse,
     CompletionUsage,
+    FunctionCall,
+    ToolCall,
 )
 
 
@@ -30,21 +32,28 @@ def test_app():
             "client_api_key": "test_client_key",
         }
         app = build_app()
-        app.state.client_api_key = "test_client_key"  # Explicitly set the key for the test
+        app.state.client_api_key = (
+            "test_client_key"  # Explicitly set the key for the test
+        )
         with TestClient(app) as client:
             # Mock the backend initialization to avoid real API calls
-            app.state.openrouter_backend.get_available_models = MagicMock(return_value=["model1", "model2"])
-            app.state.gemini_backend.get_available_models = MagicMock(return_value=["gemini/gemini-pro"])
+            app.state.openrouter_backend.get_available_models = MagicMock(
+                return_value=["model1", "model2"]
+            )
+            app.state.gemini_backend.get_available_models = MagicMock(
+                return_value=["gemini/gemini-pro"]
+            )
             app.state.functional_backends = {"openrouter", "gemini"}
             yield client
 
+
 def test_anthropic_messages_non_streaming(test_app):
     """Test the Anthropic API compatibility endpoint for non-streaming requests."""
-    
+
     anthropic_request = {
         "model": "some-model",
         "max_tokens": 1024,
-        "messages": [{"role": "user", "content": "Hello, world!"}]
+        "messages": [{"role": "user", "content": "Hello, world!"}],
     }
 
     mock_openai_response = ChatCompletionResponse(
@@ -56,28 +65,29 @@ def test_anthropic_messages_non_streaming(test_app):
             ChatCompletionChoice(
                 index=0,
                 message=ChatCompletionChoiceMessage(
-                    role="assistant",
-                    content="This is a test response."
+                    role="assistant", content="This is a test response."
                 ),
-                finish_reason="stop"
+                finish_reason="stop",
             )
         ],
-        usage=CompletionUsage(
-            prompt_tokens=10,
-            completion_tokens=20,
-            total_tokens=30
-        )
+        usage=CompletionUsage(prompt_tokens=10, completion_tokens=20, total_tokens=30),
     )
 
     # Patch the backend call instead of the internal chat_completions function
-    with patch("src.connectors.openrouter.OpenRouterBackend.chat_completions", new_callable=AsyncMock) as mock_backend_chat_completions:
+    with patch(
+        "src.connectors.openrouter.OpenRouterBackend.chat_completions",
+        new_callable=AsyncMock,
+    ) as mock_backend_chat_completions:
         # The backend returns a tuple of (response_dict, headers_dict)
-        mock_backend_chat_completions.return_value = (mock_openai_response.model_dump(exclude_none=True), {})
+        mock_backend_chat_completions.return_value = (
+            mock_openai_response.model_dump(exclude_none=True),
+            {},
+        )
 
         response = test_app.post(
             "/v1/messages",
             json=anthropic_request,
-            headers={"x-api-key": "test_client_key"}
+            headers={"x-api-key": "test_client_key"},
         )
 
         assert response.status_code == 200
@@ -91,7 +101,7 @@ def test_anthropic_messages_non_streaming(test_app):
         mock_backend_chat_completions.assert_called_once()
         # Check the call arguments for the mocked function
         kwargs = mock_backend_chat_completions.call_args.kwargs
-        openai_request = kwargs['request_data']
+        openai_request = kwargs["request_data"]
 
         assert openai_request.model == "some-model"
         assert len(openai_request.messages) == 1
@@ -108,10 +118,10 @@ def test_anthropic_messages_with_tool_use_from_openai_tool_calls(test_app):
         "messages": [{"role": "user", "content": "Hello!"}],
     }
 
-    tool_call = {
+    tool_call_dict: dict[str, Any] = {
         "id": "call_1",
         "type": "function",
-        "function": {"name": "get_weather", "arguments": "{\"city\":\"Paris\"}"},
+        "function": {"name": "get_weather", "arguments": '{"city":"Paris"}'},
     }
     mock_openai_response = ChatCompletionResponse(
         id="chatcmpl-123",
@@ -122,7 +132,18 @@ def test_anthropic_messages_with_tool_use_from_openai_tool_calls(test_app):
             ChatCompletionChoice(
                 index=0,
                 message=ChatCompletionChoiceMessage(
-                    role="assistant", content=None, tool_calls=[tool_call]  # type: ignore[arg-type]
+                    role="assistant",
+                    content=None,
+                    tool_calls=[
+                        ToolCall(
+                            id=str(tool_call_dict["id"]),
+                            type=str(tool_call_dict["type"]),
+                            function=FunctionCall(
+                                name=str(tool_call_dict["function"]["name"]),
+                                arguments=str(tool_call_dict["function"]["arguments"]),
+                            ),
+                        )
+                    ],
                 ),
                 finish_reason="tool_calls",
             )
@@ -140,7 +161,9 @@ def test_anthropic_messages_with_tool_use_from_openai_tool_calls(test_app):
         )
 
         response = test_app.post(
-            "/v1/messages", json=anthropic_request, headers={"x-api-key": "test_client_key"}
+            "/v1/messages",
+            json=anthropic_request,
+            headers={"x-api-key": "test_client_key"},
         )
 
         assert response.status_code == 200

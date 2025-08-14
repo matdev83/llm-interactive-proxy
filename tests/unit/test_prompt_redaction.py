@@ -3,7 +3,7 @@ import logging
 from src.security import APIKeyRedactor
 
 
-def test_redactor_replaces_keys_and_logs(caplog):
+def test_redactor_replaces_keys_and_logs(caplog) -> None:
     redactor = APIKeyRedactor(["SECRET"])
     with caplog.at_level(logging.WARNING):
         result = redactor.redact("my SECRET key")

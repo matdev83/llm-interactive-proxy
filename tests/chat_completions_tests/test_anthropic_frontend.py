@@ -1,9 +1,8 @@
-from typing import AsyncGenerator
+from collections.abc import AsyncGenerator
 from unittest.mock import AsyncMock, patch
 
 import pytest
 from fastapi.testclient import TestClient
-
 from src.main import build_app
 from src.models import (
     ChatCompletionChoice,
@@ -16,8 +15,13 @@ from src.models import (
 @pytest.fixture()
 def test_app():
     """Create FastAPI test app with config patched for Anthropic."""
-    with patch("src.main._load_config") as mock_cfg, \
-         patch("src.connectors.anthropic.AnthropicBackend.get_available_models", return_value=["claude-3-haiku-20240229"]):
+    with (
+        patch("src.main._load_config") as mock_cfg,
+        patch(
+            "src.connectors.anthropic.AnthropicBackend.get_available_models",
+            return_value=["claude-3-haiku-20240229"],
+        ),
+    ):
         mock_cfg.return_value = {
             "disable_auth": False,
             "disable_accounting": True,
@@ -56,9 +60,16 @@ def _dummy_openai_response(text: str = "Test reply") -> ChatCompletionResponse:
 # Non-streaming
 # ------------------------------------------------------------
 
+
 def test_anthropic_messages_non_streaming_frontend(test_app):
-    with patch("src.connectors.anthropic.AnthropicBackend.chat_completions", new_callable=AsyncMock) as mock_chat:
-        mock_chat.return_value = (_dummy_openai_response().model_dump(exclude_none=True), {})
+    with patch(
+        "src.connectors.anthropic.AnthropicBackend.chat_completions",
+        new_callable=AsyncMock,
+    ) as mock_chat:
+        mock_chat.return_value = (
+            _dummy_openai_response().model_dump(exclude_none=True),
+            {},
+        )
 
         res = test_app.post(
             "/v1/messages",
@@ -79,12 +90,14 @@ def test_anthropic_messages_non_streaming_frontend(test_app):
 # Streaming
 # ------------------------------------------------------------
 
+
 def _build_streaming_response() -> AsyncGenerator[bytes, None]:
     async def generator():
-        yield b"data: {\"choices\":[{\"delta\":{\"content\":\"Hel\"}}]}\n\n"
-        yield b"data: {\"choices\":[{\"delta\":{\"content\":\"lo\"}}]}\n\n"
-        yield b"data: {\"choices\":[{\"finish_reason\":\"stop\"}]}\n\n"
+        yield b'data: {"choices":[{"delta":{"content":"Hel"}}]}\n\n'
+        yield b'data: {"choices":[{"delta":{"content":"lo"}}]}\n\n'
+        yield b'data: {"choices":[{"finish_reason":"stop"}]}\n\n'
         yield b"data: [DONE]\n\n"
+
     return generator()
 
 
@@ -94,7 +107,10 @@ def test_anthropic_messages_streaming_frontend(test_app):
     async_gen = _build_streaming_response()
     stream_response = StreamingResponse(async_gen, media_type="text/event-stream")
 
-    with patch("src.connectors.anthropic.AnthropicBackend.chat_completions", new_callable=AsyncMock) as mock_chat:
+    with patch(
+        "src.connectors.anthropic.AnthropicBackend.chat_completions",
+        new_callable=AsyncMock,
+    ) as mock_chat:
         mock_chat.return_value = stream_response
 
         res = test_app.post(
@@ -119,6 +135,7 @@ def test_anthropic_messages_streaming_frontend(test_app):
 # Auth error
 # ------------------------------------------------------------
 
+
 def test_anthropic_messages_auth_failure(test_app):
     res = test_app.post(
         "/v1/messages",
@@ -135,6 +152,7 @@ def test_anthropic_messages_auth_failure(test_app):
 # Model listing
 # ------------------------------------------------------------
 
+
 def test_models_endpoint_includes_anthropic(test_app):
     res = test_app.get(
         "/models",
@@ -142,4 +160,4 @@ def test_models_endpoint_includes_anthropic(test_app):
     )
     assert res.status_code == 200
     models = {m["id"] for m in res.json()["data"]}
-    assert "anthropic:claude-3-haiku-20240229" in models 
+    assert "anthropic:claude-3-haiku-20240229" in models

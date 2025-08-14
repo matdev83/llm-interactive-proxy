@@ -3,7 +3,12 @@ Requires:
   • gemini CLI installed and on PATH
   • GOOGLE_CLOUD_PROJECT env var set (Vertex AI mode)
 """
-import os, tempfile, json, pathlib, sys
+import json
+import os
+import pathlib
+import sys
+import tempfile
+
 from fastapi.testclient import TestClient
 
 # Ensure repo root on path
@@ -46,4 +51,4 @@ with TestClient(app) as client:
             "messages": [{"role": "user", "content": "Tell me a one-line joke"}],
         },
     )
-    print(json.dumps(r2.json()["choices"][0], indent=2)) 
+    print(json.dumps(r2.json()["choices"][0], indent=2))

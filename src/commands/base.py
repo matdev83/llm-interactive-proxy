@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 import logging
+from collections.abc import Mapping
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, Mapping, Protocol
+from typing import TYPE_CHECKING, Any, Protocol
 
 if TYPE_CHECKING:
     from fastapi import FastAPI
@@ -21,41 +22,41 @@ class CommandResult:
 
 class CommandContext(Protocol):
     """Protocol for command execution context to decouple commands from FastAPI app."""
-    
+
     @property
     def backend_type(self) -> str | None:
         """Get the current backend type."""
         ...
-    
+
     @backend_type.setter
     def backend_type(self, value: str) -> None:
         """Set the backend type."""
         ...
-    
+
     @property
     def api_key_redaction_enabled(self) -> bool:
         """Get API key redaction setting."""
         ...
-    
+
     @api_key_redaction_enabled.setter
     def api_key_redaction_enabled(self, value: bool) -> None:
         """Set API key redaction setting."""
         ...
-    
+
     @property
     def command_prefix(self) -> str:
         """Get command prefix."""
         ...
-    
+
     @command_prefix.setter
     def command_prefix(self, value: str) -> None:
         """Set command prefix."""
         ...
-    
+
     def get_backend(self, backend_name: str) -> Any | None:
         """Get backend instance by name."""
         ...
-    
+
     def save_config(self) -> None:
         """Save configuration if config manager is available."""
         ...
@@ -63,14 +64,14 @@ class CommandContext(Protocol):
 
 class AppCommandContext:
     """Concrete implementation of CommandContext that wraps FastAPI app state."""
-    
+
     def __init__(self, app: FastAPI) -> None:
         self.app = app
-    
+
     @property
     def backend_type(self) -> str | None:
         return getattr(self.app.state, "backend_type", None)
-    
+
     @backend_type.setter
     def backend_type(self, value: str) -> None:
         self.app.state.backend_type = value
@@ -79,27 +80,27 @@ class AppCommandContext:
         backend_attr = f"{value.replace('-', '_')}_backend"
         if hasattr(self.app.state, backend_attr):
             self.app.state.backend = getattr(self.app.state, backend_attr)
-    
+
     @property
     def api_key_redaction_enabled(self) -> bool:
         return getattr(self.app.state, "api_key_redaction_enabled", False)
-    
+
     @api_key_redaction_enabled.setter
     def api_key_redaction_enabled(self, value: bool) -> None:
         self.app.state.api_key_redaction_enabled = value
-    
+
     @property
     def command_prefix(self) -> str:
         return getattr(self.app.state, "command_prefix", "!/")
-    
+
     @command_prefix.setter
     def command_prefix(self, value: str) -> None:
         self.app.state.command_prefix = value
-    
+
     def get_backend(self, backend_name: str) -> Any | None:
         backend_attr = f"{backend_name}_backend"
         return getattr(self.app.state, backend_attr, None)
-    
+
     def save_config(self) -> None:
         config_manager = getattr(self.app.state, "config_manager", None)
         if config_manager:
@@ -130,15 +131,14 @@ class BaseCommand:
         self.app = app
         self.functional_backends = functional_backends or set()
 
-    def execute(self, args: Mapping[str, Any],
-                state: ProxyState) -> CommandResult:
+    def execute(self, args: Mapping[str, Any], state: ProxyState) -> CommandResult:
         raise NotImplementedError
 
     def execute_with_context(
-        self, 
-        args: Mapping[str, Any], 
-        state: ProxyState, 
-        context: CommandContext | None = None
+        self,
+        args: Mapping[str, Any],
+        state: ProxyState,
+        context: CommandContext | None = None,
     ) -> CommandResult:
         """Execute command with context. Default implementation calls execute for backward compatibility."""
         return self.execute(args, state)
