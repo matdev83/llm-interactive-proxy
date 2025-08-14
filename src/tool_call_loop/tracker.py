@@ -74,11 +74,12 @@ class ToolCallSignature:
 class ToolCallTracker:
     """Tracks tool calls and detects repetitive patterns with TTL-based pruning."""
 
-    def __init__(self, config: ToolCallLoopConfig):
+    def __init__(self, config: ToolCallLoopConfig, max_signatures: int = 100):
         """Initialize the tracker with the given configuration.
 
         Args:
             config: Configuration for tool call loop detection
+            max_signatures: Maximum number of signatures to store (default: 100)
         """
         self.config = config
         self.signatures: list[ToolCallSignature] = []
@@ -86,6 +87,8 @@ class ToolCallTracker:
         self.consecutive_repeats: dict[str, int] = {}
         # Track if we're in "chance" mode for specific signatures
         self.chance_given: dict[str, bool] = {}
+        # Maximum number of signatures to store
+        self.max_signatures = max_signatures
 
     def prune_expired(self) -> int:
         """Remove expired signatures based on TTL.
@@ -188,8 +191,29 @@ class ToolCallTracker:
             # Also reset chance status
             self.chance_given.pop(full_sig, None)
 
-        # Add to history
+        # Add to history (with size limit to prevent unbounded growth)
         self.signatures.append(signature)
+
+        # Enforce maximum size limit by removing oldest entries if needed
+        if len(self.signatures) > self.max_signatures:
+            # Remove oldest entries that exceed the limit
+            excess = len(self.signatures) - self.max_signatures
+            if excess > 0:
+                if logger.isEnabledFor(logging.DEBUG):
+                    logger.debug(
+                        f"Trimming {excess} oldest signatures to maintain size limit"
+                    )
+                # Remove oldest entries (at the beginning of the list)
+                self.signatures = self.signatures[excess:]
+
+                # Clean up related dictionaries for removed signatures
+                current_signatures = {
+                    sig.get_full_signature() for sig in self.signatures
+                }
+                for sig in list(self.consecutive_repeats.keys()):
+                    if sig not in current_signatures:
+                        self.consecutive_repeats.pop(sig, None)
+                        self.chance_given.pop(sig, None)
 
         # Not blocked
         return False, None, None
