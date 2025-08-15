@@ -7,8 +7,9 @@ from typing import Any
 
 import colorama
 import uvicorn
+
 from src.command_prefix import validate_command_prefix
-from src.core.config import _load_config
+from src.core.config_adapter import _load_config
 
 
 def _check_privileges() -> None:

@@ -1,0 +1,195 @@
+from __future__ import annotations
+
+from datetime import datetime, timezone
+from typing import Any
+
+from pydantic import ConfigDict, Field
+
+from src.core.domain.base import ValueObject
+from src.core.domain.configuration import (
+    BackendConfiguration,
+    LoopDetectionConfiguration,
+    ReasoningConfiguration,
+)
+from src.core.interfaces.configuration import (
+    IBackendConfig,
+    ILoopDetectionConfig,
+    IReasoningConfig,
+)
+from src.core.interfaces.domain_entities import ISession, ISessionState
+
+
+class SessionInteraction(ValueObject):
+    """Represents one user prompt and the resulting response."""
+
+    prompt: str
+    handler: str  # "proxy" or "backend"
+    backend: str | None = None
+    model: str | None = None
+    project: str | None = None
+    parameters: dict[str, Any] = Field(default_factory=dict)
+    response: str | None = None
+    usage: dict[str, Any] | None = None
+    timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+
+class SessionState(ValueObject, ISessionState):
+    """Immutable state of a session."""
+
+    model_config = ConfigDict(
+        # Other config options can be added here as needed
+        arbitrary_types_allowed=True,
+        frozen=True,
+    )
+
+    backend_config: IBackendConfig = Field(default_factory=BackendConfiguration)
+    reasoning_config: IReasoningConfig = Field(default_factory=ReasoningConfiguration)
+    loop_config: ILoopDetectionConfig = Field(
+        default_factory=LoopDetectionConfiguration
+    )
+    project: str | None = None
+    project_dir: str | None = None
+    interactive_just_enabled: bool = False
+    hello_requested: bool = False
+    is_cline_agent: bool = False
+
+
+class Session(ISession):
+    """Container for conversation state and history."""
+
+    def __init__(
+        self,
+        session_id: str,
+        state: ISessionState | None = None,
+        history: list[SessionInteraction] | None = None,
+        created_at: datetime | None = None,
+        last_active_at: datetime | None = None,
+        agent: str | None = None,
+    ):
+        self._session_id = session_id
+        self._state = state or SessionState()
+        self._history = history or []
+        self._created_at = created_at or datetime.now(timezone.utc)
+        self._last_active_at = last_active_at or datetime.now(timezone.utc)
+        self._agent = agent
+
+    @property
+    def id(self) -> str:
+        """Get the unique identifier for this entity."""
+        return self._session_id
+
+    @property
+    def session_id(self) -> str:
+        """Get the session ID."""
+        return self._session_id
+
+    @property
+    def state(self) -> ISessionState:
+        """Get the session state."""
+        return self._state
+
+    @state.setter
+    def state(self, value: ISessionState) -> None:
+        """Set the session state."""
+        self._state = value
+
+    @property
+    def history(self) -> list[Any]:
+        """Get the session history."""
+        return self._history
+
+    @property
+    def created_at(self) -> datetime:
+        """Get the session creation time."""
+        return self._created_at
+
+    @property
+    def last_active_at(self) -> datetime:
+        """Get the time of last activity in this session."""
+        return self._last_active_at
+
+    @last_active_at.setter
+    def last_active_at(self, value: datetime) -> None:
+        """Set the time of last activity in this session."""
+        self._last_active_at = value
+
+    @property
+    def agent(self) -> str | None:
+        """Get the agent identifier for this session."""
+        return self._agent
+
+    @agent.setter
+    def agent(self, value: str | None) -> None:
+        """Set the agent identifier for this session."""
+        self._agent = value
+
+    def add_interaction(self, interaction: SessionInteraction) -> None:
+        """Add an interaction to the session history."""
+        self._history.append(interaction)
+        self._last_active_at = datetime.now(timezone.utc)
+
+    def update_state(self, state: ISessionState) -> None:
+        """Update the session state."""
+        self._state = state
+        self._last_active_at = datetime.now(timezone.utc)
+
+    def equals(self, other: Any) -> bool:
+        """Check if this entity equals another based on ID."""
+        if not isinstance(other, ISession):
+            return False
+        return self.id == other.id
+
+    def to_dict(self) -> dict[str, Any]:
+        """Convert this session to a dictionary."""
+        return {
+            "id": self.id,
+            "session_id": self.session_id,
+            "state": self.state.to_dict() if self.state else None,
+            "history": [
+                h.model_dump() if hasattr(h, "model_dump") else h for h in self.history
+            ],
+            "created_at": self.created_at.isoformat(),
+            "last_active_at": self.last_active_at.isoformat(),
+            "agent": self.agent,
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> Session:
+        """Create a session from a dictionary."""
+        state = None
+        if data.get("state"):
+            state_value = SessionState.from_dict(data["state"])
+            if isinstance(state_value, SessionState):
+                state = state_value
+
+        history = []
+        if data.get("history"):
+            for h in data["history"]:
+                if isinstance(h, dict):
+                    history.append(SessionInteraction(**h))
+                else:
+                    history.append(h)
+
+        # Convert ISO format strings to datetime objects
+        created_at = None
+        if data.get("created_at"):
+            if isinstance(data["created_at"], str):
+                created_at = datetime.fromisoformat(data["created_at"])
+            else:
+                created_at = data["created_at"]
+
+        last_active_at = None
+        if data.get("last_active_at"):
+            if isinstance(data["last_active_at"], str):
+                last_active_at = datetime.fromisoformat(data["last_active_at"])
+            else:
+                last_active_at = data["last_active_at"]
+
+        return cls(
+            session_id=data["session_id"],
+            state=state,
+            history=history,
+            created_at=created_at,
+            last_active_at=last_active_at,
+            agent=data.get("agent"),
+        )

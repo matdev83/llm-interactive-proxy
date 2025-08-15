@@ -8,7 +8,7 @@ from src.session import ProxyState
 
 def _load_config():
     """Helper to load config from environment variables."""
-    from src.core.config import _load_config
+    from src.core.config_adapter import _load_config
 
     return _load_config()
 

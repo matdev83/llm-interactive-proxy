@@ -32,10 +32,12 @@ class OpenRouterBackend(OpenAIConnector):
             )
         return self.headers_provider(self.key_name, self.api_key)
 
-    async def initialize(
-        self, *, api_key: str, api_base_url: str | None = None, **kwargs: Any
-    ) -> None:
+    async def initialize(self, **kwargs: Any) -> None:
         """Fetch available models and cache them for later use."""
+        api_key = kwargs.get("api_key")
+        if not api_key:
+            raise ValueError("api_key is required for OpenRouterBackend")
+        
         openrouter_headers_provider = cast(
             Callable[[str, str], dict[str, str]],
             kwargs.get("openrouter_headers_provider"),
@@ -96,19 +98,23 @@ class OpenRouterBackend(OpenAIConnector):
         api_key = kwargs.pop("api_key", None)
         api_base_url = kwargs.pop("openrouter_api_base_url", None)
 
-        if headers_provider is not None:
-            self.headers_provider = cast(
-                Callable[[str, str], dict[str, str]], headers_provider
-            )
-        if key_name is not None:
-            self.key_name = cast(str, key_name)
-        if api_key is not None:
-            self.api_key = cast(str, api_key)
-        if api_base_url:
-            self.api_base_url = cast(str, api_base_url)
+        original_headers_provider = self.headers_provider
+        original_key_name = self.key_name
+        original_api_key = self.api_key
+        original_api_base_url = self.api_base_url
 
-        # The project argument is now handled within _prepare_payload
         try:
+            if headers_provider is not None:
+                self.headers_provider = cast(
+                    Callable[[str, str], dict[str, str]], headers_provider
+                )
+            if key_name is not None:
+                self.key_name = cast(str, key_name)
+            if api_key is not None:
+                self.api_key = cast(str, api_key)
+            if api_base_url:
+                self.api_base_url = cast(str, api_base_url)
+
             return await super().chat_completions(
                 request_data=request_data,
                 processed_messages=processed_messages,
@@ -125,8 +131,7 @@ class OpenRouterBackend(OpenAIConnector):
                 raise HTTPException(
                     status_code=503,
                     detail=e.detail.replace(
-                        "Could not connect to API",
-                        "Could not connect to OpenRouter",
+                        "Could not connect to API", "Could not connect to OpenRouter"
                     ),
                 ) from None
             if e.status_code >= 400 and isinstance(e.detail, dict):
@@ -141,3 +146,8 @@ class OpenRouterBackend(OpenAIConnector):
                         status_code=e.status_code, detail=new_detail
                     ) from None
             raise
+        finally:
+            self.headers_provider = original_headers_provider
+            self.key_name = original_key_name
+            self.api_key = original_api_key
+            self.api_base_url = original_api_base_url

@@ -8,12 +8,13 @@ from src.models import ChatCompletionRequest, ChatMessage
 TEST_OPENROUTER_API_BASE_URL = "https://openrouter.ai/api/v1"
 
 
-def mock_get_openrouter_headers(api_key: str) -> dict[str, str]:
+def mock_get_openrouter_headers(key_name: str, api_key: str) -> dict[str, str]:
     return {
         "Authorization": f"Bearer {api_key}",
         "Content-Type": "application/json",
         "HTTP-Referer": "http://localhost:test",
         "X-Title": "TestProxy",
+        "X-Key-Name": key_name,
     }
 
 
@@ -66,6 +67,7 @@ class TestOpenRouterTemperatureHandling:
             effective_model="openai/gpt-4",
             openrouter_api_base_url=TEST_OPENROUTER_API_BASE_URL,
             openrouter_headers_provider=mock_get_openrouter_headers,
+            key_name="OPENROUTER_API_KEY_1",
             api_key="test-key",
         )
 
@@ -104,6 +106,7 @@ class TestOpenRouterTemperatureHandling:
             effective_model="openai/gpt-4",
             openrouter_api_base_url=TEST_OPENROUTER_API_BASE_URL,
             openrouter_headers_provider=mock_get_openrouter_headers,
+            key_name="OPENROUTER_API_KEY_1",
             api_key="test-key",
         )
 
@@ -142,6 +145,7 @@ class TestOpenRouterTemperatureHandling:
             effective_model="openai/gpt-4",
             openrouter_api_base_url=TEST_OPENROUTER_API_BASE_URL,
             openrouter_headers_provider=mock_get_openrouter_headers,
+            key_name="OPENROUTER_API_KEY_1",
             api_key="test-key",
         )
 
@@ -185,6 +189,7 @@ class TestOpenRouterTemperatureHandling:
             effective_model="openai/gpt-4",
             openrouter_api_base_url=TEST_OPENROUTER_API_BASE_URL,
             openrouter_headers_provider=mock_get_openrouter_headers,
+            key_name="OPENROUTER_API_KEY_1",
             api_key="test-key",
         )
 
@@ -230,6 +235,7 @@ class TestOpenRouterTemperatureHandling:
             effective_model="openai/gpt-4",
             openrouter_api_base_url=TEST_OPENROUTER_API_BASE_URL,
             openrouter_headers_provider=mock_get_openrouter_headers,
+            key_name="OPENROUTER_API_KEY_1",
             api_key="test-key",
         )
 

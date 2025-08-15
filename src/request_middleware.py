@@ -195,3 +195,22 @@ def configure_redaction_middleware() -> None:
 def get_request_middleware() -> RequestMiddleware:
     """Get the global request middleware instance."""
     return request_middleware
+
+
+# FastAPI Middleware Classes
+from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.requests import Request
+from starlette.responses import Response
+
+
+class CustomHeaderMiddleware(BaseHTTPMiddleware):
+    """Middleware to add custom headers to responses."""
+    
+    async def dispatch(self, request: Request, call_next) -> Response:
+        response = await call_next(request)
+        
+        # Add custom headers
+        response.headers["X-Powered-By"] = "LLM Interactive Proxy"
+        response.headers["X-API-Version"] = "1.0"
+        
+        return response

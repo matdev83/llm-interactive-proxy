@@ -39,3 +39,21 @@ class LLMBackend(abc.ABC):
             a dictionary representing the JSON response and a dictionary of headers
             for a non-streaming request.
         """
+
+    @abc.abstractmethod
+    async def initialize(self, **kwargs: Any) -> None:
+        """
+        Initialize the backend with configuration.
+
+        Args:
+            **kwargs: Configuration parameters for the backend.
+        """
+
+    def get_available_models(self) -> list[str]:
+        """
+        Get a list of available models for this backend.
+
+        Returns:
+            A list of model identifiers supported by this backend.
+        """
+        return []

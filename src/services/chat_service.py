@@ -34,7 +34,7 @@ class TrackerProtocol(Protocol):
     def set_completion_id(self, completion_id: str) -> None: ...
 
 
-from src.core.config import _keys_for, get_openrouter_headers
+from src.core.config_adapter import _keys_for, get_openrouter_headers
 from src.llm_accounting_utils import track_llm_request
 from src.performance_tracker import track_phase
 from src.proxy_logic import ProxyState

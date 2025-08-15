@@ -177,7 +177,7 @@ class TestLoopDetectionSimpleIntegration:
     def test_app_startup_integration(self):
         """Test that app can start with loop detection enabled."""
         # This is a minimal test that just verifies imports and basic setup work
-        from src.core.config import _load_config
+        from src.core.config_adapter import _load_config
         from src.main import build_app
 
         # Get base config and override problematic settings

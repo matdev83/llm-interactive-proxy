@@ -17,7 +17,7 @@ TEST_OPENROUTER_API_BASE_URL = (
 )
 
 
-def mock_get_openrouter_headers(api_key: str) -> dict[str, str]:
+def mock_get_openrouter_headers(key_name: str, api_key: str) -> dict[str, str]:
     return {
         "Authorization": f"Bearer {api_key}",
         "Content-Type": "application/json",
@@ -48,6 +48,11 @@ def sample_chat_request_data() -> models.ChatCompletionRequest:
         frequency_penalty=None,
         logit_bias=None,
         user=None,
+        tool_choice=None,
+        reasoning_effort=None,
+        reasoning=None,
+        thinking_budget=None,
+        generation_config=None,
         extra_params=None,
     )
 

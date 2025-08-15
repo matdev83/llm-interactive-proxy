@@ -38,6 +38,11 @@ classifiers = [
     "Operating System :: OS Independent", # Common classifier
 ]
 
+[project.scripts]
+restart-service = "dev.tools.restart_service:main"
+test-request = "dev.tools.test_request:main"
+analyze-logs = "dev.tools.analyze_logs:main"
+
 [project.optional-dependencies]
 dev = [
     "pytest",
@@ -47,6 +52,8 @@ dev = [
     "black",
     "requests",
     "bandit",
+    "mdformat",
+    "types-PyYAML",
 ]
 
 [build-system]
