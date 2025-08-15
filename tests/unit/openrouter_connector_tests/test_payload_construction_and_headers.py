@@ -17,7 +17,7 @@ TEST_OPENROUTER_API_BASE_URL = (
 )
 
 
-def mock_get_openrouter_headers(api_key: str) -> dict[str, str]:
+def mock_get_openrouter_headers(key_name: str, api_key: str) -> dict[str, str]:
     return {
         "Authorization": f"Bearer {api_key}",
         "Content-Type": "application/json",
@@ -38,13 +38,29 @@ def sample_chat_request_data() -> models.ChatCompletionRequest:
     return models.ChatCompletionRequest(
         model="test-model",
         messages=[models.ChatMessage(role="user", content="Hello")],
+        temperature=0.7,
+        top_p=None,
+        n=None,
+        stream=False,
+        stop=None,
+        max_tokens=100,
+        presence_penalty=None,
+        frequency_penalty=None,
+        logit_bias=None,
+        user=None,
+        tool_choice=None,
+        reasoning_effort=None,
+        reasoning=None,
+        thinking_budget=None,
+        generation_config=None,
+        extra_params=None,
     )
 
 
 @pytest.fixture
-def sample_processed_messages() -> (
-    list[models.ChatMessage]
-):  # This is unused in this specific file though
+def sample_processed_messages() -> list[
+    models.ChatMessage
+]:  # This is unused in this specific file though
     return [models.ChatMessage(role="user", content="Hello")]
 
 

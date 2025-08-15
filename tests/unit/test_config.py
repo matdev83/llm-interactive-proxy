@@ -2,7 +2,7 @@ import os
 from unittest.mock import patch
 
 import pytest
-from src.core.config import _collect_api_keys, _load_config
+from src.core.config_adapter import _collect_api_keys, _load_config
 
 
 def test_collect_api_keys_single() -> None:
@@ -29,7 +29,7 @@ def test_collect_api_keys_prioritizes_numbered() -> None:
             {"TEST_API_KEY": "single-key", "TEST_API_KEY_1": "key1"},
             clear=True,
         ),
-        patch("src.core.config.logger") as mock_logger,
+        patch("src.core.config.config_loader.logger") as mock_logger,
     ):
         keys = _collect_api_keys("TEST_API_KEY")
         assert keys == {"TEST_API_KEY_1": "key1"}
@@ -66,7 +66,7 @@ def test_load_config_disable_auth_forces_localhost() -> None:
         patch.dict(
             os.environ, {"DISABLE_AUTH": "true", "PROXY_HOST": "0.0.0.0"}, clear=True
         ),
-        patch("src.core.config.logger") as mock_logger,
+        patch("src.core.config.config_loader.logger") as mock_logger,
     ):
         config = _load_config()
         assert config["proxy_host"] == "127.0.0.1"
@@ -83,7 +83,7 @@ def test_load_config_disable_auth_with_localhost_no_warning() -> None:
         patch.dict(
             os.environ, {"DISABLE_AUTH": "true", "PROXY_HOST": "127.0.0.1"}, clear=True
         ),
-        patch("src.core.config.logger") as mock_logger,
+        patch("src.core.config.config_loader.logger") as mock_logger,
     ):
         config = _load_config()
         assert config["proxy_host"] == "127.0.0.1"
@@ -98,7 +98,7 @@ def test_load_config_auth_enabled_allows_custom_host() -> None:
         patch.dict(
             os.environ, {"DISABLE_AUTH": "false", "PROXY_HOST": "0.0.0.0"}, clear=True
         ),
-        patch("src.core.config.logger") as mock_logger,
+        patch("src.core.config.config_loader.logger") as mock_logger,
     ):
         config = _load_config()
         assert config["proxy_host"] == "0.0.0.0"

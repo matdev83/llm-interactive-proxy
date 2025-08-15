@@ -43,11 +43,13 @@ class ZAIConnector(OpenAIConnector):
             # Fallback to hardcoded models if config file is not found or invalid
             return ["glm-4.5-flash", "glm-4.5-air", "glm-4.5"]
 
-    async def initialize(
-        self, *, api_key: str, api_base_url: str | None = None, **kwargs: Any
-    ) -> None:
+    async def initialize(self, **kwargs: Any) -> None:
         """Initialize the connector and fetch available models."""
-        self.api_key = api_key
+        self.api_key = kwargs.get("api_key")
+        if not self.api_key:
+            raise ValueError("api_key is required for ZAIConnector")
+        
+        api_base_url = kwargs.get("api_base_url")
         if api_base_url:
             self.api_base_url = api_base_url
 

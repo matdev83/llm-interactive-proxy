@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Any  # Added Optional and Tuple
 
 from fastapi import FastAPI
+
 from src.command_prefix import validate_command_prefix
 from src.models import ModelDefaults  # Add import for model config classes
 

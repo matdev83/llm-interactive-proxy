@@ -23,7 +23,7 @@ class TestLoopDetectionIntegration:
     def test_loop_detection_initialization_on_startup(self):
         """Test that loop detection is properly initialized during app startup."""
         # Build app with loop detection enabled - need to provide required config
-        from src.core.config import _load_config
+        from src.core.config_adapter import _load_config
 
         base_config = _load_config()
         config = {
@@ -60,7 +60,7 @@ class TestLoopDetectionIntegration:
 
     def test_loop_detection_disabled_on_startup(self):
         """Test that loop detection can be disabled via configuration."""
-        from src.core.config import _load_config
+        from src.core.config_adapter import _load_config
 
         base_config = _load_config()
         config = {
@@ -194,7 +194,7 @@ class TestLoopDetectionIntegration:
         }
 
         with patch.dict(os.environ, env_vars):
-            from src.core.config import _load_config
+            from src.core.config_adapter import _load_config
 
             base_config = _load_config()
             config = {
@@ -297,7 +297,7 @@ class TestLoopDetectionCommands:
 
     def test_loop_detection_status_in_help(self):
         """Test that loop detection status appears in help output."""
-        from src.core.config import _load_config
+        from src.core.config_adapter import _load_config
 
         base_config = _load_config()
         config = {

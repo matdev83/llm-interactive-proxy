@@ -30,11 +30,13 @@ class OpenAIConnector(LLMBackend):
             raise HTTPException(status_code=500, detail="API key is not set.")
         return {"Authorization": f"Bearer {self.api_key}"}
 
-    async def initialize(
-        self, *, api_key: str, api_base_url: str | None = None, **kwargs: Any
-    ) -> None:
+    async def initialize(self, **kwargs: Any) -> None:
         """Initialize the connector and fetch available models."""
-        self.api_key = api_key
+        self.api_key = kwargs.get("api_key")
+        if not self.api_key:
+            raise ValueError("api_key is required for OpenAIConnector")
+        
+        api_base_url = kwargs.get("api_base_url")
         if api_base_url:
             self.api_base_url = api_base_url
 

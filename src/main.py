@@ -36,7 +36,7 @@ from src.connectors.openrouter import OpenRouterBackend
 from src.connectors.qwen_oauth import QwenOAuthConnector
 from src.connectors.zai import ZAIConnector
 from src.constants import SUPPORTED_BACKENDS, BackendType
-from src.core.config import (
+from src.core.config_adapter import (
     _keys_for,
     _load_config,  # needed for build_app
     get_openrouter_headers,
@@ -242,6 +242,10 @@ def build_app(
     async def lifespan(app_param: FastAPI):
         nonlocal functional
 
+        # Initialize integration bridge for dual architecture support
+        from src.core.integration import get_integration_bridge
+        bridge = get_integration_bridge(app_param)
+        
         client_httpx = httpx.AsyncClient(timeout=cfg["proxy_timeout"])
         app_param.state.httpx_client = client_httpx
         app_param.state.failover_routes = {}
@@ -677,9 +681,16 @@ def build_app(
         else:
             app_param.state.config_manager = None
 
+        # Initialize both architectures through the bridge
+        await bridge.initialize_legacy_architecture()
+        await bridge.initialize_new_architecture()
+
         yield
 
         # ---------------- Shutdown phase ----------------
+        # Cleanup integration bridge
+        await bridge.cleanup()
+        
         # Close shared httpx client
         try:
             await client_httpx.aclose()
@@ -2809,6 +2820,20 @@ def build_app(
             # this fallback isn't sufficient.
             if logger.isEnabledFor(logging.DEBUG):
                 logger.debug("Failed to create fallback SessionManager: %s", exc)
+
+    # Register hybrid endpoints for gradual migration
+    from src.core.integration import hybrid_anthropic_messages, hybrid_chat_completions
+    
+    # Add hybrid routes with different paths for testing
+    app_instance.post(
+        "/v2/chat/completions",
+        dependencies=[Depends(verify_client_auth)],
+    )(hybrid_chat_completions)
+    
+    app_instance.post(
+        "/v2/messages", 
+        dependencies=[Depends(verify_client_auth)]
+    )(hybrid_anthropic_messages)
 
     return app_instance
 

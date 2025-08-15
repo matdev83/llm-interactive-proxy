@@ -1,0 +1,82 @@
+# Example configuration for LLM Interactive Proxy
+
+# Server settings
+host: "0.0.0.0"
+port: 8000
+proxy_timeout: 120
+command_prefix: "!/"
+
+# Authentication
+auth:
+  disable_auth: false  # Set to true to disable API key authentication
+  api_keys: 
+    - "your-api-key-here"  # List of valid API keys
+  auth_token: null  # Optional auth token
+
+# Session management
+session:
+  cleanup_enabled: true
+  cleanup_interval: 3600  # 1 hour
+  max_age: 86400  # 1 day
+  default_interactive_mode: true
+  force_set_project: false
+
+# Logging
+logging:
+  level: "INFO"  # DEBUG, INFO, WARNING, ERROR, CRITICAL
+  request_logging: false
+  response_logging: false
+  log_file: null  # Optional log file path
+
+# Backend settings
+backends:
+  default_backend: "openai"
+  
+  openai:
+    api_key: ""  # Your OpenAI API key
+    api_url: null  # Optional custom API URL
+    timeout: 120
+    models:
+      - "gpt-3.5-turbo"
+      - "gpt-4"
+      - "gpt-4-turbo"
+  
+  openrouter:
+    api_key: ""  # Your OpenRouter API key
+    api_url: "https://openrouter.ai/api/v1"
+    timeout: 180
+  
+  anthropic:
+    api_key: ""  # Your Anthropic API key
+    timeout: 150
+  
+  gemini:
+    api_key: ""  # Your Gemini API key
+    timeout: 120
+  
+  qwen_oauth:
+    api_key: ""  # Your Qwen OAuth API key
+    timeout: 120
+    extra:
+      client_id: ""  # Client ID for OAuth
+      client_secret: ""  # Client secret for OAuth
+  
+  zai:
+    api_key: ""  # Your ZAI API key
+    timeout: 120
+
+# Model-specific defaults
+model_defaults:
+  "gpt-4":  # Exact model name
+    temperature: 0.7
+  
+  "openrouter:claude-3-opus":  # Backend:model format
+    reasoning_effort: "high"
+
+# Failover routes
+failover_routes:
+  default:
+    policy: "ordered"
+    elements:
+      - "openai:gpt-4"
+      - "openrouter:anthropic/claude-3-opus-20240229"

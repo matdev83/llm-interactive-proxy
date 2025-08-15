@@ -16,7 +16,7 @@ TEST_OPENROUTER_API_BASE_URL = (
 )
 
 
-def mock_get_openrouter_headers(api_key: str) -> dict[str, str]:
+def mock_get_openrouter_headers(key_name: str, api_key: str) -> dict[str, str]:
     return {
         "Authorization": f"Bearer {api_key}",
         "Content-Type": "application/json",

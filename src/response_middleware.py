@@ -422,3 +422,22 @@ def configure_loop_detection_middleware(
 def get_response_middleware() -> ResponseMiddleware:
     """Get the global response middleware instance."""
     return response_middleware
+
+
+# FastAPI Middleware Classes
+from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.requests import Request
+from starlette.responses import Response
+
+
+class RetryAfterMiddleware(BaseHTTPMiddleware):
+    """Middleware to add Retry-After headers for rate limiting responses."""
+    
+    async def dispatch(self, request: Request, call_next) -> Response:
+        response = await call_next(request)
+        
+        # Add Retry-After header for rate limit responses
+        if response.status_code == 429 and "retry-after" not in response.headers:  # Too Many Requests
+            response.headers["retry-after"] = "60"  # Default 60 seconds
+        
+        return response
