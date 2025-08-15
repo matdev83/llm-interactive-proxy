@@ -99,7 +99,12 @@ def register_services(services: IServiceCollection, app: FastAPI) -> None:
     services.add_instance(httpx.AsyncClient, app.state.httpx_client)
 
     # Register application services
-    services.add_singleton(BackendFactory)
+    services.add_singleton(
+        BackendFactory,
+        implementation_factory=lambda sp: BackendFactory(
+            sp.get_required_service(httpx.AsyncClient)
+        ),
+    )
 
     # For now, register interfaces with new implementations
     # but also maintain legacy code access for migration period
