@@ -13,13 +13,15 @@ def test_cline_command_wrapping(client):
             "model": "m",
             "messages": [{"role": "system", "content": "You are Cline, use tools"}],
         }
-        client.post("/v1/chat/completions", json=payload)
+        headers = {"Authorization": "Bearer test_api_key"}
+        client.post("/v1/chat/completions", json=payload, headers=headers)
 
     session = client.app.state.session_manager.get_session("default")
     assert session.agent == "cline"
 
     payload = {"model": "m", "messages": [{"role": "user", "content": "!/hello"}]}
-    resp = client.post("/v1/chat/completions", json=payload)
+    headers = {"Authorization": "Bearer test_api_key"}
+    resp = client.post("/v1/chat/completions", json=payload, headers=headers)
     data = resp.json()
     assert data["id"] == "proxy_cmd_processed"
     message = data["choices"][0]["message"]

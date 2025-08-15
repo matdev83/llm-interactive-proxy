@@ -77,11 +77,90 @@ class IntegrationBridge:
         
         logger.info("Initializing legacy architecture")
         
-        # Initialize legacy components as they were before
-        # This will be called from the existing main.py lifespan
+        # Initialize legacy backend objects for backward compatibility
+        await self._setup_legacy_backends()
         
         self.legacy_initialized = True
         logger.info("Legacy architecture initialized")
+    
+    async def _setup_legacy_backends(self) -> None:
+        """Set up legacy backend objects on app state for backward compatibility."""
+        if not hasattr(self.app.state, 'config'):
+            logger.warning("No config found on app state, skipping legacy backend setup")
+            return
+        
+        config = self.app.state.config
+        
+        # Import legacy backend classes
+        from src.connectors.gemini import GeminiBackend
+        from src.connectors.openrouter import OpenRouterBackend
+        from src.connectors.anthropic import AnthropicBackend
+        from src.connectors.openai import OpenAIConnector
+        from src.connectors.qwen_oauth import QwenOAuthConnector
+        from src.connectors.zai import ZAIConnector
+        
+        # Get HTTP client
+        client_httpx = getattr(self.app.state, 'httpx_client', None)
+        if client_httpx is None:
+            import httpx
+            client_httpx = httpx.AsyncClient(timeout=config.get("proxy_timeout", 300))
+            self.app.state.httpx_client = client_httpx
+        
+        # Initialize backends
+        openai_backend = OpenAIConnector(client_httpx)
+        openrouter_backend = OpenRouterBackend(client_httpx)
+        gemini_backend = GeminiBackend(client_httpx)
+        anthropic_backend = AnthropicBackend(client_httpx)
+        qwen_oauth_backend = QwenOAuthConnector(client_httpx)
+        zai_backend = ZAIConnector(client_httpx)
+        
+        # Set up API keys
+        openrouter_keys = config.get("openrouter_api_keys", {})
+        if openrouter_keys:
+            openrouter_backend.api_keys = list(openrouter_keys.values())
+        
+        gemini_keys = config.get("gemini_api_keys", {})
+        if gemini_keys:
+            gemini_backend.api_keys = list(gemini_keys.values())
+        else:
+            # Add a test key for compatibility
+            gemini_backend.api_keys = ["local-cli"]
+        
+        openai_keys = config.get("openai_api_keys", {})
+        if openai_keys:
+            openai_backend.api_keys = list(openai_keys.values())
+        
+        # Store backends on app state for legacy compatibility
+        self.app.state.openai_backend = openai_backend
+        self.app.state.openrouter_backend = openrouter_backend
+        self.app.state.gemini_backend = gemini_backend
+        self.app.state.anthropic_backend = anthropic_backend
+        self.app.state.qwen_oauth_backend = qwen_oauth_backend
+        self.app.state.zai_backend = zai_backend
+        
+        # Set up other legacy app state attributes
+        if not hasattr(self.app.state, 'command_prefix'):
+            self.app.state.command_prefix = config.get("command_prefix", "!/")
+        
+        if not hasattr(self.app.state, 'project_metadata'):
+            from src.core.metadata import _load_project_metadata
+            project_name, project_version = _load_project_metadata()
+            self.app.state.project_metadata = {
+                "name": project_name,
+                "version": project_version,
+            }
+        
+        # Set up session manager if not present
+        if not hasattr(self.app.state, 'session_manager'):
+            from src.session import SessionManager
+            default_mode = config.get("interactive_mode", True)
+            failover_routes = getattr(self.app.state, 'failover_routes', {})
+            self.app.state.session_manager = SessionManager(
+                default_interactive_mode=default_mode,
+                failover_routes=failover_routes,
+            )
+        
+        logger.debug("Legacy backends initialized on app state")
     
     async def initialize_new_architecture(self) -> None:
         """Initialize the new SOLID architecture."""

@@ -88,6 +88,26 @@ def test_app(test_config: AppConfig, mock_http_client: httpx.AsyncClient) -> Fas
     # Use the mock HTTP client
     app.state.httpx_client = mock_http_client
 
+    # Manually set up service provider for testing since TestClient doesn't trigger lifespan
+    from src.core.app.application_factory import register_services
+    services = get_service_collection()
+    register_services(services, app)
+    provider = services.build_service_provider()
+    set_service_provider(provider)
+    app.state.service_provider = provider
+
+    # Initialize integration bridge for legacy compatibility
+    from src.core.integration import get_integration_bridge
+    import asyncio
+    
+    async def setup_bridge():
+        bridge = get_integration_bridge(app)
+        await bridge.initialize_legacy_architecture()
+        await bridge.initialize_new_architecture()
+    
+    # Run the async setup
+    asyncio.run(setup_bridge())
+
     return app
 
 
