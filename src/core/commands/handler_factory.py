@@ -25,6 +25,7 @@ from src.core.commands.handlers.failover_handlers import (
     RouteListHandler,
     RoutePrependHandler,
 )
+from src.core.commands.handlers.hello_handler import HelloCommandHandler
 from src.core.commands.handlers.oneoff_handler import OneOffCommandHandler
 from src.core.commands.handlers.pwd_handler import PwdCommandHandler
 from src.core.services.command_service import CommandRegistry
@@ -47,6 +48,7 @@ class CommandHandlerFactory:
         self.register_handler_class(TemperatureCommandHandler)
         self.register_handler_class(ProjectCommandHandler)
         self.register_handler_class(HelpCommandHandler)
+        self.register_handler_class(HelloCommandHandler)
         self.register_handler_class(OneOffCommandHandler)
         self.register_handler_class(PwdCommandHandler)
         
