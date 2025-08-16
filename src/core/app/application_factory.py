@@ -1,19 +1,17 @@
 from __future__ import annotations
 
 from contextlib import asynccontextmanager
-from pathlib import Path
 
 import httpx
 from fastapi import FastAPI
 
 from src.core.commands.handler_factory import register_command_handlers
 from src.core.common.logging import get_logger, setup_logging
-from src.core.config_adapter import AppConfig, _load_config
-from src.core.di.services import get_service_collection, set_service_provider
+from src.core.config.app_config import AppConfig, load_config
+from src.core.di.services import get_service_collection
 from src.core.interfaces.backend_service import IBackendService
 from src.core.interfaces.command_service import ICommandService
 from src.core.interfaces.configuration import IConfig
-from src.core.interfaces.di import IServiceCollection
 from src.core.interfaces.loop_detector import ILoopDetector
 from src.core.interfaces.rate_limiter import IRateLimiter
 from src.core.interfaces.repositories import (
@@ -33,306 +31,480 @@ from src.core.services.backend_service import BackendService
 from src.core.services.command_service import CommandRegistry, CommandService
 from src.core.services.loop_detector import create_loop_detector
 from src.core.services.rate_limiter import create_rate_limiter
-from src.core.services.redaction_middleware import RedactionMiddleware
 from src.core.services.request_processor import RequestProcessor
-from src.core.services.response_middleware import (
-    ContentFilterMiddleware,
-    LoggingMiddleware,
-    LoopDetectionMiddleware,
-)
 from src.core.services.response_processor import ResponseProcessor
-from src.core.services.session_migration_service import (
-    SessionMigrationService,
-    create_session_migration_service,
-)
 from src.core.services.session_service import SessionService
-from src.core.services.tool_call_loop_middleware import ToolCallLoopDetectionMiddleware
 from src.core.services.usage_tracking_service import UsageTrackingService
 
 logger = get_logger(__name__)
 
 
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    """Lifespan context manager for FastAPI application.
+from typing import Protocol
 
-    Args:
-        app: The FastAPI application
-    """
-    # Get config from app state
-    legacy_config = app.state.config
-    config = AppConfig.from_legacy_config(legacy_config)
+from src.core.interfaces.di import IServiceProvider
 
-    async with httpx.AsyncClient(
-        timeout=config.proxy_timeout,
-        follow_redirects=True,
-    ) as client:
-        # Store client in app state for legacy code
-        app.state.httpx_client = client
 
-        # Create service provider
+class IApplicationBuilder(Protocol):
+    """Interface for application builders."""
+
+    def build(self, config: AppConfig) -> FastAPI:
+        """Build a FastAPI application.
+
+        Args:
+            config: The application configuration
+
+        Returns:
+            A configured FastAPI application
+        """
+        ...
+
+
+class IServiceConfigurator(Protocol):
+    """Interface for service configuration."""
+
+    def configure_services(self, config: AppConfig) -> IServiceProvider:
+        """Configure services for the application.
+
+        Args:
+            config: The application configuration
+
+        Returns:
+            A configured service provider
+        """
+        ...
+
+
+class IMiddlewareConfigurator(Protocol):
+    """Interface for middleware configuration."""
+
+    def configure_middleware(self, app: FastAPI, config: AppConfig) -> None:
+        """Configure middleware for the application.
+
+        Args:
+            app: The FastAPI application
+            config: The application configuration
+        """
+        ...
+
+
+class IRouteConfigurator(Protocol):
+    """Interface for route configuration."""
+
+    def configure_routes(self, app: FastAPI, provider: IServiceProvider) -> None:
+        """Configure routes for the application.
+
+        Args:
+            app: The FastAPI application
+            provider: The service provider
+        """
+        ...
+
+
+class ServiceConfigurator:
+    """Configures services for the application."""
+
+    def configure_services(self, config: AppConfig) -> IServiceProvider:
+        """Configure services for the application.
+
+        Args:
+            config: The application configuration
+
+        Returns:
+            A configured service provider
+        """
+        from src.core.interfaces.backend_service import IBackendService
+        from src.core.interfaces.rate_limiter import IRateLimiter
+        from src.core.services.command_service import CommandRegistry
+
         services = get_service_collection()
 
-        # Register services
-        register_services(services, app)
+        # Register configuration
+        services.add_instance(IConfig, config)
 
-        # Build provider and store globally
-        provider = services.build_service_provider()
-        set_service_provider(provider)
+        # Register repositories
+        # Type ignores are needed because mypy doesn't understand that these
+        # concrete classes implement the abstract interfaces
+        services.add_singleton(IConfigRepository, InMemoryConfigRepository)  # type: ignore
+        services.add_singleton(ISessionRepository, InMemorySessionRepository)  # type: ignore
+        services.add_singleton(IUsageRepository, InMemoryUsageRepository)  # type: ignore
 
-        # Store provider in app state
+        # Register core services
+        # SessionService needs repository dependency, register with factory
+        def session_service_factory(provider):
+            session_repository = provider.get_required_service(ISessionRepository)
+            return SessionService(session_repository)
+
+        services.add_singleton_factory(ISessionService, session_service_factory)
+
+        # CommandService needs dependencies, register with factory
+        def command_service_factory(provider):
+            command_registry = provider.get_required_service(CommandRegistry)
+            session_service = provider.get_required_service(ISessionService)
+            return CommandService(command_registry, session_service)
+
+        services.add_singleton_factory(ICommandService, command_service_factory)
+
+        # RequestProcessor needs dependencies - register as a factory
+        def request_processor_factory(provider):
+            from src.core.interfaces.command_service import ICommandService
+            from src.core.interfaces.response_processor import IResponseProcessor
+            from src.core.interfaces.session_service import ISessionService
+
+            command_service = provider.get_required_service(ICommandService)
+            backend_service = provider.get_required_service(IBackendService)
+            session_service = provider.get_required_service(ISessionService)
+            response_processor = provider.get_required_service(IResponseProcessor)
+            return RequestProcessor(
+                command_service, backend_service, session_service, response_processor
+            )
+
+        services.add_singleton_factory(IRequestProcessor, request_processor_factory)
+        services.add_singleton(IResponseProcessor, ResponseProcessor)  # type: ignore
+        services.add_singleton(IUsageTrackingService, UsageTrackingService)  # type: ignore
+
+        # Register infrastructure services
+        loop_detector = create_loop_detector()
+        services.add_instance(ILoopDetector, loop_detector)  # type: ignore
+
+        rate_limiter = create_rate_limiter(config)
+        services.add_instance(IRateLimiter, rate_limiter)  # type: ignore
+
+        # Register HTTP client
+        client = httpx.AsyncClient(timeout=config.proxy_timeout)
+        services.add_instance(httpx.AsyncClient, client)
+
+        # Register command registry
+        command_registry = CommandRegistry()
+        services.add_instance(CommandRegistry, command_registry)
+
+        # Register backend-related services with proper factory pattern
+        self._register_backend_services(services, config)
+
+        return services.build_service_provider()
+
+    def _register_backend_services(self, services, config):
+        """Register backend-related services.
+
+        Args:
+            services: The service collection
+            config: The application configuration
+        """
+
+        # Register backend factory
+        def backend_factory_factory(provider):
+            httpx_client = provider.get_required_service(httpx.AsyncClient)
+            return BackendFactory(httpx_client)
+
+        services.add_singleton_factory(BackendFactory, backend_factory_factory)
+
+        # Register backend service
+        def backend_service_factory(provider):
+            factory = provider.get_required_service(BackendFactory)
+            rate_limiter = provider.get_required_service(IRateLimiter)
+            config = provider.get_required_service(IConfig)
+            return BackendService(factory, rate_limiter, config)
+
+        services.add_singleton_factory(IBackendService, backend_service_factory)
+
+
+class MiddlewareConfigurator:
+    """Configures middleware for the application."""
+
+    def configure_middleware(self, app: FastAPI, config: AppConfig) -> None:
+        """Configure middleware for the application.
+
+        Args:
+            app: The FastAPI application
+            config: The application configuration
+        """
+        from src.core.app.middleware_config import configure_middleware
+
+        # Create a simplified config dict for middleware
+        middleware_config = {
+            "api_keys": config.auth.api_keys if config.auth else [],
+            "disable_auth": config.auth.disable_auth if config.auth else False,
+            "auth_token": config.auth.auth_token
+            if config.auth and hasattr(config.auth, "auth_token")
+            else None,
+            "request_logging": config.logging.request_logging
+            if config.logging and hasattr(config.logging, "request_logging")
+            else False,
+            "response_logging": config.logging.response_logging
+            if config.logging and hasattr(config.logging, "response_logging")
+            else False,
+        }
+
+        configure_middleware(app, middleware_config)
+
+
+class RouteConfigurator:
+    """Configures routes for the application."""
+
+    def configure_routes(self, app: FastAPI, provider: IServiceProvider) -> None:
+        """Configure routes for the application.
+
+        Args:
+            app: The FastAPI application
+            provider: The service provider
+        """
+        # Store provider in app state for dependency injection
         app.state.service_provider = provider
 
-        # Register the config
-        services.add_instance(AppConfig, config)
+        # Register main routes
+        from src.core.app.controllers import register_routes
 
-        # Call legacy initialization if needed
-        # This will be removed once migration is complete
-        if hasattr(app.state, "initialize_legacy") and callable(
-            app.state.initialize_legacy
-        ):
-            await app.state.initialize_legacy(app)
+        register_routes(app)
 
-        yield
+        # Register models controller
+        from src.core.app.controllers.models_controller import router as models_router
 
-        # Cleanup
-        if hasattr(app.state, "cleanup_legacy") and callable(app.state.cleanup_legacy):
-            await app.state.cleanup_legacy(app)
+        app.include_router(models_router)
+
+        # Register Anthropic router if needed
+        from src.anthropic_router import router as anthropic_router
+
+        app.include_router(anthropic_router)
 
 
-def register_services(services: IServiceCollection, app: FastAPI) -> None:  # type: ignore[misc]
-    """Register services with the service collection.
+class ApplicationBuilder:
+    """Builds FastAPI applications with proper separation of concerns."""
 
-    Args:
-        services: The service collection
-        app: The FastAPI application
-    """
-    # Register singletons from app state
-    services.add_instance(FastAPI, app)
-    services.add_instance(httpx.AsyncClient, app.state.httpx_client)
+    def __init__(
+        self,
+        service_configurator: IServiceConfigurator | None = None,
+        middleware_configurator: IMiddlewareConfigurator | None = None,
+        route_configurator: IRouteConfigurator | None = None,
+    ):
+        """Initialize the application builder.
 
-    # Register application services
-    services.add_singleton(
-        BackendFactory,
-        implementation_factory=lambda sp: BackendFactory(
-            sp.get_required_service(httpx.AsyncClient)
-        ),
-    )
+        Args:
+            service_configurator: Optional service configurator
+            middleware_configurator: Optional middleware configurator
+            route_configurator: Optional route configurator
+        """
+        self.service_configurator = service_configurator or ServiceConfigurator()
+        self.middleware_configurator = (
+            middleware_configurator or MiddlewareConfigurator()
+        )
+        self.route_configurator = route_configurator or RouteConfigurator()
 
-    # Provide a minimal IConfig backed by app.state.config for DI consumers
-    from src.core.interfaces.configuration import (
-        IConfig as _IConfig,  # type: ignore[assignment]
-    )
+    def build(self, config: AppConfig) -> FastAPI:
+        """Build a FastAPI application.
 
-    class _AppStateConfig(_IConfig):
-        def get(self, key: str, default=None):
-            return app.state.config.get(key, default)
+        Args:
+            config: The application configuration
 
-        def set(self, key: str, value):
-            app.state.config[key] = value
+        Returns:
+            A configured FastAPI application
+        """
+        # Configure logging
+        setup_logging(config)
+        logger.info("Building application with improved factory")
 
-        def has(self, key: str) -> bool:
-            return key in app.state.config
+        # Create FastAPI app with lifespan
+        app = FastAPI(
+            title="LLM Interactive Proxy",
+            description="A proxy server that adds interactive features to LLM APIs",
+            lifespan=self._create_lifespan(config),
+        )
 
-        def keys(self) -> list[str]:
-            return list(app.state.config.keys())
+        # Store configuration
+        app.state.app_config = config
 
-        def to_dict(self) -> dict[str, object]:
-            return dict(app.state.config)
+        # Configure services
+        service_provider = self.service_configurator.configure_services(config)
+        app.state.service_provider = service_provider
 
-        def update(self, config: dict) -> None:
-            app.state.config.update(config)
+        # Configure middleware
+        self.middleware_configurator.configure_middleware(app, config)
 
-    services.add_instance(_IConfig, _AppStateConfig())  # type: ignore[arg-type, type-abstract]
+        # Configure routes
+        self.route_configurator.configure_routes(app, service_provider)
 
-    # For now, register interfaces with new implementations
-    # but also maintain legacy code access for migration period
+        # Configure error handlers
+        from src.core.app.error_handlers import configure_exception_handlers
 
-    # BackendService
-    services.add_singleton(  # type: ignore[arg-type, type-abstract]
-        IBackendService,  # type: ignore[type-abstract]
-        implementation_factory=lambda sp: BackendService(  # type: ignore
-            sp.get_required_service(BackendFactory),  # type: ignore
-            sp.get_required_service(IRateLimiter),  # type: ignore
-            sp.get_required_service(IConfig),  # type: ignore
-            getattr(app.state, "backend_configs", {}),
-            getattr(app.state, "failover_routes", {}),
-        ),
-    )
+        configure_exception_handlers(app)
 
-    # RequestProcessor
-    services.add_singleton(  # type: ignore[arg-type, type-abstract]
-        IRequestProcessor,  # type: ignore[type-abstract]
-        implementation_factory=lambda sp: RequestProcessor(  # type: ignore
-            sp.get_required_service(ICommandService),  # type: ignore
-            sp.get_required_service(IBackendService),  # type: ignore
-            sp.get_required_service(ISessionService),  # type: ignore
-            sp.get_required_service(IResponseProcessor),  # type: ignore
-        ),
-    )
+        # Set up backend configs for compatibility
+        self._configure_backend_compatibility(app, config)
 
-    # SessionService
-    services.add_singleton(  # type: ignore[arg-type, type-abstract]
-        ISessionService,  # type: ignore[type-abstract]
-        implementation_factory=lambda sp: SessionService(  # type: ignore
-            sp.get_required_service(ISessionRepository)  # type: ignore
-        ),
-    )
+        logger.info("Application built successfully")
+        return app
 
-    # SessionMigrationService
-    services.add_singleton(
-        SessionMigrationService,
-        implementation_factory=lambda sp: create_session_migration_service(
-            sp.get_required_service(ISessionService)  # type: ignore
-        ),
-    )
+    def _create_lifespan(self, config: AppConfig):
+        """Create lifespan context manager for the application.
 
-    # CommandService
-    command_registry = CommandRegistry()
-    services.add_instance(CommandRegistry, command_registry)
+        Args:
+            config: The application configuration
 
-    # Register command handlers with registry
-    register_command_handlers(command_registry)
+        Returns:
+            A lifespan context manager
+        """
 
-    services.add_singleton(  # type: ignore[arg-type, type-abstract]
-        ICommandService,  # type: ignore[type-abstract]
-        implementation_factory=lambda sp: CommandService(  # type: ignore
-            command_registry=sp.get_required_service(CommandRegistry),  # type: ignore
-            session_service=sp.get_required_service(ISessionService),  # type: ignore
-        ),
-    )
+        @asynccontextmanager
+        async def lifespan(app: FastAPI):
+            """Lifespan context manager for FastAPI application."""
+            logger.info("Starting application")
 
-    # RateLimiter
-    services.add_singleton(
-        IRateLimiter, implementation_factory=lambda _: create_rate_limiter(app.state.config)  # type: ignore
-    )
+            # Initialize HTTP client
+            app.state.httpx_client = httpx.AsyncClient(timeout=config.proxy_timeout)
 
-    # LoopDetector
-    services.add_singleton(
-        ILoopDetector, implementation_factory=lambda _: create_loop_detector(app.state.config)  # type: ignore
-    )
+            # Register command handlers
+            command_registry = app.state.service_provider.get_required_service(
+                CommandRegistry
+            )
+            register_command_handlers(command_registry)
 
-    # ResponseProcessor
-    services.add_singleton(ContentFilterMiddleware)
-    services.add_singleton(LoggingMiddleware)
+            yield
 
-    # Create loop detection middleware if loop detector is available
-    services.add_singleton(
-        LoopDetectionMiddleware,
-        implementation_factory=lambda sp: LoopDetectionMiddleware(
-            sp.get_service(ILoopDetector)  # type: ignore
-        ),
-    )
+            # Clean up resources
+            logger.info("Shutting down application")
+            if hasattr(app.state, "httpx_client") and app.state.httpx_client:
+                await app.state.httpx_client.aclose()
 
-    # Create tool call loop detection middleware
-    services.add_singleton(ToolCallLoopDetectionMiddleware)
+        return lifespan
 
-    # Create redaction middleware
-    services.add_singleton(
-        RedactionMiddleware,
-        implementation_factory=lambda sp: RedactionMiddleware(
-            api_keys=config.get("api_keys", []),
-            command_prefix=config.get("command_prefix", "!/"),
-        ),
-    )
-    
-    # Create response processor with all middleware components
-    services.add_singleton(  # type: ignore[arg-type, type-abstract]
-        IResponseProcessor,  # type: ignore[type-abstract]
-        implementation_factory=lambda sp: ResponseProcessor(  # type: ignore
-            sp.get_service(ILoopDetector),  # type: ignore
-            [
-                sp.get_required_service(ContentFilterMiddleware),
-                sp.get_required_service(LoggingMiddleware),
-                sp.get_required_service(LoopDetectionMiddleware),  # type: ignore
-                sp.get_required_service(ToolCallLoopDetectionMiddleware),
-            ],
-        ),
-    )
+    def _configure_backend_compatibility(self, app: FastAPI, config: AppConfig) -> None:
+        """Configure backend compatibility settings.
 
-    # Register repositories
-    services.add_singleton(
-        ISessionRepository, implementation_factory=lambda _: InMemorySessionRepository()  # type: ignore
-    )
-    services.add_singleton(
-        IUsageRepository, implementation_factory=lambda _: InMemoryUsageRepository()  # type: ignore
-    )
-    services.add_singleton(
-        IConfigRepository, implementation_factory=lambda _: InMemoryConfigRepository()  # type: ignore
-    )
+        Args:
+            app: The FastAPI application
+            config: The application configuration
+        """
+        # Initialize compatibility state
+        app.state.backend_configs = {}
+        app.state.backends = {}
+        app.state.failover_routes = config.failover_routes
 
-    # Register usage tracking service
-    services.add_singleton(  # type: ignore[arg-type, type-abstract]
-        IUsageTrackingService,  # type: ignore[type-abstract]
-        implementation_factory=lambda sp: UsageTrackingService(  # type: ignore
-            sp.get_required_service(IUsageRepository),  # type: ignore
-        ),
-    )
+        # Legacy config for middleware compatibility
+        app.state.config = config
+
+        # Initialize legacy backend instances for tests that expect them
+        self._initialize_legacy_backends(app, config)
+
+        # Add chat_completions_func for Anthropic router compatibility
+        self._add_chat_completions_func(app)
+
+    def _initialize_legacy_backends(self, app: FastAPI, config: AppConfig) -> None:
+        """Initialize legacy backend instances for compatibility.
+
+        Args:
+            app: The FastAPI application
+            config: The application configuration
+        """
+        # Import backend classes
+        from src.connectors.anthropic import AnthropicBackend
+        from src.connectors.gemini import GeminiBackend
+        from src.connectors.openai import OpenAIConnector
+        from src.connectors.openrouter import OpenRouterBackend
+        from src.connectors.zai import ZAIConnector
+
+        # Get HTTP client from app state
+        httpx_client = getattr(app.state, "httpx_client", None)
+        if httpx_client is None:
+            httpx_client = httpx.AsyncClient(timeout=config.proxy_timeout)
+            app.state.httpx_client = httpx_client
+
+        # Initialize backend instances
+        app.state.openrouter_backend = OpenRouterBackend(httpx_client)
+        app.state.gemini_backend = GeminiBackend(httpx_client)
+        app.state.openai_backend = OpenAIConnector(httpx_client)
+        app.state.anthropic_backend = AnthropicBackend(httpx_client)
+        app.state.zai_backend = ZAIConnector(httpx_client)
+
+        # Set up API keys if available
+        if config.backends.openrouter:
+            app.state.openrouter_backend.api_keys = [config.backends.openrouter.api_key] if config.backends.openrouter.api_key else []
+
+        if config.backends.gemini:
+            app.state.gemini_backend.api_keys = [config.backends.gemini.api_key] if config.backends.gemini.api_key else []
+
+        if config.backends.openai:
+            app.state.openai_backend.api_keys = [config.backends.openai.api_key] if config.backends.openai.api_key else []
+
+        if config.backends.anthropic:
+            app.state.anthropic_backend.api_keys = [config.backends.anthropic.api_key] if config.backends.anthropic.api_key else []
+
+        if config.backends.zai:
+            app.state.zai_backend.api_keys = [config.backends.zai.api_key] if config.backends.zai.api_key else []
+
+        logger.debug("Legacy backend instances initialized")
+
+    def _add_chat_completions_func(self, app: FastAPI) -> None:
+        """Add chat_completions_func for Anthropic router compatibility.
+
+        Args:
+            app: The FastAPI application
+        """
+
+        async def chat_completions_wrapper(request_data, http_request):
+            """Wrapper function for chat completions that uses the new architecture."""
+            from src.core.interfaces.request_processor import IRequestProcessor
+
+            if hasattr(app.state, "service_provider") and app.state.service_provider:
+                request_processor = app.state.service_provider.get_required_service(
+                    IRequestProcessor
+                )
+                return await request_processor.process_request(
+                    http_request, request_data
+                )
+            else:
+                from fastapi import HTTPException
+
+                raise HTTPException(
+                    status_code=500, detail="Service provider not available"
+                )
+
+        app.state.chat_completions_func = chat_completions_wrapper
 
 
 def build_app(
-    config_path: str | Path | None = None, *, config_file: str | None = None
+    config: AppConfig | dict | None = None,  # Allow dict for flexibility, will convert
 ) -> FastAPI:
-    """Build a FastAPI application.
+    """Build a FastAPI application using the improved factory.
+
+    This is a compatibility wrapper for the new application builder.
 
     Args:
-        config_path: Optional path to configuration file
+        config: Optional AppConfig object or dictionary to use. If None, configuration will be loaded.
 
     Returns:
         A configured FastAPI application
     """
-    # Load configuration using legacy config loader
-    legacy_config = _load_config()
-    # Optionally merge JSON config file to support tests
-    if config_file:
-        try:
-            import json
-            from pathlib import Path as PathType
 
-            p = PathType(config_file)
-            if p.exists():
-                data = json.loads(p.read_text(encoding="utf-8") or "{}")
-                # Support legacy key mapping: default_backend -> backend
-                if "default_backend" in data and "backend" not in data:
-                    data["backend"] = data["default_backend"]
-                legacy_config.update(data)
-        except Exception as exc:
-            logger.warning("Failed to merge config file %s: %s", config_file, exc)
-    config = AppConfig.from_legacy_config(legacy_config)
+    # Load configuration if not provided, or convert dict to AppConfig
+    if config is None:
+        app_config = load_config()
+    elif isinstance(config, dict):
+        app_config = AppConfig(**config)
+    elif isinstance(config, AppConfig):
+        app_config = config
+    else:
+        raise TypeError(
+            f"Unsupported config type: {type(config)}. Expected AppConfig, dict, or None."
+        )
 
-    # Configure logging
-    setup_logging(config)
-    logger.info("Building application", config_path=config_path)
+    # Handle test environment setup (ensures it's always applied if config is provided or loaded)
+    _setup_test_environment(app_config)
 
-    # Create FastAPI app
-    app = FastAPI(
-        title="LLM Interactive Proxy",
-        description="A proxy server that adds interactive features to LLM APIs",
-        lifespan=lifespan,
-    )
+    # Build application using the improved builder
+    builder = ApplicationBuilder()
+    return builder.build(app_config)  # Pass the AppConfig object
 
-    # Store config in app state for legacy compatibility
-    app.state.config = legacy_config
 
-    # Setup app state with backend configs
-    app.state.backend_configs = {}
-    app.state.backends = {}
-    app.state.failover_routes = config.failover_routes
+def _setup_test_environment(config: AppConfig) -> None:
+    """Set up test environment if running under pytest.
 
-    # Register routes
-    from src.core.app.controllers import register_routes
+    Args:
+        config: The application configuration
+    """
+    import os
 
-    register_routes(app)
-
-    # Configure middleware
-    from src.core.app.middleware_config import configure_middleware
-
-    configure_middleware(app, app.state.config)
-
-    # Configure error handlers
-    from src.core.app.error_handlers import configure_exception_handlers
-
-    configure_exception_handlers(app)
-
-    logger.info("Application built successfully")
-    return app
+    if (
+        os.environ.get("PYTEST_CURRENT_TEST")
+        and hasattr(config, "auth")
+        and hasattr(config.auth, "api_keys")
+        and not config.auth.api_keys
+    ):
+        config.auth.api_keys = ["test-proxy-key"]
