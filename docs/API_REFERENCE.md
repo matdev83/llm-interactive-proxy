@@ -212,6 +212,14 @@ User: What is the capital of Germany?
 Assistant: The capital of Germany is Berlin.
 
 # Note: The next request will use the default model again
+
+# PWD command example
+User: !/pwd
+Assistant: /home/user/projects/my-project
+
+# If project directory is not set
+User: !/pwd
+Assistant: Project directory not set.
 ```
 
 ## Error Handling
