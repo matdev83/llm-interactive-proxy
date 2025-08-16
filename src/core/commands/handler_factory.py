@@ -1,121 +1,127 @@
+"""
+Command handler factory.
+
+This module provides functionality to create and register command handlers.
+"""
+
 from __future__ import annotations
 
 import logging
 
-from src.core.commands.handlers.backend_handlers import (
-    BackendHandler,
-    ModelHandler,
-    OpenAIUrlHandler,
+from src.core.commands.handlers.command_handler import (
+    BackendCommandHandler,
+    HelpCommandHandler,
+    ICommandHandler,
+    ModelCommandHandler,
+    ProjectCommandHandler,
+    TemperatureCommandHandler,
 )
-from src.core.commands.handlers.base_handler import ICommandHandler
-from src.core.commands.handlers.loop_detection_handlers import (
-    LoopDetectionHandler,
-    ToolLoopDetectionHandler,
-    ToolLoopMaxRepeatsHandler,
-    ToolLoopModeHandler,
-    ToolLoopTtlHandler,
+from src.core.commands.handlers.failover_handlers import (
+    CreateFailoverRouteHandler,
+    DeleteFailoverRouteHandler,
+    ListFailoverRoutesHandler,
+    RouteAppendHandler,
+    RouteClearHandler,
+    RouteListHandler,
+    RoutePrependHandler,
 )
-from src.core.commands.handlers.reasoning_handlers import (
-    ReasoningConfigHandler,
-    ReasoningEffortHandler,
-    TemperatureHandler,
-    ThinkingBudgetHandler,
-)
+from src.core.commands.handlers.oneoff_handler import OneOffCommandHandler
+from src.core.services.command_service import CommandRegistry
 
 logger = logging.getLogger(__name__)
 
 
 class CommandHandlerFactory:
-    """Factory for creating command handlers.
+    """Factory for creating and registering command handlers."""
     
-    This factory creates and registers command handlers for all supported
-    command parameters.
-    """
-    
-    def __init__(self, functional_backends: set[str] | None = None):
-        """Initialize the command handler factory.
-        
-        Args:
-            functional_backends: Optional set of functional backends
-        """
+    def __init__(self):
+        """Initialize the factory."""
+        self._registry = CommandRegistry()
+        self._handler_classes: dict[str, type[ICommandHandler]] = {}
         self._handlers: dict[str, ICommandHandler] = {}
-        self._functional_backends = functional_backends
         
-        # Register default handlers
-        self._register_default_handlers()
+        # Register built-in command handlers
+        self.register_handler_class(BackendCommandHandler)
+        self.register_handler_class(ModelCommandHandler)
+        self.register_handler_class(TemperatureCommandHandler)
+        self.register_handler_class(ProjectCommandHandler)
+        self.register_handler_class(HelpCommandHandler)
+        self.register_handler_class(OneOffCommandHandler)
+        
+        # Register failover route command handlers
+        self.register_handler_class(CreateFailoverRouteHandler)
+        self.register_handler_class(DeleteFailoverRouteHandler)
+        self.register_handler_class(ListFailoverRoutesHandler)
+        self.register_handler_class(RouteAppendHandler)
+        self.register_handler_class(RouteClearHandler)
+        self.register_handler_class(RouteListHandler)
+        self.register_handler_class(RoutePrependHandler)
     
-    def _register_default_handlers(self) -> None:
-        """Register all default command handlers."""
-        # Backend handlers
-        self.register_handler(BackendHandler(self._functional_backends))
-        self.register_handler(ModelHandler())
-        self.register_handler(OpenAIUrlHandler())
-        
-        # Reasoning handlers
-        self.register_handler(ReasoningEffortHandler())
-        self.register_handler(ReasoningConfigHandler())
-        self.register_handler(ThinkingBudgetHandler())
-        self.register_handler(TemperatureHandler())
-        
-        # Loop detection handlers
-        self.register_handler(LoopDetectionHandler())
-        self.register_handler(ToolLoopDetectionHandler())
-        self.register_handler(ToolLoopMaxRepeatsHandler())
-        self.register_handler(ToolLoopTtlHandler())
-        self.register_handler(ToolLoopModeHandler())
-    
-    def register_handler(self, handler: ICommandHandler) -> None:
-        """Register a command handler.
+    def register_handler_class(self, handler_class: type[ICommandHandler]) -> None:
+        """Register a command handler class.
         
         Args:
-            handler: The handler to register
+            handler_class: The command handler class to register
         """
-        # Register by main name
-        self._handlers[handler.name] = handler
+        # Create a temporary instance to get the name
+        temp_instance = handler_class()
+        name = temp_instance.name
         
-        # Also register by aliases
-        for alias in handler.aliases:
-            self._handlers[alias] = handler
-            
-        logger.debug(f"Registered handler for '{handler.name}' and aliases: {handler.aliases}")
+        # Store the class for later instantiation
+        self._handler_classes[name] = handler_class
+        logger.debug(f"Registered command handler class: {name}")
     
-    def get_handler(self, param_name: str) -> ICommandHandler | None:
-        """Get a handler for the given parameter name.
+    def create_handlers(self) -> list[ICommandHandler]:
+        """Create instances of all registered command handlers.
+        
+        Returns:
+            List of command handler instances
+        """
+        handlers = []
+        
+        # Special case for help command - needs the registry
+        help_class = self._handler_classes.get("help")
+        if help_class:
+            help_handler = help_class()
+            handlers.append(help_handler)
+            self._handlers["help"] = help_handler
+        
+        # Create other handlers
+        for name, handler_class in self._handler_classes.items():
+            if name != "help":  # Skip help, already handled
+                handler = handler_class()
+                handlers.append(handler)
+                self._handlers[name] = handler
+        
+        # Update help handler with registry if it exists
+        help_handler = self._handlers.get("help")
+        if help_handler:
+            help_handler.set_registry(self._handlers)
+        
+        return handlers
+    
+    def register_with_registry(self, registry: CommandRegistry) -> None:
+        """Register all handlers with a command registry.
         
         Args:
-            param_name: The parameter name
+            registry: The command registry to register with
+        """
+        # Create handlers if not already created
+        if not self._handlers:
+            self.create_handlers()
+        
+        # Register each handler
+        for _name, handler in self._handlers.items():
+            registry.register(handler)
             
-        Returns:
-            The handler or None if no handler is registered
-        """
-        # Try exact match first
-        if param_name in self._handlers:
-            return self._handlers[param_name]
-        
-        # Normalize and try again
-        normalized = param_name.lower().replace("_", "-")
-        if normalized in self._handlers:
-            return self._handlers[normalized]
-        
-        # Try slower iteration with can_handle
-        for handler in self.get_all_handlers():
-            if handler.can_handle(param_name):
-                return handler
-        
-        return None
+        logger.info(f"Registered {len(self._handlers)} command handlers with registry")
+
+
+def register_command_handlers(registry: CommandRegistry) -> None:
+    """Register all command handlers with a registry.
     
-    def get_all_handlers(self) -> list[ICommandHandler]:
-        """Get all registered handlers.
-        
-        Returns:
-            List of all handlers (deduplicated)
-        """
-        unique_handlers = set()
-        result = []
-        
-        for handler in self._handlers.values():
-            if id(handler) not in unique_handlers:
-                unique_handlers.add(id(handler))
-                result.append(handler)
-        
-        return result
+    Args:
+        registry: The command registry to register with
+    """
+    factory = CommandHandlerFactory()
+    factory.register_with_registry(registry)
