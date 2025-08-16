@@ -1,8 +1,15 @@
+"""
+Response Middleware Components
+
+This module contains middleware components for processing responses.
+"""
+
 from __future__ import annotations
 
 import logging
 from typing import Any
 
+from src.core.interfaces.loop_detector import ILoopDetector
 from src.core.interfaces.response_processor import (
     IResponseMiddleware,
     ProcessedResponse,
@@ -11,141 +18,167 @@ from src.core.interfaces.response_processor import (
 logger = logging.getLogger(__name__)
 
 
-class BaseResponseMiddleware(IResponseMiddleware):
-    """Base class for response middleware components.
-    
-    Response middleware components can modify or enhance responses
-    before they are returned to the client.
-    """
-    
-    def __init__(self, name: str):
-        """Initialize the base middleware.
-        
-        Args:
-            name: The name of this middleware component
-        """
-        self.name = name
+class LoggingMiddleware(IResponseMiddleware):
+    """Middleware to log response details."""
     
     async def process(
-        self, response: ProcessedResponse, session_id: str, context: dict[str, Any]
+        self, 
+        response: ProcessedResponse, 
+        session_id: str,
+        context: dict[str, Any] | None = None
     ) -> ProcessedResponse:
-        """Process a response or response chunk.
-        
-        This method should be overridden by subclasses to implement
-        specific processing logic.
+        """Process a response, logging information as needed.
         
         Args:
-            response: The response or chunk to process
-            session_id: The session ID associated with this request
-            context: Additional context for processing
+            response: The processed response
+            session_id: The ID of the session
+            context: Additional context
             
         Returns:
-            The processed response or chunk
+            The processed response, unchanged
         """
-        # Default implementation is a pass-through
+        # Only log debug information if debug logging is enabled
+        if logger.isEnabledFor(logging.DEBUG):
+            response_type = context.get("response_type", "unknown") if context else "unknown"
+            _ = response.content[:100] + "..." if response.content and len(response.content) > 100 else response.content
+            usage_info = response.usage if response.usage else {}
+            
+            logger.debug(
+                f"Response processed for session {session_id} ({response_type}): "
+                f"content_len={len(response.content) if response.content else 0}, "
+                f"usage={usage_info}"
+            )
+        
+        # Pass through the response unchanged
         return response
-        
-    def __str__(self) -> str:
-        """Get a string representation of this middleware."""
-        return f"{self.__class__.__name__}({self.name})"
 
 
-class ContentFilterMiddleware(BaseResponseMiddleware):
-    """Middleware for filtering response content.
-    
-    This middleware can be used to implement content filters, such as
-    profanity filters or other content moderation.
-    """
-    
-    def __init__(
-        self,
-        name: str = "content_filter",
-        replacements: dict[str, str] | None = None,
-    ):
-        """Initialize the content filter middleware.
-        
-        Args:
-            name: The name of this middleware component
-            replacements: Dictionary of strings to replace (pattern -> replacement)
-        """
-        super().__init__(name)
-        self._replacements = replacements or {}
+class ContentFilterMiddleware(IResponseMiddleware):
+    """Middleware to filter response content."""
     
     async def process(
-        self, response: ProcessedResponse, session_id: str, context: dict[str, Any]
+        self, 
+        response: ProcessedResponse, 
+        session_id: str,
+        context: dict[str, Any] | None = None
     ) -> ProcessedResponse:
-        """Process a response by applying content filters.
+        """Process a response, filtering content as needed.
         
         Args:
-            response: The response or chunk to process
-            session_id: The session ID associated with this request
-            context: Additional context for processing
+            response: The processed response
+            session_id: The ID of the session
+            context: Additional context
             
         Returns:
-            The processed response or chunk
+            The processed response with filtered content
         """
-        if not response.content or not self._replacements:
-            return response
-            
-        # Apply replacements
         content = response.content
-        for pattern, replacement in self._replacements.items():
-            content = content.replace(pattern, replacement)
+        
+        if not content:
+            return response
+        
+        # Example filtering logic - remove preambles in some responses
+        if content.startswith("I'll help you with that. "):
+            content = content.replace("I'll help you with that. ", "", 1)
             
-        # Return a new response if content was modified
-        if content != response.content:
-            return ProcessedResponse(
-                content=content,
-                usage=response.usage,
-                metadata={**response.metadata, "filtered": True},
-            )
-            
-        return response
+        if content.startswith("I'll help you. "):
+            content = content.replace("I'll help you. ", "", 1)
+        
+        if content.startswith("Here's ") and " as requested:" in content:
+            idx = content.find(" as requested:")
+            if idx > 0:
+                content = content[idx + 14:].lstrip()
+        
+        # For certain agent types, apply specific filtering
+        # This would be expanded based on your requirements
+        agent_type = context.get("agent_type") if context else None
+        if agent_type in {"cline", "roocode"}:
+            # Remove specific patterns for these agents
+            content = content.replace("```\n\n```", "")
+        
+        # Return a new ProcessedResponse with the filtered content
+        return ProcessedResponse(
+            content=content,
+            usage=response.usage,
+            metadata=response.metadata
+        )
 
 
-class LoggingMiddleware(BaseResponseMiddleware):
-    """Middleware for logging responses.
+class LoopDetectionMiddleware(IResponseMiddleware):
+    """Middleware to detect response loops."""
     
-    This middleware logs responses for debugging and monitoring.
-    """
-    
-    def __init__(
-        self,
-        name: str = "response_logger",
-        log_level: int = logging.DEBUG,
-    ):
-        """Initialize the logging middleware.
+    def __init__(self, loop_detector: ILoopDetector):
+        """Initialize the middleware.
         
         Args:
-            name: The name of this middleware component
-            log_level: The log level to use for response logging
+            loop_detector: The loop detector service
         """
-        super().__init__(name)
-        self._log_level = log_level
+        self._loop_detector = loop_detector
+        self._accumulated_content: dict[str, str] = {}
     
     async def process(
-        self, response: ProcessedResponse, session_id: str, context: dict[str, Any]
+        self, 
+        response: ProcessedResponse, 
+        session_id: str,
+        context: dict[str, Any] | None = None
     ) -> ProcessedResponse:
-        """Process a response by logging it.
+        """Process a response, checking for loops.
         
         Args:
-            response: The response or chunk to process
-            session_id: The session ID associated with this request
-            context: Additional context for processing
+            response: The processed response
+            session_id: The ID of the session
+            context: Additional context
             
         Returns:
-            The original response
+            The processed response or an error response if loops detected
         """
-        if logger.isEnabledFor(self._log_level):
-            response_type = context.get("response_type", "unknown")
-            content_preview = response.content[:100] + "..." if len(response.content) > 100 else response.content
+        if not response.content:
+            return response
+        
+        # Accumulate content for this session
+        if session_id not in self._accumulated_content:
+            self._accumulated_content[session_id] = ""
             
-            logger.log(
-                self._log_level,
-                f"Response [{response_type}] for session {session_id}: {content_preview}"
-            )
-            
-            if response.usage and logger.isEnabledFor(logging.DEBUG):
-                logger.debug(f"Usage for session {session_id}: {response.usage}")
+        self._accumulated_content[session_id] += response.content
+        
+        # Only check for loops if we have enough content
+        content = self._accumulated_content[session_id]
+        if len(content) > 100:
+            try:
+                # Check for loops
+                loop_result = await self._loop_detector.check_for_loops(content)
                 
+                if loop_result.has_loop:
+                    # We found a loop, return an error response
+                    error_message = f"Loop detected: The response contains repetitive content. Detected {loop_result.repetitions} repetitions."
+                    
+                    logger.warning(f"Loop detected in session {session_id}: {loop_result.repetitions} repetitions")
+                    
+                    # Return error response
+                    return ProcessedResponse(
+                        content=error_message,
+                        usage=response.usage,
+                        metadata={
+                            **response.metadata,
+                            "error": "loop_detected",
+                            "loop_info": {
+                                "repetitions": loop_result.repetitions,
+                                "pattern_length": len(loop_result.pattern) if loop_result.pattern else 0
+                            }
+                        }
+                    )
+            except Exception as e:
+                # Log error but don't stop processing
+                logger.error(f"Error in loop detection: {e}", exc_info=True)
+        
+        # If we get here, no loops were detected
         return response
+    
+    def reset_session(self, session_id: str) -> None:
+        """Reset the accumulated content for a session.
+        
+        Args:
+            session_id: The ID of the session to reset
+        """
+        if session_id in self._accumulated_content:
+            del self._accumulated_content[session_id]

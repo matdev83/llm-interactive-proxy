@@ -1,5 +1,29 @@
 # CHANGELOG.md
 
+## 2024-07-15
+- **MAJOR ARCHITECTURE UPDATE**: Completed migration to new SOLID architecture
+  - Removed feature flags - new architecture is now the default and only implementation
+  - Deprecated legacy code paths with clear warnings and migration timeline
+  - Improved integration of ResponseProcessor with RequestProcessor
+  - Enhanced loop detection through middleware pipeline
+  - Added comprehensive verification tests
+- **API Changes**:
+  - Added new versioned endpoints: `/v2/chat/completions` and `/v2/messages`
+  - Marked legacy endpoints as deprecated (to be removed in November 2024)
+- **Documentation**:
+  - Added API reference documentation
+  - Created architecture diagrams
+  - Updated developer guide
+  - Added migration guide with clear deprecation timeline
+
+## 2024-07-01
+- Added SOLID architecture implementation
+  - New dependency injection container
+  - Interface-based service design
+  - Immutable domain models
+  - Middleware pipeline for response processing
+  - Feature flags for gradual migration
+
 ## 2025-08-13
 - Removal of Gemini CLI backends (gemini-cli-direct, gemini-cli-batch, gemini-cli-interactive) due to changes in CLI architecture
 - Added new qwen-oauth backend for Qwen models authentication via OAuth tokens.

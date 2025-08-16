@@ -1,10 +1,29 @@
+"""
+DEPRECATED: Legacy main module.
+
+This module is kept for backward compatibility and will be removed in a future version.
+Please use the new SOLID architecture entry point in `src/core/cli.py` instead.
+"""
+
 from __future__ import annotations  # type: ignore
+
+import warnings
+warnings.warn(
+    "The main.py module is deprecated and will be removed in a future version. "
+    "Please use the new SOLID architecture entry point in src/core/cli.py instead.",
+    DeprecationWarning,
+    stacklevel=2
+)
+
+# Print a warning message to the console
+import sys
+print("WARNING: src/main.py is deprecated and will be removed in a future version.", file=sys.stderr)
+print("Please use the new SOLID architecture entry point in src/core/cli.py instead.", file=sys.stderr)
 
 import asyncio
 import json
 import logging
 import os
-import sys
 import time
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
@@ -97,6 +116,17 @@ if not hasattr(TestClient, "_patched_stream_kw"):
 def build_app(
     cfg: dict[str, Any] | None = None, *, config_file: str | None = None
 ) -> FastAPI:
+    """
+    DEPRECATED: Build the application.
+    
+    This function is kept for backward compatibility and will be removed in a future version.
+    Please use the new application factory in src/core/app/application_factory.py instead.
+    """
+    warnings.warn(
+        "build_app is deprecated. Use the application factory in src/core/app/application_factory.py instead.",
+        DeprecationWarning,
+        stacklevel=2
+    )
     # ---------------------------------------------------------------------
     # Load configuration from env first, then merge optional config_file JSON
     # ---------------------------------------------------------------------
@@ -766,6 +796,17 @@ def build_app(
         http_request: Request,
         request_data: models.ChatCompletionRequest = Body(...),
     ):
+        """
+        DEPRECATED: Process chat completions request.
+        
+        This function is kept for backward compatibility and will be removed in a future version.
+        Please use the new RequestProcessor in src/core/services/request_processor.py instead.
+        """
+        warnings.warn(
+            "chat_completions is deprecated. Use RequestProcessor in src/core/services/request_processor.py instead.",
+            DeprecationWarning,
+            stacklevel=2
+        )
         session_id = http_request.headers.get("x-session-id", "default")
 
         with track_request_performance(session_id) as perf_metrics:

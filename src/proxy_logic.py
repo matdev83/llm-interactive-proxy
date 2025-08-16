@@ -1,4 +1,5 @@
 import logging
+import warnings
 from typing import Any  # Add Dict import
 
 from src.tool_call_loop.config import ToolCallLoopConfig, ToolLoopMode
@@ -6,9 +7,24 @@ from src.tool_call_loop.tracker import ToolCallTracker
 
 logger = logging.getLogger(__name__)
 
+# Show deprecation warning when this module is imported
+warnings.warn(
+    "The proxy_logic module is deprecated and will be removed in a future version. "
+    "Please use the new SOLID architecture in src/core/ instead.",
+    DeprecationWarning,
+    stacklevel=2
+)
+
 
 class ProxyState:
-    """Manages the state of the proxy, particularly model overrides."""
+    """
+    DEPRECATED: Legacy proxy state class.
+    
+    This class is kept for backward compatibility and will be removed in a future version.
+    Please use the new SessionState in src/core/domain/session.py instead.
+    
+    Manages the state of the proxy, particularly model overrides.
+    """
 
     def __init__(
         self,

@@ -180,6 +180,14 @@ def _validate_and_apply_prefix(args: argparse.Namespace) -> None:
 
 
 def _apply_feature_flags(args: argparse.Namespace) -> None:
+    # Force enable all new SOLID architecture components
+    os.environ["USE_NEW_SESSION_SERVICE"] = "true"
+    os.environ["USE_NEW_COMMAND_SERVICE"] = "true"
+    os.environ["USE_NEW_BACKEND_SERVICE"] = "true"
+    os.environ["USE_NEW_REQUEST_PROCESSOR"] = "true"
+    os.environ["ENABLE_DUAL_MODE"] = "true"
+    
+    # Apply other feature flags from args
     if getattr(args, "disable_redact_api_keys_in_prompts", None):
         os.environ["REDACT_API_KEYS_IN_PROMPTS"] = "false"
     if getattr(args, "force_set_project", None):
