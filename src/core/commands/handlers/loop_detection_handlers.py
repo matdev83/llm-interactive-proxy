@@ -1,59 +1,74 @@
+"""
+Loop detection setting handlers for the SOLID architecture.
+
+This module provides command handlers for loop detection-related settings.
+"""
+
 from __future__ import annotations
 
 import logging
 from typing import Any
 
 from src.commands.base import CommandContext
-from src.core.commands.handlers.base_handler import (
-    BaseCommandHandler,
-    CommandHandlerResult,
-)
-from src.core.domain.configuration.session_state_builder import SessionStateBuilder
+from src.core.commands.handlers.base_handler import BaseCommandHandler, CommandHandlerResult
 from src.core.domain.session import SessionState
 from src.tool_call_loop.config import ToolLoopMode
 
 logger = logging.getLogger(__name__)
 
 
-def _parse_bool(value: Any) -> bool | None:
-    """Parse a boolean value from various input formats.
-    
-    Args:
-        value: The value to parse
-        
-    Returns:
-        The parsed boolean value or None if parsing failed
-    """
-    if isinstance(value, bool):
-        return value
-    
-    if not isinstance(value, str):
-        return None
-        
-    val = value.strip().lower()
-    if val in ("true", "1", "yes", "on"):
-        return True
-    if val in ("false", "0", "no", "off", "none"):
-        return False
-    return None
-
-
 class LoopDetectionHandler(BaseCommandHandler):
-    """Handler for setting whether loop detection is enabled."""
+    """Handler for enabling/disabling loop detection."""
     
     def __init__(self):
         """Initialize the loop detection handler."""
-        super().__init__("loop-detection", ["loop_detection"])
+        super().__init__("loop-detection")
+    
+    @property
+    def aliases(self) -> list[str]:
+        """Aliases for the parameter name."""
+        return ["loop_detection"]
     
     @property
     def description(self) -> str:
-        """Description of the parameter."""
-        return "Enable or disable response loop detection"
+        """Description of the command."""
+        return "Enable or disable loop detection"
     
     @property
     def examples(self) -> list[str]:
-        """Examples of using this parameter."""
-        return ["!/set(loop-detection=true)", "!/set(loop-detection=false)"]
+        """Examples of using this command."""
+        return [
+            "!/set(loop-detection=true)",
+            "!/set(loop-detection=false)",
+        ]
+    
+    def can_handle(self, param_name: str) -> bool:
+        """Check if this handler can handle the given parameter.
+        
+        Args:
+            param_name: The parameter name to check
+            
+        Returns:
+            True if this handler can handle the parameter
+        """
+        normalized = param_name.lower().replace("_", "-").replace(" ", "-")
+        return normalized == self.name or normalized in [a.lower() for a in self.aliases]
+    
+    def _parse_bool(self, value: str) -> bool | None:
+        """Parse a boolean value from a string.
+        
+        Args:
+            value: The string to parse
+            
+        Returns:
+            The parsed boolean value or None if parsing fails
+        """
+        val = value.strip().lower()
+        if val in ("true", "1", "yes", "on"):
+            return True
+        if val in ("false", "0", "no", "off", "none"):
+            return False
+        return None
     
     def handle(
         self, 
@@ -61,50 +76,93 @@ class LoopDetectionHandler(BaseCommandHandler):
         current_state: SessionState,
         context: CommandContext | None = None
     ) -> CommandHandlerResult:
-        """Handle setting the loop detection enabled flag.
+        """Handle enabling/disabling loop detection.
         
         Args:
-            param_value: The enabled value to set
+            param_value: The boolean value
             current_state: The current session state
             context: Optional command context
             
         Returns:
-            Result of the operation
+            A result containing success/failure status and updated state
         """
-        enabled = _parse_bool(param_value)
-        if enabled is None:
+        if param_value is None:
             return CommandHandlerResult(
                 success=False,
-                message="Loop detection value must be a boolean (true/false)"
+                message="Boolean value must be specified"
             )
         
-        # Update the state
-        builder = SessionStateBuilder(current_state)
-        new_state = builder.with_loop_detection_enabled(enabled).build()
+        bool_value = self._parse_bool(str(param_value))
+        if bool_value is None:
+            return CommandHandlerResult(
+                success=False,
+                message=f"Invalid boolean value: {param_value}"
+            )
+        
+        # Create new state with updated loop detection setting
+        new_state = current_state.with_loop_config(
+            current_state.loop_config.with_loop_detection_enabled(bool_value)
+        )
         
         return CommandHandlerResult(
             success=True,
-            message=f"Loop detection {'enabled' if enabled else 'disabled'}",
+            message=f"Loop detection {'enabled' if bool_value else 'disabled'}",
             new_state=new_state
         )
 
 
 class ToolLoopDetectionHandler(BaseCommandHandler):
-    """Handler for setting whether tool loop detection is enabled."""
+    """Handler for enabling/disabling tool call loop detection."""
     
     def __init__(self):
         """Initialize the tool loop detection handler."""
-        super().__init__("tool-loop-detection", ["tool_loop_detection"])
+        super().__init__("tool-loop-detection")
+    
+    @property
+    def aliases(self) -> list[str]:
+        """Aliases for the parameter name."""
+        return ["tool_loop_detection"]
     
     @property
     def description(self) -> str:
-        """Description of the parameter."""
+        """Description of the command."""
         return "Enable or disable tool call loop detection"
     
     @property
     def examples(self) -> list[str]:
-        """Examples of using this parameter."""
-        return ["!/set(tool-loop-detection=true)", "!/set(tool-loop-detection=false)"]
+        """Examples of using this command."""
+        return [
+            "!/set(tool-loop-detection=true)",
+            "!/set(tool-loop-detection=false)",
+        ]
+    
+    def can_handle(self, param_name: str) -> bool:
+        """Check if this handler can handle the given parameter.
+        
+        Args:
+            param_name: The parameter name to check
+            
+        Returns:
+            True if this handler can handle the parameter
+        """
+        normalized = param_name.lower().replace("_", "-").replace(" ", "-")
+        return normalized == self.name or normalized in [a.lower() for a in self.aliases]
+    
+    def _parse_bool(self, value: str) -> bool | None:
+        """Parse a boolean value from a string.
+        
+        Args:
+            value: The string to parse
+            
+        Returns:
+            The parsed boolean value or None if parsing fails
+        """
+        val = value.strip().lower()
+        if val in ("true", "1", "yes", "on"):
+            return True
+        if val in ("false", "0", "no", "off", "none"):
+            return False
+        return None
     
     def handle(
         self, 
@@ -112,50 +170,77 @@ class ToolLoopDetectionHandler(BaseCommandHandler):
         current_state: SessionState,
         context: CommandContext | None = None
     ) -> CommandHandlerResult:
-        """Handle setting the tool loop detection enabled flag.
+        """Handle enabling/disabling tool call loop detection.
         
         Args:
-            param_value: The enabled value to set
+            param_value: The boolean value
             current_state: The current session state
             context: Optional command context
             
         Returns:
-            Result of the operation
+            A result containing success/failure status and updated state
         """
-        enabled = _parse_bool(param_value)
-        if enabled is None:
+        if param_value is None:
             return CommandHandlerResult(
                 success=False,
-                message="Tool loop detection value must be a boolean (true/false)"
+                message="Boolean value must be specified"
             )
         
-        # Update the state
-        builder = SessionStateBuilder(current_state)
-        new_state = builder.with_tool_loop_detection_enabled(enabled).build()
+        bool_value = self._parse_bool(str(param_value))
+        if bool_value is None:
+            return CommandHandlerResult(
+                success=False,
+                message=f"Invalid boolean value: {param_value}"
+            )
+        
+        # Create new state with updated tool loop detection setting
+        new_state = current_state.with_loop_config(
+            current_state.loop_config.with_tool_loop_detection_enabled(bool_value)
+        )
         
         return CommandHandlerResult(
             success=True,
-            message=f"Tool loop detection {'enabled' if enabled else 'disabled'}",
+            message=f"Tool call loop detection {'enabled' if bool_value else 'disabled'}",
             new_state=new_state
         )
 
 
 class ToolLoopMaxRepeatsHandler(BaseCommandHandler):
-    """Handler for setting the tool loop max repeats."""
+    """Handler for setting the maximum number of tool call loop repetitions."""
     
     def __init__(self):
         """Initialize the tool loop max repeats handler."""
-        super().__init__("tool-loop-max-repeats", ["tool_loop_max_repeats"])
+        super().__init__("tool-loop-max-repeats")
+    
+    @property
+    def aliases(self) -> list[str]:
+        """Aliases for the parameter name."""
+        return ["tool_loop_max_repeats", "max_repeats"]
     
     @property
     def description(self) -> str:
-        """Description of the parameter."""
-        return "Set the maximum number of tool call pattern repetitions before detection"
+        """Description of the command."""
+        return "Set the maximum number of tool call loop repetitions"
     
     @property
     def examples(self) -> list[str]:
-        """Examples of using this parameter."""
-        return ["!/set(tool-loop-max-repeats=3)"]
+        """Examples of using this command."""
+        return [
+            "!/set(tool-loop-max-repeats=3)",
+            "!/set(tool-loop-max-repeats=5)",
+        ]
+    
+    def can_handle(self, param_name: str) -> bool:
+        """Check if this handler can handle the given parameter.
+        
+        Args:
+            param_name: The parameter name to check
+            
+        Returns:
+            True if this handler can handle the parameter
+        """
+        normalized = param_name.lower().replace("_", "-").replace(" ", "-")
+        return normalized == self.name or normalized in [a.lower() for a in self.aliases]
     
     def handle(
         self, 
@@ -163,69 +248,83 @@ class ToolLoopMaxRepeatsHandler(BaseCommandHandler):
         current_state: SessionState,
         context: CommandContext | None = None
     ) -> CommandHandlerResult:
-        """Handle setting the tool loop max repeats.
+        """Handle setting the maximum number of tool call loop repetitions.
         
         Args:
-            param_value: The max repeats value to set
+            param_value: The maximum number of repetitions
             current_state: The current session state
             context: Optional command context
             
         Returns:
-            Result of the operation
+            A result containing success/failure status and updated state
         """
-        # Convert to int
+        if param_value is None:
+            return CommandHandlerResult(
+                success=False,
+                message="Max repeats value must be specified"
+            )
+        
         try:
-            if isinstance(param_value, str):
-                repeats_val = int(param_value.strip())
-            elif isinstance(param_value, int | float):
-                repeats_val = int(param_value)
-            else:
+            max_repeats = int(param_value)
+            if max_repeats < 2:
                 return CommandHandlerResult(
                     success=False,
-                    message="Tool loop max repeats must be an integer"
+                    message="Max repeats must be at least 2"
                 )
         except ValueError:
             return CommandHandlerResult(
                 success=False,
-                message="Tool loop max repeats must be an integer"
+                message=f"Invalid max repeats value: {param_value}. Must be an integer."
             )
         
-        # Validate range
-        if repeats_val < 2:
-            return CommandHandlerResult(
-                success=False,
-                message="Tool loop max repeats must be at least 2"
-            )
-        
-        # Update the state
-        builder = SessionStateBuilder(current_state)
-        new_state = builder.with_loop_config(
-            current_state.loop_config.with_tool_loop_max_repeats(repeats_val)  # type: ignore
-        ).build()
+        # Create new state with updated tool loop max repeats setting
+        new_state = current_state.with_loop_config(
+            current_state.loop_config.with_tool_loop_max_repeats(max_repeats)
+        )
         
         return CommandHandlerResult(
             success=True,
-            message=f"Tool loop max repeats set to {repeats_val}",
+            message=f"Tool call loop max repeats set to {max_repeats}",
             new_state=new_state
         )
 
 
-class ToolLoopTtlHandler(BaseCommandHandler):
-    """Handler for setting the tool loop TTL."""
+class ToolLoopTTLHandler(BaseCommandHandler):
+    """Handler for setting the tool call loop TTL."""
     
     def __init__(self):
         """Initialize the tool loop TTL handler."""
-        super().__init__("tool-loop-ttl", ["tool_loop_ttl", "tool-loop-ttl-seconds", "tool_loop_ttl_seconds"])
+        super().__init__("tool-loop-ttl")
+    
+    @property
+    def aliases(self) -> list[str]:
+        """Aliases for the parameter name."""
+        return ["tool_loop_ttl", "ttl"]
     
     @property
     def description(self) -> str:
-        """Description of the parameter."""
-        return "Set the time-to-live in seconds for tool call pattern matching"
+        """Description of the command."""
+        return "Set the tool call loop time-to-live in seconds"
     
     @property
     def examples(self) -> list[str]:
-        """Examples of using this parameter."""
-        return ["!/set(tool-loop-ttl=120)"]
+        """Examples of using this command."""
+        return [
+            "!/set(tool-loop-ttl=60)",
+            "!/set(tool-loop-ttl=120)",
+        ]
+    
+    def can_handle(self, param_name: str) -> bool:
+        """Check if this handler can handle the given parameter.
+        
+        Args:
+            param_name: The parameter name to check
+            
+        Returns:
+            True if this handler can handle the parameter
+        """
+        normalized = param_name.lower().replace("_", "-").replace(" ", "-")
+        return normalized == self.name or normalized in [a.lower() for a in self.aliases]
     
     def handle(
         self, 
@@ -233,69 +332,83 @@ class ToolLoopTtlHandler(BaseCommandHandler):
         current_state: SessionState,
         context: CommandContext | None = None
     ) -> CommandHandlerResult:
-        """Handle setting the tool loop TTL.
+        """Handle setting the tool call loop TTL.
         
         Args:
-            param_value: The TTL value to set
+            param_value: The TTL in seconds
             current_state: The current session state
             context: Optional command context
             
         Returns:
-            Result of the operation
+            A result containing success/failure status and updated state
         """
-        # Convert to int
+        if param_value is None:
+            return CommandHandlerResult(
+                success=False,
+                message="TTL value must be specified"
+            )
+        
         try:
-            if isinstance(param_value, str):
-                ttl_val = int(param_value.strip())
-            elif isinstance(param_value, int | float):
-                ttl_val = int(param_value)
-            else:
+            ttl = int(param_value)
+            if ttl < 1:
                 return CommandHandlerResult(
                     success=False,
-                    message="Tool loop TTL must be an integer"
+                    message="TTL must be at least 1 second"
                 )
         except ValueError:
             return CommandHandlerResult(
                 success=False,
-                message="Tool loop TTL must be an integer"
+                message=f"Invalid TTL value: {param_value}. Must be an integer."
             )
         
-        # Validate range
-        if ttl_val < 1:
-            return CommandHandlerResult(
-                success=False,
-                message="Tool loop TTL must be at least 1 second"
-            )
-        
-        # Update the state
-        builder = SessionStateBuilder(current_state)
-        new_state = builder.with_loop_config(
-            current_state.loop_config.with_tool_loop_ttl_seconds(ttl_val)  # type: ignore
-        ).build()
+        # Create new state with updated tool loop TTL setting
+        new_state = current_state.with_loop_config(
+            current_state.loop_config.with_tool_loop_ttl(ttl)
+        )
         
         return CommandHandlerResult(
             success=True,
-            message=f"Tool loop TTL set to {ttl_val} seconds",
+            message=f"Tool call loop TTL set to {ttl} seconds",
             new_state=new_state
         )
 
 
 class ToolLoopModeHandler(BaseCommandHandler):
-    """Handler for setting the tool loop mode."""
+    """Handler for setting the tool call loop mode."""
     
     def __init__(self):
         """Initialize the tool loop mode handler."""
-        super().__init__("tool-loop-mode", ["tool_loop_mode"])
+        super().__init__("tool-loop-mode")
+    
+    @property
+    def aliases(self) -> list[str]:
+        """Aliases for the parameter name."""
+        return ["tool_loop_mode", "loop_mode"]
     
     @property
     def description(self) -> str:
-        """Description of the parameter."""
-        return "Set the tool loop detection mode (break, warn)"
+        """Description of the command."""
+        return "Set the tool call loop mode (break or chance_then_break)"
     
     @property
     def examples(self) -> list[str]:
-        """Examples of using this parameter."""
-        return ["!/set(tool-loop-mode=break)", "!/set(tool-loop-mode=warn)"]
+        """Examples of using this command."""
+        return [
+            "!/set(tool-loop-mode=break)",
+            "!/set(tool-loop-mode=chance_then_break)",
+        ]
+    
+    def can_handle(self, param_name: str) -> bool:
+        """Check if this handler can handle the given parameter.
+        
+        Args:
+            param_name: The parameter name to check
+            
+        Returns:
+            True if this handler can handle the parameter
+        """
+        normalized = param_name.lower().replace("_", "-").replace(" ", "-")
+        return normalized == self.name or normalized in [a.lower() for a in self.aliases]
     
     def handle(
         self, 
@@ -303,42 +416,39 @@ class ToolLoopModeHandler(BaseCommandHandler):
         current_state: SessionState,
         context: CommandContext | None = None
     ) -> CommandHandlerResult:
-        """Handle setting the tool loop mode.
+        """Handle setting the tool call loop mode.
         
         Args:
-            param_value: The mode value to set
+            param_value: The loop mode (break or chance_then_break)
             current_state: The current session state
             context: Optional command context
             
         Returns:
-            Result of the operation
+            A result containing success/failure status and updated state
         """
-        if not isinstance(param_value, str):
+        if param_value is None:
             return CommandHandlerResult(
                 success=False,
-                message="Tool loop mode must be a string"
+                message="Loop mode must be specified"
             )
         
-        mode_val = param_value.strip().lower()
-        
-        # Validate mode
-        try:
-            mode = ToolLoopMode(mode_val)
-        except ValueError:
-            valid_modes = ", ".join(m.value for m in ToolLoopMode)
+        mode = str(param_value).lower()
+        if mode not in ("break", "chance_then_break"):
             return CommandHandlerResult(
                 success=False,
-                message=f"Invalid tool loop mode: {mode_val}. Valid modes: {valid_modes}"
+                message=f"Invalid loop mode: {param_value}. Use break or chance_then_break."
             )
         
-        # Update the state
-        builder = SessionStateBuilder(current_state)
-        new_state = builder.with_loop_config(
-            current_state.loop_config.with_tool_loop_mode(mode)  # type: ignore
-        ).build()
+        # Convert string to enum
+        tool_mode = ToolLoopMode.BREAK if mode == "break" else ToolLoopMode.CHANCE_THEN_BREAK
+        
+        # Create new state with updated tool loop mode setting
+        new_state = current_state.with_loop_config(
+            current_state.loop_config.with_tool_loop_mode(tool_mode)
+        )
         
         return CommandHandlerResult(
             success=True,
-            message=f"Tool loop mode set to {mode.value}",
+            message=f"Tool call loop mode set to {mode}",
             new_state=new_state
         )

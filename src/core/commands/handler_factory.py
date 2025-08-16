@@ -26,8 +26,23 @@ from src.core.commands.handlers.failover_handlers import (
     RoutePrependHandler,
 )
 from src.core.commands.handlers.hello_handler import HelloCommandHandler
+from src.core.commands.handlers.loop_detection_handlers import (
+    LoopDetectionHandler,
+    ToolLoopDetectionHandler,
+    ToolLoopMaxRepeatsHandler,
+    ToolLoopModeHandler,
+    ToolLoopTTLHandler,
+)
 from src.core.commands.handlers.oneoff_handler import OneOffCommandHandler
+from src.core.commands.handlers.project_dir_handler import ProjectDirCommandHandler
 from src.core.commands.handlers.pwd_handler import PwdCommandHandler
+from src.core.commands.handlers.reasoning_handlers import (
+    GeminiGenerationConfigHandler,
+    ReasoningEffortHandler,
+    ThinkingBudgetHandler,
+)
+from src.core.commands.handlers.set_handler import SetCommandHandler
+from src.core.commands.handlers.unset_handler import UnsetCommandHandler
 from src.core.services.command_service import CommandRegistry
 
 logger = logging.getLogger(__name__)
@@ -51,6 +66,44 @@ class CommandHandlerFactory:
         self.register_handler_class(HelloCommandHandler)
         self.register_handler_class(OneOffCommandHandler)
         self.register_handler_class(PwdCommandHandler)
+        self.register_handler_class(ProjectDirCommandHandler)
+        
+        # Register unified set and unset command handlers
+        set_handler = SetCommandHandler()
+        self.register_handler_class(lambda: set_handler)
+        self.register_handler_class(UnsetCommandHandler)
+        
+        # Register reasoning handlers
+        reasoning_effort_handler = ReasoningEffortHandler()
+        thinking_budget_handler = ThinkingBudgetHandler()
+        gemini_config_handler = GeminiGenerationConfigHandler()
+        self.register_handler_class(lambda: reasoning_effort_handler)
+        self.register_handler_class(lambda: thinking_budget_handler)
+        self.register_handler_class(lambda: gemini_config_handler)
+        
+        # Register specialized handlers with the set command handler
+        set_handler.register_handler(reasoning_effort_handler)
+        set_handler.register_handler(thinking_budget_handler)
+        set_handler.register_handler(gemini_config_handler)
+        
+        # Register loop detection handlers
+        loop_detection_handler = LoopDetectionHandler()
+        tool_loop_detection_handler = ToolLoopDetectionHandler()
+        tool_loop_max_repeats_handler = ToolLoopMaxRepeatsHandler()
+        tool_loop_ttl_handler = ToolLoopTTLHandler()
+        tool_loop_mode_handler = ToolLoopModeHandler()
+        self.register_handler_class(lambda: loop_detection_handler)
+        self.register_handler_class(lambda: tool_loop_detection_handler)
+        self.register_handler_class(lambda: tool_loop_max_repeats_handler)
+        self.register_handler_class(lambda: tool_loop_ttl_handler)
+        self.register_handler_class(lambda: tool_loop_mode_handler)
+        
+        # Register specialized handlers with the set command handler
+        set_handler.register_handler(loop_detection_handler)
+        set_handler.register_handler(tool_loop_detection_handler)
+        set_handler.register_handler(tool_loop_max_repeats_handler)
+        set_handler.register_handler(tool_loop_ttl_handler)
+        set_handler.register_handler(tool_loop_mode_handler)
         
         # Register failover route command handlers
         self.register_handler_class(CreateFailoverRouteHandler)

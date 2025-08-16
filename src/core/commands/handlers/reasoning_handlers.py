@@ -1,3 +1,9 @@
+"""
+Reasoning setting handlers for the SOLID architecture.
+
+This module provides command handlers for reasoning-related settings.
+"""
+
 from __future__ import annotations
 
 import json
@@ -5,32 +11,50 @@ import logging
 from typing import Any
 
 from src.commands.base import CommandContext
-from src.core.commands.handlers.base_handler import (
-    BaseCommandHandler,
-    CommandHandlerResult,
-)
-from src.core.domain.configuration.session_state_builder import SessionStateBuilder
+from src.core.commands.handlers.base_handler import BaseCommandHandler, CommandHandlerResult
 from src.core.domain.session import SessionState
 
 logger = logging.getLogger(__name__)
 
 
 class ReasoningEffortHandler(BaseCommandHandler):
-    """Handler for setting the reasoning effort."""
+    """Handler for setting the reasoning effort level."""
     
     def __init__(self):
         """Initialize the reasoning effort handler."""
-        super().__init__("reasoning-effort", ["reasoning_effort"])
+        super().__init__("reasoning-effort")
+    
+    @property
+    def aliases(self) -> list[str]:
+        """Aliases for the parameter name."""
+        return ["reasoning_effort", "reasoning"]
     
     @property
     def description(self) -> str:
-        """Description of the parameter."""
-        return "Set reasoning effort level (low, medium, high)"
+        """Description of the command."""
+        return "Set the reasoning effort level (low, medium, high, maximum)"
     
     @property
     def examples(self) -> list[str]:
-        """Examples of using this parameter."""
-        return ["!/set(reasoning-effort=high)"]
+        """Examples of using this command."""
+        return [
+            "!/set(reasoning-effort=low)",
+            "!/set(reasoning-effort=medium)",
+            "!/set(reasoning-effort=high)",
+            "!/set(reasoning-effort=maximum)",
+        ]
+    
+    def can_handle(self, param_name: str) -> bool:
+        """Check if this handler can handle the given parameter.
+        
+        Args:
+            param_name: The parameter name to check
+            
+        Returns:
+            True if this handler can handle the parameter
+        """
+        normalized = param_name.lower().replace("_", "-").replace(" ", "-")
+        return normalized == self.name or normalized in [a.lower() for a in self.aliases]
     
     def handle(
         self, 
@@ -38,96 +62,37 @@ class ReasoningEffortHandler(BaseCommandHandler):
         current_state: SessionState,
         context: CommandContext | None = None
     ) -> CommandHandlerResult:
-        """Handle setting the reasoning effort.
+        """Handle setting the reasoning effort level.
         
         Args:
-            param_value: The reasoning effort value to set
+            param_value: The reasoning effort level
             current_state: The current session state
             context: Optional command context
             
         Returns:
-            Result of the operation
+            A result containing success/failure status and updated state
         """
-        if not isinstance(param_value, str):
+        if not param_value:
             return CommandHandlerResult(
                 success=False,
-                message="Reasoning effort value must be a string"
+                message="Reasoning effort level must be specified"
             )
         
-        effort_val = param_value.strip().lower()
+        effort = str(param_value).lower()
+        if effort not in ("low", "medium", "high", "maximum"):
+            return CommandHandlerResult(
+                success=False,
+                message=f"Invalid reasoning effort: {param_value}. Use low, medium, high, or maximum."
+            )
         
-        # Update the state
-        builder = SessionStateBuilder(current_state)
-        new_state = builder.with_reasoning_effort(effort_val).build()
-        
-        return CommandHandlerResult(
-            success=True,
-            message=f"Reasoning effort set to {effort_val}",
-            new_state=new_state
+        # Create new state with updated reasoning effort
+        new_state = current_state.with_reasoning_config(
+            current_state.reasoning_config.with_reasoning_effort(effort)
         )
-
-
-class ReasoningConfigHandler(BaseCommandHandler):
-    """Handler for setting the reasoning configuration."""
-    
-    def __init__(self):
-        """Initialize the reasoning configuration handler."""
-        super().__init__("reasoning", ["reasoning-config", "reasoning_config"])
-    
-    @property
-    def description(self) -> str:
-        """Description of the parameter."""
-        return "Set unified reasoning configuration for OpenRouter"
-    
-    @property
-    def examples(self) -> list[str]:
-        """Examples of using this parameter."""
-        return ["!/set(reasoning={'effort': 'medium'})"]
-    
-    def handle(
-        self, 
-        param_value: Any, 
-        current_state: SessionState,
-        context: CommandContext | None = None
-    ) -> CommandHandlerResult:
-        """Handle setting the reasoning configuration.
-        
-        Args:
-            param_value: The reasoning config value to set
-            current_state: The current session state
-            context: Optional command context
-            
-        Returns:
-            Result of the operation
-        """
-        config_dict: dict[str, Any] = {}
-        
-        # Handle JSON string or direct dictionary input
-        if isinstance(param_value, str):
-            try:
-                config_dict = json.loads(param_value)
-            except json.JSONDecodeError:
-                return CommandHandlerResult(
-                    success=False,
-                    message="Invalid JSON in reasoning config"
-                )
-        elif isinstance(param_value, dict):
-            config_dict = param_value
-        else:
-            return CommandHandlerResult(
-                success=False,
-                message="Reasoning config must be a JSON object or dictionary"
-            )
-        
-        # Update the state
-        builder = SessionStateBuilder(current_state)
-        new_state = builder.with_reasoning_config(
-            current_state.reasoning_config.with_reasoning_config(config_dict)  # type: ignore
-        ).build()
         
         return CommandHandlerResult(
             success=True,
-            message=f"Reasoning config set to {config_dict}",
+            message=f"Reasoning effort set to {effort}",
             new_state=new_state
         )
 
@@ -137,17 +102,37 @@ class ThinkingBudgetHandler(BaseCommandHandler):
     
     def __init__(self):
         """Initialize the thinking budget handler."""
-        super().__init__("thinking-budget", ["thinking_budget"])
+        super().__init__("thinking-budget")
+    
+    @property
+    def aliases(self) -> list[str]:
+        """Aliases for the parameter name."""
+        return ["thinking_budget", "budget"]
     
     @property
     def description(self) -> str:
-        """Description of the parameter."""
-        return "Set Gemini thinking budget (128-32768 tokens)"
+        """Description of the command."""
+        return "Set the thinking budget in tokens (128-32768)"
     
     @property
     def examples(self) -> list[str]:
-        """Examples of using this parameter."""
-        return ["!/set(thinking-budget=2048)"]
+        """Examples of using this command."""
+        return [
+            "!/set(thinking-budget=1024)",
+            "!/set(thinking-budget=2048)",
+        ]
+    
+    def can_handle(self, param_name: str) -> bool:
+        """Check if this handler can handle the given parameter.
+        
+        Args:
+            param_name: The parameter name to check
+            
+        Returns:
+            True if this handler can handle the parameter
+        """
+        normalized = param_name.lower().replace("_", "-").replace(" ", "-")
+        return normalized == self.name or normalized in [a.lower() for a in self.aliases]
     
     def handle(
         self, 
@@ -158,64 +143,79 @@ class ThinkingBudgetHandler(BaseCommandHandler):
         """Handle setting the thinking budget.
         
         Args:
-            param_value: The thinking budget value to set
+            param_value: The thinking budget in tokens
             current_state: The current session state
             context: Optional command context
             
         Returns:
-            Result of the operation
+            A result containing success/failure status and updated state
         """
-        # Convert to int
+        if not param_value:
+            return CommandHandlerResult(
+                success=False,
+                message="Thinking budget must be specified"
+            )
+        
         try:
-            if isinstance(param_value, str):
-                budget_val = int(param_value.strip())
-            elif isinstance(param_value, int | float):
-                budget_val = int(param_value)
-            else:
+            budget = int(param_value)
+            if budget < 128 or budget > 32768:
                 return CommandHandlerResult(
                     success=False,
-                    message="Thinking budget must be an integer"
+                    message=f"Thinking budget must be between 128 and 32768 tokens"
                 )
         except ValueError:
             return CommandHandlerResult(
                 success=False,
-                message="Thinking budget must be an integer"
+                message=f"Invalid thinking budget: {param_value}. Must be an integer."
             )
         
-        # Validate range
-        if budget_val < 128 or budget_val > 32768:
-            return CommandHandlerResult(
-                success=False,
-                message="Thinking budget must be between 128 and 32768 tokens"
-            )
-        
-        # Update the state
-        builder = SessionStateBuilder(current_state)
-        new_state = builder.with_thinking_budget(budget_val).build()
+        # Create new state with updated thinking budget
+        new_state = current_state.with_reasoning_config(
+            current_state.reasoning_config.with_thinking_budget(budget)
+        )
         
         return CommandHandlerResult(
             success=True,
-            message=f"Thinking budget set to {budget_val}",
+            message=f"Thinking budget set to {budget}",
             new_state=new_state
         )
 
 
-class TemperatureHandler(BaseCommandHandler):
-    """Handler for setting the temperature."""
+class GeminiGenerationConfigHandler(BaseCommandHandler):
+    """Handler for setting the Gemini generation config."""
     
     def __init__(self):
-        """Initialize the temperature handler."""
-        super().__init__("temperature")
+        """Initialize the Gemini generation config handler."""
+        super().__init__("gemini-generation-config")
+    
+    @property
+    def aliases(self) -> list[str]:
+        """Aliases for the parameter name."""
+        return ["gemini_generation_config", "gemini_config"]
     
     @property
     def description(self) -> str:
-        """Description of the parameter."""
-        return "Set the temperature for the model (0.0-2.0)"
+        """Description of the command."""
+        return "Set the Gemini generation config as a JSON object"
     
     @property
     def examples(self) -> list[str]:
-        """Examples of using this parameter."""
-        return ["!/set(temperature=0.7)"]
+        """Examples of using this command."""
+        return [
+            "!/set(gemini-generation-config={'thinkingConfig': {'thinkingBudget': 1024}})",
+        ]
+    
+    def can_handle(self, param_name: str) -> bool:
+        """Check if this handler can handle the given parameter.
+        
+        Args:
+            param_name: The parameter name to check
+            
+        Returns:
+            True if this handler can handle the parameter
+        """
+        normalized = param_name.lower().replace("_", "-").replace(" ", "-")
+        return normalized == self.name or normalized in [a.lower() for a in self.aliases]
     
     def handle(
         self, 
@@ -223,46 +223,48 @@ class TemperatureHandler(BaseCommandHandler):
         current_state: SessionState,
         context: CommandContext | None = None
     ) -> CommandHandlerResult:
-        """Handle setting the temperature.
+        """Handle setting the Gemini generation config.
         
         Args:
-            param_value: The temperature value to set
+            param_value: The Gemini generation config as a JSON string or object
             current_state: The current session state
             context: Optional command context
             
         Returns:
-            Result of the operation
+            A result containing success/failure status and updated state
         """
-        # Convert to float
+        if not param_value:
+            return CommandHandlerResult(
+                success=False,
+                message="Gemini generation config must be specified"
+            )
+        
         try:
+            # Parse the config if it's a string
             if isinstance(param_value, str):
-                temp_val = float(param_value.strip())
-            elif isinstance(param_value, int | float):
-                temp_val = float(param_value)
+                config = json.loads(param_value)
             else:
+                config = param_value
+                
+            # Validate that it's a dict
+            if not isinstance(config, dict):
                 return CommandHandlerResult(
                     success=False,
-                    message="Temperature must be a number"
+                    message=f"Invalid Gemini generation config: must be a JSON object"
                 )
-        except ValueError:
+        except json.JSONDecodeError as e:
             return CommandHandlerResult(
                 success=False,
-                message="Temperature must be a number"
+                message=f"Invalid JSON: {e}"
             )
         
-        # Validate range
-        if temp_val < 0.0 or temp_val > 2.0:
-            return CommandHandlerResult(
-                success=False,
-                message="Temperature must be between 0.0 and 2.0"
-            )
-        
-        # Update the state
-        builder = SessionStateBuilder(current_state)
-        new_state = builder.with_temperature(temp_val).build()
+        # Create new state with updated Gemini generation config
+        new_state = current_state.with_reasoning_config(
+            current_state.reasoning_config.with_gemini_generation_config(config)
+        )
         
         return CommandHandlerResult(
             success=True,
-            message=f"Temperature set to {temp_val}",
+            message=f"Gemini generation config set to {config}",
             new_state=new_state
         )
