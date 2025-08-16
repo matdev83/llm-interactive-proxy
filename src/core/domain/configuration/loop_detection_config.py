@@ -12,18 +12,12 @@ from src.tool_call_loop.tracker import ToolCallTracker
 logger = logging.getLogger(__name__)
 
 
-class LoopDetectionConfiguration(ValueObject, ILoopDetectionConfig):
+class LoopDetectionConfiguration(ValueObject):
     """Configuration for loop detection.
     
     This class handles both standard loop detection and tool call loop detection
     settings.
     """
-    
-    model_config = ConfigDict(
-        # Ignore extra attributes to suppress warnings about field names shadowing parent attributes
-        extra='ignore',
-        # Other config options can be added here as needed
-    )
     
     loop_detection_enabled: bool = True
     tool_loop_detection_enabled: bool = True
@@ -55,15 +49,15 @@ class LoopDetectionConfiguration(ValueObject, ILoopDetectionConfig):
             raise ValueError("Tool call loop TTL seconds must be at least 1")
         return v
     
-    def with_loop_detection_enabled(self, enabled: bool) -> ILoopDetectionConfig:
+    def with_loop_detection_enabled(self, enabled: bool) -> LoopDetectionConfiguration:
         """Create a new config with updated loop detection enabled flag."""
         return self.model_copy(update={"loop_detection_enabled": enabled})
     
-    def with_tool_loop_detection_enabled(self, enabled: bool) -> ILoopDetectionConfig:
+    def with_tool_loop_detection_enabled(self, enabled: bool) -> LoopDetectionConfiguration:
         """Create a new config with updated tool loop detection enabled flag."""
         return self.model_copy(update={"tool_loop_detection_enabled": enabled})
     
-    def with_pattern_length_range(self, min_length: int, max_length: int) -> ILoopDetectionConfig:
+    def with_pattern_length_range(self, min_length: int, max_length: int) -> LoopDetectionConfiguration:
         """Create a new config with updated pattern length range."""
         return self.model_copy(
             update={"min_pattern_length": min_length, "max_pattern_length": max_length}
