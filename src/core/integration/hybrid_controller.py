@@ -58,7 +58,7 @@ async def hybrid_chat_completions(
     logger.debug("Using new SOLID architecture for request processing")
     
     # Always use the new RequestProcessor
-    request_processor = service_provider.get_required_service(IRequestProcessor)
+    request_processor = service_provider.get_required_service(IRequestProcessor)  # type: ignore
     return await request_processor.process_request(http_request, request_data)
 
 
@@ -90,7 +90,7 @@ async def _hybrid_legacy_flow_with_new_services(
     # Use new session service if enabled
     if bridge.should_use_new_service("session_service"):
         from src.core.interfaces.session_service import ISessionService
-        session_service = service_provider.get_required_service(ISessionService)
+        session_service = service_provider.get_required_service(ISessionService)  # type: ignore
         _ = await session_service.get_session(session_id)
         
         # Sync session between architectures
@@ -108,7 +108,7 @@ async def _hybrid_legacy_flow_with_new_services(
         from src.core.domain.chat import ChatMessage, ChatRequest
         from src.core.interfaces.backend_service import IBackendService
         
-        backend_service = service_provider.get_required_service(IBackendService)
+        backend_service = service_provider.get_required_service(IBackendService)  # type: ignore
         
         # Convert to domain request
         chat_messages = [
@@ -193,5 +193,5 @@ async def hybrid_anthropic_messages(
     logger.debug("Using new SOLID architecture for Anthropic request")
     
     # Always use the new RequestProcessor
-    request_processor = service_provider.get_required_service(IRequestProcessor)
+    request_processor = service_provider.get_required_service(IRequestProcessor)  # type: ignore
     return await request_processor.process_request(http_request, openai_request_data)

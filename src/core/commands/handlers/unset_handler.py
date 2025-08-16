@@ -7,13 +7,16 @@ This module provides a command handler for unsetting configuration options.
 from __future__ import annotations
 
 import logging
-from typing import Any, Dict, List
+from typing import Any
 
 from src.commands.base import CommandContext
-from src.core.commands.handlers.base_handler import BaseCommandHandler, CommandHandlerResult
+from src.constants import DEFAULT_COMMAND_PREFIX
+from src.core.commands.handlers.base_handler import (
+    BaseCommandHandler,
+    CommandHandlerResult,
+)
 from src.core.domain.configuration.session_state_builder import SessionStateBuilder
 from src.core.domain.session import SessionState
-from src.constants import DEFAULT_COMMAND_PREFIX
 
 logger = logging.getLogger(__name__)
 
@@ -24,7 +27,7 @@ class UnsetCommandHandler(BaseCommandHandler):
     def __init__(self):
         """Initialize the unset command handler."""
         super().__init__("unset")
-        self._handlers: Dict[str, BaseCommandHandler] = {}
+        self._handlers: dict[str, BaseCommandHandler] = {}
     
     @property
     def description(self) -> str:
@@ -32,7 +35,7 @@ class UnsetCommandHandler(BaseCommandHandler):
         return "Unset previously configured options"
     
     @property
-    def examples(self) -> List[str]:
+    def examples(self) -> list[str]:
         """Examples of using this command."""
         return [
             "!/unset(model)",

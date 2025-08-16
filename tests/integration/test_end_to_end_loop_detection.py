@@ -46,20 +46,32 @@ async def test_loop_detection_with_mocked_backend():
     """Test loop detection with a mocked backend."""
     from src.core.app.application_factory import build_app
     from src.core.di.container import ServiceCollection
-    from src.core.interfaces.backend_service import IBackendService
     
     # Create the app
     app = build_app()
     
-    # Create and set up a service provider manually for testing
-    services = ServiceCollection()
+    # Disable auth for this test
+    app.state.disable_auth = True
+    # Also disable auth in config so middleware honors it
+    try:
+        app.state.config["disable_auth"] = True
+    except Exception:
+        pass
+
+    # Create and set up a service provider for testing using app registration
+    from src.core.app.application_factory import register_services
+    from src.core.di.services import get_service_collection, set_service_provider
+
+    services = get_service_collection()
+    # Provide a dummy httpx client into app.state for register_services
+    import httpx as _httpx
+    app.state.httpx_client = _httpx.AsyncClient()
+    register_services(services, app)
     service_provider = services.build_service_provider()
+    set_service_provider(service_provider)
     app.state.service_provider = service_provider
-    
-    # Register a mock backend service
-    backend_service = AsyncMock(spec=IBackendService)
-    
-    # Mock the backend service
+
+    # Get the backend service from provider (will be used for patching)
     backend_service = service_provider.get_required_service(IBackendService)
     
     # Create a response with repeating content
@@ -83,7 +95,7 @@ async def test_loop_detection_with_mocked_backend():
         mock_call.return_value = repeating_response
         
         # Create a test client
-        client = TestClient(app)
+        client = TestClient(app, headers={"Authorization": "Bearer test_api_key"})
         
         # Make a request to the API endpoint
         response = client.post(
@@ -108,9 +120,8 @@ async def test_loop_detection_with_mocked_backend():
 async def test_loop_detection_in_streaming_response():
     """Test loop detection in a streaming response."""
     from src.core.app.application_factory import build_app
-    from src.core.domain.chat import StreamingChatResponse
     from src.core.di.container import ServiceCollection
-    from src.core.interfaces.backend_service import IBackendService
+    from src.core.domain.chat import StreamingChatResponse
     
     # Create the app
     app = build_app()

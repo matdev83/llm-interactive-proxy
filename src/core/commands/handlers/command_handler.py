@@ -1,0 +1,458 @@
+"""
+Command handler implementation for the SOLID architecture.
+
+This module provides command handlers that follow the SOLID principles
+and implement the command handling interface.
+"""
+
+from __future__ import annotations
+
+import abc
+import logging
+from typing import Any
+
+from src.core.domain.commands import CommandResult
+from src.core.domain.session import Session
+
+logger = logging.getLogger(__name__)
+
+
+class ICommandHandler(abc.ABC):
+    """Interface for command handlers."""
+    
+    @property
+    @abc.abstractmethod
+    def name(self) -> str:
+        """Get the name of the command."""
+    
+    @property
+    def description(self) -> str:
+        """Get a description of the command."""
+        return f"Command handler for {self.name} command"
+    
+    @property
+    def usage(self) -> str:
+        """Get usage instructions for the command."""
+        return f"{self.name}([param1=value1, param2=value2, ...])"
+    
+    @abc.abstractmethod
+    async def execute(
+        self,
+        args: dict[str, str],
+        session: Session,
+        context: dict[str, Any] | None = None
+    ) -> CommandResult:
+        """Execute the command.
+        
+        Args:
+            args: Command arguments
+            session: Current session
+            context: Additional context data
+            
+        Returns:
+            CommandResult with the outcome of the command execution
+        """
+
+
+class BackendCommandHandler(ICommandHandler):
+    """Command handler for setting backend-related configuration."""
+    
+    @property
+    def name(self) -> str:
+        return "backend"
+    
+    @property
+    def description(self) -> str:
+        return "Change the active backend for LLM requests"
+    
+    @property
+    def usage(self) -> str:
+        return "backend([name=openrouter|gemini|anthropic|openai|...])"
+    
+    async def execute(
+        self,
+        args: dict[str, str],
+        session: Session,
+        context: dict[str, Any] | None = None
+    ) -> CommandResult:
+        """Set the backend type.
+        
+        Args:
+            args: Command arguments with backend name
+            session: Current session
+            context: Additional context data
+            
+        Returns:
+            CommandResult indicating success or failure
+        """
+        backend_name = args.get("name")
+        if not backend_name:
+            return CommandResult(
+                success=False,
+                message="Backend name must be specified",
+                data={"name": self.name}
+            )
+        
+        try:
+            # Create new backend config with updated backend type
+            backend_config = session.state.backend_config.with_backend(backend_name)
+            
+            # Create new session state with updated backend config
+            from src.core.domain.session import SessionState, SessionStateAdapter
+            from src.core.interfaces.domain_entities import ISessionState
+            updated_state: ISessionState
+            if isinstance(session.state, SessionStateAdapter):
+                # Working with SessionStateAdapter - get the underlying state
+                old_state = session.state._state
+                new_state = old_state.with_backend_config(backend_config)
+                updated_state = SessionStateAdapter(new_state)
+            elif isinstance(session.state, SessionState):
+                # Working with SessionState directly
+                new_state = session.state.with_backend_config(backend_config)
+                updated_state = SessionStateAdapter(new_state)
+            else:
+                # Fallback for other implementations
+                updated_state = session.state
+            
+            session.update_state(updated_state)
+            
+            return CommandResult(
+                success=True,
+                message=f"Backend changed to {backend_name}",
+                data={"name": self.name, "backend": backend_name}
+            )
+        except Exception as e:
+            logger.error(f"Error setting backend: {e}")
+            return CommandResult(
+                success=False,
+                message=f"Error setting backend: {e}",
+                data={"name": self.name}
+            )
+
+
+class ModelCommandHandler(ICommandHandler):
+    """Command handler for setting model-related configuration."""
+    
+    @property
+    def name(self) -> str:
+        return "model"
+    
+    @property
+    def description(self) -> str:
+        return "Change the active model for LLM requests"
+    
+    @property
+    def usage(self) -> str:
+        return "model([name=model-name])"
+    
+    async def execute(
+        self,
+        args: dict[str, str],
+        session: Session,
+        context: dict[str, Any] | None = None
+    ) -> CommandResult:
+        """Set the model name.
+        
+        Args:
+            args: Command arguments with model name
+            session: Current session
+            context: Additional context data
+            
+        Returns:
+            CommandResult indicating success or failure
+        """
+        model_name = args.get("name")
+        if not model_name:
+            return CommandResult(
+                success=False,
+                message="Model name must be specified",
+                data={"name": self.name}
+            )
+        
+        try:
+            # Create new backend config with updated model name
+            backend_config = session.state.backend_config.with_model(model_name)
+            
+            # Create new session state with updated backend config
+            from src.core.domain.session import SessionState, SessionStateAdapter
+            from src.core.interfaces.domain_entities import ISessionState
+            updated_state: ISessionState
+            if isinstance(session.state, SessionStateAdapter):
+                # Working with SessionStateAdapter - get the underlying state
+                old_state = session.state._state
+                new_state = old_state.with_backend_config(backend_config)
+                updated_state = SessionStateAdapter(new_state)
+            elif isinstance(session.state, SessionState):
+                # Working with SessionState directly
+                new_state = session.state.with_backend_config(backend_config)
+                updated_state = SessionStateAdapter(new_state)
+            else:
+                # Fallback for other implementations
+                updated_state = session.state
+            
+            session.update_state(updated_state)
+            
+            return CommandResult(
+                success=True,
+                message=f"Model changed to {model_name}",
+                data={"name": self.name, "model": model_name}
+            )
+        except Exception as e:
+            logger.error(f"Error setting model: {e}")
+            return CommandResult(
+                success=False,
+                message=f"Error setting model: {e}",
+                data={"name": self.name}
+            )
+
+
+class TemperatureCommandHandler(ICommandHandler):
+    """Command handler for setting temperature configuration."""
+    
+    @property
+    def name(self) -> str:
+        return "temperature"
+    
+    @property
+    def description(self) -> str:
+        return "Change the temperature setting for LLM requests"
+    
+    @property
+    def usage(self) -> str:
+        return "temperature([value=0.0-1.0])"
+    
+    async def execute(
+        self,
+        args: dict[str, str],
+        session: Session,
+        context: dict[str, Any] | None = None
+    ) -> CommandResult:
+        """Set the temperature value.
+        
+        Args:
+            args: Command arguments with temperature value
+            session: Current session
+            context: Additional context data
+            
+        Returns:
+            CommandResult indicating success or failure
+        """
+        temp_value = args.get("value")
+        if not temp_value:
+            return CommandResult(
+                success=False,
+                message="Temperature value must be specified",
+                data={"name": self.name}
+            )
+        
+        try:
+            # Convert to float and validate range
+            temp_float = float(temp_value)
+            if temp_float < 0 or temp_float > 1:
+                return CommandResult(
+                    success=False,
+                    message="Temperature must be between 0.0 and 1.0",
+                    data={"name": self.name}
+                )
+            
+            # Create new reasoning config with updated temperature
+            reasoning_config = session.state.reasoning_config.with_temperature(temp_float)
+            
+            # Create new session state with updated reasoning config
+            from src.core.domain.session import SessionState, SessionStateAdapter
+            from src.core.interfaces.domain_entities import ISessionState
+            updated_state: ISessionState
+            if isinstance(session.state, SessionStateAdapter):
+                # Working with SessionStateAdapter - get the underlying state
+                old_state = session.state._state
+                new_state = old_state.with_reasoning_config(reasoning_config)
+                updated_state = SessionStateAdapter(new_state)
+            elif isinstance(session.state, SessionState):
+                # Working with SessionState directly
+                new_state = session.state.with_reasoning_config(reasoning_config)
+                updated_state = SessionStateAdapter(new_state)
+            else:
+                # Fallback for other implementations
+                updated_state = session.state
+            
+            session.update_state(updated_state)
+            
+            return CommandResult(
+                success=True,
+                message=f"Temperature set to {temp_float}",
+                data={"name": self.name, "temperature": temp_float}
+            )
+        except ValueError:
+            return CommandResult(
+                success=False,
+                message="Temperature must be a valid number",
+                data={"name": self.name}
+            )
+        except Exception as e:
+            logger.error(f"Error setting temperature: {e}")
+            return CommandResult(
+                success=False,
+                message=f"Error setting temperature: {e}",
+                data={"name": self.name}
+            )
+
+
+class ProjectCommandHandler(ICommandHandler):
+    """Command handler for setting project configuration."""
+    
+    @property
+    def name(self) -> str:
+        return "project"
+    
+    @property
+    def description(self) -> str:
+        return "Set the current project name"
+    
+    @property
+    def usage(self) -> str:
+        return "project([name=project-name])"
+    
+    async def execute(
+        self,
+        args: dict[str, str],
+        session: Session,
+        context: dict[str, Any] | None = None
+    ) -> CommandResult:
+        """Set the project name.
+        
+        Args:
+            args: Command arguments with project name
+            session: Current session
+            context: Additional context data
+            
+        Returns:
+            CommandResult indicating success or failure
+        """
+        project_name = args.get("name")
+        if not project_name:
+            return CommandResult(
+                success=False,
+                message="Project name must be specified",
+                data={"name": self.name}
+            )
+        
+        try:
+            # Create new session state with updated project
+            from src.core.domain.session import SessionState, SessionStateAdapter
+            from src.core.interfaces.domain_entities import ISessionState
+            updated_state: ISessionState
+            if isinstance(session.state, SessionStateAdapter):
+                # Working with SessionStateAdapter - get the underlying state
+                old_state = session.state._state
+                new_state = old_state.with_project(project_name)
+                updated_state = SessionStateAdapter(new_state)
+            elif isinstance(session.state, SessionState):
+                # Working with SessionState directly
+                new_state = session.state.with_project(project_name)
+                updated_state = SessionStateAdapter(new_state)
+            else:
+                # Fallback for other implementations
+                updated_state = session.state
+            
+            session.update_state(updated_state)
+            
+            return CommandResult(
+                success=True,
+                message=f"Project set to {project_name}",
+                data={"name": self.name, "project": project_name}
+            )
+        except Exception as e:
+            logger.error(f"Error setting project: {e}")
+            return CommandResult(
+                success=False,
+                message=f"Error setting project: {e}",
+                data={"name": self.name}
+            )
+
+
+class HelpCommandHandler(ICommandHandler):
+    """Command handler for providing help information."""
+    
+    def __init__(self, command_registry: dict[str, ICommandHandler] | None = None):
+        """Initialize the help command handler.
+        
+        Args:
+            command_registry: Registry of available commands
+        """
+        self._registry = command_registry or {}
+    
+    @property
+    def name(self) -> str:
+        return "help"
+    
+    @property
+    def description(self) -> str:
+        return "Display help information for available commands"
+    
+    @property
+    def usage(self) -> str:
+        return "help([command=command-name])"
+    
+    def set_registry(self, registry: dict[str, ICommandHandler]) -> None:
+        """Set the command registry.
+        
+        Args:
+            registry: Dictionary of command name to handler
+        """
+        self._registry = registry
+    
+    async def execute(
+        self,
+        args: dict[str, str],
+        session: Session,
+        context: dict[str, Any] | None = None
+    ) -> CommandResult:
+        """Provide help information.
+        
+        Args:
+            args: Command arguments with optional command name
+            session: Current session
+            context: Additional context data
+            
+        Returns:
+            CommandResult with help information
+        """
+        command_name = args.get("command")
+        
+        if command_name:
+            # Help for specific command
+            handler = self._registry.get(command_name)
+            if handler:
+                return CommandResult(
+                    success=True,
+                    message=f"Help for {command_name}: {handler.description}\nUsage: {handler.usage}",
+                    data={
+                        "name": self.name,
+                        "command": command_name,
+                        "description": handler.description,
+                        "usage": handler.usage
+                    }
+                )
+            else:
+                return CommandResult(
+                    success=False,
+                    message=f"Command {command_name} not found",
+                    data={"name": self.name}
+                )
+        else:
+            # General help
+            command_list = ", ".join(sorted(self._registry.keys()))
+            
+            return CommandResult(
+                success=True,
+                message=(
+                    "Available commands:\n"
+                    f"{command_list}\n\n"
+                    "Use help(command=command-name) for detailed help on a specific command."
+                ),
+                data={
+                    "name": self.name,
+                    "commands": sorted(self._registry.keys())
+                }
+            )
+

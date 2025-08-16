@@ -10,7 +10,10 @@ import logging
 from typing import Any
 
 from src.commands.base import CommandContext
-from src.core.commands.handlers.base_handler import BaseCommandHandler, CommandHandlerResult
+from src.core.commands.handlers.base_handler import (
+    BaseCommandHandler,
+    CommandHandlerResult,
+)
 from src.core.domain.session import SessionState
 
 logger = logging.getLogger(__name__)

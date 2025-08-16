@@ -2,28 +2,24 @@
 Integration tests for failover routes in the new SOLID architecture.
 """
 
-import json
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from fastapi.testclient import TestClient
-
 from src.core.app.application_factory import build_app
 from src.core.di.container import ServiceCollection
 from src.core.domain.configuration.backend_config import BackendConfiguration
-from src.core.interfaces.backend_service import IBackendService
 from src.core.interfaces.configuration import IConfig
-from src.core.services.failover_service import FailoverAttempt, FailoverService
+from src.core.services.failover_service import FailoverService
 
 
 @pytest.fixture
 def app(monkeypatch):
     """Create a test application."""
     # Patch the configure_middleware function to disable authentication
-    from unittest.mock import patch
     
     # Patch the config to disable authentication
-    with patch('src.core.app.middleware_config.configure_middleware') as mock_configure:
+    with patch('src.core.app.middleware_config.configure_middleware'):
         # Build the app
         app = build_app()
         
@@ -67,7 +63,6 @@ def app(monkeypatch):
 def test_failover_route_commands(app, monkeypatch):
     """Test failover route commands in the new architecture."""
     # Mock the APIKeyMiddleware's dispatch method to always return the next response
-    from unittest.mock import AsyncMock, patch, MagicMock
     
     # Patch the get_integration_bridge function to return the bridge from app.state
     def mock_get_integration_bridge(app_param=None):
@@ -275,7 +270,7 @@ async def test_backend_service_failover():
     backend_service._failover_service = failover_service
     
     # Create a test request
-    from src.core.domain.chat import ChatRequest, ChatMessage
+    from src.core.domain.chat import ChatMessage, ChatRequest
     request = ChatRequest(
         model="test-model",
         messages=[ChatMessage(role="user", content="Hello")],

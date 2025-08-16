@@ -59,6 +59,13 @@ class ResponseProcessor(IResponseProcessor):
             # Extract content from the response
             content, usage, metadata = self._extract_response_data(response)
 
+            # Normalize content to string for loop detection
+            if isinstance(content, dict | list):
+                try:
+                    content = json.dumps(content)
+                except Exception:
+                    content = str(content)
+
             # Check for loops if loop detector is available
             if self._loop_detector and content:
                 loop_result = await self._loop_detector.check_for_loops(content)

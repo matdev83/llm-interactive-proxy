@@ -9,12 +9,16 @@ TEST_OPENROUTER_API_BASE_URL = "https://openrouter.ai/api/v1"
 
 
 def mock_get_openrouter_headers(key_name: str, api_key: str) -> dict[str, str]:
+    # Create a mock config dictionary for testing
+    mock_config = {
+        "app_site_url": "http://localhost:test",
+        "app_x_title": "TestProxy",
+    }
     return {
         "Authorization": f"Bearer {api_key}",
         "Content-Type": "application/json",
-        "HTTP-Referer": "http://localhost:test",
-        "X-Title": "TestProxy",
-        "X-Key-Name": key_name,
+        "HTTP-Referer": mock_config["app_site_url"],
+        "X-Title": mock_config["app_x_title"],
     }
 
 

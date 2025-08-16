@@ -181,7 +181,11 @@ class RequestProcessor(IRequestProcessor):
                     project=session.state.project,
                     parameters=chat_request.model_dump(exclude={"messages"}),
                     response=self._extract_response_content(chat_response),
-                    usage=chat_response.usage.model_dump() if chat_response.usage else None,
+                    usage=(
+                        chat_response.usage.model_dump()  # type: ignore[attr-defined]
+                        if hasattr(chat_response.usage, "model_dump")
+                        else (chat_response.usage.dict() if hasattr(chat_response.usage, "dict") else chat_response.usage)
+                    ) if chat_response.usage else None,
                 )
                 session.add_interaction(interaction)
                 await self._session_service.update_session(session)
@@ -191,6 +195,9 @@ class RequestProcessor(IRequestProcessor):
                 
                 # Convert the processed response back to a format suitable for HTTP response
                 response_data = self._convert_processed_response_to_dict(chat_response, processed_response)
+                
+                # Ensure OpenAI-compatible shape
+                response_data.setdefault("object", "chat.completion")
                 
                 # Return the processed response
                 return Response(content=json.dumps(response_data), media_type="application/json")
@@ -489,13 +496,14 @@ class RequestProcessor(IRequestProcessor):
                 
                 # Create a response chunk with the processed content
                 response_chunk = {
+                    "object": "chat.completion.chunk",
                     "choices": [{
                         "delta": {"content": chunk.content},
                         "index": 0
                     }]
                 }
                 
-                # Add any metadata
+                # Add any metadata (e.g., model, id, created)
                 if chunk.metadata:
                     for key, value in chunk.metadata.items():
                         if key not in ["error", "error_type"]:

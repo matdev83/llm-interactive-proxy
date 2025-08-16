@@ -9,6 +9,8 @@ from typing import Any, ClassVar
 
 from pydantic import BaseModel, Field, field_validator
 
+# Note: Avoid self-imports to prevent circular dependencies. Classes are defined below.
+
 logger = logging.getLogger(__name__)
 
 
@@ -89,23 +91,6 @@ class BackendSettings(BaseModel):
 class AppConfig(BaseModel):
     """Complete application configuration."""
     
-    # Nested classes for backward compatibility with tests
-    LogLevelClass: ClassVar[type[LogLevel]] = LogLevel
-    BackendConfigClass: ClassVar[type[BackendConfig]] = BackendConfig
-    BackendSettingsClass: ClassVar[type[BackendSettings]] = BackendSettings
-    AuthConfigClass: ClassVar[type[AuthConfig]] = AuthConfig
-    SessionConfigClass: ClassVar[type[SessionConfig]] = SessionConfig
-    LoggingConfigClass: ClassVar[type[LoggingConfig]] = LoggingConfig
-    
-    # Backward compatibility aliases as class attributes
-    LogLevel: ClassVar[type[LogLevel]] = LogLevel
-    BackendConfig: ClassVar[type[BackendConfig]] = BackendConfig
-    BackendSettings: ClassVar[type[BackendSettings]] = BackendSettings
-    AuthConfig: ClassVar[type[AuthConfig]] = AuthConfig
-    SessionConfig: ClassVar[type[SessionConfig]] = SessionConfig
-    LoggingConfig: ClassVar[type[LoggingConfig]] = LoggingConfig
-    
-    # Server settings
     host: str = "0.0.0.0"
     port: int = 8000
     proxy_timeout: int = 120
@@ -115,6 +100,14 @@ class AppConfig(BaseModel):
     backends: BackendSettings = Field(default_factory=BackendSettings)
     model_defaults: dict[str, dict[str, Any]] = Field(default_factory=dict)
     failover_routes: dict[str, dict[str, Any]] = Field(default_factory=dict)
+    
+    # Nested class references for backward compatibility
+    BackendSettings: ClassVar[type[BackendSettings]] = BackendSettings
+    BackendConfig: ClassVar[type[BackendConfig]] = BackendConfig
+    AuthConfig: ClassVar[type[AuthConfig]] = AuthConfig
+    LoggingConfig: ClassVar[type[LoggingConfig]] = LoggingConfig
+    SessionConfig: ClassVar[type[SessionConfig]] = SessionConfig
+    LogLevel: ClassVar[type[LogLevel]] = LogLevel
     
     # Auth settings
     auth: AuthConfig = Field(default_factory=AuthConfig)

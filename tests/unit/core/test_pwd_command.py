@@ -3,7 +3,6 @@ Tests for the PWD command in the new SOLID architecture.
 """
 
 import pytest
-
 from src.core.commands.handlers.pwd_handler import PwdCommandHandler
 from src.core.domain.session import SessionState
 

@@ -85,7 +85,4 @@ def response_processor(service_provider: IServiceProvider) -> MockResponseProces
     return service_provider.get_required_service(IResponseProcessor)  # type: ignore
 
 
-@pytest.fixture
-def session_repository(service_provider: IServiceProvider) -> MockSessionRepository:
-    """Fixture for a mock session repository."""
-    return service_provider.get_required_service(ISessionRepository)  # type: ignore
+

@@ -10,7 +10,10 @@ import logging
 from typing import Any
 
 from src.commands.base import CommandContext
-from src.core.commands.handlers.base_handler import BaseCommandHandler, CommandHandlerResult
+from src.core.commands.handlers.base_handler import (
+    BaseCommandHandler,
+    CommandHandlerResult,
+)
 from src.core.domain.configuration.session_state_builder import SessionStateBuilder
 from src.core.domain.session import SessionState
 
@@ -63,7 +66,7 @@ class HelloCommandHandler(BaseCommandHandler):
         """
         # Create new state with hello_requested flag set to True
         builder = SessionStateBuilder(current_state)
-        new_state = builder.build(hello_requested=True)
+        new_state = builder.with_hello_requested(True).build()
         
         return CommandHandlerResult(
             success=True,

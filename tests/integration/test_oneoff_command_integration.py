@@ -2,12 +2,10 @@
 Integration tests for the OneOff command in the new SOLID architecture.
 """
 
-import json
-from unittest.mock import AsyncMock, patch
+from unittest.mock import patch
 
 import pytest
 from fastapi.testclient import TestClient
-
 from src.core.app.application_factory import build_app
 from src.core.di.container import ServiceCollection
 
@@ -38,7 +36,6 @@ def app():
 def test_oneoff_command_integration(app):
     """Test that the OneOff command works correctly in the integration environment."""
     # Mock the APIKeyMiddleware's dispatch method to always return the next response
-    from unittest.mock import AsyncMock, patch
     
     # Mock the get_integration_bridge function to return the bridge from app.state
     def mock_get_integration_bridge(app_param=None):

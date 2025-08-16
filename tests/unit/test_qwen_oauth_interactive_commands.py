@@ -2,7 +2,7 @@ import os
 from unittest.mock import patch
 
 import pytest
-from src.main import build_app
+from src.core.app.application_factory import build_app
 from src.session import ProxyState
 
 

@@ -11,7 +11,10 @@ import logging
 from typing import Any
 
 from src.commands.base import CommandContext
-from src.core.commands.handlers.base_handler import BaseCommandHandler, CommandHandlerResult
+from src.core.commands.handlers.base_handler import (
+    BaseCommandHandler,
+    CommandHandlerResult,
+)
 from src.core.domain.session import SessionState
 
 logger = logging.getLogger(__name__)
@@ -161,7 +164,7 @@ class ThinkingBudgetHandler(BaseCommandHandler):
             if budget < 128 or budget > 32768:
                 return CommandHandlerResult(
                     success=False,
-                    message=f"Thinking budget must be between 128 and 32768 tokens"
+                    message="Thinking budget must be between 128 and 32768 tokens"
                 )
         except ValueError:
             return CommandHandlerResult(
@@ -250,7 +253,7 @@ class GeminiGenerationConfigHandler(BaseCommandHandler):
             if not isinstance(config, dict):
                 return CommandHandlerResult(
                     success=False,
-                    message=f"Invalid Gemini generation config: must be a JSON object"
+                    message="Invalid Gemini generation config: must be a JSON object"
                 )
         except json.JSONDecodeError as e:
             return CommandHandlerResult(

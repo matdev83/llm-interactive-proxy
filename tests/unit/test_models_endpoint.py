@@ -1,5 +1,5 @@
 from fastapi.testclient import TestClient
-from src import main as app_main
+from src.core.app import application_factory as app_main
 
 
 def test_models_endpoint_lists_all(monkeypatch):

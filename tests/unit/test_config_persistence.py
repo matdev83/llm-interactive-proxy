@@ -3,7 +3,7 @@ import json
 # import pathlib # F401: Removed Path
 import pytest
 from fastapi.testclient import TestClient
-from src.main import build_app
+from src.core.app.application_factory import build_app
 
 
 @pytest.fixture(autouse=True)

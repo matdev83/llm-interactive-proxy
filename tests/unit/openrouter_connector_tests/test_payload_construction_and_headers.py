@@ -18,11 +18,16 @@ TEST_OPENROUTER_API_BASE_URL = (
 
 
 def mock_get_openrouter_headers(key_name: str, api_key: str) -> dict[str, str]:
+    # Create a mock config dictionary for testing
+    mock_config = {
+        "app_site_url": "http://localhost:test",
+        "app_x_title": "TestProxy",
+    }
     return {
         "Authorization": f"Bearer {api_key}",
         "Content-Type": "application/json",
-        "HTTP-Referer": "http://localhost:test",
-        "X-Title": "TestProxy",
+        "HTTP-Referer": mock_config["app_site_url"],
+        "X-Title": mock_config["app_x_title"],
     }
 
 
@@ -39,21 +44,8 @@ def sample_chat_request_data() -> models.ChatCompletionRequest:
         model="test-model",
         messages=[models.ChatMessage(role="user", content="Hello")],
         temperature=0.7,
-        top_p=None,
-        n=None,
         stream=False,
-        stop=None,
         max_tokens=100,
-        presence_penalty=None,
-        frequency_penalty=None,
-        logit_bias=None,
-        user=None,
-        tool_choice=None,
-        reasoning_effort=None,
-        reasoning=None,
-        thinking_budget=None,
-        generation_config=None,
-        extra_params=None,
     )
 
 
@@ -104,6 +96,7 @@ async def fixture_api_request_and_data(
         effective_model=effective_model,
         openrouter_api_base_url=TEST_OPENROUTER_API_BASE_URL,
         openrouter_headers_provider=mock_get_openrouter_headers,
+        key_name="test_key",
         api_key="FAKE_KEY",
     )
 

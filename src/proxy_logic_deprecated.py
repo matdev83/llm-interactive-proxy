@@ -5,9 +5,9 @@ This module is kept for backward compatibility and will be removed in a future v
 Please use the new SOLID architecture in `src/core/` instead.
 """
 
-import warnings
 import logging
-from typing import Any, Dict, List, Optional, Set, Tuple
+import warnings
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -40,13 +40,13 @@ class ProxyState:
         )
         
         # Backend and model settings
-        self.override_backend = kwargs.get("override_backend", None)
-        self.override_model = kwargs.get("override_model", None)
-        self.openai_url = kwargs.get("openai_url", None)
+        self.override_backend = kwargs.get("override_backend")
+        self.override_model = kwargs.get("override_model")
+        self.openai_url = kwargs.get("openai_url")
         
         # Project settings
-        self.project = kwargs.get("project", None)
-        self.project_dir = kwargs.get("project_dir", None)
+        self.project = kwargs.get("project")
+        self.project_dir = kwargs.get("project_dir")
         
         # Reasoning settings
         self.reasoning_effort = kwargs.get("reasoning_effort", 0)
@@ -67,7 +67,7 @@ class ProxyState:
 
 
 # Keep other utility functions that might be used by legacy code
-def extract_client_info(headers: Dict[str, str], client_id_header: str = "X-Client-ID") -> Dict[str, Any]:
+def extract_client_info(headers: dict[str, str], client_id_header: str = "X-Client-ID") -> dict[str, Any]:
     """
     DEPRECATED: Extract client information from headers.
     
@@ -85,7 +85,7 @@ def extract_client_info(headers: Dict[str, str], client_id_header: str = "X-Clie
     return client_info
 
 
-def extract_raw_prompt(messages: List[Dict[str, Any]]) -> str:
+def extract_raw_prompt(messages: list[dict[str, Any]]) -> str:
     """
     DEPRECATED: Extract raw prompt from messages.
     

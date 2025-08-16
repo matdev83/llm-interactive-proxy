@@ -5,7 +5,10 @@ from typing import Any
 
 from src.commands.base import CommandContext
 from src.constants import SUPPORTED_BACKENDS
-from src.core.commands.handlers.base_handler import BaseCommandHandler, CommandHandlerResult
+from src.core.commands.handlers.base_handler import (
+    BaseCommandHandler,
+    CommandHandlerResult,
+)
 from src.core.domain.configuration.session_state_builder import SessionStateBuilder
 from src.core.domain.session import SessionState
 

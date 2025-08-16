@@ -13,9 +13,6 @@ from fastapi import FastAPI
 
 # No longer using adapters - direct service usage
 from src.core.di.services import get_service_collection, set_service_provider
-from src.core.interfaces.backend_service import IBackendService
-from src.core.interfaces.command_service import ICommandService
-from src.core.interfaces.configuration import IConfig
 from src.core.interfaces.di import IServiceProvider
 from src.core.interfaces.session_service import ISessionService
 from src.core.services.session_migration_service import SessionMigrationService

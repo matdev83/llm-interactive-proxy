@@ -1,8 +1,8 @@
 from unittest.mock import AsyncMock, patch
 
 from fastapi.testclient import TestClient
-from src import main as app_main
 from src.connectors import GeminiBackend, OpenRouterBackend
+from src.core.app import application_factory as app_main
 
 
 def test_openrouter_models_cached(monkeypatch):

@@ -8,22 +8,28 @@ Please use the new SOLID architecture entry point in `src/core/cli.py` instead.
 from __future__ import annotations  # type: ignore
 
 import warnings
+
 warnings.warn(
     "The main.py module is deprecated and will be removed in a future version. "
     "Please use the new SOLID architecture entry point in src/core/cli.py instead.",
     DeprecationWarning,
-    stacklevel=2
+    stacklevel=2,
 )
 
-# Print a warning message to the console
-import sys
-print("WARNING: src/main.py is deprecated and will be removed in a future version.", file=sys.stderr)
-print("Please use the new SOLID architecture entry point in src/core/cli.py instead.", file=sys.stderr)
+# Log a warning message instead of printing to console
+import logging
+
+logger = logging.getLogger(__name__)
+logger.warning("src/main.py is deprecated and will be removed in a future version.")
+logger.warning(
+    "Please use the new SOLID architecture entry point in src/core/cli.py instead."
+)
 
 import asyncio
 import json
 import logging
 import os
+import sys
 import time
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
@@ -118,14 +124,14 @@ def build_app(
 ) -> FastAPI:
     """
     DEPRECATED: Build the application.
-    
+
     This function is kept for backward compatibility and will be removed in a future version.
     Please use the new application factory in src/core/app/application_factory.py instead.
     """
     warnings.warn(
         "build_app is deprecated. Use the application factory in src/core/app/application_factory.py instead.",
         DeprecationWarning,
-        stacklevel=2
+        stacklevel=2,
     )
     # ---------------------------------------------------------------------
     # Load configuration from env first, then merge optional config_file JSON
@@ -274,8 +280,9 @@ def build_app(
 
         # Initialize integration bridge for dual architecture support
         from src.core.integration import get_integration_bridge
+
         bridge = get_integration_bridge(app_param)
-        
+
         client_httpx = httpx.AsyncClient(timeout=cfg["proxy_timeout"])
         app_param.state.httpx_client = client_httpx
         app_param.state.failover_routes = {}
@@ -530,13 +537,20 @@ def build_app(
             gemini_api_keys_list = list(cfg["gemini_api_keys"].items())
             if gemini_api_keys_list:
                 key_name, current_api_key = gemini_api_keys_list[0]
-                await gemini_backend.initialize(
-                    gemini_api_base_url=cfg["gemini_api_base_url"],
-                    key_name=key_name,
-                    api_key=current_api_key,
-                )
-                if gemini_backend.get_available_models():
-                    gemini_ok = True
+                try:
+                    await gemini_backend.initialize(
+                        gemini_api_base_url=cfg["gemini_api_base_url"],
+                        key_name=key_name,
+                        api_key=current_api_key,
+                    )
+                    if gemini_backend.get_available_models():
+                        gemini_ok = True
+                except Exception as e:
+                    # In test/minimal configurations keys may be placeholders; treat backend as non-functional
+                    logger.warning(
+                        "Gemini backend unavailable during initialization: %s", e
+                    )
+                    gemini_ok = False
 
         # Initialize Anthropic backend
         if cfg.get("anthropic_api_keys"):
@@ -720,7 +734,7 @@ def build_app(
         # ---------------- Shutdown phase ----------------
         # Cleanup integration bridge
         await bridge.cleanup()
-        
+
         # Close shared httpx client
         try:
             await client_httpx.aclose()
@@ -798,14 +812,14 @@ def build_app(
     ):
         """
         DEPRECATED: Process chat completions request.
-        
+
         This function is kept for backward compatibility and will be removed in a future version.
         Please use the new RequestProcessor in src/core/services/request_processor.py instead.
         """
         warnings.warn(
             "chat_completions is deprecated. Use RequestProcessor in src/core/services/request_processor.py instead.",
             DeprecationWarning,
-            stacklevel=2
+            stacklevel=2,
         )
         session_id = http_request.headers.get("x-session-id", "default")
 
@@ -2864,17 +2878,16 @@ def build_app(
 
     # Register hybrid endpoints for gradual migration
     from src.core.integration import hybrid_anthropic_messages, hybrid_chat_completions
-    
+
     # Add hybrid routes with different paths for testing
     app_instance.post(
         "/v2/chat/completions",
         dependencies=[Depends(verify_client_auth)],
     )(hybrid_chat_completions)
-    
-    app_instance.post(
-        "/v2/messages", 
-        dependencies=[Depends(verify_client_auth)]
-    )(hybrid_anthropic_messages)
+
+    app_instance.post("/v2/messages", dependencies=[Depends(verify_client_auth)])(
+        hybrid_anthropic_messages
+    )
 
     return app_instance
 

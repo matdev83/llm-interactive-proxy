@@ -80,31 +80,96 @@ async def mock_http_client() -> AsyncIterator[httpx.AsyncClient]:
 @pytest.fixture
 def test_app(test_config: AppConfig, mock_http_client: httpx.AsyncClient) -> FastAPI:
     """Create a FastAPI app for testing."""
-    app = build_app()
+    # Disable API key middleware during app build so tests aren't gated by auth
+    from unittest.mock import patch
+
+    with patch(
+        "src.core.app.middleware_config.configure_middleware",
+        lambda *_args, **_kwargs: None,
+    ):
+        app = build_app()
 
     # Override app state with test config
     app.state.config = test_config.to_legacy_config()
+    # Disable auth during tests to avoid 401s blocking mocked requests
+    app.state.disable_auth = True
 
     # Use the mock HTTP client
     app.state.httpx_client = mock_http_client
+    # Signal to connectors to skip discovery in tests
+    import contextlib
+
+    with contextlib.suppress(Exception):
+        app.state.httpx_client.skip_backend_discovery = True
+
+    # Provide backend configs with dummy API keys for connectors during tests
+    app.state.backend_configs = {
+        "openai": {"api_key": "test-openai-key"},
+        "openrouter": {"api_key": "test-openrouter-key"},
+        "anthropic": {"api_key": "test-anthropic-key"},
+        "gemini": {"api_key": "test-gemini-key"},
+    }
 
     # Manually set up service provider for testing since TestClient doesn't trigger lifespan
     from src.core.app.application_factory import register_services
+
     services = get_service_collection()
     register_services(services, app)
+
+    # Provide a minimal IConfig implementation backed by app.state.config for DI
+    from src.core.interfaces.configuration import IConfig as _IConfig
+
+    class _TestConfig(_IConfig):
+        def get(self, key: str, default=None):
+            return app.state.config.get(key, default)
+
+        def set(self, key: str, value):
+            app.state.config[key] = value
+
+        def has(self, key: str) -> bool:
+            return key in app.state.config
+
+        def keys(self) -> list[str]:
+            return list(app.state.config.keys())
+
+        def to_dict(self) -> dict[str, object]:
+            return dict(app.state.config)
+
+        def update(self, config: dict) -> None:
+            app.state.config.update(config)
+
+    from typing import Any, cast
+
+    services.add_instance(_IConfig, cast(Any, _TestConfig()))  # type: ignore[type-abstract]
+
     provider = services.build_service_provider()
     set_service_provider(provider)
     app.state.service_provider = provider
 
+    # Prevent connector initialization from performing live HTTP calls during tests
+    try:
+        from unittest.mock import AsyncMock
+
+        from src.core.services.backend_factory import BackendFactory
+
+        factory = provider.get_service(BackendFactory)
+        if factory is not None:
+            from typing import Any, cast
+
+            cast(Any, factory).initialize_backend = AsyncMock(return_value=None)  # type: ignore[attr-defined]
+    except Exception:
+        pass
+
     # Initialize integration bridge for legacy compatibility
-    from src.core.integration import get_integration_bridge
     import asyncio
-    
+
+    from src.core.integration import get_integration_bridge
+
     async def setup_bridge():
         bridge = get_integration_bridge(app)
         await bridge.initialize_legacy_architecture()
         await bridge.initialize_new_architecture()
-    
+
     # Run the async setup
     asyncio.run(setup_bridge())
 
@@ -113,8 +178,8 @@ def test_app(test_config: AppConfig, mock_http_client: httpx.AsyncClient) -> Fas
 
 @pytest.fixture
 def test_client(test_app: FastAPI) -> TestClient:
-    """Create a FastAPI test client."""
-    return TestClient(test_app)
+    """Create a FastAPI test client with default Authorization header."""
+    return TestClient(test_app, headers={"Authorization": "Bearer test_api_key"})
 
 
 @pytest.fixture
