@@ -26,6 +26,7 @@ from src.core.domain.session import SessionInteraction
 from src.core.interfaces.backend_service import IBackendService
 from src.core.interfaces.command_service import ICommandService
 from src.core.interfaces.request_processor import IRequestProcessor
+from src.core.interfaces.response_processor import IResponseProcessor
 from src.core.interfaces.session_service import ISessionService
 
 logger = logging.getLogger(__name__)
@@ -43,6 +44,7 @@ class RequestProcessor(IRequestProcessor):
         command_service: ICommandService,
         backend_service: IBackendService,
         session_service: ISessionService,
+        response_processor: IResponseProcessor,
     ):
         """Initialize the request processor.
         
@@ -50,10 +52,12 @@ class RequestProcessor(IRequestProcessor):
             command_service: Service for processing commands
             backend_service: Service for interacting with backends
             session_service: Service for managing sessions
+            response_processor: Service for processing responses
         """
         self._command_service = command_service
         self._backend_service = backend_service
         self._session_service = session_service
+        self._response_processor = response_processor
     
     async def process_request(self, request: Request, request_data: Any) -> Response:
         """Process an incoming chat completion request.
@@ -150,9 +154,15 @@ class RequestProcessor(IRequestProcessor):
                 session.add_interaction(interaction)
                 await self._session_service.update_session(session)
                 
+                # Use the response processor to process the stream
+                processed_stream = self._response_processor.process_streaming_response(
+                    streaming_response_iterator,
+                    session_id
+                )
+                
                 # Return streaming response
                 return StreamingResponse(
-                    self._process_streaming_response(streaming_response_iterator, start_time),
+                    self._convert_processed_stream_to_sse(processed_stream, start_time),
                     media_type="text/event-stream"
                 )
             else:
@@ -176,8 +186,13 @@ class RequestProcessor(IRequestProcessor):
                 session.add_interaction(interaction)
                 await self._session_service.update_session(session)
                 
-                # Return completed response
-                response_data = chat_response.model_dump()
+                # Process the response using the response processor
+                processed_response = await self._response_processor.process_response(chat_response, session_id)
+                
+                # Convert the processed response back to a format suitable for HTTP response
+                response_data = self._convert_processed_response_to_dict(chat_response, processed_response)
+                
+                # Return the processed response
                 return Response(content=json.dumps(response_data), media_type="application/json")
                 
         except Exception as e:
@@ -444,24 +459,50 @@ class RequestProcessor(IRequestProcessor):
             extra_body=extra_body,
         )
     
-    async def _process_streaming_response(
+    async def _convert_processed_stream_to_sse(
         self,
-        response_iterator: AsyncIterator[StreamingChatResponse],
+        processed_stream: AsyncIterator[Any],
         start_time: float
     ) -> AsyncIterator[bytes]:
-        """Process streaming responses.
+        """Convert processed streaming response to SSE format.
         
         Args:
-            response_iterator: Iterator of streaming responses
+            processed_stream: Iterator of processed responses
             start_time: When the request started
             
         Yields:
-            Bytes for streaming response
+            Bytes for SSE streaming response
         """
         try:
-            async for chunk in response_iterator:
-                # Convert chunk to JSON bytes
-                chunk_json = json.dumps(chunk.model_dump())
+            async for chunk in processed_stream:
+                # Check for error in the processed response
+                if chunk.metadata and "error" in chunk.metadata:
+                    error_json = json.dumps({
+                        "error": {
+                            "message": chunk.content,
+                            "type": chunk.metadata.get("error_type", "stream_error"),
+                            "details": chunk.metadata.get("error")
+                        }
+                    })
+                    yield f"data: {error_json}\n\n".encode()
+                    continue
+                
+                # Create a response chunk with the processed content
+                response_chunk = {
+                    "choices": [{
+                        "delta": {"content": chunk.content},
+                        "index": 0
+                    }]
+                }
+                
+                # Add any metadata
+                if chunk.metadata:
+                    for key, value in chunk.metadata.items():
+                        if key not in ["error", "error_type"]:
+                            response_chunk[key] = value
+                
+                # Convert to SSE format
+                chunk_json = json.dumps(response_chunk)
                 yield f"data: {chunk_json}\n\n".encode()
                 
         except Exception as e:
@@ -481,6 +522,51 @@ class RequestProcessor(IRequestProcessor):
             # Log completion time
             completion_time = time.time() - start_time
             logger.debug(f"Streaming request completed in {completion_time:.2f}s")
+    
+    def _convert_processed_response_to_dict(
+        self,
+        original_response: ChatResponse,
+        processed_response: Any
+    ) -> dict[str, Any]:
+        """Convert a processed response to a dictionary for HTTP response.
+        
+        Args:
+            original_response: The original response from the backend
+            processed_response: The processed response from the response processor
+            
+        Returns:
+            A dictionary suitable for HTTP response
+        """
+        # Start with the original response structure
+        response_data = original_response.model_dump()
+        
+        # Check if there was an error in processing
+        if processed_response.metadata and "error" in processed_response.metadata:
+            # If there was an error, include it in the response
+            response_data["error"] = {
+                "message": processed_response.content,
+                "type": processed_response.metadata.get("error", "processing_error"),
+                "details": processed_response.metadata
+            }
+            # We still return the original response with the error information
+            return response_data
+        
+        # If the content was modified, update the response
+        if processed_response.content and response_data["choices"]:
+            # Update the content in the first choice
+            choice = response_data["choices"][0]
+            if isinstance(choice, dict) and "message" in choice:
+                choice["message"]["content"] = processed_response.content
+        
+        # Add any additional metadata
+        if processed_response.metadata:
+            response_data["metadata"] = processed_response.metadata
+            
+        # Update usage information if available
+        if processed_response.usage:
+            response_data["usage"] = processed_response.usage
+            
+        return response_data
     
     def _extract_response_content(self, response: ChatResponse) -> str:
         """Extract content from a response.

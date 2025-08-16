@@ -1,0 +1,207 @@
+# API Reference
+
+This document provides a reference for the API endpoints exposed by the LLM Interactive Proxy.
+
+## API Versioning
+
+The API is versioned using URL path prefixes:
+
+- `/v1/` - Legacy API (compatible with OpenAI/Anthropic)
+- `/v2/` - New SOLID architecture API
+
+## Authentication
+
+All endpoints require authentication unless the server is started with `--disable-auth`.
+
+Authentication is performed using the `Authorization` header with a bearer token:
+
+```
+Authorization: Bearer <api-key>
+```
+
+## Session Management
+
+Sessions are identified using the `x-session-id` header. If not provided, a new session ID will be generated.
+
+```
+x-session-id: <session-id>
+```
+
+## Endpoints
+
+### Chat Completions
+
+#### Legacy Endpoint (OpenAI Compatible)
+
+```
+POST /v1/chat/completions
+```
+
+#### New SOLID Architecture Endpoint
+
+```
+POST /v2/chat/completions
+```
+
+**Request Body:**
+
+```json
+{
+  "model": "gpt-3.5-turbo",
+  "messages": [
+    {
+      "role": "system",
+      "content": "You are a helpful assistant."
+    },
+    {
+      "role": "user",
+      "content": "Hello, how are you?"
+    }
+  ],
+  "stream": false,
+  "temperature": 0.7,
+  "max_tokens": 1024,
+  "session_id": "optional-session-id"
+}
+```
+
+**Response:**
+
+```json
+{
+  "id": "chatcmpl-123",
+  "object": "chat.completion",
+  "created": 1677858242,
+  "model": "gpt-3.5-turbo",
+  "choices": [
+    {
+      "index": 0,
+      "message": {
+        "role": "assistant",
+        "content": "Hello! I'm doing well, thank you for asking. How can I assist you today?"
+      },
+      "finish_reason": "stop"
+    }
+  ],
+  "usage": {
+    "prompt_tokens": 25,
+    "completion_tokens": 18,
+    "total_tokens": 43
+  }
+}
+```
+
+### Anthropic Messages
+
+#### Legacy Endpoint (Anthropic Compatible)
+
+```
+POST /v1/messages
+```
+
+#### New SOLID Architecture Endpoint
+
+```
+POST /v2/messages
+```
+
+**Request Body:**
+
+```json
+{
+  "model": "claude-3-opus-20240229",
+  "messages": [
+    {
+      "role": "user",
+      "content": "Hello, how are you?"
+    }
+  ],
+  "stream": false,
+  "temperature": 0.7,
+  "max_tokens": 1024,
+  "session_id": "optional-session-id"
+}
+```
+
+**Response:**
+
+```json
+{
+  "id": "msg_123",
+  "type": "message",
+  "role": "assistant",
+  "content": [
+    {
+      "type": "text",
+      "text": "Hello! I'm doing well, thank you for asking. How can I assist you today?"
+    }
+  ],
+  "model": "claude-3-opus-20240229",
+  "stop_reason": "end_turn",
+  "usage": {
+    "input_tokens": 12,
+    "output_tokens": 18
+  }
+}
+```
+
+## In-Chat Commands
+
+The LLM Interactive Proxy supports in-chat commands that can be used to control the proxy's behavior. Commands are prefixed with `!/` by default.
+
+### Available Commands
+
+- `!/set(param=value)` - Set a parameter value
+- `!/unset(param)` - Unset a parameter value
+- `!/help` - Show help information
+- `!/pwd` - Show current project directory
+- `!/hello` - Test command
+
+### Example
+
+```
+User: !/set(model=gpt-4)
+Assistant: Model set to gpt-4
+
+User: What is the capital of France?
+Assistant: The capital of France is Paris.
+```
+
+## Error Handling
+
+Errors are returned as JSON objects with the following structure:
+
+```json
+{
+  "error": {
+    "message": "Error message",
+    "type": "error_type",
+    "details": {
+      "additional": "error details"
+    }
+  }
+}
+```
+
+Common error types:
+
+- `authentication_error` - Invalid API key
+- `rate_limit_error` - Rate limit exceeded
+- `backend_error` - Error from the backend LLM provider
+- `validation_error` - Invalid request parameters
+- `loop_detected` - Loop detection triggered
+
+## Rate Limiting
+
+Rate limiting is applied based on the client API key. The default limits are:
+
+- 60 requests per minute
+- 1000 requests per day
+
+Rate limit headers are included in the response:
+
+```
+X-RateLimit-Limit: 60
+X-RateLimit-Remaining: 59
+X-RateLimit-Reset: 1677858302
+```

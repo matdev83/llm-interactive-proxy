@@ -8,19 +8,17 @@ from __future__ import annotations
 
 import logging
 import os
-from typing import Any
 
 from fastapi import FastAPI
 
-from src.core.adapters import (
-    create_legacy_command_adapter,
-    create_legacy_config_adapter,
-    create_legacy_session_adapter,
-)
+# No longer using adapters - direct service usage
 from src.core.di.services import get_service_collection, set_service_provider
+from src.core.interfaces.backend_service import IBackendService
 from src.core.interfaces.command_service import ICommandService
 from src.core.interfaces.configuration import IConfig
 from src.core.interfaces.di import IServiceProvider
+from src.core.interfaces.session_service import ISessionService
+from src.core.services.session_migration_service import SessionMigrationService
 
 logger = logging.getLogger(__name__)
 
@@ -43,14 +41,14 @@ class IntegrationBridge:
         """Load feature flags from environment variables.
         
         Returns:
-            Dictionary of feature flags
+            Dictionary of feature flags with all new services enabled by default
         """
         return {
-            "use_new_session_service": self._get_bool_env("USE_NEW_SESSION_SERVICE", False),
-            "use_new_command_service": self._get_bool_env("USE_NEW_COMMAND_SERVICE", False),
-            "use_new_backend_service": self._get_bool_env("USE_NEW_BACKEND_SERVICE", False),
-            "use_new_request_processor": self._get_bool_env("USE_NEW_REQUEST_PROCESSOR", False),
-            "enable_dual_mode": self._get_bool_env("ENABLE_DUAL_MODE", True),
+            "use_new_session_service": True,
+            "use_new_command_service": True,
+            "use_new_backend_service": True,
+            "use_new_request_processor": True,
+            "enable_dual_mode": True,
         }
     
     def _get_bool_env(self, key: str, default: bool) -> bool:
@@ -92,10 +90,10 @@ class IntegrationBridge:
         config = self.app.state.config
         
         # Import legacy backend classes
-        from src.connectors.gemini import GeminiBackend
-        from src.connectors.openrouter import OpenRouterBackend
         from src.connectors.anthropic import AnthropicBackend
+        from src.connectors.gemini import GeminiBackend
         from src.connectors.openai import OpenAIConnector
+        from src.connectors.openrouter import OpenRouterBackend
         from src.connectors.qwen_oauth import QwenOAuthConnector
         from src.connectors.zai import ZAIConnector
         
@@ -186,20 +184,22 @@ class IntegrationBridge:
         logger.info("New SOLID architecture initialized")
     
     def _register_bridge_services(self, services) -> None:
-        """Register bridge services that connect old and new architectures.
+        """Register services for the new architecture.
         
         Args:
             services: The service collection
         """
-        # Register config adapter
-        if hasattr(self.app.state, 'config'):
-            config_adapter = create_legacy_config_adapter(self.app.state.config)
-            services.add_instance(IConfig, config_adapter)
+        # We no longer use adapters - the new architecture is fully independent
+        # and the integration bridge only handles session synchronization
         
-        # Register command service adapter if legacy command parser exists
-        if hasattr(self.app.state, 'command_parser'):
-            command_adapter = create_legacy_command_adapter(self.app.state.command_parser)
-            services.add_instance(ICommandService, command_adapter)
+        # No need to register adapters anymore - the application_factory.py
+        # handles registration of all required services
+        logger.info("Using new architecture services directly (no adapters)")
+        
+        # Note: The application_factory.py now registers:
+        # - BackendService for IBackendService
+        # - CommandService for ICommandService
+        # - AppConfig for IConfig
     
     def get_service_provider(self) -> IServiceProvider | None:
         """Get the service provider if new architecture is initialized.
@@ -230,6 +230,61 @@ class IntegrationBridge:
             True if dual mode is enabled
         """
         return self.feature_flags.get("enable_dual_mode", True)
+    
+    async def sync_session(self, session_id: str) -> None:
+        """Synchronize session between old and new architectures.
+        
+        Args:
+            session_id: The ID of the session to synchronize
+        """
+        if not (self.legacy_initialized and self.new_initialized):
+            logger.warning("Cannot sync session: both architectures must be initialized")
+            return
+        
+        try:
+            # Get service provider
+            provider = self.get_service_provider()
+            if not provider:
+                logger.warning("Cannot sync session: service provider not available")
+                return
+            
+            # Get session migration service
+            migration_service = provider.get_service(SessionMigrationService)
+            if not migration_service:
+                logger.warning("Cannot sync session: migration service not available")
+                return
+            
+            # Get session services
+            new_session_service = provider.get_service(ISessionService)  # type: ignore
+            if not new_session_service:
+                logger.warning("Cannot sync session: new session service not available")
+                return
+                
+            # Get legacy session
+            if not hasattr(self.app.state, 'session_manager'):
+                logger.warning("Cannot sync session: session manager not available")
+                return
+                
+            session_manager = self.app.state.session_manager
+            legacy_session = session_manager.get_session(session_id)
+            if not legacy_session:
+                logger.warning(f"Cannot sync session: legacy session {session_id} not found")
+                return
+            
+            # Get new session
+            _ = await new_session_service.get_session(session_id)
+            
+            # Sync from legacy to new
+            migrated_session = await migration_service.migrate_legacy_session(legacy_session)
+            await new_session_service.update_session(migrated_session)
+            
+            # Sync from new to legacy
+            await migration_service.sync_session_state(legacy_session, migrated_session)
+            
+            logger.debug(f"Successfully synchronized session {session_id} between architectures")
+            
+        except Exception as e:
+            logger.error(f"Failed to sync session {session_id}: {e}", exc_info=True)
     
     async def cleanup(self) -> None:
         """Cleanup both architectures."""

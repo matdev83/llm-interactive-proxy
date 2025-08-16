@@ -6,12 +6,14 @@ from pathlib import Path
 import httpx
 from fastapi import FastAPI
 
+from src.core.commands.handler_factory import register_command_handlers
 from src.core.common.logging import get_logger, setup_logging
 from src.core.config_adapter import AppConfig, _load_config
 from src.core.di.services import get_service_collection, set_service_provider
 from src.core.interfaces.backend_service import IBackendService
 from src.core.interfaces.command_service import ICommandService
 from src.core.interfaces.di import IServiceCollection
+from src.core.interfaces.loop_detector import ILoopDetector
 from src.core.interfaces.rate_limiter import IRateLimiter
 from src.core.interfaces.repositories import (
     IConfigRepository,
@@ -27,13 +29,19 @@ from src.core.repositories.in_memory_usage_repository import InMemoryUsageReposi
 from src.core.services.backend_factory import BackendFactory
 from src.core.services.backend_service import BackendService
 from src.core.services.command_service import CommandRegistry, CommandService
-from src.core.services.rate_limiter import InMemoryRateLimiter
+from src.core.services.loop_detector import create_loop_detector
+from src.core.services.rate_limiter import create_rate_limiter
 from src.core.services.request_processor import RequestProcessor
 from src.core.services.response_middleware import (
     ContentFilterMiddleware,
     LoggingMiddleware,
+    LoopDetectionMiddleware,
 )
 from src.core.services.response_processor import ResponseProcessor
+from src.core.services.session_migration_service import (
+    SessionMigrationService,
+    create_session_migration_service,
+)
 from src.core.services.session_service import SessionService
 
 logger = get_logger(__name__)
@@ -127,6 +135,7 @@ def register_services(services: IServiceCollection, app: FastAPI) -> None:
             sp.get_required_service(ICommandService),
             sp.get_required_service(IBackendService),
             sp.get_required_service(ISessionService),
+            sp.get_required_service(IResponseProcessor),
         ),
     )
 
@@ -137,31 +146,61 @@ def register_services(services: IServiceCollection, app: FastAPI) -> None:
             sp.get_required_service(ISessionRepository)
         ),
     )
+    
+    # SessionMigrationService
+    services.add_singleton(
+        SessionMigrationService,
+        implementation_factory=lambda sp: create_session_migration_service(
+            sp.get_required_service(ISessionService)
+        ),
+    )
 
     # CommandService
-    services.add_singleton(CommandRegistry)
+    command_registry = CommandRegistry()
+    services.add_instance(CommandRegistry, command_registry)
+    
+    # Register command handlers with registry
+    register_command_handlers(command_registry)
+    
     services.add_singleton(
         ICommandService,
         implementation_factory=lambda sp: CommandService(
-            command_registry=sp.get_required_service(CommandRegistry)
+            command_registry=sp.get_required_service(CommandRegistry),
+            session_service=sp.get_required_service(ISessionService)
         ),
     )
 
     # RateLimiter
     services.add_singleton(
-        IRateLimiter, implementation_factory=lambda _: InMemoryRateLimiter()
+        IRateLimiter, implementation_factory=lambda _: create_rate_limiter(app.state.config)
+    )
+    
+    # LoopDetector
+    services.add_singleton(
+        ILoopDetector, implementation_factory=lambda _: create_loop_detector(app.state.config)
     )
 
     # ResponseProcessor
     services.add_singleton(ContentFilterMiddleware)
     services.add_singleton(LoggingMiddleware)
+    
+    # Create loop detection middleware if loop detector is available
+    services.add_singleton(
+        LoopDetectionMiddleware,
+        implementation_factory=lambda sp: LoopDetectionMiddleware(
+            sp.get_service(ILoopDetector)
+        )
+    )
+    
+    # Create response processor with all middleware components
     services.add_singleton(
         IResponseProcessor,
         implementation_factory=lambda sp: ResponseProcessor(
-            None,
+            sp.get_service(ILoopDetector),
             [
                 sp.get_required_service(ContentFilterMiddleware),
                 sp.get_required_service(LoggingMiddleware),
+                sp.get_required_service(LoopDetectionMiddleware),
             ],
         ),
     )

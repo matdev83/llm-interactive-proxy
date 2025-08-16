@@ -237,7 +237,10 @@ class ResponseProcessor(IResponseProcessor):
                         content = message["content"] or ""
 
             if response.usage:
-                usage = response.usage.model_dump()
+                if hasattr(response.usage, 'model_dump'):
+                    usage = response.usage.model_dump()
+                else:
+                    usage = dict(response.usage)
 
         # Handle dictionary (for legacy support)
         elif isinstance(response, dict):
@@ -279,10 +282,10 @@ class ResponseProcessor(IResponseProcessor):
         # Handle our domain model
         if isinstance(chunk, StreamingChatResponse):
             metadata["model"] = chunk.model
-            metadata["id"] = chunk.id
-            metadata["created"] = str(chunk.created)
+            metadata["id"] = getattr(chunk, "id", "")
+            metadata["created"] = str(getattr(chunk, "created", ""))
 
-            if chunk.choices:
+            if hasattr(chunk, 'choices') and chunk.choices:
                 choice = chunk.choices[0]
                 if isinstance(choice, dict) and "delta" in choice:
                     delta = choice["delta"]
