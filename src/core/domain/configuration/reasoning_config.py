@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from pydantic import ConfigDict, field_validator
+from pydantic import ConfigDict, field_validator, model_validator
 
 from src.core.domain.base import ValueObject
 from src.core.interfaces.configuration import IReasoningConfig
@@ -11,18 +11,12 @@ from src.core.interfaces.configuration import IReasoningConfig
 logger = logging.getLogger(__name__)
 
 
-class ReasoningConfiguration(ValueObject, IReasoningConfig):
+class ReasoningConfiguration(ValueObject):
     """Configuration for LLM reasoning parameters.
     
     This class handles reasoning settings like effort level, temperature,
     and model-specific generation parameters.
     """
-    
-    model_config = ConfigDict(
-        # Ignore extra attributes to suppress warnings about field names shadowing parent attributes
-        extra='ignore',
-        # Other config options can be added here as needed
-    )
     
     reasoning_effort: str | None = None
     thinking_budget: int | None = None
@@ -49,22 +43,22 @@ class ReasoningConfiguration(ValueObject, IReasoningConfig):
             )
         return v
     
-    def with_reasoning_effort(self, effort: str | None) -> IReasoningConfig:
+    def with_reasoning_effort(self, effort: str | None) -> "ReasoningConfiguration":
         """Create a new config with updated reasoning effort."""
         return self.model_copy(update={"reasoning_effort": effort})
     
-    def with_thinking_budget(self, budget: int | None) -> IReasoningConfig:
+    def with_thinking_budget(self, budget: int | None) -> "ReasoningConfiguration":
         """Create a new config with updated thinking budget."""
         return self.model_copy(update={"thinking_budget": budget})
     
-    def with_temperature(self, temperature: float | None) -> IReasoningConfig:
+    def with_temperature(self, temperature: float | None) -> "ReasoningConfiguration":
         """Create a new config with updated temperature."""
         return self.model_copy(update={"temperature": temperature})
     
-    def with_reasoning_config(self, config: dict[str, Any] | None) -> ReasoningConfiguration:
+    def with_reasoning_config(self, config: dict[str, Any] | None) -> "ReasoningConfiguration":
         """Create a new config with updated reasoning configuration."""
         return self.model_copy(update={"reasoning_config": config})
     
-    def with_gemini_generation_config(self, config: dict[str, Any] | None) -> ReasoningConfiguration:
+    def with_gemini_generation_config(self, config: dict[str, Any] | None) -> "ReasoningConfiguration":
         """Create a new config with updated Gemini generation configuration."""
         return self.model_copy(update={"gemini_generation_config": config})
