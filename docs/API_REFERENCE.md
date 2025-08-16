@@ -157,6 +157,7 @@ The LLM Interactive Proxy supports in-chat commands that can be used to control 
 - `!/help` - Show help information
 - `!/pwd` - Show current project directory
 - `!/hello` - Test command
+- `!/oneoff(backend/model)` or `!/one-off(backend:model)` - Set a one-time override for the backend and model for the next request
 
 #### Failover Route Commands
 - `!/create-failover-route(name=<route>,policy=<policy>)` - Create a new failover route with the specified policy
@@ -196,12 +197,21 @@ Assistant: Element 'anthropic:claude-3-opus' appended to failover route 'my-rout
 User: !/route-list(name=my-route)
 Assistant: Failover route 'my-route' (policy: k) elements: openai:gpt-4, anthropic:claude-3-opus
 
-# Basic command example
+# Basic command examples
 User: !/set(model=gpt-4)
 Assistant: Model set to gpt-4
 
 User: What is the capital of France?
 Assistant: The capital of France is Paris.
+
+# One-off command example
+User: !/oneoff(anthropic/claude-3-opus)
+Assistant: One-off route set to anthropic/claude-3-opus.
+
+User: What is the capital of Germany?
+Assistant: The capital of Germany is Berlin.
+
+# Note: The next request will use the default model again
 ```
 
 ## Error Handling
