@@ -1,7 +1,7 @@
 import pytest
 from fastapi.testclient import TestClient
 from pytest_httpx import HTTPXMock
-from src.main import build_app
+from src.core.app.application_factory import build_app
 
 
 @pytest.mark.httpx_mock()
@@ -63,7 +63,7 @@ def test_failover_missing_keys(monkeypatch, httpx_mock: HTTPXMock):
     monkeypatch.setenv("LLM_BACKEND", "gemini")
 
     from fastapi.testclient import TestClient
-    from src import main as app_main
+    from src.core.app import application_factory as app_main
 
     app = app_main.build_app()
     with TestClient(app, headers={"Authorization": "Bearer test-proxy-key"}) as client:

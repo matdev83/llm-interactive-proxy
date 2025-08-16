@@ -6,11 +6,11 @@ from typing import Any
 from pydantic import ConfigDict, Field
 
 from src.core.domain.base import ValueObject
-from src.core.domain.configuration import (
-    BackendConfiguration,
+from src.core.domain.configuration.backend_config import BackendConfiguration
+from src.core.domain.configuration.loop_detection_config import (
     LoopDetectionConfiguration,
-    ReasoningConfiguration,
 )
+from src.core.domain.configuration.reasoning_config import ReasoningConfiguration
 from src.core.interfaces.configuration import (
     IBackendConfig,
     ILoopDetectionConfig,
@@ -33,7 +33,7 @@ class SessionInteraction(ValueObject):
     timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 
-class SessionState(ValueObject, ISessionState):
+class SessionState(ValueObject):
     """Immutable state of a session."""
 
     model_config = ConfigDict(
@@ -53,6 +53,87 @@ class SessionState(ValueObject, ISessionState):
     hello_requested: bool = False
     is_cline_agent: bool = False
 
+    def with_backend_config(self, backend_config: IBackendConfig) -> SessionState:
+        """Create a new session state with updated backend config."""
+        return self.model_copy(update={"backend_config": backend_config})
+
+    def with_reasoning_config(self, reasoning_config: IReasoningConfig) -> SessionState:
+        """Create a new session state with updated reasoning config."""
+        return self.model_copy(update={"reasoning_config": reasoning_config})
+
+    def with_loop_config(self, loop_config: ILoopDetectionConfig) -> SessionState:
+        """Create a new session state with updated loop config."""
+        return self.model_copy(update={"loop_config": loop_config})
+
+    def with_project(self, project: str | None) -> SessionState:
+        """Create a new session state with updated project."""
+        return self.model_copy(update={"project": project})
+
+    def with_project_dir(self, project_dir: str | None) -> SessionState:
+        """Create a new session state with updated project directory."""
+        return self.model_copy(update={"project_dir": project_dir})
+
+
+class SessionStateAdapter(ISessionState):
+    """Adapter that makes SessionState implement ISessionState interface."""
+
+    def __init__(self, session_state: SessionState):
+        self._state = session_state
+
+    @property
+    def backend_config(self) -> IBackendConfig:
+        """Get the backend configuration."""
+        return self._state.backend_config
+
+    @property
+    def reasoning_config(self) -> IReasoningConfig:
+        """Get the reasoning configuration."""
+        return self._state.reasoning_config
+
+    @property
+    def loop_config(self) -> ILoopDetectionConfig:
+        """Get the loop detection configuration."""
+        return self._state.loop_config
+
+    @property
+    def project(self) -> str | None:
+        """Get the project name."""
+        return self._state.project
+
+    @property
+    def project_dir(self) -> str | None:
+        """Get the project directory."""
+        return self._state.project_dir
+
+    @property
+    def interactive_just_enabled(self) -> bool:
+        """Whether interactive mode was just enabled for this session."""
+        return getattr(self._state, "interactive_just_enabled", False)
+
+    @property
+    def hello_requested(self) -> bool:
+        """Whether hello was requested in this session."""
+        return getattr(self._state, "hello_requested", False)
+
+    @property
+    def is_cline_agent(self) -> bool:
+        """Whether the agent is Cline for this session."""
+        return getattr(self._state, "is_cline_agent", False)
+
+    def equals(self, other: Any) -> bool:
+        """Check if this value object equals another."""
+        return self._state.equals(other)
+
+    def to_dict(self) -> dict[str, Any]:
+        """Convert this value object to a dictionary."""
+        return self._state.to_dict()
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> ISessionState:
+        """Create a value object from a dictionary."""
+        state = SessionState.from_dict(data)
+        return cls(state)  # type: ignore
+
 
 class Session(ISession):
     """Container for conversation state and history."""
@@ -60,14 +141,23 @@ class Session(ISession):
     def __init__(
         self,
         session_id: str,
-        state: ISessionState | None = None,
+        state: ISessionState | SessionState | None = None,
         history: list[SessionInteraction] | None = None,
         created_at: datetime | None = None,
         last_active_at: datetime | None = None,
         agent: str | None = None,
     ):
         self._session_id = session_id
-        self._state = state or SessionState()
+        self._state: ISessionState  # Type annotation fix
+
+        # Handle different state types
+        if state is None:
+            self._state = SessionStateAdapter(SessionState())
+        elif isinstance(state, SessionState):
+            self._state = SessionStateAdapter(state)
+        else:
+            self._state = state
+
         self._history = history or []
         self._created_at = created_at or datetime.now(timezone.utc)
         self._last_active_at = last_active_at or datetime.now(timezone.utc)

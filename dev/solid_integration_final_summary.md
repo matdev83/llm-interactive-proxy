@@ -1,3 +1,5 @@
+<!-- DEPRECATED: This document has been superseded by dev/solid_refactoring_sot.md. It is kept for historical context. See that file for the authoritative plan and status. -->
+
 # SOLID Integration Final Summary
 
 This document summarizes the completion of the SOLID architecture integration effort, addressing all issues identified in the code review.

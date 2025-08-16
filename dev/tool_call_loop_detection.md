@@ -1,3 +1,5 @@
+<!-- DEPRECATED: This document has been superseded by dev/solid_refactoring_sot.md. It is kept for historical context. See that file for the authoritative plan and status. -->
+
 ## Tool-call loop detection: design and plan
 
 ### Overview

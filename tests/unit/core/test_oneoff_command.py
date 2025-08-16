@@ -3,7 +3,6 @@ Tests for the OneOff command in the new SOLID architecture.
 """
 
 import pytest
-
 from src.core.commands.handlers.oneoff_handler import OneOffCommandHandler
 from src.core.domain.configuration.backend_config import BackendConfiguration
 from src.core.domain.session import SessionState

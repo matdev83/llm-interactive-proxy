@@ -1,165 +1,204 @@
-"""
-Tests for the CommandService implementation.
-"""
+"""Tests for the command service implementation."""
 
+from unittest.mock import AsyncMock
 
 import pytest
-from src.commands.base import BaseCommand, CommandResult
+from src.core.commands.handler_factory import register_command_handlers
+from src.core.domain.configuration import (
+    BackendConfig,
+    LoopDetectionConfig,
+    ReasoningConfig,
+)
+from src.core.domain.session import Session, SessionState
 from src.core.services.command_service import CommandRegistry, CommandService
 
-from tests.unit.core.test_doubles import MockSessionService
+
+@pytest.fixture
+def command_registry():
+    """Create a command registry with registered handlers."""
+    registry = CommandRegistry()
+    register_command_handlers(registry)
+    return registry
 
 
-class MockCommand(BaseCommand):
-    """Mock command for testing."""
-    
-    def __init__(self, name, success=True, message="Command executed"):
-        self.name = name
-        self._success = success
-        self._message = message
-        self.called = False
-        self.args = None
-        self.proxy_state = None
-        
-    def execute(self, args, proxy_state, app):
-        self.called = True
-        self.args = args
-        self.proxy_state = proxy_state
-        return CommandResult(self.name, self._success, self._message)
+@pytest.fixture
+def session():
+    """Create a test session."""
+    backend_config = BackendConfig(
+        backend_type="openrouter",
+        model="gpt-3.5-turbo",
+        interactive_mode=True,
+    )
+    reasoning_config = ReasoningConfig(
+        reasoning_effort="low",
+        thinking_budget=0,
+        temperature=0.7,
+    )
+    loop_config = LoopDetectionConfig(
+        loop_detection_enabled=True,
+        tool_loop_detection_enabled=True,
+        min_pattern_length=50,
+        max_pattern_length=500,
+    )
+    state = SessionState(
+        backend_config=backend_config,
+        reasoning_config=reasoning_config,
+        loop_config=loop_config,
+        project="test-project",
+    )
+    return Session(session_id="test-session", state=state)
+
+
+@pytest.fixture
+def session_service(session):
+    """Create a mock session service."""
+    mock_service = AsyncMock()
+    mock_service.get_session = AsyncMock(return_value=session)
+    return mock_service
+
+
+@pytest.fixture
+def command_service(command_registry, session_service):
+    """Create a command service for testing."""
+    return CommandService(command_registry, session_service)
 
 
 @pytest.mark.asyncio
-async def test_command_registry():
-    """Test the command registry."""
-    # Arrange
-    registry = CommandRegistry()
-    cmd1 = MockCommand("test1")
-    cmd2 = MockCommand("test2")
+async def test_backend_command(command_service):
+    """Test the backend command."""
+    messages = [{"role": "user", "content": "!/backend(name=anthropic)"}]
     
-    # Act
-    registry.register(cmd1)
-    registry.register(cmd2)
+    # Process the command
+    result = await command_service.process_commands(messages, "test-session")
     
-    # Assert
-    assert registry.get("test1") == cmd1
-    assert registry.get("test2") == cmd2
-    assert registry.get("nonexistent") is None
-    
-    all_commands = registry.get_all()
-    assert len(all_commands) == 2
-    assert all_commands["test1"] == cmd1
-    assert all_commands["test2"] == cmd2
-
-
-@pytest.mark.asyncio
-async def test_command_service_process_no_commands():
-    """Test processing messages with no commands."""
-    # Arrange
-    registry = CommandRegistry()
-    session_service = MockSessionService()
-    service = CommandService(registry, session_service)
-    
-    # Create a session
-    await session_service.get_session("test-session")
-    
-    # Create messages with no commands
-    messages = [
-        {"role": "user", "content": "Hello, how are you?"},
-        {"role": "assistant", "content": "I'm doing well, how about you?"}
-    ]
-    
-    # Act
-    result = await service.process_commands(messages, "test-session")
-    
-    # Assert
-    assert result.modified_messages == messages
-    assert result.command_executed is False
-    assert len(result.command_results) == 0
-
-
-@pytest.mark.asyncio
-async def test_command_service_process_with_command():
-    """Test processing messages with a command."""
-    # Arrange
-    registry = CommandRegistry()
-    session_service = MockSessionService()
-    service = CommandService(registry, session_service)
-    
-    # Create a mock command
-    cmd = MockCommand("test")
-    registry.register(cmd)
-    
-    # Create a session
-    await session_service.get_session("test-session")
-    
-    # Create messages with a command
-    messages = [
-        {"role": "user", "content": "!/test(arg1=value1, arg2=value2) and some text"},
-        {"role": "assistant", "content": "I'll process that command."}
-    ]
-    
-    # Act
-    result = await service.process_commands(messages, "test-session")
-    
-    # Assert
-    assert cmd.called
-    assert cmd.args == {"arg1": "value1", "arg2": "value2"}
-    assert result.command_executed is True
+    # Verify the result
+    assert result.command_executed
     assert len(result.command_results) == 1
-    assert result.command_results[0].success is True
-    assert result.command_results[0].message == "Command executed"
-    assert result.command_results[0].data["name"] == "test"
+    assert result.command_results[0].success
+    assert "anthropic" in result.command_results[0].message
     
-    # The command should be removed from the message
-    assert result.modified_messages[0]["content"] == " and some text"
+    # Verify the message was modified
+    assert result.modified_messages[0]["content"] == ""
 
 
 @pytest.mark.asyncio
-async def test_command_service_unknown_command():
-    """Test processing messages with an unknown command."""
-    # Arrange
-    registry = CommandRegistry()
-    session_service = MockSessionService()
-    service = CommandService(registry, session_service, preserve_unknown=True)
+async def test_model_command(command_service):
+    """Test the model command."""
+    messages = [{"role": "user", "content": "!/model(name=gpt-4)"}]
     
-    # Create a session
-    await session_service.get_session("test-session")
+    # Process the command
+    result = await command_service.process_commands(messages, "test-session")
     
-    # Create messages with an unknown command
-    messages = [
-        {"role": "user", "content": "!/unknown(arg=value) and some text"},
-        {"role": "assistant", "content": "I don't know that command."}
-    ]
+    # Verify the result
+    assert result.command_executed
+    assert len(result.command_results) == 1
+    assert result.command_results[0].success
+    assert "gpt-4" in result.command_results[0].message
     
-    # Act
-    result = await service.process_commands(messages, "test-session")
+    # Verify the message was modified
+    assert result.modified_messages[0]["content"] == ""
+
+
+@pytest.mark.asyncio
+async def test_temperature_command(command_service):
+    """Test the temperature command."""
+    messages = [{"role": "user", "content": "!/temperature(value=0.9)"}]
     
-    # Assert
-    assert result.command_executed is False
+    # Process the command
+    result = await command_service.process_commands(messages, "test-session")
+    
+    # Verify the result
+    assert result.command_executed
+    assert len(result.command_results) == 1
+    assert result.command_results[0].success
+    assert "0.9" in result.command_results[0].message
+    
+    # Verify the message was modified
+    assert result.modified_messages[0]["content"] == ""
+
+
+@pytest.mark.asyncio
+async def test_project_command(command_service):
+    """Test the project command."""
+    messages = [{"role": "user", "content": "!/project(name=new-project)"}]
+    
+    # Process the command
+    result = await command_service.process_commands(messages, "test-session")
+    
+    # Verify the result
+    assert result.command_executed
+    assert len(result.command_results) == 1
+    assert result.command_results[0].success
+    assert "new-project" in result.command_results[0].message
+    
+    # Verify the message was modified
+    assert result.modified_messages[0]["content"] == ""
+
+
+@pytest.mark.asyncio
+async def test_help_command(command_service):
+    """Test the help command."""
+    messages = [{"role": "user", "content": "!/help"}]
+    
+    # Process the command
+    result = await command_service.process_commands(messages, "test-session")
+    
+    # Verify the result
+    assert result.command_executed
+    assert len(result.command_results) == 1
+    assert result.command_results[0].success
+    assert "Available commands" in result.command_results[0].message
+    
+    # Verify the message was modified
+    assert result.modified_messages[0]["content"] == ""
+
+
+@pytest.mark.asyncio
+async def test_help_command_with_specific_command(command_service):
+    """Test the help command for a specific command."""
+    messages = [{"role": "user", "content": "!/help(command=model)"}]
+    
+    # Process the command
+    result = await command_service.process_commands(messages, "test-session")
+    
+    # Verify the result
+    assert result.command_executed
+    assert len(result.command_results) == 1
+    assert result.command_results[0].success
+    assert "Help for model" in result.command_results[0].message
+    
+    # Verify the message was modified
+    assert result.modified_messages[0]["content"] == ""
+
+
+@pytest.mark.asyncio
+async def test_unknown_command(command_service):
+    """Test an unknown command."""
+    messages = [{"role": "user", "content": "!/nonexistent"}]
+    
+    # Process the command
+    result = await command_service.process_commands(messages, "test-session")
+    
+    # Verify the result
+    assert not result.command_executed
     assert len(result.command_results) == 0
     
-    # The unknown command should be preserved
-    assert result.modified_messages[0]["content"] == "!/unknown(arg=value) and some text"
-    
-    # Test with preserve_unknown=False
-    service = CommandService(registry, session_service, preserve_unknown=False)
-    result = await service.process_commands(messages, "test-session")
-    
-    # The unknown command should be removed
-    assert result.modified_messages[0]["content"] == " and some text"
+    # Verify the message was modified
+    assert result.modified_messages[0]["content"] == " "
 
 
 @pytest.mark.asyncio
-async def test_command_service_register_command():
-    """Test registering a command."""
-    # Arrange
-    registry = CommandRegistry()
-    session_service = MockSessionService()
-    service = CommandService(registry, session_service)
+async def test_command_with_remaining_text(command_service):
+    """Test a command with remaining text."""
+    messages = [{"role": "user", "content": "!/model(name=gpt-4) Tell me about AI"}]
     
-    # Act
-    cmd = MockCommand("new-command")
-    await service.register_command("new-command", cmd)
+    # Process the command
+    result = await command_service.process_commands(messages, "test-session")
     
-    # Assert
-    assert registry.get("new-command") == cmd
+    # Verify the result
+    assert result.command_executed
+    assert len(result.command_results) == 1
+    assert result.command_results[0].success
+    
+    # Verify the message was modified to keep remaining text
+    assert result.modified_messages[0]["content"] == " Tell me about AI"

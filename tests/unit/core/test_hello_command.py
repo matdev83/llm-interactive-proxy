@@ -3,7 +3,6 @@ Tests for the Hello command in the new SOLID architecture.
 """
 
 import pytest
-
 from src.core.commands.handlers.hello_handler import HelloCommandHandler
 from src.core.domain.session import SessionState
 

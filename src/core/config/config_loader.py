@@ -140,11 +140,18 @@ def _load_config() -> dict[str, Any]:
 
 
 def get_openrouter_headers(cfg: dict[str, Any], api_key: str) -> dict[str, str]:
+    """Construct headers for OpenRouter requests.
+
+    Be tolerant of minimal cfg dicts provided by tests by falling back to
+    sensible defaults when optional keys are absent.
+    """
+    referer = cfg.get("app_site_url", "http://localhost:8000")
+    x_title = cfg.get("app_x_title", "InterceptorProxy")
     return {
         "Authorization": f"Bearer {api_key}",
         "Content-Type": "application/json",
-        "HTTP-Referer": cfg["app_site_url"],
-        "X-Title": cfg["app_x_title"],
+        "HTTP-Referer": referer,
+        "X-Title": x_title,
     }
 
 

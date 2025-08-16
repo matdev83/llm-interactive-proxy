@@ -12,8 +12,8 @@ from src.core.integration.hybrid_controller import (
 
 __all__ = [
     "IntegrationBridge",
-    "get_integration_bridge", 
-    "set_integration_bridge",
-    "hybrid_chat_completions",
+    "get_integration_bridge",
     "hybrid_anthropic_messages",
+    "hybrid_chat_completions",
+    "set_integration_bridge",
 ]

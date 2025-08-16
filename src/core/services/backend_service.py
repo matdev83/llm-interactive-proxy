@@ -15,8 +15,11 @@ from src.core.common.exceptions import (
 )
 from src.core.domain.chat import ChatRequest, ChatResponse, StreamingChatResponse
 from src.core.interfaces.backend_service import IBackendService
+from src.core.interfaces.configuration import IConfig
 from src.core.interfaces.rate_limiter import IRateLimiter
+from src.core.services.backend_config_service import BackendConfigService
 from src.core.services.backend_factory import BackendFactory
+from src.core.services.failover_service import FailoverService
 from src.models import ChatMessage, ToolDefinition
 
 logger = logging.getLogger(__name__)
@@ -32,6 +35,7 @@ class BackendService(IBackendService):
         self, 
         factory: BackendFactory, 
         rate_limiter: IRateLimiter,
+        config: IConfig,
         backend_configs: dict[str, dict[str, Any]] | None = None,
         failover_routes: dict[str, dict[str, Any]] | None = None,
     ):
@@ -40,14 +44,18 @@ class BackendService(IBackendService):
         Args:
             factory: The factory for creating backends
             rate_limiter: The rate limiter for API calls
+            config: Application configuration
             backend_configs: Configurations for backends
             failover_routes: Routes for backend failover
         """
         self._factory = factory
         self._rate_limiter = rate_limiter
+        self._config = config
         self._backend_configs = backend_configs or {}
         self._failover_routes = failover_routes or {}
         self._backends: dict[str, LLMBackend] = {}
+        self._failover_service = FailoverService(config)
+        self._backend_config_service = BackendConfigService()
         
     async def call_completion(
         self, 
@@ -123,6 +131,11 @@ class BackendService(IBackendService):
                 **request.extra_body
             )
             
+            # Apply backend-specific configuration
+            legacy_request = self._backend_config_service.apply_backend_config(
+                legacy_request, backend_type
+            )
+            
             # Call the backend
             result = await backend.chat_completions(
                 request_data=legacy_request, 
@@ -190,8 +203,76 @@ class BackendService(IBackendService):
             # Re-raise our custom exceptions
             raise
         except Exception as e:
-            # Handle failover if configured
-            if backend_type in self._failover_routes:
+            # Check if this model has complex failover routes configured
+            if request.model in self._failover_routes:
+                try:
+                    logger.info(f"Using complex failover policy for model {request.model}")
+                    
+                    # Get backend configuration from the request
+                    from src.core.domain.configuration.backend_config import (
+                        BackendConfiguration,
+                    )
+                    backend_config = BackendConfiguration(
+                        backend_type=backend_type,
+                        model=request.model,
+                        failover_routes=self._failover_routes
+                    )
+                    
+                    # Get all failover attempts
+                    attempts = self._failover_service.get_failover_attempts(
+                        backend_config,
+                        request.model,
+                        backend_type
+                    )
+                    
+                    if not attempts:
+                        logger.warning(f"No failover attempts available for model {request.model}")
+                        raise BackendError(
+                            message=f"No failover attempts available for model {request.model}",
+                            backend=backend_type,
+                        )
+                    
+                    # Try each attempt in order
+                    last_error = None
+                    for attempt in attempts:
+                        try:
+                            logger.info(f"Trying failover attempt: {attempt}")
+                            
+                            # Create a new request with the attempt's settings
+                            attempt_extra_body = request.extra_body.copy()
+                            attempt_extra_body["backend_type"] = attempt.backend
+                            
+                            attempt_request = request.model_copy(update={
+                                "extra_body": attempt_extra_body,
+                                "model": attempt.model
+                            })
+                            
+                            # Recursive call with the attempt's settings
+                            return await self.call_completion(attempt_request, stream=stream)
+                        except Exception as attempt_error:
+                            # Log the error and try the next attempt
+                            logger.warning(
+                                f"Failover attempt failed for {attempt.backend}:{attempt.model}: {attempt_error!s}"
+                            )
+                            last_error = attempt_error
+                            continue
+                    
+                    # If we get here, all attempts failed
+                    if last_error:
+                        logger.error(f"All failover attempts failed. Last error: {last_error!s}")
+                        raise BackendError(
+                            message=f"All failover attempts failed: {last_error!s}",
+                            backend=backend_type,
+                        )
+                except Exception as failover_error:
+                    logger.error(f"Failover processing failed: {failover_error!s}")
+                    raise BackendError(
+                        message=f"Failover processing failed: {failover_error!s}",
+                        backend=backend_type,
+                    )
+            
+            # Handle simple backend-level failover if configured
+            elif backend_type in self._failover_routes:
                 fallback_info = self._failover_routes.get(backend_type, {})
                 fallback_backend = fallback_info.get("backend")
                 fallback_model = fallback_info.get("model")
@@ -215,7 +296,7 @@ class BackendService(IBackendService):
                     # Recursive call with fallback backend
                     return await self.call_completion(fallback_request, stream=stream)
             
-            # No fallback or fallback also failed
+            # No fallover route or all fallback attempts failed
             logger.error(f"Backend call failed: {e!s}")
             raise BackendError(
                 message=f"Backend call failed: {e!s}",

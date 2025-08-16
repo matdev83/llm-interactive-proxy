@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import logging
 from enum import Enum
-from typing import Any, Callable, Dict, List, Tuple
+from typing import Any
 
 from src.constants import SUPPORTED_BACKENDS
 from src.core.domain.configuration.backend_config import BackendConfiguration
@@ -71,7 +71,7 @@ class FailoverService:
         backend_config: BackendConfiguration,
         effective_model: str,
         current_backend_type: str,
-    ) -> List[FailoverAttempt]:
+    ) -> list[FailoverAttempt]:
         """Get failover attempts based on the policy.
         
         Args:
@@ -101,7 +101,7 @@ class FailoverService:
         
         return [self._create_default_attempt(current_backend_type, effective_model)]
     
-    def _normalize_elements(self, elements: Any) -> List[str]:
+    def _normalize_elements(self, elements: Any) -> list[str]:
         """Normalize route elements.
         
         Args:
@@ -116,7 +116,7 @@ class FailoverService:
             return elements
         return []
     
-    def _get_keys_for_backend(self, backend: str) -> List[Tuple[str, str]]:
+    def _get_keys_for_backend(self, backend: str) -> list[tuple[str, str]]:
         """Get API keys for a backend.
         
         Args:
@@ -174,7 +174,7 @@ class FailoverService:
         key_name, key_value = keys[0]
         return FailoverAttempt(backend, model, key_name, key_value)
     
-    def _get_attempts_for_single_backend(self, element: str) -> List[FailoverAttempt]:
+    def _get_attempts_for_single_backend(self, element: str) -> list[FailoverAttempt]:
         """Get failover attempts for a single backend with all keys.
         
         Args:
@@ -195,7 +195,7 @@ class FailoverService:
             for key_name, key_value in keys
         ]
     
-    def _get_attempts_for_models(self, elements: List[str]) -> List[FailoverAttempt]:
+    def _get_attempts_for_models(self, elements: list[str]) -> list[FailoverAttempt]:
         """Get failover attempts for multiple backends, using the first key for each.
         
         Args:
@@ -220,7 +220,7 @@ class FailoverService:
         
         return attempts
     
-    def _get_attempts_for_all_keys_all_models(self, elements: List[str]) -> List[FailoverAttempt]:
+    def _get_attempts_for_all_keys_all_models(self, elements: list[str]) -> list[FailoverAttempt]:
         """Get failover attempts for all keys for all models.
         
         Args:
@@ -244,7 +244,7 @@ class FailoverService:
         
         return attempts
     
-    def _get_attempts_round_robin_keys(self, elements: List[str]) -> List[FailoverAttempt]:
+    def _get_attempts_round_robin_keys(self, elements: list[str]) -> list[FailoverAttempt]:
         """Get failover attempts for round-robin keys across models.
         
         Args:
@@ -255,7 +255,7 @@ class FailoverService:
         """
         attempts = []
         backends_used = set()
-        key_map: Dict[str, List[Tuple[str, str]]] = {}
+        key_map: dict[str, list[tuple[str, str]]] = {}
         
         # Collect backends and keys
         for element in elements:

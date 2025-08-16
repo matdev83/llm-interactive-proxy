@@ -1,19 +1,16 @@
-"""
-Legacy Session Adapter
-
-Bridges the old Session class with the new ISession interface.
-"""
-
 from __future__ import annotations
 
-import logging
-from typing import Any
+from datetime import datetime, timezone
+from typing import TYPE_CHECKING, Any
 
-from src.core.domain.session import Session as NewSession, SessionState
-from src.core.interfaces.domain_entities import ISession
-from src.session import Session as LegacySession
+from src.core.domain.session import Session as NewSession
+from src.core.domain.session import SessionInteraction as NewSessionInteraction
+from src.core.domain.session import SessionState
+from src.core.interfaces.domain_entities import ISession, ISessionState
 
-logger = logging.getLogger(__name__)
+# Conditional imports for type checking only
+if TYPE_CHECKING:
+    from src.session import Session as LegacySession
 
 
 class LegacySessionAdapter(ISession):
@@ -34,11 +31,28 @@ class LegacySessionAdapter(ISession):
         return self._legacy_session.session_id
     
     @property
-    def state(self) -> SessionState:
+    def id(self) -> str:
+        """Get the unique identifier for this entity."""
+        return self.session_id
+    
+    @property
+    def state(self) -> ISessionState:
         """Get the session state."""
         if self._new_session is None:
             self._new_session = self._convert_to_new_session()
         return self._new_session.state
+    
+    @property
+    def created_at(self) -> datetime:
+        """Get the session creation time."""
+        # Legacy sessions don't track creation time, use current time as fallback
+        return datetime.now()
+    
+    @property
+    def last_active_at(self) -> datetime:
+        """Get the time of last activity in this session."""
+        # Legacy sessions don't track last active time, use current time as fallback
+        return datetime.now()
     
     @property
     def history(self) -> list[Any]:
@@ -58,6 +72,23 @@ class LegacySessionAdapter(ISession):
     def add_interaction(self, interaction: Any) -> None:
         """Add an interaction to the session."""
         self._legacy_session.add_interaction(interaction)
+    
+    def update_state(self, state: ISessionState) -> None:
+        """Update the session state."""
+        # Convert ISessionState back to legacy proxy state
+        # This is a simplified implementation
+        proxy_state = self._legacy_session.proxy_state
+        
+        # Update what we can from the new state
+        if hasattr(state, 'backend_config'):
+            backend_config = state.backend_config
+            if hasattr(backend_config, 'backend_type'):
+                proxy_state.override_backend = backend_config.backend_type
+            if hasattr(backend_config, 'model'):
+                proxy_state.override_model = backend_config.model
+        
+        if hasattr(state, 'project'):
+            proxy_state.project = state.project
     
     def _convert_to_new_session(self) -> NewSession:
         """Convert the legacy session to a new session."""
@@ -88,8 +119,8 @@ class LegacySessionAdapter(ISession):
         
         # Create loop detection configuration
         loop_config = LoopDetectionConfiguration(
-            loop_detection_enabled=proxy_state.loop_detection_enabled,
-            tool_loop_detection_enabled=proxy_state.tool_loop_detection_enabled,
+            loop_detection_enabled=proxy_state.loop_detection_enabled or False,
+            tool_loop_detection_enabled=proxy_state.tool_loop_detection_enabled or False,
             min_pattern_length=50,
             max_pattern_length=500,
         )
@@ -107,7 +138,20 @@ class LegacySessionAdapter(ISession):
         return NewSession(
             session_id=self._legacy_session.session_id,
             state=session_state,
-            history=self._legacy_session.history,
+            history=[
+                NewSessionInteraction(
+                    prompt=interaction.prompt,
+                    handler=interaction.handler,
+                    backend=interaction.backend,
+                    model=interaction.model,
+                    project=interaction.project,
+                    parameters=interaction.parameters,
+                    response=interaction.response,
+                    usage=interaction.usage.dict() if interaction.usage else None,
+                    timestamp=datetime.now(timezone.utc),  # Default timestamp since legacy doesn't have it
+                )
+                for interaction in self._legacy_session.history
+            ] if self._legacy_session.history else None,
         )
     
     def update_from_new_session(self, new_session: NewSession) -> None:

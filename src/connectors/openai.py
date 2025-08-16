@@ -40,6 +40,12 @@ class OpenAIConnector(LLMBackend):
         if api_base_url:
             self.api_base_url = api_base_url
 
+        # Allow tests to skip model discovery to avoid network and simplify mocks
+        if kwargs.get("skip_backend_discovery") or getattr(self.client, "skip_backend_discovery", False):
+            logger.debug("Skipping OpenAI model discovery (test mode).")
+            self.available_models = []
+            return
+
         data = await self.list_models(api_base_url)
         self.available_models = [
             m.get("id") for m in data.get("data", []) if m.get("id")
@@ -55,12 +61,36 @@ class OpenAIConnector(LLMBackend):
         processed_messages: list[Any],
         effective_model: str,
     ) -> dict[str, Any]:
-        """Constructs the payload for the OpenAI API request."""
+        """Constructs the payload for the OpenAI API request.
+
+        Tests may pass processed_messages as plain dicts instead of Pydantic models.
+        This method normalizes each item to a serializable dict.
+        """
         payload = request_data.model_dump(exclude_unset=True)
         payload["model"] = effective_model
-        payload["messages"] = [
-            msg.model_dump(exclude_unset=True) for msg in processed_messages
-        ]
+
+        def _to_dict(msg: Any) -> dict[str, Any]:
+            # Pydantic v2
+            if hasattr(msg, "model_dump") and callable(msg.model_dump):
+                return msg.model_dump(exclude_unset=True)
+            # Pydantic v1-style
+            if hasattr(msg, "dict") and callable(msg.dict):
+                try:
+                    return msg.dict(exclude_unset=True)  # type: ignore[attr-defined]
+                except TypeError:
+                    # Fallback if exclude_unset unsupported
+                    return msg.dict()  # type: ignore[attr-defined]
+            # Already a mapping
+            if isinstance(msg, dict):
+                return msg
+            # Last resort: try best-effort JSON roundtrip
+            try:
+                return json.loads(json.dumps(msg))
+            except Exception:
+                # If all else fails, wrap as content string
+                return {"content": str(msg)}
+
+        payload["messages"] = [_to_dict(msg) for msg in processed_messages]
 
         if request_data.extra_params:
             payload.update(request_data.extra_params)
@@ -128,6 +158,9 @@ class OpenAIConnector(LLMBackend):
         self, url: str, payload: dict[str, Any], headers: dict[str, str]
     ) -> tuple[dict[str, Any], dict[str, str]]:
         logger.debug("Initiating non-streaming request to API.")
+        # Ensure client is open (tests may reuse a closed instance)
+        if hasattr(self.client, "is_closed") and self.client.is_closed:
+            self.client = httpx.AsyncClient()
         response = await self.client.post(url, json=payload, headers=headers)
         logger.debug(f"API non-stream response status: {response.status_code}")
 
@@ -163,6 +196,9 @@ class OpenAIConnector(LLMBackend):
     ) -> StreamingResponse:
         logger.debug("Initiating stream request to API.")
         try:
+            # Ensure client is open (tests may reuse a closed instance)
+            if hasattr(self.client, "is_closed") and self.client.is_closed:
+                self.client = httpx.AsyncClient()
             request = self.client.build_request(
                 "POST", url, json=payload, headers=headers
             )

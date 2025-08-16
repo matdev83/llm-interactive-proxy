@@ -105,6 +105,40 @@ To add a new in-chat command:
 1. Add tests for the new command.
 1. Update the documentation to include the new command.
 
+## Working with Configuration
+
+The project uses a modern, type-safe configuration system. When working with configuration:
+
+### Configuration Interfaces
+
+Always depend on configuration interfaces, not concrete implementations:
+
+```python
+from src.core.interfaces.configuration import IBackendConfig, IReasoningConfig
+
+class MyService:
+    def __init__(self, backend_config: IBackendConfig, reasoning_config: IReasoningConfig):
+        self._backend_config = backend_config
+        self._reasoning_config = reasoning_config
+```
+
+### Adding New Configuration Options
+
+1. **Define the interface** in `src/core/interfaces/configuration.py`
+2. **Implement the domain model** in `src/core/domain/configuration.py`
+3. **Register with DI container** in the application factory
+4. **Add environment variable handling** in the config loader
+5. **Write tests** for the new configuration options
+6. **Update documentation** including the new [Configuration Guide](docs/CONFIGURATION.md)
+
+### Configuration Best Practices
+
+- Use immutable configuration objects (frozen Pydantic models)
+- Implement proper interfaces for all configuration types
+- Use the builder pattern (`with_*` methods) for modifications
+- Validate configuration at application startup
+- Write comprehensive tests for configuration objects
+
 ## Documentation Changes
 
 Documentation improvements are always welcome. Please follow these guidelines:

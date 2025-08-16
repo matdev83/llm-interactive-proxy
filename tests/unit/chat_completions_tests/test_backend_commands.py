@@ -25,6 +25,7 @@ def test_set_backend_command_integration(
     # The actual ProxyState is updated by the command, and then main.py uses this updated state
     # to construct the direct response. The test uses a mock_session with this mock_proxy_state.
     # So, the assertions on mock_proxy_state remain valid for command side-effects.
+    mock_proxy_state = MagicMock(spec=ProxyState)
     mock_proxy_state.override_backend = None
     mock_proxy_state.override_model = None
     mock_proxy_state.invalid_override = False

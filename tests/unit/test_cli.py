@@ -4,8 +4,8 @@ from unittest.mock import MagicMock, patch
 import pytest
 from fastapi.testclient import TestClient  # Add import
 from src.constants import DEFAULT_COMMAND_PREFIX  # Removed DEFAULT_PROXY_TIMEOUT
+from src.core.app.application_factory import build_app as app_main_build_app
 from src.core.cli import apply_cli_args, main, parse_cli_args
-from src.main import build_app as app_main_build_app
 
 
 def test_apply_cli_args_sets_env(monkeypatch):

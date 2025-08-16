@@ -52,7 +52,7 @@ class BackendConfiguration(ValueObject, IBackendConfig):
         """Create a new config with updated backend type."""
         return self.model_copy(update={
             "backend_type": backend_type,
-            "model": None,  # Clear model when changing backend
+            # Keep existing model when changing backend
             "invalid_override": False
         })
     

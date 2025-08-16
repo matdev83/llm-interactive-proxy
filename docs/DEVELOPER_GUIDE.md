@@ -40,10 +40,10 @@ The LLM Interactive Proxy follows a clean architecture approach based on SOLID p
    - Handles data storage and external services
    - Adapters for third-party libraries and APIs
    
-6. **Adapters Layer** (`src/core/adapters/`)
-   - Connects the new architecture to the legacy code
-   - Provides backward compatibility
-   - Translates between different data formats
+6. **Adapters Layer** (`src/core/adapters/`) - DEPRECATED
+   - Previously connected the new architecture to the legacy code
+   - This layer is now deprecated and will be removed in a future version
+   - All functionality has been migrated to the new architecture
 
 ## Development Workflow
 
@@ -89,6 +89,83 @@ You can run all these tools on a specific file after making changes:
 ```
 
 ## Working with the Code
+
+### Configuration Interfaces
+
+The application uses a comprehensive configuration system based on interfaces and immutable value objects. This provides type safety, validation, and clear contracts between components.
+
+#### Core Configuration Interfaces
+
+**`IConfig`** - General configuration management:
+```python
+from src.core.interfaces.configuration import IConfig
+
+class MyService:
+    def __init__(self, config: IConfig):
+        self._config = config
+    
+    def get_setting(self, key: str) -> Any:
+        return self._config.get(key, "default_value")
+```
+
+**`IBackendConfig`** - Backend-specific settings:
+```python
+from src.core.interfaces.configuration import IBackendConfig
+
+class BackendService:
+    def __init__(self, backend_config: IBackendConfig):
+        self._config = backend_config
+    
+    def get_api_url(self) -> str:
+        return self._config.api_url or "https://api.default.com"
+```
+
+**`IReasoningConfig`** - AI reasoning parameters:
+```python
+from src.core.interfaces.configuration import IReasoningConfig
+
+class ReasoningService:
+    def __init__(self, reasoning_config: IReasoningConfig):
+        self._config = reasoning_config
+    
+    def apply_reasoning_settings(self, request: dict) -> dict:
+        if self._config.temperature is not None:
+            request["temperature"] = self._config.temperature
+        return request
+```
+
+**`ILoopDetectionConfig`** - Loop detection settings:
+```python
+from src.core.interfaces.configuration import ILoopDetectionConfig
+
+class LoopDetector:
+    def __init__(self, loop_config: ILoopDetectionConfig):
+        self._config = loop_config
+    
+    def is_enabled(self) -> bool:
+        return self._config.loop_detection_enabled
+```
+
+#### Configuration Value Objects
+
+All configuration classes are immutable Pydantic models that implement the corresponding interfaces:
+
+```python
+from src.core.domain.configuration import BackendConfig, ReasoningConfig
+
+# Create configuration
+config = BackendConfig(
+    backend_type="openai",
+    model="gpt-4",
+    interactive_mode=True
+)
+
+# Modify configuration (creates new instance)
+updated_config = config.with_model("gpt-3.5-turbo")
+
+# Chain modifications
+final_config = config.with_backend("anthropic").with_model("claude-3")
+```
 
 ### Dependency Injection
 
@@ -171,24 +248,32 @@ updated_request = request.model_copy(update={"extra_body": new_extra_body})
 3. Update the `BackendFactory` to support the new backend
 4. Add configuration options for the new backend
 
-#### Legacy Backend Integration
+#### Backend Integration
 
-For integrating existing backend implementations with the new architecture:
+For integrating with LLM backends:
 
-1. Use the `LegacyBackendAdapter` from `src/core/adapters/legacy_backend_adapter.py`
-2. Register it with the DI container, providing the legacy backend instance
-3. The adapter translates between the new interface and the legacy implementation
+1. Create a new backend implementation that inherits from `LLMBackend`
+2. Register it with the `BackendFactory`
+3. The factory will create the appropriate backend instance based on the request
 
 Example:
 
 ```python
-# Registering a legacy backend with the new architecture
-legacy_backend = OpenAIBackend(api_key=config.openai_api_key)
-services.add_singleton(
-    IBackendService, 
-    implementation_factory=lambda _: LegacyBackendAdapter(legacy_backend)
-)
+# Creating a new backend implementation
+class MyCustomBackend(LLMBackend):
+    def __init__(self, client: httpx.AsyncClient, api_key: str):
+        self._client = client
+        self._api_key = api_key
+        
+    async def chat_completions(self, request: dict, stream: bool) -> dict | AsyncIterator[dict]:
+        # Implementation details...
+
+# Registering with the backend factory
+backend_factory = BackendFactory(client)
+backend_factory.register_backend("my_custom", lambda: MyCustomBackend(client, api_key))
 ```
+
+Note: The legacy adapter pattern is deprecated and will be removed in a future version.
 
 ### Adding a New Command
 
@@ -198,18 +283,97 @@ services.add_singleton(
 
 ### Configuration Management
 
-The application uses a layered configuration approach:
+The application uses a layered configuration approach with immutable configuration objects:
 
 1. Default values in code
 2. Environment variables (from `.env` file or system)
 3. Configuration files (YAML or JSON)
 4. Runtime commands (e.g., `!/set(key=value)`)
 
-To add a new configuration option:
+#### Configuration Architecture
 
-1. Add it to the appropriate configuration class in `src/core/config/app_config.py`
-2. Add environment variable handling
-3. Update configuration documentation
+The new configuration system is built around immutable value objects that implement specific interfaces:
+
+- **`IConfig`**: General configuration management interface
+- **`IBackendConfig`**: Backend-specific configuration (backend type, model, API URL, etc.)
+- **`IReasoningConfig`**: Reasoning parameters (effort, thinking budget, temperature)
+- **`ILoopDetectionConfig`**: Loop detection settings (enabled flags, pattern lengths)
+
+#### Configuration Classes
+
+**Domain Models** (`src/core/domain/configuration.py`):
+- `BackendConfig`: Immutable backend configuration
+- `ReasoningConfig`: Immutable reasoning parameters
+- `LoopDetectionConfig`: Immutable loop detection settings
+
+**Key Features**:
+- **Immutability**: All configuration objects are frozen Pydantic models
+- **Type Safety**: Full type hints and validation
+- **Builder Pattern**: Use `with_*` methods to create modified copies
+- **Interface Compliance**: All classes implement their respective interfaces
+
+#### Working with Configuration
+
+```python
+# Creating a new backend configuration
+backend_config = BackendConfig(
+    backend_type="openai",
+    model="gpt-4",
+    api_url="https://api.openai.com/v1"
+)
+
+# Modifying configuration (creates a new instance)
+updated_config = backend_config.with_model("gpt-3.5-turbo")
+
+# Configuration is immutable
+# backend_config.model = "new-model"  # This would raise an error
+
+# Use with_* methods instead
+new_config = backend_config.with_backend("anthropic").with_model("claude-3")
+```
+
+#### Adding New Configuration Options
+
+1. **Define the interface** in `src/core/interfaces/configuration.py`:
+   ```python
+   class IMyConfig(ABC):
+       @property
+       @abstractmethod
+       def my_setting(self) -> str:
+           pass
+       
+       @abstractmethod
+       def with_my_setting(self, value: str) -> IMyConfig:
+           pass
+   ```
+
+2. **Implement the domain model** in `src/core/domain/configuration.py`:
+   ```python
+   class MyConfig(ValueObject, IMyConfig):
+       my_setting: str = "default_value"
+       
+       def with_my_setting(self, value: str) -> IMyConfig:
+           return self.model_copy(update={"my_setting": value})
+   ```
+
+3. **Register with DI container** in the application factory
+4. **Add environment variable handling** in the config loader
+5. **Update documentation**
+
+#### Configuration Adapters
+
+For backward compatibility with legacy code, configuration adapters bridge the old and new systems:
+
+- **`LegacyConfigAdapter`**: Wraps legacy config dictionaries to implement `IConfig`
+- **Integration Bridge**: Manages coexistence during migration
+
+#### Best Practices
+
+1. **Always use interfaces** when depending on configuration
+2. **Prefer immutable objects** over mutable dictionaries
+3. **Use builder pattern** (`with_*` methods) for modifications
+4. **Validate configuration** at startup, not at runtime
+5. **Document configuration options** with clear descriptions and examples
 
 ## Testing
 

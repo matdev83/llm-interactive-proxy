@@ -1,3 +1,5 @@
+<!-- DEPRECATED: This document has been superseded by dev/solid_refactoring_sot.md. It is kept for historical context. See that file for the authoritative plan and status. -->
+
 # Integration Plan: Migrating Existing Functionality to SOLID Architecture
 
 ## Phase 1: Bridge Components (Weeks 1-2)

@@ -1,0 +1,417 @@
+"""
+Integration tests for Phase 2 of the SOLID integration.
+
+These tests verify that the core backend services migration is working properly.
+"""
+
+import os
+from unittest.mock import AsyncMock, patch
+
+import pytest
+from fastapi.testclient import TestClient
+from src.main import build_app
+
+
+async def _initialize_integration_bridge(app):
+    """Helper function to initialize the integration bridge for testing."""
+    import httpx
+    from src.core.app.application_factory import register_services
+    from src.core.di.services import get_service_collection, set_service_provider
+    from src.core.integration import get_integration_bridge
+    
+    # Set up HTTP client if not present
+    if not hasattr(app.state, 'httpx_client'):
+        app.state.httpx_client = httpx.AsyncClient()
+    
+    # Set up basic config if not present
+    if not hasattr(app.state, 'config'):
+        app.state.config = {
+            "command_prefix": "!/", 
+            "proxy_timeout": 300,
+            "rate_limits": {
+                "default": {"limit": 60, "time_window": 60},
+                "backend:openai": {"limit": 100, "time_window": 60},
+            }
+        }
+    
+    # Initialize integration bridge
+    bridge = get_integration_bridge(app)
+    await bridge.initialize_legacy_architecture()
+    
+    # Set up service provider
+    services = get_service_collection()
+    register_services(services, app)
+    provider = services.build_service_provider()
+    set_service_provider(provider)
+    app.state.service_provider = provider
+    
+    # Initialize new architecture
+    await bridge.initialize_new_architecture()
+    
+    return bridge
+
+
+@pytest.mark.asyncio
+async def test_backend_service_integration():
+    """Test that the backend service can be used through the integration bridge."""
+    # Set feature flag to use new backend service
+    os.environ["USE_NEW_BACKEND_SERVICE"] = "true"
+    
+    try:
+        app = build_app()
+        
+        # Verify that the app builds with backend service enabled
+        assert app is not None
+        
+        # Manually initialize the integration bridge since we're not using lifespan
+        await _initialize_integration_bridge(app)
+        
+        # Check that service provider is available
+        assert hasattr(app.state, 'service_provider')
+        
+        # Check that backend service is registered
+        from src.core.interfaces.backend_service import IBackendService
+        service_provider = app.state.service_provider
+        backend_service = service_provider.get_service(IBackendService)
+        assert backend_service is not None
+        
+    finally:
+        # Clean up
+        if "USE_NEW_BACKEND_SERVICE" in os.environ:
+            del os.environ["USE_NEW_BACKEND_SERVICE"]
+
+
+@pytest.mark.asyncio
+async def test_session_service_integration():
+    """Test that the session service can be used through the integration bridge."""
+    # Set feature flag to use new session service
+    os.environ["USE_NEW_SESSION_SERVICE"] = "true"
+    
+    try:
+        app = build_app()
+        
+        # Verify that the app builds with session service enabled
+        assert app is not None
+        
+        # Manually initialize the integration bridge since we're not using lifespan
+        await _initialize_integration_bridge(app)
+        
+        # Check that service provider is available
+        assert hasattr(app.state, 'service_provider')
+        
+        # Check that session service is registered
+        from src.core.interfaces.session_service import ISessionService
+        service_provider = app.state.service_provider
+        session_service = service_provider.get_service(ISessionService)
+        assert session_service is not None
+        
+    finally:
+        # Clean up
+        if "USE_NEW_SESSION_SERVICE" in os.environ:
+            del os.environ["USE_NEW_SESSION_SERVICE"]
+
+
+@pytest.mark.asyncio
+async def test_hybrid_endpoint_with_new_backend():
+    """Test that hybrid endpoints can use the new backend service."""
+    # Set feature flag to use new backend service
+    os.environ["USE_NEW_BACKEND_SERVICE"] = "true"
+    
+    try:
+        app = build_app()
+        
+        # Manually initialize the integration bridge since we're not using lifespan
+        await _initialize_integration_bridge(app)
+        
+        client = TestClient(app)
+        
+        # Mock the backend service
+        from src.core.domain.chat import ChatResponse
+        from src.core.interfaces.backend_service import IBackendService
+        
+        service_provider = app.state.service_provider
+        backend_service = service_provider.get_service(IBackendService)
+        
+        # Create a mock response
+        mock_response = ChatResponse(
+            id="test_response",
+            created=1234567890,
+            model="test_model",
+            choices=[{
+                "index": 0,
+                "message": {
+                    "role": "assistant",
+                    "content": "Test response"
+                },
+                "finish_reason": "stop"
+            }],
+        )
+        
+        with patch.object(backend_service, 'call_completion', new_callable=AsyncMock) as mock_call:
+            mock_call.return_value = mock_response
+            
+            # Make a request to the hybrid endpoint
+            response = client.post("/v2/chat/completions", json={
+                "model": "test_model",
+                "messages": [{"role": "user", "content": "test"}]
+            }, headers={"Authorization": "Bearer test_api_key"})
+            
+            # Should not return 404 (endpoint exists)
+            assert response.status_code != 404
+            
+    finally:
+        # Clean up
+        if "USE_NEW_BACKEND_SERVICE" in os.environ:
+            del os.environ["USE_NEW_BACKEND_SERVICE"]
+
+
+@pytest.mark.asyncio
+async def test_session_migration_service():
+    """Test that the session migration service works correctly."""
+    from src.core.repositories.in_memory_session_repository import (
+        InMemorySessionRepository,
+    )
+    from src.core.services.session_migration_service import SessionMigrationService
+    from src.core.services.session_service import SessionService
+    from src.proxy_logic import ProxyState
+    from src.session import Session as LegacySession
+    
+    # Create services
+    session_repo = InMemorySessionRepository()
+    new_session_service = SessionService(session_repo)
+    migration_service = SessionMigrationService(new_session_service)
+    
+    # Create a legacy session
+    proxy_state = ProxyState()
+    proxy_state.override_backend = "openrouter"
+    proxy_state.override_model = "gpt-4"
+    proxy_state.project = "test_project"
+    
+    legacy_session = LegacySession(session_id="test_session", proxy_state=proxy_state)
+    
+    # Migrate the session
+    new_session = await migration_service.migrate_legacy_session(legacy_session)
+    
+    # Verify migration
+    assert new_session.session_id == "test_session"
+    assert new_session.state.backend_config.backend_type == "openrouter"
+    assert new_session.state.backend_config.model == "gpt-4"
+    assert new_session.state.project == "test_project"
+    
+    # Test bidirectional sync
+    new_session.state.backend_config.model = "gpt-3.5-turbo"
+    new_session.state.project = "updated_project"
+    
+    await migration_service.sync_session_state(legacy_session, new_session)
+    
+    # Verify legacy session was updated
+    assert legacy_session.proxy_state.override_model == "gpt-3.5-turbo"
+    assert legacy_session.proxy_state.project == "updated_project"
+    
+    # Make changes in legacy session
+    legacy_session.proxy_state.override_backend = "anthropic"
+    
+    # Sync back to new session
+    migrated_again = await migration_service.migrate_legacy_session(legacy_session)
+    
+    # Verify new session reflects changes
+    assert migrated_again.state.backend_config.backend_type == "anthropic"
+    assert migrated_again.state.backend_config.model == "gpt-3.5-turbo"
+    assert migrated_again.state.project == "updated_project"
+
+
+def test_legacy_backend_adapter():
+    """Test that the legacy backend adapter works correctly."""
+    from unittest.mock import MagicMock
+
+    from src.core.adapters.legacy_backend_adapter import LegacyBackendAdapter
+    
+    # Create mock app state
+    app_state = MagicMock()
+    app_state.backend_callers = {
+        "openrouter": AsyncMock(return_value=({
+            "id": "test",
+            "choices": [{"message": {"content": "test response"}}]
+        }, {}))
+    }
+    app_state.backends = {}
+    
+    # Create adapter
+    adapter = LegacyBackendAdapter(app_state)
+    
+    # Verify adapter is created
+    assert adapter is not None
+
+
+@pytest.mark.asyncio
+async def test_rate_limiter_integration():
+    """Test that rate limiting is integrated properly."""
+    app = build_app()
+    
+    # Manually initialize the integration bridge since we're not using lifespan
+    await _initialize_integration_bridge(app)
+    
+    # Check that rate limiter is available
+    from src.core.interfaces.rate_limiter import IRateLimiter
+    service_provider = app.state.service_provider
+    rate_limiter = service_provider.get_service(IRateLimiter)
+    assert rate_limiter is not None
+    
+    # Test rate limiter functionality
+    test_key = "test:limiter:key"
+    
+    # First check should not be limited
+    limit_info = await rate_limiter.check_limit(test_key)
+    assert not limit_info.is_limited
+    assert limit_info.remaining > 0
+    
+    # Record usage multiple times
+    usage_count = limit_info.limit - 1  # Use all but one of the allowed requests
+    for _ in range(usage_count):
+        await rate_limiter.record_usage(test_key)
+    
+    # Should still have one request left
+    limit_info = await rate_limiter.check_limit(test_key)
+    assert not limit_info.is_limited
+    assert limit_info.remaining == 1
+    
+    # Use the last request
+    await rate_limiter.record_usage(test_key)
+    
+    # Should now be rate limited
+    limit_info = await rate_limiter.check_limit(test_key)
+    assert limit_info.is_limited
+    assert limit_info.remaining == 0
+    assert limit_info.reset_at is not None
+    
+    # Reset the rate limiter
+    await rate_limiter.reset(test_key)
+    
+    # Should no longer be limited
+    limit_info = await rate_limiter.check_limit(test_key)
+    assert not limit_info.is_limited
+    assert limit_info.remaining > 0
+    
+    # Test custom limit
+    await rate_limiter.set_limit(test_key, 5, 60)
+    limit_info = await rate_limiter.check_limit(test_key)
+    assert limit_info.limit == 5
+
+
+@pytest.mark.asyncio
+async def test_bridge_session_synchronization():
+    """Test that the integration bridge can synchronize sessions."""
+    app = build_app()
+    
+    # Manually initialize the integration bridge
+    bridge = await _initialize_integration_bridge(app)
+    
+    # Set up session manager if needed
+    from src.proxy_logic import ProxyState
+    from src.session import Session as LegacySession
+    from src.session import SessionManager
+    
+    if not hasattr(app.state, 'session_manager'):
+        app.state.session_manager = SessionManager()
+    
+    session_id = "test_sync_session"
+    
+    # Create a legacy session
+    proxy_state = ProxyState()
+    proxy_state.override_backend = "openrouter"
+    proxy_state.override_model = "gpt-4"
+    proxy_state.project = "test_project"
+    
+    legacy_session = LegacySession(session_id=session_id, proxy_state=proxy_state)
+    app.state.session_manager.add_session(legacy_session)
+    
+    # Sync the session
+    await bridge.sync_session(session_id)
+    
+    # Verify the session was synchronized to new architecture
+    from src.core.interfaces.session_service import ISessionService
+    service_provider = app.state.service_provider
+    session_service = service_provider.get_required_service(ISessionService)
+    
+    new_session = await session_service.get_session(session_id)
+    
+    # Check that new session has the correct values
+    assert new_session.session_id == session_id
+    assert new_session.state.backend_config.backend_type == "openrouter"
+    assert new_session.state.backend_config.model == "gpt-4"
+    assert new_session.state.project == "test_project"
+    
+    # Update new session
+    new_session.state.backend_config.model = "gpt-3.5-turbo"
+    await session_service.update_session(new_session)
+    
+    # Sync back to legacy
+    await bridge.sync_session(session_id)
+    
+    # Verify legacy session was updated
+    updated_legacy = app.state.session_manager.get_session(session_id)
+    assert updated_legacy.proxy_state.override_model == "gpt-3.5-turbo"
+
+
+@pytest.mark.asyncio
+async def test_feature_flag_combinations():
+    """Test different combinations of feature flags."""
+    test_cases = [
+        {"USE_NEW_BACKEND_SERVICE": "true"},
+        {"USE_NEW_SESSION_SERVICE": "true"},
+        {"USE_NEW_BACKEND_SERVICE": "true", "USE_NEW_SESSION_SERVICE": "true"},
+        {"USE_NEW_REQUEST_PROCESSOR": "true"},
+    ]
+    
+    for flags in test_cases:
+        # Set flags
+        for key, value in flags.items():
+            os.environ[key] = value
+        
+        try:
+            app = build_app()
+            assert app is not None
+            
+            # Manually initialize the integration bridge since we're not using lifespan
+            await _initialize_integration_bridge(app)
+            
+            # Verify service provider is available
+            assert hasattr(app.state, 'service_provider')
+            
+        finally:
+            # Clean up flags
+            for key in flags:
+                if key in os.environ:
+                    del os.environ[key]
+
+
+def test_backward_compatibility():
+    """Test that legacy endpoints still work when new services are enabled."""
+    # Enable all new services
+    flags = {
+        "USE_NEW_BACKEND_SERVICE": "true",
+        "USE_NEW_SESSION_SERVICE": "true",
+        "USE_NEW_COMMAND_SERVICE": "true",
+    }
+    
+    for key, value in flags.items():
+        os.environ[key] = value
+    
+    try:
+        app = build_app()
+        client = TestClient(app)
+        
+        # Test that legacy endpoint still exists
+        response = client.post("/v1/chat/completions", json={
+            "model": "test_model",
+            "messages": [{"role": "user", "content": "test"}]
+        })
+        
+        # Should not return 404 (endpoint exists)
+        assert response.status_code != 404
+        
+    finally:
+        # Clean up flags
+        for key in flags:
+            if key in os.environ:
+                del os.environ[key]

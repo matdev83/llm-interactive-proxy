@@ -1,3 +1,5 @@
+<!-- DEPRECATED: This document has been superseded by dev/solid_refactoring_sot.md. It is kept for historical context. See that file for the authoritative plan and status. -->
+
 # Refactoring Summary: Architectural Transformation
 
 This document summarizes the ongoing refactoring effort for the LLM Interactive Proxy codebase. The project is undergoing a comprehensive architectural overhaul to improve maintainability, extensibility, and adherence to SOLID principles.

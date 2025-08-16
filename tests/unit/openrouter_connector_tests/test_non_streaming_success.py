@@ -18,11 +18,16 @@ TEST_OPENROUTER_API_BASE_URL = (
 
 
 def mock_get_openrouter_headers(key_name: str, api_key: str) -> dict[str, str]:
+    # Create a mock config dictionary for testing
+    mock_config = {
+        "app_site_url": "http://localhost:test",
+        "app_x_title": "TestProxy",
+    }
     return {
         "Authorization": f"Bearer {api_key}",
         "Content-Type": "application/json",
-        "HTTP-Referer": "http://localhost:test",
-        "X-Title": "TestProxy",
+        "HTTP-Referer": mock_config["app_site_url"],
+        "X-Title": mock_config["app_x_title"],
     }
 
 
@@ -94,6 +99,7 @@ async def test_chat_completions_non_streaming_success(
         effective_model=effective_model,
         openrouter_api_base_url=TEST_OPENROUTER_API_BASE_URL,
         openrouter_headers_provider=mock_get_openrouter_headers,
+        key_name="test_key",
         api_key="FAKE_KEY",
     )
     # Explicitly cast to Tuple for type checking, as it's a non-streaming test

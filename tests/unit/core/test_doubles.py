@@ -14,7 +14,6 @@ from typing import Any
 from src.core.domain.chat import (
     ChatRequest,
     ChatResponse,
-    ChatUsage,
     StreamingChatResponse,
 )
 from src.core.domain.configuration import (
@@ -29,10 +28,8 @@ from src.core.interfaces.command_service import (
     ProcessedResult,
 )
 from src.core.interfaces.di import (
-    IServiceCollection,
     IServiceProvider,
     IServiceScope,
-    ServiceLifetime,
 )
 from src.core.interfaces.domain_entities import ISession
 from src.core.interfaces.loop_detector import ILoopDetector, LoopDetectionResult
@@ -67,8 +64,7 @@ class MockServiceProvider(IServiceProvider):
     def create_scope(self) -> IServiceScope:
         return MockServiceScope(self)
 
-    def register(self, service_type: type[Any], implementation: Any) -> None:
-        self.services[service_type] = implementation
+    
 
 
 class MockServiceScope(IServiceScope):
@@ -85,62 +81,7 @@ class MockServiceScope(IServiceScope):
         pass
 
 
-class MockServiceCollection(IServiceCollection):
-    """A mock service collection for testing."""
 
-    def __init__(self):
-        self.services: dict[type, Any] = {}
-        self.lifetimes: dict[type, ServiceLifetime] = {}
-
-    def add_singleton(
-        self, 
-        service_type: type[Any], 
-        implementation_type: type[Any] | None = None,
-        implementation_factory: Any | None = None
-    ) -> IServiceCollection:
-        self.services[service_type] = implementation_type or implementation_factory
-        self.lifetimes[service_type] = ServiceLifetime.SINGLETON
-        return self
-
-    def add_transient(
-        self, 
-        service_type: type[Any], 
-        implementation_type: type[Any] | None = None,
-        implementation_factory: Any | None = None
-    ) -> IServiceCollection:
-        self.services[service_type] = implementation_type or implementation_factory
-        self.lifetimes[service_type] = ServiceLifetime.TRANSIENT
-        return self
-
-    def add_scoped(
-        self, 
-        service_type: type[Any], 
-        implementation_type: type[Any] | None = None,
-        implementation_factory: Any | None = None
-    ) -> IServiceCollection:
-        self.services[service_type] = implementation_type or implementation_factory
-        self.lifetimes[service_type] = ServiceLifetime.SCOPED
-        return self
-
-    def add_instance(self, service_type: type[Any], instance: Any) -> IServiceCollection:
-        self.services[service_type] = instance
-        self.lifetimes[service_type] = ServiceLifetime.SINGLETON
-        return self
-
-    def build_service_provider(self) -> IServiceProvider:
-        provider = MockServiceProvider()
-        for service_type, implementation in self.services.items():
-            if not isinstance(implementation, type) and callable(implementation):
-                # It's a factory
-                instance = implementation(provider)
-                provider.register(service_type, instance)
-            elif not isinstance(implementation, type):
-                # It's an instance
-                provider.register(service_type, implementation)
-            else:
-                # It's a type
-                provider.register(service_type, implementation())
-        return provider
 
 
 #
@@ -157,14 +98,6 @@ class MockBackendService(IBackendService):
 
     def add_response(self, response: ChatResponse | Exception) -> None:
         self.responses.append(response)
-
-    def add_stream_response(self, responses: list[StreamingChatResponse]) -> None:
-        self.stream_responses.append(responses)
-
-    def set_validation(self, backend: str, model: str, is_valid: bool) -> None:
-        if backend not in self.validations:
-            self.validations[backend] = {}
-        self.validations[backend][model] = is_valid
 
     async def call_completion(
         self, request: ChatRequest, stream: bool = False
@@ -392,9 +325,6 @@ class MockResponseProcessor(IResponseProcessor):
     def add_result(self, result: ProcessedResponse) -> None:
         self.results.append(result)
 
-    def add_stream_result(self, results: list[ProcessedResponse]) -> None:
-        self.stream_results.append(results)
-
 
 #
 # Mock Session Repository
@@ -512,9 +442,9 @@ class TestDataBuilder:
                 },
                 "finish_reason": "stop"
             }],
-            usage=ChatUsage(
-                prompt_tokens=10,
-                completion_tokens=20,
-                total_tokens=30
-            )
+            usage={
+                "prompt_tokens": 10,
+                "completion_tokens": 20,
+                "total_tokens": 30
+            }
         )

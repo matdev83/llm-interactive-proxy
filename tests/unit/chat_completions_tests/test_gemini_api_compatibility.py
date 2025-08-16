@@ -7,7 +7,7 @@ and converts them to/from the internal OpenAI format.
 from unittest.mock import AsyncMock, patch
 
 from fastapi.testclient import TestClient
-from src.main import build_app
+from src.core.app.application_factory import build_app
 
 
 class TestGeminiModelsEndpoint:

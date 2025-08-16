@@ -9,6 +9,7 @@ from src.commands.base import CommandResult as LegacyCommandResult
 from src.core.domain.commands import BaseCommand
 from src.core.domain.processed_result import ProcessedResult
 from src.core.interfaces.command_service import ICommandService
+from src.core.interfaces.session_service import ISessionService
 
 
 class CommandResultWrapper:
@@ -97,7 +98,12 @@ class CommandService(ICommandService):
     A service for processing and executing commands.
     """
     
-    def __init__(self, command_registry: CommandRegistry, session_service=None, preserve_unknown: bool = False):
+    def __init__(
+        self, 
+        command_registry: CommandRegistry, 
+        session_service: ISessionService,
+        preserve_unknown: bool = False
+    ):
         """
         Initialize the command service.
         

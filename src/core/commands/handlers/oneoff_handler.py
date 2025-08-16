@@ -11,7 +11,10 @@ import logging
 from typing import Any
 
 from src.commands.base import CommandContext
-from src.core.commands.handlers.base_handler import BaseCommandHandler, CommandHandlerResult
+from src.core.commands.handlers.base_handler import (
+    BaseCommandHandler,
+    CommandHandlerResult,
+)
 from src.core.domain.configuration.session_state_builder import SessionStateBuilder
 from src.core.domain.session import SessionState
 from src.models import parse_model_backend
@@ -54,7 +57,7 @@ class OneOffCommandHandler(BaseCommandHandler):
         Returns:
             True if this handler can handle the parameter
         """
-        return param_name.lower() in [self.name] + self.aliases
+        return param_name.lower() in [self.name, *self.aliases]
     
     def handle(
         self, 
@@ -90,12 +93,6 @@ class OneOffCommandHandler(BaseCommandHandler):
         
         # Parse the backend and model
         backend, model = parse_model_backend(arg_key)
-        if not backend:
-            return CommandHandlerResult(
-                success=False,
-                message="Invalid format. Use backend/model or backend:model."
-            )
-        
         backend = backend.strip()
         model = model.strip()
         

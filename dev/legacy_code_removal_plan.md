@@ -1,3 +1,5 @@
+<!-- DEPRECATED: This document has been superseded by dev/solid_refactoring_sot.md. It is kept for historical context. See that file for the authoritative plan and status. -->
+
 # Legacy Code Removal Plan
 
 This document outlines the plan for completely removing legacy code from the codebase, following the timeline specified in the migration guide.
