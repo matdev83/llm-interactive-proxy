@@ -1,6 +1,14 @@
 # CHANGELOG.md
 
-## 2024-07-15
+## 2025-08-17
+- **SPECIALIZED COMMANDS IMPLEMENTATION**: Completed implementation of specialized commands in new SOLID architecture
+  - Added OneOff command for setting one-time backend/model overrides
+  - Added PWD command for displaying current project directory
+  - Added Hello command for displaying welcome banner
+  - Created comprehensive test suite for all commands
+  - Updated API reference documentation
+
+## 2025-08-15
 - **MAJOR ARCHITECTURE UPDATE**: Completed migration to new SOLID architecture
   - Removed feature flags - new architecture is now the default and only implementation
   - Deprecated legacy code paths with clear warnings and migration timeline
@@ -16,7 +24,7 @@
   - Updated developer guide
   - Added migration guide with clear deprecation timeline
 
-## 2024-07-01
+## 2025-08-16
 - Added SOLID architecture implementation
   - New dependency injection container
   - Interface-based service design
