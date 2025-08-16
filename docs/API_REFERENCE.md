@@ -220,6 +220,18 @@ Assistant: /home/user/projects/my-project
 # If project directory is not set
 User: !/pwd
 Assistant: Project directory not set.
+
+# Hello command example
+User: !/hello
+Assistant: Welcome to LLM Interactive Proxy!
+
+Available commands:
+- !/help - Show help information
+- !/set(param=value) - Set a parameter value
+- !/unset(param) - Unset a parameter value
+- !/pwd - Show current project directory
+- !/hello - Test command
+- !/oneoff(backend/model) - Set a one-time override for the next request
 ```
 
 ## Error Handling
