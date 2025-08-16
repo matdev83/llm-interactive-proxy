@@ -26,6 +26,7 @@ from src.core.commands.handlers.failover_handlers import (
     RoutePrependHandler,
 )
 from src.core.commands.handlers.oneoff_handler import OneOffCommandHandler
+from src.core.commands.handlers.pwd_handler import PwdCommandHandler
 from src.core.services.command_service import CommandRegistry
 
 logger = logging.getLogger(__name__)
@@ -47,6 +48,7 @@ class CommandHandlerFactory:
         self.register_handler_class(ProjectCommandHandler)
         self.register_handler_class(HelpCommandHandler)
         self.register_handler_class(OneOffCommandHandler)
+        self.register_handler_class(PwdCommandHandler)
         
         # Register failover route command handlers
         self.register_handler_class(CreateFailoverRouteHandler)
