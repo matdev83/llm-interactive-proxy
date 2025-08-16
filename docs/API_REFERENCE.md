@@ -156,8 +156,26 @@ The LLM Interactive Proxy supports in-chat commands that can be used to control 
 - `!/unset(param)` - Unset a parameter value
 - `!/help` - Show help information
 - `!/pwd` - Show current project directory
+- `!/project-dir(path)` - Set the current project directory
 - `!/hello` - Test command
 - `!/oneoff(backend/model)` or `!/one-off(backend:model)` - Set a one-time override for the backend and model for the next request
+
+#### Model and Backend Commands
+- `!/backend(name=openai|gemini|anthropic|...)` - Change the active backend
+- `!/model(name=model-name)` - Change the active model
+- `!/temperature(value=0.0-2.0)` - Set the temperature for generations
+
+#### Reasoning Configuration Commands
+- `!/set(reasoning-effort=low|medium|high|maximum)` - Set the reasoning effort level
+- `!/set(thinking-budget=1024)` - Set the thinking budget in tokens
+- `!/set(gemini-generation-config={'thinkingConfig': {'thinkingBudget': 1024}})` - Set Gemini generation config
+
+#### Loop Detection Commands
+- `!/set(loop-detection=true|false)` - Enable or disable loop detection
+- `!/set(tool-loop-detection=true|false)` - Enable or disable tool call loop detection
+- `!/set(tool-loop-max-repeats=3)` - Set the maximum number of tool call loop repetitions
+- `!/set(tool-loop-ttl=120)` - Set the tool call loop time-to-live in seconds
+- `!/set(tool-loop-mode=break|chance_then_break)` - Set the tool call loop mode
 
 #### Failover Route Commands
 - `!/create-failover-route(name=<route>,policy=<policy>)` - Create a new failover route with the specified policy
@@ -232,6 +250,30 @@ Available commands:
 - !/pwd - Show current project directory
 - !/hello - Test command
 - !/oneoff(backend/model) - Set a one-time override for the next request
+
+# Project directory command example
+User: !/project-dir(/home/user/projects/my-new-project)
+Assistant: Project directory set to /home/user/projects/my-new-project
+
+# Reasoning effort command example
+User: !/set(reasoning-effort=high)
+Assistant: Reasoning effort set to high
+
+# Thinking budget command example
+User: !/set(thinking-budget=2048)
+Assistant: Thinking budget set to 2048
+
+# Tool loop detection command example
+User: !/set(tool-loop-detection=true)
+Assistant: Tool call loop detection enabled
+
+# Tool loop max repeats command example
+User: !/set(tool-loop-max-repeats=4)
+Assistant: Tool call loop max repeats set to 4
+
+# Unset command example
+User: !/unset(thinking-budget)
+Assistant: Thinking budget unset
 ```
 
 ## Error Handling
