@@ -62,9 +62,17 @@ The proxy normalises requests internally, meaning **any front-end can be wired t
    - **Action (In-chat command)**:
      ```
      !/create-failover-route(name=main_fallback, policy=m)
-     !/route-append(name=main_fallback, openrouter:gpt-4, openrouter:sonnet-3.5)
+     !/route-append(name=main_fallback, element=openrouter:gpt-4)
+     !/route-append(name=main_fallback, element=openrouter:claude-3-opus)
+     !/set(model=main_fallback)
      ```
-   - **How it works**: When you request the model `main_fallback`, the proxy first tries `openrouter:gpt-4`. If that request fails, it automatically retries the request with `openrouter:sonnet-3.5` without any change needed in your client application.
+   - **How it works**: When you request the model `main_fallback`, the proxy first tries `openrouter:gpt-4`. If that request fails, it automatically retries the request with `openrouter:claude-3-opus` without any change needed in your client application.
+   - **Advanced Policies**: The proxy supports multiple failover policies:
+     - `k` - Try all API keys for the first backend:model
+     - `m` - Try the first API key for each backend:model
+     - `km` - Try all API keys for each backend:model
+     - `mk` - Try API keys in a round-robin fashion across all backend:model pairs
+   - **Documentation**: See [FAILOVER_ROUTES.md](docs/FAILOVER_ROUTES.md) for more details.
 
 1. **Monitor Costs and Usage**
 
@@ -115,6 +123,8 @@ The proxy normalises requests internally, meaning **any front-end can be wired t
    ```bash
    pip install -e .[dev]
    ```
+
+> **Note:** This project has recently undergone a major architectural update following SOLID principles. If you're upgrading from a previous version, check out the [Migration Guide](docs/MIGRATION_GUIDE.md) for details.
 
 ### Configuration
 
@@ -193,6 +203,8 @@ python src/core/cli.py
 ```
 
 The server will start on `http://127.0.0.1:8000`. For a full list of CLI arguments and environment variables for advanced configuration, run `python src/core/cli.py --help`.
+
+> **Important:** We recommend using the new entry point (`src/core/cli.py`) rather than the legacy entry point (`src/main.py`) to benefit from the latest SOLID architecture.
 
 Supported backends for the `--default-backend` argument include: `openrouter`, `gemini`, `anthropic`, `qwen-oauth`, and `zai`.
 
@@ -305,10 +317,11 @@ The project follows a clean, modular architecture based on SOLID principles and 
 │   │   │   ├── base.py                 # Base classes for domain models
 │   │   │   ├── chat.py                 # Chat request/response models
 │   │   │   ├── session.py              # Session models
-│   │   │   └── configuration/          # Configuration domain models
+│   │   │   └── configuration.py        # Configuration domain models (immutable value objects)
 │   │   ├── interfaces/                 # Core interfaces
 │   │   │   ├── backend_service.py      # Backend service interface
 │   │   │   ├── command_service.py      # Command service interface
+│   │   │   ├── configuration.py        # Configuration interfaces (IConfig, IBackendConfig, etc.)
 │   │   │   ├── session_service.py      # Session service interface
 │   │   │   └── rate_limiter.py         # Rate limiting interface
 │   │   ├── services/                   # Service implementations
@@ -360,11 +373,40 @@ The application follows a layered architecture with dependency injection:
 
 ### Configuration Management
 
-The application uses a tiered configuration system:
+The application uses a modern, type-safe configuration system built on immutable value objects and interfaces:
 
-1. **Default Values**: Sensible defaults for all settings.
-1. **Environment Variables**: Override defaults with environment variables.
-1. **Configuration Files**: Load settings from YAML or JSON config files.
-1. **Runtime Configuration**: Dynamic configuration changes via commands.
+#### Configuration Architecture
 
-This flexible architecture makes the codebase more maintainable, testable, and extensible while preserving all the powerful features of the proxy.
+1. **Immutable Configuration Objects**: All configuration is stored in frozen Pydantic models that implement specific interfaces
+2. **Type Safety**: Full type hints and validation for all configuration options
+3. **Interface-Based Design**: Services depend on configuration interfaces, not concrete implementations
+4. **Builder Pattern**: Use `with_*` methods to create modified configuration copies
+
+#### Configuration Layers
+
+1. **Default Values**: Sensible defaults defined in domain models
+2. **Environment Variables**: Override defaults with environment variables
+3. **Configuration Files**: Load settings from YAML or JSON config files
+4. **Runtime Configuration**: Dynamic configuration changes via commands
+
+#### Key Configuration Interfaces
+
+- **`IConfig`**: General configuration management
+- **`IBackendConfig`**: Backend-specific settings (type, model, API URL, failover routes)
+- **`IReasoningConfig`**: AI reasoning parameters (effort, thinking budget, temperature)
+- **`ILoopDetectionConfig`**: Loop detection settings (enabled flags, pattern lengths)
+
+#### Example Usage
+
+```python
+# Configuration objects are immutable
+backend_config = BackendConfig(backend_type="openai", model="gpt-4")
+
+# Create modified copies using builder methods
+updated_config = backend_config.with_model("gpt-3.5-turbo")
+
+# Chain modifications
+final_config = backend_config.with_backend("anthropic").with_model("claude-3")
+```
+
+This flexible, type-safe architecture makes the codebase more maintainable, testable, and extensible while preserving all the powerful features of the proxy.

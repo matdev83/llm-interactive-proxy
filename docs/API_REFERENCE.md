@@ -151,15 +151,52 @@ The LLM Interactive Proxy supports in-chat commands that can be used to control 
 
 ### Available Commands
 
+#### Basic Commands
 - `!/set(param=value)` - Set a parameter value
 - `!/unset(param)` - Unset a parameter value
 - `!/help` - Show help information
 - `!/pwd` - Show current project directory
 - `!/hello` - Test command
 
-### Example
+#### Failover Route Commands
+- `!/create-failover-route(name=<route>,policy=<policy>)` - Create a new failover route with the specified policy
+- `!/delete-failover-route(name=<route>)` - Delete a failover route
+- `!/list-failover-routes` - List all configured failover routes
+- `!/route-list(name=<route>)` - List elements in a failover route
+- `!/route-append(name=<route>,element=<backend:model>)` - Append an element to a failover route
+- `!/route-prepend(name=<route>,element=<backend:model>)` - Prepend an element to a failover route
+- `!/route-clear(name=<route>)` - Clear all elements from a failover route
+
+### Failover Routes
+
+Failover routes allow you to define fallback strategies when a backend or model is unavailable. Each route has a policy and a list of elements.
+
+#### Policies
+
+- `k` - Single backend, all keys: Try all API keys for the first backend:model in the route
+- `m` - Multiple backends, first key: Try the first API key for each backend:model in the route
+- `km` - All keys for all models: Try all API keys for each backend:model in the route
+- `mk` - Round-robin keys across models: Try API keys in a round-robin fashion across all backend:model pairs
+
+#### Examples
 
 ```
+# Create a failover route with the "k" policy
+User: !/create-failover-route(name=my-route,policy=k)
+Assistant: Failover route 'my-route' created with policy 'k'
+
+# Add elements to the route
+User: !/route-append(name=my-route,element=openai:gpt-4)
+Assistant: Element 'openai:gpt-4' appended to failover route 'my-route'
+
+User: !/route-append(name=my-route,element=anthropic:claude-3-opus)
+Assistant: Element 'anthropic:claude-3-opus' appended to failover route 'my-route'
+
+# List elements in the route
+User: !/route-list(name=my-route)
+Assistant: Failover route 'my-route' (policy: k) elements: openai:gpt-4, anthropic:claude-3-opus
+
+# Basic command example
 User: !/set(model=gpt-4)
 Assistant: Model set to gpt-4
 
