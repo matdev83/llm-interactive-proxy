@@ -1,9 +1,13 @@
 import re
+from typing import TYPE_CHECKING
 
 from fastapi import FastAPI
 
-from src.commands.base import BaseCommand, CommandResult
-from src.proxy_logic import ProxyState
+from src.commands.base import BaseCommand
+from src.core.domain.session import SessionStateAdapter
+
+if TYPE_CHECKING:
+    from src.core.domain.session import SessionStateAdapter
 
 
 class CommandParserConfig:
@@ -11,7 +15,7 @@ class CommandParserConfig:
 
     def __init__(
         self,
-        proxy_state: ProxyState,
+        proxy_state: SessionStateAdapter,
         app: FastAPI,
         preserve_unknown: bool,
         functional_backends: set[str] | None = None,
@@ -27,12 +31,12 @@ class CommandProcessorConfig:
 
     def __init__(
         self,
-        proxy_state: ProxyState,
+        proxy_state: SessionStateAdapter,
         app: FastAPI,
         command_pattern: re.Pattern,
         handlers: dict[str, BaseCommand],
         preserve_unknown: bool,
-        command_results: list[CommandResult],
+        command_results: list,
     ):
         self.proxy_state = proxy_state
         self.app = app

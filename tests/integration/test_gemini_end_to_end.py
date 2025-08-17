@@ -65,7 +65,7 @@ def _start_server(port: int) -> subprocess.Popen:
     proc = subprocess.Popen(
         [
             "uvicorn",
-            "src.main:build_app",
+            "src.core.app.application_factory:build_app",
             "--factory",
             "--host",
             "127.0.0.1",

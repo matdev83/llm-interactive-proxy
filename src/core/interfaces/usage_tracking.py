@@ -14,7 +14,7 @@ from src.core.domain.usage_data import UsageData
 
 class IUsageTrackingService(abc.ABC):
     """Interface for tracking LLM usage across the application."""
-    
+
     @abc.abstractmethod
     async def track_usage(
         self,
@@ -32,7 +32,7 @@ class IUsageTrackingService(abc.ABC):
         cached_tokens: int = 0,
     ) -> UsageData:
         """Track usage metrics for an LLM request.
-        
+
         Args:
             model: The model name
             prompt_tokens: Number of prompt tokens
@@ -46,11 +46,11 @@ class IUsageTrackingService(abc.ABC):
             session_id: Session ID
             reasoning_tokens: Number of reasoning tokens
             cached_tokens: Number of cached tokens
-            
+
         Returns:
             The created usage data entity
         """
-    
+
     @abc.abstractmethod
     @asynccontextmanager
     async def track_request(
@@ -64,7 +64,7 @@ class IUsageTrackingService(abc.ABC):
         **kwargs: Any,
     ) -> AsyncGenerator[Any, None]:
         """Context manager to track both usage metrics and audit logs for LLM requests.
-        
+
         Args:
             model: The model name
             backend: Backend provider name
@@ -73,40 +73,36 @@ class IUsageTrackingService(abc.ABC):
             project: Project name
             session_id: Session ID
             **kwargs: Additional arguments
-            
+
         Yields:
             A request tracker object
         """
         yield
-    
+
     @abc.abstractmethod
     async def get_usage_stats(
-        self, 
-        project: str | None = None, 
-        days: int = 30
+        self, project: str | None = None, days: int = 30
     ) -> dict[str, Any]:
         """Get usage statistics.
-        
+
         Args:
             project: Optional project filter
             days: Number of days to include in stats
-            
+
         Returns:
             Usage statistics dictionary
         """
-    
+
     @abc.abstractmethod
     async def get_recent_usage(
-        self, 
-        session_id: str | None = None,
-        limit: int = 100
+        self, session_id: str | None = None, limit: int = 100
     ) -> list[UsageData]:
         """Get recent usage data.
-        
+
         Args:
             session_id: Optional session ID filter
             limit: Maximum number of records to return
-            
+
         Returns:
             List of usage data entities
         """

@@ -2,8 +2,8 @@ import os
 from unittest.mock import MagicMock, patch
 
 import pytest
-from fastapi.testclient import TestClient  # Add import
-from src.constants import DEFAULT_COMMAND_PREFIX  # Removed DEFAULT_PROXY_TIMEOUT
+from fastapi.testclient import TestClient
+from src.constants import DEFAULT_COMMAND_PREFIX
 from src.core.app.application_factory import build_app as app_main_build_app
 from src.core.cli import apply_cli_args, main, parse_cli_args
 
@@ -29,10 +29,10 @@ def test_apply_cli_args_sets_env(monkeypatch):
     assert os.environ["GEMINI_API_KEY"] == "TESTKEY"
     assert os.environ["PROXY_PORT"] == "1234"
     assert os.environ["COMMAND_PREFIX"] == "$/"
-    assert cfg["backend"] == "gemini"
-    assert cfg["gemini_api_keys"] == {"GEMINI_API_KEY": "TESTKEY"}
-    assert cfg["proxy_port"] == 1234
-    assert cfg["command_prefix"] == "$/"
+    assert cfg.backends.default_backend == "gemini"
+    assert cfg.backends.gemini.api_key == "TESTKEY"
+    assert cfg.port == 1234
+    assert cfg.command_prefix == "$/"
     # cleanup environment variables set by apply_cli_args
     monkeypatch.delenv("LLM_BACKEND", raising=False)
     monkeypatch.delenv("GEMINI_API_KEY", raising=False)
@@ -45,7 +45,7 @@ def test_cli_interactive_mode(monkeypatch):
     args = parse_cli_args(["--disable-interactive-mode"])
     cfg = apply_cli_args(args)
     assert os.environ["DISABLE_INTERACTIVE_MODE"] == "True"
-    assert cfg["interactive_mode"] is False
+    assert cfg.session.default_interactive_mode is False
     monkeypatch.delenv("DISABLE_INTERACTIVE_MODE", raising=False)
 
 
@@ -56,18 +56,15 @@ def test_cli_redaction_flag(monkeypatch):
         monkeypatch.delenv(f"GEMINI_API_KEY_{i}", raising=False)
     args = parse_cli_args(["--disable-redact-api-keys-in-prompts"])
     cfg = apply_cli_args(args)
-    assert os.environ["REDACT_API_KEYS_IN_PROMPTS"] == "false"
-    assert cfg["redact_api_keys_in_prompts"] is False
+    assert cfg.auth.redact_api_keys_in_prompts is False
     monkeypatch.delenv("REDACT_API_KEYS_IN_PROMPTS", raising=False)
     monkeypatch.delenv("GEMINI_API_KEY", raising=False)
     for i in range(1, 21):
         monkeypatch.delenv(f"GEMINI_API_KEY_{i}", raising=False)
-    args = parse_cli_args(
-        ["--disable-interactive-mode"]
-    )  # This was duplicated, keeping one
+    args = parse_cli_args(["--disable-interactive-mode"])
     cfg = apply_cli_args(args)
     assert os.environ["DISABLE_INTERACTIVE_MODE"] == "True"
-    assert cfg["interactive_mode"] is False
+    assert cfg.session.default_interactive_mode is False
 
 
 def test_cli_force_set_project(monkeypatch):
@@ -76,7 +73,7 @@ def test_cli_force_set_project(monkeypatch):
     args = parse_cli_args(["--force-set-project"])
     cfg = apply_cli_args(args)
     assert os.environ["FORCE_SET_PROJECT"] == "true"
-    assert cfg["force_set_project"] is True
+    assert cfg.session.force_set_project is True
     monkeypatch.delenv("FORCE_SET_PROJECT", raising=False)
 
 
@@ -87,18 +84,16 @@ def test_cli_disable_interactive_commands(monkeypatch):
         monkeypatch.delenv(f"GEMINI_API_KEY_{i}", raising=False)
     args = parse_cli_args(["--disable-interactive-commands"])
     cfg = apply_cli_args(args)
-    assert os.environ["DISABLE_INTERACTIVE_COMMANDS"] == "true"
-    assert cfg["disable_interactive_commands"] is True
+    assert cfg.session.disable_interactive_commands is True
     monkeypatch.delenv("DISABLE_INTERACTIVE_COMMANDS", raising=False)
-    # This part was for force_set_project, moved to its own test
-    # monkeypatch.delenv("GEMINI_API_KEY", raising=False)
-    # for i in range(1, 21):
-    #     monkeypatch.delenv(f"GEMINI_API_KEY_{i}", raising=False)
-    # args = parse_cli_args(["--force-set-project"])
-    # cfg = apply_cli_args(args)
-    # assert os.environ["FORCE_SET_PROJECT"] == "true"
-    # assert cfg["force_set_project"] is True
-    # monkeypatch.delenv("FORCE_SET_PROJECT", raising=False)
+    #     monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+    #     for i in range(1, 21):
+    #         monkeypatch.delenv(f"GEMINI_API_KEY_{i}", raising=False)
+    #     args = parse_cli_args(["--force-set-project"])
+    #     cfg = apply_cli_args(args)
+    #     assert os.environ["FORCE_SET_PROJECT"] == "true"
+    #     assert cfg["force_set_project"] is True
+    #     monkeypatch.delenv("FORCE_SET_PROJECT", raising=False)
 
 
 def test_cli_log_argument(tmp_path):
@@ -107,7 +102,7 @@ def test_cli_log_argument(tmp_path):
 
 
 def test_main_log_file(monkeypatch, tmp_path):
-    import src.core.cli as cli  # Moved import inside
+    import src.core.cli as cli
 
     log_file = tmp_path / "srv.log"
 
@@ -117,9 +112,7 @@ def test_main_log_file(monkeypatch, tmp_path):
         recorded.update(kwargs)
 
     monkeypatch.setattr(cli.logging, "basicConfig", fake_basic_config)
-    monkeypatch.setattr(
-        cli.uvicorn, "run", lambda app, host, port: None
-    )  # app is fine here
+    monkeypatch.setattr(cli.uvicorn, "run", lambda app, host, port: None)
     monkeypatch.setattr(cli, "_check_privileges", lambda: None)
 
     cli.main(["--log", str(log_file)])
@@ -127,8 +120,7 @@ def test_main_log_file(monkeypatch, tmp_path):
     assert recorded.get("filename") == str(log_file)
 
 
-@pytest.mark.asyncio
-async def test_build_app_uses_env(monkeypatch):
+def test_build_app_uses_env(monkeypatch):
     monkeypatch.delenv("GEMINI_API_KEY", raising=False)
     for i in range(1, 21):
         monkeypatch.delenv(f"GEMINI_API_KEY_{i}", raising=False)
@@ -137,9 +129,15 @@ async def test_build_app_uses_env(monkeypatch):
     monkeypatch.setenv("COMMAND_PREFIX", "??/")
     app = app_main_build_app()
     with TestClient(app):  # Ensure lifespan runs
-        assert app.state.backend_type == "gemini"
-        assert hasattr(app.state, "gemini_backend")
-        assert app.state.command_prefix == "??/"
+        assert app.state.app_config.backends.default_backend == "gemini"
+        assert app.state.app_config.command_prefix == "??/"
+        # Verify that the backend service is configured for gemini
+        from src.core.interfaces.backend_service import IBackendService
+
+        backend_service = app.state.service_provider.get_required_service(
+            IBackendService
+        )
+        assert backend_service.config.default_backend == "gemini"
     monkeypatch.delenv("COMMAND_PREFIX", raising=False)
 
 
@@ -158,8 +156,13 @@ async def test_build_app_uses_interactive_env(monkeypatch):
     monkeypatch.setenv("LLM_INTERACTIVE_PROXY_API_KEY", "test-key")
     app = app_main_build_app()
     with TestClient(app):  # Ensure lifespan runs
-        session = app.state.session_manager.get_session("s1")
-        assert session.proxy_state.interactive_mode is True
+        from src.core.interfaces.session_service import ISessionService
+
+        session_service = app.state.service_provider.get_required_service(
+            ISessionService
+        )
+        session = await session_service.get_session("s1")
+        assert session.state.interactive_mode is True
 
 
 def test_default_command_prefix_from_env(monkeypatch):
@@ -171,13 +174,10 @@ def test_default_command_prefix_from_env(monkeypatch):
         monkeypatch.delenv(f"OPENROUTER_API_KEY_{i}", raising=False)
     args = parse_cli_args([])
     cfg = apply_cli_args(args)
-    assert cfg["command_prefix"] == DEFAULT_COMMAND_PREFIX
+    assert cfg.command_prefix == DEFAULT_COMMAND_PREFIX
 
 
-@pytest.mark.parametrize(
-    "prefix",
-    ["!", "!!", "prefix with space", "12345678901"],
-)
+@pytest.mark.parametrize("prefix", ["!", "!!", "prefix with space", "12345678901"])
 def test_invalid_command_prefix_cli(monkeypatch, prefix):
     for i in range(1, 21):
         monkeypatch.delenv(f"GEMINI_API_KEY_{i}", raising=False)
@@ -212,7 +212,10 @@ def test_check_privileges_admin_windows(monkeypatch):
     from src.core.cli import _check_privileges
 
     monkeypatch.setattr(
-        ctypes.windll.shell32, "IsUserAnAdmin", lambda: 1, raising=False
+        ctypes.windll.shell32,  # type: ignore
+        "IsUserAnAdmin",
+        lambda: 1,
+        raising=False,
     )
     with pytest.raises(SystemExit):
         _check_privileges()
@@ -225,7 +228,10 @@ def test_check_privileges_non_admin_windows(monkeypatch):
     from src.core.cli import _check_privileges
 
     monkeypatch.setattr(
-        ctypes.windll.shell32, "IsUserAnAdmin", lambda: 0, raising=False
+        ctypes.windll.shell32,  # type: ignore
+        "IsUserAnAdmin",
+        lambda: 0,
+        raising=False,
     )
     _check_privileges()
 
@@ -248,7 +254,7 @@ def test_apply_cli_args_basic():
     args = parse_cli_args(["--port", "8080"])
     with patch.dict(os.environ, {}, clear=True):
         cfg = apply_cli_args(args)
-        assert cfg["proxy_port"] == 8080
+        assert cfg.port == 8080
 
 
 def test_apply_cli_args_disable_auth_forces_localhost():
@@ -259,8 +265,8 @@ def test_apply_cli_args_disable_auth_forces_localhost():
         patch("src.core.cli.logging") as mock_logging,
     ):
         cfg = apply_cli_args(args)
-        assert cfg["proxy_host"] == "127.0.0.1"
-        assert cfg["disable_auth"] is True
+        assert cfg.host == "127.0.0.1"
+        assert cfg.auth.disable_auth is True
         # Should log a warning about forcing localhost
         mock_logging.warning.assert_called_once()
 
@@ -273,8 +279,8 @@ def test_apply_cli_args_disable_auth_with_localhost_no_warning():
         patch("src.core.cli.logging") as mock_logging,
     ):
         cfg = apply_cli_args(args)
-        assert cfg["proxy_host"] == "127.0.0.1"
-        assert cfg["disable_auth"] is True
+        assert cfg.host == "127.0.0.1"
+        assert cfg.auth.disable_auth is True
         # Should not log a warning since host is already localhost
         mock_logging.warning.assert_not_called()
 

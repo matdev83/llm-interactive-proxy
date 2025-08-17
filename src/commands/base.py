@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING, Any, Protocol
 if TYPE_CHECKING:
     from fastapi import FastAPI
 
-    from src.proxy_logic import ProxyState
+    # Removed legacy import
 
 logger = logging.getLogger(__name__)
 
@@ -131,13 +131,13 @@ class BaseCommand:
         self.app = app
         self.functional_backends = functional_backends or set()
 
-    def execute(self, args: Mapping[str, Any], state: ProxyState) -> CommandResult:
+    def execute(self, args: Mapping[str, Any], state: Any) -> CommandResult:
         raise NotImplementedError
 
     def execute_with_context(
         self,
         args: Mapping[str, Any],
-        state: ProxyState,
+        state: Any,
         context: CommandContext | None = None,
     ) -> CommandResult:
         """Execute command with context. Default implementation calls execute for backward compatibility."""

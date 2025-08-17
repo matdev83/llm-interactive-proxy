@@ -16,24 +16,26 @@ async def validation_exception_handler(
     request: Request, exc: RequestValidationError
 ) -> Response:
     """Handle FastAPI validation errors.
-    
+
     Args:
         request: The request that caused the exception
         exc: The validation exception
-        
+
     Returns:
         JSON response with error details
     """
     logger.warning(f"Validation error: {exc.errors()}")
-    
+
     error_details = []
     for error in exc.errors():
-        error_details.append({
-            "loc": error.get("loc", []),
-            "msg": error.get("msg", ""),
-            "type": error.get("type", ""),
-        })
-    
+        error_details.append(
+            {
+                "loc": error.get("loc", []),
+                "msg": error.get("msg", ""),
+                "type": error.get("type", ""),
+            }
+        )
+
     return JSONResponse(
         status_code=400,
         content={
@@ -49,20 +51,18 @@ async def validation_exception_handler(
     )
 
 
-async def http_exception_handler(
-    request: Request, exc: HTTPException
-) -> Response:
+async def http_exception_handler(request: Request, exc: HTTPException) -> Response:
     """Handle FastAPI HTTP exceptions.
-    
+
     Args:
         request: The request that caused the exception
         exc: The HTTP exception
-        
+
     Returns:
         JSON response with error details
     """
     logger.warning(f"HTTP error {exc.status_code}: {exc.detail}")
-    
+
     return JSONResponse(
         status_code=exc.status_code,
         content={
@@ -76,43 +76,39 @@ async def http_exception_handler(
     )
 
 
-async def proxy_exception_handler(
-    request: Request, exc: ProxyError
-) -> Response:
+async def proxy_exception_handler(request: Request, exc: ProxyError) -> Response:
     """Handle custom proxy exceptions.
-    
+
     Args:
         request: The request that caused the exception
         exc: The proxy exception
-        
+
     Returns:
         JSON response with error details
     """
     logger.warning(f"{exc.__class__.__name__} ({exc.status_code}): {exc.message}")
-    
+
     if exc.details and logger.isEnabledFor(logging.DEBUG):
         logger.debug(f"Error details: {exc.details}")
-    
+
     return JSONResponse(
         status_code=exc.status_code,
         content=exc.to_dict(),
     )
 
 
-async def general_exception_handler(
-    request: Request, exc: Exception
-) -> Response:
+async def general_exception_handler(request: Request, exc: Exception) -> Response:
     """Handle all other exceptions.
-    
+
     Args:
         request: The request that caused the exception
         exc: The exception
-        
+
     Returns:
         JSON response with error details
     """
     logger.exception("Unhandled exception", exc_info=exc)
-    
+
     return JSONResponse(
         status_code=500,
         content={
@@ -127,7 +123,7 @@ async def general_exception_handler(
 
 def configure_exception_handlers(app: FastAPI) -> None:
     """Configure exception handlers for the FastAPI application.
-    
+
     Args:
         app: The FastAPI application
     """

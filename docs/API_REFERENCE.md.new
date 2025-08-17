@@ -1,0 +1,479 @@
+# API Reference
+
+This document provides a reference for the API endpoints exposed by the LLM Interactive Proxy.
+
+## API Versioning
+
+The API is versioned using URL path prefixes:
+
+- `/v1/` - Legacy API (compatible with OpenAI/Anthropic) - **DEPRECATED**
+- `/v2/` - New SOLID architecture API (recommended)
+
+> **Note**: Legacy endpoints are deprecated and will be removed in a future release. Please migrate to the `/v2/` endpoints.
+
+## Authentication
+
+All endpoints require authentication unless the server is started with `--disable-auth`.
+
+Authentication is performed using the `Authorization` header with a bearer token:
+
+```
+Authorization: Bearer <api-key>
+```
+
+## Session Management
+
+Sessions are identified using the `x-session-id` header. If not provided, a new session ID will be generated.
+
+```
+x-session-id: <session-id>
+```
+
+Sessions allow the proxy to maintain state between requests, including:
+
+- Backend selection
+- Model selection
+- Project information
+- Command state
+
+## Endpoints
+
+### Chat Completions
+
+#### Primary Endpoint (Recommended)
+
+```
+POST /v2/chat/completions
+```
+
+#### Legacy Endpoint (Deprecated)
+
+```
+POST /v1/chat/completions
+```
+
+**Request Body:**
+
+```json
+{
+  "model": "gpt-3.5-turbo",
+  "messages": [
+    {
+      "role": "system",
+      "content": "You are a helpful assistant."
+    },
+    {
+      "role": "user",
+      "content": "Hello, how are you?"
+    }
+  ],
+  "stream": false,
+  "temperature": 0.7,
+  "max_tokens": 1000,
+  "tools": [
+    {
+      "type": "function",
+      "function": {
+        "name": "get_weather",
+        "description": "Get the current weather in a given location",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "location": {
+              "type": "string",
+              "description": "The city and state, e.g. San Francisco, CA"
+            }
+          },
+          "required": ["location"]
+        }
+      }
+    }
+  ]
+}
+```
+
+**Response Body (non-streaming):**
+
+```json
+{
+  "id": "chatcmpl-123",
+  "object": "chat.completion",
+  "created": 1694268190,
+  "model": "gpt-3.5-turbo-0613",
+  "choices": [
+    {
+      "index": 0,
+      "message": {
+        "role": "assistant",
+        "content": "I'm doing well, thank you for asking! How can I assist you today?"
+      },
+      "finish_reason": "stop"
+    }
+  ],
+  "usage": {
+    "prompt_tokens": 19,
+    "completion_tokens": 13,
+    "total_tokens": 32
+  }
+}
+```
+
+**Response Format (streaming):**
+
+For streaming responses, the server sends a series of server-sent events (SSE):
+
+```
+data: {"id":"chatcmpl-123","object":"chat.completion.chunk","created":1694268190,"model":"gpt-3.5-turbo-0613","choices":[{"index":0,"delta":{"role":"assistant"},"finish_reason":null}]}
+
+data: {"id":"chatcmpl-123","object":"chat.completion.chunk","created":1694268190,"model":"gpt-3.5-turbo-0613","choices":[{"index":0,"delta":{"content":"I'm"},"finish_reason":null}]}
+
+data: {"id":"chatcmpl-123","object":"chat.completion.chunk","created":1694268190,"model":"gpt-3.5-turbo-0613","choices":[{"index":0,"delta":{"content":" doing"},"finish_reason":null}]}
+
+data: [DONE]
+```
+
+### Anthropic Messages API
+
+#### Primary Endpoint (Recommended)
+
+```
+POST /v2/messages
+```
+
+#### Legacy Endpoint (Deprecated)
+
+```
+POST /v1/messages
+```
+
+**Request Body:**
+
+```json
+{
+  "model": "claude-3-opus-20240229",
+  "messages": [
+    {
+      "role": "user",
+      "content": "Hello, how are you?"
+    }
+  ],
+  "stream": false,
+  "temperature": 0.7,
+  "max_tokens": 1000
+}
+```
+
+**Response Body (non-streaming):**
+
+```json
+{
+  "id": "msg_01xpBy7hv4sDnB0evnQ0v2Dq",
+  "type": "message",
+  "role": "assistant",
+  "content": [
+    {
+      "type": "text",
+      "text": "I'm doing well, thank you for asking! How can I assist you today?"
+    }
+  ],
+  "model": "claude-3-opus-20240229",
+  "stop_reason": "end_turn",
+  "usage": {
+    "input_tokens": 14,
+    "output_tokens": 16
+  }
+}
+```
+
+### Gemini API
+
+#### Generate Content
+
+```
+POST /v2/models/{model}:generateContent
+```
+
+**Request Body:**
+
+```json
+{
+  "contents": [
+    {
+      "role": "user",
+      "parts": [
+        {
+          "text": "Hello, how are you?"
+        }
+      ]
+    }
+  ],
+  "generationConfig": {
+    "temperature": 0.7,
+    "maxOutputTokens": 1000
+  }
+}
+```
+
+**Response Body:**
+
+```json
+{
+  "candidates": [
+    {
+      "content": {
+        "role": "model",
+        "parts": [
+          {
+            "text": "I'm doing well, thank you for asking! How can I assist you today?"
+          }
+        ]
+      },
+      "finishReason": "STOP"
+    }
+  ],
+  "usageMetadata": {
+    "promptTokenCount": 10,
+    "candidatesTokenCount": 15,
+    "totalTokenCount": 25
+  }
+}
+```
+
+### Model Listing
+
+#### OpenAI-Compatible Models
+
+```
+GET /v2/models
+GET /v1/models  # Deprecated
+```
+
+**Response Body:**
+
+```json
+{
+  "object": "list",
+  "data": [
+    {
+      "id": "gpt-4",
+      "object": "model",
+      "created": 1678000000,
+      "owned_by": "openai"
+    },
+    {
+      "id": "claude-3-opus-20240229",
+      "object": "model",
+      "created": 1678000000,
+      "owned_by": "anthropic"
+    }
+  ]
+}
+```
+
+#### Gemini Models
+
+```
+GET /v2/models/list
+```
+
+**Response Body:**
+
+```json
+{
+  "models": [
+    {
+      "name": "gemini-1.5-pro",
+      "version": "v1",
+      "displayName": "Gemini 1.5 Pro",
+      "description": "A powerful multimodal model"
+    },
+    {
+      "name": "gemini-1.5-flash",
+      "version": "v1",
+      "displayName": "Gemini 1.5 Flash",
+      "description": "A fast and efficient multimodal model"
+    }
+  ]
+}
+```
+
+### Usage Statistics
+
+#### Usage Stats
+
+```
+GET /v2/usage/stats
+```
+
+**Query Parameters:**
+
+- `project` (optional): Filter by project name
+- `days` (optional, default: 30): Number of days to include
+
+**Response Body:**
+
+```json
+{
+  "total_requests": 1000,
+  "total_tokens": 50000,
+  "projects": {
+    "project1": {
+      "requests": 500,
+      "tokens": 25000
+    },
+    "project2": {
+      "requests": 500,
+      "tokens": 25000
+    }
+  },
+  "models": {
+    "gpt-4": {
+      "requests": 200,
+      "tokens": 15000
+    },
+    "claude-3": {
+      "requests": 800,
+      "tokens": 35000
+    }
+  }
+}
+```
+
+#### Recent Usage
+
+```
+GET /v2/usage/recent
+```
+
+**Query Parameters:**
+
+- `session_id` (optional): Filter by session ID
+- `limit` (optional, default: 100): Maximum number of records to return
+
+**Response Body:**
+
+```json
+[
+  {
+    "id": "usage_01",
+    "timestamp": "2023-09-09T12:00:00Z",
+    "project": "project1",
+    "model": "gpt-4",
+    "tokens": 150,
+    "cost": 0.03
+  },
+  {
+    "id": "usage_02",
+    "timestamp": "2023-09-09T12:05:00Z",
+    "project": "project2",
+    "model": "claude-3",
+    "tokens": 200,
+    "cost": 0.04
+  }
+]
+```
+
+### Audit Logs
+
+```
+GET /v2/audit/logs
+```
+
+**Query Parameters:**
+
+- `session_id` (optional): Filter by session ID
+- `limit` (optional, default: 100): Maximum number of records to return
+
+**Response Body:**
+
+```json
+[
+  {
+    "id": "log_01",
+    "timestamp": "2023-09-09T12:00:00Z",
+    "session_id": "session_123",
+    "event_type": "api_request",
+    "details": {
+      "endpoint": "/v2/chat/completions",
+      "model": "gpt-4",
+      "tokens": 150
+    }
+  },
+  {
+    "id": "log_02",
+    "timestamp": "2023-09-09T12:05:00Z",
+    "session_id": "session_456",
+    "event_type": "command_execution",
+    "details": {
+      "command": "set",
+      "args": {
+        "project": "project1"
+      }
+    }
+  }
+]
+```
+
+## Interactive Commands
+
+Interactive commands can be included in user messages to control the proxy's behavior. These commands are processed before the message is sent to the backend.
+
+Commands use the format: `!/command(arg1=value1, arg2=value2)`.
+
+### Core Commands
+
+| Command | Description | Example |
+|---------|-------------|---------|
+| `!/hello` | Shows welcome message and session info | `!/hello` |
+| `!/help` | Shows available commands | `!/help` |
+| `!/set` | Sets a session parameter | `!/set(project=myproject)` |
+| `!/unset` | Unsets a session parameter | `!/unset(project)` |
+| `!/backend` | Sets backend for the session | `!/backend(openai)` |
+| `!/model` | Sets model for the session | `!/model(gpt-4)` |
+| `!/oneoff` | Sets backend and model for one request | `!/oneoff(anthropic:claude-3)` |
+| `!/interactive` | Toggles interactive mode | `!/interactive(true)` |
+| `!/temperature` | Sets temperature for generation | `!/temperature(0.7)` |
+| `!/pwd` | Shows current project directory | `!/pwd` |
+
+### Failover Commands
+
+| Command | Description | Example |
+|---------|-------------|---------|
+| `!/route-list` | Lists configured routes | `!/route-list` |
+| `!/route-clear` | Clears a route | `!/route-clear(gpt-4)` |
+| `!/route-append` | Appends a route | `!/route-append(gpt-4, anthropic:claude-3)` |
+| `!/route-prepend` | Prepends a route | `!/route-prepend(gpt-4, openai:gpt-3.5-turbo)` |
+
+### Error Handling
+
+The API follows standard HTTP error codes:
+
+- `400 Bad Request`: Invalid request body or parameters
+- `401 Unauthorized`: Missing or invalid API key
+- `404 Not Found`: Endpoint not found
+- `429 Too Many Requests`: Rate limit exceeded
+- `500 Internal Server Error`: Server-side error
+
+Error responses include a JSON body with details:
+
+```json
+{
+  "error": {
+    "message": "Invalid request body",
+    "type": "validation_error",
+    "param": "model",
+    "code": "invalid_model"
+  }
+}
+```
+
+## Deprecation Notice
+
+Legacy endpoints (`/v1/*`) are deprecated and will return deprecation headers:
+
+```
+Deprecation: true
+Sunset: 2023-12-31
+```
+
+It is recommended to migrate to the `/v2/` endpoints as soon as possible.

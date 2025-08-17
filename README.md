@@ -332,9 +332,7 @@ The project follows a clean, modular architecture based on SOLID principles and 
 │   │   └── repositories/               # Data access layer
 │   │       ├── session_repository.py   # Session storage implementation
 │   │       └── usage_repository.py     # Usage data storage
-│   ├── cli.py                          # Command line interface
-│   ├── main.py                         # Entry point (deprecated, use core.cli)
-│   └── proxy_logic.py                  # Legacy core logic (being refactored)
+│   └── cli.py                          # Command line interface
 ├── tests/                              # Automated tests
 │   ├── conftest.py                     # Test fixtures and configuration
 │   ├── integration/                    # Integration tests

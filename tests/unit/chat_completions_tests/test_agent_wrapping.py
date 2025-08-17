@@ -1,11 +1,13 @@
-
 # import pytest # F401: Removed
+import pytest
 
 
+@pytest.mark.skip(reason="Test needs to be updated for new architecture")
 def test_cline_command_wrapping(client):
     # Skip this test for now as it requires legacy backend setup
     # TODO: Update this test to work with the new architecture
     import pytest
+
     pytest.skip("Test needs to be updated for new architecture")
 
     payload = {"model": "m", "messages": [{"role": "user", "content": "!/hello"}]}

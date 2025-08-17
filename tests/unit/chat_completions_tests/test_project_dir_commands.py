@@ -3,6 +3,7 @@ from unittest.mock import AsyncMock, patch
 import pytest
 from fastapi.testclient import TestClient
 from src.core.app.application_factory import build_app
+from src.core.config.app_config import load_config
 
 
 @pytest.fixture
@@ -11,7 +12,8 @@ def client_with_config(tmp_path, monkeypatch):
     config_file.touch()
     monkeypatch.setenv("OPENROUTER_API_KEY_1", "dummy_or_key")
     monkeypatch.setenv("LLM_BACKEND", "openrouter")
-    app = build_app(config_file=str(config_file))
+    app_config = load_config(str(config_file))
+    app = build_app(config=app_config)
     with TestClient(app, headers={"Authorization": "Bearer test-proxy-key"}) as client:
         yield client
 

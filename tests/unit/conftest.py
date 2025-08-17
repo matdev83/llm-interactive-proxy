@@ -1,6 +1,5 @@
 """
 Pytest configuration file for unit tests.
-
 This file contains shared fixtures and configuration for the unit tests.
 """
 
@@ -30,7 +29,7 @@ from tests.unit.core.test_doubles import (
 def services() -> ServiceCollection:
     """Fixture for a service collection with mock services registered."""
     services = ServiceCollection()
-    
+
     # Register mock services
     services.add_singleton(IBackendService, implementation_factory=lambda _: MockBackendService())  # type: ignore
     services.add_singleton(ISessionService, implementation_factory=lambda _: MockSessionService())  # type: ignore
@@ -39,7 +38,7 @@ def services() -> ServiceCollection:
     services.add_singleton(ILoopDetector, implementation_factory=lambda _: MockLoopDetector())  # type: ignore
     services.add_singleton(IResponseProcessor, implementation_factory=lambda _: MockResponseProcessor())  # type: ignore
     services.add_singleton(ISessionRepository, implementation_factory=lambda _: MockSessionRepository())  # type: ignore
-    
+
     return services
 
 
@@ -83,6 +82,3 @@ def loop_detector(service_provider: IServiceProvider) -> MockLoopDetector:
 def response_processor(service_provider: IServiceProvider) -> MockResponseProcessor:
     """Fixture for a mock response processor."""
     return service_provider.get_required_service(IResponseProcessor)  # type: ignore
-
-
-

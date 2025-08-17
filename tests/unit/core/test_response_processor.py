@@ -19,39 +19,45 @@ from src.core.services.response_processor import ResponseProcessor
 
 class MockLoopDetector(ILoopDetector):
     """Mock loop detector for testing."""
-    
+
     def __init__(self, should_detect_loop: bool = False):
         self.should_detect_loop = should_detect_loop
         self.check_called = False
         self.last_content = ""
         self.registered_tool_calls: list[dict[str, Any]] = []
         self.history_cleared = False
-        
+
     async def check_for_loops(self, content: str) -> LoopDetectionResult:
         """Check for loops in content."""
         self.check_called = True
         self.last_content = content
-        
+
         if self.should_detect_loop:
             return LoopDetectionResult(
                 has_loop=True,
                 pattern="test pattern",
                 repetitions=3,
-                details={"test": "detail"}
+                details={"test": "detail"},
             )
         else:
             return LoopDetectionResult(has_loop=False, modified_content=content)
-        
-    async def configure(self, 
-                       min_pattern_length: int = 100,
-                       max_pattern_length: int = 8000,
-                       min_repetitions: int = 2) -> None:
+
+    async def configure(
+        self,
+        min_pattern_length: int = 100,
+        max_pattern_length: int = 8000,
+        min_repetitions: int = 2,
+    ) -> None:
         """Update configuration."""
-        
-    async def register_tool_call(self, tool_name: str, arguments: dict[str, Any]) -> None:
+
+    async def register_tool_call(
+        self, tool_name: str, arguments: dict[str, Any]
+    ) -> None:
         """Register a tool call for future loop detection."""
-        self.registered_tool_calls.append({"tool_name": tool_name, "arguments": arguments})
-        
+        self.registered_tool_calls.append(
+            {"tool_name": tool_name, "arguments": arguments}
+        )
+
     async def clear_history(self) -> None:
         """Clear all recorded history."""
         self.history_cleared = True
@@ -59,16 +65,16 @@ class MockLoopDetector(ILoopDetector):
 
 class TrackingMiddleware(IResponseMiddleware):
     """Middleware that tracks calls for testing."""
-    
+
     def __init__(self):
         self.processed_responses: list[ProcessedResponse] = []
         self.processed_count = 0
-        
+
     async def process(
-        self, 
-        response: ProcessedResponse, 
+        self,
+        response: ProcessedResponse,
         session_id: str,
-        context: dict[str, Any] | None = None
+        context: dict[str, Any] | None = None,
     ) -> ProcessedResponse:
         """Process a response."""
         self.processed_responses.append(response)
@@ -105,19 +111,19 @@ def test_response_processor_initialization():
     processor = ResponseProcessor()
     assert processor._loop_detector is None
     assert len(processor._middleware) == 0
-    
+
     # Create with loop detector but no middleware
     loop_detector = MockLoopDetector()
     processor = ResponseProcessor(loop_detector)
     assert processor._loop_detector is loop_detector
     assert len(processor._middleware) == 0
-    
+
     # Create with middleware but no loop detector
     middleware = [ContentFilterMiddleware(), LoggingMiddleware()]
     processor = ResponseProcessor(None, middleware)
     assert processor._loop_detector is None
     assert len(processor._middleware) == 2
-    
+
     # Create with both
     processor = ResponseProcessor(loop_detector, middleware)
     assert processor._loop_detector is loop_detector
@@ -125,34 +131,37 @@ def test_response_processor_initialization():
 
 
 @pytest.mark.asyncio
-async def test_process_response(response_processor, tracking_middleware, mock_loop_detector):
+async def test_process_response(
+    response_processor, tracking_middleware, mock_loop_detector
+):
     """Test processing a complete response."""
     # Create a sample response
     response = ChatResponse(
         id="test-id",
         created=1234567890,
         model="test-model",
-        choices=[{
-            "index": 0,
-            "message": {
-                "role": "assistant",
-                "content": "This is a test response."
-            },
-            "finish_reason": "stop"
-        }],
+        choices=[
+            {
+                "index": 0,
+                "message": {"role": "assistant", "content": "This is a test response."},
+                "finish_reason": "stop",
+            }
+        ],
     )
-    
+
     # Process the response
     result = await response_processor.process_response(response, "test-session")
-    
+
     # Verify loop detector was called
     assert mock_loop_detector.check_called
     assert mock_loop_detector.last_content == "This is a test response."
-    
+
     # Verify middleware was called
     assert tracking_middleware.processed_count == 1
-    assert tracking_middleware.processed_responses[0].content == "This is a test response."
-    
+    assert (
+        tracking_middleware.processed_responses[0].content == "This is a test response."
+    )
+
     # Verify result
     assert result.content == "This is a test response."
     assert result.metadata["id"] == "test-id"
@@ -164,36 +173,38 @@ async def test_loop_detection(mock_loop_detector, tracking_middleware):
     """Test loop detection in response processing."""
     # Configure loop detector to detect loops
     mock_loop_detector.should_detect_loop = True
-    
+
     # Create processor with the configured detector
     processor = ResponseProcessor(mock_loop_detector, [tracking_middleware])
-    
+
     # Create a sample response
     response = ChatResponse(
         id="test-id",
         created=1234567890,
         model="test-model",
-        choices=[{
-            "index": 0,
-            "message": {
-                "role": "assistant",
-                "content": "This is a test response with repetitive content."
-            },
-            "finish_reason": "stop"
-        }],
+        choices=[
+            {
+                "index": 0,
+                "message": {
+                    "role": "assistant",
+                    "content": "This is a test response with repetitive content.",
+                },
+                "finish_reason": "stop",
+            }
+        ],
     )
-    
+
     # Process the response
     with pytest.raises(Exception) as excinfo:
         # Should raise a loop detection error
         await processor.process_response(response, "test-session")
-    
+
     # Verify error contains loop information
     assert "loop" in str(excinfo.value).lower()
-    
+
     # Verify loop detector was called
     assert mock_loop_detector.check_called
-    
+
     # Check middleware wasn't called after loop detection
     assert tracking_middleware.processed_count == 0
 
@@ -201,6 +212,7 @@ async def test_loop_detection(mock_loop_detector, tracking_middleware):
 @pytest.mark.asyncio
 async def test_streaming_response_processing(response_processor, tracking_middleware):
     """Test processing a streaming response."""
+
     # Create a streaming response iterator
     async def sample_stream():
         chunks = [
@@ -212,18 +224,20 @@ async def test_streaming_response_processing(response_processor, tracking_middle
         for chunk in chunks:
             yield chunk
             await asyncio.sleep(0.01)
-    
+
     # Process the streaming response
-    stream_processor = response_processor.process_streaming_response(sample_stream(), "test-session")
-    
+    stream_processor = response_processor.process_streaming_response(
+        sample_stream(), "test-session"
+    )
+
     # Collect all processed chunks
     results = []
     async for chunk in stream_processor:
         results.append(chunk)
-    
+
     # Verify middleware was called for each chunk
     assert tracking_middleware.processed_count == 4
-    
+
     # Verify all chunks were processed
     assert len(results) == 4
     assert results[0].content == "This "
@@ -236,21 +250,20 @@ async def test_streaming_response_processing(response_processor, tracking_middle
 async def test_middleware_registration():
     """Test registering middleware after initialization."""
     processor = ResponseProcessor()
-    
+
     # Register a middleware component
     middleware = TrackingMiddleware()
     await processor.register_middleware(middleware)
-    
+
     # Verify middleware was registered
     assert len(processor._middleware) == 1
     assert processor._middleware[0][1] == middleware
-    
+
     # Register another with higher priority
     middleware2 = TrackingMiddleware()
     await processor.register_middleware(middleware2, priority=10)
-    
+
     # Verify both are registered with correct priorities
     assert len(processor._middleware) == 2
     assert processor._middleware[0][0] == 0  # First middleware, priority 0
     assert processor._middleware[1][0] == 10  # Second middleware, priority 10
-

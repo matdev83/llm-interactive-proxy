@@ -31,19 +31,19 @@ logger = logging.getLogger(__name__)
 
 class UsageTrackingService(IUsageTrackingService):
     """Service for tracking LLM usage across the application.
-    
+
     This service integrates with the existing llm_accounting_utils functionality
     while also storing usage data in the new repository structure.
     """
-    
+
     def __init__(self, usage_repository: IUsageRepository):
         """Initialize the usage tracking service.
-        
+
         Args:
             usage_repository: Repository for storing usage data
         """
         self._repository = usage_repository
-    
+
     async def track_usage(
         self,
         model: str,
@@ -60,7 +60,7 @@ class UsageTrackingService(IUsageTrackingService):
         cached_tokens: int = 0,
     ) -> UsageData:
         """Track usage metrics for an LLM request.
-        
+
         Args:
             model: The model name
             prompt_tokens: Number of prompt tokens
@@ -74,7 +74,7 @@ class UsageTrackingService(IUsageTrackingService):
             session_id: Session ID
             reasoning_tokens: Number of reasoning tokens
             cached_tokens: Number of cached tokens
-            
+
         Returns:
             The created usage data entity
         """
@@ -94,7 +94,7 @@ class UsageTrackingService(IUsageTrackingService):
                 reasoning_tokens=reasoning_tokens,
                 cached_tokens=cached_tokens,
             )
-        
+
         # Create usage data entity
         usage_data = UsageData(
             id=str(uuid.uuid4()),
@@ -107,12 +107,12 @@ class UsageTrackingService(IUsageTrackingService):
             cost=cost,
             timestamp=datetime.utcnow(),
         )
-        
+
         # Store in repository
         await self._repository.add(usage_data)
-        
+
         return usage_data
-    
+
     @asynccontextmanager
     async def track_request(
         self,
@@ -125,10 +125,10 @@ class UsageTrackingService(IUsageTrackingService):
         **kwargs: Any,
     ) -> AsyncGenerator[Any, None]:
         """Context manager to track both usage metrics and audit logs for LLM requests.
-        
+
         This method wraps the legacy track_llm_request context manager while also
         storing usage data in the new repository structure.
-        
+
         Args:
             model: The model name
             backend: Backend provider name
@@ -137,10 +137,11 @@ class UsageTrackingService(IUsageTrackingService):
             project: Project name
             session_id: Session ID
             **kwargs: Additional arguments
-            
+
         Yields:
             A request tracker object
         """
+
         class RequestTracker:
             def __init__(self) -> None:
                 self.response: dict[str, Any] | StreamingResponse | None = None
@@ -148,30 +149,32 @@ class UsageTrackingService(IUsageTrackingService):
                 self.cost = 0.0
                 self.remote_completion_id: str | None = None
                 self.usage_data: UsageData | None = None
-            
-            def set_response(self, response: dict[str, Any] | StreamingResponse) -> None:
+
+            def set_response(
+                self, response: dict[str, Any] | StreamingResponse
+            ) -> None:
                 """Set the response and extract information."""
                 self.response = response
-            
+
             def set_response_headers(self, headers: dict[str, str]) -> None:
                 """Set the response headers for billing extraction."""
                 self.response_headers = headers
-            
+
             def set_cost(self, cost: float) -> None:
                 """Set the cost for this request."""
                 self.cost = cost
-            
+
             def set_completion_id(self, completion_id: str) -> None:
                 """Set the remote completion ID."""
                 self.remote_completion_id = completion_id
-                
+
             def set_usage_data(self, usage_data: UsageData) -> None:
                 """Set the usage data entity."""
                 self.usage_data = usage_data
-        
+
         tracker = RequestTracker()
         start_time = time.time()
-        
+
         # If accounting is disabled, just yield the tracker
         if is_accounting_disabled():
             try:
@@ -179,7 +182,7 @@ class UsageTrackingService(IUsageTrackingService):
             finally:
                 pass
             return
-        
+
         # Use legacy tracking system
         async with track_llm_request(
             model=model,
@@ -193,7 +196,7 @@ class UsageTrackingService(IUsageTrackingService):
             try:
                 # Yield our tracker
                 yield tracker
-                
+
                 # Copy data from our tracker to legacy tracker
                 if tracker.response:
                     legacy_tracker.set_response(tracker.response)
@@ -206,24 +209,24 @@ class UsageTrackingService(IUsageTrackingService):
             finally:
                 # Calculate execution time
                 execution_time = time.time() - start_time
-                
+
                 # Extract information from response
                 # response_text = ""
                 prompt_tokens = None
                 completion_tokens = None
                 total_tokens = None
                 cost = tracker.cost
-                
+
                 if tracker.response and isinstance(tracker.response, dict):
                     # Extract usage from non-streaming response
                     usage = tracker.response.get("usage", {})
                     prompt_tokens = usage.get("prompt_tokens")
                     completion_tokens = usage.get("completion_tokens")
                     total_tokens = usage.get("total_tokens")
-                    
+
                     # Extract response text
                     # response_text = extract_response_text(tracker.response)
-                    
+
                 # Create usage data entity
                 usage_data = await self.track_usage(
                     model=model,
@@ -237,37 +240,33 @@ class UsageTrackingService(IUsageTrackingService):
                     project=project,
                     session_id=session_id,
                 )
-                
+
                 # Set usage data in tracker
                 tracker.set_usage_data(usage_data)
-    
+
     async def get_usage_stats(
-        self, 
-        project: str | None = None, 
-        days: int = 30
+        self, project: str | None = None, days: int = 30
     ) -> dict[str, Any]:
         """Get usage statistics.
-        
+
         Args:
             project: Optional project filter
             days: Number of days to include in stats
-            
+
         Returns:
             Usage statistics dictionary
         """
         return await self._repository.get_stats(project)
-    
+
     async def get_recent_usage(
-        self, 
-        session_id: str | None = None,
-        limit: int = 100
+        self, session_id: str | None = None, limit: int = 100
     ) -> list[UsageData]:
         """Get recent usage data.
-        
+
         Args:
             session_id: Optional session ID filter
             limit: Maximum number of records to return
-            
+
         Returns:
             List of usage data entities
         """
@@ -275,7 +274,7 @@ class UsageTrackingService(IUsageTrackingService):
             data = await self._repository.get_by_session_id(session_id)
         else:
             data = await self._repository.get_all()
-            
+
         # Sort by timestamp (newest first) and limit
         sorted_data = sorted(data, key=lambda x: x.timestamp, reverse=True)
         return sorted_data[:limit]

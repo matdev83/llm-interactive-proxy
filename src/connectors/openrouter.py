@@ -37,7 +37,7 @@ class OpenRouterBackend(OpenAIConnector):
         api_key = kwargs.get("api_key")
         if not api_key:
             raise ValueError("api_key is required for OpenRouterBackend")
-        
+
         openrouter_headers_provider = cast(
             Callable[[str, str], dict[str, str]],
             kwargs.get("openrouter_headers_provider"),
@@ -115,11 +115,39 @@ class OpenRouterBackend(OpenAIConnector):
             if api_base_url:
                 self.api_base_url = cast(str, api_base_url)
 
+            # Compute explicit headers for this call if possible and pass
+            # them to the parent as a headers_override so the streaming
+            # implementation will see the Authorization header.
+            headers_override = None
+            try:
+                if self.key_name and self.api_key and self.headers_provider:
+                    headers_override = self.headers_provider(
+                        self.key_name, self.api_key
+                    )
+            except Exception:
+                headers_override = None
+
+            # No-op: computed headers_override is passed to parent; keep
+            # quiet in normal runs (debug-level logs already available).
+            # Defensive: ensure Authorization header present when we have an api_key
+            try:
+                if (
+                    headers_override is not None
+                    and "Authorization" not in headers_override
+                    and self.api_key
+                ):
+                    headers_override["Authorization"] = f"Bearer {self.api_key}"
+            except Exception:
+                pass
+            call_kwargs = dict(kwargs)
+            if headers_override is not None:
+                call_kwargs["headers_override"] = headers_override
+
             return await super().chat_completions(
                 request_data=request_data,
                 processed_messages=processed_messages,
                 effective_model=effective_model,
-                **kwargs,
+                **call_kwargs,
             )
         except HTTPException as e:
             # Adapt parent error details to OpenRouter-specific wording expected by tests

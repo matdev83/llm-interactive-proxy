@@ -33,8 +33,7 @@ router = APIRouter(prefix="/anthropic", tags=["anthropic"])
 
 @router.post("/v1/messages")
 async def anthropic_messages(
-    request_body: AnthropicMessagesRequest,
-    http_request: Request,
+    request_body: AnthropicMessagesRequest, http_request: Request
 ) -> Any:
     """
     Anthropic /v1/messages endpoint - chat completions.
@@ -89,7 +88,7 @@ async def anthropic_messages(
         if isinstance(openai_response, StreamingResponse):
             return _convert_streaming_response(openai_response)
         elif isinstance(openai_response, dict):
-            return openai_to_anthropic_response(openai_response)
+            return openai_to_anthropic_response(openai_response[0])
         else:
             # Unknown response type - forward as-is
             return openai_response

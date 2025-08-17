@@ -3,12 +3,13 @@ from unittest.mock import patch
 
 import pytest
 from src.core.app.application_factory import build_app
-from src.session import ProxyState
+
+# Removed legacy import
 
 
 def _load_config():
     """Helper to load config from environment variables."""
-    from src.core.config_adapter import _load_config
+    from src.core.config.config_loader import _load_config
 
     return _load_config()
 
@@ -31,9 +32,11 @@ class TestQwenOAuthInteractiveCommands:
         """Test that !/set(backend=qwen-oauth) works."""
         from src.commands.base import CommandResult
         from src.commands.set_cmd import SetCommand
+        from src.core.domain.session import Session
 
-        # Create a minimal proxy state for testing
-        state = ProxyState()
+        # Create a minimal session state for testing
+        session = Session(session_id="test_session")
+        state = session.state
 
         cmd = SetCommand()
         result = cmd.execute({"backend": "qwen-oauth"}, state)
@@ -48,9 +51,11 @@ class TestQwenOAuthInteractiveCommands:
         """Test that !/set(model=qwen3-coder-plus) fails without backend."""
         from src.commands.base import CommandResult
         from src.commands.set_cmd import SetCommand
+        from src.core.domain.session import Session
 
-        # Create a minimal proxy state for testing
-        state = ProxyState()
+        # Create a minimal session state for testing
+        session = Session(session_id="test_session")
+        state = session.state
 
         cmd = SetCommand()
         result = cmd.execute({"model": "qwen3-coder-plus"}, state)
@@ -138,9 +143,11 @@ class TestQwenOAuthInteractiveCommands:
         """Test that !/set(model=qwen-oauth:qwen3-coder-plus) works after fix."""
         from src.commands.base import CommandResult
         from src.commands.set_cmd import SetCommand
+        from src.core.domain.session import Session
 
-        # Create a minimal proxy state for testing
-        state = ProxyState()
+        # Create a minimal session state for testing
+        session = Session(session_id="test_session")
+        state = session.state
 
         cmd = SetCommand()
         result = cmd.execute({"model": "qwen-oauth:qwen3-coder-plus"}, state)

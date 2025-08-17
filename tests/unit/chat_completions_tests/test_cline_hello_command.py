@@ -1,7 +1,11 @@
 from unittest.mock import AsyncMock, patch
 
+import pytest
+from src.core.interfaces.session_service import ISessionService
 
-def test_cline_hello_command_tool_calls(interactive_client):
+
+@pytest.mark.asyncio
+async def test_cline_hello_command_tool_calls(interactive_client):
     """Test that !/hello command returns tool calls for Cline agent."""
 
     # First, simulate a Cline agent by sending a message with <attempt_completion>
@@ -29,9 +33,14 @@ def test_cline_hello_command_tool_calls(interactive_client):
         assert resp.status_code == 200
 
     # Get the session to check if Cline agent was detected
-    session = interactive_client.app.state.session_manager.get_session("default")
+    session_service = (
+        interactive_client.app.state.service_provider.get_required_service(
+            ISessionService
+        )
+    )
+    session = await session_service.get_session("default")
     print(
-        f"DEBUG: is_cline_agent after detection = {session.proxy_state.is_cline_agent}"
+        f"DEBUG: is_cline_agent after detection = {session.state.is_cline_agent}"
     )
     print(f"DEBUG: session.agent = {session.agent}")
 
@@ -87,7 +96,8 @@ def test_cline_hello_command_tool_calls(interactive_client):
     assert "hello acknowledged" not in actual_result_content
 
 
-def test_cline_hello_command_same_request(interactive_client):
+@pytest.mark.asyncio
+async def test_cline_hello_command_same_request(interactive_client):
     """Test !/hello command when Cline detection and command are in the same request."""
 
     # Send a message that contains BOTH <attempt_completion> AND !/hello in the same request
@@ -117,9 +127,14 @@ def test_cline_hello_command_same_request(interactive_client):
     assert data["id"] == "proxy_cmd_processed"
 
     # Get the session to check if Cline agent was detected
-    session = interactive_client.app.state.session_manager.get_session("default")
+    session_service = (
+        interactive_client.app.state.service_provider.get_required_service(
+            ISessionService
+        )
+    )
+    session = await session_service.get_session("default")
     print(
-        f"DEBUG: is_cline_agent after same-request detection = {session.proxy_state.is_cline_agent}"
+        f"DEBUG: is_cline_agent after same-request detection = {session.state.is_cline_agent}"
     )
     print(f"DEBUG: session.agent = {session.agent}")
 
@@ -133,7 +148,8 @@ def test_cline_hello_command_same_request(interactive_client):
     ), "Finish reason should be tool_calls"
 
 
-def test_cline_hello_with_attempt_completion_only(interactive_client):
+@pytest.mark.asyncio
+async def test_cline_hello_with_attempt_completion_only(interactive_client):
     """Test !/hello when only <attempt_completion> is present (real-world Cline scenario)."""
 
     # This simulates the EXACT real-world scenario: Cline sends a message with <attempt_completion>
@@ -163,9 +179,14 @@ def test_cline_hello_with_attempt_completion_only(interactive_client):
     assert data["id"] == "proxy_cmd_processed"
 
     # Get the session to check if Cline agent was detected
-    session = interactive_client.app.state.session_manager.get_session("default")
+    session_service = (
+        interactive_client.app.state.service_provider.get_required_service(
+            ISessionService
+        )
+    )
+    session = await session_service.get_session("default")
     print(
-        f"DEBUG: is_cline_agent after attempt_completion-only detection = {session.proxy_state.is_cline_agent}"
+        f"DEBUG: is_cline_agent after attempt_completion-only detection = {session.state.is_cline_agent}"
     )
     print(f"DEBUG: session.agent = {session.agent}")
 
@@ -179,7 +200,8 @@ def test_cline_hello_with_attempt_completion_only(interactive_client):
     ), "Finish reason should be tool_calls"
 
 
-def test_cline_hello_command_first_message(interactive_client):
+@pytest.mark.asyncio
+async def test_cline_hello_command_first_message(interactive_client):
     """Test !/hello as the very first message without prior Cline detection."""
 
     # Send !/hello as the very first message without any prior Cline detection
@@ -203,9 +225,14 @@ def test_cline_hello_command_first_message(interactive_client):
     assert data["id"] == "proxy_cmd_processed"
 
     # Get the session to check agent detection status
-    session = interactive_client.app.state.session_manager.get_session("default")
+    session_service = (
+        interactive_client.app.state.service_provider.get_required_service(
+            ISessionService
+        )
+    )
+    session = await session_service.get_session("default")
     print(
-        f"DEBUG: is_cline_agent for first message = {session.proxy_state.is_cline_agent}"
+        f"DEBUG: is_cline_agent for first message = {session.state.is_cline_agent}"
     )
     print(f"DEBUG: session.agent = {session.agent}")
 
@@ -220,7 +247,8 @@ def test_cline_hello_command_first_message(interactive_client):
     assert "hello acknowledged" in content
 
 
-def test_non_cline_hello_command_no_xml_wrapping(interactive_client):
+@pytest.mark.asyncio
+async def test_non_cline_hello_command_no_xml_wrapping(interactive_client):
     """Test that !/hello command is NOT wrapped in XML for non-Cline agents."""
 
     # Send !/hello command without triggering Cline agent detection

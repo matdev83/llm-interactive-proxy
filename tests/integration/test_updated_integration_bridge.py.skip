@@ -1,0 +1,189 @@
+"""Tests for the updated IntegrationBridge."""
+
+import pytest
+from fastapi import FastAPI
+from src.core.di.services import get_service_collection, set_service_provider
+from src.core.integration.bridge import IntegrationBridge, get_integration_bridge
+from src.core.interfaces.backend_service import IBackendService
+from src.core.interfaces.command_service import ICommandService
+from src.core.interfaces.request_processor import IRequestProcessor
+from src.core.interfaces.session_service import ISessionService
+
+
+@pytest.fixture
+def app():
+    """Create a test FastAPI app."""
+    app = FastAPI()
+    app.state.config = {"command_prefix": "!/"}
+    import httpx
+
+    app.state.httpx_client = httpx.AsyncClient()
+    yield app
+
+
+@pytest.fixture
+def reset_bridge():
+    """Reset the global bridge instance after the test."""
+    import src.core.integration.bridge
+
+    old_bridge = src.core.integration.bridge._bridge
+    src.core.integration.bridge._bridge = None
+    yield
+    src.core.integration.bridge._bridge = old_bridge
+
+
+@pytest.mark.asyncio
+async def test_integration_bridge_initialization(app, reset_bridge):
+    """Test that the integration bridge can be initialized without feature flags."""
+    # Create and initialize the bridge
+    bridge = IntegrationBridge(app)
+    await bridge.initialize_new_architecture()
+
+    # Verify the bridge is initialized
+    assert bridge.new_initialized
+    assert not bridge.legacy_initialized  # Should not initialize legacy by default
+
+
+@pytest.mark.asyncio
+async def test_service_provider_resolution(app, reset_bridge):
+    """Test that the service provider is properly resolved."""
+    # Create and initialize the bridge
+    bridge = IntegrationBridge(app)
+    await bridge.initialize_new_architecture()
+
+    # Get the service provider
+    provider = bridge.get_service_provider()
+    assert provider is not None
+    assert provider == app.state.service_provider
+
+
+@pytest.mark.asyncio
+async def test_core_services_availability(app, reset_bridge):
+    """Test that core services are available through the service provider."""
+    # Create and initialize the bridge
+    bridge = IntegrationBridge(app)
+    await bridge.initialize_new_architecture()
+
+    # Set up service collection
+    services = get_service_collection()
+    from src.core.app.application_factory import register_services
+
+    register_services(services, app)
+
+    # Build and set service provider
+    provider = services.build_service_provider()
+    set_service_provider(provider)
+    app.state.service_provider = provider
+
+    # Get the service provider
+    provider = bridge.get_service_provider()
+    assert provider is not None
+
+    # Check core services
+    session_service = provider.get_service(ISessionService)
+    assert session_service is not None
+
+    command_service = provider.get_service(ICommandService)
+    assert command_service is not None
+
+    backend_service = provider.get_service(IBackendService)
+    assert backend_service is not None
+
+    request_processor = provider.get_service(IRequestProcessor)
+    assert request_processor is not None
+
+
+@pytest.mark.asyncio
+async def test_session_synchronization(app, reset_bridge):
+    """Test session synchronization for backward compatibility."""
+    # Set up minimal legacy components
+    # Removed legacy import
+    # Removed legacy import
+    from src.session import SessionManager
+
+    app.state.session_manager = SessionManager()
+
+    # Create a legacy session
+    session_id = "test_session"
+    proxy_state = ProxyState()
+    proxy_state.override_model = "test-model"
+    proxy_state.project = "test-project"
+    legacy_session = app.state.session_manager.get_session(session_id)
+    legacy_session.proxy_state.override_model = "test-model"
+    legacy_session.proxy_state.project = "test-project"
+
+    # Create and initialize the bridge
+    bridge = IntegrationBridge(app)
+    await bridge.initialize_legacy_architecture()
+    await bridge.initialize_new_architecture()
+
+    # Synchronize session
+    await bridge.sync_session(session_id)
+
+    # Get session service
+    provider = bridge.get_service_provider()
+    session_service = provider.get_service(ISessionService)
+    assert session_service is not None
+
+    # Retrieve the session from the new architecture
+    new_session = await session_service.get_session(session_id)
+    assert new_session is not None
+    assert new_session.session_id == session_id
+    assert new_session.state.backend_config.model == "test-model"
+    assert new_session.state.project == "test-project"
+
+
+@pytest.mark.asyncio
+async def test_get_integration_bridge_global_instance(app, reset_bridge):
+    """Test that the global integration bridge instance works correctly."""
+    # Get the global instance
+    bridge1 = get_integration_bridge(app)
+    assert bridge1 is not None
+
+    # Get it again - should be the same instance
+    bridge2 = get_integration_bridge()
+    assert bridge2 is bridge1
+
+    # Initialize it
+    await bridge1.initialize_new_architecture()
+
+    # Verify both references are initialized
+    assert bridge1.new_initialized
+    assert bridge2.new_initialized
+
+
+@pytest.mark.asyncio
+async def test_cleanup(app, reset_bridge):
+    """Test that the bridge can be cleaned up properly."""
+    # Create and initialize the bridge
+    bridge = IntegrationBridge(app)
+    await bridge.initialize_new_architecture()
+    await bridge.initialize_legacy_architecture()
+
+    assert bridge.new_initialized
+    assert bridge.legacy_initialized
+
+    # Clean up
+    await bridge.cleanup()
+
+    # Verify the bridge is cleaned up
+    assert not bridge.new_initialized
+    assert not bridge.legacy_initialized
+
+
+@pytest.mark.asyncio
+async def test_error_handling_in_sync_session(app, reset_bridge):
+    """Test error handling in sync_session method."""
+    # Create bridge without proper initialization
+    bridge = IntegrationBridge(app)
+
+    # Attempt to sync session without initialization
+    await bridge.sync_session("test_session")
+    # Should not raise exception, but log a warning
+
+    # Initialize new architecture but not legacy
+    await bridge.initialize_new_architecture()
+
+    # Attempt to sync session with missing legacy components
+    await bridge.sync_session("test_session")
+    # Should not raise exception, but log a warning

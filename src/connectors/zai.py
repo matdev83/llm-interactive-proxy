@@ -48,7 +48,7 @@ class ZAIConnector(OpenAIConnector):
         self.api_key = kwargs.get("api_key")
         if not self.api_key:
             raise ValueError("api_key is required for ZAIConnector")
-        
+
         api_base_url = kwargs.get("api_base_url")
         if api_base_url:
             self.api_base_url = api_base_url

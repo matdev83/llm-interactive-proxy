@@ -5,15 +5,15 @@ from typing import Any
 
 class ProxyError(Exception):
     """Base class for all exceptions in the proxy."""
-    
+
     def __init__(
-        self, 
+        self,
         message: str,
         status_code: int = 500,
         details: dict[str, Any] | None = None,
     ):
         """Initialize the exception.
-        
+
         Args:
             message: The error message
             status_code: The HTTP status code
@@ -23,10 +23,10 @@ class ProxyError(Exception):
         self.status_code = status_code
         self.details = details or {}
         super().__init__(message)
-    
+
     def to_dict(self) -> dict[str, Any]:
         """Convert the exception to a dictionary for API responses.
-        
+
         Returns:
             Dictionary representation of the exception
         """
@@ -37,23 +37,23 @@ class ProxyError(Exception):
                 "status_code": self.status_code,
             }
         }
-        
+
         if self.details:
             result["error"]["details"] = self.details
-            
+
         return result
 
 
 class ConfigurationError(ProxyError):
     """Exception raised for configuration errors."""
-    
+
     def __init__(
-        self, 
+        self,
         message: str,
         details: dict[str, Any] | None = None,
     ):
         """Initialize the exception.
-        
+
         Args:
             message: The error message
             details: Additional error details
@@ -67,14 +67,14 @@ class ConfigurationError(ProxyError):
 
 class AuthenticationError(ProxyError):
     """Exception raised for authentication errors."""
-    
+
     def __init__(
-        self, 
+        self,
         message: str = "Authentication failed",
         details: dict[str, Any] | None = None,
     ):
         """Initialize the exception.
-        
+
         Args:
             message: The error message
             details: Additional error details
@@ -88,9 +88,9 @@ class AuthenticationError(ProxyError):
 
 class RateLimitExceededError(ProxyError):
     """Exception raised when rate limits are exceeded."""
-    
+
     def __init__(
-        self, 
+        self,
         message: str = "Rate limit exceeded",
         reset_at: float | None = None,
         limit: int | None = None,
@@ -98,7 +98,7 @@ class RateLimitExceededError(ProxyError):
         details: dict[str, Any] | None = None,
     ):
         """Initialize the exception.
-        
+
         Args:
             message: The error message
             reset_at: When the rate limit will reset
@@ -113,7 +113,7 @@ class RateLimitExceededError(ProxyError):
             error_details["limit"] = limit
         if remaining is not None:
             error_details["remaining"] = remaining
-            
+
         super().__init__(
             message=message,
             status_code=429,  # Too Many Requests
@@ -123,9 +123,9 @@ class RateLimitExceededError(ProxyError):
 
 class BackendError(ProxyError):
     """Exception raised for backend API errors."""
-    
+
     def __init__(
-        self, 
+        self,
         message: str,
         backend: str | None = None,
         backend_status_code: int | None = None,
@@ -133,7 +133,7 @@ class BackendError(ProxyError):
         details: dict[str, Any] | None = None,
     ):
         """Initialize the exception.
-        
+
         Args:
             message: The error message
             backend: The backend that raised the error
@@ -148,7 +148,7 @@ class BackendError(ProxyError):
             error_details["backend_status_code"] = backend_status_code
         if backend_response is not None:
             error_details["backend_response"] = backend_response
-            
+
         super().__init__(
             message=message,
             status_code=502,  # Bad Gateway
@@ -158,15 +158,15 @@ class BackendError(ProxyError):
 
 class ValidationError(ProxyError):
     """Exception raised for validation errors."""
-    
+
     def __init__(
-        self, 
+        self,
         message: str,
         field: str | None = None,
         details: dict[str, Any] | None = None,
     ):
         """Initialize the exception.
-        
+
         Args:
             message: The error message
             field: The field that failed validation
@@ -175,7 +175,7 @@ class ValidationError(ProxyError):
         error_details = details or {}
         if field is not None:
             error_details["field"] = field
-            
+
         super().__init__(
             message=message,
             status_code=400,  # Bad Request
@@ -185,15 +185,15 @@ class ValidationError(ProxyError):
 
 class CommandError(ProxyError):
     """Exception raised for command execution errors."""
-    
+
     def __init__(
-        self, 
+        self,
         message: str,
         command: str | None = None,
         details: dict[str, Any] | None = None,
     ):
         """Initialize the exception.
-        
+
         Args:
             message: The error message
             command: The command that failed
@@ -202,7 +202,7 @@ class CommandError(ProxyError):
         error_details = details or {}
         if command is not None:
             error_details["command"] = command
-            
+
         super().__init__(
             message=message,
             status_code=400,  # Bad Request
@@ -212,16 +212,16 @@ class CommandError(ProxyError):
 
 class LoopDetectionError(ProxyError):
     """Exception raised when a loop is detected."""
-    
+
     def __init__(
-        self, 
+        self,
         message: str = "Response loop detected",
         pattern: str | None = None,
         repetitions: int | None = None,
         details: dict[str, Any] | None = None,
     ):
         """Initialize the exception.
-        
+
         Args:
             message: The error message
             pattern: The repeating pattern detected
@@ -236,7 +236,7 @@ class LoopDetectionError(ProxyError):
             )
         if repetitions is not None:
             error_details["repetitions"] = repetitions
-            
+
         super().__init__(
             message=message,
             status_code=400,  # Bad Request
@@ -246,16 +246,16 @@ class LoopDetectionError(ProxyError):
 
 class ToolCallLoopError(ProxyError):
     """Exception raised when a tool call loop is detected."""
-    
+
     def __init__(
-        self, 
+        self,
         message: str = "Tool call loop detected",
         tool_name: str | None = None,
         repetitions: int | None = None,
         details: dict[str, Any] | None = None,
     ):
         """Initialize the exception.
-        
+
         Args:
             message: The error message
             tool_name: The tool involved in the loop
@@ -267,7 +267,7 @@ class ToolCallLoopError(ProxyError):
             error_details["tool_name"] = tool_name
         if repetitions is not None:
             error_details["repetitions"] = repetitions
-            
+
         super().__init__(
             message=message,
             status_code=400,  # Bad Request

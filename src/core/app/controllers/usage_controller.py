@@ -25,12 +25,12 @@ async def get_usage_stats(
     service_provider=Depends(get_service_provider),
 ) -> dict[str, Any]:
     """Get usage statistics.
-    
+
     Args:
         project: Optional project filter
         days: Number of days to include in stats
         service_provider: Service provider dependency
-        
+
     Returns:
         Usage statistics dictionary
     """
@@ -45,12 +45,12 @@ async def get_recent_usage(
     service_provider=Depends(get_service_provider),
 ) -> list[UsageData]:
     """Get recent usage data.
-    
+
     Args:
         session_id: Optional session ID filter
         limit: Maximum number of records to return
         service_provider: Service provider dependency
-        
+
     Returns:
         List of usage data entities
     """

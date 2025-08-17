@@ -1,0 +1,14 @@
+{
+  "default_backend": "gemini",
+  "interactive_mode": true,
+  "failover_routes": {
+    "r1": {
+      "policy": "k",
+      "elements": [
+        "openrouter:model-a"
+      ]
+    }
+  },
+  "redact_api_keys_in_prompts": false,
+  "command_prefix": "$/"
+}

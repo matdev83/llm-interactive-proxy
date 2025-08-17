@@ -12,7 +12,7 @@ from ..constants import SUPPORTED_BACKENDS
 from .base import BaseCommand, CommandContext, CommandResult, register_command
 
 if TYPE_CHECKING:
-    from src.proxy_logic import ProxyState
+    pass  # No imports needed
 
 logger = logging.getLogger(__name__)
 
@@ -54,7 +54,7 @@ class SetCommand(BaseCommand):
         return None
 
     def _handle_backend_setting(
-        self, args: Mapping[str, Any], state: ProxyState
+        self, args: Mapping[str, Any], state: Any
     ) -> HandlerOutput:
         backend_arg = args.get("backend")
         if not isinstance(backend_arg, str):
@@ -127,7 +127,7 @@ class SetCommand(BaseCommand):
     def _handle_model_setting(
         self,
         args: Mapping[str, Any],
-        state: ProxyState,
+        state: Any,
         backend_setting_failed_critically: bool,
         context: CommandContext | None = None,
     ) -> HandlerOutput:
@@ -197,7 +197,7 @@ class SetCommand(BaseCommand):
         )
 
     def _handle_project_setting(
-        self, args: Mapping[str, Any], state: ProxyState
+        self, args: Mapping[str, Any], state: Any
     ) -> HandlerOutput:
         name_val_str: str | None = None
         key_used: str | None = None
@@ -214,7 +214,7 @@ class SetCommand(BaseCommand):
         return True, f"{key_used} set to {name_val_str}", False
 
     def _handle_project_dir_setting(
-        self, args: Mapping[str, Any], state: ProxyState
+        self, args: Mapping[str, Any], state: Any
     ) -> HandlerOutput:
         dir_val_str: str | None = (
             args.get("project-dir") or args.get("dir") or args.get("project-directory")
@@ -245,7 +245,7 @@ class SetCommand(BaseCommand):
         return True, f"project-dir set to {dir_val_str}", False
 
     def _handle_interactive_mode_setting(
-        self, args: Mapping[str, Any], state: ProxyState
+        self, args: Mapping[str, Any], state: Any
     ) -> HandlerOutput:
         val_str: str | None = None
         key_used: str | None = None
@@ -322,7 +322,7 @@ class SetCommand(BaseCommand):
         return True, f"{key} set to {val_arg}", True
 
     def _handle_reasoning_effort_setting(
-        self, args: Mapping[str, Any], state: ProxyState
+        self, args: Mapping[str, Any], state: Any
     ) -> HandlerOutput:
         key = "reasoning-effort"
         val_arg = args.get(key)
@@ -345,7 +345,7 @@ class SetCommand(BaseCommand):
         return True, f"{key} set to {val}", False
 
     def _handle_reasoning_config_setting(
-        self, args: Mapping[str, Any], state: ProxyState
+        self, args: Mapping[str, Any], state: Any
     ) -> HandlerOutput:
         key = "reasoning"
         val_arg = args.get(key)
@@ -401,7 +401,7 @@ class SetCommand(BaseCommand):
         return True, f"{key} set to {config}", False
 
     def _handle_thinking_budget_setting(
-        self, args: Mapping[str, Any], state: ProxyState
+        self, args: Mapping[str, Any], state: Any
     ) -> HandlerOutput:
         key = "thinking-budget"
         val_arg = args.get(key)
@@ -435,7 +435,7 @@ class SetCommand(BaseCommand):
             )
 
     def _handle_gemini_generation_config_setting(
-        self, args: Mapping[str, Any], state: ProxyState
+        self, args: Mapping[str, Any], state: Any
     ) -> HandlerOutput:
         key = "gemini-generation-config"
         val_arg = args.get(key)
@@ -460,7 +460,7 @@ class SetCommand(BaseCommand):
             return False, f"Failed to set {key}: {e!s}", True
 
     def _handle_temperature_setting(
-        self, args: Mapping[str, Any], state: ProxyState
+        self, args: Mapping[str, Any], state: Any
     ) -> HandlerOutput:
         key = "temperature"
         val_arg = args.get(key)
@@ -498,7 +498,7 @@ class SetCommand(BaseCommand):
             return True, CommandResult(self.name, False, str(e)), False
 
     def _handle_openai_url_setting(
-        self, args: Mapping[str, Any], state: ProxyState
+        self, args: Mapping[str, Any], state: Any
     ) -> HandlerOutput:
         key = "openai_url"
         val_arg = args.get(key)
@@ -547,7 +547,7 @@ class SetCommand(BaseCommand):
     def _get_handler_tasks(
         self,
         args: Mapping[str, Any],
-        state: ProxyState,
+        state: Any,
         backend_setting_failed_critically: bool,
         context: CommandContext | None = None,
     ) -> list[Callable[[], HandlerOutput]]:
@@ -577,7 +577,7 @@ class SetCommand(BaseCommand):
         ]
 
     def _handle_loop_detection_setting(
-        self, args: Mapping[str, Any], state: ProxyState
+        self, args: Mapping[str, Any], state: Any
     ) -> HandlerOutput:
         key_variants = ["loop-detection", "loop_detection", "loop"]
         val_arg: str | None = None
@@ -605,7 +605,7 @@ class SetCommand(BaseCommand):
         return True, f"{used_key} set to {val}", False
 
     def _handle_tool_loop_detection_setting(
-        self, args: Mapping[str, Any], state: ProxyState
+        self, args: Mapping[str, Any], state: Any
     ) -> HandlerOutput:
         key_variants = ["tool-loop-detection", "tool_loop_detection", "tool-loop"]
         val_arg: str | None = None
@@ -633,7 +633,7 @@ class SetCommand(BaseCommand):
         return True, f"{used_key} set to {val}", False
 
     def _handle_tool_loop_max_repeats_setting(
-        self, args: Mapping[str, Any], state: ProxyState
+        self, args: Mapping[str, Any], state: Any
     ) -> HandlerOutput:
         key_variants = [
             "tool-loop-max-repeats",
@@ -672,7 +672,7 @@ class SetCommand(BaseCommand):
             return True, CommandResult(self.name, False, str(e)), False
 
     def _handle_tool_loop_ttl_seconds_setting(
-        self, args: Mapping[str, Any], state: ProxyState
+        self, args: Mapping[str, Any], state: Any
     ) -> HandlerOutput:
         key_variants = [
             "tool-loop-ttl-seconds",
@@ -711,7 +711,7 @@ class SetCommand(BaseCommand):
             return True, CommandResult(self.name, False, str(e)), False
 
     def _handle_tool_loop_mode_setting(
-        self, args: Mapping[str, Any], state: ProxyState
+        self, args: Mapping[str, Any], state: Any
     ) -> HandlerOutput:
         key_variants = ["tool-loop-mode", "tool_loop_mode"]
         val_arg: str | None = None
@@ -770,7 +770,7 @@ class SetCommand(BaseCommand):
             backend_setting_failed_critically,
         )
 
-    def execute(self, args: Mapping[str, Any], state: ProxyState) -> CommandResult:
+    def execute(self, args: Mapping[str, Any], state: Any) -> CommandResult:
         """Execute the set command with the provided arguments."""
         logger.debug(f"SetCommand.execute called with args: {args}")
 
@@ -808,7 +808,7 @@ class SetCommand(BaseCommand):
     def execute_with_context(
         self,
         args: Mapping[str, Any],
-        state: ProxyState,
+        state: Any,
         context: CommandContext | None = None,
     ) -> CommandResult:
         """Execute command with context for better decoupling."""

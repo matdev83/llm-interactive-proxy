@@ -56,6 +56,10 @@ class ChatRequest(ValueObject):
     tool_choice: str | dict[str, Any] | None = None
     session_id: str | None = None
     extra_body: dict[str, Any] | None = None
+    reasoning_effort: float | None = None
+    reasoning: str | None = None
+    thinking_budget: int | None = None
+    generation_config: dict[str, Any] | None = None
 
     @field_validator("messages")
     @classmethod
@@ -116,7 +120,7 @@ class ChatResponse(ValueObject):
         created = response.get("created", 0)
         model = response.get("model", "unknown")
         choices = response.get("choices", [])
-        
+
         # Extract optional fields
         usage = response.get("usage")
         system_fingerprint = response.get("system_fingerprint")

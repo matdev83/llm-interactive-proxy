@@ -1,4 +1,17 @@
-# Architecture
+# LLM Interactive Proxy - Architecture Documentation
+
+## Overview
+
+The LLM Interactive Proxy is a sophisticated middleware service that sits between clients and various LLM backends (OpenAI, Anthropic, Gemini, etc.), providing enhanced features like command processing, rate limiting, failover, and unified API access.
+
+## Architecture Principles
+
+The application follows several key architectural principles:
+
+- **SOLID Principles**: Single Responsibility, Open/Closed, Liskov Substitution, Interface Segregation, Dependency Inversion
+- **Clean Architecture**: Separation of concerns with clear boundaries between layers
+- **Dependency Injection**: Loose coupling through dependency injection container
+- **Domain-Driven Design**: Business logic encapsulated in domain models and services
 
 This document describes the architecture of the LLM Interactive Proxy.
 

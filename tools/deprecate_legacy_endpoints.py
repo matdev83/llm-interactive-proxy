@@ -9,12 +9,9 @@ This script helps to identify and deprecate legacy API endpoints by:
 """
 
 import argparse
-import json
 import os
 import re
 from datetime import datetime
-from pathlib import Path
-from typing import Dict, List, Optional, Set, Tuple
 
 
 def parse_args() -> argparse.Namespace:
@@ -45,7 +42,7 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def find_legacy_endpoints(base_path: str) -> List[Dict[str, str]]:
+def find_legacy_endpoints(base_path: str) -> list[dict[str, str]]:
     """Find legacy API endpoints in the codebase.
     
     Args:
@@ -80,7 +77,7 @@ def find_legacy_endpoints(base_path: str) -> List[Dict[str, str]]:
             file_path = os.path.join(root, file)
             
             try:
-                with open(file_path, "r", encoding="utf-8") as f:
+                with open(file_path, encoding="utf-8") as f:
                     content = f.read()
                     
                     # Look for route definitions
@@ -107,7 +104,7 @@ def find_legacy_endpoints(base_path: str) -> List[Dict[str, str]]:
     return endpoints
 
 
-def apply_deprecation_warnings(endpoints: List[Dict[str, str]], sunset_date: str) -> None:
+def apply_deprecation_warnings(endpoints: list[dict[str, str]], sunset_date: str) -> None:
     """Apply deprecation warnings to legacy endpoints.
     
     Args:
@@ -117,7 +114,7 @@ def apply_deprecation_warnings(endpoints: List[Dict[str, str]], sunset_date: str
     for endpoint in endpoints:
         try:
             # Read the file
-            with open(endpoint["file"], "r", encoding="utf-8") as f:
+            with open(endpoint["file"], encoding="utf-8") as f:
                 content = f.readlines()
                 
             # Line where the endpoint is defined

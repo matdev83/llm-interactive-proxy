@@ -39,7 +39,7 @@ from src.core.services.usage_tracking_service import UsageTrackingService
 logger = get_logger(__name__)
 
 
-from typing import Protocol
+from typing import Any, Protocol
 
 from src.core.interfaces.di import IServiceProvider
 
@@ -223,15 +223,21 @@ class MiddlewareConfigurator:
         middleware_config = {
             "api_keys": config.auth.api_keys if config.auth else [],
             "disable_auth": config.auth.disable_auth if config.auth else False,
-            "auth_token": config.auth.auth_token
-            if config.auth and hasattr(config.auth, "auth_token")
-            else None,
-            "request_logging": config.logging.request_logging
-            if config.logging and hasattr(config.logging, "request_logging")
-            else False,
-            "response_logging": config.logging.response_logging
-            if config.logging and hasattr(config.logging, "response_logging")
-            else False,
+            "auth_token": (
+                config.auth.auth_token
+                if config.auth and hasattr(config.auth, "auth_token")
+                else None
+            ),
+            "request_logging": (
+                config.logging.request_logging
+                if config.logging and hasattr(config.logging, "request_logging")
+                else False
+            ),
+            "response_logging": (
+                config.logging.response_logging
+                if config.logging and hasattr(config.logging, "response_logging")
+                else False
+            ),
         }
 
         configure_middleware(app, middleware_config)
@@ -415,19 +421,37 @@ class ApplicationBuilder:
 
         # Set up API keys if available
         if config.backends.openrouter:
-            app.state.openrouter_backend.api_keys = [config.backends.openrouter.api_key] if config.backends.openrouter.api_key else []
+            app.state.openrouter_backend.api_keys = (
+                [config.backends.openrouter.api_key]
+                if config.backends.openrouter.api_key
+                else []
+            )
 
         if config.backends.gemini:
-            app.state.gemini_backend.api_keys = [config.backends.gemini.api_key] if config.backends.gemini.api_key else []
+            app.state.gemini_backend.api_keys = (
+                [config.backends.gemini.api_key]
+                if config.backends.gemini.api_key
+                else []
+            )
 
         if config.backends.openai:
-            app.state.openai_backend.api_keys = [config.backends.openai.api_key] if config.backends.openai.api_key else []
+            app.state.openai_backend.api_keys = (
+                [config.backends.openai.api_key]
+                if config.backends.openai.api_key
+                else []
+            )
 
         if config.backends.anthropic:
-            app.state.anthropic_backend.api_keys = [config.backends.anthropic.api_key] if config.backends.anthropic.api_key else []
+            app.state.anthropic_backend.api_keys = (
+                [config.backends.anthropic.api_key]
+                if config.backends.anthropic.api_key
+                else []
+            )
 
         if config.backends.zai:
-            app.state.zai_backend.api_keys = [config.backends.zai.api_key] if config.backends.zai.api_key else []
+            app.state.zai_backend.api_keys = (
+                [config.backends.zai.api_key] if config.backends.zai.api_key else []
+            )
 
         logger.debug("Legacy backend instances initialized")
 
@@ -491,6 +515,22 @@ def build_app(
     # Build application using the improved builder
     builder = ApplicationBuilder()
     return builder.build(app_config)  # Pass the AppConfig object
+
+
+def register_services(services: dict[str, Any], app: FastAPI) -> None:
+    """Register services with the application for backward compatibility.
+
+    Args:
+        services: Dictionary of services to register
+        app: The FastAPI application
+    """
+    # This is a compatibility function for legacy code that expects register_services
+    # In the new architecture, services are registered through the DI container
+    # We'll just ensure the app has a service_provider
+    if not hasattr(app.state, "service_provider"):
+        from src.core.di.services import get_service_provider
+
+        app.state.service_provider = get_service_provider()
 
 
 def _setup_test_environment(config: AppConfig) -> None:

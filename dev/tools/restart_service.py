@@ -8,12 +8,10 @@ in various deployment environments.
 
 import argparse
 import logging
-import os
 import platform
 import subprocess
 import sys
 from pathlib import Path
-from typing import List, Optional
 
 
 def setup_logging() -> None:
@@ -68,7 +66,7 @@ def restart_systemd_service(service_name: str) -> bool:
         return True
     
     except Exception as e:
-        logging.error(f"Error restarting service: {str(e)}")
+        logging.error(f"Error restarting service: {e!s}")
         return False
 
 
@@ -111,7 +109,7 @@ def restart_docker_container(container_name: str) -> bool:
         return True
     
     except Exception as e:
-        logging.error(f"Error restarting container: {str(e)}")
+        logging.error(f"Error restarting container: {e!s}")
         return False
 
 
@@ -161,7 +159,7 @@ def restart_windows_service(service_name: str) -> bool:
         return True
     
     except Exception as e:
-        logging.error(f"Error restarting service: {str(e)}")
+        logging.error(f"Error restarting service: {e!s}")
         return False
 
 
@@ -205,7 +203,7 @@ def restart_dev_server() -> bool:
         
         # Start the server
         script_dir = Path(__file__).resolve().parent.parent.parent
-        app_module = "src.main:app"
+        app_module = "src.core.app.application_factory:app"
         
         cmd = [
             "uvicorn", 
@@ -235,11 +233,11 @@ def restart_dev_server() -> bool:
         return True
     
     except Exception as e:
-        logging.error(f"Error restarting development server: {str(e)}")
+        logging.error(f"Error restarting development server: {e!s}")
         return False
 
 
-def main(args: Optional[List[str]] = None) -> int:
+def main(args: list[str] | None = None) -> int:
     """Main entry point.
     
     Args:

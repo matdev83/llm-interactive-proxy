@@ -1,7 +1,9 @@
+import pytest
 from unittest.mock import AsyncMock, patch
 
 
-def test_command_only_request_direct_response(client):
+@pytest.mark.asyncio
+async def test_command_only_request_direct_response(client):
     client.app.state.openrouter_backend.available_models = ["command-only-model"]
     payload = {
         "model": "some-model",
@@ -22,12 +24,18 @@ def test_command_only_request_direct_response(client):
 
     # The backend's chat_completions method should not be called in this scenario
     # No mock needed here as we are testing the direct proxy response
-    session = client.app.state.session_manager.get_session("default")  # type: ignore
+    from src.core.interfaces.session_service import ISessionService
+
+    session_service = client.app.state.service_provider.get_required_service(
+        ISessionService
+    )
+    session = await session_service.get_session("default")
     assert session.proxy_state.override_model == "command-only-model"
 
 
 @patch("src.connectors.OpenRouterBackend.chat_completions", new_callable=AsyncMock)
-def test_command_plus_text_direct_response(mock_openrouter_completions, client):
+@pytest.mark.asyncio
+async def test_command_plus_text_direct_response(mock_openrouter_completions, client):
     # Ensure the target model for !/set is available
     target_model_name = (
         "another-model"  # From conftest mock_model_discovery, it's "model-a"
@@ -71,13 +79,21 @@ def test_command_plus_text_direct_response(mock_openrouter_completions, client):
     mock_openrouter_completions.assert_not_called()
 
     # Verify ProxyState
-    session = client.app.state.session_manager.get_session("default")
+    from src.core.interfaces.session_service import ISessionService
+
+    session_service = client.app.state.service_provider.get_required_service(
+        ISessionService
+    )
+    session = await session_service.get_session("default")
     assert session.proxy_state.override_model == target_model_name
     assert session.proxy_state.override_backend == "openrouter"
 
 
 @patch("src.connectors.OpenRouterBackend.chat_completions", new_callable=AsyncMock)
-def test_command_with_agent_prefix_direct_response(mock_openrouter_completions, client):
+@pytest.mark.asyncio
+async def test_command_with_agent_prefix_direct_response(
+    mock_openrouter_completions, client
+):
     agent_model_name = "model-a"  # from conftest mock_model_discovery
     agent_full_model_id = f"openrouter:{agent_model_name}"
 
@@ -106,14 +122,20 @@ def test_command_with_agent_prefix_direct_response(mock_openrouter_completions, 
 
     mock_openrouter_completions.assert_not_called()
 
-    session = client.app.state.session_manager.get_session("default")
+    from src.core.interfaces.session_service import ISessionService
+
+    session_service = client.app.state.service_provider.get_required_service(
+        ISessionService
+    )
+    session = await session_service.get_session("default")
     assert session.proxy_state.override_model == agent_model_name
     assert session.proxy_state.override_backend == "openrouter"
 
 
 # Also, let's make the original test more robust with explicit mocking
 @patch("src.connectors.OpenRouterBackend.chat_completions", new_callable=AsyncMock)
-def test_command_only_request_direct_response_explicit_mock(
+@pytest.mark.asyncio
+async def test_command_only_request_direct_response_explicit_mock(
     mock_openrouter_completions, client
 ):
     # This test is similar to the original test_command_only_request_direct_response,
@@ -144,14 +166,20 @@ def test_command_only_request_direct_response_explicit_mock(
 
     mock_openrouter_completions.assert_not_called()
 
-    session = client.app.state.session_manager.get_session("default")
+    from src.core.interfaces.session_service import ISessionService
+
+    session_service = client.app.state.service_provider.get_required_service(
+        ISessionService
+    )
+    session = await session_service.get_session("default")
     assert session.proxy_state.override_model == model_to_set
     assert session.proxy_state.override_backend == "openrouter"
 
 
 @patch("src.connectors.GeminiBackend.chat_completions", new_callable=AsyncMock)
 @patch("src.connectors.OpenRouterBackend.chat_completions", new_callable=AsyncMock)
-def test_hello_command_with_agent_prefix(
+@pytest.mark.asyncio
+async def test_hello_command_with_agent_prefix(
     mock_openrouter_completions, mock_gemini_completions, client
 ):
     """Test !/hello command with an agent prefix."""
@@ -175,7 +203,8 @@ def test_hello_command_with_agent_prefix(
 
 @patch("src.connectors.GeminiBackend.chat_completions", new_callable=AsyncMock)
 @patch("src.connectors.OpenRouterBackend.chat_completions", new_callable=AsyncMock)
-def test_hello_command_followed_by_text(
+@pytest.mark.asyncio
+async def test_hello_command_followed_by_text(
     mock_openrouter_completions, mock_gemini_completions, client
 ):
     """Test !/hello command followed by other text."""
@@ -199,7 +228,8 @@ def test_hello_command_followed_by_text(
 
 @patch("src.connectors.GeminiBackend.chat_completions", new_callable=AsyncMock)
 @patch("src.connectors.OpenRouterBackend.chat_completions", new_callable=AsyncMock)
-def test_hello_command_with_prefix_and_suffix(
+@pytest.mark.asyncio
+async def test_hello_command_with_prefix_and_suffix(
     mock_openrouter_completions, mock_gemini_completions, client
 ):
     """Test !/hello command with both prefix and suffix text."""

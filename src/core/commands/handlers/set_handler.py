@@ -10,11 +10,11 @@ import json
 import logging
 from typing import Any
 
-from src.commands.base import CommandContext
 from src.core.commands.handlers.base_handler import (
     BaseCommandHandler,
     CommandHandlerResult,
 )
+from src.core.domain.command_context import CommandContext
 from src.core.domain.configuration.session_state_builder import SessionStateBuilder
 from src.core.domain.session import SessionState
 
@@ -222,8 +222,11 @@ class SetCommandHandler(BaseCommandHandler):
                         from src.core.domain.configuration.backend_config import (
                             BackendConfiguration,
                         )
+
                         builder.with_backend_config(
-                            BackendConfiguration.model_validate(current_state.backend_config).with_model(model_name)
+                            BackendConfiguration.model_validate(
+                                current_state.backend_config
+                            ).with_model(model_name)
                         )
                         results.append(f"model set to {model_name}")
 
@@ -232,8 +235,11 @@ class SetCommandHandler(BaseCommandHandler):
                         from src.core.domain.configuration.backend_config import (
                             BackendConfiguration,
                         )
+
                         builder.with_backend_config(
-                            BackendConfiguration.model_validate(current_state.backend_config).with_backend(backend_name)
+                            BackendConfiguration.model_validate(
+                                current_state.backend_config
+                            ).with_backend(backend_name)
                         )
                         results.append(f"backend set to {backend_name}")
 
@@ -243,8 +249,11 @@ class SetCommandHandler(BaseCommandHandler):
                             from src.core.domain.configuration.reasoning_config import (
                                 ReasoningConfiguration,
                             )
+
                             builder.with_reasoning_config(
-                                ReasoningConfiguration.model_validate(current_state.reasoning_config).with_gemini_generation_config(config)
+                                ReasoningConfiguration.model_validate(
+                                    current_state.reasoning_config
+                                ).with_gemini_generation_config(config)
                             )
                             results.append(f"Gemini generation config set to {config}")
                         except ValueError as e:
@@ -256,8 +265,11 @@ class SetCommandHandler(BaseCommandHandler):
                         from src.core.domain.configuration.backend_config import (
                             BackendConfiguration,
                         )
+
                         builder.with_backend_config(
-                            BackendConfiguration.model_validate(current_state.backend_config).with_openai_url(url)
+                            BackendConfiguration.model_validate(
+                                current_state.backend_config
+                            ).with_openai_url(url)
                         )
                         results.append(f"OpenAI URL set to {url}")
 
@@ -272,8 +284,11 @@ class SetCommandHandler(BaseCommandHandler):
                             from src.core.domain.configuration.loop_detection_config import (
                                 LoopDetectionConfiguration,
                             )
+
                             builder.with_loop_config(
-                                LoopDetectionConfiguration.model_validate(current_state.loop_config).with_loop_detection_enabled(bool_value)
+                                LoopDetectionConfiguration.model_validate(
+                                    current_state.loop_config
+                                ).with_loop_detection_enabled(bool_value)
                             )
                             results.append(f"Loop detection set to {bool_value}")
 
@@ -288,8 +303,11 @@ class SetCommandHandler(BaseCommandHandler):
                             from src.core.domain.configuration.loop_detection_config import (
                                 LoopDetectionConfiguration,
                             )
+
                             builder.with_loop_config(
-                                LoopDetectionConfiguration.model_validate(current_state.loop_config).with_tool_loop_detection_enabled(bool_value)
+                                LoopDetectionConfiguration.model_validate(
+                                    current_state.loop_config
+                                ).with_tool_loop_detection_enabled(bool_value)
                             )
                             results.append(f"Tool loop detection set to {bool_value}")
 
@@ -299,8 +317,11 @@ class SetCommandHandler(BaseCommandHandler):
                             from src.core.domain.configuration.loop_detection_config import (
                                 LoopDetectionConfiguration,
                             )
+
                             builder.with_loop_config(
-                                LoopDetectionConfiguration.model_validate(current_state.loop_config).with_tool_loop_max_repeats(repeats)
+                                LoopDetectionConfiguration.model_validate(
+                                    current_state.loop_config
+                                ).with_tool_loop_max_repeats(repeats)
                             )
                             results.append(f"Tool loop max repeats set to {repeats}")
                         except ValueError:
@@ -315,8 +336,11 @@ class SetCommandHandler(BaseCommandHandler):
                             from src.core.domain.configuration.loop_detection_config import (
                                 LoopDetectionConfiguration,
                             )
+
                             builder.with_loop_config(
-                                LoopDetectionConfiguration.model_validate(current_state.loop_config).with_tool_loop_ttl_seconds(ttl)
+                                LoopDetectionConfiguration.model_validate(
+                                    current_state.loop_config
+                                ).with_tool_loop_ttl_seconds(ttl)
                             )
                             results.append(f"Tool loop TTL set to {ttl} seconds")
                         except ValueError:
@@ -343,10 +367,38 @@ class SetCommandHandler(BaseCommandHandler):
                             from src.core.domain.configuration.loop_detection_config import (
                                 LoopDetectionConfiguration,
                             )
+
                             builder.with_loop_config(
-                                LoopDetectionConfiguration.model_validate(current_state.loop_config).with_tool_loop_mode(tool_mode)
+                                LoopDetectionConfiguration.model_validate(
+                                    current_state.loop_config
+                                ).with_tool_loop_mode(tool_mode)
                             )
                             results.append(f"Tool loop mode set to {mode}")
+
+                    elif param_lower == "temperature":
+                        try:
+                            temp_value = float(value)
+                            if temp_value < 0.0 or temp_value > 2.0:
+                                results.append(
+                                    f"Invalid temperature value: {value}. Must be between 0.0 and 2.0."
+                                )
+                                success = False
+                            else:
+                                from src.core.domain.configuration.reasoning_config import (
+                                    ReasoningConfiguration,
+                                )
+
+                                builder.with_reasoning_config(
+                                    ReasoningConfiguration.model_validate(
+                                        current_state.reasoning_config
+                                    ).with_temperature(temp_value)
+                                )
+                                results.append(f"Temperature set to {temp_value}")
+                        except ValueError:
+                            results.append(
+                                f"Invalid temperature value: {value}. Must be a number."
+                            )
+                            success = False
 
                     else:
                         results.append(f"Unknown parameter: {param}")

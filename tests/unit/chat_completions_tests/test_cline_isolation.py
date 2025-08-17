@@ -1,9 +1,12 @@
 from unittest.mock import AsyncMock, patch
 
+import pytest
 from src import models
+from src.core.interfaces.session_service import ISessionService
 
 
-def test_non_cline_clients_no_xml_wrapping(interactive_client):
+@pytest.mark.asyncio
+async def test_non_cline_clients_no_xml_wrapping(interactive_client):
     """Test that non-Cline clients never get XML wrapping for any commands."""
 
     commands_to_test = [
@@ -65,7 +68,12 @@ def test_non_cline_clients_no_xml_wrapping(interactive_client):
         ), f"Non-Cline response should not contain </result> tags: {content}"
 
         # Verify session agent detection did NOT happen
-        session = interactive_client.app.state.session_manager.get_session(session_id)
+        session_service = (
+            interactive_client.app.state.service_provider.get_required_service(
+                ISessionService
+            )
+        )
+        session = await session_service.get_session(session_id)
         assert (
             not session.proxy_state.is_cline_agent
         ), f"Non-Cline session should not detect Cline agent for {command}"
@@ -74,7 +82,8 @@ def test_non_cline_clients_no_xml_wrapping(interactive_client):
         ), f"Session agent should NOT be 'cline' for non-Cline request: {command}"
 
 
-def test_remote_llm_responses_never_xml_wrapped(interactive_client):
+@pytest.mark.asyncio
+async def test_remote_llm_responses_never_xml_wrapped(interactive_client):
     """Test that remote LLM responses are never wrapped in XML, even for Cline agents."""
 
     # Mock successful LLM response
@@ -155,12 +164,18 @@ def test_remote_llm_responses_never_xml_wrapped(interactive_client):
     ), f"Remote LLM response should not contain </result> tags: {content}"
 
     # Verify Cline agent was detected but response is still not wrapped
-    session = interactive_client.app.state.session_manager.get_session("cline-llm-test")
+    session_service = (
+        interactive_client.app.state.service_provider.get_required_service(
+            ISessionService
+        )
+    )
+    session = await session_service.get_session("cline-llm-test")
     assert session.proxy_state.is_cline_agent, "Cline agent should be detected"
     assert session.agent == "cline", "Session agent should be 'cline'"
 
 
-def test_mixed_cline_command_and_llm_prompt(interactive_client):
+@pytest.mark.asyncio
+async def test_mixed_cline_command_and_llm_prompt(interactive_client):
     """Test that when Cline sends both commands and prompts, only commands get XML wrapped."""
 
     # Mock successful LLM response for the prompt part
@@ -261,7 +276,8 @@ def test_mixed_cline_command_and_llm_prompt(interactive_client):
     ), "LLM response should be unchanged"
 
 
-def test_streaming_responses_never_xml_wrapped(interactive_client):
+@pytest.mark.asyncio
+async def test_streaming_responses_never_xml_wrapped(interactive_client):
     """Test that streaming responses from LLMs are never wrapped in XML."""
 
     # Mock streaming response
@@ -303,9 +319,12 @@ def test_streaming_responses_never_xml_wrapped(interactive_client):
     assert resp.status_code == 200
 
     # Verify Cline agent was detected
-    session = interactive_client.app.state.session_manager.get_session(
-        "cline-stream-test"
+    session_service = (
+        interactive_client.app.state.service_provider.get_required_service(
+            ISessionService
+        )
     )
+    session = await session_service.get_session("cline-stream-test")
     assert (
         session.proxy_state.is_cline_agent
     ), "Cline agent should be detected for streaming"
@@ -315,7 +334,8 @@ def test_streaming_responses_never_xml_wrapped(interactive_client):
     # but the key point is that streaming responses bypass XML wrapping entirely)
 
 
-def test_error_responses_from_llm_never_xml_wrapped(interactive_client):
+@pytest.mark.asyncio
+async def test_error_responses_from_llm_never_xml_wrapped(interactive_client):
     """Test that error responses from remote LLMs are never wrapped in XML."""
 
     from fastapi import HTTPException
@@ -350,9 +370,12 @@ def test_error_responses_from_llm_never_xml_wrapped(interactive_client):
     assert resp.status_code == 500
 
     # Verify Cline agent was detected but error is not wrapped
-    session = interactive_client.app.state.session_manager.get_session(
-        "cline-error-test"
+    session_service = (
+        interactive_client.app.state.service_provider.get_required_service(
+            ISessionService
+        )
     )
+    session = await session_service.get_session("cline-error-test")
     assert (
         session.proxy_state.is_cline_agent
     ), "Cline agent should be detected even for errors"

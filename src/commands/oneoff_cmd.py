@@ -9,7 +9,7 @@ from fastapi import FastAPI
 from .base import BaseCommand, CommandResult, register_command
 
 if TYPE_CHECKING:
-    from src.proxy_logic import ProxyState
+    pass  # No imports needed
 
 logger = logging.getLogger(__name__)
 
@@ -32,7 +32,7 @@ class OneoffCommand(BaseCommand):
     ) -> None:
         super().__init__(app, functional_backends)
 
-    def execute(self, args: Mapping[str, Any], state: ProxyState) -> CommandResult:
+    def execute(self, args: Mapping[str, Any], state: Any) -> CommandResult:
         if not args:
             return CommandResult(
                 self.name, False, "oneoff command requires a backend/model argument."

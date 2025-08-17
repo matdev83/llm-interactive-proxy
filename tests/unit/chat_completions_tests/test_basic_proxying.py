@@ -1,19 +1,13 @@
 from unittest.mock import AsyncMock, patch
 
 import pytest
-
-# from fastapi import HTTPException  # F401: Removed
-# from httpx import (
-#     Response,
-# )  # F401: Removed
-from starlette.responses import StreamingResponse
-
-# import src.models as models  # F401: Removed
+from src.core.interfaces.backend_service import IBackendService
 
 # --- Test Cases ---
 
 
-def test_basic_request_proxying_non_streaming(client):
+def test_basic_request_proxying_non_streaming(test_client):
+    """Test basic request proxying for non-streaming responses using new architecture."""
     mock_backend_response = {
         "id": "comp-123",
         "object": "chat.completion",
@@ -29,10 +23,16 @@ def test_basic_request_proxying_non_streaming(client):
         "usage": {"prompt_tokens": 9, "completion_tokens": 12, "total_tokens": 21},
     }
 
-    # Patch the 'chat_completions' method of the OpenRouterBackend instance
-    # that is stored in client.app.state.openrouter_backend
+    # Get the backend service from the DI container
+    backend_service = test_client.app.state.service_provider.get_required_service(
+        IBackendService
+    )
+
+    # Mock the backend service's call_completion method
     with patch.object(
-        client.app.state.openrouter_backend, "chat_completions", new_callable=AsyncMock
+        backend_service,
+        "call_completion",
+        new_callable=AsyncMock,
     ) as mock_method:
         mock_method.return_value = mock_backend_response
 
@@ -41,46 +41,56 @@ def test_basic_request_proxying_non_streaming(client):
             "messages": [{"role": "user", "content": "Hello"}],
             "stream": False,
         }
-        response = client.post("/v1/chat/completions", json=payload)
+        response = test_client.post("/v1/chat/completions", json=payload)
 
     assert response.status_code == 200
-    assert response.json() == mock_backend_response
+    # The response includes metadata, so check the main fields
+    response_data = response.json()
+    assert response_data["id"] == mock_backend_response["id"]
+    assert response_data["object"] == mock_backend_response["object"]
+    assert response_data["model"] == mock_backend_response["model"]
+    assert response_data["choices"] == mock_backend_response["choices"]
+    assert response_data["usage"] == mock_backend_response["usage"]
 
     mock_method.assert_called_once()
-    call_args = mock_method.call_args[1]  # Get kwargs
-    assert call_args["request_data"].model == "gpt-3.5-turbo"
-    assert call_args["request_data"].stream is False
-    assert call_args["effective_model"] == "gpt-3.5-turbo"
-    assert len(call_args["processed_messages"]) == 1
-    assert call_args["processed_messages"][0].content == "Hello"
-    assert call_args["key_name"].startswith("OPENROUTER_API_KEY")
-    assert call_args["api_key"] is not None
+    # For the new architecture, check the ChatRequest object
+    call_args = mock_method.call_args
+    request = call_args[0][0] if call_args[0] else call_args[1].get("request")
+    assert request.model == "gpt-3.5-turbo"
+    assert len(request.messages) == 1
+    assert request.messages[0].content == "Hello"
 
 
-@pytest.mark.asyncio  # For using async capabilities if needed, though TestClient is sync
-async def test_basic_request_proxying_streaming(client):
-    # Simulate a streaming response from the backend mock
+@pytest.mark.asyncio
+async def test_basic_request_proxying_streaming(test_client):
+    """Test basic request proxying for streaming responses using new architecture."""
+
+    # Simulate a streaming response from the backend mock with proper JSON format
     async def mock_stream_gen():
-        yield b"data: chunk1\n\n"
-        yield b"data: chunk2\n\n"
+        # Yield properly formatted SSE chunks
+        yield b'data: {"object":"chat.completion.chunk","choices":[{"delta":{"content":"Hello"},"index":0}]}\n\n'
+        yield b'data: {"object":"chat.completion.chunk","choices":[{"delta":{"content":" world"},"index":0}]}\n\n'
         yield b"data: [DONE]\n\n"
 
-    # The backend's chat_completions method should return a StreamingResponse
-    mock_streaming_response = StreamingResponse(
-        mock_stream_gen(), media_type="text/event-stream"
+    # Get the backend service from the DI container
+    backend_service = test_client.app.state.service_provider.get_required_service(
+        IBackendService
     )
 
     with patch.object(
-        client.app.state.openrouter_backend, "chat_completions", new_callable=AsyncMock
+        backend_service,
+        "call_completion",
+        new_callable=AsyncMock,
     ) as mock_method:
-        mock_method.return_value = mock_streaming_response
+        # The backend service should return an async generator directly
+        mock_method.return_value = mock_stream_gen()
 
         payload = {
             "model": "gpt-4",
             "messages": [{"role": "user", "content": "Stream test"}],
             "stream": True,
         }
-        response = client.post("/v1/chat/completions", json=payload)
+        response = test_client.post("/v1/chat/completions", json=payload)
 
         assert response.status_code == 200
         assert "text/event-stream" in response.headers["content-type"]
@@ -91,10 +101,12 @@ async def test_basic_request_proxying_streaming(client):
     for chunk in response.iter_bytes():  # Use iter_bytes for TestClient
         stream_content += chunk
 
-    assert stream_content == b"data: chunk1\n\ndata: chunk2\n\ndata: [DONE]\n\n"
+    # Check that we got valid streaming chunks
+    assert b'"Hello"' in stream_content
+    assert b'" world"' in stream_content
+    assert b"data: [DONE]" in stream_content
 
     mock_method.assert_called_once()
-    call_args = mock_method.call_args[1]
-    assert call_args["request_data"].stream is True
-    assert call_args["key_name"].startswith("OPENROUTER_API_KEY")
-    assert call_args["api_key"] is not None
+    # For the new architecture, check the ChatRequest object and stream parameter
+    call_args = mock_method.call_args
+    assert call_args[1]["stream"] is True  # stream is passed as second argument
