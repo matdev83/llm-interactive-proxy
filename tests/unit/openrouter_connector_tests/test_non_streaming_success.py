@@ -34,7 +34,14 @@ def mock_get_openrouter_headers(key_name: str, api_key: str) -> dict[str, str]:
 @pytest_asyncio.fixture(name="openrouter_backend")
 async def openrouter_backend_fixture():
     async with httpx.AsyncClient() as client:
-        yield OpenRouterBackend(client=client)
+        backend = OpenRouterBackend(client=client)
+        # Call initialize with required arguments
+        await backend.initialize(
+            api_key="test_key",  # A dummy API key for initialization
+            key_name="openrouter",
+            openrouter_headers_provider=mock_get_openrouter_headers,
+        )
+        yield backend
 
 
 @pytest.fixture

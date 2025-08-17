@@ -128,11 +128,13 @@ class TestQwenOAuthAuthenticationFlow:
 
             # Verify the token was updated
             assert (
-                connector._oauth_credentials["access_token"]
+                connector._oauth_credentials is not None
+                and connector._oauth_credentials["access_token"]
                 == "mock-refreshed-access-token"
             )
             assert (
-                connector._oauth_credentials["refresh_token"]
+                connector._oauth_credentials is not None
+                and connector._oauth_credentials["refresh_token"]
                 == "mock-new-refresh-token"
             )
 
@@ -209,7 +211,8 @@ class TestQwenOAuthAuthenticationFlow:
                     # If we get here, the refresh succeeded
                     mock_client.post.assert_called_once()
                     assert (
-                        connector._oauth_credentials["access_token"]
+                        connector._oauth_credentials is not None
+                        and connector._oauth_credentials["access_token"]
                         == "mock-refreshed-access-token"
                     )
                 except Exception as e:
@@ -238,10 +241,14 @@ class TestQwenOAuthAuthenticationFlow:
             await connector.initialize()
 
             # Verify credentials were loaded
-            assert connector._oauth_credentials["access_token"] == "mock-access-token"
+            assert (
+                connector._oauth_credentials is not None
+                and connector._oauth_credentials["access_token"] == "mock-access-token"
+            )
 
             # Now simulate updating the token
-            connector._oauth_credentials["access_token"] = "updated-access-token"
+            if connector._oauth_credentials is not None:
+                connector._oauth_credentials["access_token"] = "updated-access-token"
 
             # Save the credentials
             await connector._save_oauth_credentials()
@@ -322,7 +329,9 @@ class TestQwenOAuthAuthenticationFlow:
 
                         # Expiry should be updated
                         new_expiry = connector._oauth_credentials.get("expiry_date")
-                        assert new_expiry > int(time.time() * 1000)
+                        assert new_expiry is not None and new_expiry > int(
+                            time.time() * 1000
+                        )
                     else:
                         print("❌ Token refresh failed")
 
@@ -470,7 +479,10 @@ class TestQwenOAuthAuthenticationWithProxy:
             assert second_response.status_code == 200
 
             # Check if token was refreshed
-            if backend._oauth_credentials.get("access_token") != original_token:
+            if (
+                backend._oauth_credentials is not None
+                and backend._oauth_credentials.get("access_token") != original_token
+            ):
                 print("✅ Token was refreshed during the session")
 
             # Verify the response mentions blue (context was maintained)

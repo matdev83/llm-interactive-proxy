@@ -3,11 +3,11 @@ from typing import TYPE_CHECKING
 
 from fastapi import FastAPI
 
-from src.commands.base import BaseCommand
-from src.core.domain.session import SessionStateAdapter
+from src.core.domain.commands.base_command import BaseCommand
+from src.core.interfaces.domain_entities import ISessionState
 
 if TYPE_CHECKING:
-    from src.core.domain.session import SessionStateAdapter
+    from src.core.interfaces.domain_entities import ISessionState
 
 
 class CommandParserConfig:
@@ -15,7 +15,7 @@ class CommandParserConfig:
 
     def __init__(
         self,
-        proxy_state: SessionStateAdapter,
+        proxy_state: ISessionState,
         app: FastAPI,
         preserve_unknown: bool,
         functional_backends: set[str] | None = None,
@@ -31,7 +31,7 @@ class CommandProcessorConfig:
 
     def __init__(
         self,
-        proxy_state: SessionStateAdapter,
+        proxy_state: ISessionState,
         app: FastAPI,
         command_pattern: re.Pattern,
         handlers: dict[str, BaseCommand],

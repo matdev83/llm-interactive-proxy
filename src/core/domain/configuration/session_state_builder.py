@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import cast
+
 from src.core.domain.configuration.backend_config import BackendConfiguration
 from src.core.domain.configuration.loop_detection_config import (
     LoopDetectionConfiguration,
@@ -7,6 +9,12 @@ from src.core.domain.configuration.loop_detection_config import (
 from src.core.domain.configuration.project_config import ProjectConfiguration
 from src.core.domain.configuration.reasoning_config import ReasoningConfiguration
 from src.core.domain.session import SessionState
+from src.core.interfaces.configuration import (
+    IBackendConfig,
+    ILoopDetectionConfig,
+    IReasoningConfig,
+)
+from src.core.interfaces.domain_entities import ISessionState
 
 
 class SessionStateBuilder:
@@ -16,22 +24,25 @@ class SessionStateBuilder:
     providing methods to set various properties.
     """
 
-    def __init__(self, state: SessionState | None = None):
+    def __init__(self, state: ISessionState | SessionState | None = None):
         """Initialize the builder, optionally with an existing state.
 
         Args:
             state: Optional existing state to modify
         """
         if state:
+            # ISessionState exposes the necessary properties for builder
             self._backend_config = state.backend_config  # type: ignore
             self._reasoning_config = state.reasoning_config  # type: ignore
             self._loop_config = state.loop_config  # type: ignore
             self._project_config = ProjectConfiguration(
                 project=state.project, project_dir=state.project_dir
             )
-            self._interactive_just_enabled = state.interactive_just_enabled
-            self._hello_requested = state.hello_requested
-            self._is_cline_agent = state.is_cline_agent
+            self._interactive_just_enabled = getattr(
+                state, "interactive_just_enabled", False
+            )
+            self._hello_requested = getattr(state, "hello_requested", False)
+            self._is_cline_agent = getattr(state, "is_cline_agent", False)
         else:
             self._backend_config = BackendConfiguration()
             self._reasoning_config = ReasoningConfiguration()
@@ -42,7 +53,7 @@ class SessionStateBuilder:
             self._is_cline_agent = False
 
     def with_backend_config(
-        self, backend_config: BackendConfiguration
+        self, backend_config: IBackendConfig | BackendConfiguration
     ) -> SessionStateBuilder:
         """Set the backend configuration.
 
@@ -56,7 +67,7 @@ class SessionStateBuilder:
         return self
 
     def with_reasoning_config(
-        self, reasoning_config: ReasoningConfiguration
+        self, reasoning_config: IReasoningConfig | ReasoningConfiguration
     ) -> SessionStateBuilder:
         """Set the reasoning configuration.
 
@@ -70,7 +81,7 @@ class SessionStateBuilder:
         return self
 
     def with_loop_config(
-        self, loop_config: LoopDetectionConfiguration
+        self, loop_config: ILoopDetectionConfig | LoopDetectionConfiguration
     ) -> SessionStateBuilder:
         """Set the loop detection configuration.
 
@@ -212,7 +223,7 @@ class SessionStateBuilder:
         return self
 
     # Project configuration shortcuts
-    def with_project(self, project: str) -> SessionStateBuilder:
+    def with_project(self, project: str | None) -> SessionStateBuilder:
         """Set the project.
 
         Args:
@@ -224,7 +235,7 @@ class SessionStateBuilder:
         self._project_config = self._project_config.with_project(project)
         return self
 
-    def with_project_dir(self, project_dir: str) -> SessionStateBuilder:
+    def with_project_dir(self, project_dir: str | None) -> SessionStateBuilder:
         """Set the project directory.
 
         Args:
@@ -267,10 +278,11 @@ class SessionStateBuilder:
         Returns:
             A new SessionState instance
         """
+        # Cast to concrete types expected by SessionState constructor
         return SessionState(
-            backend_config=self._backend_config,
-            reasoning_config=self._reasoning_config,
-            loop_config=self._loop_config,
+            backend_config=cast(BackendConfiguration, self._backend_config),
+            reasoning_config=cast(ReasoningConfiguration, self._reasoning_config),
+            loop_config=cast(LoopDetectionConfiguration, self._loop_config),
             project=self._project_config.project,
             project_dir=self._project_config.project_dir,
             interactive_just_enabled=self._interactive_just_enabled,

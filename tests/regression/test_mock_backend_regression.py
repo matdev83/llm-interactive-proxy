@@ -6,6 +6,8 @@ with the same mock backend and produce equivalent results.
 """
 
 import pytest
+from src.core.domain.chat import ChatMessage as NewChatMessage
+from src.models import ChatMessage
 from tests.mocks.mock_regression_backend import MockRegressionBackend
 
 
@@ -26,7 +28,7 @@ class TestMockBackendRegression:
         # Create a request
         request = ChatCompletionRequest(
             model="mock-model",
-            messages=[{"role": "user", "content": "Hello, world!"}],
+            messages=[ChatMessage(role="user", content="Hello, world!")],
             max_tokens=50,
             temperature=0.7,
             stream=False,
@@ -35,7 +37,7 @@ class TestMockBackendRegression:
         # Call the mock backend directly
         response, headers = await mock_backend.chat_completions(
             request_data=request,
-            processed_messages=[{"role": "user", "content": "Hello, world!"}],
+            processed_messages=[NewChatMessage(role="user", content="Hello, world!")],
             effective_model="mock-model",
         )
 
@@ -65,7 +67,7 @@ class TestMockBackendRegression:
         # Call the mock backend directly
         response, headers = await mock_backend.chat_completions(
             request_data=request,
-            processed_messages=[{"role": "user", "content": "Hello, world!"}],
+            processed_messages=[ChatMessage(role="user", content="Hello, world!")],
             effective_model="mock-model",
         )
 
@@ -86,7 +88,7 @@ class TestMockBackendRegression:
         # Create a request
         request = ChatCompletionRequest(
             model="mock-model",
-            messages=[{"role": "user", "content": "Hello, world!"}],
+            messages=[ChatMessage(role="user", content="Hello, world!")],
             max_tokens=50,
             temperature=0.7,
             stream=True,
@@ -95,7 +97,7 @@ class TestMockBackendRegression:
         # Call the mock backend directly
         stream_iterator = await mock_backend.chat_completions(
             request_data=request,
-            processed_messages=[{"role": "user", "content": "Hello, world!"}],
+            processed_messages=[NewChatMessage(role="user", content="Hello, world!")],
             effective_model="mock-model",
         )
 
@@ -130,7 +132,7 @@ class TestMockBackendRegression:
         # Call the mock backend directly
         stream_iterator = await mock_backend.chat_completions(
             request_data=request,
-            processed_messages=[{"role": "user", "content": "Hello, world!"}],
+            processed_messages=[ChatMessage(role="user", content="Hello, world!")],
             effective_model="mock-model",
             stream=True,
         )
@@ -178,7 +180,7 @@ class TestMockBackendRegression:
         # Create a request with tools
         request = ChatCompletionRequest(
             model="mock-model",
-            messages=[{"role": "user", "content": "What's the weather like?"}],
+            messages=[ChatMessage(role="user", content="What's the weather like?")],
             max_tokens=50,
             temperature=0.7,
             stream=False,
@@ -190,7 +192,7 @@ class TestMockBackendRegression:
         response, headers = await mock_backend.chat_completions(
             request_data=request,
             processed_messages=[
-                {"role": "user", "content": "What's the weather like?"}
+                NewChatMessage(role="user", content="What's the weather like?")
             ],
             effective_model="mock-model",
         )
@@ -256,7 +258,7 @@ class TestMockBackendRegression:
         response, headers = await mock_backend.chat_completions(
             request_data=request,
             processed_messages=[
-                {"role": "user", "content": "What's the weather like?"}
+                ChatMessage(role="user", content="What's the weather like?")
             ],
             effective_model="mock-model",
         )

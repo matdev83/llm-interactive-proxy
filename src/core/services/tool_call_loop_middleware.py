@@ -29,7 +29,7 @@ class ToolCallLoopDetectionMiddleware(IResponseMiddleware):
     that may indicate a model is stuck in a loop.
     """
 
-    def __init__(self):
+    def __init__(self) -> None:
         """Initialize the middleware."""
         self._session_trackers: dict[str, ToolCallTracker] = {}
 
@@ -149,8 +149,15 @@ class ToolCallLoopDetectionMiddleware(IResponseMiddleware):
                 for choice in choices:
                     message = choice.get("message", {})
                     tool_calls = message.get("tool_calls", [])
-                    if tool_calls:
-                        return tool_calls
+                    if tool_calls and isinstance(tool_calls, list):
+                        # Ensure all items are dictionaries
+                        if all(isinstance(item, dict) for item in tool_calls):
+                            # Create a new list with explicit typing
+                            result: list[dict[str, Any]] = []
+                            for item in tool_calls:
+                                if isinstance(item, dict):
+                                    result.append(item)
+                            return result
 
             # Check for direct tool calls array
             if isinstance(data, list) and all(

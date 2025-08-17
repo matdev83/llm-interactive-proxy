@@ -6,7 +6,7 @@ import httpx
 import pytest
 from fastapi import HTTPException
 from src.connectors.qwen_oauth import QwenOAuthConnector
-from src.models import ChatCompletionRequest
+from src.models import ChatCompletionRequest, ChatMessage
 
 
 class TestQwenOAuthEnhancedErrorHandling:
@@ -72,7 +72,8 @@ class TestQwenOAuthEnhancedErrorHandling:
         """Test generic error handling in chat_completions method."""
         # Setup test data
         request = ChatCompletionRequest(
-            model="qwen3-coder-plus", messages=[{"role": "user", "content": "Hello"}]
+            model="qwen3-coder-plus",
+            messages=[ChatMessage(role="user", content="Hello")],
         )
         processed_messages = [{"role": "user", "content": "Hello"}]
 
@@ -107,7 +108,7 @@ class TestQwenOAuthEnhancedErrorHandling:
         # Setup
         request = ChatCompletionRequest(
             model="qwen-oauth:qwen3-coder-plus",
-            messages=[{"role": "user", "content": "Hello"}],
+            messages=[ChatMessage(role="user", content="Hello")],
         )
         processed_messages = [{"role": "user", "content": "Hello"}]
 
@@ -137,7 +138,8 @@ class TestQwenOAuthEnhancedErrorHandling:
     async def test_http_exception_passthrough(self, connector):
         """Test that HTTPExceptions from parent class are passed through."""
         request = ChatCompletionRequest(
-            model="qwen3-coder-plus", messages=[{"role": "user", "content": "Hello"}]
+            model="qwen3-coder-plus",
+            messages=[ChatMessage(role="user", content="Hello")],
         )
         processed_messages = [{"role": "user", "content": "Hello"}]
 
@@ -167,7 +169,8 @@ class TestQwenOAuthEnhancedErrorHandling:
         """Test chat_completions when token refresh fails."""
         # Setup
         request = ChatCompletionRequest(
-            model="qwen3-coder-plus", messages=[{"role": "user", "content": "Hello"}]
+            model="qwen3-coder-plus",
+            messages=[ChatMessage(role="user", content="Hello")],
         )
         processed_messages = [{"role": "user", "content": "Hello"}]
 

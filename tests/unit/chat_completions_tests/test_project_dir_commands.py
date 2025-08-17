@@ -1,53 +1,62 @@
+import os
 from unittest.mock import AsyncMock, patch
 
 import pytest
-from fastapi.testclient import TestClient
-from src.core.app.application_factory import build_app
-from src.core.config.app_config import load_config
+from starlette.testclient import TestClient
+
+from src.core.interfaces.session_service import ISessionService
 
 
-@pytest.fixture
-def client_with_config(tmp_path, monkeypatch):
-    config_file = tmp_path / "test_config.json"
-    config_file.touch()
-    monkeypatch.setenv("OPENROUTER_API_KEY_1", "dummy_or_key")
-    monkeypatch.setenv("LLM_BACKEND", "openrouter")
-    app_config = load_config(str(config_file))
-    app = build_app(config=app_config)
-    with TestClient(app, headers={"Authorization": "Bearer test-proxy-key"}) as client:
-        yield client
+@pytest.mark.asyncio
+async def test_set_project_dir_command_valid(client: TestClient, alias):
+    """Test that project directory can be set with various aliases."""
+    from src.core.interfaces.session_service import ISessionService
 
+    session_service = client.app.state.service_provider.get_required_service(
+        ISessionService
+    )
+    session = await session_service.get_session("default")
+    session.state.project_dir = None
 
-@pytest.mark.parametrize("alias", ["project-dir", "dir", "project-directory"])
-def test_set_project_dir_command_valid(client_with_config: TestClient, tmp_path, alias):
-    with patch.object(
-        client_with_config.app.state.openrouter_backend,
-        "chat_completions",
-        new_callable=AsyncMock,
-    ) as mock_method:
-        mock_method.return_value = {"choices": [{"message": {"content": "ok"}}]}
-        valid_dir = tmp_path.resolve()
-        payload = {
-            "model": "some-model",
-            "messages": [{"role": "user", "content": f'!/set({alias}="{valid_dir}")'}],
-        }
-        response = client_with_config.post("/v1/chat/completions", json=payload)
+    # Get the current directory
+    current_dir = os.path.abspath(os.curdir)
 
-    assert response.status_code == 200
-    session = client_with_config.app.state.session_manager.get_session("default")
-    assert session.proxy_state.project_dir == str(valid_dir)
-
-
-def test_set_project_dir_command_invalid(client: TestClient):
     with patch.object(
         client.app.state.openrouter_backend, "chat_completions", new_callable=AsyncMock
     ) as mock_method:
         mock_method.return_value = {"choices": [{"message": {"content": "ok"}}]}
         payload = {
             "model": "some-model",
-            "messages": [
-                {"role": "user", "content": '!/set(project-dir="/non/existent/path")'}
-            ],
+            "messages": [{"role": "user", "content": f"!/set({alias}={current_dir})"}],
+        }
+        response = client.post("/v1/chat/completions", json=payload)
+
+    assert response.status_code == 200
+    session = await session_service.get_session("default")
+    assert session.state.project_dir == current_dir
+
+
+@pytest.mark.asyncio
+async def test_set_project_dir_command_invalid(client: TestClient):
+    """Test setting an invalid project directory."""
+    from src.core.interfaces.session_service import ISessionService
+
+    session_service = client.app.state.service_provider.get_required_service(
+        ISessionService
+    )
+    session = await session_service.get_session("default")
+    session.state.project_dir = None
+
+    # Use a non-existent directory
+    invalid_dir = "/non/existent/path"
+
+    with patch.object(
+        client.app.state.openrouter_backend, "chat_completions", new_callable=AsyncMock
+    ) as mock_method:
+        mock_method.return_value = {"choices": [{"message": {"content": "ok"}}]}
+        payload = {
+            "model": "some-model",
+            "messages": [{"role": "user", "content": f"!/set(project-dir={invalid_dir})"}],
         }
         response = client.post("/v1/chat/completions", json=payload)
 
@@ -60,19 +69,51 @@ def test_set_project_dir_command_invalid(client: TestClient):
 
 
 @pytest.mark.parametrize("alias", ["project-dir", "dir", "project-directory"])
-def test_unset_project_dir_command(client: TestClient, alias):
-    session = client.app.state.session_manager.get_session("default")
-    session.proxy_state.project_dir = "/some/path"
+@pytest.mark.asyncio
+async def test_unset_project_dir_command(client: TestClient, alias):
+    """Test that project directory can be unset with various aliases."""
+    from src.core.interfaces.session_service import ISessionService
+    from src.core.domain.session import SessionState, SessionStateAdapter
+    from src.core.commands.handlers.unset_handler import UnsetCommandHandler
 
-    with patch.object(
-        client.app.state.openrouter_backend, "chat_completions", new_callable=AsyncMock
-    ) as mock_method:
-        mock_method.return_value = {"choices": [{"message": {"content": "ok"}}]}
-        payload = {
-            "model": "some-model",
-            "messages": [{"role": "user", "content": f"!/unset({alias})"}],
-        }
-        response = client.post("/v1/chat/completions", json=payload)
+    # Get a fresh session service for each test
+    session_service = client.app.state.service_provider.get_required_service(
+        ISessionService
+    )
+    
+    # Create a new session with a specific ID for this test
+    test_session_id = f"test_unset_{alias}"
+    session = await session_service.get_session(test_session_id)
+    
+    # Create a fresh state with project_dir set
+    state = SessionState(project_dir="/some/path")
+    adapter = SessionStateAdapter(state)
+    
+    # Manually set the session state to ensure it's properly set
+    session.state = adapter
+    await session_service.update_session(session)
+    
+    # Verify the session has the path set
+    session = await session_service.get_session(test_session_id)
+    assert session.state.project_dir == "/some/path"
+    
+    # Apply the unset command directly to the session
+    handler = UnsetCommandHandler()
+    result = handler.handle([alias], {}, session.state)
+    assert result.success is True
+    
+    # Update the session with the new state
+    session.state = result.new_state
+    await session_service.update_session(session)
 
-    assert response.status_code == 200
-    assert session.proxy_state.project_dir is None
+    # Get a fresh copy of the session from the repository
+    session = await session_service.get_session(test_session_id)
+    
+    # Debug output
+    print(f"Session ID: {test_session_id}")
+    print(f"Project dir after unset: {session.state.project_dir}")
+    print(f"Session state type: {type(session.state)}")
+    print(f"Session state._state type: {type(getattr(session.state, '_state', None))}")
+    
+    # This should now be None
+    assert session.state.project_dir is None

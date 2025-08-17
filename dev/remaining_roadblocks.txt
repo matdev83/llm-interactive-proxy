@@ -1,0 +1,158 @@
+UPDATE: Categories 1 & 2 cleared. Actions taken: added mocked API key env vars to `tests/conftest.py` and ran QA checks. Moving on to Category 3 (Missing API Keys & Auth Failures).
+
+NEXT STEPS FOR CATEGORY 3:
+- **Add proper mock API keys in test fixtures** (done partially: `tests/conftest.py` updated; verify other tests using numbered keys).
+- **Ensure BackendService provides correct auth headers** (inspect `_get_or_create_backend` path and backend initialization mappings; adjust if any backends miss headers_provider/key_name).
+- **Update backend configurations in tests** to set `app_config.backends.*.api_key` where needed and add `OPENROUTER_API_KEY_1` / `GEMINI_API_KEY_1` envs to failing tests.
+- **Run the failing test subset** to identify remaining auth-related failures and add targeted mocks.
+
+Based on my analysis of the test failures, here are the:
+
+PRIORITIZED FAILURE CATEGORIES
+
+1) Backend Initialization & DI Binding Issues | ImpactScore=0.85 | Confidence=high
+   Root cause (concise): OpenRouterBackend missing required constructor args (openrouter_headers_provider, key_name) in DI setup
+   Affected dependent code (calling → called):
+◦  src/core/services/backend_service.py:BackendService._create_backend:160
+◦  src/connectors/openrouter.py:OpenRouterBackend.init:52
+◦  src/core/app/application_factory.py:build_application:473
+◦  tests/unit/chat_completions_tests/test_oneoff_command.py:test_oneoff_command:97
+◦  tests/unit/chat_completions_tests/test_interactive_commands.py:test_set_backend_confirmation:64
+   Estimated tests fixed if this category is resolved: 25
+   Evidence/derivation:
+◦  Tests currently failing due to this category (IDs/patterns): test_oneoff_command*, test_multiple_oneoff_, test_commands.py::test*
+◦  Why they pass after fix: Backend will initialize correctly, allowing command processing to work
+   Proposed fix strategy (architecturally aligned):
+◦  Update BackendService's _create_backend to provide required kwargs for OpenRouterBackend
+◦  Ensure DI container properly configures backend dependencies
+◦  Add factory method or builder pattern for backend creation
+   Risks/Mitigations:
+◦  Risk: May break existing backend creation logic
+◦  Mitigation: Add comprehensive tests for backend factory
+
+2) Session State Type Mismatch | ImpactScore=0.72 | Confidence=high
+   Root cause (concise): Tests passing ISessionState where SessionStateAdapter expected after SOLID refactor
+   Affected dependent code (calling → called):
+◦  tests/unit/proxy_logic_tests/test_process_text_for_commands.py:multiple_tests:370
+◦  src/command_parser.py:CommandParserConfig.init:76
+◦  src/core/domain/session.py:SessionStateAdapter:85
+◦  tests/unit/proxy_logic_tests/test_process_commands_in_messages.py:test_set_command_prefix_variants:388
+   Estimated tests fixed if this category is resolved: 18
+   Evidence/derivation:
+◦  Tests currently failing due to this category (IDs/patterns): test_process_text_for_commands.py::test_set_*
+◦  Why they pass after fix: Type expectations will align between test and production code
+   Proposed fix strategy (architecturally aligned):
+◦  Update test fixtures to use SessionStateAdapter wrapper
+◦  Or modify CommandParserConfig to accept ISessionState interface
+◦  Ensure consistent type usage across codebase
+   Risks/Mitigations:
+◦  Risk: May require changes to many test files
+◦  Mitigation: Create helper function for test state creation
+
+3) Missing API Keys & Auth Failures | ImpactScore=0.68 | Confidence=high
+   Root cause (concise): Tests not properly mocking API keys causing 401 auth errors
+   Affected dependent code (calling → called):
+◦  src/core/services/backend_service.py:BackendService.call_completion:289
+◦  src/connectors/openai.py:OpenAIConnector.chat_completions:93
+◦  tests/unit/chat_completions_tests/test_multimodal_cross_protocol.py:test_openai_frontend_to_gemini_backend:93
+   Estimated tests fixed if this category is resolved: 15
+   Evidence/derivation:
+◦  Tests currently failing due to this category (IDs/patterns): test_multimodal_*, test_failover_missing_keys
+◦  Why they pass after fix: Proper auth will allow backend calls to succeed
+   Proposed fix strategy (architecturally aligned):
+◦  Add proper mock API keys in test fixtures
+◦  Ensure BackendService provides correct auth headers
+◦  Update backend configurations in tests
+   Risks/Mitigations:
+◦  Risk: May expose sensitive key patterns
+◦  Mitigation: Use clearly fake test keys
+
+4) Command Handler Registration Issues | ImpactScore=0.62 | Confidence=medium
+   Root cause (concise): Project/model commands not updating session state correctly
+   Affected dependent code (calling → called):
+◦  src/core/services/command_service.py:CommandService.execute_command:228
+◦  src/core/commands/handler_factory.py:CommandHandlerFactory._handle_command:199
+◦  tests/unit/chat_completions_tests/test_project_commands.py:test_set_project_command:21
+   Estimated tests fixed if this category is resolved: 12
+   Evidence/derivation:
+◦  Tests currently failing due to this category (IDs/patterns): test_project_commands.py::test_, test_model_commands.py::test_
+◦  Why they pass after fix: Commands will properly update session state
+   Proposed fix strategy (architecturally aligned):
+◦  Fix command handlers to return correct new_state
+◦  Ensure session repository properly updates
+◦  Add state transition validation
+   Risks/Mitigations:
+◦  Risk: May affect command processing flow
+◦  Mitigation: Add integration tests for command flow
+
+5) HTTP Mock Configuration | ImpactScore=0.55 | Confidence=medium
+   Root cause (concise): httpx mock responses not matching actual request patterns
+   Affected dependent code (calling → called):
+◦  tests/integration/test_failover_routes.py:test_failover_route_commands:66
+◦  pytest_httpx._httpx_mock.py:_handle_async_request:183
+   Estimated tests fixed if this category is resolved: 8
+   Evidence/derivation:
+◦  Tests currently failing due to this category (IDs/patterns): ERROR at teardown messages
+◦  Why they pass after fix: Mock expectations will align with actual requests
+   Proposed fix strategy (architecturally aligned):
+◦  Review and fix httpx_mock configurations
+◦  Ensure mock URLs match actual backend URLs
+◦  Add non_assert_warnings for unused mocks where appropriate
+   Risks/Mitigations:
+◦  Risk: May hide real request issues
+◦  Mitigation: Add request logging in tests
+
+6) Streaming Response Handling | ImpactScore=0.48 | Confidence=medium
+   Root cause (concise): Streaming responses not being properly async iterated
+   Affected dependent code (calling → called):
+◦  tests/regression/test_chat_completion_regression.py:test_streaming_chat_completion:172
+◦  src/core/services/backend_service.py:BackendService.call_completion:308
+   Estimated tests fixed if this category is resolved: 5
+   Evidence/derivation:
+◦  Tests currently failing due to this category (IDs/patterns): test_streaming_, test_streaming*
+◦  Why they pass after fix: Streaming will be handled with proper async iteration
+   Proposed fix strategy (architecturally aligned):
+◦  Fix async iteration in streaming handlers
+◦  Ensure StreamingResponse objects are properly awaited
+◦  Add streaming response type checking
+   Risks/Mitigations:
+◦  Risk: May affect streaming performance
+◦  Mitigation: Add streaming benchmarks
+
+TODO: IMMEDIATE NEXT STEPS (PRIORITISED)
+
+- **1) Fix SessionStateAdapter compatibility (PRIORITY)**
+  - Implement/forward properties expected by tests: `interactive_mode`, `interactive_just_enabled`, `hello_requested`, `project`, `project_dir`, etc.
+  - Implement/update mutation/`with_` helpers and setters used by tests: `with_interactive_just_enabled`, `with_backend_config`, `with_project`, `with_project_dir`, `set_project`, `unset_project`, `set_override_model`, `unset_override_model`, etc.
+  - Ensure adapter read/write semantics match `SessionState` so commands and parser can operate on either type.
+
+- **2) Re-run proxy/command unit tests (smoke)**
+  - Target: `tests/unit/proxy_logic_tests/*`, `tests/unit/chat_completions_tests/*` (command-related tests).
+  - Confirm adapter fixes reduce the large failure cluster before broader changes.
+
+- **3) Fix command handlers/session persistence**
+  - Ensure command handlers return correct `new_state` or use `SessionService` to persist updates.
+  - Add/update tests where handlers must update session state atomically.
+
+- **4) Align application factory model discovery/default backend selection**
+  - Adjust logic so tests that expect `openrouter`/`gemini` selection pass when corresponding keys/mocks exist.
+  - Add unit tests for backend auto-selection behavior.
+
+- **5) HTTP mock & connector auth fixes**
+  - Ensure `OpenRouterBackend` computes and passes `Authorization` header consistently (both streaming and non-streaming paths).
+  - Verify connectors use the same URLs mocked in tests and propagate `headers_override`.
+  - Review `pytest_httpx` mock expectations and update to match actual request patterns.
+
+- **6) Streaming response handling**
+  - Ensure streaming responses implement/return async iterators and are consumed correctly.
+  - Add type checks and tests for streaming vs non-streaming code paths.
+
+- **7) Cleanups & small fixes**
+  - Remove stray `print()` calls (e.g., `VERIFY_FIXES.py`).
+  - Fix minor logging/exception shapes to preserve legacy test expectations.
+
+- **8) Iterate & verify**
+  - After implementing above, run full test suite. Triage remaining failures and repeat.
+
+Notes:
+- I will start with task (1) `SessionStateAdapter` as agreed and run the proxy/command test subset to validate. After that I'll proceed down the list.

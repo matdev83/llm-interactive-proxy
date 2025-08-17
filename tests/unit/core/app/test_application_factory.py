@@ -59,21 +59,23 @@ class TestBuildApp:
 
     def test_build_app_loads_config(self):
         """Test that build_app loads configuration."""
-        with patch("src.core.app.application_factory.load_config") as mock_load:
-            with patch(
+        with (
+            patch("src.core.app.application_factory.load_config") as mock_load,
+            patch(
                 "src.core.app.application_factory.ServiceConfigurator"
-            ) as mock_service_configurator_class:
-                mock_service_configurator = MagicMock()
-                mock_service_configurator_class.return_value = mock_service_configurator
-                mock_service_configurator.configure_services.return_value = MagicMock()
+            ) as mock_service_configurator_class,
+        ):
+            mock_service_configurator = MagicMock()
+            mock_service_configurator_class.return_value = mock_service_configurator
+            mock_service_configurator.configure_services.return_value = MagicMock()
 
-                mock_config = AppConfig()
-                mock_load.return_value = mock_config
+            mock_config = AppConfig()
+            mock_load.return_value = mock_config
 
-                app = build_app()
+            app = build_app()
 
-                mock_load.assert_called_once()
-                assert isinstance(app, FastAPI)
+            mock_load.assert_called_once()
+            assert isinstance(app, FastAPI)
 
     def test_build_app_creates_fastapi_app(self):
         """Test that build_app creates a FastAPI application."""

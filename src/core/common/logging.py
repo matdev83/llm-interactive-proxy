@@ -10,6 +10,7 @@ import sys
 from datetime import datetime
 from enum import Enum
 from pathlib import Path
+from typing import Any
 
 import structlog
 from structlog.dev import ConsoleRenderer
@@ -146,7 +147,7 @@ def get_logger(name: str | None = None) -> structlog.stdlib.BoundLogger:
     Returns:
         A structured logger
     """
-    return structlog.get_logger(name)
+    return structlog.get_logger(name)  # type: ignore
 
 
 class LoggingMiddleware:
@@ -167,7 +168,7 @@ class LoggingMiddleware:
         self.response_logging = response_logging
         self.logger = get_logger("api")
 
-    async def __call__(self, request, call_next):
+    async def __call__(self, request: Any, call_next: Any) -> Any:
         """Process the request.
 
         Args:

@@ -49,3 +49,33 @@ def mock_gemini_backend(interactive_client: TestClient) -> None:
     ):
         interactive_client.app.state.gemini_backend = _MockGemini()
     return None
+
+
+class _MockOpenRouter:
+    def __init__(self):
+        pass
+
+    def get_available_models(self):
+        return ["openrouter:gpt-4", "openrouter:claude-3-sonnet"]
+
+    async def chat_completions(self, *args, **kwargs):
+        return {
+            "id": "mock-response",
+            "object": "chat.completion",
+            "created": 1234567890,
+            "model": "openrouter:gpt-4",
+            "choices": [
+                {
+                    "index": 0,
+                    "message": {"role": "assistant", "content": "Mock response"},
+                    "finish_reason": "stop",
+                }
+            ],
+            "usage": {"prompt_tokens": 10, "completion_tokens": 20, "total_tokens": 30},
+        }
+
+
+@pytest.fixture
+def mock_openrouter_backend(interactive_client: TestClient) -> _MockOpenRouter:
+    """Provide a minimal mock OpenRouter backend for tests."""
+    return _MockOpenRouter()

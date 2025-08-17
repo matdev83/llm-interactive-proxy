@@ -1,3 +1,5 @@
+import asyncio
+import inspect
 import logging
 import re
 from typing import Any
@@ -14,16 +16,56 @@ from src.command_utils import (
     is_original_purely_command,
     is_tool_call_result,
 )
-from src.commands.base import BaseCommand, create_command_instances
 from src.constants import DEFAULT_COMMAND_PREFIX
 from src.core.domain.command_results import CommandResult
-from src.core.domain.session import SessionStateAdapter
+from src.core.domain.commands import (
+    CreateFailoverRouteCommand,
+    DeleteFailoverRouteCommand,
+    HelloCommand,
+    HelpCommand,
+    ListFailoverRoutesCommand,
+    OneoffCommand,
+    RouteAppendCommand,
+    RouteClearCommand,
+    RouteListCommand,
+    RoutePrependCommand,
+    SetCommand,
+    UnsetCommand,
+)
+from src.core.domain.commands.base_command import BaseCommand
+from src.core.interfaces.domain_entities import ISessionState
 
 # Removed legacy import
 
 # Removed legacy import
 
 logger = logging.getLogger(__name__)
+
+
+def create_command_instances(
+    app: FastAPI, functional_backends: set[str] | None = None
+) -> list[BaseCommand]:
+    """
+    Create instances of all available commands.
+    This is a temporary replacement for the old command creation logic.
+    """
+    # The app and functional_backends arguments are ignored for now as the new
+    # command classes do not require them at construction time.
+    commands = [
+        HelloCommand(),
+        HelpCommand(),
+        OneoffCommand(),
+        SetCommand(),
+        UnsetCommand(),
+        CreateFailoverRouteCommand(),
+        DeleteFailoverRouteCommand(),
+        ListFailoverRoutesCommand(),
+        RouteAppendCommand(),
+        RoutePrependCommand(),
+        RouteListCommand(),
+        RouteClearCommand(),
+    ]
+    return commands
 
 
 class CommandParser:
@@ -77,7 +119,7 @@ class CommandParser:
         """Extracts and prepares text from message content for command checking."""
         return get_text_for_command_check(content)
 
-    def _execute_commands_in_target_message(
+    async def _execute_commands_in_target_message(
         self, target_idx: int, modified_messages: list[models.ChatMessage]
     ) -> bool:
         """Processes commands in the specified message and updates it.
@@ -85,11 +127,28 @@ class CommandParser:
         """
         msg_to_process = modified_messages[target_idx]
         original_content = msg_to_process.content
-        processed_content, found, modified = self._process_content(msg_to_process)
+        processed_content, found, modified = await self._process_content(msg_to_process)
         if not found:
             return False
 
-        processed_content, modified = self._maybe_use_error_message(
+        # Handle async command results
+        if self.command_results:
+            new_results: list = []
+            for cr in self.command_results:
+                if inspect.isawaitable(cr):
+                    # Create a new event loop to run the awaitable
+                    import asyncio
+                    loop = asyncio.new_event_loop()
+                    try:
+                        result = loop.run_until_complete(cr)
+                        new_results.append(result)
+                    finally:
+                        loop.close()
+                else:
+                    new_results.append(cr)
+            self.command_results = new_results
+
+        processed_content, modified = await self._maybe_use_error_message(
             original_content, processed_content, modified
         )
         self._apply_processed_content(
@@ -97,16 +156,20 @@ class CommandParser:
         )
         return True
 
-    def _process_content(
+    async def _process_content(
         self, msg_to_process: models.ChatMessage
     ) -> tuple[str | list[models.MessageContentPart] | None, bool, bool]:
         if isinstance(msg_to_process.content, str):
-            return self.command_processor.handle_string_content(msg_to_process.content)
+            return await self.command_processor.handle_string_content(
+                msg_to_process.content
+            )
         if isinstance(msg_to_process.content, list):
-            return self.command_processor.handle_list_content(msg_to_process.content)
+            return await self.command_processor.handle_list_content(
+                msg_to_process.content
+            )
         return None, False, False
 
-    def _maybe_use_error_message(
+    async def _maybe_use_error_message(
         self,
         original_content: Any,
         processed_content: str | list[models.MessageContentPart] | None,
@@ -118,6 +181,9 @@ class CommandParser:
             and self.command_results
         ):
             last_result = self.command_results[-1]
+            # Handle async command result
+            if inspect.isawaitable(last_result):
+                last_result = await last_result
             if not last_result.success and last_result.message:
                 return last_result.message, True
         return processed_content, modified
@@ -142,7 +208,7 @@ class CommandParser:
             and processed_content is None
             and isinstance(original_content, list)
         ):
-            # Entire list content was consumed by the command
+            # Entire list content was consumed by the.
             msg_to_process.content = []
             logger.info(
                 "List content removed by command in message index %s. Role: %s.",
@@ -184,7 +250,7 @@ class CommandParser:
             final_messages.append(current_msg_state)
         return final_messages
 
-    def process_messages(
+    async def process_messages(
         self, messages: list[models.ChatMessage]
     ) -> tuple[list[models.ChatMessage], bool]:
         self.command_results.clear()
@@ -210,7 +276,7 @@ class CommandParser:
         msg_to_process = modified_messages[command_message_idx].model_copy(deep=True)
         modified_messages[command_message_idx] = msg_to_process
 
-        overall_commands_processed = self._execute_commands_in_target_message(
+        overall_commands_processed = await self._execute_commands_in_target_message(
             command_message_idx, modified_messages
         )
 
@@ -233,9 +299,9 @@ class CommandParser:
         return final_messages, overall_commands_processed
 
 
-def _process_text_for_commands(
+async def _process_text_for_commands(
     text_content: str,
-    current_proxy_state: SessionStateAdapter,
+    current_proxy_state: ISessionState,
     command_pattern: re.Pattern,
     app: FastAPI,
     functional_backends: set[str] | None = None,
@@ -253,8 +319,8 @@ def _process_text_for_commands(
     # Override the command_pattern as it's passed directly for this helper
     parser.command_pattern = command_pattern
     # Use the internal command_processor for actual text processing
-    processed_text, commands_found, _ = parser.command_processor.handle_string_content(
-        text_content
+    processed_text, commands_found, _ = (
+        await parser.command_processor.handle_string_content(text_content)
     )
 
     # For tests relying on this helper, if a command-only message was processed
@@ -267,9 +333,9 @@ def _process_text_for_commands(
     return processed_text, commands_found
 
 
-def process_commands_in_messages(
+async def process_commands_in_messages(
     messages: list[models.ChatMessage],
-    current_proxy_state: SessionStateAdapter,
+    current_proxy_state: ISessionState,
     app: FastAPI | None = None,
     command_prefix: str = DEFAULT_COMMAND_PREFIX,
 ) -> tuple[list[models.ChatMessage], bool]:
@@ -301,6 +367,6 @@ def process_commands_in_messages(
     )
     parser = CommandParser(parser_config, command_prefix=command_prefix)
 
-    final_messages, commands_processed = parser.process_messages(messages)
+    final_messages, commands_processed = await parser.process_messages(messages)
 
     return final_messages, commands_processed

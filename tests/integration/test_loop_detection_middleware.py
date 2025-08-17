@@ -3,6 +3,7 @@ Integration test for the loop detection middleware in the new SOLID architecture
 """
 
 import os
+from typing import cast
 from unittest.mock import AsyncMock, MagicMock, patch  # Added MagicMock
 
 import pytest
@@ -11,7 +12,10 @@ from src.core.common.exceptions import LoopDetectionError
 from src.core.domain.chat import ChatResponse
 from src.core.domain.session import Session, SessionState  # Added import
 from src.core.interfaces.loop_detector import ILoopDetector, LoopDetectionResult
-from src.core.interfaces.response_processor import ProcessedResponse
+from src.core.interfaces.response_processor import (
+    IResponseMiddleware,
+    ProcessedResponse,
+)
 from src.core.interfaces.session_service import ISessionService  # Added import
 from src.core.services.loop_detector import LoopDetector
 from src.core.services.response_middleware import LoopDetectionMiddleware
@@ -145,7 +149,9 @@ async def test_full_processing_pipeline():
     )
 
     # Create middleware
-    middleware = [LoopDetectionMiddleware(loop_detector)]
+    middleware = cast(
+        list[IResponseMiddleware], [LoopDetectionMiddleware(loop_detector)]
+    )
 
     # Create response processor
     processor = ResponseProcessor(loop_detector, middleware)
@@ -222,7 +228,9 @@ async def test_request_processor_integration():
     )
 
     # Create middleware
-    middleware = [LoopDetectionMiddleware(loop_detector)]
+    middleware = cast(
+        list[IResponseMiddleware], [LoopDetectionMiddleware(loop_detector)]
+    )
 
     # Create response processor
     response_processor = ResponseProcessor(loop_detector, middleware)

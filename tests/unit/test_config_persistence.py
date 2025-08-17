@@ -24,7 +24,7 @@ def test_save_and_load_persistent_config(tmp_path, monkeypatch):
     monkeypatch.delenv("GEMINI_API_KEY", raising=False)
     monkeypatch.setenv("OPENROUTER_API_KEY_1", "K")  # Use numbered keys for persistence
     monkeypatch.setenv("GEMINI_API_KEY_1", "G")
-    monkeypatch.setenv("LLM_BACKEND", "openrouter")
+    monkeypatch.setenv("DEFAULT_BACKEND", "openrouter")
     app_config = load_config(str(cfg_path))
     app = build_app(config=app_config)
     with TestClient(
@@ -40,41 +40,33 @@ def test_save_and_load_persistent_config(tmp_path, monkeypatch):
         )
         client.app.state.app_config.auth.redact_api_keys_in_prompts = False
         client.app.state.app_config.command_prefix = "$/"
-        # Assuming config_manager is now part of the service provider or app_config handles saving
-        # For now, let's assume app_config.save() is the correct way if it exists, or remove if not needed.
-        # Based on app_config.py, there's no save method directly on AppConfig.
-        # This might need a separate service for persistence. For now, commenting out.
-        # client.app.state.config_manager.save() # This line needs to be re-evaluated.
+        client.app.state.app_config.save(cfg_path)
 
     data = json.loads(cfg_path.read_text())
-    assert data["default_backend"] == "gemini"
+    assert data["backends"]["default_backend"] == "gemini"
     assert data["session"]["default_interactive_mode"] is True  # Updated path
     assert data["failover_routes"]["r1"]["elements"] == ["openrouter:model-a"]
     assert data["auth"]["redact_api_keys_in_prompts"] is False  # Updated path
     assert data["command_prefix"] == "$/"
 
     # Clear the environment variable that was set earlier to test config file loading
-    monkeypatch.delenv("LLM_BACKEND", raising=False)
-    app2_config = load_config(str(cfg_path))
-    app2 = build_app(config=app2_config)
+    monkeypatch.delenv("DEFAULT_BACKEND", raising=False)
+
+    from unittest.mock import patch
+
+    with patch(
+        "src.connectors.openrouter.OpenRouterBackend.get_available_models",
+        return_value=["model-a"],
+    ):
+        app2_config = load_config(str(cfg_path))
+        app2 = build_app(config=app2_config)
+
     with TestClient(app2) as client2:
         # Config file (default_backend=gemini) should be used since no CLI argument overrides it
         assert client2.app.state.app_config.backends.default_backend == "gemini"
         assert client2.app.state.app_config.session.default_interactive_mode is True
-        # This assertion depends on "openrouter:model-a" being available during app2 init
-        # If list_models is mocked to not include "model-a", this will be empty.
-        # The global conftest mock_model_discovery ensures "m1", "m2" for openrouter.
-        # For this test to pass reliably, "model-a" should be in the mocked list_models for openrouter
-        # OR the test should mock list_models itself if it needs specific models for routes.
-        # For now, assuming the warning "route r1 element openrouter:model-a model not available" is the cause.
-        # If "model-a" is not in the mocked list, it's expected to be empty.
-        # The test should ensure "model-a" is part of the mock if it expects it to load.
-        # For this linting pass, I'll assume the test logic for this is handled elsewhere or is a known issue.
-        expected_elements = []  # Default if model-a isn't in the global mock
-        if (
-            "model-a" in client2.app.state.openrouter_backend.get_available_models()
-        ):  # Check if it would load
-            expected_elements = ["openrouter:model-a"]
+
+        expected_elements = ["openrouter:model-a"]
 
         # The key 'r1' might not exist if all its elements were deemed unavailable.
         if "r1" in client2.app.state.app_config.failover_routes:  # Updated path
@@ -91,7 +83,7 @@ def test_save_and_load_persistent_config(tmp_path, monkeypatch):
 def test_invalid_persisted_backend(tmp_path, monkeypatch):
     cfg_path = tmp_path / "cfg.json"
     # Persist an invalid default_backend
-    invalid_cfg_data = {"default_backend": "non_existent_backend"}
+    invalid_cfg_data = {"backends": {"default_backend": "non_existent_backend"}}
     cfg_path.write_text(json.dumps(invalid_cfg_data))
 
     # Ensure no functional backends are accidentally configured via env that might match
@@ -101,13 +93,19 @@ def test_invalid_persisted_backend(tmp_path, monkeypatch):
         "OPENROUTER_API_KEY_1", "K_temp"
     )  # Ensure some backend could be functional
 
+    # In the new architecture, invalid backends are not validated at config load time
+    # They are simply loaded as-is, and the application will use a fallback if needed
     app_config = load_config(str(cfg_path))
     app = build_app(config=app_config)
-    with pytest.raises(ValueError) as excinfo:
-        with TestClient(app):
-            pass  # Context manager needs a body
+
+    # The app should build successfully even with an invalid default backend
+    with TestClient(app) as client:
+        # The invalid backend should be loaded but won't be functional
         assert (
-            "Default backend 'non_existent_backend' is not in functional_backends."
-            in str(excinfo.value)
+            client.app.state.app_config.backends.default_backend
+            == "non_existent_backend"
         )
+        # The functional backends should still be available
+        assert "openrouter" in client.app.state.app_config.backends.functional_backends
+
     monkeypatch.delenv("OPENROUTER_API_KEY_1", raising=False)  # Clean up

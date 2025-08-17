@@ -7,6 +7,7 @@ Provides endpoints that can use either old or new architecture based on feature 
 from __future__ import annotations
 
 import logging
+from typing import Any, cast
 
 from fastapi import Depends, Request, Response
 
@@ -82,7 +83,7 @@ async def hybrid_chat_completions(
     logger.debug("Using new SOLID architecture for request processing")
 
     # Use the new RequestProcessor
-    request_processor = service_provider.get_required_service(IRequestProcessor)  # type: ignore
+    request_processor = cast(IRequestProcessor, service_provider.get_required_service(IRequestProcessor))  # type: ignore[type-abstract]
     return await request_processor.process_request(http_request, request_data)
 
 
@@ -115,12 +116,12 @@ async def hybrid_anthropic_messages(
     # Convert Anthropic request to OpenAI format
     from src.anthropic_converters import anthropic_to_openai_request
 
-    openai_request_data = anthropic_to_openai_request(request_data)
+    openai_request_data: dict[str, Any] = anthropic_to_openai_request(request_data)
 
     logger.debug("Using new SOLID architecture for Anthropic request")
 
     # Always use the new RequestProcessor
-    request_processor = service_provider.get_required_service(IRequestProcessor)  # type: ignore
+    request_processor = cast(IRequestProcessor, service_provider.get_required_service(IRequestProcessor))  # type: ignore[type-abstract]
     openai_response = await request_processor.process_request(
         http_request, openai_request_data
     )
@@ -133,10 +134,15 @@ async def hybrid_anthropic_messages(
     from src.anthropic_converters import openai_to_anthropic_response
 
     # Parse the OpenAI response JSON
-    openai_response_data = json.loads(openai_response.body.decode())
+    body_content: bytes | memoryview = openai_response.body
+    if isinstance(body_content, memoryview):
+        body_content = body_content.tobytes()
+    openai_response_data: dict[str, Any] = json.loads(body_content.decode())
 
     # Convert to Anthropic format
-    anthropic_response_data = openai_to_anthropic_response(openai_response_data)
+    anthropic_response_data: dict[str, Any] = openai_to_anthropic_response(
+        openai_response_data
+    )
 
     # Return as FastAPI Response with Anthropic format
     return FastAPIResponse(

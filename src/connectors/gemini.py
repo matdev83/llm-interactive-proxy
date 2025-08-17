@@ -32,27 +32,49 @@ class GeminiBackend(LLMBackend):
         self.api_keys: list[str] = []
 
     async def initialize(self, **kwargs: Any) -> None:
-        """Fetch available models and cache them."""
-        gemini_api_base_url = kwargs.get("gemini_api_base_url")
-        key_name = kwargs.get("key_name")
-        api_key = kwargs.get("api_key")
+        """Store configuration for lazy initialization."""
+        self.gemini_api_base_url = kwargs.get("gemini_api_base_url")
+        self.key_name = kwargs.get("key_name")
+        self.api_key = kwargs.get("api_key")
 
-        if not gemini_api_base_url or not key_name or not api_key:
+        if not self.gemini_api_base_url or not self.key_name or not self.api_key:
             raise ValueError(
                 "gemini_api_base_url, key_name, and api_key are required for GeminiBackend"
             )
 
-        data = await self.list_models(
-            gemini_api_base_url=gemini_api_base_url,
-            key_name=key_name,
-            api_key=api_key,
-        )
-        self.available_models = [
-            m.get("name") for m in data.get("models", []) if m.get("name")
-        ]
+        # Don't make HTTP calls during initialization
+        # Models will be fetched on first use
+
+    async def _ensure_models_loaded(self) -> None:
+        """Fetch models if not already cached."""
+        if (
+            not self.available_models
+            and hasattr(self, "api_key")
+            and self.gemini_api_base_url
+            and self.key_name
+            and self.api_key
+        ):
+            try:
+                data = await self.list_models(
+                    gemini_api_base_url=self.gemini_api_base_url,
+                    key_name=self.key_name,
+                    api_key=self.api_key,
+                )
+                self.available_models = [
+                    m.get("name") for m in data.get("models", []) if m.get("name")
+                ]
+            except Exception as e:
+                logger.warning(f"Failed to fetch Gemini models: {e}")
+                # Return empty list on failure, don't crash
+                self.available_models = []
 
     def get_available_models(self) -> list[str]:
-        """Return cached Gemini model names."""
+        """Return cached Gemini model names. For immediate use, prefer async version."""
+        return list(self.available_models)
+
+    async def get_available_models_async(self) -> list[str]:
+        """Return Gemini model names, fetching them if not cached."""
+        await self._ensure_models_loaded()
         return list(self.available_models)
 
     def _convert_stream_chunk(self, data: dict[str, Any], model: str) -> dict[str, Any]:
@@ -351,12 +373,18 @@ class GeminiBackend(LLMBackend):
         api_key: str | None,
         **kwargs: Any,
     ) -> tuple[str, dict[str, str]]:
+        # Prefer explicit params, then kwargs, then instance attributes set during initialize
         base = (
             gemini_api_base_url
             or openrouter_api_base_url
             or kwargs.get("gemini_api_base_url")
+            or getattr(self, "gemini_api_base_url", None)
         )
-        key = api_key or kwargs.get("api_key")
+        key = (
+            api_key
+            or kwargs.get("api_key")
+            or getattr(self, "api_key", None)
+        )
         if not base or not key:
             raise HTTPException(
                 status_code=500,

@@ -109,7 +109,9 @@ class ScopedServiceProvider(IServiceProvider):
         """Get a service of the given type, throwing if not found."""
         service = self.get_service(service_type)
         if service is None:
-            raise KeyError(f"No service registered for {service_type.__name__}")
+            # Handle Mock objects which don't have __name__
+            type_name = getattr(service_type, "__name__", str(service_type))
+            raise KeyError(f"No service registered for {type_name}")
         return service
 
     def create_scope(self) -> IServiceScope:
@@ -137,7 +139,9 @@ class ServiceProvider(IServiceProvider):
         """Get a service of the given type, throwing if not found."""
         service = self.get_service(service_type)
         if service is None:
-            raise KeyError(f"No service registered for {service_type.__name__}")
+            # Handle Mock objects which don't have __name__
+            type_name = getattr(service_type, "__name__", str(service_type))
+            raise KeyError(f"No service registered for {type_name}")
         return service
 
     def create_scope(self) -> IServiceScope:
@@ -154,36 +158,38 @@ class ServiceProvider(IServiceProvider):
 
         # Check if it's a singleton with existing instance
         if descriptor.instance is not None:
-            return descriptor.instance
+            return descriptor.instance  # type: ignore[no-any-return]
 
         # Handle based on lifetime
         if descriptor.lifetime == ServiceLifetime.SINGLETON:
             # Check for cached singleton instance
             if service_type in self._singleton_instances:
-                return self._singleton_instances[service_type]
+                return self._singleton_instances[service_type]  # type: ignore[no-any-return]
 
             # Create and cache singleton instance
-            instance = self._create_instance(descriptor, scope)
+            instance = self._create_instance(descriptor, scope)  # type: ignore[no-any-return]
             self._singleton_instances[service_type] = instance
-            return instance
+            return instance  # type: ignore[no-any-return]
 
         elif descriptor.lifetime == ServiceLifetime.SCOPED:
             if scope is None:
+                # Handle Mock objects which don't have __name__
+                type_name = getattr(service_type, "__name__", str(service_type))
                 raise RuntimeError(
-                    f"Cannot resolve scoped service {service_type.__name__} from root provider"
+                    f"Cannot resolve scoped service {type_name} from root provider"
                 )
 
             # Check for cached scoped instance
             if service_type in scope._instances:
-                return scope._instances[service_type]
+                return scope._instances[service_type]  # type: ignore[no-any-return]
 
             # Create and cache scoped instance
-            instance = self._create_instance(descriptor, scope)
+            instance = self._create_instance(descriptor, scope)  # type: ignore[no-any-return]
             scope._instances[service_type] = instance
-            return instance
+            return instance  # type: ignore[no-any-return]
 
         else:  # TRANSIENT
-            return self._create_instance(descriptor, scope)
+            return self._create_instance(descriptor, scope)  # type: ignore[no-any-return]
 
     def _create_instance(
         self, descriptor: ServiceDescriptor, scope: ServiceScope | None
@@ -220,14 +226,14 @@ class ServiceProvider(IServiceProvider):
 class ServiceCollection(IServiceCollection):
     """Implementation of a service collection."""
 
-    def __init__(self):
+    def __init__(self) -> None:
         """Initialize a service collection."""
         self._descriptors: dict[type, ServiceDescriptor] = {}
 
     def add_singleton(
         self,
         service_type: type[T],
-        implementation_type: type[T] | None = None,
+        implementation_type: type | None = None,
         implementation_factory: Callable[[IServiceProvider], T] | None = None,
     ) -> IServiceCollection:
         """Register a singleton service."""
@@ -256,7 +262,7 @@ class ServiceCollection(IServiceCollection):
     def add_transient(
         self,
         service_type: type[T],
-        implementation_type: type[T] | None = None,
+        implementation_type: type | None = None,
         implementation_factory: Callable[[IServiceProvider], T] | None = None,
     ) -> IServiceCollection:
         """Register a transient service."""
@@ -275,7 +281,7 @@ class ServiceCollection(IServiceCollection):
     def add_scoped(
         self,
         service_type: type[T],
-        implementation_type: type[T] | None = None,
+        implementation_type: type | None = None,
         implementation_factory: Callable[[IServiceProvider], T] | None = None,
     ) -> IServiceCollection:
         """Register a scoped service."""

@@ -38,29 +38,47 @@ class AnthropicBackend(LLMBackend):
     # Public helpers
     # -----------------------------------------------------------
     async def initialize(self, **kwargs: Any) -> None:
-        """Fetch model list from Anthropic and cache."""
-        anthropic_api_base_url = kwargs.get("anthropic_api_base_url")
-        key_name = kwargs.get("key_name")
-        api_key = kwargs.get("api_key")
+        """Store configuration for lazy initialization."""
+        self.anthropic_api_base_url = kwargs.get("anthropic_api_base_url")
+        self.key_name = kwargs.get("key_name")
+        self.api_key = kwargs.get("api_key")
 
-        if not key_name or not api_key:
+        if not self.key_name or not self.api_key:
             raise ValueError("key_name and api_key are required for AnthropicBackend")
 
-        base_url = anthropic_api_base_url or ANTHROPIC_DEFAULT_BASE_URL
-        try:
-            data = await self.list_models(
-                base_url=base_url, key_name=key_name, api_key=api_key
-            )
-        except HTTPException as e:
-            logger.warning("Could not list Anthropic models: %s", e.detail)
-            return
-        self.available_models = [
-            str(m.get("name", m.get("id")))
-            for m in data
-            if isinstance(m, dict) and m.get("name", m.get("id")) is not None
-        ]
+        # Don't make HTTP calls during initialization
+        # Models will be fetched on first use
+
+    async def _ensure_models_loaded(self) -> None:
+        """Fetch models if not already cached."""
+        if (
+            not self.available_models
+            and hasattr(self, "api_key")
+            and self.key_name
+            and self.api_key
+        ):
+            base_url = self.anthropic_api_base_url or ANTHROPIC_DEFAULT_BASE_URL
+            try:
+                data = await self.list_models(
+                    base_url=base_url, key_name=self.key_name, api_key=self.api_key
+                )
+                self.available_models = [
+                    str(m.get("name", m.get("id")))
+                    for m in data
+                    if isinstance(m, dict) and m.get("name", m.get("id")) is not None
+                ]
+            except Exception as e:
+                logger.warning(f"Failed to fetch Anthropic models: {e}")
+                # Return empty list on failure, don't crash
+                self.available_models = []
 
     def get_available_models(self) -> list[str]:
+        """Return cached Anthropic model names. For immediate use, prefer async version."""
+        return list(self.available_models)
+
+    async def get_available_models_async(self) -> list[str]:
+        """Return Anthropic model names, fetching them if not cached."""
+        await self._ensure_models_loaded()
         return list(self.available_models)
 
     # -----------------------------------------------------------

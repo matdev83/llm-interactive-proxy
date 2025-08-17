@@ -137,7 +137,7 @@ def test_build_app_uses_env(monkeypatch):
         backend_service = app.state.service_provider.get_required_service(
             IBackendService
         )
-        assert backend_service.config.default_backend == "gemini"
+        assert backend_service._config.backends.default_backend == "gemini"
     monkeypatch.delenv("COMMAND_PREFIX", raising=False)
 
 

@@ -16,7 +16,8 @@ from src.core.commands.handlers.base_handler import (
 )
 from src.core.domain.command_context import CommandContext
 from src.core.domain.configuration.session_state_builder import SessionStateBuilder
-from src.core.domain.session import SessionState
+from src.core.domain.session import SessionStateAdapter
+from src.core.interfaces.domain_entities import ISessionState
 
 logger = logging.getLogger(__name__)
 
@@ -24,7 +25,7 @@ logger = logging.getLogger(__name__)
 class SetCommandHandler(BaseCommandHandler):
     """Unified handler for setting various configuration options."""
 
-    def __init__(self):
+    def __init__(self) -> None:
         """Initialize the set command handler."""
         super().__init__("set")
         self._handlers: dict[str, BaseCommandHandler] = {}
@@ -110,7 +111,7 @@ class SetCommandHandler(BaseCommandHandler):
     def handle(
         self,
         param_value: Any,
-        current_state: SessionState,
+        current_state: ISessionState,
         context: CommandContext | None = None,
     ) -> CommandHandlerResult:
         """Handle setting configuration values.
@@ -154,9 +155,26 @@ class SetCommandHandler(BaseCommandHandler):
         for param, value in params.items():
             param_lower = param.lower()
 
-            # Check if we have a specialized handler for this parameter
+            # Normalize the parameter name to support multiple alias forms
+            # (e.g., project-dir, project_dir, projectdirectory, dir)
+            lookup_key = None
             if param_lower in self._handlers:
-                handler = self._handlers[param_lower]
+                lookup_key = param_lower
+            else:
+                normalized = param_lower.replace("_", "-")
+                if normalized in self._handlers:
+                    lookup_key = normalized
+                else:
+                    # Special-case short alias used in legacy tests
+                    if param_lower == "dir":
+                        lookup_key = "project-dir"
+                    # Support verbose alias 'project-directory'
+                    if param_lower == "project-directory":
+                        lookup_key = "project-dir"
+
+            # Check if we have a specialized handler for this parameter
+            if lookup_key:
+                handler = self._handlers[lookup_key]
                 handler_result = handler.handle(value, current_state)
                 results.append(handler_result.message)
 
@@ -218,17 +236,29 @@ class SetCommandHandler(BaseCommandHandler):
                             success = False
 
                     elif param_lower == "model":
-                        model_name = str(value)
+                        model_value = str(value)
                         from src.core.domain.configuration.backend_config import (
                             BackendConfiguration,
                         )
 
-                        builder.with_backend_config(
-                            BackendConfiguration.model_validate(
-                                current_state.backend_config
-                            ).with_model(model_name)
-                        )
-                        results.append(f"model set to {model_name}")
+                        # Parse backend:model format
+                        if ":" in model_value:
+                            backend_name, model_name = model_value.split(":", 1)
+                            # Set both backend and model
+                            builder.with_backend_config(
+                                BackendConfiguration.model_validate(
+                                    current_state.backend_config
+                                ).with_backend_and_model(backend_name, model_name)
+                            )
+                            results.append(f"model set to {backend_name}:{model_name}")
+                        else:
+                            # Just set the model
+                            builder.with_backend_config(
+                                BackendConfiguration.model_validate(
+                                    current_state.backend_config
+                                ).with_model(model_value)
+                            )
+                            results.append(f"model set to {model_value}")
 
                     elif param_lower == "backend":
                         backend_name = str(value)
@@ -400,6 +430,10 @@ class SetCommandHandler(BaseCommandHandler):
                             )
                             success = False
 
+                    elif param_lower in ("project", "project-name"):
+                        project_name = str(value)
+                        builder.with_project(project_name)
+                        results.append(f"Project set to {project_name}")
                     else:
                         results.append(f"Unknown parameter: {param}")
                         success = False
@@ -412,11 +446,14 @@ class SetCommandHandler(BaseCommandHandler):
         # Build the final state
         new_state = builder.build()
 
+        # Wrap concrete SessionState into ISessionState-compatible adapter
+        new_state_adapter = SessionStateAdapter(new_state)
+
         # Build the result message
         result_message = "; ".join(results)
 
         return CommandHandlerResult(
             success=success,
             message=result_message if result_message else "Settings processed.",
-            new_state=new_state,
+            new_state=new_state_adapter,
         )

@@ -6,14 +6,6 @@ from typing import Any
 from src.core.domain.processed_result import ProcessedResult
 
 
-class CommandResult:
-    """Result of a command execution."""
-
-    success: bool
-    message: str | None = None
-    data: Any = None
-
-
 class ICommandService(ABC):
     """Interface for command processing operations.
 

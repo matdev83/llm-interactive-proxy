@@ -115,6 +115,11 @@ class IBackendConfig(abc.ABC):
     def get_route_elements(self, name: str) -> list[str]:
         """Get elements of a failover route."""
 
+    @property
+    @abc.abstractmethod
+    def failover_routes(self) -> dict[str, dict[str, Any]]:
+        """Get the failover routes."""
+
 
 class IReasoningConfig(abc.ABC):
     """Interface for reasoning configuration."""
@@ -134,6 +139,11 @@ class IReasoningConfig(abc.ABC):
     def temperature(self) -> float | None:
         """Get the temperature."""
 
+    @property
+    @abc.abstractmethod
+    def gemini_generation_config(self) -> dict[str, Any] | None:
+        """Get the Gemini generation configuration."""
+
     @abc.abstractmethod
     def with_reasoning_effort(self, effort: str | None) -> IReasoningConfig:
         """Create a new config with updated reasoning effort."""
@@ -145,6 +155,10 @@ class IReasoningConfig(abc.ABC):
     @abc.abstractmethod
     def with_temperature(self, temperature: float | None) -> IReasoningConfig:
         """Create a new config with updated temperature."""
+
+    @abc.abstractmethod
+    def with_gemini_generation_config(self, config: dict[str, Any] | None) -> IReasoningConfig:
+        """Create a new config with updated Gemini generation configuration."""
 
 
 class ILoopDetectionConfig(abc.ABC):
@@ -167,6 +181,18 @@ class ILoopDetectionConfig(abc.ABC):
     @abc.abstractmethod
     def with_tool_loop_detection_enabled(self, enabled: bool) -> ILoopDetectionConfig:
         """Create a new config with updated tool loop detection enabled status."""
+
+    @abc.abstractmethod
+    def with_tool_loop_max_repeats(self, max_repeats: int | None) -> ILoopDetectionConfig:
+        """Create a new config with updated tool loop max repeats."""
+
+    @abc.abstractmethod
+    def with_tool_loop_ttl(self, ttl: int | None) -> ILoopDetectionConfig:
+        """Create a new config with updated tool loop TTL."""
+
+    @abc.abstractmethod
+    def with_tool_loop_mode(self, mode: str | None) -> ILoopDetectionConfig:
+        """Create a new config with updated tool loop mode."""
 
 
 class IBackendSpecificConfig(abc.ABC):

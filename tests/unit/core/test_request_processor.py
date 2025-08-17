@@ -3,10 +3,11 @@ Tests for the RequestProcessor implementation.
 """
 
 import json
+from typing import cast
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-from fastapi import HTTPException
+from fastapi import HTTPException, Request
 from src.core.domain.commands import CommandResult
 from src.core.domain.processed_result import ProcessedResult
 from src.core.interfaces.backend_service import BackendError
@@ -77,7 +78,8 @@ async def test_process_request_basic():
     backend_service.add_response(response)
 
     # Act
-    result = await processor.process_request(request, request_data)
+    response_obj = await processor.process_request(cast(Request, request), request_data)
+    result = json.loads(response_obj.body)
 
     # Assert
     assert result["id"] == response.id
@@ -134,7 +136,8 @@ async def test_process_request_with_commands():
     backend_service.add_response(response)
 
     # Act
-    result = await processor.process_request(request, request_data)
+    response_obj = await processor.process_request(cast(Request, request), request_data)
+    result = json.loads(response_obj.body)
 
     # Assert
     assert result["id"] == response.id
@@ -178,7 +181,8 @@ async def test_process_command_only_request():
     )
 
     # Act
-    result = await processor.process_request(request, request_data)
+    response_obj = await processor.process_request(cast(Request, request), request_data)
+    result = json.loads(response_obj.body)
 
     # Assert
     assert result["id"] == "proxy_cmd_processed"
@@ -246,7 +250,7 @@ async def test_process_streaming_request():
         backend_service, "call_completion", return_value=mock_stream_response()
     ):
         # Act
-        response = await processor.process_request(request, request_data)
+        response = await processor.process_request(cast(Request, request), request_data)
 
         # Assert
         assert isinstance(response, StreamingResponse)
@@ -303,7 +307,7 @@ async def test_backend_error_handling():
 
     # Act & Assert
     with pytest.raises(HTTPException) as exc:
-        await processor.process_request(request, request_data)
+        await processor.process_request(cast(Request, request), request_data)
 
     assert exc.value.status_code == 500
     assert "API unavailable" in str(exc.value.detail)

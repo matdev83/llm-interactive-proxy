@@ -16,7 +16,8 @@ from src.core.commands.handlers.base_handler import (
 )
 from src.core.domain.command_context import CommandContext
 from src.core.domain.configuration.session_state_builder import SessionStateBuilder
-from src.core.domain.session import SessionState
+from src.core.domain.session import SessionStateAdapter
+from src.core.interfaces.domain_entities import ISessionState
 from src.models import parse_model_backend
 
 logger = logging.getLogger(__name__)
@@ -25,7 +26,7 @@ logger = logging.getLogger(__name__)
 class OneOffCommandHandler(BaseCommandHandler):
     """Handler for setting a one-time override for the backend and model."""
 
-    def __init__(self):
+    def __init__(self) -> None:
         """Initialize the oneoff command handler."""
         super().__init__("oneoff")
 
@@ -64,7 +65,7 @@ class OneOffCommandHandler(BaseCommandHandler):
     def handle(
         self,
         param_value: Any,
-        current_state: SessionState,
+        current_state: ISessionState,
         context: CommandContext | None = None,
     ) -> CommandHandlerResult:
         """Handle setting a one-time override for the backend and model.
@@ -113,9 +114,9 @@ class OneOffCommandHandler(BaseCommandHandler):
 
         # Create new state with oneoff route
         builder = SessionStateBuilder(current_state)
-        new_state = builder.with_backend_config(
+        new_state = SessionStateAdapter(builder.with_backend_config(
             current_state.backend_config.with_oneoff_route(backend, model)
-        ).build()
+        ).build())
 
         return CommandHandlerResult(
             success=True,

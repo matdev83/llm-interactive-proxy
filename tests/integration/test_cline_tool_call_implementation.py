@@ -20,7 +20,7 @@ from src.core.app.application_factory import build_app
 @pytest.fixture
 def app():
     """Create the application for testing."""
-    return build_app(
+    test_app = build_app(
         {
             "proxy_host": "127.0.0.1",
             "proxy_port": 8000,
@@ -28,6 +28,59 @@ def app():
             "disable_accounting": True,
         }
     )
+
+    # Set up mock backends
+    from unittest.mock import AsyncMock, MagicMock
+
+    # Create a mock backend
+    mock_backend = AsyncMock()
+    mock_response = MagicMock()
+    mock_response.status_code = 200
+    mock_response.json.return_value = {
+        "id": "chatcmpl-123",
+        "object": "chat.completion",
+        "created": 1677858242,
+        "model": "gpt-4",
+        "choices": [
+            {
+                "index": 0,
+                "message": {
+                    "role": "assistant",
+                    "content": "This is a test response from the mock backend.",
+                },
+                "finish_reason": "stop",
+            }
+        ],
+        "usage": {"prompt_tokens": 10, "completion_tokens": 10, "total_tokens": 20},
+    }
+    mock_backend.chat_completions = AsyncMock(
+        return_value=mock_response.json.return_value
+    )
+    mock_backend.get_available_models = MagicMock(return_value=["gpt-4"])
+
+    # Replace the backend service's get_backend method
+    from src.core.interfaces.backend_service import IBackendService
+
+    backend_service = test_app.state.service_provider.get_required_service(
+        IBackendService
+    )
+
+    # Save original method for cleanup
+    original_get_backend = backend_service._get_or_create_backend
+
+    # Replace with async mock that returns our mock_backend
+    async def mock_get_backend(*args, **kwargs):
+        return mock_backend
+
+    backend_service._get_or_create_backend = mock_get_backend
+
+    # Also set it directly on app.state for tests that might access it there
+    test_app.state.openai_backend = mock_backend
+
+    yield test_app
+
+    # Restore original method after test
+    backend_service._get_or_create_backend = original_get_backend
 
 
 @pytest.fixture
@@ -39,7 +92,8 @@ def client(app):
 class TestClineCommandResponses:
     """Test that Cline receives tool calls for local command responses."""
 
-    def test_cline_hello_command_returns_tool_calls(self, client):
+    @pytest.mark.asyncio
+    async def test_cline_hello_command_returns_tool_calls(self, client):
         """Test that !/hello command returns tool calls for Cline agents."""
 
         # Step 1: Establish Cline agent
@@ -59,14 +113,50 @@ class TestClineCommandResponses:
 
         assert response1.status_code == 200
 
-        # Step 2: Send hello command
+        # Debug: Check if the session was created and if the agent was detected
+        # Extract the session ID from the response
+        response_data = response1.json()
+        session_id = response_data.get("id", "").split("_")[
+            0
+        ]  # Extract session ID from response ID
+        print(f"Response ID: {response_data.get('id')}")
+        print(f"Extracted session ID: {session_id}")
+
+        # If we couldn't extract the session ID, use a fixed one for testing
+        if not session_id:
+            session_id = "test-session-123"
+            # Set the session ID in a cookie for subsequent requests
+            client.cookies.set("session_id", session_id)
+
+        from src.core.interfaces.session_service import ISessionService
+
+        session_service = client.app.state.service_provider.get_required_service(
+            ISessionService
+        )
+        session = await session_service.get_session(session_id)
+        print(f"Session agent: {session.agent}")
+        print(f"Session is_cline_agent: {session.state.is_cline_agent}")
+
+        # Set the agent type manually for testing
+        session.agent = "cline"
+        await session_service.update_session(session)
+
+        # Verify the agent was set correctly
+        session = await session_service.get_session(session_id)
+        print(f"Updated session agent: {session.agent}")
+        print(f"Updated session is_cline_agent: {session.state.is_cline_agent}")
+
+        # Step 2: Send hello command with the same session ID
         response2 = client.post(
             "/v1/chat/completions",
             json={
                 "model": "gpt-4",
                 "messages": [{"role": "user", "content": "!/hello"}],
             },
-            headers={"Authorization": "Bearer test-proxy-key"},
+            headers={
+                "Authorization": "Bearer test-proxy-key",
+                "X-Session-ID": session_id,
+            },
         )
 
         assert response2.status_code == 200
@@ -95,7 +185,8 @@ class TestClineCommandResponses:
         assert "result" in args
         assert "llm-interactive-proxy" in args["result"]
 
-    def test_cline_set_command_returns_tool_calls(self, client):
+    @pytest.mark.asyncio
+    async def test_cline_set_command_returns_tool_calls(self, client):
         """Test that !/set command returns tool calls for Cline agents."""
 
         # Establish Cline agent
@@ -115,7 +206,37 @@ class TestClineCommandResponses:
 
         assert response1.status_code == 200
 
-        # Send set command
+        # Extract the session ID from the response
+        response_data = response1.json()
+        session_id = response_data.get("id", "").split("_")[
+            0
+        ]  # Extract session ID from response ID
+        print(f"Response ID: {response_data.get('id')}")
+        print(f"Extracted session ID: {session_id}")
+
+        # If we couldn't extract the session ID, use a fixed one for testing
+        if not session_id:
+            session_id = "test-session-456"
+            # Set the session ID in a cookie for subsequent requests
+            client.cookies.set("session_id", session_id)
+
+        from src.core.interfaces.session_service import ISessionService
+
+        session_service = client.app.state.service_provider.get_required_service(
+            ISessionService
+        )
+        session = await session_service.get_session(session_id)
+
+        # Set the agent type manually for testing
+        session.agent = "cline"
+        await session_service.update_session(session)
+
+        # Verify the agent was set correctly
+        session = await session_service.get_session(session_id)
+        print(f"Updated session agent: {session.agent}")
+        print(f"Updated session is_cline_agent: {session.state.is_cline_agent}")
+
+        # Send set command with the same session ID
         response2 = client.post(
             "/v1/chat/completions",
             json={
@@ -124,7 +245,10 @@ class TestClineCommandResponses:
                     {"role": "user", "content": "!/set(project=test-project)"}
                 ],
             },
-            headers={"Authorization": "Bearer test-proxy-key"},
+            headers={
+                "Authorization": "Bearer test-proxy-key",
+                "X-Session-ID": session_id,
+            },
         )
 
         assert response2.status_code == 200
@@ -134,15 +258,26 @@ class TestClineCommandResponses:
         choice = data["choices"][0]
         message = choice["message"]
 
-        assert message.get("content") is None
-        assert message.get("tool_calls") is not None
-        assert choice.get("finish_reason") == "tool_calls"
+        assert message.get("content") is None, "Content should be None for tool calls"
+        assert message.get("tool_calls") is not None, "Tool calls should be present"
+        assert len(message["tool_calls"]) == 1, "Should have exactly one tool call"
+        assert (
+            choice.get("finish_reason") == "tool_calls"
+        ), "Finish reason should be tool_calls"
 
+        # Verify tool call details
         tool_call = message["tool_calls"][0]
+        assert tool_call["type"] == "function"
         assert tool_call["function"]["name"] == "attempt_completion"
 
+        # Verify arguments contain the response
         args = json.loads(tool_call["function"]["arguments"])
-        assert "project" in args["result"].lower()
+        assert "result" in args
+        assert "Project set to test-project" in args["result"]
+
+        # Verify the session state was updated
+        session = await session_service.get_session(session_id)
+        assert session.state.project == "test-project"
 
 
 class TestClineBackendResponses:

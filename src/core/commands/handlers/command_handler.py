@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import abc
 import logging
-from typing import Any
+from typing import Any, cast
 
 from src.core.domain.command_results import CommandResult
 from src.core.domain.session import Session
@@ -17,8 +17,10 @@ from src.core.domain.session import Session
 logger = logging.getLogger(__name__)
 
 
-class ICommandHandler(abc.ABC):
-    """Interface for command handlers."""
+class ILegacyCommandHandler(abc.ABC):
+    """Interface for legacy command handlers that use execute() method."""
+
+    aliases: list[str] = []
 
     @property
     @abc.abstractmethod
@@ -54,8 +56,10 @@ class ICommandHandler(abc.ABC):
         """
 
 
-class BackendCommandHandler(ICommandHandler):
+class BackendCommandHandler(ILegacyCommandHandler):
     """Command handler for setting backend-related configuration."""
+
+    aliases = []
 
     @property
     def name(self) -> str:
@@ -98,6 +102,8 @@ class BackendCommandHandler(ICommandHandler):
             backend_config = session.state.backend_config.with_backend(backend_name)
 
             # Create new session state with updated backend config
+            # Create new session state with updated backend config
+            from src.core.domain.configuration.backend_config import BackendConfiguration
             from src.core.domain.session import SessionState, SessionStateAdapter
             from src.core.interfaces.domain_entities import ISessionState
 
@@ -105,15 +111,21 @@ class BackendCommandHandler(ICommandHandler):
             if isinstance(session.state, SessionStateAdapter):
                 # Working with SessionStateAdapter - get the underlying state
                 old_state = session.state._state
-                new_state = old_state.with_backend_config(backend_config)
+                new_state = old_state.with_backend_config(
+                    cast(BackendConfiguration, backend_config)
+                )
                 updated_state = SessionStateAdapter(new_state)
             elif isinstance(session.state, SessionState):
                 # Working with SessionState directly
-                new_state = session.state.with_backend_config(backend_config)
+                new_state = session.state.with_backend_config(
+                    cast(BackendConfiguration, backend_config)
+                )
                 updated_state = SessionStateAdapter(new_state)
             else:
                 # Fallback for other implementations
                 updated_state = session.state
+
+            session.update_state(updated_state)
 
             session.update_state(updated_state)
 
@@ -131,8 +143,10 @@ class BackendCommandHandler(ICommandHandler):
             )
 
 
-class ModelCommandHandler(ICommandHandler):
+class ModelCommandHandler(ILegacyCommandHandler):
     """Command handler for setting model-related configuration."""
+
+    aliases = []
 
     @property
     def name(self) -> str:
@@ -175,18 +189,22 @@ class ModelCommandHandler(ICommandHandler):
             backend_config = session.state.backend_config.with_model(model_name)
 
             # Create new session state with updated backend config
+            from src.core.domain.configuration.backend_config import BackendConfiguration
             from src.core.domain.session import SessionState, SessionStateAdapter
             from src.core.interfaces.domain_entities import ISessionState
+
+            # Cast to concrete type
+            concrete_backend_config = cast(BackendConfiguration, backend_config)
 
             updated_state: ISessionState
             if isinstance(session.state, SessionStateAdapter):
                 # Working with SessionStateAdapter - get the underlying state
                 old_state = session.state._state
-                new_state = old_state.with_backend_config(backend_config)
+                new_state = old_state.with_backend_config(concrete_backend_config)
                 updated_state = SessionStateAdapter(new_state)
             elif isinstance(session.state, SessionState):
                 # Working with SessionState directly
-                new_state = session.state.with_backend_config(backend_config)
+                new_state = session.state.with_backend_config(concrete_backend_config)
                 updated_state = SessionStateAdapter(new_state)
             else:
                 # Fallback for other implementations
@@ -209,8 +227,10 @@ class ModelCommandHandler(ICommandHandler):
             )
 
 
-class TemperatureCommandHandler(ICommandHandler):
+class TemperatureCommandHandler(ILegacyCommandHandler):
     """Command handler for setting temperature configuration."""
+
+    aliases = []
 
     @property
     def name(self) -> str:
@@ -264,18 +284,22 @@ class TemperatureCommandHandler(ICommandHandler):
             )
 
             # Create new session state with updated reasoning config
+            from src.core.domain.configuration.reasoning_config import ReasoningConfiguration
             from src.core.domain.session import SessionState, SessionStateAdapter
             from src.core.interfaces.domain_entities import ISessionState
+
+            # Cast to concrete type
+            concrete_reasoning_config = cast(ReasoningConfiguration, reasoning_config)
 
             updated_state: ISessionState
             if isinstance(session.state, SessionStateAdapter):
                 # Working with SessionStateAdapter - get the underlying state
                 old_state = session.state._state
-                new_state = old_state.with_reasoning_config(reasoning_config)
+                new_state = old_state.with_reasoning_config(concrete_reasoning_config)
                 updated_state = SessionStateAdapter(new_state)
             elif isinstance(session.state, SessionState):
                 # Working with SessionState directly
-                new_state = session.state.with_reasoning_config(reasoning_config)
+                new_state = session.state.with_reasoning_config(concrete_reasoning_config)
                 updated_state = SessionStateAdapter(new_state)
             else:
                 # Fallback for other implementations
@@ -303,84 +327,12 @@ class TemperatureCommandHandler(ICommandHandler):
             )
 
 
-class ProjectCommandHandler(ICommandHandler):
-    """Command handler for setting project configuration."""
-
-    @property
-    def name(self) -> str:
-        return "project"
-
-    @property
-    def description(self) -> str:
-        return "Set the current project name"
-
-    @property
-    def usage(self) -> str:
-        return "project([name=project-name])"
-
-    async def execute(
-        self,
-        args: dict[str, str],
-        session: Session,
-        context: dict[str, Any] | None = None,
-    ) -> CommandResult:
-        """Set the project name.
-
-        Args:
-            args: Command arguments with project name
-            session: Current session
-            context: Additional context data
-
-        Returns:
-            CommandResult indicating success or failure
-        """
-        project_name = args.get("name")
-        if not project_name:
-            return CommandResult(
-                success=False,
-                message="Project name must be specified",
-                data={"name": self.name},
-            )
-
-        try:
-            # Create new session state with updated project
-            from src.core.domain.session import SessionState, SessionStateAdapter
-            from src.core.interfaces.domain_entities import ISessionState
-
-            updated_state: ISessionState
-            if isinstance(session.state, SessionStateAdapter):
-                # Working with SessionStateAdapter - get the underlying state
-                old_state = session.state._state
-                new_state = old_state.with_project(project_name)
-                updated_state = SessionStateAdapter(new_state)
-            elif isinstance(session.state, SessionState):
-                # Working with SessionState directly
-                new_state = session.state.with_project(project_name)
-                updated_state = SessionStateAdapter(new_state)
-            else:
-                # Fallback for other implementations
-                updated_state = session.state
-
-            session.update_state(updated_state)
-
-            return CommandResult(
-                success=True,
-                message=f"Project set to {project_name}",
-                data={"name": self.name, "project": project_name},
-            )
-        except Exception as e:
-            logger.error(f"Error setting project: {e}")
-            return CommandResult(
-                success=False,
-                message=f"Error setting project: {e}",
-                data={"name": self.name},
-            )
-
-
-class HelpCommandHandler(ICommandHandler):
+class HelpCommandHandler(ILegacyCommandHandler):
     """Command handler for providing help information."""
 
-    def __init__(self, command_registry: dict[str, ICommandHandler] | None = None):
+    def __init__(
+        self, command_registry: dict[str, ILegacyCommandHandler] | None = None
+    ):
         """Initialize the help command handler.
 
         Args:
@@ -400,7 +352,7 @@ class HelpCommandHandler(ICommandHandler):
     def usage(self) -> str:
         return "help([command=command-name])"
 
-    def set_registry(self, registry: dict[str, ICommandHandler]) -> None:
+    def set_registry(self, registry: dict[str, ILegacyCommandHandler]) -> None:
         """Set the command registry.
 
         Args:

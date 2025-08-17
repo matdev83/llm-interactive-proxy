@@ -2,6 +2,7 @@
 Integration tests for failover routes in the new SOLID architecture.
 """
 
+from typing import cast
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -210,7 +211,7 @@ async def test_failover_service_routes():
 
 
 @pytest.mark.asyncio
-async def test_backend_service_failover():
+async def test_backend_service_failover(monkeypatch):
     """Test the backend service failover functionality."""
     # Create a mock config
     mock_config = MagicMock(spec=IConfig)
@@ -232,14 +233,19 @@ async def test_backend_service_failover():
     from tests.mocks.mock_backend_service import MockBackendService
 
     services = ServiceCollection()
-    services.add_singleton(IConfig, implementation_factory=lambda _: mock_config)
     services.add_singleton(
-        IBackendService, implementation_factory=lambda _: MockBackendService()
+        cast(type[IConfig], IConfig), implementation_factory=lambda _: mock_config
+    )
+    services.add_singleton(
+        cast(type[IBackendService], IBackendService),
+        implementation_factory=lambda _: MockBackendService(),
     )
 
     service_provider = services.build_service_provider()
 
-    backend_service = service_provider.get_service(IBackendService)
+    backend_service = service_provider.get_service(
+        cast(type[IBackendService], IBackendService)
+    )
     assert backend_service is not None
 
     # Create a test request
@@ -267,7 +273,9 @@ async def test_backend_service_failover():
         else:
             raise Exception("Test error")
 
-    backend_service.call_completion = AsyncMock(side_effect=mock_call_completion)
+    monkeypatch.setattr(
+        backend_service, "call_completion", AsyncMock(side_effect=mock_call_completion)
+    )
 
     # Call the backend service
     response = await backend_service.call_completion(request)

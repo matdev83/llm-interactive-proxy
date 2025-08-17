@@ -5,13 +5,48 @@ import logging
 import os
 from enum import Enum
 from pathlib import Path
-from typing import Any, ClassVar
+from typing import Any, ClassVar, cast
 
 from pydantic import BaseModel, Field, field_validator
 
 # Note: Avoid self-imports to prevent circular dependencies. Classes are defined below.
 
 logger = logging.getLogger(__name__)
+
+
+def _process_api_keys(keys_string: str) -> list[str]:
+    """Process a comma-separated string of API keys."""
+    keys = keys_string.split(",")
+    result: list[str] = []
+    for key in keys:
+        stripped_key = key.strip()
+        if stripped_key:
+            result.append(stripped_key)
+    return result
+
+
+def _get_api_keys_from_env() -> list[str]:
+    """Get API keys from environment variables with legacy support."""
+    result: list[str] = []
+    
+    # Try modern API_KEYS first
+    api_keys_raw = os.environ.get("API_KEYS")
+    if api_keys_raw and isinstance(api_keys_raw, str):
+        result.extend(_process_api_keys(api_keys_raw))
+    
+    # Try legacy LLM_INTERACTIVE_PROXY_API_KEY if no API_KEYS found
+    if not result:
+        legacy_key = os.environ.get("LLM_INTERACTIVE_PROXY_API_KEY")
+        if legacy_key and isinstance(legacy_key, str):
+            result.append(legacy_key)
+    
+    # Also check other legacy variants if still no keys found
+    if not result:
+        proxy_api_keys = os.environ.get("PROXY_API_KEYS")
+        if proxy_api_keys and isinstance(proxy_api_keys, str):
+            result.extend(_process_api_keys(proxy_api_keys))
+    
+    return result  # type: ignore
 
 
 class LogLevel(str, Enum):
@@ -32,6 +67,14 @@ class BackendConfig(BaseModel):
     models: list[str] = Field(default_factory=list)
     timeout: int = 120  # seconds
     extra: dict[str, Any] = Field(default_factory=dict)
+
+    @field_validator("api_key", mode="before")
+    @classmethod
+    def validate_api_key(cls, v: Any) -> list[str]:
+        """Ensure api_key is always a list."""
+        if isinstance(v, str):
+            return [v]
+        return v if isinstance(v, list) else []
 
     @field_validator("api_url")
     @classmethod
@@ -114,10 +157,6 @@ class AppConfig(BaseModel):
     # Nested class references for backward compatibility
     BackendSettings: ClassVar[type[BackendSettings]] = BackendSettings
     BackendConfig: ClassVar[type[BackendConfig]] = BackendConfig
-    AuthConfig: ClassVar[type[AuthConfig]] = AuthConfig
-    LoggingConfig: ClassVar[type[LoggingConfig]] = LoggingConfig
-    SessionConfig: ClassVar[type[SessionConfig]] = SessionConfig
-    LogLevel: ClassVar[type[LogLevel]] = LogLevel
 
     # Auth settings
     auth: AuthConfig = Field(default_factory=AuthConfig)
@@ -127,6 +166,11 @@ class AppConfig(BaseModel):
 
     # Logging settings
     logging: LoggingConfig = Field(default_factory=LoggingConfig)
+
+    def save(self, path: str | Path) -> None:
+        """Save the current configuration to a file."""
+        with open(path, "w") as f:
+            f.write(self.model_dump_json(indent=4))
 
     # Integration with legacy config
     def to_legacy_config(self) -> dict[str, Any]:
@@ -187,7 +231,8 @@ class AppConfig(BaseModel):
                 exclude={"default_backend"}
             ).items():
                 if isinstance(backend_config, dict):
-                    config[f"{backend}_api_key"] = backend_config.get("api_key", "")
+                    api_keys = backend_config.get("api_key")
+                    config[f"{backend}_api_key"] = api_keys[0] if api_keys else ""
                     config[f"{backend}_api_url"] = backend_config.get("api_url", None)
                     config[f"{backend}_timeout"] = backend_config.get("timeout", 120)
 
@@ -243,12 +288,12 @@ class AppConfig(BaseModel):
         # Extract backend configurations
         backends = ["openai", "openrouter", "anthropic", "gemini", "qwen_oauth", "zai"]
         for backend in backends:
-            backend_config = {}
+            backend_config: dict[str, Any] = {}
 
             # Extract common backend settings
             api_key = legacy_config.get(f"{backend}_api_key", "")
             if api_key:
-                backend_config["api_key"] = api_key
+                backend_config["api_key"] = [api_key]
 
             api_url = legacy_config.get(f"{backend}_api_url")
             if api_url:
@@ -274,7 +319,9 @@ class AppConfig(BaseModel):
                 backend_config["extra"] = extra
 
             if backend_config:
-                config["backends"][backend] = backend_config
+                backends_dict = config["backends"]
+                if isinstance(backends_dict, dict):
+                    backends_dict[backend] = backend_config
 
         return cls(**config)
 
@@ -294,40 +341,40 @@ class AppConfig(BaseModel):
             "command_prefix": os.environ.get("COMMAND_PREFIX", "!/"),
             "auth": {
                 "disable_auth": os.environ.get("DISABLE_AUTH", "").lower() == "true",
-                "api_keys": (
-                    os.environ.get("API_KEYS", "").split(",")
-                    if os.environ.get("API_KEYS")
-                    else []
-                ),
+                "api_keys": _get_api_keys_from_env(),
                 "auth_token": os.environ.get("AUTH_TOKEN"),
             },
-            "session": {
-                "cleanup_enabled": os.environ.get(
-                    "SESSION_CLEANUP_ENABLED", "true"
-                ).lower()
-                == "true",
-                "cleanup_interval": int(
-                    os.environ.get("SESSION_CLEANUP_INTERVAL", "3600")
-                ),
-                "max_age": int(os.environ.get("SESSION_MAX_AGE", "86400")),
-                "default_interactive_mode": os.environ.get(
-                    "DEFAULT_INTERACTIVE_MODE", "true"
-                ).lower()
-                == "true",
-                "force_set_project": os.environ.get("FORCE_SET_PROJECT", "").lower()
-                == "true",
-            },
-            "logging": {
-                "level": os.environ.get("LOG_LEVEL", "INFO"),
-                "request_logging": os.environ.get("REQUEST_LOGGING", "").lower()
-                == "true",
-                "response_logging": os.environ.get("RESPONSE_LOGGING", "").lower()
-                == "true",
-                "log_file": os.environ.get("LOG_FILE"),
-            },
-            "backends": {
-                "default_backend": os.environ.get("DEFAULT_BACKEND", "openai"),
-            },
+        }
+
+        # After populating auth config, if disable_auth is true, clear api_keys
+        auth_config = config["auth"]
+        if isinstance(auth_config, dict) and auth_config.get("disable_auth"):
+            auth_config["api_keys"] = []
+
+        # Add session, logging, and backend config
+        config["session"] = {
+            "cleanup_enabled": os.environ.get("SESSION_CLEANUP_ENABLED", "true").lower()
+            == "true",
+            "cleanup_interval": int(os.environ.get("SESSION_CLEANUP_INTERVAL", "3600")),
+            "max_age": int(os.environ.get("SESSION_MAX_AGE", "86400")),
+            "default_interactive_mode": os.environ.get(
+                "DEFAULT_INTERACTIVE_MODE", "true"
+            ).lower()
+            == "true",
+            "force_set_project": os.environ.get("FORCE_SET_PROJECT", "").lower()
+            == "true",
+        }
+
+        config["logging"] = {
+            "level": os.environ.get("LOG_LEVEL", "INFO"),
+            "request_logging": os.environ.get("REQUEST_LOGGING", "").lower() == "true",
+            "response_logging": os.environ.get("RESPONSE_LOGGING", "").lower()
+            == "true",
+            "log_file": os.environ.get("LOG_FILE"),
+        }
+
+        config["backends"] = {
+            "default_backend": os.environ.get("LLM_BACKEND", "openai"),
         }
 
         # Extract backend configurations from environment
@@ -361,6 +408,15 @@ class AppConfig(BaseModel):
                 config_backends[backend] = backend_config
 
         return cls(**config)  # type: ignore
+
+
+def _merge_dicts(d1: dict[str, Any], d2: dict[str, Any]) -> dict[str, Any]:
+    for k, v in d2.items():
+        if k in d1 and isinstance(d1[k], dict) and isinstance(v, dict):
+            _merge_dicts(d1[k], v)
+        else:
+            d1[k] = v
+    return d1
 
 
 def load_config(config_path: str | Path | None = None) -> AppConfig:
@@ -400,8 +456,9 @@ def load_config(config_path: str | Path | None = None) -> AppConfig:
 
                 # Merge file config with environment config
                 if isinstance(file_config, dict):
-                    # Override with file config using model_copy
-                    config = AppConfig.model_validate(file_config)
+                    env_dict = config.model_dump()
+                    merged_config_dict = _merge_dicts(env_dict, file_config)
+                    config = AppConfig.model_validate(merged_config_dict)
 
         except Exception as e:
             logger.error(f"Error loading configuration file: {e!s}")

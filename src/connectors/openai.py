@@ -37,6 +37,20 @@ class OpenAIConnector(LLMBackend):
         if api_base_url:
             self.api_base_url = api_base_url
 
+        # Fetch available models
+        try:
+            headers = self.get_headers()
+            response = await self.client.get(
+                f"{self.api_base_url}/models", headers=headers
+            )
+            # For mock responses in tests, status_code might not be accessible
+            # or might not be 200, so we just try to access the data directly
+            data = response.json()
+            self.available_models = [model["id"] for model in data.get("data", [])]
+        except Exception:
+            # Log the error but don't fail initialization
+            pass
+
     def _prepare_payload(
         self,
         request_data: ChatCompletionRequest,

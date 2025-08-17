@@ -48,6 +48,8 @@ def test_failover_key_rotation(httpx_mock: HTTPXMock, monkeypatch):
 
         # Don't assert on exact mock usage since test may fail before reaching them
         # Just check the response if we got one
+        # Don't assert on exact mock usage since test may fail before reaching them
+        # Just check the response if we got one
         if resp.status_code == 200:
             assert resp.json()["choices"][0]["message"]["content"].endswith("ok")
 

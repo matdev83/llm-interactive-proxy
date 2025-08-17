@@ -45,21 +45,35 @@ async def test_loop_detection_with_mocked_backend():
     """Test loop detection with a mocked backend."""
 
     from src.core.app.application_factory import build_app
+    from src.core.config.app_config import (
+        AppConfig,
+        AuthConfig,
+        BackendConfig,
+        BackendSettings,
+        SessionConfig,
+    )
 
-    # Import the config loader to patch it before building the app
-    from src.core.config.config_loader import _load_config
+    # Create a test config with auth disabled
+    test_config = AppConfig(
+        host="localhost",
+        port=9000,
+        proxy_timeout=10,
+        command_prefix="!/",
+        backends=BackendSettings(
+            default_backend="openai",
+            openai=BackendConfig(api_key=["test_openai_key"]),
+            openrouter=BackendConfig(api_key=["test_openrouter_key"]),
+            anthropic=BackendConfig(api_key=["test_anthropic_key"]),
+        ),
+        auth=AuthConfig(disable_auth=True, api_keys=["test_api_key"]),
+        session=SessionConfig(
+            cleanup_enabled=False,
+            default_interactive_mode=True,
+        ),
+    )
 
-    # Mock the config loader to include disable_auth during app build
-    def mock_load_config():
-        config = _load_config()
-        config["disable_auth"] = True
-        return config
-
-    with patch(
-        "src.core.app.application_factory._load_config", side_effect=mock_load_config
-    ):
-        # Create the app (now with auth disabled from the start)
-        app = build_app()
+    # Create the app with auth disabled
+    app = build_app(test_config)
 
     # Create and set up a service provider for testing using app registration
     from src.core.app.application_factory import register_services
@@ -71,7 +85,7 @@ async def test_loop_detection_with_mocked_backend():
     import httpx as _httpx
 
     app.state.httpx_client = _httpx.AsyncClient()
-    register_services(services, app)
+    register_services({}, app)  # Pass empty dict for compatibility
     service_provider = services.build_service_provider()
     set_service_provider(service_provider)
     app.state.service_provider = service_provider
@@ -83,10 +97,12 @@ async def test_loop_detection_with_mocked_backend():
     )
 
     # Get the backend service from provider (will be used for patching)
-    backend_service = service_provider.get_required_service(IBackendService)
+    backend_service = service_provider.get_required_service(IBackendService)  # type: ignore
 
     # Create a response with repeating content
-    repeating_content = "I will repeat myself. I will repeat myself. " * 20
+    # Use a pattern that is at least 50 characters long (the default min_pattern_length)
+    repeating_pattern = "This is a long repeating pattern that should be detected by the loop detector. "
+    repeating_content = repeating_pattern * 10  # Repeat 10 times to ensure detection
     repeating_response = ChatResponse(
         id="test-id",
         created=1234567890,
@@ -123,9 +139,8 @@ async def test_loop_detection_with_mocked_backend():
         print(f"Response status: {response.status_code}")
         print(f"Response body: {response.text}")
 
-        # The loop detection is working - it's raising an exception as expected
-        # For now, we expect a 500 error since the LoopDetectionError is being raised
-        assert response.status_code == 500
+        # The loop detection is working - it returns 400 Bad Request
+        assert response.status_code == 400
         response_json = response.json()
 
         # Check that the error message contains loop detection information
@@ -138,24 +153,40 @@ async def test_loop_detection_with_mocked_backend():
 async def test_loop_detection_in_streaming_response():
     """Test loop detection in a streaming response."""
     from src.core.app.application_factory import build_app
-
-    # Import the config loader to patch it before building the app
-    from src.core.config.config_loader import _load_config
+    from src.core.config.app_config import (
+        AppConfig,
+        AuthConfig,
+        BackendConfig,
+        BackendSettings,
+        SessionConfig,
+    )
     from src.core.domain.chat import StreamingChatResponse
 
-    # Mock the config loader to include disable_auth during app build
-    def mock_load_config():
-        config = _load_config()
-        config["disable_auth"] = True
-        return config
+    # Create a test config with auth disabled
+    test_config = AppConfig(
+        host="localhost",
+        port=9000,
+        proxy_timeout=10,
+        command_prefix="!/",
+        backends=BackendSettings(
+            default_backend="openai",
+            openai=BackendConfig(api_key=["test_openai_key"]),
+            openrouter=BackendConfig(api_key=["test_openrouter_key"]),
+            anthropic=BackendConfig(api_key=["test_anthropic_key"]),
+        ),
+        auth=AuthConfig(disable_auth=True, api_keys=["test_api_key"]),
+        session=SessionConfig(
+            cleanup_enabled=False,
+            default_interactive_mode=True,
+        ),
+    )
 
-    with patch(
-        "src.core.app.application_factory._load_config", side_effect=mock_load_config
-    ):
-        # Create the app (now with auth disabled from the start)
-        app = build_app()
+    # Create the app with auth disabled
+    app = build_app(test_config)
 
     # Create and set up a service provider with proper service registration
+    from typing import cast
+
     from src.core.app.application_factory import register_services
     from src.core.di.services import get_service_collection, set_service_provider
 
@@ -168,34 +199,26 @@ async def test_loop_detection_in_streaming_response():
     app.state.httpx_client = httpx.AsyncClient()
 
     # Register all services
-    register_services(services, app)
+    register_services({}, app)  # Pass empty dict for compatibility
     # Replace with mock backend
     services.add_singleton(
-        IBackendService, implementation_factory=lambda _: MockBackendService()
-    )  # type: ignore
+        cast(type[IBackendService], IBackendService),
+        implementation_factory=lambda _: MockBackendService(),
+    )
 
     service_provider = services.build_service_provider()
     set_service_provider(service_provider)
     app.state.service_provider = service_provider
 
     # Get the mock backend service
-    backend_service = service_provider.get_required_service(IBackendService)
+    backend_service = service_provider.get_required_service(IBackendService)  # type: ignore
 
     # Create streaming chunks with repeating content
     async def generate_repeating_chunks():
         for _ in range(30):
             yield StreamingChatResponse(
-                id="test-id",
                 model="test-model",
-                created=1234567890,
                 content="I will repeat myself. ",
-                choices=[
-                    {
-                        "index": 0,
-                        "delta": {"content": "I will repeat myself. "},
-                        "finish_reason": None,
-                    }
-                ],
             )
             await asyncio.sleep(0.01)
 
@@ -207,6 +230,8 @@ async def test_loop_detection_in_streaming_response():
         client = TestClient(app, headers={"Authorization": "Bearer test_api_key"})
 
         # Make a streaming request to the API endpoint
+        # Note: TestClient doesn't actually stream, so loop detection happens during SSE generation
+        # The error will be sent as part of the SSE stream, not as an HTTP error
         response = client.post(
             "/v2/chat/completions",
             json={
@@ -217,15 +242,52 @@ async def test_loop_detection_in_streaming_response():
             },
         )
 
-        # Verify the response
-        assert response.status_code == 400
-        response_json = response.json()
+        # For streaming responses with TestClient, errors are embedded in the stream
+        # The response will be 200 OK with error data in the SSE stream content
+        assert response.status_code == 200
 
-        # Check that the error message contains loop detection information
-        assert "error" in response_json
-        assert "message" in response_json["error"]
-        assert "loop detected" in response_json["error"]["message"].lower()
-        assert response_json["error"]["type"] == "LoopDetectionError"
+        # Parse the SSE stream content to check for error
+        response_text = response.text
+
+        # Check that loop detection error appears in the response
+        # The error can appear either as "ERROR:" in content or as error JSON
+        assert "loop detected" in response_text.lower() or "ERROR:" in response_text
+
+        # Verify the error was triggered by loop detection
+        lines = response_text.split("\n")
+        error_found = False
+        for line in lines:
+            if line.startswith("data: "):
+                # Parse the JSON from the SSE data line
+                import json
+
+                data_str = line[6:]  # Remove "data: " prefix
+                if data_str != "[DONE]":
+                    try:
+                        data = json.loads(data_str)
+                        # Check for error in choices content
+                        if "choices" in data:
+                            for choice in data["choices"]:
+                                if "delta" in choice:
+                                    content = choice["delta"].get("content", "")
+                                    if (
+                                        "ERROR:" in content
+                                        and "loop detected" in content.lower()
+                                    ):
+                                        error_found = True
+                                        break
+                        # Also check for error field
+                        if "error" in data:
+                            error_found = True
+                            # Verify error details
+                            assert "message" in data["error"]
+                            # The error message should mention loop detection
+                            error_msg = data["error"]["message"].lower()
+                            assert "loop" in error_msg or "repeat" in error_msg
+                    except json.JSONDecodeError:
+                        pass
+
+        assert error_found, "Loop detection error not found in streaming response"
 
 
 @pytest.mark.asyncio

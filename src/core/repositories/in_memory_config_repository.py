@@ -15,7 +15,7 @@ class InMemoryConfigRepository(IConfigRepository):
     It is suitable for development and testing.
     """
 
-    def __init__(self):
+    def __init__(self) -> None:
         """Initialize the in-memory configuration repository."""
         self._configs: dict[str, dict[str, Any]] = {}
 

@@ -5,6 +5,7 @@ from collections.abc import Mapping
 from typing import Any
 
 from src.core.commands.handler_factory import CommandHandlerFactory
+from src.core.commands.handlers.base_handler import CommandHandlerResult
 from src.core.domain.command_results import CommandResult
 from src.core.domain.commands.base_command import BaseCommand
 from src.core.domain.session import Session, SessionState
@@ -53,6 +54,8 @@ class SetCommandRefactored(BaseCommand):
             )
 
         # Get the current state from the session
+        # Keep a reference to the initial state to check if it changed
+        initial_state = session.state
         current_state = session.state
 
         # Track results for each parameter
@@ -66,19 +69,65 @@ class SetCommandRefactored(BaseCommand):
         for param, value in args.items():
             # Find a handler for this parameter
             handler = None
+            logger.debug(f"Looking for handler for parameter: {param}")
+            print(f"Looking for handler for parameter: {param}")
+            # Try direct match first
+            direct_match = False
             for h in handlers:
-                if (
-                    hasattr(h, "can_handle")
-                    and callable(h.can_handle)
-                    and h.can_handle(param)
-                ):
+                if hasattr(h, "name") and h.name == param:
                     handler = h
+                    direct_match = True
+                    print(
+                        f"Direct match found for {param}: {getattr(h, 'name', 'unknown')}"
+                    )
                     break
+
+            # If no direct match, try can_handle
+            if not direct_match:
+                for h in handlers:
+                    logger.debug(f"Checking handler: {getattr(h, 'name', 'unknown')}")
+                    print(f"Checking handler: {getattr(h, 'name', 'unknown')}")
+                    if hasattr(h, "can_handle") and callable(h.can_handle):
+                        try:
+                            can_handle_result = h.can_handle(param)
+                            print(
+                                f"Handler {getattr(h, 'name', 'unknown')}.can_handle({param}) = {can_handle_result}"
+                            )
+                            if can_handle_result:
+                                handler = h
+                                logger.debug(
+                                    f"Found handler for {param}: {getattr(h, 'name', 'unknown')}"
+                                )
+                                print(
+                                    f"Found handler for {param}: {getattr(h, 'name', 'unknown')}"
+                                )
+                                break
+                        except Exception as e:
+                            print(
+                                f"Error in can_handle for {getattr(h, 'name', 'unknown')}: {e}"
+                            )
 
             if handler:
                 # Handle the parameter
-                # Use handle method directly
-                handler_result = handler.handle(value, current_state)  # type: ignore
+                # Check if handler has handle or execute method
+                if hasattr(handler, "handle") and callable(handler.handle):
+                    handler_result = handler.handle(value, current_state)  # type: ignore
+                elif hasattr(handler, "execute") and callable(handler.execute):
+                    # Use execute method if handle is not available
+                    import inspect
+
+                    if inspect.iscoroutinefunction(handler.execute):
+                        # We're already in an async context, so we can use await
+                        # Pass just the value, not the entire args dictionary
+                        handler_result = await handler.execute(value, session)
+                    else:
+                        handler_result = handler.execute(value, session)
+                else:
+                    handler_result = CommandHandlerResult(
+                        success=False,
+                        message=f"Handler {getattr(handler, 'name', 'unknown')} has no handle or execute method",
+                        new_state=None,
+                    )
 
                 # Get message from result
                 message = getattr(handler_result, "message", str(handler_result))
@@ -86,7 +135,20 @@ class SetCommandRefactored(BaseCommand):
 
                 # Update the current state for subsequent handlers
                 if hasattr(handler_result, "new_state") and handler_result.new_state:
-                    current_state = handler_result.new_state
+                    # Wrap the new state in SessionStateAdapter if it's a raw SessionState
+                    from src.core.domain.session import SessionStateAdapter
+
+                    new_state = handler_result.new_state
+                    if isinstance(new_state, SessionState):
+                        current_state = SessionStateAdapter(new_state)
+                    else:
+                        current_state = new_state
+
+                    print(
+                        f"Updated current_state with new state from handler: {handler_result.new_state}"
+                    )
+                    # Also update the session state immediately
+                    session.state = current_state
 
                 # Track overall success
                 if not handler_result.success:
@@ -96,13 +158,19 @@ class SetCommandRefactored(BaseCommand):
                 results.append(f"Unknown parameter: {param}")
                 success = False
 
-        # Apply the state changes to the session
-        if success:
-            session.state = current_state
+        # State changes have already been applied to the session during handler execution
+        # Return the new state so the command service can update the session properly
 
         # Build the result message
         result_message = "\n".join(results)
-        return CommandResult(success=success, message=result_message, name=self.name)
+        # Return the final state that was accumulated from all handlers
+        # Only return new_state if it actually changed from the initial state
+        return CommandResult(
+            success=success,
+            message=result_message,
+            name=self.name,
+            new_state=current_state if current_state != initial_state else None,
+        )
 
     def _create_session_state_from_proxy_state(self, proxy_state: Any) -> SessionState:
         """Create a SessionState from a legacy ProxyState.

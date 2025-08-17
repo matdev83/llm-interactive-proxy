@@ -1,11 +1,17 @@
 from unittest.mock import AsyncMock, patch
 
+import pytest
 from fastapi.testclient import TestClient
+from src.core.interfaces.session_service import ISessionService
 
 
-def test_pwd_command_with_project_dir_set(client: TestClient):
-    session = client.app.state.session_manager.get_session("default")
-    session.proxy_state.project_dir = "/test/project/dir"
+@pytest.mark.asyncio
+async def test_pwd_command_with_project_dir_set(client: TestClient):
+    session_service = client.app.state.service_provider.get_required_service(
+        ISessionService
+    )
+    session = await session_service.get_session("default")
+    session.state.project_dir = "/test/project/dir"
 
     with patch.object(
         client.app.state.openrouter_backend, "chat_completions", new_callable=AsyncMock
@@ -22,9 +28,13 @@ def test_pwd_command_with_project_dir_set(client: TestClient):
     assert response_json["choices"][0]["message"]["content"] == "/test/project/dir"
 
 
-def test_pwd_command_without_project_dir_set(client: TestClient):
-    session = client.app.state.session_manager.get_session("default")
-    session.proxy_state.project_dir = None
+@pytest.mark.asyncio
+async def test_pwd_command_without_project_dir_set(client: TestClient):
+    session_service = client.app.state.service_provider.get_required_service(
+        ISessionService
+    )
+    session = await session_service.get_session("default")
+    session.state.project_dir = None
 
     with patch.object(
         client.app.state.openrouter_backend, "chat_completions", new_callable=AsyncMock

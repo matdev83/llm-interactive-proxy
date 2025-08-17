@@ -14,7 +14,7 @@ from src.core.commands.handlers.base_handler import (
     CommandHandlerResult,
 )
 from src.core.domain.command_context import CommandContext
-from src.core.domain.session import SessionState
+from src.core.interfaces.domain_entities import ISessionState
 
 logger = logging.getLogger(__name__)
 
@@ -22,7 +22,7 @@ logger = logging.getLogger(__name__)
 class PwdCommandHandler(BaseCommandHandler):
     """Handler for printing the current project directory."""
 
-    def __init__(self):
+    def __init__(self) -> None:
         """Initialize the pwd command handler."""
         super().__init__("pwd")
 
@@ -50,7 +50,7 @@ class PwdCommandHandler(BaseCommandHandler):
     def handle(
         self,
         param_value: Any,
-        current_state: SessionState,
+        current_state: ISessionState,
         context: CommandContext | None = None,
     ) -> CommandHandlerResult:
         """Handle printing the current project directory.

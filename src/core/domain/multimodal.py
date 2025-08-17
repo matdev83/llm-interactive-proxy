@@ -8,7 +8,7 @@ in chat messages, including text, images, audio, and other media types.
 from __future__ import annotations
 
 from enum import Enum
-from typing import Any, Literal, TypedDict, cast
+from typing import Any, Literal, TypedDict
 
 from src.core.domain.base import ValueObject
 
@@ -139,7 +139,7 @@ class ContentPart(ValueObject):
 
     def to_dict(self) -> dict[str, Any]:
         """Convert to a dictionary."""
-        result = {
+        result: dict[str, Any] = {
             "type": self.type,
             "source": self.source,
             "data": self.data,
@@ -149,7 +149,7 @@ class ContentPart(ValueObject):
             result["mime_type"] = self.mime_type
 
         if self.metadata:
-            result["metadata"] = cast(dict[str, Any], self.metadata)
+            result["metadata"] = self.metadata
 
         return result
 
@@ -267,7 +267,7 @@ class MultimodalMessage(ValueObject):
 
     def to_legacy_format(self) -> dict[str, Any]:
         """Convert to legacy format for backward compatibility."""
-        result = {"role": self.role}
+        result: dict[str, Any] = {"role": self.role}
 
         # Handle content based on type
         if self.content is not None:
@@ -302,9 +302,9 @@ class MultimodalMessage(ValueObject):
         else:
             return self.to_legacy_format()
 
-    def _to_openai_format(self) -> OpenAIFormat:
+    def _to_openai_format(self) -> dict[str, Any]:
         """Convert to OpenAI format."""
-        result: OpenAIFormat = {"role": self.role}
+        result: dict[str, Any] = {"role": self.role}
 
         # Handle name if present
         if self.name:
@@ -327,7 +327,7 @@ class MultimodalMessage(ValueObject):
 
         return result
 
-    def _to_anthropic_format(self) -> AnthropicFormat:
+    def _to_anthropic_format(self) -> dict[str, Any]:
         """Convert to Anthropic format."""
         # Map roles to Anthropic roles
         role_mapping = {
@@ -337,7 +337,7 @@ class MultimodalMessage(ValueObject):
             "tool": "assistant",  # Anthropic doesn't have a tool role
         }
 
-        result: AnthropicFormat = {"role": role_mapping.get(self.role, self.role)}
+        result: dict[str, Any] = {"role": role_mapping.get(self.role, self.role)}
 
         # Handle content
         if self.content is not None:
@@ -352,7 +352,7 @@ class MultimodalMessage(ValueObject):
 
         return result
 
-    def _to_gemini_format(self) -> GeminiFormat:
+    def _to_gemini_format(self) -> dict[str, Any]:
         """Convert to Gemini format."""
         # Map roles to Gemini roles
         role_mapping = {
@@ -362,7 +362,7 @@ class MultimodalMessage(ValueObject):
             "tool": "function",
         }
 
-        result: GeminiFormat = {"role": role_mapping.get(self.role, self.role)}
+        result: dict[str, Any] = {"role": role_mapping.get(self.role, self.role)}
 
         # Handle content
         if self.content is not None:

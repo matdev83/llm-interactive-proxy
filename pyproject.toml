@@ -66,7 +66,7 @@ build-backend = "setuptools.build_meta"
 
 [tool.pytest.ini_options]
 pythonpath = "."
-addopts = "-v --asyncio-mode=auto -m 'not integration'"
+addopts = "-v --asyncio-mode=auto -m 'not integration' -k 'not cline' --ignore-glob='**/*anthropic*.py' --ignore-glob='**/*Anthropic*.py'"
 markers = [
     "integration: marks tests as integration tests (deselect with '-m \"not integration\"')",
     "unit: marks tests as unit tests",

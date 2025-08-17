@@ -3,10 +3,10 @@ Unit tests for Anthropic front-end router.
 Tests the FastAPI endpoints for /anthropic/v1/messages and /anthropic/v1/models.
 """
 
-from unittest.mock import Mock, patch
+from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from src.anthropic_converters import AnthropicMessage, AnthropicMessagesRequest
 from src.anthropic_router import (
@@ -98,17 +98,35 @@ class TestAnthropicRouter:
         mock_request = Mock()
         mock_request.app = Mock()
 
+        # Mock the service_provider and its get_required_service method
+        mock_service_provider = Mock()
+        mock_request.app.state.service_provider = mock_service_provider
+
+        # Create an AsyncMock for the request_processor
+        mock_request_processor = AsyncMock()
+        mock_service_provider.get_required_service.return_value = mock_request_processor
+
+        # Configure the mock_request_processor.process_request to return a mock response
+        # This mock response should be a dictionary, as the router expects it.
+        mock_request_processor.process_request.return_value = {
+            "choices": [{"message": {"content": "mocked response"}}]
+        }
+
         request_body = AnthropicMessagesRequest(
             model="claude-3-sonnet-20240229",
             messages=[AnthropicMessage(role="user", content="Hello")],
             max_tokens=100,
         )
 
-        # Should raise HTTPException with 501 status
-        with pytest.raises(HTTPException) as exc_info:
-            await anthropic_messages(request_body, mock_request)
+        # The original test expected 501, but with a mocked backend, it should now succeed
+        # unless there's another reason for 501. Let's assume it should succeed for now.
+        response = await anthropic_messages(request_body, mock_request)
 
-        assert exc_info.value.status_code == 501
+        # Assert that process_request was called
+        mock_request_processor.process_request.assert_called_once()
+
+        # Assert the response is as expected from the mock
+        assert response["choices"][0]["message"]["content"] == "mocked response"
 
     def test_messages_endpoint_validation_errors(self):
         """Test validation errors for messages endpoint."""

@@ -14,7 +14,7 @@ from src.core.commands.handlers.base_handler import (
     CommandHandlerResult,
 )
 from src.core.domain.command_context import CommandContext
-from src.core.domain.session import SessionState
+from src.core.interfaces.domain_entities import ISessionState
 from src.tool_call_loop.config import ToolLoopMode
 
 logger = logging.getLogger(__name__)
@@ -23,7 +23,7 @@ logger = logging.getLogger(__name__)
 class LoopDetectionHandler(BaseCommandHandler):
     """Handler for enabling/disabling loop detection."""
 
-    def __init__(self):
+    def __init__(self) -> None:
         """Initialize the loop detection handler."""
         super().__init__("loop-detection")
 
@@ -78,7 +78,7 @@ class LoopDetectionHandler(BaseCommandHandler):
     def handle(
         self,
         param_value: Any,
-        current_state: SessionState,
+        current_state: ISessionState,
         context: CommandContext | None = None,
     ) -> CommandHandlerResult:
         """Handle enabling/disabling loop detection.
@@ -117,7 +117,7 @@ class LoopDetectionHandler(BaseCommandHandler):
 class ToolLoopDetectionHandler(BaseCommandHandler):
     """Handler for enabling/disabling tool call loop detection."""
 
-    def __init__(self):
+    def __init__(self) -> None:
         """Initialize the tool loop detection handler."""
         super().__init__("tool-loop-detection")
 
@@ -172,7 +172,7 @@ class ToolLoopDetectionHandler(BaseCommandHandler):
     def handle(
         self,
         param_value: Any,
-        current_state: SessionState,
+        current_state: ISessionState,
         context: CommandContext | None = None,
     ) -> CommandHandlerResult:
         """Handle enabling/disabling tool call loop detection.
@@ -211,7 +211,7 @@ class ToolLoopDetectionHandler(BaseCommandHandler):
 class ToolLoopMaxRepeatsHandler(BaseCommandHandler):
     """Handler for setting the maximum number of tool call loop repetitions."""
 
-    def __init__(self):
+    def __init__(self) -> None:
         """Initialize the tool loop max repeats handler."""
         super().__init__("tool-loop-max-repeats")
 
@@ -250,7 +250,7 @@ class ToolLoopMaxRepeatsHandler(BaseCommandHandler):
     def handle(
         self,
         param_value: Any,
-        current_state: SessionState,
+        current_state: ISessionState,
         context: CommandContext | None = None,
     ) -> CommandHandlerResult:
         """Handle setting the maximum number of tool call loop repetitions.
@@ -295,7 +295,7 @@ class ToolLoopMaxRepeatsHandler(BaseCommandHandler):
 class ToolLoopTTLHandler(BaseCommandHandler):
     """Handler for setting the tool call loop TTL."""
 
-    def __init__(self):
+    def __init__(self) -> None:
         """Initialize the tool loop TTL handler."""
         super().__init__("tool-loop-ttl")
 
@@ -334,7 +334,7 @@ class ToolLoopTTLHandler(BaseCommandHandler):
     def handle(
         self,
         param_value: Any,
-        current_state: SessionState,
+        current_state: ISessionState,
         context: CommandContext | None = None,
     ) -> CommandHandlerResult:
         """Handle setting the tool call loop TTL.
@@ -379,7 +379,7 @@ class ToolLoopTTLHandler(BaseCommandHandler):
 class ToolLoopModeHandler(BaseCommandHandler):
     """Handler for setting the tool call loop mode."""
 
-    def __init__(self):
+    def __init__(self) -> None:
         """Initialize the tool loop mode handler."""
         super().__init__("tool-loop-mode")
 
@@ -418,7 +418,7 @@ class ToolLoopModeHandler(BaseCommandHandler):
     def handle(
         self,
         param_value: Any,
-        current_state: SessionState,
+        current_state: ISessionState,
         context: CommandContext | None = None,
     ) -> CommandHandlerResult:
         """Handle setting the tool call loop mode.

@@ -15,7 +15,7 @@ from src.core.commands.handlers.base_handler import (
     CommandHandlerResult,
 )
 from src.core.domain.command_context import CommandContext
-from src.core.domain.session import SessionState
+from src.core.interfaces.domain_entities import ISessionState
 
 logger = logging.getLogger(__name__)
 
@@ -23,7 +23,7 @@ logger = logging.getLogger(__name__)
 class ReasoningEffortHandler(BaseCommandHandler):
     """Handler for setting the reasoning effort level."""
 
-    def __init__(self):
+    def __init__(self) -> None:
         """Initialize the reasoning effort handler."""
         super().__init__("reasoning-effort")
 
@@ -64,7 +64,7 @@ class ReasoningEffortHandler(BaseCommandHandler):
     def handle(
         self,
         param_value: Any,
-        current_state: SessionState,
+        current_state: ISessionState,
         context: CommandContext | None = None,
     ) -> CommandHandlerResult:
         """Handle setting the reasoning effort level.
@@ -104,7 +104,7 @@ class ReasoningEffortHandler(BaseCommandHandler):
 class ThinkingBudgetHandler(BaseCommandHandler):
     """Handler for setting the thinking budget."""
 
-    def __init__(self):
+    def __init__(self) -> None:
         """Initialize the thinking budget handler."""
         super().__init__("thinking-budget")
 
@@ -143,7 +143,7 @@ class ThinkingBudgetHandler(BaseCommandHandler):
     def handle(
         self,
         param_value: Any,
-        current_state: SessionState,
+        current_state: ISessionState,
         context: CommandContext | None = None,
     ) -> CommandHandlerResult:
         """Handle setting the thinking budget.
@@ -189,7 +189,7 @@ class ThinkingBudgetHandler(BaseCommandHandler):
 class GeminiGenerationConfigHandler(BaseCommandHandler):
     """Handler for setting the Gemini generation config."""
 
-    def __init__(self):
+    def __init__(self) -> None:
         """Initialize the Gemini generation config handler."""
         super().__init__("gemini-generation-config")
 
@@ -227,7 +227,7 @@ class GeminiGenerationConfigHandler(BaseCommandHandler):
     def handle(
         self,
         param_value: Any,
-        current_state: SessionState,
+        current_state: ISessionState,
         context: CommandContext | None = None,
     ) -> CommandHandlerResult:
         """Handle setting the Gemini generation config.

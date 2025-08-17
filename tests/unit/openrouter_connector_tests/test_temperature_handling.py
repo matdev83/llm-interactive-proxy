@@ -26,12 +26,19 @@ class TestOpenRouterTemperatureHandling:
     """Test temperature parameter handling in OpenRouter backend."""
 
     @pytest.fixture
-    def openrouter_backend(self):
+    async def openrouter_backend(self):
         from unittest.mock import AsyncMock
 
         import httpx
 
-        return OpenRouterBackend(client=AsyncMock(spec=httpx.AsyncClient))
+        backend = OpenRouterBackend(client=AsyncMock(spec=httpx.AsyncClient))
+        # Call initialize with required arguments
+        await backend.initialize(
+            api_key="test_key",  # A dummy API key for initialization
+            key_name="openrouter",
+            openrouter_headers_provider=mock_get_openrouter_headers,
+        )
+        return backend
 
     @pytest.fixture
     def sample_request_data(self):

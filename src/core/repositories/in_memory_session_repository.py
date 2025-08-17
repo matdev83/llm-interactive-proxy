@@ -16,7 +16,7 @@ class InMemorySessionRepository(ISessionRepository):
     It is suitable for development and testing.
     """
 
-    def __init__(self):
+    def __init__(self) -> None:
         """Initialize the in-memory session repository."""
         self._sessions: dict[str, Session] = {}
         self._user_sessions: dict[str, list[str]] = {}

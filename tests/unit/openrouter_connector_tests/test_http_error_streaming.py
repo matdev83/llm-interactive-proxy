@@ -31,7 +31,14 @@ def mock_get_openrouter_headers(key_name: str, api_key: str) -> dict[str, str]:
 @pytest_asyncio.fixture(name="openrouter_backend")
 async def openrouter_backend_fixture():
     async with httpx.AsyncClient() as client:
-        yield OpenRouterBackend(client=client)
+        backend = OpenRouterBackend(client=client)
+        # Call initialize with required arguments
+        await backend.initialize(
+            api_key="test_key",  # A dummy API key for initialization
+            key_name="openrouter",
+            openrouter_headers_provider=mock_get_openrouter_headers,
+        )
+        yield backend
 
 
 @pytest.fixture
@@ -58,26 +65,25 @@ async def test_chat_completions_http_error_streaming(
     error_text_response = "OpenRouter internal server error"
 
     async def mock_send_method(self, request, **kwargs):
-        mock_response = httpx.Response(
+        class MockResponse:
+            def __init__(self, status_code, request, stream, headers):
+                self.status_code = status_code
+                self.request = request
+                self.stream = stream
+                self.headers = headers
+
+            async def aclose(self):
+                pass
+
+            async def aread(self):
+                return error_text_response.encode("utf-8")
+
+        return MockResponse(
             status_code=500,
             request=request,
             stream=httpx.ByteStream(error_text_response.encode("utf-8")),
             headers={"Content-Type": "text/plain"},
         )
-
-        # Properly mock async methods using setattr
-        async def mock_aclose():
-            pass
-
-        mock_response.aclose = mock_aclose
-
-        # Mock the aread method to be async
-        async def mock_aread():
-            return error_text_response.encode("utf-8")
-
-        mock_response.aread = mock_aread
-
-        return mock_response
 
     monkeypatch.setattr(httpx.AsyncClient, "send", mock_send_method)
 

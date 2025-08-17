@@ -124,7 +124,7 @@ The proxy normalises requests internally, meaning **any front-end can be wired t
    pip install -e .[dev]
    ```
 
-> **Note:** This project has recently undergone a major architectural update following SOLID principles. If you're upgrading from a previous version, check out the [Migration Guide](docs/MIGRATION_GUIDE.md) for details.
+> **Note:** This project has been fully refactored to follow SOLID principles with a clean architecture approach. The migration is now complete, providing better maintainability, testability, and extensibility.
 
 ### Configuration
 
@@ -204,7 +204,7 @@ python src/core/cli.py
 
 The server will start on `http://127.0.0.1:8000`. For a full list of CLI arguments and environment variables for advanced configuration, run `python src/core/cli.py --help`.
 
-> **Important:** We recommend using the new entry point (`src/core/cli.py`) rather than the legacy entry point (`src/main.py`) to benefit from the latest SOLID architecture.
+> **Note:** The project has fully migrated to a SOLID architecture with `src/core/cli.py` as the main entry point.
 
 Supported backends for the `--default-backend` argument include: `openrouter`, `gemini`, `anthropic`, `qwen-oauth`, and `zai`.
 
@@ -294,16 +294,19 @@ The project follows a clean, modular architecture based on SOLID principles and 
 ```
 .
 ├── src/                                # Source code
-│   ├── commands/                       # In-chat command implementations
 │   ├── connectors/                     # Backend connectors (OpenRouter, Gemini, etc.)
 │   │   └── zai.py                      # ZAI (Zhipu AI) backend connector
-│   ├── core/                           # Core application logic
+│   ├── core/                           # Core application logic (SOLID architecture)
 │   │   ├── app/                        # Application layer
 │   │   │   ├── controllers/            # Request handlers and endpoints
 │   │   │   ├── application_factory.py  # FastAPI app builder
 │   │   │   ├── error_handlers.py       # Error handling middleware
 │   │   │   ├── lifecycle.py            # App lifecycle management
 │   │   │   └── middleware_config.py    # Middleware configuration
+│   │   ├── commands/                   # Command implementations
+│   │   │   ├── handlers/               # Command parameter handlers
+│   │   │   ├── handler_factory.py      # Factory for creating command handlers
+│   │   │   └── set_command.py          # Set command implementation
 │   │   ├── common/                     # Shared utilities
 │   │   │   ├── exceptions.py           # Custom exception classes
 │   │   │   └── logging.py              # Structured logging utilities
@@ -316,22 +319,39 @@ The project follows a clean, modular architecture based on SOLID principles and 
 │   │   ├── domain/                     # Domain models and business logic
 │   │   │   ├── base.py                 # Base classes for domain models
 │   │   │   ├── chat.py                 # Chat request/response models
-│   │   │   ├── session.py              # Session models
-│   │   │   └── configuration.py        # Configuration domain models (immutable value objects)
+│   │   │   ├── command_context.py      # Command context protocol
+│   │   │   ├── command_results.py      # Command result value objects
+│   │   │   ├── commands/               # Command domain models
+│   │   │   │   ├── base_command.py     # Base command abstract class
+│   │   │   │   ├── hello_command.py    # Hello command implementation
+│   │   │   │   └── failover_commands.py # Failover-related commands
+│   │   │   ├── configuration/          # Configuration domain models
+│   │   │   │   ├── backend_config.py   # Backend configuration
+│   │   │   │   ├── loop_detection_config.py # Loop detection configuration
+│   │   │   │   └── reasoning_config.py # Reasoning configuration
+│   │   │   └── session.py              # Session models
 │   │   ├── interfaces/                 # Core interfaces
 │   │   │   ├── backend_service.py      # Backend service interface
 │   │   │   ├── command_service.py      # Command service interface
-│   │   │   ├── configuration.py        # Configuration interfaces (IConfig, IBackendConfig, etc.)
-│   │   │   ├── session_service.py      # Session service interface
-│   │   │   └── rate_limiter.py         # Rate limiting interface
+│   │   │   ├── configuration.py        # Configuration interfaces
+│   │   │   ├── di.py                   # Dependency injection interfaces
+│   │   │   ├── loop_detector.py        # Loop detection interface
+│   │   │   ├── rate_limiter.py         # Rate limiting interface
+│   │   │   ├── request_processor.py    # Request processor interface
+│   │   │   ├── response_processor.py   # Response processor interface
+│   │   │   └── session_service.py      # Session service interface
 │   │   ├── services/                   # Service implementations
 │   │   │   ├── backend_service.py      # Backend service implementation
 │   │   │   ├── command_service.py      # Command service implementation
+│   │   │   ├── loop_detector.py        # Loop detection service
+│   │   │   ├── request_processor.py    # Request processing service
+│   │   │   ├── response_processor.py   # Response processing service
 │   │   │   ├── session_service.py      # Session service implementation
-│   │   │   └── response_processor.py   # Response processing service
+│   │   │   └── tool_call_loop_middleware.py # Tool call loop detection
 │   │   └── repositories/               # Data access layer
-│   │       ├── session_repository.py   # Session storage implementation
-│   │       └── usage_repository.py     # Usage data storage
+│   │       ├── in_memory_config_repository.py # In-memory config storage
+│   │       ├── in_memory_session_repository.py # In-memory session storage
+│   │       └── in_memory_usage_repository.py # In-memory usage data storage
 │   └── cli.py                          # Command line interface
 ├── tests/                              # Automated tests
 │   ├── conftest.py                     # Test fixtures and configuration

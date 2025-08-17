@@ -101,7 +101,7 @@ class ConfigLoader:
     from environment variables and configuration files.
     """
 
-    def __init__(self):
+    def __init__(self) -> None:
         """Initialize the configuration loader."""
         self._config_cache: dict[str, Any] | None = None
 
@@ -160,8 +160,7 @@ class ConfigLoader:
             )
             proxy_host = "127.0.0.1"
 
-        return {
-            "backend": os.getenv("LLM_BACKEND"),
+        config_data: dict[str, Any] = {
             "openrouter_api_key": next(iter(openrouter_keys.values()), None),
             "openrouter_api_keys": openrouter_keys,
             "openrouter_api_base_url": os.getenv(
@@ -225,6 +224,7 @@ class ConfigLoader:
                 )
             )(os.getenv("TOOL_LOOP_MODE", "break")),
         }
+        return config_data
 
     def _load_config_file(self, config_file: str) -> dict[str, Any]:
         """Load configuration from a file.
@@ -253,9 +253,11 @@ class ConfigLoader:
 
             # Try YAML first, then JSON
             try:
-                return yaml.safe_load(content) or {}
+                result = yaml.safe_load(content)
+                return result if isinstance(result, dict) else {}
             except yaml.YAMLError:
-                return json.loads(content)
+                result = json.loads(content)
+                return result if isinstance(result, dict) else {}
 
         except (json.JSONDecodeError, yaml.YAMLError) as exc:
             raise ValueError(f"Invalid configuration file format: {exc}") from exc

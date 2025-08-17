@@ -24,7 +24,7 @@ logger = logging.getLogger(__name__)
 class UnsetCommandHandler(BaseCommandHandler):
     """Handler for unsetting configuration options."""
 
-    def __init__(self):
+    def __init__(self) -> None:
         """Initialize the unset command handler."""
         super().__init__("unset")
         self._handlers: dict[str, BaseCommandHandler] = {}

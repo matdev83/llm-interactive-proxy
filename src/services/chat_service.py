@@ -51,6 +51,10 @@ class ChatService:
             raise ValueError("Service provider not available")
 
         # Get services
+        from src.core.services.session_service import SessionService
+        from src.core.services.command_service import CommandService
+        from src.core.services.backend_service import BackendService
+        
         session_service = provider.get_service(ISessionService)
         command_service = provider.get_service(ICommandService)
         backend_service = provider.get_service(IBackendService)
@@ -61,6 +65,16 @@ class ChatService:
             raise ValueError("Command service not available")
         if not backend_service:
             raise ValueError("Backend service not available")
+            
+        # Type assertions to help mypy understand these are concrete classes
+        assert isinstance(session_service, SessionService)
+        assert isinstance(command_service, CommandService)
+        assert isinstance(backend_service, BackendService)
+        
+        # Assign to typed variables
+        typed_session_service: SessionService = session_service
+        typed_command_service: CommandService = command_service
+        typed_backend_service: BackendService = backend_service
 
         # Get session ID
         session_id = http_request.headers.get("x-session-id", "default")
@@ -77,7 +91,7 @@ class ChatService:
 
         # If a command was executed, return the command result
         if processed_result.command_executed:
-            from src.models import ChatCompletionResponse
+            from src.models import ChatCompletionResponse, ChatCompletionChoice, ChatCompletionChoiceMessage
 
             # Create a chat completion response with the command result
             return ChatCompletionResponse(
@@ -86,17 +100,18 @@ class ChatService:
                 created=int(time.time()),
                 model=request_data.model,
                 choices=[
-                    {
-                        "index": 0,
-                        "message": {
-                            "role": "assistant",
-                            "content": "\n".join(
+                    ChatCompletionChoice(
+                        index=0,
+                        message=ChatCompletionChoiceMessage(
+                            role="assistant",
+                            content="\n".join(
                                 result.message
                                 for result in processed_result.command_results
+                                if result.message
                             ),
-                        },
-                        "finish_reason": "stop",
-                    }
+                        ),
+                        finish_reason="stop",
+                    )
                 ],
             )
 

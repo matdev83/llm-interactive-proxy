@@ -1,7 +1,13 @@
 from unittest.mock import AsyncMock, patch
 
+import pytest
+from src.core.interfaces.session_service import ISessionService
 
-def test_cline_xml_wrapping_for_all_commands(interactive_client):
+
+@pytest.mark.asyncio
+async def test_cline_xml_wrapping_for_all_commands(
+    interactive_client, mock_openrouter_backend
+):
     """Test that XML wrapping works for all available commands when Cline agent is detected."""
 
     # List of commands to test - these should cover different types of commands
@@ -93,16 +99,21 @@ def test_cline_xml_wrapping_for_all_commands(interactive_client):
         ), f"Command {command} should produce non-empty result"
 
         # Verify session agent detection worked
-        session = interactive_client.app.state.session_manager.get_session(session_id)
+        session_service = (
+            interactive_client.app.state.service_provider.get_required_service(
+                ISessionService
+            )
+        )
+        session = await session_service.get_session(session_id)
         assert (
-            session.proxy_state.is_cline_agent
+            session.state.is_cline_agent
         ), f"Cline agent should be detected for {command}"
         assert (
             session.agent == "cline"
         ), f"Session agent should be 'cline' for {command}"
 
 
-def test_cline_xml_wrapping_error_commands(interactive_client):
+def test_cline_xml_wrapping_error_commands(interactive_client, mock_openrouter_backend):
     """Test XML wrapping for pure command-only messages that produce errors."""
 
     # Test a pure command that should produce an error (command-only message)
@@ -226,7 +237,9 @@ def test_cline_xml_wrapping_pure_error_commands(interactive_client):
     ), f"Pure error command should return error directly, got: {content}"
 
 
-def test_non_cline_commands_no_xml_wrapping(interactive_client):
+def test_non_cline_commands_no_xml_wrapping(
+    interactive_client, mock_openrouter_backend
+):
     """Test that non-Cline sessions don't get XML wrapping for any commands."""
 
     commands_to_test = ["!/hello", "!/help", "!/set(backend=openrouter)"]

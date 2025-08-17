@@ -24,6 +24,7 @@ class CommandResult:
     message: str
     name: str = ""
     data: dict[str, Any] | None = None
+    new_state: Any = None  # SessionState or None, using Any to avoid circular imports
 
     def __post_init__(self) -> None:
         """Initialize default values."""

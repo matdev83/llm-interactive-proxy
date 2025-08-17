@@ -6,7 +6,7 @@ from typing import Any
 
 from src.core.domain.command_context import CommandContext
 from src.core.domain.command_results import CommandResult
-from src.core.domain.session import SessionState
+from src.core.interfaces.domain_entities import ISessionState
 
 logger = logging.getLogger(__name__)
 
@@ -18,7 +18,7 @@ class CommandHandlerResult:
         self,
         success: bool,
         message: str,
-        new_state: SessionState | None = None,
+        new_state: ISessionState | None = None,
         additional_data: dict[str, Any] | None = None,
     ):
         """Initialize command handler result.
@@ -77,7 +77,7 @@ class ICommandHandler(ABC):
     def handle(
         self,
         param_value: Any,
-        current_state: SessionState,
+        current_state: ISessionState,
         context: CommandContext | None = None,
     ) -> CommandHandlerResult:
         """Handle setting the parameter value.

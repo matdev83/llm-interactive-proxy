@@ -1,3 +1,4 @@
+from typing import cast
 from unittest.mock import Mock
 
 import pytest
@@ -6,7 +7,8 @@ from src.command_parser import (
     CommandParserConfig,
     process_commands_in_messages,
 )
-from src.core.domain.session import Session
+from src.core.domain.configuration.backend_config import BackendConfiguration
+from src.core.domain.session import Session, SessionStateAdapter
 from src.models import ChatMessage
 
 
@@ -44,13 +46,14 @@ class TestProcessTextForCommands:
         self.mock_app = Mock()
         self.mock_app.state = mock_app_state
 
-    def test_no_commands(self):
+    @pytest.mark.asyncio
+    async def test_no_commands(self):
         session = Session(session_id="test_session")
         current_session_state = session.state
         text = "This is a normal message without commands."
-        processed_messages, commands_found = process_commands_in_messages(
+        processed_messages, commands_found = await process_commands_in_messages(
             [ChatMessage(role="user", content=text)],
-            current_session_state,
+            cast(SessionStateAdapter, current_session_state),
             app=self.mock_app,
             command_prefix="!/",
         )
@@ -59,13 +62,14 @@ class TestProcessTextForCommands:
         assert not commands_found
         assert session.state.backend_config.model is None
 
-    def test_set_model_command(self):
+    @pytest.mark.asyncio
+    async def test_set_model_command(self):
         session = Session(session_id="test_session")
         current_session_state = session.state
         text = "Please use this model: !/set(model=openrouter:gpt-4-turbo)"
-        processed_messages, commands_found = process_commands_in_messages(
+        processed_messages, commands_found = await process_commands_in_messages(
             [ChatMessage(role="user", content=text)],
-            current_session_state,
+            cast(SessionStateAdapter, current_session_state),
             app=self.mock_app,
             command_prefix="!/",
         )
@@ -74,13 +78,14 @@ class TestProcessTextForCommands:
         assert commands_found
         assert session.state.backend_config.model == "gpt-4-turbo"
 
-    def test_set_model_command_with_slash(self):
+    @pytest.mark.asyncio
+    async def test_set_model_command_with_slash(self):
         session = Session(session_id="test_session")
         current_session_state = session.state
         text = "!/set(model=openrouter:my/model-v1) This is a test."
-        processed_messages, commands_found = process_commands_in_messages(
+        processed_messages, commands_found = await process_commands_in_messages(
             [ChatMessage(role="user", content=text)],
-            current_session_state,
+            cast(SessionStateAdapter, current_session_state),
             app=self.mock_app,
             command_prefix="!/",
         )
@@ -89,19 +94,22 @@ class TestProcessTextForCommands:
         assert commands_found
         assert session.state.backend_config.model == "my/model-v1"
 
-    def test_unset_model_command(self):
+    @pytest.mark.asyncio
+    async def test_unset_model_command(self):
         session = Session(session_id="test_session")
         current_session_state = session.state
         # First set a model
         new_backend_config = current_session_state.backend_config.with_model("gpt-4")
-        session.state = current_session_state.with_backend_config(new_backend_config)
+        session.state = current_session_state.with_backend_config(
+            cast(BackendConfiguration, new_backend_config)
+        )
         assert session.state.backend_config.model == "gpt-4"
 
         # Then unset it
         text = "Actually, !/unset(model) nevermind."
-        processed_messages, commands_found = process_commands_in_messages(
+        processed_messages, commands_found = await process_commands_in_messages(
             [ChatMessage(role="user", content=text)],
-            session.state,
+            cast(SessionStateAdapter, session.state),
             app=self.mock_app,
             command_prefix="!/",
         )
@@ -110,15 +118,16 @@ class TestProcessTextForCommands:
         assert commands_found
         assert session.state.backend_config.model is None
 
-    def test_multiple_commands_in_one_string(self):
+    @pytest.mark.asyncio
+    async def test_multiple_commands_in_one_string(self):
         session = Session(session_id="test_session")
         current_session_state = session.state
         text = "!/set(model=openrouter:claude-2) Then, !/unset(model) and some text."
         # The behavior for multiple commands in one string might depend on implementation details.
         # Assuming commands are processed in order and session.state reflects the final command.
-        processed_messages, commands_found = process_commands_in_messages(
+        processed_messages, commands_found = await process_commands_in_messages(
             [ChatMessage(role="user", content=text)],
-            current_session_state,
+            cast(SessionStateAdapter, current_session_state),
             app=self.mock_app,
             command_prefix="!/",
         )
@@ -134,13 +143,14 @@ class TestProcessTextForCommands:
         # So the final state should be "claude-2".
         assert session.state.backend_config.model == "claude-2"
 
-    def test_unknown_commands_are_preserved(self):
+    @pytest.mark.asyncio
+    async def test_unknown_commands_are_preserved(self):
         session = Session(session_id="test_session")
         current_session_state = session.state
         text = "This is a !/unknown(command=value) that should be kept."
-        processed_messages, commands_found = process_commands_in_messages(
+        processed_messages, commands_found = await process_commands_in_messages(
             [ChatMessage(role="user", content=text)],
-            current_session_state,
+            cast(SessionStateAdapter, current_session_state),
             app=self.mock_app,
             command_prefix="!/",
         )
@@ -151,13 +161,14 @@ class TestProcessTextForCommands:
             session.state.backend_config.model is None
         )  # No known command to change state
 
-    def test_command_at_start_of_string(self):
+    @pytest.mark.asyncio
+    async def test_command_at_start_of_string(self):
         session = Session(session_id="test_session")
         current_session_state = session.state
         text = "!/set(model=openrouter:test-model) The rest of the message."
-        processed_messages, commands_found = process_commands_in_messages(
+        processed_messages, commands_found = await process_commands_in_messages(
             [ChatMessage(role="user", content=text)],
-            current_session_state,
+            cast(SessionStateAdapter, current_session_state),
             app=self.mock_app,
             command_prefix="!/",
         )
@@ -166,13 +177,14 @@ class TestProcessTextForCommands:
         assert commands_found
         assert session.state.backend_config.model == "test-model"
 
-    def test_command_at_end_of_string(self):
+    @pytest.mark.asyncio
+    async def test_command_at_end_of_string(self):
         session = Session(session_id="test_session")
         current_session_state = session.state
         text = "Message before !/set(model=openrouter:another-model)"
-        processed_messages, commands_found = process_commands_in_messages(
+        processed_messages, commands_found = await process_commands_in_messages(
             [ChatMessage(role="user", content=text)],
-            current_session_state,
+            cast(SessionStateAdapter, current_session_state),
             app=self.mock_app,
             command_prefix="!/",
         )
@@ -181,13 +193,14 @@ class TestProcessTextForCommands:
         assert commands_found
         assert session.state.backend_config.model == "another-model"
 
-    def test_command_only_string(self):
+    @pytest.mark.asyncio
+    async def test_command_only_string(self):
         session = Session(session_id="test_session")
         current_session_state = session.state
         text = "!/set(model=openrouter:command-only-model)"
-        processed_messages, commands_found = process_commands_in_messages(
+        processed_messages, commands_found = await process_commands_in_messages(
             [ChatMessage(role="user", content=text)],
-            current_session_state,
+            cast(SessionStateAdapter, current_session_state),
             app=self.mock_app,
             command_prefix="!/",
         )
@@ -196,13 +209,14 @@ class TestProcessTextForCommands:
         assert commands_found
         assert session.state.backend_config.model == "command-only-model"
 
-    def test_malformed_set_command(self):
+    @pytest.mark.asyncio
+    async def test_malformed_set_command(self):
         session = Session(session_id="test_session")
         current_session_state = session.state
         text = "!/set(mode=gpt-4)"  # 'mode' instead of 'model'
-        processed_messages, commands_found = process_commands_in_messages(
+        processed_messages, commands_found = await process_commands_in_messages(
             [ChatMessage(role="user", content=text)],
-            current_session_state,
+            cast(SessionStateAdapter, current_session_state),
             app=self.mock_app,
             command_prefix="!/",
         )
@@ -213,18 +227,21 @@ class TestProcessTextForCommands:
         assert commands_found
         assert session.state.backend_config.model is None  # State should not change
 
-    def test_malformed_unset_command(self):
+    @pytest.mark.asyncio
+    async def test_malformed_unset_command(self):
         session = Session(session_id="test_session")
         current_session_state = session.state
         # First set a model
         new_backend_config = current_session_state.backend_config.with_model("gpt-4")
-        session.state = current_session_state.with_backend_config(new_backend_config)
+        session.state = current_session_state.with_backend_config(
+            cast(BackendConfiguration, new_backend_config)
+        )
         assert session.state.backend_config.model == "gpt-4"
 
         text = "!/unset(foo)"
-        processed_messages, commands_found = process_commands_in_messages(
+        processed_messages, commands_found = await process_commands_in_messages(
             [ChatMessage(role="user", content=text)],
-            session.state,
+            cast(SessionStateAdapter, session.state),
             app=self.mock_app,
             command_prefix="!/",
         )
@@ -233,21 +250,22 @@ class TestProcessTextForCommands:
         assert commands_found
         assert session.state.backend_config.model == "gpt-4"  # Model remains set
 
-    def test_set_and_unset_project(self):
+    @pytest.mark.asyncio
+    async def test_set_and_unset_project(self):
         session = Session(session_id="test_session")
         current_session_state = session.state
-        processed_messages, _ = process_commands_in_messages(
+        processed_messages, _ = await process_commands_in_messages(
             [ChatMessage(role="user", content="!/set(project='abc def')")],
-            current_session_state,
+            cast(SessionStateAdapter, current_session_state),
             app=self.mock_app,
             command_prefix="!/",
         )
         processed_text = processed_messages[0].content if processed_messages else ""
         assert processed_text == ""
         assert session.state.project == "abc def"
-        processed_messages, _ = process_commands_in_messages(
+        processed_messages, _ = await process_commands_in_messages(
             [ChatMessage(role="user", content="!/unset(project)")],
-            session.state,
+            cast(SessionStateAdapter, session.state),
             app=self.mock_app,
             command_prefix="!/",
         )
@@ -255,21 +273,22 @@ class TestProcessTextForCommands:
         assert processed_text == ""
         assert session.state.project is None
 
-    def test_unset_model_and_project_together(self):
+    @pytest.mark.asyncio
+    async def test_unset_model_and_project_together(self):
         session = Session(session_id="test_session")
         current_session_state = session.state
 
         # Set initial model and project
         new_backend_config = current_session_state.backend_config.with_model("foo")
         new_session_state = current_session_state.with_backend_config(
-            new_backend_config
+            cast(BackendConfiguration, new_backend_config)
         )
         new_session_state = new_session_state.with_project("bar")
         session.state = new_session_state
 
-        processed_messages, commands_found = process_commands_in_messages(
+        processed_messages, commands_found = await process_commands_in_messages(
             [ChatMessage(role="user", content="!/unset(model, project)")],
-            session.state,
+            cast(SessionStateAdapter, session.state),
             app=self.mock_app,
             command_prefix="!/",
         )
@@ -279,13 +298,14 @@ class TestProcessTextForCommands:
         assert session.state.backend_config.model is None
         assert session.state.project is None
 
-    def test_set_interactive_mode(self):
+    @pytest.mark.asyncio
+    async def test_set_interactive_mode(self):
         session = Session(session_id="test_session")
         current_session_state = session.state
         text = "hello !/set(interactive-mode=ON)"
-        processed_messages, found = process_commands_in_messages(
+        processed_messages, found = await process_commands_in_messages(
             [ChatMessage(role="user", content=text)],
-            current_session_state,
+            cast(SessionStateAdapter, current_session_state),
             app=self.mock_app,
             command_prefix="!/",
         )
@@ -294,7 +314,8 @@ class TestProcessTextForCommands:
         assert found
         assert session.state.interactive_just_enabled
 
-    def test_unset_interactive_mode(self):
+    @pytest.mark.asyncio
+    async def test_unset_interactive_mode(self):
         session = Session(session_id="test_session")
         current_session_state = session.state
 
@@ -303,9 +324,9 @@ class TestProcessTextForCommands:
         assert session.state.interactive_just_enabled
 
         text = "!/unset(interactive)"
-        processed_messages, found = process_commands_in_messages(
+        processed_messages, found = await process_commands_in_messages(
             [ChatMessage(role="user", content=text)],
-            session.state,
+            cast(SessionStateAdapter, session.state),
             app=self.mock_app,
             command_prefix="!/",
         )
@@ -314,13 +335,14 @@ class TestProcessTextForCommands:
         assert found
         assert not session.state.interactive_just_enabled
 
-    def test_hello_command(self):
+    @pytest.mark.asyncio
+    async def test_hello_command(self):
         session = Session(session_id="test_session")
         current_session_state = session.state
         text = "!/hello"
-        processed_messages, found = process_commands_in_messages(
+        processed_messages, found = await process_commands_in_messages(
             [ChatMessage(role="user", content=text)],
-            current_session_state,
+            cast(SessionStateAdapter, current_session_state),
             app=self.mock_app,
             command_prefix="!/",
         )
@@ -329,13 +351,14 @@ class TestProcessTextForCommands:
         assert found
         assert session.state.hello_requested
 
-    def test_hello_command_with_text(self):
+    @pytest.mark.asyncio
+    async def test_hello_command_with_text(self):
         session = Session(session_id="test_session")
         current_session_state = session.state
         text = "Greetings !/hello friend"
-        processed_messages, found = process_commands_in_messages(
+        processed_messages, found = await process_commands_in_messages(
             [ChatMessage(role="user", content=text)],
-            current_session_state,
+            cast(SessionStateAdapter, current_session_state),
             app=self.mock_app,
             command_prefix="!/",
         )
@@ -344,18 +367,19 @@ class TestProcessTextForCommands:
         assert found
         assert session.state.hello_requested
 
-    def test_unknown_command_removed_interactive(self):
+    @pytest.mark.asyncio
+    async def test_unknown_command_removed_interactive(self):
         session = Session(session_id="test_session")
         state = session.state
         config = CommandParserConfig(
-            session_state=state,
+            proxy_state=cast(SessionStateAdapter, state),
             app=self.mock_app,
             preserve_unknown=False,
             functional_backends=self.mock_app.state.functional_backends,
         )
         parser = CommandParser(config, command_prefix="!/")
         text = "Hi !/foo(bar=1)"
-        processed_messages, found = parser.process_messages(
+        processed_messages, found = await parser.process_messages(
             [ChatMessage(role="user", content=text)]
         )
         processed = processed_messages[0].content if processed_messages else ""
@@ -366,17 +390,18 @@ class TestProcessTextForCommands:
             "cmd not found" in parser.command_results[0].message
         )  # Match actual error message
 
-    def test_set_invalid_model_interactive(self):
+    @pytest.mark.asyncio
+    async def test_set_invalid_model_interactive(self):
         session = Session(session_id="test_session")
         state = session.state
         config = CommandParserConfig(
-            session_state=state,
+            proxy_state=state,
             app=self.mock_app,
             preserve_unknown=False,
             functional_backends=self.mock_app.state.functional_backends,
         )
         parser = CommandParser(config, command_prefix="!/")
-        parser.process_messages(
+        await parser.process_messages(
             [ChatMessage(role="user", content="!/set(model=openrouter:bad)")]
         )
         assert session.state.backend_config.model is None
@@ -384,27 +409,29 @@ class TestProcessTextForCommands:
         assert not parser.command_results[0].success
         assert "not available" in parser.command_results[0].message
 
-    def test_set_invalid_model_noninteractive(self):
+    @pytest.mark.asyncio
+    async def test_set_invalid_model_noninteractive(self):
         session = Session(session_id="test_session")
         state = session.state
         config = CommandParserConfig(
-            session_state=state,
+            proxy_state=state,
             app=self.mock_app,
             preserve_unknown=True,
             functional_backends=self.mock_app.state.functional_backends,
         )
         parser = CommandParser(config, command_prefix="!/")
-        parser.process_messages(
+        await parser.process_messages(
             [ChatMessage(role="user", content="!/set(model=openrouter:bad)")]
         )
         assert session.state.backend_config.backend_type is None
         assert session.state.backend_config.model is None
 
-    def test_set_backend(self):
+    @pytest.mark.asyncio
+    async def test_set_backend(self):
         session = Session(session_id="test_session")
         state = session.state
         text = "!/set(backend=gemini) hi"
-        processed_messages, found = process_commands_in_messages(
+        processed_messages, found = await process_commands_in_messages(
             [ChatMessage(role="user", content=text)],
             state,
             app=self.mock_app,
@@ -416,17 +443,20 @@ class TestProcessTextForCommands:
         assert session.state.backend_config.backend_type == "gemini"
         assert session.state.backend_config.model is None
 
-    def test_unset_backend(self):
+    @pytest.mark.asyncio
+    async def test_unset_backend(self):
         session = Session(session_id="test_session")
         state = session.state
 
         # Set initial backend
         new_backend_config = state.backend_config.with_backend("gemini")
-        session.state = state.with_backend_config(new_backend_config)
+        session.state = state.with_backend_config(
+            cast(BackendConfiguration, new_backend_config)
+        )
         assert session.state.backend_config.backend_type == "gemini"
 
         text = "!/unset(backend)"
-        processed_messages, found = process_commands_in_messages(
+        processed_messages, found = await process_commands_in_messages(
             [ChatMessage(role="user", content=text)],
             session.state,
             app=self.mock_app,
@@ -437,11 +467,12 @@ class TestProcessTextForCommands:
         assert processed == ""
         assert session.state.backend_config.backend_type is None
 
-    def test_set_redact_api_keys_flag(self):
+    @pytest.mark.asyncio
+    async def test_set_redact_api_keys_flag(self):
         session = Session(session_id="test_session")
         state = session.state
         text = "!/set(redact-api-keys-in-prompts=false)"
-        processed_messages, found = process_commands_in_messages(
+        processed_messages, found = await process_commands_in_messages(
             [ChatMessage(role="user", content=text)],
             state,
             app=self.mock_app,
@@ -452,12 +483,13 @@ class TestProcessTextForCommands:
         assert found
         assert not self.mock_app.state.api_key_redaction_enabled
 
-    def test_unset_redact_api_keys_flag(self):
+    @pytest.mark.asyncio
+    async def test_unset_redact_api_keys_flag(self):
         session = Session(session_id="test_session")
         state = session.state
         self.mock_app.state.api_key_redaction_enabled = False
         text = "!/unset(redact-api-keys-in-prompts)"
-        processed_messages, found = process_commands_in_messages(
+        processed_messages, found = await process_commands_in_messages(
             [ChatMessage(role="user", content=text)],
             state,
             app=self.mock_app,

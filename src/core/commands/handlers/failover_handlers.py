@@ -10,7 +10,8 @@ from src.core.commands.handlers.base_handler import (
 )
 from src.core.domain.command_context import CommandContext
 from src.core.domain.configuration.session_state_builder import SessionStateBuilder
-from src.core.domain.session import SessionState
+from src.core.domain.session import SessionStateAdapter
+from src.core.interfaces.domain_entities import ISessionState
 
 logger = logging.getLogger(__name__)
 
@@ -18,7 +19,7 @@ logger = logging.getLogger(__name__)
 class CreateFailoverRouteHandler(BaseCommandHandler):
     """Handler for creating a new failover route."""
 
-    def __init__(self):
+    def __init__(self) -> None:
         """Initialize the create failover route handler."""
         super().__init__("create-failover-route")
 
@@ -46,7 +47,7 @@ class CreateFailoverRouteHandler(BaseCommandHandler):
     def handle(
         self,
         param_value: Any,
-        current_state: SessionState,
+        current_state: ISessionState,
         context: CommandContext | None = None,
     ) -> CommandHandlerResult:
         """Handle creating a failover route.
@@ -76,9 +77,9 @@ class CreateFailoverRouteHandler(BaseCommandHandler):
 
         # Create new state with failover route
         builder = SessionStateBuilder(current_state)
-        new_state = builder.with_backend_config(
+        new_state = SessionStateAdapter(builder.with_backend_config(
             current_state.backend_config.with_failover_route(name, policy)
-        ).build()
+        ).build())
 
         return CommandHandlerResult(
             success=True,
@@ -90,7 +91,7 @@ class CreateFailoverRouteHandler(BaseCommandHandler):
 class DeleteFailoverRouteHandler(BaseCommandHandler):
     """Handler for deleting a failover route."""
 
-    def __init__(self):
+    def __init__(self) -> None:
         """Initialize the delete failover route handler."""
         super().__init__("delete-failover-route")
 
@@ -118,7 +119,7 @@ class DeleteFailoverRouteHandler(BaseCommandHandler):
     def handle(
         self,
         param_value: Any,
-        current_state: SessionState,
+        current_state: ISessionState,
         context: CommandContext | None = None,
     ) -> CommandHandlerResult:
         """Handle deleting a failover route.
@@ -151,9 +152,9 @@ class DeleteFailoverRouteHandler(BaseCommandHandler):
 
         # Create new state without failover route
         builder = SessionStateBuilder(current_state)
-        new_state = builder.with_backend_config(
+        new_state = SessionStateAdapter(builder.with_backend_config(
             current_state.backend_config.without_failover_route(name)
-        ).build()
+        ).build())
 
         return CommandHandlerResult(
             success=True,
@@ -193,7 +194,7 @@ class RouteListHandler(BaseCommandHandler):
     def handle(
         self,
         param_value: Any,
-        current_state: SessionState,
+        current_state: ISessionState,
         context: CommandContext | None = None,
     ) -> CommandHandlerResult:
         """Handle listing elements in a failover route.
@@ -243,8 +244,8 @@ class RouteListHandler(BaseCommandHandler):
 class RouteAppendHandler(BaseCommandHandler):
     """Handler for appending elements to a failover route."""
 
-    def __init__(self):
-        """Initialize the route append handler."""
+    def __init__(self) -> None:
+        """Initialize the append route handler."""
         super().__init__("route-append")
 
     @property
@@ -271,7 +272,7 @@ class RouteAppendHandler(BaseCommandHandler):
     def handle(
         self,
         param_value: Any,
-        current_state: SessionState,
+        current_state: ISessionState,
         context: CommandContext | None = None,
     ) -> CommandHandlerResult:
         """Handle appending an element to a failover route.
@@ -316,9 +317,9 @@ class RouteAppendHandler(BaseCommandHandler):
 
         # Create new state with appended element
         builder = SessionStateBuilder(current_state)
-        new_state = builder.with_backend_config(
+        new_state = SessionStateAdapter(builder.with_backend_config(
             current_state.backend_config.with_appended_route_element(name, element)
-        ).build()
+        ).build())
 
         return CommandHandlerResult(
             success=True,
@@ -330,8 +331,8 @@ class RouteAppendHandler(BaseCommandHandler):
 class RoutePrependHandler(BaseCommandHandler):
     """Handler for prepending elements to a failover route."""
 
-    def __init__(self):
-        """Initialize the route prepend handler."""
+    def __init__(self) -> None:
+        """Initialize the prepend route handler."""
         super().__init__("route-prepend")
 
     @property
@@ -358,7 +359,7 @@ class RoutePrependHandler(BaseCommandHandler):
     def handle(
         self,
         param_value: Any,
-        current_state: SessionState,
+        current_state: ISessionState,
         context: CommandContext | None = None,
     ) -> CommandHandlerResult:
         """Handle prepending an element to a failover route.
@@ -403,9 +404,9 @@ class RoutePrependHandler(BaseCommandHandler):
 
         # Create new state with prepended element
         builder = SessionStateBuilder(current_state)
-        new_state = builder.with_backend_config(
+        new_state = SessionStateAdapter(builder.with_backend_config(
             current_state.backend_config.with_prepended_route_element(name, element)
-        ).build()
+        ).build())
 
         return CommandHandlerResult(
             success=True,
@@ -417,8 +418,8 @@ class RoutePrependHandler(BaseCommandHandler):
 class RouteClearHandler(BaseCommandHandler):
     """Handler for clearing elements from a failover route."""
 
-    def __init__(self):
-        """Initialize the route clear handler."""
+    def __init__(self) -> None:
+        """Initialize the clear route handler."""
         super().__init__("route-clear")
 
     @property
@@ -445,7 +446,7 @@ class RouteClearHandler(BaseCommandHandler):
     def handle(
         self,
         param_value: Any,
-        current_state: SessionState,
+        current_state: ISessionState,
         context: CommandContext | None = None,
     ) -> CommandHandlerResult:
         """Handle clearing elements from a failover route.
@@ -478,9 +479,9 @@ class RouteClearHandler(BaseCommandHandler):
 
         # Create new state with cleared route
         builder = SessionStateBuilder(current_state)
-        new_state = builder.with_backend_config(
+        new_state = SessionStateAdapter(builder.with_backend_config(
             current_state.backend_config.with_cleared_route(name)
-        ).build()
+        ).build())
 
         return CommandHandlerResult(
             success=True,
@@ -492,7 +493,7 @@ class RouteClearHandler(BaseCommandHandler):
 class ListFailoverRoutesHandler(BaseCommandHandler):
     """Handler for listing all failover routes."""
 
-    def __init__(self):
+    def __init__(self) -> None:
         """Initialize the list failover routes handler."""
         super().__init__("list-failover-routes")
 
@@ -520,7 +521,7 @@ class ListFailoverRoutesHandler(BaseCommandHandler):
     def handle(
         self,
         param_value: Any,
-        current_state: SessionState,
+        current_state: ISessionState,
         context: CommandContext | None = None,
     ) -> CommandHandlerResult:
         """Handle listing all failover routes.

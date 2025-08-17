@@ -55,15 +55,6 @@ async def anthropic_messages(
     openai_request_obj = ChatCompletionRequest(**openai_request_data)
 
     # --- Step 2: Temporarily switch backend type so chat_completions routes to Anthropic backend
-    # If the parent app doesn't expose required state (unit tests using a bare FastAPI instance),
-    # fall back to legacy 501 behaviour so that existing tests pass.
-    if not hasattr(http_request.app, "state") or not hasattr(
-        http_request.app.state, "chat_completions_func"
-    ):
-        raise HTTPException(
-            status_code=501,
-            detail="Anthropic endpoint not yet fully integrated - use OpenAI endpoint with anthropic backend",
-        )
 
     original_backend_type = getattr(
         http_request.app.state, "backend_type", BackendType.OPENROUTER
@@ -71,18 +62,39 @@ async def anthropic_messages(
     http_request.app.state.backend_type = BackendType.ANTHROPIC
 
     try:
-        import inspect
+        # Get the request processor from the service provider
+        from src.core.interfaces.request_processor import IRequestProcessor
 
-        chat_completions_fn = http_request.app.state.chat_completions_func
-        if chat_completions_fn is None or not inspect.iscoroutinefunction(
-            chat_completions_fn
+        if (
+            hasattr(http_request.app.state, "service_provider")
+            and http_request.app.state.service_provider
         ):
-            raise HTTPException(
-                status_code=501,
-                detail="Anthropic endpoint not yet fully integrated - use OpenAI endpoint with anthropic backend",
+            request_processor = (
+                http_request.app.state.service_provider.get_required_service(
+                    IRequestProcessor
+                )
             )
+            # Process the request using the new architecture
+            openai_response = await request_processor.process_request(
+                http_request, openai_request_obj
+            )
+        else:
+            # Fall back to legacy chat_completions_func if available
+            import inspect
 
-        openai_response = await chat_completions_fn(openai_request_obj, http_request)
+            chat_completions_fn = getattr(
+                http_request.app.state, "chat_completions_func", None
+            )
+            if chat_completions_fn is None or not inspect.iscoroutinefunction(
+                chat_completions_fn
+            ):
+                raise HTTPException(
+                    status_code=501,
+                    detail="Anthropic endpoint not yet fully integrated - use OpenAI endpoint with anthropic backend",
+                )
+            openai_response = await chat_completions_fn(
+                openai_request_obj, http_request
+            )
 
         # --- Step 3: Convert response back to Anthropic format
         if isinstance(openai_response, StreamingResponse):

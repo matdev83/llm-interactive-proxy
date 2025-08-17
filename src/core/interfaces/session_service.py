@@ -24,6 +24,28 @@ class ISessionService(ABC):
         """
 
     @abstractmethod
+    async def create_session(self, session_id: str) -> Session:
+        """Create a new session for the given session ID.
+
+        Args:
+            session_id: The unique identifier for the session
+
+        Returns:
+            The newly created session object
+        """
+
+    @abstractmethod
+    async def get_or_create_session(self, session_id: str | None = None) -> Session:
+        """Get or create a session for the given session ID.
+
+        Args:
+            session_id: The unique identifier for the session
+
+        Returns:
+            The session object
+        """
+
+    @abstractmethod
     async def update_session(self, session: Session) -> None:
         """Update a session with new data.
 

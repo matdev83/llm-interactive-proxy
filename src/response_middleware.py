@@ -5,6 +5,9 @@ This module provides a pluggable middleware system that can process responses
 from any backend without coupling the loop detection logic to individual connectors.
 
 Note: For request processing (e.g., API key redaction), see request_middleware.py
+
+IMPORTANT: This module maintains backward compatibility while the codebase transitions
+to the new SOLID architecture. Some components are re-exported from the new locations.
 """
 
 from __future__ import annotations

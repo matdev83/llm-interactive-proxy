@@ -25,7 +25,7 @@ class PwdCommand(BaseCommand):
     description = "Display the current project directory"
     examples = ["!/pwd"]
 
-    async def execute(self, args: Mapping[str, Any], session: Session) -> CommandResult:
+    async def execute(self, args: Mapping[str, Any], session: Session, context: Any = None) -> CommandResult:
         """
         Execute the pwd command.
 
@@ -36,10 +36,17 @@ class PwdCommand(BaseCommand):
         Returns:
             The command result
         """
-        project_dir = session.state.project_dir or "Not set"
+        project_dir = session.state.project_dir
 
-        return CommandResult(
-            name=self.name,
-            success=True,
-            message=f"Current project directory: {project_dir}",
-        )
+        if project_dir:
+            return CommandResult(
+                name=self.name,
+                success=True,
+                message=project_dir,
+            )
+        else:
+            return CommandResult(
+                name=self.name,
+                success=True,
+                message="Project directory not set",
+            )

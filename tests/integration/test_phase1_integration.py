@@ -91,7 +91,7 @@ async def test_integration_bridge_async_initialization():
     await bridge.initialize_new_architecture()
 
     # Verify initialization flags
-    assert bridge.initialized
+    assert bridge.new_initialized
     # Legacy architecture is no longer supported
 
     # Should be able to cleanup

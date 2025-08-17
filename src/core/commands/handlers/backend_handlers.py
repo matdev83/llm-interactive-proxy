@@ -10,7 +10,8 @@ from src.core.commands.handlers.base_handler import (
 )
 from src.core.domain.command_context import CommandContext
 from src.core.domain.configuration.session_state_builder import SessionStateBuilder
-from src.core.domain.session import SessionState
+from src.core.domain.session import SessionStateAdapter
+from src.core.interfaces.domain_entities import ISessionState
 
 logger = logging.getLogger(__name__)
 
@@ -40,7 +41,7 @@ class BackendHandler(BaseCommandHandler):
     def handle(
         self,
         param_value: Any,
-        current_state: SessionState,
+        current_state: ISessionState,
         context: CommandContext | None = None,
     ) -> CommandHandlerResult:
         """Handle setting the backend.
@@ -71,27 +72,27 @@ class BackendHandler(BaseCommandHandler):
         ):
             # Create new state with backend override unset
             builder = SessionStateBuilder(current_state)
-            new_state = builder.with_backend_type(None).build()
+            unset_state: ISessionState = SessionStateAdapter(builder.with_backend_type(None).build())
 
             return CommandHandlerResult(
                 success=True,
                 message=f"Backend {backend_val} not functional (session override unset)",
-                new_state=new_state,
+                new_state=unset_state,
             )
 
         # Create new state with backend override set
         builder = SessionStateBuilder(current_state)
-        new_state = builder.with_backend_type(backend_val).build()
+        set_state: ISessionState = SessionStateAdapter(builder.with_backend_type(backend_val).build())
 
         return CommandHandlerResult(
-            success=True, message=f"Backend set to {backend_val}", new_state=new_state
+            success=True, message=f"Backend set to {backend_val}", new_state=set_state
         )
 
 
 class ModelHandler(BaseCommandHandler):
     """Handler for setting the model."""
 
-    def __init__(self):
+    def __init__(self) -> None:
         """Initialize the model handler."""
         super().__init__("model")
 
@@ -112,7 +113,7 @@ class ModelHandler(BaseCommandHandler):
     def handle(
         self,
         param_value: Any,
-        current_state: SessionState,
+        current_state: ISessionState,
         context: CommandContext | None = None,
     ) -> CommandHandlerResult:
         """Handle setting the model.
@@ -144,7 +145,7 @@ class ModelHandler(BaseCommandHandler):
 
             # Set both backend and model
             builder = SessionStateBuilder(current_state)
-            new_state = (
+            new_state = SessionStateAdapter(
                 builder.with_backend_type(backend_prefix).with_model(model_name).build()
             )
 
@@ -156,7 +157,7 @@ class ModelHandler(BaseCommandHandler):
         else:
             # Just set the model
             builder = SessionStateBuilder(current_state)
-            new_state = builder.with_model(model_val).build()
+            new_state = SessionStateAdapter(builder.with_model(model_val).build())
 
             return CommandHandlerResult(
                 success=True, message=f"Model set to {model_val}", new_state=new_state
@@ -166,7 +167,7 @@ class ModelHandler(BaseCommandHandler):
 class OpenAIUrlHandler(BaseCommandHandler):
     """Handler for setting the OpenAI URL."""
 
-    def __init__(self):
+    def __init__(self) -> None:
         """Initialize the OpenAI URL handler."""
         super().__init__("openai-url", ["openai_url"])
 
@@ -183,7 +184,7 @@ class OpenAIUrlHandler(BaseCommandHandler):
     def handle(
         self,
         param_value: Any,
-        current_state: SessionState,
+        current_state: ISessionState,
         context: CommandContext | None = None,
     ) -> CommandHandlerResult:
         """Handle setting the OpenAI URL.
@@ -211,9 +212,9 @@ class OpenAIUrlHandler(BaseCommandHandler):
 
         # Update the state
         builder = SessionStateBuilder(current_state)
-        new_state = builder.with_backend_config(
+        new_state = SessionStateAdapter(builder.with_backend_config(
             current_state.backend_config.with_openai_url(url_val)  # type: ignore
-        ).build()
+        ).build())
 
         return CommandHandlerResult(
             success=True, message=f"OpenAI URL set to {url_val}", new_state=new_state

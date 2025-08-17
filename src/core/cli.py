@@ -260,11 +260,12 @@ def main(
         # build step, prefer that interface; otherwise call the normal
         # build_app which will derive config from environment/files.
         try:
+            # Try calling with cfg first
             app = build_app(cfg)
         except TypeError:
             # Older build_app implementations may not accept cfg; fall
-            # back to calling with only config_file/path.
-            app = build_app(config_file=config_file)
+            # back to calling with no arguments.
+            app = build_app()
 
     uvicorn.run(app, host=cfg.host, port=cfg.port)
 

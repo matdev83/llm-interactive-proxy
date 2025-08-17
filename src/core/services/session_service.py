@@ -21,6 +21,18 @@ class SessionService(ISessionService):
             await self._session_repository.add(session)
         return session
 
+    async def get_or_create_session(self, session_id: str | None = None) -> Session:
+        """Get existing session or create a new one.
+
+        If session_id is None, generate a new UUID for the session.
+        """
+        if session_id is None:
+            import uuid
+
+            session_id = str(uuid.uuid4())
+
+        return await self.get_session(session_id)
+
     async def create_session(self, session_id: str) -> Session:
         session = Session(session_id=session_id)
         await self._session_repository.add(session)

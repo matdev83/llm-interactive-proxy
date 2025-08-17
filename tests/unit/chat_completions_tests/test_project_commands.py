@@ -1,10 +1,11 @@
 from unittest.mock import AsyncMock, patch
 
-# import pytest # F401 Removed
+import pytest
 from fastapi.testclient import TestClient
 
 
-def test_set_project_command_integration(client: TestClient):
+@pytest.mark.asyncio
+async def test_set_project_command_integration(client: TestClient):
     payload = {
         "model": "some-model",
         "messages": [{"role": "user", "content": "!/set(project=test-project) Hello"}],
@@ -15,13 +16,16 @@ def test_set_project_command_integration(client: TestClient):
         mock_method.return_value = {"choices": [{"message": {"content": "ok"}}]}
         response = client.post("/v1/chat/completions", json=payload)
     assert response.status_code == 200
-    session = client.app.state.session_manager.get_session("default")
-    assert session.proxy_state.project == "test-project"
+    session_service = client.app.state.session_manager
+    session = session_service.get_session("default")  # This is a sync method
+    assert session.state.project == "test-project"
 
 
-def test_unset_project_command_integration(client: TestClient):
-    session = client.app.state.session_manager.get_session("default")
-    session.proxy_state.project = "initial-project"  # Set initial project
+@pytest.mark.asyncio
+async def test_unset_project_command_integration(client: TestClient):
+    session_service = client.app.state.session_manager
+    session = session_service.get_session("default")  # This is a sync method
+    session.state.set_project("initial-project")  # Set initial project
 
     payload = {
         "model": "some-model",
@@ -33,10 +37,11 @@ def test_unset_project_command_integration(client: TestClient):
         mock_method.return_value = {"choices": [{"message": {"content": "ok"}}]}
         response = client.post("/v1/chat/completions", json=payload)
     assert response.status_code == 200
-    assert session.proxy_state.project is None
+    assert session.state.project is None
 
 
-def test_set_project_name_alias_integration(client: TestClient):
+@pytest.mark.asyncio
+async def test_set_project_name_alias_integration(client: TestClient):
     payload = {
         "model": "some-model",
         "messages": [
@@ -49,13 +54,16 @@ def test_set_project_name_alias_integration(client: TestClient):
         mock_method.return_value = {"choices": [{"message": {"content": "ok"}}]}
         response = client.post("/v1/chat/completions", json=payload)
     assert response.status_code == 200
-    session = client.app.state.session_manager.get_session("default")
-    assert session.proxy_state.project == "alias-project"
+    session_service = client.app.state.session_manager
+    session = session_service.get_session("default")  # This is a sync method
+    assert session.state.project == "alias-project"
 
 
-def test_unset_project_name_alias_integration(client: TestClient):
-    session = client.app.state.session_manager.get_session("default")
-    session.proxy_state.project = "initial-alias-project"  # Set initial project
+@pytest.mark.asyncio
+async def test_unset_project_name_alias_integration(client: TestClient):
+    session_service = client.app.state.session_manager
+    session = session_service.get_session("default")  # This is a sync method
+    session.state.set_project("initial-alias-project")  # Set initial project
 
     payload = {
         "model": "some-model",
@@ -69,16 +77,18 @@ def test_unset_project_name_alias_integration(client: TestClient):
         mock_method.return_value = {"choices": [{"message": {"content": "ok"}}]}
         response = client.post("/v1/chat/completions", json=payload)
     assert response.status_code == 200
-    assert session.proxy_state.project is None
+    assert session.state.project is None
 
 
-def test_force_set_project_blocks_requests(client: TestClient):
+@pytest.mark.asyncio
+async def test_force_set_project_blocks_requests(client: TestClient):
     # Temporarily enable force_set_project for this test client's app instance
     original_force_set_project = client.app.state.force_set_project
     client.app.state.force_set_project = True
     try:
-        session = client.app.state.session_manager.get_session("default")
-        session.proxy_state.project = None  # Ensure project is not set
+        session_service = client.app.state.session_manager
+        session = session_service.get_session("default")  # This is a sync method
+        session.state.unset_project()  # Ensure project is not set
 
         payload = {
             "model": "some-model",
@@ -86,12 +96,13 @@ def test_force_set_project_blocks_requests(client: TestClient):
         }
         response = client.post("/v1/chat/completions", json=payload)
         assert response.status_code == 400
-        assert "Project name not set" in response.json()["detail"]
+        assert "Project name not set" in response.json()["error"]["message"]
     finally:
         client.app.state.force_set_project = original_force_set_project
 
 
-def test_force_set_project_allows_after_set(client: TestClient):
+@pytest.mark.asyncio
+async def test_force_set_project_allows_after_set(client: TestClient):
     original_force_set_project = client.app.state.force_set_project
     client.app.state.force_set_project = True
     mock_backend_response = {"choices": [{"message": {"content": "ok"}}]}
@@ -112,8 +123,9 @@ def test_force_set_project_allows_after_set(client: TestClient):
             }
             response_set = client.post("/v1/chat/completions", json=set_project_payload)
             assert response_set.status_code == 200
-            session = client.app.state.session_manager.get_session("default")
-            assert session.proxy_state.project == "forced-project"
+            session_service = client.app.state.session_manager
+            session = session_service.get_session("default")  # This is a sync method
+            assert session.state.project == "forced-project"
 
             # Then, make a normal request
             query_payload = {

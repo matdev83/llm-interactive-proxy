@@ -15,7 +15,7 @@ from src.core.commands.handlers.base_handler import (
     CommandHandlerResult,
 )
 from src.core.domain.command_context import CommandContext
-from src.core.domain.session import SessionState
+from src.core.interfaces.domain_entities import ISessionState
 
 logger = logging.getLogger(__name__)
 
@@ -23,7 +23,7 @@ logger = logging.getLogger(__name__)
 class ProjectDirCommandHandler(BaseCommandHandler):
     """Handler for setting the project directory."""
 
-    def __init__(self):
+    def __init__(self) -> None:
         """Initialize the project directory command handler."""
         super().__init__("project-dir")
 
@@ -62,7 +62,7 @@ class ProjectDirCommandHandler(BaseCommandHandler):
     def handle(
         self,
         param_value: Any,
-        current_state: SessionState,
+        current_state: ISessionState,
         context: CommandContext | None = None,
     ) -> CommandHandlerResult:
         """Handle setting the project directory.
@@ -85,8 +85,10 @@ class ProjectDirCommandHandler(BaseCommandHandler):
 
         # Validate the directory path
         if not os.path.isdir(dir_path):
+            # Tests expect a specific error message phrasing
             return CommandHandlerResult(
-                success=False, message=f"Directory does not exist: {dir_path}"
+                success=False,
+                message=f"Directory '{dir_path}' not found.",
             )
 
         # Create new state with updated project directory
@@ -94,6 +96,10 @@ class ProjectDirCommandHandler(BaseCommandHandler):
 
         return CommandHandlerResult(
             success=True,
+            # Tests expect the handler to be silent when called via unified set
+            # handler, but when used directly they expect a user-visible
+            # confirmation message. We return the full message here and let
+            # callers decide to silence it.
             message=f"Project directory set to {dir_path}",
             new_state=new_state,
         )

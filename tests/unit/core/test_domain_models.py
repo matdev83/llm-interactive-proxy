@@ -8,7 +8,11 @@ from src.core.domain.configuration import (
     LoopDetectionConfig,
     ReasoningConfig,
 )
-from src.core.domain.session import SessionInteraction, SessionState
+from src.core.domain.session import (
+    SessionInteraction,
+    SessionState,
+    SessionStateAdapter,
+)
 
 
 def test_backend_config_immutability():
@@ -128,7 +132,7 @@ def test_session_mutability():
     # Act - Test that session is mutable
     session.add_interaction(interaction)
     new_state = SessionState()
-    session.update_state(new_state)
+    session.update_state(SessionStateAdapter(new_state))
 
     # Assert
     assert len(session.history) == 1

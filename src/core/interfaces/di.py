@@ -81,7 +81,7 @@ class IServiceCollection(ABC):
     def add_singleton(
         self,
         service_type: type[T],
-        implementation_type: type[T] | None = None,
+        implementation_type: type | None = None,
         implementation_factory: Callable[[IServiceProvider], T] | None = None,
     ) -> IServiceCollection:
         """Register a singleton service.
@@ -115,7 +115,7 @@ class IServiceCollection(ABC):
     def add_transient(
         self,
         service_type: type[T],
-        implementation_type: type[T] | None = None,
+        implementation_type: type | None = None,
         implementation_factory: Callable[[IServiceProvider], T] | None = None,
     ) -> IServiceCollection:
         """Register a transient service.
@@ -133,7 +133,7 @@ class IServiceCollection(ABC):
     def add_scoped(
         self,
         service_type: type[T],
-        implementation_type: type[T] | None = None,
+        implementation_type: type | None = None,
         implementation_factory: Callable[[IServiceProvider], T] | None = None,
     ) -> IServiceCollection:
         """Register a scoped service.

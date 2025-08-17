@@ -47,7 +47,7 @@ def test_app_config_to_legacy_config():
         backends=AppConfig.BackendSettings(
             default_backend="openai",
             openai=AppConfig.BackendConfig(
-                api_key="test_key",
+                api_key=["test_key"],
                 api_url="https://api.example.com",
                 timeout=30,
                 extra={"foo": "bar"},
@@ -88,7 +88,7 @@ def test_app_config_from_legacy_config():
     assert config.host == "localhost"
     assert config.port == 9000
     assert config.backends.default_backend == "openai"
-    assert config.backends.openai.api_key == "test_key"
+    assert config.backends.openai.api_key == ["test_key"]
     assert config.backends.openai.api_url == "https://api.example.com"
     assert config.backends.openai.timeout == 30
     assert config.backends.openai.extra == {"foo": "bar"}
@@ -102,8 +102,8 @@ def test_app_config_from_env(mock_env_vars: dict[str, str]):
     # Assert
     assert config.host == mock_env_vars["APP_HOST"]
     assert config.port == int(mock_env_vars["APP_PORT"])
-    assert config.backends.openai.api_key == mock_env_vars["OPENAI_API_KEY"]
-    assert config.backends.openrouter.api_key == mock_env_vars["OPENROUTER_API_KEY"]
+    assert config.backends.openai.api_key == [mock_env_vars["OPENAI_API_KEY"]]
+    assert config.backends.openrouter.api_key == [mock_env_vars["OPENROUTER_API_KEY"]]
     assert config.auth.disable_auth is True
 
 
@@ -122,6 +122,37 @@ def test_load_config(temp_config_path: Path):
     """Test the load_config function."""
     # Arrange & Act
     config = load_config(temp_config_path)
+
+    # Assert
+    assert isinstance(config, AppConfig)
+    assert config.host == "localhost"
+    assert config.port == 9000
+
+
+def test_load_config_debug(temp_config_path: Path):
+    """Test the load_config function."""
+    # Arrange & Act
+    import os
+
+    from src.core.config.app_config import AppConfig, _merge_dicts
+
+    print(f"APP_HOST env var: {os.environ.get('APP_HOST')}")
+
+    config_from_env = AppConfig.from_env()
+    env_dict = config_from_env.model_dump()
+    print(f"Config from env: {env_dict}")
+
+    import yaml
+
+    with open(temp_config_path) as f:
+        file_config = yaml.safe_load(f)
+    print(f"File config: {file_config}")
+
+    merged_config_dict = _merge_dicts(env_dict, file_config)
+    print(f"Merged config: {merged_config_dict}")
+
+    config = AppConfig.model_validate(merged_config_dict)
+    print(f"Final config host: {config.host}")
 
     # Assert
     assert isinstance(config, AppConfig)

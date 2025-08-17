@@ -14,7 +14,15 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from src.core.app.application_factory import build_app
-from src.core.config.app_config import AppConfig
+from src.core.config.app_config import (
+    AppConfig,
+    AuthConfig,
+    BackendConfig,
+    BackendSettings,
+    LoggingConfig,
+    LogLevel,
+    SessionConfig,
+)
 from src.core.di.container import ServiceCollection
 from src.core.interfaces.di import IServiceProvider
 
@@ -44,20 +52,20 @@ def test_config() -> AppConfig:
         port=9000,
         proxy_timeout=10,
         command_prefix="!/",
-        backends=AppConfig.BackendSettings(
-            default_backend="openrouter",
-            openrouter=AppConfig.BackendConfig(api_key=["test_openrouter_key"]),
+        backends=BackendSettings(
+            default_backend="openai",
+            openai=BackendConfig(api_key=["test_openai_key"]),
+            openrouter=BackendConfig(api_key=["test_openrouter_key"]),
+            anthropic=BackendConfig(api_key=["test_anthropic_key"]),
         ),
-        auth=AppConfig.AuthConfig(
-            disable_auth=True, api_keys=["test_api_key"], client_api_key="test_api_key"
-        ),
-        session=AppConfig.SessionConfig(
+        auth=AuthConfig(
+            disable_auth=False, api_keys=["test-proxy-key"]
+        ),  # Enable auth with test key
+        session=SessionConfig(
             cleanup_enabled=False,  # Disable cleanup for testing
             default_interactive_mode=True,
         ),
-        logging=AppConfig.LoggingConfig(
-            level=AppConfig.LogLevel.WARNING  # Silence logging during tests
-        ),
+        logging=LoggingConfig(level=LogLevel.WARNING),  # Silence logging during tests
     )
 
 
@@ -109,7 +117,7 @@ def test_app(test_config: AppConfig, tmp_path: Path) -> FastAPI:
 
 
 @pytest.fixture
-def test_client(test_app: FastAPI) -> TestClient:
+def test_client(test_app: FastAPI) -> Generator[TestClient, None, None]:
     """Create a TestClient for the test app."""
     with TestClient(
         test_app, headers={"Authorization": "Bearer test-proxy-key"}
@@ -181,6 +189,10 @@ def mock_env_vars(monkeypatch: pytest.MonkeyPatch) -> dict[str, str]:
         "APP_PORT": "9000",
         "OPENAI_API_KEY": "test_openai_key",
         "OPENROUTER_API_KEY": "test_openrouter_key",
+        # Numbered/alternate keys used by some tests
+        "OPENROUTER_API_KEY_1": "test_openrouter_key_1",
+        "GEMINI_API_KEY": "test_gemini_key",
+        "GEMINI_API_KEY_1": "test_gemini_key_1",
         "DISABLE_AUTH": "true",
     }
 

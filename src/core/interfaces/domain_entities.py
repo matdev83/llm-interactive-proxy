@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import abc
 from abc import ABC, abstractmethod
 from datetime import datetime
 from typing import Any
@@ -139,3 +140,37 @@ class ISessionState(IValueObject):
     @abstractmethod
     def project_dir(self) -> str | None:
         """Get the project directory."""
+
+    @abc.abstractmethod
+    def with_backend_config(self, config: IBackendConfig) -> ISessionState:
+        """Create a new state with updated backend configuration."""
+
+    @abc.abstractmethod
+    def with_reasoning_config(self, config: IReasoningConfig) -> ISessionState:
+        """Create a new state with updated reasoning configuration."""
+
+    @abc.abstractmethod
+    def with_loop_config(self, config: ILoopDetectionConfig) -> ISessionState:
+        """Create a new state with updated loop detection configuration."""
+
+    @abc.abstractmethod
+    def with_project(self, project: str | None) -> ISessionState:
+        """Create a new state with updated project name."""
+
+    @abc.abstractmethod
+    def with_project_dir(self, project_dir: str | None) -> ISessionState:
+        """Create a new state with updated project directory."""
+
+    @property
+    @abc.abstractmethod
+    def interactive_just_enabled(self) -> bool:
+        """Get whether interactive mode was just enabled."""
+
+    @abc.abstractmethod
+    def with_interactive_just_enabled(self, enabled: bool) -> ISessionState:
+        """Create a new state with updated interactive_just_enabled flag."""
+
+    @property
+    @abc.abstractmethod
+    def is_cline_agent(self) -> bool:
+        """Get whether the current agent is a CLI agent."""

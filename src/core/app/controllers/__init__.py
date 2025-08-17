@@ -8,8 +8,9 @@ from __future__ import annotations
 
 import logging
 
-from fastapi import Depends, FastAPI, HTTPException, Request
+from fastapi import Depends, FastAPI, HTTPException, Request, Body
 
+import src.models as models
 from src.anthropic_models import AnthropicMessagesRequest
 from src.core.app.controllers.chat_controller import (
     ChatCompletionRequest,
@@ -197,7 +198,7 @@ def register_compatibility_endpoints(app: FastAPI) -> None:
     @app.post("/v1/chat/completions")
     async def compat_chat_completions(
         request: Request,
-        request_data: ChatCompletionRequest,
+        request_data: models.ChatCompletionRequest = Body(...),
         service_provider=Depends(get_service_provider_if_available),
     ):
         return await hybrid_chat_completions(request, request_data, service_provider)

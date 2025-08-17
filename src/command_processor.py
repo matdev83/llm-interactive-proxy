@@ -53,7 +53,9 @@ class CommandProcessor:
     ) -> None:
         self.config = config
 
-    def process_text_and_execute_command(self, text_content: str) -> tuple[str, bool]:
+    async def process_text_and_execute_command(
+        self, text_content: str
+    ) -> tuple[str, bool]:
         """Processes text for a single command and executes it."""
         commands_found = False
         modified_text = text_content
@@ -76,20 +78,42 @@ class CommandProcessor:
             command_handler = self.config.handlers.get(command_name)
             if command_handler:
                 # Get the result from the command handler
-                # This could be either a legacy or new CommandResult
-                execution_result: Any = command_handler.execute(
-                    args, self.config.proxy_state
-                )
-                # Convert legacy CommandResult to new CommandResult if needed
-                from src.commands.base import CommandResult as LegacyCommandResult
+                # New BaseCommand classes have async execute methods
+                import asyncio
 
-                if isinstance(execution_result, LegacyCommandResult):
-                    new_result = CommandResult(
-                        name=getattr(execution_result, "name", "unknown"),
-                        success=getattr(execution_result, "success", False),
-                        message=getattr(execution_result, "message", ""),
+                # Create a temporary session for the command execution
+                from src.core.domain.session import Session
+                from src.core.interfaces.domain_entities import ISessionState
+                
+                # Always create a proper Session object
+                # Type ignore because we're ensuring temp_session is always a Session
+                if hasattr(self.config.proxy_state, 'session_id'):
+                    # It's already a proper session object
+                    temp_session: Session = self.config.proxy_state  # type: ignore
+                else:
+                    # It's a state object, wrap it in a session
+                    temp_session = Session(
+                        session_id="temp",
+                        state=self.config.proxy_state
                     )
-                    execution_result = new_result
+                
+                # Handle both async and sync execute methods
+                execution_result: CommandResult
+                try:
+                    coro_result = command_handler.execute(
+                        args, temp_session, self.config.app
+                    )  # type: ignore
+                    if asyncio.iscoroutine(coro_result):
+                        execution_result = await coro_result
+                    else:
+                        execution_result = coro_result
+                except Exception:
+                    # Fallback - this shouldn't happen but just in case
+                    execution_result = await command_handler.execute(
+                        args, temp_session, self.config.app
+                    )  # type: ignore
+
+                # No need to convert legacy CommandResult anymore since we removed the imports
                 self.config.command_results.append(execution_result)
                 if text_content.strip() == command_full.strip():
                     return "", True
@@ -123,12 +147,12 @@ class CommandProcessor:
         text = COMMENT_LINE_PATTERN.sub("", text)
         return text
 
-    def handle_string_content(
+    async def handle_string_content(
         self,
         msg_content: str,
     ) -> tuple[str, bool, bool]:
         original_content = msg_content
-        processed_text, command_found = self.process_text_and_execute_command(
+        processed_text, command_found = await self.process_text_and_execute_command(
             original_content
         )
         content_modified = command_found or processed_text != original_content
@@ -162,7 +186,7 @@ class CommandProcessor:
 
         return processed_text, command_found, content_modified
 
-    def process_single_part(
+    async def process_single_part(
         self,
         part: models.MessageContentPart,
     ) -> tuple[models.MessageContentPart | None, bool]:
@@ -170,7 +194,9 @@ class CommandProcessor:
         if not isinstance(part, models.MessageContentPartText):
             return part.model_copy(deep=True), False
 
-        processed_text, found_in_part = self.process_text_and_execute_command(part.text)
+        processed_text, found_in_part = await self.process_text_and_execute_command(
+            part.text
+        )
 
         if found_in_part:
             if (
@@ -190,7 +216,7 @@ class CommandProcessor:
 
         return None, False  # No command, and text is empty
 
-    def handle_list_content(
+    async def handle_list_content(
         self,
         msg_content_list: list[models.MessageContentPart],
     ) -> tuple[list[models.MessageContentPart], bool, bool]:
@@ -219,7 +245,7 @@ class CommandProcessor:
                 (
                     processed_part_current_iteration,
                     command_found_in_this_specific_part,
-                ) = self.process_single_part(original_part)
+                ) = await self.process_single_part(original_part)
 
                 if command_found_in_this_specific_part:
                     any_command_found_overall = (

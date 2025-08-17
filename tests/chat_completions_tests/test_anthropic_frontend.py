@@ -12,12 +12,6 @@ from src.core.config.app_config import (
     LoggingConfig,
     SessionConfig,
 )
-from src.models import (
-    ChatCompletionChoice,
-    ChatCompletionChoiceMessage,
-    ChatCompletionResponse,
-    CompletionUsage,
-)
 
 
 @pytest.fixture()

@@ -44,7 +44,7 @@ def get_logger(name: str | None = None) -> structlog.stdlib.BoundLogger:
     Returns:
         A structured logger
     """
-    return structlog.get_logger(name)
+    return structlog.get_logger(name)  # type: ignore
 
 
 def redact(value: str, mask: str = "***") -> str:
@@ -83,7 +83,7 @@ def redact_dict(
     if redacted_fields is None:
         redacted_fields = DEFAULT_REDACTED_FIELDS
 
-    result = {}
+    result: dict[str, Any] = {}
 
     for key, value in data.items():
         if key.lower() in redacted_fields:
@@ -198,7 +198,12 @@ def log_async_call(
                     module=func.__module__,
                 )
 
-            result = await func(*args, **kwargs)
+            # Check if func is a coroutine function
+            import asyncio
+            if asyncio.iscoroutinefunction(func):
+                result: T = await func(*args, **kwargs)
+            else:
+                result2: T = func(*args, **kwargs)
 
             if logger.isEnabledFor(level):
                 logger.log(
@@ -208,7 +213,7 @@ def log_async_call(
                     module=func.__module__,
                 )
 
-            return result
+            return result if asyncio.iscoroutinefunction(func) else result2
 
         return cast(Callable[..., T], wrapper)
 
@@ -227,7 +232,7 @@ class LogContext:
         """
         self.logger = logger
         self.context = context
-        self.bound_logger = None
+        self.bound_logger: structlog.stdlib.BoundLogger | None = None
 
     def __enter__(self) -> structlog.stdlib.BoundLogger:
         """Enter the context.
@@ -241,3 +246,13 @@ class LogContext:
     def __exit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> None:
         """Exit the context."""
         self.bound_logger = None
+
+    def get_logger(self) -> structlog.stdlib.BoundLogger:
+        """Get the bound logger.
+
+        Returns:
+            The bound logger
+        """
+        if self.bound_logger is None:
+            raise RuntimeError("Logger not bound. Use this context manager in a with statement.")
+        return self.bound_logger

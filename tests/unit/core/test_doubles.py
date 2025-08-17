@@ -118,6 +118,13 @@ class MockBackendService(IBackendService):
                 raise response
             return response
 
+    async def chat_completions(
+        self, request: ChatRequest, **kwargs: Any
+    ) -> ChatResponse | AsyncIterator[StreamingChatResponse]:
+        # This method is now implemented to satisfy the IBackendService interface
+        # It can simply call call_completion, or have its own logic if needed for specific tests
+        return await self.call_completion(request, stream=bool(request.stream))
+
     async def validate_backend_and_model(
         self, backend: str, model: str
     ) -> tuple[bool, str | None]:

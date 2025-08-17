@@ -2,6 +2,8 @@
 Enhanced tests for the BackendService implementation.
 """
 
+from collections.abc import AsyncIterator
+from typing import Any
 from unittest.mock import AsyncMock, Mock, patch
 
 import httpx
@@ -12,10 +14,16 @@ from src.core.common.exceptions import (
     BackendError,
     RateLimitExceededError,
 )
-from src.core.domain.chat import ChatMessage, ChatRequest
+from src.core.domain.chat import (
+    ChatMessage,
+    ChatRequest,
+    ChatResponse,
+    StreamingChatResponse,
+)
 from src.core.interfaces.rate_limiter import RateLimitInfo
 from src.core.services.backend_factory import BackendFactory
 from src.core.services.backend_service import BackendService
+from src.models import ChatCompletionRequest  # Added import
 from starlette.responses import StreamingResponse
 
 from tests.unit.core.test_doubles import MockRateLimiter
@@ -40,8 +48,12 @@ class MockBackend(LLMBackend):
         return self.available_models
 
     async def chat_completions(
-        self, request_data, processed_messages, effective_model, **kwargs
-    ):
+        self,
+        request_data: ChatCompletionRequest,
+        processed_messages: list,
+        effective_model: str,
+        **kwargs: Any,
+    ) -> StreamingResponse | tuple[dict[str, Any], dict[str, str]]:  # type: ignore
         self.chat_completions_called = True
         self.chat_completions_args = {
             "request_data": request_data,
@@ -121,13 +133,16 @@ class TestBackendFactory:
 class ConcreteBackendService(BackendService):
     """Concrete implementation of the abstract BackendService for testing."""
 
-    async def chat_completions(self, request, stream=False):
+    async def chat_completions(
+        self, request: ChatRequest, **kwargs: Any
+    ) -> ChatResponse | AsyncIterator[StreamingChatResponse]:
         """
         Implement the abstract method for testing purposes.
         This method should not be called directly in tests.
         """
         # Just pass through to the call_completion method
-        return await self.call_completion(request, stream)
+        stream = kwargs.get("stream", False)
+        return await self.call_completion(request, stream=stream)
 
 
 class TestBackendServiceBasic:
@@ -491,9 +506,9 @@ class TestBackendServiceFailover:
         rate_limiter = MockRateLimiter()
 
         # Configure failover routes
-        failover_routes = {
-            BackendType.OPENAI: {
-                "backend": BackendType.OPENROUTER,
+        failover_routes: dict[str, dict[str, Any]] = {
+            BackendType.OPENAI.value: {
+                "backend": BackendType.OPENROUTER.value,
                 "model": "fallback-model",
             }
         }
@@ -510,11 +525,14 @@ class TestBackendServiceFailover:
         rate_limiter = MockRateLimiter()
 
         # Configure complex failover routes by model
-        failover_routes = {
+        failover_routes: dict[str, dict[str, Any]] = {
             "complex-model": {
                 "attempts": [
-                    {"backend": BackendType.ANTHROPIC, "model": "claude-2"},
-                    {"backend": BackendType.OPENROUTER, "model": "last-resort-model"},
+                    {"backend": BackendType.ANTHROPIC.value, "model": "claude-2"},
+                    {
+                        "backend": BackendType.OPENROUTER.value,
+                        "model": "last-resort-model",
+                    },
                 ]
             }
         }

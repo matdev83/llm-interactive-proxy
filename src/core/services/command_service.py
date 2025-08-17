@@ -5,8 +5,20 @@ import logging
 import re
 from typing import Any
 
-from src.commands.base import CommandResult as LegacyCommandResult
-from src.core.domain.commands import BaseCommand, HelloCommand
+from src.core.domain.command_results import CommandResult
+from src.core.domain.commands import (
+    BaseCommand,
+    CreateFailoverRouteCommand,
+    DeleteFailoverRouteCommand,
+    HelloCommand,
+    HelpCommand,
+    ListFailoverRoutesCommand,
+    OneoffCommand,
+    RouteAppendCommand,
+    RouteClearCommand,
+    RouteListCommand,
+    RoutePrependCommand,
+)
 from src.core.domain.processed_result import ProcessedResult
 from src.core.interfaces.command_service import ICommandService
 from src.core.interfaces.session_service import ISessionService
@@ -15,7 +27,7 @@ from src.core.interfaces.session_service import ISessionService
 class CommandResultWrapper:
     """Wrapper for CommandResult to provide compatibility with both interfaces."""
 
-    def __init__(self, result):
+    def __init__(self, result: Any):
         """Initialize the wrapper.
 
         Args:
@@ -24,17 +36,20 @@ class CommandResultWrapper:
         self.result = result
 
     @property
-    def success(self):
+    def success(self) -> bool:
         return getattr(self.result, "success", False)
 
     @property
-    def message(self):
+    def message(self) -> str | None:
         return getattr(self.result, "message", None)
 
     @property
-    def data(self):
-        if isinstance(self.result, LegacyCommandResult):
-            return {"name": self.result.name}
+    def new_state(self) -> Any | None:
+        return getattr(self.result, "new_state", None)
+
+    @property
+    def data(self) -> dict[str, Any]:
+        # Legacy command result handling removed
         return getattr(self.result, "data", {})
 
 
@@ -54,19 +69,30 @@ def get_command_pattern(command_prefix: str) -> re.Pattern:
     # Updated regex to correctly handle commands with and without arguments.
     # - (?P<cmd>[\w-]+) captures the command name.
     # - (?:\s*\((?P<args>[^)]*)\))? is an optional non-capturing group for arguments.
-    pattern_string = rf"{prefix_escaped}(?P<cmd>[\w-]+)" r"(?:\s*\((?P<args>[^)]*)\))?"
-    return re.compile(pattern_string, re.VERBOSE)
+    pattern_string = rf"{prefix_escaped}(?P<cmd>[\w-]+)(?:\((?P<args>.*)\))?"
+    return re.compile(pattern_string)
 
 
 class CommandRegistry:
     """Registry for command handlers."""
 
-    def __init__(self):
+    def __init__(self) -> None:
         """Initialize the command registry."""
         self._commands: dict[str, BaseCommand] = {}
 
         # Register built-in commands
         self.register(HelloCommand())
+        self.register(HelpCommand())
+        self.register(OneoffCommand())
+
+        # Register failover commands
+        self.register(CreateFailoverRouteCommand())
+        self.register(DeleteFailoverRouteCommand())
+        self.register(ListFailoverRoutesCommand())
+        self.register(RouteAppendCommand())
+        self.register(RoutePrependCommand())
+        self.register(RouteListCommand())
+        self.register(RouteClearCommand())
 
     def register(self, command: BaseCommand) -> None:
         """Register a command.
@@ -95,6 +121,25 @@ class CommandRegistry:
             A dictionary of command name to handler
         """
         return dict(self._commands)
+
+    def get_commands(self) -> dict[str, BaseCommand]:
+        """Get all registered commands.
+
+        Returns:
+            A dictionary of command name to handler
+        """
+        return self.get_all()
+
+    def get_handler(self, name: str) -> BaseCommand | None:
+        """Get a command handler by name.
+
+        Args:
+            name: The name of the command
+
+        Returns:
+            The command handler or None if not found
+        """
+        return self.get(name)
 
 
 class CommandService(ICommandService):
@@ -151,7 +196,8 @@ class CommandService(ICommandService):
         command_executed = False
 
         # Process only the first user message
-        for i, message in enumerate(modified_messages):
+        for i in range(len(modified_messages) - 1, -1, -1):
+            message = modified_messages[i]
             if message.get("role") == "user":
                 content = message.get("content", "")
                 if content and content.startswith("!/"):
@@ -170,33 +216,77 @@ class CommandService(ICommandService):
                                     if "=" in arg:
                                         # Handle key=value format (e.g., for set commands)
                                         key, value = arg.split("=", 1)
-                                        args[key.strip()] = value.strip()
-                                    elif (
-                                        arg
-                                    ):  # Handle parameter-only format (e.g., for unset commands)
-                                        # For parameter-only args, set the value to True
-                                        args[arg] = True
+                                        val = value.strip()
+                                        # Strip surrounding quotes if present
+                                        if (val.startswith('"') and val.endswith('"')) or (
+                                            val.startswith("'") and val.endswith("'")
+                                        ):
+                                            val = val[1:-1]
+                                        args[key.strip()] = val
+                                    elif arg:
+                                        # If argument looks like a backend:model or backend/model
+                                        # (contains ':' or '/'), map it to the conventional
+                                        # parameter name 'element' used by failover handlers.
+                                        if ":" in arg or "/" in arg:
+                                            args["element"] = arg
+                                        else:
+                                            # For parameter-only args that are flags, set True
+                                            args[arg] = True
 
                             # Execute command
-                            # All commands now receive Session objects
-                            cmd_state_arg = session
+                            # Commands expect the session state (adapter or state object)
+                            if session is None:
+                                logger.warning(
+                                    f"Cannot execute command {cmd_name} without a session"
+                                )
+                                continue
+
                             logger.info(
-                                f"Executing command: {cmd_name} with session: {session.session_id}"
+                                f"Executing command: {cmd_name} with session: {session.session_id if session else 'N/A'}"
                             )
 
                             # Handle both async and sync execute methods
-                            if asyncio.iscoroutinefunction(cmd.execute):
-                                result = await cmd.execute(args, cmd_state_arg, None)
-                            else:
-                                result = cmd.execute(args, cmd_state_arg, None)
+                            result: CommandResult
+                            try:
+                                coro_result = cmd.execute(args, session, None)
+                                if asyncio.iscoroutine(coro_result):
+                                    result = await coro_result
+                                else:
+                                    result = coro_result
+                            except Exception:
+                                # Fallback - this shouldn't happen but just in case
+                                result = await cmd.execute(args, session, None)
 
                             # If command was successful and we have a session service, update the session
-                            if result.success and self._session_service and session:
+                            logger.info(
+                                f"Command result - success: {result.success}, has new_state: {hasattr(result, 'new_state') and result.new_state is not None}"
+                            )
+                            # Persist session changes when the command either
+                            # succeeded or returned a new_state (some handlers may
+                            # return new_state even when reporting partial failure).
+                            if (result.success or getattr(result, "new_state", None)) and self._session_service and session:
+                                if hasattr(result, "new_state") and result.new_state:
+                                    logger.info(
+                                        f"Updating session state with new_state from command: {result.new_state}"
+                                    )
+                                    # Prefer session.update_state which replaces the
+                                    # stored state with the handler-provided one so
+                                    # subsequent requests see the change.
+                                    try:
+                                        session.update_state(result.new_state)
+                                    except Exception:
+                                        # Best-effort: fall back to assigning
+                                        session.state = result.new_state
+                                else:
+                                    logger.info(
+                                        "No new_state in command result, not updating session state"
+                                    )
                                 await self._session_service.update_session(session)
+                                logger.info("Session updated in repository")
 
                             # Wrap the result for compatibility
-                            result = CommandResultWrapper(result)
-                            command_results.append(result)
+                            wrapped_result = CommandResultWrapper(result)
+                            command_results.append(wrapped_result)
                             command_executed = True
 
                             # Update message content
@@ -241,9 +331,7 @@ class CommandService(ICommandService):
             from src.core.domain.commands import BaseCommand
 
             class DynamicCommand(BaseCommand):
-                @property
-                def name(self) -> str:
-                    return command_name
+                name: str = command_name
 
                 async def execute(self, *args: Any, **kwargs: Any) -> Any:
                     return await command_handler(*args, **kwargs)

@@ -173,13 +173,9 @@ class ResponseProcessor(IResponseProcessor):
 
                         yield processed
 
-                    except LoopDetectionError as e:
-                        # Yield error response and stop iteration
-                        yield ProcessedResponse(
-                            content=f"ERROR: {e!s}",
-                            metadata={"error": e.to_dict()},
-                        )
-                        break
+                    except LoopDetectionError:
+                        # Re-raise to be handled at a higher level
+                        raise
 
                     except Exception as e:
                         # Log and continue (we don't want to break the stream for minor errors)
@@ -296,12 +292,19 @@ class ResponseProcessor(IResponseProcessor):
             metadata["id"] = getattr(chunk, "id", "")
             metadata["created"] = str(getattr(chunk, "created", ""))
 
+            # Extract content directly from StreamingChatResponse
+            content = chunk.content or ""
+
+            # If the chunk has choices (for backward compatibility), extract from there
             if hasattr(chunk, "choices") and chunk.choices:
                 choice = chunk.choices[0]
                 if isinstance(choice, dict) and "delta" in choice:
                     delta = choice["delta"]
                     if isinstance(delta, dict) and "content" in delta:
-                        content = delta.get("content") or ""
+                        # Override content from delta if available
+                        delta_content = delta.get("content")
+                        if delta_content:
+                            content = delta_content
 
         # Handle dictionary (for legacy support)
         elif isinstance(chunk, dict):

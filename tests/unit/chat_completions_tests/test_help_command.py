@@ -1,6 +1,5 @@
 from unittest.mock import AsyncMock, patch
 
-from src.commands import command_registry
 from src.core.interfaces.backend_service import IBackendService
 
 
@@ -36,6 +35,11 @@ def test_help_specific_command(test_client):
     backend_service = test_client.app.state.service_provider.get_required_service(
         IBackendService
     )
+    from src.core.services.command_service import CommandRegistry
+
+    command_registry = test_client.app.state.service_provider.get_required_service(
+        CommandRegistry
+    )
 
     with patch.object(
         backend_service,
@@ -51,8 +55,9 @@ def test_help_specific_command(test_client):
     assert resp.status_code == 200
     data = resp.json()
     content = data["choices"][0]["message"]["content"]
-    cmd_cls = command_registry["set"]
-    assert cmd_cls.description in content
+    cmd_handler = command_registry.get("set")
+    assert cmd_handler is not None
+    assert cmd_handler.description in content
     # Check that at least the first few examples are present (help shows first 3)
-    for ex in cmd_cls.examples[:3]:
+    for ex in cmd_handler.examples[:3]:
         assert ex in content

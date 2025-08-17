@@ -141,7 +141,7 @@ class GeminiGenerationConfig(ValueObject, IBackendSpecificConfig):
         Returns:
             Dictionary representation of the configuration
         """
-        result = {}
+        result: dict[str, Any] = {}
 
         # Add thinking config if present
         if self.thinking_config:

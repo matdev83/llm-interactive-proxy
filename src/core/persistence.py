@@ -47,7 +47,13 @@ class ConfigManager:
                     self.app.state.backend = backend_obj
                 else:
                     # Fallback to openrouter if backend object not found
-                    self.app.state.backend = self.app.state.openrouter_backend
+                    # Safely get openrouter_backend, fallback to None if not available
+                    openrouter_backend = getattr(
+                        self.app.state, "openrouter_backend", None
+                    )
+                    if openrouter_backend:
+                        self.app.state.backend = openrouter_backend
+                    # If no backend is available, leave backend as None or use a mock
             else:
                 raise ValueError(
                     f"Default backend '{backend_value}' is not in functional_backends."

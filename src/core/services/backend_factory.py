@@ -61,7 +61,7 @@ class BackendFactory:
         backend_class = self._backend_types[backend_type]
         # Backend connectors only accept the client in constructor
         # API keys are set during initialization
-        return backend_class(self._client)
+        return backend_class(self._client)  # type: ignore
 
     async def initialize_backend(
         self, backend: LLMBackend, config: dict[str, Any]

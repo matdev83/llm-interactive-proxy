@@ -7,15 +7,15 @@ from fastapi import FastAPI
 from src.command_config import CommandParserConfig
 from src.command_parser import CommandParser, get_command_pattern
 from src.command_processor import parse_arguments
-from src.commands import BaseCommand, CommandResult
 from src.constants import DEFAULT_COMMAND_PREFIX
-from src.core.domain.session import SessionStateAdapter
+from src.core.domain.command_results import CommandResult
+from src.core.domain.commands.base_command import BaseCommand
+from src.core.domain.session import Session, SessionStateAdapter
 from src.models import ChatMessage, MessageContentPartText
 
 
 class MockSuccessCommand(BaseCommand):
     def __init__(self, command_name: str, app: FastAPI | None = None):
-        super().__init__(app=app)
         self.name = command_name
         self._called = False
         self._called_with_args: dict[str, Any] | None = None
@@ -32,12 +32,14 @@ class MockSuccessCommand(BaseCommand):
         self._called = False
         self._called_with_args = None
 
-    def execute(
-        self, args: Mapping[str, Any], state: SessionStateAdapter
+    async def execute(
+        self, args: Mapping[str, Any], session: Session, context: Any = None
     ) -> CommandResult:
         self._called = True
         self._called_with_args = dict(args)  # Convert Mapping to Dict for storage
-        return CommandResult(self.name, True, f"{self.name} executed successfully")
+        return CommandResult(
+            success=True, message=f"{self.name} executed successfully", name=self.name
+        )
 
 
 # --- Fixtures ---
@@ -156,8 +158,11 @@ async def test_process_text_single_command(command_parser: CommandParser):
     # Reset call state of mock command for this specific test run with this parser instance
     cast(MockSuccessCommand, command_parser.handlers["hello"]).reset_mock_state()
 
-    modified_text, commands_found = (
-        command_parser.command_processor.process_text_and_execute_command(text_content)
+    (
+        modified_text,
+        commands_found,
+    ) = await command_parser.command_processor.process_text_and_execute_command(
+        text_content
     )
     assert commands_found is True
     assert modified_text == ""  # Command-only message results in empty text
@@ -176,8 +181,11 @@ async def test_process_text_command_with_prefix_text(command_parser: CommandPars
     # So, "Some text " + "" + "" = "Some text "
     # If it were "Some text!/hello", it would be "Some text"
     # Actual behavior due to .strip() at the end of process_text:
-    modified_text, commands_found = (
-        command_parser.command_processor.process_text_and_execute_command(text_content)
+    (
+        modified_text,
+        commands_found,
+    ) = await command_parser.command_processor.process_text_and_execute_command(
+        text_content
     )
     assert commands_found is True
     assert modified_text == "Some text"  # .strip() removes trailing space
@@ -193,8 +201,11 @@ async def test_process_text_command_with_suffix_text(command_parser: CommandPars
     cast(MockSuccessCommand, command_parser.handlers["hello"]).reset_mock_state()
     # Expected: " Some text" (space before suffix is preserved)
     # Actual behavior due to .strip() at the end of process_text:
-    modified_text, commands_found = (
-        command_parser.command_processor.process_text_and_execute_command(text_content)
+    (
+        modified_text,
+        commands_found,
+    ) = await command_parser.command_processor.process_text_and_execute_command(
+        text_content
     )
     assert commands_found is True
     assert modified_text == "Some text"  # .strip() removes leading space
@@ -212,8 +223,11 @@ async def test_process_text_command_with_prefix_and_suffix_text(
     # Expected: "Prefix  Suffix" (two spaces if original had one before and one after)
     # "Prefix " + "" + " Suffix"
     # Actual behavior due to re.sub(r"\s+", " ", modified_text).strip()
-    modified_text, commands_found = (
-        command_parser.command_processor.process_text_and_execute_command(text_content)
+    (
+        modified_text,
+        commands_found,
+    ) = await command_parser.command_processor.process_text_and_execute_command(
+        text_content
     )
     assert commands_found is True
     assert modified_text == "Prefix Suffix"  # Multiple spaces collapsed, then stripped
@@ -222,14 +236,18 @@ async def test_process_text_command_with_prefix_and_suffix_text(
     assert hello_handler.called is True
 
 
+@pytest.mark.asyncio
 async def test_process_text_multiple_commands_only_first_processed(
     command_parser: CommandParser,
 ):
     text_content = "!/hello !/anothercmd"
     cast(MockSuccessCommand, command_parser.handlers["hello"]).reset_mock_state()
     cast(MockSuccessCommand, command_parser.handlers["anothercmd"]).reset_mock_state()
-    modified_text, commands_found = (
-        command_parser.command_processor.process_text_and_execute_command(text_content)
+    (
+        modified_text,
+        commands_found,
+    ) = await command_parser.command_processor.process_text_and_execute_command(
+        text_content
     )
     assert commands_found is True
     # !/hello is processed and removed. "!/anothercmd" remains.
@@ -256,8 +274,11 @@ async def test_process_text_multiple_commands_only_first_processed(
 async def test_process_text_no_command(command_parser: CommandParser):
     text_content = "Just some text"
     cast(MockSuccessCommand, command_parser.handlers["hello"]).reset_mock_state()
-    modified_text, commands_found = (
-        command_parser.command_processor.process_text_and_execute_command(text_content)
+    (
+        modified_text,
+        commands_found,
+    ) = await command_parser.command_processor.process_text_and_execute_command(
+        text_content
     )
     assert commands_found is False
     assert modified_text == "Just some text"
@@ -274,10 +295,11 @@ async def test_process_text_unknown_command(command_parser: CommandParser):
     cast(MockSuccessCommand, command_parser.handlers["hello"]).reset_mock_state()
     cast(MockSuccessCommand, command_parser.handlers["anothercmd"]).reset_mock_state()
 
-    modified_text, commands_found = (
-        command_parser.command_processor.process_text_and_execute_command(
-            text_content_valid_format_unknown
-        )
+    (
+        modified_text,
+        commands_found,
+    ) = await command_parser.command_processor.process_text_and_execute_command(
+        text_content_valid_format_unknown
     )
     assert commands_found is True  # Command *format* was detected
 
@@ -301,7 +323,7 @@ async def test_process_messages_single_message_with_command(
 ):
     messages = [ChatMessage(role="user", content="!/hello")]
     cast(MockSuccessCommand, command_parser.handlers["hello"]).reset_mock_state()
-    processed_messages, any_command_processed = command_parser.process_messages(
+    processed_messages, any_command_processed = await command_parser.process_messages(
         messages
     )
 
@@ -334,7 +356,7 @@ async def test_process_messages_stops_after_first_command_in_message_content_lis
     cast(MockSuccessCommand, command_parser.handlers["hello"]).reset_mock_state()
     cast(MockSuccessCommand, command_parser.handlers["anothercmd"]).reset_mock_state()
 
-    processed_messages, any_command_processed = command_parser.process_messages(
+    processed_messages, any_command_processed = await command_parser.process_messages(
         messages
     )
 
@@ -391,7 +413,7 @@ async def test_process_messages_processes_command_in_last_message_and_stops(
     # In this case, "!/anothercmd" is in the last message, so it will be processed.
     # "!/hello" will not be processed.
 
-    processed_messages, any_command_processed = command_parser.process_messages(
+    processed_messages, any_command_processed = await command_parser.process_messages(
         messages
     )
 
@@ -412,8 +434,3 @@ async def test_process_messages_processes_command_in_last_message_and_stops(
     assert (
         another_cmd_handler.called is True
     )  # Because it was the command in the last message with a command
-
-
-# This test is now covered by test_process_messages_processes_command_in_last_message_and_stops.
-# The previous test name was misleading given the actual reverse iteration and processing logic.
-# No further action needed for this specific test.

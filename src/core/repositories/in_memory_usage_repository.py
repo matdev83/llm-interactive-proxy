@@ -17,7 +17,7 @@ class InMemoryUsageRepository(IUsageRepository):
     It is suitable for development and testing.
     """
 
-    def __init__(self):
+    def __init__(self) -> None:
         """Initialize the in-memory usage repository."""
         self._usage: dict[str, UsageData] = {}
         self._session_usage: dict[str, list[str]] = {}

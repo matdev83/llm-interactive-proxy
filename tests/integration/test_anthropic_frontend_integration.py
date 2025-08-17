@@ -15,7 +15,12 @@ except ImportError:
     ANTHROPIC_AVAILABLE = False
 
 from src.core.app.application_factory import build_app
-from src.core.config.app_config import AppConfig
+from src.core.config.app_config import (
+    AppConfig,
+    AuthConfig,
+    BackendConfig,
+    BackendSettings,
+)
 
 
 @pytest.mark.skipif(not ANTHROPIC_AVAILABLE, reason="anthropic package not available")
@@ -25,16 +30,15 @@ class TestAnthropicFrontendIntegration:
     def setup_method(self):
         """Set up test fixtures."""
         # Build app with test configuration
-        test_config = {
-            "disable_auth": True,
-            "disable_accounting": True,
-            "openrouter_api_keys": {"test": "test-key"},
-            "openrouter_api_base_url": "https://openrouter.ai/api/v1",
-            "gemini_api_keys": {"test": "test-key"},
-            "backend": "openrouter",
-        }
+        test_config = AppConfig(
+            auth=AuthConfig(disable_auth=True),
+            backends=BackendSettings(
+                openrouter=BackendConfig(api_key=["test-key"]),
+                default_backend="openrouter",
+            ),
+        )
 
-        self.app = build_app(AppConfig(**test_config))
+        self.app = build_app(test_config)
         self.client = TestClient(self.app)
 
         # Test API key for Anthropic SDK
@@ -316,13 +320,12 @@ class TestAnthropicFrontendWithoutSDK:
 
     def setup_method(self):
         """Set up test fixtures."""
-        test_config = {
-            "disable_auth": True,
-            "disable_accounting": True,
-            "backend": "openrouter",
-        }
+        test_config = AppConfig(
+            auth=AuthConfig(disable_auth=True),
+            backends=BackendSettings(default_backend="openrouter"),
+        )
 
-        self.app = build_app(AppConfig(**test_config))
+        self.app = build_app(test_config)
         self.client = TestClient(self.app)
 
     def test_endpoints_work_without_sdk(self):

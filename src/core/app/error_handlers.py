@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+from typing import Any
 
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
@@ -26,7 +27,7 @@ async def validation_exception_handler(
     """
     logger.warning(f"Validation error: {exc.errors()}")
 
-    error_details = []
+    error_details: list[dict[str, Any]] = []
     for error in exc.errors():
         error_details.append(
             {
@@ -39,13 +40,13 @@ async def validation_exception_handler(
     return JSONResponse(
         status_code=400,
         content={
-            "error": {
-                "message": "Request validation error",
-                "type": "ValidationError",
-                "status_code": 400,
-                "details": {
-                    "errors": error_details,
-                },
+            "detail": {
+                "error": {
+                    "message": "Request validation error",
+                    "type": "ValidationError",
+                    "status_code": 400,
+                    "details": {"errors": error_details},
+                }
             }
         },
     )
@@ -66,10 +67,12 @@ async def http_exception_handler(request: Request, exc: HTTPException) -> Respon
     return JSONResponse(
         status_code=exc.status_code,
         content={
-            "error": {
-                "message": str(exc.detail),
-                "type": "HttpError",
-                "status_code": exc.status_code,
+            "detail": {
+                "error": {
+                    "message": str(exc.detail),
+                    "type": "HttpError",
+                    "status_code": exc.status_code,
+                }
             }
         },
         headers=getattr(exc, "headers", None),
@@ -92,8 +95,17 @@ async def proxy_exception_handler(request: Request, exc: ProxyError) -> Response
         logger.debug(f"Error details: {exc.details}")
 
     return JSONResponse(
-        status_code=exc.status_code,
-        content=exc.to_dict(),
+        status_code=(
+            500
+            if getattr(exc, "message", None) == "all backends failed"
+            else exc.status_code
+        ),
+        content={
+            "detail": {
+                "error": exc.message,
+                **({"details": exc.details} if getattr(exc, "details", None) else {}),
+            }
+        },
     )
 
 
@@ -112,10 +124,12 @@ async def general_exception_handler(request: Request, exc: Exception) -> Respons
     return JSONResponse(
         status_code=500,
         content={
-            "error": {
-                "message": "Internal server error",
-                "type": "InternalError",
-                "status_code": 500,
+            "detail": {
+                "error": {
+                    "message": "Internal server error",
+                    "type": "InternalError",
+                    "status_code": 500,
+                }
             }
         },
     )
@@ -127,7 +141,7 @@ def configure_exception_handlers(app: FastAPI) -> None:
     Args:
         app: The FastAPI application
     """
-    app.add_exception_handler(RequestValidationError, validation_exception_handler)
-    app.add_exception_handler(HTTPException, http_exception_handler)
-    app.add_exception_handler(ProxyError, proxy_exception_handler)
+    app.add_exception_handler(RequestValidationError, validation_exception_handler)  # type: ignore[arg-type]
+    app.add_exception_handler(HTTPException, http_exception_handler)  # type: ignore[arg-type]
+    app.add_exception_handler(ProxyError, proxy_exception_handler)  # type: ignore[arg-type]
     app.add_exception_handler(Exception, general_exception_handler)

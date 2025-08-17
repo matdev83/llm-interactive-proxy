@@ -40,17 +40,13 @@ class HelloCommand(BaseCommand):
             The command result
         """
         # Create a new state with hello_requested=True
-        from src.core.domain.session import SessionState
+        from src.core.domain.session import SessionStateAdapter
 
-        if isinstance(session.state, SessionState):
-            new_state = session.state.with_hello_requested(True)
-            session.state = new_state
-        else:
-            # For other state implementations, just update the session
-            session.update_state(session.state)
+        if isinstance(session, SessionStateAdapter):
+            session.hello_requested = True
 
         return CommandResult(
             name=self.name,
             success=True,
-            message="hello acknowledged",
+            message="Hello, this is llm-interactive-proxy v0.1.0. How can I help you today?",
         )

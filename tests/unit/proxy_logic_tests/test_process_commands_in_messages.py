@@ -1,8 +1,10 @@
+from typing import cast
 from unittest.mock import Mock
 
 import pytest
 import src.models as models
 from src.command_parser import process_commands_in_messages
+from src.core.domain.configuration.backend_config import BackendConfiguration
 from src.core.domain.session import Session
 
 
@@ -39,7 +41,8 @@ class TestProcessCommandsInMessages:
         self.mock_app = Mock()
         self.mock_app.state = mock_app_state
 
-    def test_string_content_with_set_command(self):
+    @pytest.mark.asyncio
+    async def test_string_content_with_set_command(self):
         session = Session(session_id="test_session")
         current_session_state = session.state
         messages = [
@@ -49,7 +52,7 @@ class TestProcessCommandsInMessages:
                 content="Please use !/set(model=openrouter:new-model) for this query.",
             ),
         ]
-        processed_messages, processed = process_commands_in_messages(
+        processed_messages, processed = await process_commands_in_messages(
             messages, current_session_state, app=self.mock_app
         )
         assert processed
@@ -58,7 +61,8 @@ class TestProcessCommandsInMessages:
         assert processed_messages[1].content == "Please use for this query."
         assert session.state.backend_config.model == "new-model"
 
-    def test_multimodal_content_with_command(self):
+    @pytest.mark.asyncio
+    async def test_multimodal_content_with_command(self):
         session = Session(session_id="test_session")
         current_session_state = session.state
         messages = [
@@ -75,7 +79,7 @@ class TestProcessCommandsInMessages:
                 ],
             )
         ]
-        processed_messages, processed = process_commands_in_messages(
+        processed_messages, processed = await process_commands_in_messages(
             messages, current_session_state, app=self.mock_app
         )
         assert not processed
@@ -94,7 +98,8 @@ class TestProcessCommandsInMessages:
         assert processed_messages[0].content[1].image_url.url == "fake.jpg"
         assert session.state.backend_config.model is None
 
-    def test_command_strips_text_part_empty_in_multimodal(self):
+    @pytest.mark.asyncio
+    async def test_command_strips_text_part_empty_in_multimodal(self):
         session = Session(session_id="test_session")
         current_session_state = session.state
         messages = [
@@ -111,7 +116,7 @@ class TestProcessCommandsInMessages:
                 ],
             )
         ]
-        processed_messages, processed = process_commands_in_messages(
+        processed_messages, processed = await process_commands_in_messages(
             messages, current_session_state, app=self.mock_app
         )
         assert processed
@@ -125,7 +130,8 @@ class TestProcessCommandsInMessages:
         assert processed_messages[0].content[0].image_url.url == "fake.jpg"
         assert session.state.backend_config.model == "text-only"
 
-    def test_command_strips_message_to_empty_multimodal(self):
+    @pytest.mark.asyncio
+    async def test_command_strips_message_to_empty_multimodal(self):
         session = Session(session_id="test_session")
         current_session_state = session.state
         messages = [
@@ -138,14 +144,15 @@ class TestProcessCommandsInMessages:
                 ],
             )
         ]
-        processed_messages, processed = process_commands_in_messages(
+        processed_messages, processed = await process_commands_in_messages(
             messages, current_session_state, app=self.mock_app
         )
         assert processed
         assert len(processed_messages) == 0
         assert session.state.backend_config.model == "empty-message-model"
 
-    def test_command_in_earlier_message_not_processed_if_later_has_command(self):
+    @pytest.mark.asyncio
+    async def test_command_in_earlier_message_not_processed_if_later_has_command(self):
         session = Session(session_id="test_session")
         current_session_state = session.state
 
@@ -153,7 +160,9 @@ class TestProcessCommandsInMessages:
         new_backend_config = current_session_state.backend_config.with_model(
             "initial-model"
         )
-        session.state = current_session_state.with_backend_config(new_backend_config)
+        session.state = current_session_state.with_backend_config(
+            cast(BackendConfiguration, new_backend_config)
+        )
 
         messages = [
             models.ChatMessage(
@@ -163,7 +172,7 @@ class TestProcessCommandsInMessages:
                 role="user", content="Second message !/set(model=openrouter:second-try)"
             ),
         ]
-        processed_messages, processed = process_commands_in_messages(
+        processed_messages, processed = await process_commands_in_messages(
             messages, session.state, app=self.mock_app
         )
         assert processed
@@ -175,7 +184,8 @@ class TestProcessCommandsInMessages:
         assert processed_messages[1].content == "Second message"
         assert session.state.backend_config.model == "second-try"
 
-    def test_command_in_earlier_message_processed_if_later_has_no_command(self):
+    @pytest.mark.asyncio
+    async def test_command_in_earlier_message_processed_if_later_has_no_command(self):
         session = Session(session_id="test_session")
         current_session_state = session.state
 
@@ -183,7 +193,9 @@ class TestProcessCommandsInMessages:
         new_backend_config = current_session_state.backend_config.with_model(
             "initial-model"
         )
-        session.state = current_session_state.with_backend_config(new_backend_config)
+        session.state = current_session_state.with_backend_config(
+            cast(BackendConfiguration, new_backend_config)
+        )
 
         messages = [
             models.ChatMessage(
@@ -192,7 +204,7 @@ class TestProcessCommandsInMessages:
             ),
             models.ChatMessage(role="user", content="Second message, plain text."),
         ]
-        processed_messages, processed = process_commands_in_messages(
+        processed_messages, processed = await process_commands_in_messages(
             messages, session.state, app=self.mock_app
         )
         assert processed
@@ -201,7 +213,8 @@ class TestProcessCommandsInMessages:
         assert processed_messages[1].content == "Second message, plain text."
         assert session.state.backend_config.model == "model-from-past"
 
-    def test_no_commands_in_any_message(self):
+    @pytest.mark.asyncio
+    async def test_no_commands_in_any_message(self):
         session = Session(session_id="test_session")
         current_session_state = session.state
         messages = [
@@ -209,17 +222,18 @@ class TestProcessCommandsInMessages:
             models.ChatMessage(role="user", content="How are you?"),
         ]
         original_messages_copy = [m.model_copy(deep=True) for m in messages]
-        processed_messages, processed = process_commands_in_messages(
+        processed_messages, processed = await process_commands_in_messages(
             messages, current_session_state, app=self.mock_app
         )
         assert not processed
         assert processed_messages == original_messages_copy
         assert session.state.backend_config.model is None
 
-    def test_process_empty_messages_list(self):
+    @pytest.mark.asyncio
+    async def test_process_empty_messages_list(self):
         session = Session(session_id="test_session")
         current_session_state = session.state
-        processed_messages, processed = process_commands_in_messages(
+        processed_messages, processed = await process_commands_in_messages(
             [], current_session_state, app=self.mock_app
         )
         assert not processed
@@ -228,7 +242,8 @@ class TestProcessCommandsInMessages:
             session.state.backend_config.model is None
         )  # Ensure state is not affected
 
-    def test_message_with_only_command_string_content(self):
+    @pytest.mark.asyncio
+    async def test_message_with_only_command_string_content(self):
         session = Session(session_id="test_session")
         current_session_state = session.state
         messages = [
@@ -236,7 +251,7 @@ class TestProcessCommandsInMessages:
                 role="user", content="!/set(model=openrouter:full-command-message)"
             )
         ]
-        processed_messages, processed = process_commands_in_messages(
+        processed_messages, processed = await process_commands_in_messages(
             messages, current_session_state, app=self.mock_app
         )
         assert processed
@@ -244,7 +259,8 @@ class TestProcessCommandsInMessages:
         assert processed_messages[0].content == ""
         assert session.state.backend_config.model == "full-command-message"
 
-    def test_multimodal_text_part_preserved_if_empty_but_no_command_found(self):
+    @pytest.mark.asyncio
+    async def test_multimodal_text_part_preserved_if_empty_but_no_command_found(self):
         session = Session(session_id="test_session")
         current_session_state = session.state
         messages = [
@@ -259,7 +275,7 @@ class TestProcessCommandsInMessages:
                 ],
             )
         ]
-        processed_messages, processed = process_commands_in_messages(
+        processed_messages, processed = await process_commands_in_messages(
             messages, current_session_state, app=self.mock_app
         )
         assert not processed
@@ -278,13 +294,14 @@ class TestProcessCommandsInMessages:
         assert processed_messages[0].content[1].image_url.url == "fake.jpg"
         assert session.state.backend_config.model is None
 
-    def test_unknown_command_in_last_message(self):
+    @pytest.mark.asyncio
+    async def test_unknown_command_in_last_message(self):
         session = Session(session_id="test_session")
         current_session_state = session.state
         messages = [
             models.ChatMessage(role="user", content="Hello !/unknown(cmd) there")
         ]
-        processed_messages, processed = process_commands_in_messages(
+        processed_messages, processed = await process_commands_in_messages(
             messages, current_session_state, app=self.mock_app
         )
         assert processed
@@ -292,13 +309,14 @@ class TestProcessCommandsInMessages:
         assert processed_messages[0].content == "Hello !/unknown(cmd) there"
         assert session.state.backend_config.model is None
 
-    def test_custom_command_prefix(self):
+    @pytest.mark.asyncio
+    async def test_custom_command_prefix(self):
         session = Session(session_id="test_session")
         current_session_state = session.state
         messages = [
             models.ChatMessage(role="user", content="Hello $set(model=openrouter:foo)")
         ]
-        processed_messages, processed = process_commands_in_messages(
+        processed_messages, processed = await process_commands_in_messages(
             messages,
             current_session_state,
             app=self.mock_app,  # Pass app here
@@ -308,7 +326,8 @@ class TestProcessCommandsInMessages:
         assert processed_messages[0].content == "Hello"
         assert session.state.backend_config.model == "foo"
 
-    def test_multiline_command_detection(self):
+    @pytest.mark.asyncio
+    async def test_multiline_command_detection(self):
         session = Session(session_id="test_session")
         current_session_state = session.state
         messages = [
@@ -317,38 +336,40 @@ class TestProcessCommandsInMessages:
                 content="Line1\n!/set(model=openrouter:multi)\nLine3",
             )
         ]
-        processed_messages, processed = process_commands_in_messages(
+        processed_messages, processed = await process_commands_in_messages(
             messages, current_session_state, app=self.mock_app
         )
         assert processed
         assert processed_messages[0].content == "Line1 Line3"
         assert session.state.backend_config.model == "multi"
 
-    def test_set_project_in_messages(self):
+    @pytest.mark.asyncio
+    async def test_set_project_in_messages(self):
         session = Session(session_id="test_session")
         current_session_state = session.state
         messages = [models.ChatMessage(role="user", content="!/set(project=proj1) hi")]
-        processed_messages, processed = process_commands_in_messages(
+        processed_messages, processed = await process_commands_in_messages(
             messages, current_session_state, app=self.mock_app
         )
         assert processed
         assert processed_messages[0].content == "hi"
         assert session.state.project == "proj1"
 
-    def test_unset_model_and_project_in_message(self):
+    @pytest.mark.asyncio
+    async def test_unset_model_and_project_in_message(self):
         session = Session(session_id="test_session")
         current_session_state = session.state
 
         # Set initial model and project
         new_backend_config = current_session_state.backend_config.with_model("foo")
         new_session_state = current_session_state.with_backend_config(
-            new_backend_config
+            cast(BackendConfiguration, new_backend_config)
         )
         new_session_state = new_session_state.with_project("bar")
         session.state = new_session_state
 
         messages = [models.ChatMessage(role="user", content="!/unset(model, project)")]
-        processed_messages, processed = process_commands_in_messages(
+        processed_messages, processed = await process_commands_in_messages(
             messages, session.state, app=self.mock_app
         )
         assert processed
@@ -359,56 +380,60 @@ class TestProcessCommandsInMessages:
         assert session.state.project is None
 
     @pytest.mark.parametrize("variant", ["$/", "'$/'", '"$/"'])
-    def test_set_command_prefix_variants(self, variant):
+    @pytest.mark.asyncio
+    async def test_set_command_prefix_variants(self, variant):
         session = Session(session_id="test_session")
         current_session_state = session.state
         msg = models.ChatMessage(
             role="user", content=f"!/set(command-prefix={variant})"
         )
-        processed_messages, processed = process_commands_in_messages(
+        processed_messages, processed = await process_commands_in_messages(
             [msg], current_session_state, app=self.mock_app
         )
         assert processed
         assert processed_messages[0].content == ""
         assert self.mock_app.state.command_prefix == "$/"
 
-    def test_unset_command_prefix(self):
+    @pytest.mark.asyncio
+    async def test_unset_command_prefix(self):
         session = Session(session_id="test_session")
         current_session_state = session.state
         msg_set = models.ChatMessage(role="user", content="!/set(command-prefix=~!)")
-        process_commands_in_messages(
+        await process_commands_in_messages(
             [msg_set], current_session_state, app=self.mock_app
         )
         assert self.mock_app.state.command_prefix == "~!"
         msg_unset = models.ChatMessage(role="user", content="~!unset(command-prefix)")
-        processed_messages, processed = process_commands_in_messages(
+        processed_messages, processed = await process_commands_in_messages(
             [msg_unset], current_session_state, app=self.mock_app, command_prefix="~!"
         )
         assert processed
         assert processed_messages[0].content == ""
         assert self.mock_app.state.command_prefix == "!/"
 
-    def test_command_with_agent_environment_details(self):
+    @pytest.mark.asyncio
+    async def test_command_with_agent_environment_details(self):
         session = Session(session_id="test_session")
         current_session_state = session.state
         msg = models.ChatMessage(
             role="user",
             content=("<task>\n!/hello\n</task>\n" "# detail"),
         )
-        processed_messages, processed = process_commands_in_messages(
+        processed_messages, processed = await process_commands_in_messages(
             [msg], current_session_state, app=self.mock_app
         )
         assert processed
         assert processed_messages == []
 
-    def test_set_command_with_multiple_parameters_and_prefix(self):
+    @pytest.mark.asyncio
+    async def test_set_command_with_multiple_parameters_and_prefix(self):
         session = Session(session_id="test_session")
         current_session_state = session.state
         msg = models.ChatMessage(
             role="user",
             content=("# prefix line\n" "!/set(model=openrouter:foo, project=bar)"),
         )
-        processed_messages, processed = process_commands_in_messages(
+        processed_messages, processed = await process_commands_in_messages(
             [msg], current_session_state, app=self.mock_app
         )
         assert processed

@@ -5,6 +5,7 @@ These tests verify that the /models and /v1/models endpoints work correctly
 with both mocked and real backend configurations.
 """
 
+import contextlib
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -88,47 +89,25 @@ class TestModelsEndpoints:
 
         app = build_app()
 
-        with (
-            TestClient(app) as client,
-            patch(
-                "src.core.app.controllers.models_controller.IBackendService"
-            ) as mock_service_class,
-        ):
-            mock_backend_service = MagicMock()
-
-            # Mock OpenAI backend
-            mock_openai_backend = MagicMock()
-            mock_openai_backend.get_available_models.return_value = [
-                "gpt-4",
-                "gpt-3.5-turbo",
-            ]
-
-            # Mock Anthropic backend
-            mock_anthropic_backend = MagicMock()
-            mock_anthropic_backend.get_available_models.return_value = [
-                "claude-3-opus",
-                "claude-3-sonnet",
-            ]
-
-            # Setup mock to return different backends
-            async def mock_get_backend(backend_type):
-                if backend_type == BackendType.OPENAI:
-                    return mock_openai_backend
-                elif backend_type == BackendType.ANTHROPIC:
-                    return mock_anthropic_backend
-                raise ValueError(f"Unknown backend: {backend_type}")
-
-            mock_backend_service._get_or_create_backend = AsyncMock(
-                side_effect=mock_get_backend
-            )
-
-            # This won't work directly, but shows the intent
-            # In reality, the backends would be discovered through the actual service
+        # Don't mock the backend service itself - let the real DI work
+        # The backends are configured with test keys and will provide default models
+        with TestClient(app) as client:
             response = client.get("/models")
 
             assert response.status_code == 200
             data = response.json()
             assert len(data["data"]) > 0
+
+            # Should have models from configured backends or defaults
+            assert "object" in data
+            assert data["object"] == "list"
+            assert "data" in data
+            assert isinstance(data["data"], list)
+
+            # Check that we have some models
+            model_ids = [m["id"] for m in data["data"]]
+            # Should have some models (either from backends or defaults)
+            assert len(model_ids) > 0
 
     def test_models_format_compliance(self, app_with_auth_disabled):
         """Test that models response follows OpenAI format."""
@@ -156,19 +135,33 @@ class TestModelsEndpoints:
         monkeypatch.setenv("DISABLE_AUTH", "true")
         app = build_app()
 
-        with (
-            TestClient(app) as client,
-            patch(
-                "src.core.app.controllers.models_controller.get_backend_service"
-            ) as mock_get_service,
-        ):
-            mock_get_service.side_effect = Exception("Service unavailable")
+        # Patch the backend service's internal method to simulate an error
+        with TestClient(app) as client:
+            # Get the backend service from the DI container
+            if hasattr(app.state, "service_provider"):
+                from src.core.interfaces.backend_service import IBackendService
 
-            response = client.get("/models")
+                backend_service = app.state.service_provider.get_required_service(
+                    IBackendService
+                )
 
-            # Should handle the error gracefully
-            assert response.status_code == 500
-            assert "detail" in response.json()
+                # Patch the internal method to raise an exception
+                with patch.object(
+                    backend_service,
+                    "_get_or_create_backend",
+                    side_effect=Exception("Backend initialization failed"),
+                ):
+                    response = client.get("/models")
+
+                    # The controller should catch the exception and return default models
+                    # or handle it gracefully (not crash with 500)
+                    assert (
+                        response.status_code == 200
+                    )  # Should still work with defaults
+                    data = response.json()
+                    assert "data" in data
+                    # Should have fallen back to default models
+                    assert len(data["data"]) > 0
 
 
 class TestModelsDiscovery:
@@ -272,8 +265,8 @@ class TestModelsDiscovery:
 
         # Create backend service with failover routes
         failover_routes = {
-            BackendType.OPENAI: {
-                "backend": BackendType.OPENROUTER,
+            BackendType.OPENAI.value: {
+                "backend": BackendType.OPENROUTER.value,
                 "model": "openai/gpt-4",
             }
         }
@@ -295,11 +288,8 @@ class TestModelsDiscovery:
         mock_backend_factory.initialize_backend = AsyncMock()
 
         # Should handle the error and not crash
-        try:
+        with contextlib.suppress(Exception):
             backend = await service._get_or_create_backend(BackendType.OPENAI)
-        except Exception:
-            # Expected to fail for first backend
-            pass
 
         # Second attempt should work with fallback
         backend = await service._get_or_create_backend(BackendType.OPENROUTER)

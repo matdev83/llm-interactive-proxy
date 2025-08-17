@@ -6,12 +6,45 @@ to ensure it meets functional requirements.
 """
 
 import json
+from typing import TypedDict
 from unittest.mock import AsyncMock, patch
 
 import pytest
 from fastapi import HTTPException
-from src.models import ChatCompletionResponse
+from src.models import (
+    ChatCompletionChoice,
+    ChatCompletionChoiceMessage,
+    ChatCompletionResponse,
+    CompletionUsage,
+)
 from starlette.responses import StreamingResponse
+
+
+class MockCompletionUsageData(TypedDict):
+    prompt_tokens: int
+    completion_tokens: int
+    total_tokens: int
+
+
+class MockChatCompletionChoiceMessageData(TypedDict):
+    role: str
+    content: str
+
+
+class MockChatCompletionChoiceData(TypedDict):
+    index: int
+    message: MockChatCompletionChoiceMessageData
+    finish_reason: str
+
+
+class MockChatCompletionResponseData(TypedDict):
+    id: str
+    object: str
+    created: int
+    model: str
+    choices: list[MockChatCompletionChoiceData]
+    usage: MockCompletionUsageData
+
 
 # Mark all tests in this module as regression tests
 pytestmark = pytest.mark.regression
@@ -27,7 +60,7 @@ class TestChatCompletionRegression:
     ):
         """Test basic chat completion functionality."""
         # Define a mock response
-        mock_response_data = {
+        mock_response_data: MockChatCompletionResponseData = {
             "id": "chatcmpl-123",
             "object": "chat.completion",
             "created": 1677652288,
@@ -41,8 +74,24 @@ class TestChatCompletionRegression:
             ],
             "usage": {"prompt_tokens": 9, "completion_tokens": 12, "total_tokens": 21},
         }
+        # Convert raw dicts to Pydantic models
+        choices = [
+            ChatCompletionChoice(
+                index=choice["index"],
+                message=ChatCompletionChoiceMessage(**choice["message"]),
+                finish_reason=choice["finish_reason"],
+            )
+            for choice in mock_response_data["choices"]
+        ]
+        usage = CompletionUsage(**mock_response_data["usage"])
+
         mock_chat_completions.return_value = ChatCompletionResponse(
-            **mock_response_data
+            id=mock_response_data["id"],
+            object=mock_response_data["object"],
+            created=mock_response_data["created"],
+            model=mock_response_data["model"],
+            choices=choices,
+            usage=usage,
         )
         mock_initialize.return_value = None
 

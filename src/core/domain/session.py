@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
-from typing import Any
+from typing import Any, cast
 
 from pydantic import ConfigDict, Field
 
@@ -81,6 +81,10 @@ class SessionState(ValueObject):
         """Create a new session state with updated hello_requested flag."""
         return self.model_copy(update={"hello_requested": hello_requested})
 
+    def with_interactive_just_enabled(self, enabled: bool) -> SessionState:
+        """Create a new session state with updated interactive_just_enabled flag."""
+        return self.model_copy(update={"interactive_just_enabled": enabled})
+
 
 class SessionStateAdapter(ISessionState):
     """Adapter that makes SessionState implement ISessionState interface."""
@@ -91,42 +95,94 @@ class SessionStateAdapter(ISessionState):
     @property
     def backend_config(self) -> IBackendConfig:
         """Get the backend configuration."""
-        return self._state.backend_config
+        return self._state.backend_config  # type: ignore[return-value]
 
     @property
     def reasoning_config(self) -> IReasoningConfig:
         """Get the reasoning configuration."""
-        return self._state.reasoning_config
+        return self._state.reasoning_config  # type: ignore[return-value]
 
     @property
     def loop_config(self) -> ILoopDetectionConfig:
         """Get the loop detection configuration."""
-        return self._state.loop_config
+        return self._state.loop_config  # type: ignore[return-value]
 
     @property
     def project(self) -> str | None:
         """Get the project name."""
         return self._state.project
 
+    @project.setter
+    def project(self, value: str | None) -> None:
+        """Set the project on the underlying state (mutating adapter)."""
+        try:
+            self._state = self._state.with_project(value)
+        except Exception:
+            try:
+                setattr(self._state, "project", value)
+            except Exception:
+                pass
+
     @property
     def project_dir(self) -> str | None:
         """Get the project directory."""
         return self._state.project_dir
 
+    @project_dir.setter
+    def project_dir(self, value: str | None) -> None:
+        """Set the project_dir on the underlying state (mutating adapter)."""
+        try:
+            self._state = self._state.with_project_dir(value)
+        except Exception:
+            try:
+                setattr(self._state, "project_dir", value)
+            except Exception:
+                pass
+
+    @property
+    def interactive_mode(self) -> bool:
+        """Whether interactive mode is enabled for this session (from backend_config)."""
+        try:
+            return bool(self._state.backend_config.interactive_mode)
+        except Exception:
+            return False
+
     @property
     def interactive_just_enabled(self) -> bool:
         """Whether interactive mode was just enabled for this session."""
-        return getattr(self._state, "interactive_just_enabled", False)
+        return self._state.interactive_just_enabled
+
+    @interactive_just_enabled.setter
+    def interactive_just_enabled(self, value: bool) -> None:
+        """Set the interactive_just_enabled flag on the underlying state."""
+        try:
+            self._state = self._state.with_interactive_just_enabled(value)
+        except Exception:
+            try:
+                setattr(self._state, "interactive_just_enabled", bool(value))
+            except Exception:
+                pass
 
     @property
     def hello_requested(self) -> bool:
         """Whether hello was requested in this session."""
-        return getattr(self._state, "hello_requested", False)
+        return self._state.hello_requested
+
+    @hello_requested.setter
+    def hello_requested(self, value: bool) -> None:
+        """Set the hello_requested flag on the underlying state."""
+        try:
+            self._state = self._state.with_hello_requested(value)
+        except Exception:
+            try:
+                setattr(self._state, "hello_requested", bool(value))
+            except Exception:
+                pass
 
     @property
     def is_cline_agent(self) -> bool:
         """Whether the agent is Cline for this session."""
-        return getattr(self._state, "is_cline_agent", False)
+        return self._state.is_cline_agent
 
     def equals(self, other: Any) -> bool:
         """Check if this value object equals another."""
@@ -142,383 +198,83 @@ class SessionStateAdapter(ISessionState):
         state = SessionState.from_dict(data)
         return cls(state)  # type: ignore
 
-    # Methods that were missing but needed by commands
     def with_backend_config(
-        self, backend_config: BackendConfiguration
-    ) -> SessionStateAdapter:
+        self, backend_config: IBackendConfig
+    ) -> ISessionState:
         """Create a new session state with updated backend config."""
-        new_state = self._state.with_backend_config(backend_config)
+        new_state = self._state.with_backend_config(
+            cast(BackendConfiguration, backend_config)
+        )
         return SessionStateAdapter(new_state)
 
     def with_reasoning_config(
-        self, reasoning_config: ReasoningConfiguration
-    ) -> SessionStateAdapter:
+        self, reasoning_config: IReasoningConfig
+    ) -> ISessionState:
         """Create a new session state with updated reasoning config."""
-        new_state = self._state.with_reasoning_config(reasoning_config)
+        new_state = self._state.with_reasoning_config(
+            cast(ReasoningConfiguration, reasoning_config)
+        )
         return SessionStateAdapter(new_state)
 
-    def with_project(self, project: str | None) -> SessionStateAdapter:
+    def with_loop_config(self, loop_config: ILoopDetectionConfig) -> ISessionState:
+        """Create a new session state with updated loop config."""
+        new_state = self._state.with_loop_config(
+            cast(LoopDetectionConfiguration, loop_config)
+        )
+        return SessionStateAdapter(new_state)
+
+    def with_project(self, project: str | None) -> ISessionState:
         """Create a new session state with updated project."""
         new_state = self._state.with_project(project)
         return SessionStateAdapter(new_state)
 
-    def with_project_dir(self, project_dir: str | None) -> SessionStateAdapter:
+    def with_project_dir(self, project_dir: str | None) -> ISessionState:
         """Create a new session state with updated project directory."""
         new_state = self._state.with_project_dir(project_dir)
         return SessionStateAdapter(new_state)
 
-    def with_interactive_just_enabled(self, enabled: bool) -> SessionStateAdapter:
+    def with_interactive_just_enabled(self, enabled: bool) -> ISessionState:
         """Create a new session state with updated interactive_just_enabled flag."""
-        # Create a new SessionState with the updated value
-        new_state = SessionState(
-            backend_config=self._state.backend_config,
-            reasoning_config=self._state.reasoning_config,
-            loop_config=self._state.loop_config,
-            project=self._state.project,
-            project_dir=self._state.project_dir,
-            interactive_just_enabled=enabled,
-            hello_requested=self._state.hello_requested,
-            is_cline_agent=self._state.is_cline_agent,
-        )
+        new_state = self._state.with_interactive_just_enabled(enabled)
         return SessionStateAdapter(new_state)
 
-    # Properties that need setters for backward compatibility
-    @hello_requested.setter
-    def hello_requested(self, value: bool) -> None:
-        """Set the hello requested flag."""
-        # Create a new SessionState with the updated value
-        new_state = SessionState(
-            backend_config=self._state.backend_config,
-            reasoning_config=self._state.reasoning_config,
-            loop_config=self._state.loop_config,
-            project=self._state.project,
-            project_dir=self._state.project_dir,
-            interactive_just_enabled=self._state.interactive_just_enabled,
-            hello_requested=value,
-            is_cline_agent=self._state.is_cline_agent,
-        )
-        self._state = new_state
-
-    # Methods that commands expect but aren't in the interface
-    @property
-    def interactive_mode(self) -> bool:
-        """Get the interactive mode."""
-        return self._state.backend_config.interactive_mode
-
-    def set_override_backend(self, backend: str) -> None:
-        """Set the backend override."""
-        new_backend_config = self._state.backend_config.with_backend(backend)
-        new_state = SessionState(
-            backend_config=new_backend_config,
-            reasoning_config=self._state.reasoning_config,
-            loop_config=self._state.loop_config,
-            project=self._state.project,
-            project_dir=self._state.project_dir,
-            interactive_just_enabled=self._state.interactive_just_enabled,
-            hello_requested=self._state.hello_requested,
-            is_cline_agent=self._state.is_cline_agent,
-        )
-        self._state = new_state
-
-    def unset_override_backend(self) -> None:
-        """Unset the backend override."""
-        new_backend_config = self._state.backend_config.without_override()
-        new_state = SessionState(
-            backend_config=new_backend_config,
-            reasoning_config=self._state.reasoning_config,
-            loop_config=self._state.loop_config,
-            project=self._state.project,
-            project_dir=self._state.project_dir,
-            interactive_just_enabled=self._state.interactive_just_enabled,
-            hello_requested=self._state.hello_requested,
-            is_cline_agent=self._state.is_cline_agent,
-        )
-        self._state = new_state
-
-    def set_override_model(
-        self, backend: str, model: str, invalid: bool = False
-    ) -> None:
-        """Set the model override."""
-        new_backend_config = self._state.backend_config.with_backend_and_model(
-            backend, model, invalid
-        )
-        new_state = SessionState(
-            backend_config=new_backend_config,
-            reasoning_config=self._state.reasoning_config,
-            loop_config=self._state.loop_config,
-            project=self._state.project,
-            project_dir=self._state.project_dir,
-            interactive_just_enabled=self._state.interactive_just_enabled,
-            hello_requested=self._state.hello_requested,
-            is_cline_agent=self._state.is_cline_agent,
-        )
-        self._state = new_state
-
-    def set_project(self, project: str) -> None:
-        """Set the project."""
-        new_state = self._state.with_project(project)
-        self._state = new_state
-
-    def set_project_dir(self, project_dir: str) -> None:
-        """Set the project directory."""
-        new_state = self._state.with_project_dir(project_dir)
-        self._state = new_state
-
-    def set_interactive_mode(self, enabled: bool) -> None:
-        """Set the interactive mode."""
-        new_backend_config = self._state.backend_config.with_interactive_mode(enabled)
-        just_enabled = enabled and not self._state.backend_config.interactive_mode
-        new_state = SessionState(
-            backend_config=new_backend_config,
-            reasoning_config=self._state.reasoning_config,
-            loop_config=self._state.loop_config,
-            project=self._state.project,
-            project_dir=self._state.project_dir,
-            interactive_just_enabled=just_enabled,
-            hello_requested=self._state.hello_requested,
-            is_cline_agent=self._state.is_cline_agent,
-        )
-        self._state = new_state
-
-    # Unset methods mirroring set_* operations
-    def unset_override_model(self) -> None:
-        """Unset the model override."""
-        new_backend_config = self._state.backend_config.with_model(None)
-        new_state = SessionState(
-            backend_config=new_backend_config,
-            reasoning_config=self._state.reasoning_config,
-            loop_config=self._state.loop_config,
-            project=self._state.project,
-            project_dir=self._state.project_dir,
-            interactive_just_enabled=self._state.interactive_just_enabled,
-            hello_requested=self._state.hello_requested,
-            is_cline_agent=self._state.is_cline_agent,
-        )
-        self._state = new_state
+    # Mutable convenience methods expected by legacy tests
+    def set_project(self, project: str | None) -> None:
+        """Set project on the underlying state (mutating adapter)."""
+        self._state = self._state.with_project(project)
 
     def unset_project(self) -> None:
-        """Unset the project."""
-        new_state = self._state.with_project(None)
-        self._state = new_state
+        """Unset project on the underlying state (mutating adapter)."""
+        self.set_project(None)
+
+    def set_project_dir(self, project_dir: str | None) -> None:
+        """Set project_dir on the underlying state (mutating adapter)."""
+        self._state = self._state.with_project_dir(project_dir)
 
     def unset_project_dir(self) -> None:
-        """Unset the project directory."""
-        new_state = self._state.with_project_dir(None)
-        self._state = new_state
+        """Unset project_dir on the underlying state (mutating adapter)."""
+        self.set_project_dir(None)
 
-    def unset_interactive_mode(self) -> None:
-        """Disable interactive mode."""
-        new_backend_config = self._state.backend_config.with_interactive_mode(False)
-        new_state = SessionState(
-            backend_config=new_backend_config,
-            reasoning_config=self._state.reasoning_config,
-            loop_config=self._state.loop_config,
-            project=self._state.project,
-            project_dir=self._state.project_dir,
-            interactive_just_enabled=False,
-            hello_requested=self._state.hello_requested,
-            is_cline_agent=self._state.is_cline_agent,
-        )
-        self._state = new_state
-
-    def unset_reasoning_effort(self) -> None:
-        """Unset reasoning effort."""
-        new_reasoning = self._state.reasoning_config.with_reasoning_effort(None)
-        new_state = SessionState(
-            backend_config=self._state.backend_config,
-            reasoning_config=new_reasoning,
-            loop_config=self._state.loop_config,
-            project=self._state.project,
-            project_dir=self._state.project_dir,
-            interactive_just_enabled=self._state.interactive_just_enabled,
-            hello_requested=self._state.hello_requested,
-            is_cline_agent=self._state.is_cline_agent,
-        )
-        self._state = new_state
-
-    def unset_reasoning_config(self) -> None:
-        """Unset reasoning config."""
-        new_reasoning = self._state.reasoning_config.with_reasoning_config(None)
-        new_state = SessionState(
-            backend_config=self._state.backend_config,
-            reasoning_config=new_reasoning,
-            loop_config=self._state.loop_config,
-            project=self._state.project,
-            project_dir=self._state.project_dir,
-            interactive_just_enabled=self._state.interactive_just_enabled,
-            hello_requested=self._state.hello_requested,
-            is_cline_agent=self._state.is_cline_agent,
-        )
-        self._state = new_state
-
-    def unset_thinking_budget(self) -> None:
-        """Unset thinking budget."""
-        new_reasoning = self._state.reasoning_config.with_thinking_budget(None)
-        new_state = SessionState(
-            backend_config=self._state.backend_config,
-            reasoning_config=new_reasoning,
-            loop_config=self._state.loop_config,
-            project=self._state.project,
-            project_dir=self._state.project_dir,
-            interactive_just_enabled=self._state.interactive_just_enabled,
-            hello_requested=self._state.hello_requested,
-            is_cline_agent=self._state.is_cline_agent,
-        )
-        self._state = new_state
-
-    def unset_gemini_generation_config(self) -> None:
-        """Unset Gemini generation config."""
-        new_reasoning = self._state.reasoning_config.with_gemini_generation_config(None)
-        new_state = SessionState(
-            backend_config=self._state.backend_config,
-            reasoning_config=new_reasoning,
-            loop_config=self._state.loop_config,
-            project=self._state.project,
-            project_dir=self._state.project_dir,
-            interactive_just_enabled=self._state.interactive_just_enabled,
-            hello_requested=self._state.hello_requested,
-            is_cline_agent=self._state.is_cline_agent,
-        )
-        self._state = new_state
-
-    def unset_temperature(self) -> None:
-        """Unset temperature."""
-        new_reasoning = self._state.reasoning_config.with_temperature(None)
-        new_state = SessionState(
-            backend_config=self._state.backend_config,
-            reasoning_config=new_reasoning,
-            loop_config=self._state.loop_config,
-            project=self._state.project,
-            project_dir=self._state.project_dir,
-            interactive_just_enabled=self._state.interactive_just_enabled,
-            hello_requested=self._state.hello_requested,
-            is_cline_agent=self._state.is_cline_agent,
-        )
-        self._state = new_state
-
-    def set_openai_url(self, url: str) -> None:
-        """Set the OpenAI API URL."""
-        new_backend_config = self._state.backend_config.with_openai_url(url)
-        new_state = SessionState(
-            backend_config=new_backend_config,
-            reasoning_config=self._state.reasoning_config,
-            loop_config=self._state.loop_config,
-            project=self._state.project,
-            project_dir=self._state.project_dir,
-            interactive_just_enabled=self._state.interactive_just_enabled,
-            hello_requested=self._state.hello_requested,
-            is_cline_agent=self._state.is_cline_agent,
-        )
-        self._state = new_state
-
-    def unset_openai_url(self) -> None:
-        """Unset the OpenAI API URL."""
-        new_backend_config = self._state.backend_config.with_openai_url(None)
-        new_state = SessionState(
-            backend_config=new_backend_config,
-            reasoning_config=self._state.reasoning_config,
-            loop_config=self._state.loop_config,
-            project=self._state.project,
-            project_dir=self._state.project_dir,
-            interactive_just_enabled=self._state.interactive_just_enabled,
-            hello_requested=self._state.hello_requested,
-            is_cline_agent=self._state.is_cline_agent,
-        )
-        self._state = new_state
+    # Legacy override helpers (adapter exposes legacy property names used by tests)
+    @property
+    def override_model(self) -> str | None:
+        return self._state.backend_config.model
 
     @property
-    def failover_routes(self) -> dict[str, dict[str, Any]]:
-        """Expose failover routes from backend config."""
-        return self._state.backend_config.failover_routes
+    def override_backend(self) -> str | None:
+        return self._state.backend_config.backend_type
 
-    def create_failover_route(self, name: str, policy: str) -> None:
-        """Create a new failover route."""
-        new_backend_config = self._state.backend_config.with_failover_route(
-            name, policy
+    def set_override_model(self, backend: str, model: str) -> None:
+        """Set an override backend/model pair on the session state."""
+        new_backend_config = self._state.backend_config.with_backend_and_model(
+            backend, model
         )
-        new_state = SessionState(
-            backend_config=new_backend_config,
-            reasoning_config=self._state.reasoning_config,
-            loop_config=self._state.loop_config,
-            project=self._state.project,
-            project_dir=self._state.project_dir,
-            interactive_just_enabled=True,
-            hello_requested=self._state.hello_requested,
-            is_cline_agent=self._state.is_cline_agent,
-        )
-        self._state = new_state
+        self._state = self._state.with_backend_config(new_backend_config)
 
-    def delete_failover_route(self, name: str) -> None:
-        """Delete an existing failover route."""
-        new_backend_config = self._state.backend_config.without_failover_route(name)
-        new_state = SessionState(
-            backend_config=new_backend_config,
-            reasoning_config=self._state.reasoning_config,
-            loop_config=self._state.loop_config,
-            project=self._state.project,
-            project_dir=self._state.project_dir,
-            interactive_just_enabled=self._state.interactive_just_enabled,
-            hello_requested=self._state.hello_requested,
-            is_cline_agent=self._state.is_cline_agent,
-        )
-        self._state = new_state
-
-    def clear_route(self, name: str) -> None:
-        """Remove all elements from a failover route."""
-        new_backend_config = self._state.backend_config.with_cleared_route(name)
-        new_state = SessionState(
-            backend_config=new_backend_config,
-            reasoning_config=self._state.reasoning_config,
-            loop_config=self._state.loop_config,
-            project=self._state.project,
-            project_dir=self._state.project_dir,
-            interactive_just_enabled=self._state.interactive_just_enabled,
-            hello_requested=self._state.hello_requested,
-            is_cline_agent=self._state.is_cline_agent,
-        )
-        self._state = new_state
-
-    def append_route_element(self, name: str, element: str) -> None:
-        """Append an element to a failover route."""
-        new_backend_config = self._state.backend_config.with_appended_route_element(
-            name, element
-        )
-        new_state = SessionState(
-            backend_config=new_backend_config,
-            reasoning_config=self._state.reasoning_config,
-            loop_config=self._state.loop_config,
-            project=self._state.project,
-            project_dir=self._state.project_dir,
-            interactive_just_enabled=self._state.interactive_just_enabled,
-            hello_requested=self._state.hello_requested,
-            is_cline_agent=self._state.is_cline_agent,
-        )
-        self._state = new_state
-
-    def prepend_route_element(self, name: str, element: str) -> None:
-        """Prepend an element to a failover route."""
-        new_backend_config = self._state.backend_config.with_prepended_route_element(
-            name, element
-        )
-        new_state = SessionState(
-            backend_config=new_backend_config,
-            reasoning_config=self._state.reasoning_config,
-            loop_config=self._state.loop_config,
-            project=self._state.project,
-            project_dir=self._state.project_dir,
-            interactive_just_enabled=self._state.interactive_just_enabled,
-            hello_requested=self._state.hello_requested,
-            is_cline_agent=self._state.is_cline_agent,
-        )
-        self._state = new_state
-
-    def list_routes(self) -> dict[str, str]:
-        """List all failover routes and their policies."""
-        return self._state.backend_config.get_routes()
-
-    def list_route(self, name: str) -> list[str]:
-        """List elements of a failover route."""
-        return self._state.backend_config.get_route_elements(name)
+    def unset_override_model(self) -> None:
+        """Clear any override backend/model on the session state."""
+        new_backend_config = self._state.backend_config.without_override()
+        self._state = self._state.with_backend_config(new_backend_config)
 
 
 class Session(ISession):
@@ -567,7 +323,42 @@ class Session(ISession):
     @state.setter
     def state(self, value: ISessionState) -> None:
         """Set the session state."""
-        self._state = value
+        # If we currently hold a SessionStateAdapter and are being assigned a
+        # new adapter or a concrete SessionState, mutate the existing adapter's
+        # internal state in-place so external holders of the adapter observe the
+        # update. This preserves identity for callers (tests) that passed the
+        # adapter object around.
+        try:
+            from src.core.domain.session import SessionStateAdapter, SessionState
+        except Exception:
+            SessionStateAdapter = None  # type: ignore
+            SessionState = None  # type: ignore
+
+        if (
+            isinstance(self._state, object)
+            and SessionStateAdapter is not None
+            and isinstance(self._state, SessionStateAdapter)
+        ):
+            # Mutate in-place if possible
+            try:
+                if isinstance(value, SessionStateAdapter):
+                    self._state._state = value._state
+                elif SessionState is not None and isinstance(value, SessionState):
+                    self._state._state = value
+                else:
+                    # Best-effort: try to copy dict representation
+                    try:
+                        new_state = SessionState.from_dict(value.to_dict())
+                        self._state._state = new_state  # type: ignore
+                    except Exception:
+                        # Fallback to replacing the adapter reference
+                        self._state = value
+            except Exception:
+                self._state = value
+        else:
+            self._state = value
+
+        self._last_active_at = datetime.now(timezone.utc)
 
     @property
     def history(self) -> list[Any]:
@@ -599,6 +390,31 @@ class Session(ISession):
         """Set the agent identifier for this session."""
         self._agent = value
 
+        # Update the is_cline_agent flag in the session state
+        if (value == "cline" or value == "roocode") and isinstance(
+            self._state, SessionStateAdapter
+        ):
+            # Get the current state
+            current_state = self._state._state
+            # Create a new state with is_cline_agent=True
+            new_state = SessionState(
+                backend_config=current_state.backend_config,
+                reasoning_config=current_state.reasoning_config,
+                loop_config=current_state.loop_config,
+                project=current_state.project,
+                project_dir=current_state.project_dir,
+                interactive_just_enabled=current_state.interactive_just_enabled,
+                hello_requested=current_state.hello_requested,
+                is_cline_agent=True,
+            )
+            # Update the state
+            self._state = SessionStateAdapter(new_state)
+
+    @property
+    def proxy_state(self) -> ISessionState:
+        """Get the proxy state (backward compatibility alias for state)."""
+        return self._state
+
     def add_interaction(self, interaction: SessionInteraction) -> None:
         """Add an interaction to the session history."""
         self._history.append(interaction)
@@ -606,7 +422,29 @@ class Session(ISession):
 
     def update_state(self, state: ISessionState) -> None:
         """Update the session state."""
-        self._state = state
+        # Prefer mutating existing adapter in-place so external holders of the
+        # adapter observe changes. Fall back to replacing the reference.
+        try:
+            from src.core.domain.session import SessionStateAdapter, SessionState
+
+            if isinstance(self._state, SessionStateAdapter):
+                # If caller provided an adapter, copy its concrete state into ours
+                if isinstance(state, SessionStateAdapter):
+                    self._state._state = state._state
+                elif isinstance(state, SessionState):
+                    self._state._state = state
+                else:
+                    # Try to convert via to_dict/from_dict
+                    try:
+                        new_state = SessionState.from_dict(state.to_dict())
+                        self._state._state = new_state  # type: ignore
+                    except Exception:
+                        self._state = state
+            else:
+                self._state = state
+        except Exception:
+            # On any error, replace the state reference
+            self._state = state
         self._last_active_at = datetime.now(timezone.utc)
 
     def equals(self, other: Any) -> bool:

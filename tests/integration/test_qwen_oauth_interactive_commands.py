@@ -276,7 +276,7 @@ class TestQwenOAuthCommandContext:
 
     def test_command_context_backend_access(self, client):
         """Test that command context can access qwen-oauth backend."""
-        from src.commands.base import CommandContext
+        from src.core.domain.command_context import CommandContext
 
         app = client.app
 
