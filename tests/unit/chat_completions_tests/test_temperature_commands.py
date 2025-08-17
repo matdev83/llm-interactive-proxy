@@ -377,7 +377,7 @@ class TestTemperatureModelDefaults:
         """Test that model defaults are applied when no session/API temperature is set."""
         # Mock model defaults in app state
         service_provider = client.app.state.service_provider
-        session_service = service_provider.get_required_service(ISessionService)
+        service_provider.get_required_service(ISessionService)
 
         model_defaults = ModelDefaults(
             reasoning=ModelReasoningConfig(

@@ -1,8 +1,9 @@
-"""demo_real_batch.py – proves gemini-cli-batch backend works with real CLI.
+"""demo_real_batch.py - proves gemini-cli-batch backend works with real CLI.
 Requires:
-  • gemini CLI installed and on PATH
-  • GOOGLE_CLOUD_PROJECT env var set (Vertex AI mode)
+  - gemini CLI installed and on PATH
+  - GOOGLE_CLOUD_PROJECT env var set (Vertex AI mode)
 """
+
 import json
 import os
 import pathlib
@@ -24,26 +25,28 @@ os.environ.setdefault("GOOGLE_CLOUD_PROJECT", "project1-465615")
 project_dir = tempfile.mkdtemp(prefix="gemini_batch_real_")
 print("Project dir:", project_dir)
 
-app = build_app({
-    "backend": "gemini-cli-batch",
-    "disable_auth": True,
-    "disable_accounting": True,
-})
+app = build_app(
+    {
+        "backend": "gemini-cli-batch",
+        "disable_auth": True,
+        "disable_accounting": True,
+    }
+)
 
 with TestClient(app) as client:
-    # 1️⃣ set project dir
+    # 1. set project dir
     r1 = client.post(
         "/v1/chat/completions",
         json={
             "model": "gemini-2.5-pro",
             "messages": [
-                {"role": "user", "content": f"!/set(project-dir=\"{project_dir}\")"}
+                {"role": "user", "content": f'!/set(project-dir="{project_dir}")'}
             ],
         },
     )
     print("Set-cmd:", r1.json()["choices"][0]["message"]["content"])
 
-    # 2️⃣ send prompt
+    # 2. send prompt
     r2 = client.post(
         "/v1/chat/completions",
         json={

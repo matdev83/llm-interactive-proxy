@@ -90,14 +90,6 @@ class TestFailoverRoutes:
         parser1 = CommandParser(config1, command_prefix="!/")
 
         session2 = Session(session_id="session2")
-        state2 = session2.state
-        config2 = CommandParserConfig(
-            proxy_state=SessionStateAdapter(state2),
-            app=self.mock_app,
-            functional_backends=self.mock_app.state.functional_backends,
-            preserve_unknown=True,
-        )
-        # parser2 is unused - removed to fix F841
 
         # Create a route in session1
         parser1.process_messages(

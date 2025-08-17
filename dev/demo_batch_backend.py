@@ -15,20 +15,30 @@ from src.core.app.application_factory import build_app
 
 
 # Stub the actual CLI call so we don't need Gemini installed
-async def _fake_execute(self, prompt: str, model: str | None = None, sandbox: bool = False):
+async def _fake_execute(
+    self, prompt: str, model: str | None = None, sandbox: bool = False
+):
     return f"FAKE_RESPONSE for prompt: {prompt[:20]} ..."
+
 
 def run_demo() -> None:
     # 1. Spin up the FastAPI app with gemini-cli-batch as default backend
-    app = build_app({
-        "backend": "gemini-cli-batch",
-        "disable_auth": True,
-        "disable_accounting": True,
-    })
+    app = build_app(
+        {
+            "backend": "gemini-cli-batch",
+            "disable_auth": True,
+            "disable_accounting": True,
+        }
+    )
 
     project_dir = tempfile.mkdtemp(prefix="gemini_batch_demo_")
 
-    with TestClient(app) as client, patch.object(GeminiCliDirectConnector, "_execute_gemini_cli", new=_fake_execute):
+    with (
+        TestClient(app) as client,
+        patch.object(
+            GeminiCliDirectConnector, "_execute_gemini_cli", new=_fake_execute
+        ),
+    ):
         # Tell the proxy where the local project lives
         set_resp = client.post(
             "/v1/chat/completions",
@@ -39,9 +49,11 @@ def run_demo() -> None:
                 ],
             },
         )
-        print("Set command response:", set_resp.json()["choices"][0]["message"]["content"])
+        print(
+            "Set command response:", set_resp.json()["choices"][0]["message"]["content"]
+        )
 
-        # Now send an arbitrary prompt – it should hit the batch backend and return the stubbed response
+        # Now send an arbitrary prompt - it should hit the batch backend and return the stubbed response
         prompt_resp = client.post(
             "/v1/chat/completions",
             json={
@@ -52,9 +64,11 @@ def run_demo() -> None:
         reply = prompt_resp.json()["choices"][0]["message"]["content"]
         print("Backend response:", reply)
 
-        assert reply.startswith("FAKE_RESPONSE"), "Batch backend did not return expected stubbed output"
+        assert reply.startswith(
+            "FAKE_RESPONSE"
+        ), "Batch backend did not return expected stubbed output"
 
-    print("gemini-cli-batch backend functional ✔")
+    print("gemini-cli-batch backend functional OK")
 
 
 if __name__ == "__main__":

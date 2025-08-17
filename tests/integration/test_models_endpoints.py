@@ -5,6 +5,7 @@ These tests verify that the /models and /v1/models endpoints work correctly
 with both mocked and real backend configurations.
 """
 
+from contextlib import suppress
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -90,9 +91,7 @@ class TestModelsEndpoints:
 
         with (
             TestClient(app) as client,
-            patch(
-                "src.core.app.controllers.models_controller.IBackendService"
-            ) as mock_service_class,
+            patch("src.core.app.controllers.models_controller.IBackendService"),
         ):
             mock_backend_service = MagicMock()
 
@@ -295,11 +294,8 @@ class TestModelsDiscovery:
         mock_backend_factory.initialize_backend = AsyncMock()
 
         # Should handle the error and not crash
-        try:
-            backend = await service._get_or_create_backend(BackendType.OPENAI)
-        except Exception:
-            # Expected to fail for first backend
-            pass
+        with suppress(Exception):
+            await service._get_or_create_backend(BackendType.OPENAI)
 
         # Second attempt should work with fallback
         backend = await service._get_or_create_backend(BackendType.OPENROUTER)

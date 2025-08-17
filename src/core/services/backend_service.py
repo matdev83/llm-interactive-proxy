@@ -337,19 +337,16 @@ class BackendService(IBackendService):
             logger.info(f"Backend config for {backend_type}: {config}")
 
             # Convert BackendConfig to the format expected by each backend
-            if backend_type == BackendType.ANTHROPIC:
+            if backend_type == BackendType.ANTHROPIC and config:
                 # Map BackendConfig fields to AnthropicBackend expected parameters
-                if config:
-                    converted_config = {
-                        "key_name": backend_type,  # Use backend type as key name
-                        "api_key": config.get("api_key"),
-                        "anthropic_api_base_url": config.get("api_url"),
-                    }
-                    # Remove None values
-                    config = {
-                        k: v for k, v in converted_config.items() if v is not None
-                    }
-                    logger.info(f"Converted config for Anthropic: {config}")
+                converted_config = {
+                    "key_name": backend_type,  # Use backend type as key name
+                    "api_key": config.get("api_key"),
+                    "anthropic_api_base_url": config.get("api_url"),
+                }
+                # Remove None values
+                config = {k: v for k, v in converted_config.items() if v is not None}
+                logger.info(f"Converted config for Anthropic: {config}")
 
             # Create a new backend instance
             backend = self._factory.create_backend(backend_type)
