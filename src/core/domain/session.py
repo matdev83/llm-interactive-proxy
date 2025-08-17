@@ -267,6 +267,23 @@ class SessionStateAdapter(ISessionState):
     def set_interactive_mode(self, enabled: bool) -> None:
         """Set the interactive mode."""
         new_backend_config = self._state.backend_config.with_interactive_mode(enabled)
+        just_enabled = enabled and not self._state.backend_config.interactive_mode
+        new_state = SessionState(
+            backend_config=new_backend_config,
+            reasoning_config=self._state.reasoning_config,
+            loop_config=self._state.loop_config,
+            project=self._state.project,
+            project_dir=self._state.project_dir,
+            interactive_just_enabled=just_enabled,
+            hello_requested=self._state.hello_requested,
+            is_cline_agent=self._state.is_cline_agent,
+        )
+        self._state = new_state
+
+    # Unset methods mirroring set_* operations
+    def unset_override_model(self) -> None:
+        """Unset the model override."""
+        new_backend_config = self._state.backend_config.with_model(None)
         new_state = SessionState(
             backend_config=new_backend_config,
             reasoning_config=self._state.reasoning_config,
@@ -278,6 +295,230 @@ class SessionStateAdapter(ISessionState):
             is_cline_agent=self._state.is_cline_agent,
         )
         self._state = new_state
+
+    def unset_project(self) -> None:
+        """Unset the project."""
+        new_state = self._state.with_project(None)
+        self._state = new_state
+
+    def unset_project_dir(self) -> None:
+        """Unset the project directory."""
+        new_state = self._state.with_project_dir(None)
+        self._state = new_state
+
+    def unset_interactive_mode(self) -> None:
+        """Disable interactive mode."""
+        new_backend_config = self._state.backend_config.with_interactive_mode(False)
+        new_state = SessionState(
+            backend_config=new_backend_config,
+            reasoning_config=self._state.reasoning_config,
+            loop_config=self._state.loop_config,
+            project=self._state.project,
+            project_dir=self._state.project_dir,
+            interactive_just_enabled=False,
+            hello_requested=self._state.hello_requested,
+            is_cline_agent=self._state.is_cline_agent,
+        )
+        self._state = new_state
+
+    def unset_reasoning_effort(self) -> None:
+        """Unset reasoning effort."""
+        new_reasoning = self._state.reasoning_config.with_reasoning_effort(None)
+        new_state = SessionState(
+            backend_config=self._state.backend_config,
+            reasoning_config=new_reasoning,
+            loop_config=self._state.loop_config,
+            project=self._state.project,
+            project_dir=self._state.project_dir,
+            interactive_just_enabled=self._state.interactive_just_enabled,
+            hello_requested=self._state.hello_requested,
+            is_cline_agent=self._state.is_cline_agent,
+        )
+        self._state = new_state
+
+    def unset_reasoning_config(self) -> None:
+        """Unset reasoning config."""
+        new_reasoning = self._state.reasoning_config.with_reasoning_config(None)
+        new_state = SessionState(
+            backend_config=self._state.backend_config,
+            reasoning_config=new_reasoning,
+            loop_config=self._state.loop_config,
+            project=self._state.project,
+            project_dir=self._state.project_dir,
+            interactive_just_enabled=self._state.interactive_just_enabled,
+            hello_requested=self._state.hello_requested,
+            is_cline_agent=self._state.is_cline_agent,
+        )
+        self._state = new_state
+
+    def unset_thinking_budget(self) -> None:
+        """Unset thinking budget."""
+        new_reasoning = self._state.reasoning_config.with_thinking_budget(None)
+        new_state = SessionState(
+            backend_config=self._state.backend_config,
+            reasoning_config=new_reasoning,
+            loop_config=self._state.loop_config,
+            project=self._state.project,
+            project_dir=self._state.project_dir,
+            interactive_just_enabled=self._state.interactive_just_enabled,
+            hello_requested=self._state.hello_requested,
+            is_cline_agent=self._state.is_cline_agent,
+        )
+        self._state = new_state
+
+    def unset_gemini_generation_config(self) -> None:
+        """Unset Gemini generation config."""
+        new_reasoning = self._state.reasoning_config.with_gemini_generation_config(None)
+        new_state = SessionState(
+            backend_config=self._state.backend_config,
+            reasoning_config=new_reasoning,
+            loop_config=self._state.loop_config,
+            project=self._state.project,
+            project_dir=self._state.project_dir,
+            interactive_just_enabled=self._state.interactive_just_enabled,
+            hello_requested=self._state.hello_requested,
+            is_cline_agent=self._state.is_cline_agent,
+        )
+        self._state = new_state
+
+    def unset_temperature(self) -> None:
+        """Unset temperature."""
+        new_reasoning = self._state.reasoning_config.with_temperature(None)
+        new_state = SessionState(
+            backend_config=self._state.backend_config,
+            reasoning_config=new_reasoning,
+            loop_config=self._state.loop_config,
+            project=self._state.project,
+            project_dir=self._state.project_dir,
+            interactive_just_enabled=self._state.interactive_just_enabled,
+            hello_requested=self._state.hello_requested,
+            is_cline_agent=self._state.is_cline_agent,
+        )
+        self._state = new_state
+
+    def set_openai_url(self, url: str) -> None:
+        """Set the OpenAI API URL."""
+        new_backend_config = self._state.backend_config.with_openai_url(url)
+        new_state = SessionState(
+            backend_config=new_backend_config,
+            reasoning_config=self._state.reasoning_config,
+            loop_config=self._state.loop_config,
+            project=self._state.project,
+            project_dir=self._state.project_dir,
+            interactive_just_enabled=self._state.interactive_just_enabled,
+            hello_requested=self._state.hello_requested,
+            is_cline_agent=self._state.is_cline_agent,
+        )
+        self._state = new_state
+
+    def unset_openai_url(self) -> None:
+        """Unset the OpenAI API URL."""
+        new_backend_config = self._state.backend_config.with_openai_url(None)
+        new_state = SessionState(
+            backend_config=new_backend_config,
+            reasoning_config=self._state.reasoning_config,
+            loop_config=self._state.loop_config,
+            project=self._state.project,
+            project_dir=self._state.project_dir,
+            interactive_just_enabled=self._state.interactive_just_enabled,
+            hello_requested=self._state.hello_requested,
+            is_cline_agent=self._state.is_cline_agent,
+        )
+        self._state = new_state
+
+    @property
+    def failover_routes(self) -> dict[str, dict[str, Any]]:
+        """Expose failover routes from backend config."""
+        return self._state.backend_config.failover_routes
+
+    def create_failover_route(self, name: str, policy: str) -> None:
+        """Create a new failover route."""
+        new_backend_config = self._state.backend_config.with_failover_route(
+            name, policy
+        )
+        new_state = SessionState(
+            backend_config=new_backend_config,
+            reasoning_config=self._state.reasoning_config,
+            loop_config=self._state.loop_config,
+            project=self._state.project,
+            project_dir=self._state.project_dir,
+            interactive_just_enabled=True,
+            hello_requested=self._state.hello_requested,
+            is_cline_agent=self._state.is_cline_agent,
+        )
+        self._state = new_state
+
+    def delete_failover_route(self, name: str) -> None:
+        """Delete an existing failover route."""
+        new_backend_config = self._state.backend_config.without_failover_route(name)
+        new_state = SessionState(
+            backend_config=new_backend_config,
+            reasoning_config=self._state.reasoning_config,
+            loop_config=self._state.loop_config,
+            project=self._state.project,
+            project_dir=self._state.project_dir,
+            interactive_just_enabled=self._state.interactive_just_enabled,
+            hello_requested=self._state.hello_requested,
+            is_cline_agent=self._state.is_cline_agent,
+        )
+        self._state = new_state
+
+    def clear_route(self, name: str) -> None:
+        """Remove all elements from a failover route."""
+        new_backend_config = self._state.backend_config.with_cleared_route(name)
+        new_state = SessionState(
+            backend_config=new_backend_config,
+            reasoning_config=self._state.reasoning_config,
+            loop_config=self._state.loop_config,
+            project=self._state.project,
+            project_dir=self._state.project_dir,
+            interactive_just_enabled=self._state.interactive_just_enabled,
+            hello_requested=self._state.hello_requested,
+            is_cline_agent=self._state.is_cline_agent,
+        )
+        self._state = new_state
+
+    def append_route_element(self, name: str, element: str) -> None:
+        """Append an element to a failover route."""
+        new_backend_config = self._state.backend_config.with_appended_route_element(
+            name, element
+        )
+        new_state = SessionState(
+            backend_config=new_backend_config,
+            reasoning_config=self._state.reasoning_config,
+            loop_config=self._state.loop_config,
+            project=self._state.project,
+            project_dir=self._state.project_dir,
+            interactive_just_enabled=self._state.interactive_just_enabled,
+            hello_requested=self._state.hello_requested,
+            is_cline_agent=self._state.is_cline_agent,
+        )
+        self._state = new_state
+
+    def prepend_route_element(self, name: str, element: str) -> None:
+        """Prepend an element to a failover route."""
+        new_backend_config = self._state.backend_config.with_prepended_route_element(
+            name, element
+        )
+        new_state = SessionState(
+            backend_config=new_backend_config,
+            reasoning_config=self._state.reasoning_config,
+            loop_config=self._state.loop_config,
+            project=self._state.project,
+            project_dir=self._state.project_dir,
+            interactive_just_enabled=self._state.interactive_just_enabled,
+            hello_requested=self._state.hello_requested,
+            is_cline_agent=self._state.is_cline_agent,
+        )
+        self._state = new_state
+
+    def list_routes(self) -> dict[str, str]:
+        """List all failover routes and their policies."""
+        return self._state.backend_config.get_routes()
+
+    def list_route(self, name: str) -> list[str]:
+        """List elements of a failover route."""
+        return self._state.backend_config.get_route_elements(name)
 
 
 class Session(ISession):
