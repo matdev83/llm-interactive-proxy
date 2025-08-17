@@ -199,18 +199,16 @@ def create_streaming_response_chunks(
                     "delta": {
                         "content": content_part,
                     },
-                    "finish_reason": (
-                        None if i < len(content_chunks) - 1 else "stop"
-                    ),
+                    "finish_reason": (None if i < len(content_chunks) - 1 else "stop"),
                 }
             ],
         }
-        
+
         # Add some variation to the structure to avoid loop detection
         if i == 0:
             # First chunk includes role
             chunk["choices"][0]["delta"]["role"] = "assistant"
-        
+
         chunks.append(chunk)
 
     return chunks

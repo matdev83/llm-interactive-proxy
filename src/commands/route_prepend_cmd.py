@@ -9,7 +9,7 @@ from .base import CommandResult, register_command  # Removed BaseCommand
 from .failover_base import FailoverBase
 
 if TYPE_CHECKING:
-    from src.proxy_logic import ProxyState
+    pass  # No imports needed
 
 
 @register_command
@@ -24,7 +24,7 @@ class RoutePrependCommand(FailoverBase):
     ) -> None:
         super().__init__(app=app, functional_backends=functional_backends)
 
-    def execute(self, args: Mapping[str, Any], state: ProxyState) -> CommandResult:
+    def execute(self, args: Mapping[str, Any], state: Any) -> CommandResult:
         msgs: list[str] = []
         self._ensure_interactive(state, msgs)
         name = args.get("name")

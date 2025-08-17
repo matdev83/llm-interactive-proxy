@@ -42,10 +42,10 @@ class AnthropicBackend(LLMBackend):
         anthropic_api_base_url = kwargs.get("anthropic_api_base_url")
         key_name = kwargs.get("key_name")
         api_key = kwargs.get("api_key")
-        
+
         if not key_name or not api_key:
             raise ValueError("key_name and api_key are required for AnthropicBackend")
-        
+
         base_url = anthropic_api_base_url or ANTHROPIC_DEFAULT_BASE_URL
         try:
             data = await self.list_models(

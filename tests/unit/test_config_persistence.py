@@ -3,7 +3,7 @@ import json
 import pytest
 from fastapi.testclient import TestClient
 from src.core.app.application_factory import build_app
-from src.core.config.app_config import load_config, AppConfig
+from src.core.config.app_config import load_config
 
 
 @pytest.fixture(autouse=True)
@@ -35,7 +35,9 @@ def test_save_and_load_persistent_config(tmp_path, monkeypatch):
             "elements": ["openrouter:model-a"],
         }
         client.app.state.app_config.session.default_interactive_mode = True
-        client.app.state.app_config.backends.default_backend = "gemini"  # This is the runtime state
+        client.app.state.app_config.backends.default_backend = (
+            "gemini"  # This is the runtime state
+        )
         client.app.state.app_config.auth.redact_api_keys_in_prompts = False
         client.app.state.app_config.command_prefix = "$/"
         # Assuming config_manager is now part of the service provider or app_config handles saving
@@ -46,9 +48,9 @@ def test_save_and_load_persistent_config(tmp_path, monkeypatch):
 
     data = json.loads(cfg_path.read_text())
     assert data["default_backend"] == "gemini"
-    assert data["session"]["default_interactive_mode"] is True # Updated path
+    assert data["session"]["default_interactive_mode"] is True  # Updated path
     assert data["failover_routes"]["r1"]["elements"] == ["openrouter:model-a"]
-    assert data["auth"]["redact_api_keys_in_prompts"] is False # Updated path
+    assert data["auth"]["redact_api_keys_in_prompts"] is False  # Updated path
     assert data["command_prefix"] == "$/"
 
     # Clear the environment variable that was set earlier to test config file loading
@@ -75,9 +77,10 @@ def test_save_and_load_persistent_config(tmp_path, monkeypatch):
             expected_elements = ["openrouter:model-a"]
 
         # The key 'r1' might not exist if all its elements were deemed unavailable.
-        if "r1" in client2.app.state.app_config.failover_routes: # Updated path
+        if "r1" in client2.app.state.app_config.failover_routes:  # Updated path
             assert (
-                client2.app.state.app_config.failover_routes["r1"]["elements"] == expected_elements # Updated path
+                client2.app.state.app_config.failover_routes["r1"]["elements"]
+                == expected_elements  # Updated path
             )
         else:
             assert (

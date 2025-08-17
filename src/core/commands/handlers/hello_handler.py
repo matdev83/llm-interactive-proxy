@@ -1,7 +1,7 @@
 """
-Hello command handler for the SOLID architecture.
+Hello command handler.
 
-This module provides a command handler for returning the interactive welcome banner.
+This handler implements the hello command, which displays a welcome banner.
 """
 
 from __future__ import annotations
@@ -9,67 +9,82 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from src.commands.base import CommandContext
 from src.core.commands.handlers.base_handler import (
-    BaseCommandHandler,
     CommandHandlerResult,
+    ICommandHandler,
 )
-from src.core.domain.configuration.session_state_builder import SessionStateBuilder
 from src.core.domain.session import SessionState
 
 logger = logging.getLogger(__name__)
 
 
-class HelloCommandHandler(BaseCommandHandler):
-    """Handler for returning the interactive welcome banner."""
-    
-    def __init__(self):
-        """Initialize the hello command handler."""
-        super().__init__("hello")
-    
+class HelloCommandHandler(ICommandHandler):
+    """Handler for the hello command."""
+
+    @property
+    def name(self) -> str:
+        """The name of the command."""
+        return "hello"
+
+    @property
+    def aliases(self) -> list[str]:
+        """Aliases for the command."""
+        return []
+
     @property
     def description(self) -> str:
         """Description of the command."""
         return "Return the interactive welcome banner"
-    
+
+    @property
+    def usage(self) -> str:
+        """Usage information for the command."""
+        return "hello"
+
     @property
     def examples(self) -> list[str]:
-        """Examples of using this command."""
+        """Examples of command usage."""
         return ["!/hello"]
-    
-    def can_handle(self, param_name: str) -> bool:
-        """Check if this handler can handle the given parameter.
-        
+
+    def can_handle(self, command_name: str) -> bool:
+        """Check if this handler can handle the given command.
+
         Args:
-            param_name: The parameter name to check
-            
+            command_name: The name of the command to check
+
         Returns:
-            True if this handler can handle the parameter
+            True if this handler can handle the command, False otherwise
         """
-        return param_name.lower() == self.name
-    
+        command_lower = command_name.lower()
+        return command_lower == self.name or command_lower in self.aliases
+
     def handle(
-        self, 
-        param_value: Any, 
-        current_state: SessionState,
-        context: CommandContext | None = None
+        self, command_name: str, args: dict[str, Any], state: SessionState
     ) -> CommandHandlerResult:
-        """Handle returning the interactive welcome banner.
-        
+        """Handle the hello command.
+
         Args:
-            param_value: Not used
-            current_state: The current session state
-            context: Optional command context
-            
+            command_name: The name of the command to handle
+            args: Command arguments
+            state: Current session state
+
         Returns:
-            A result containing success/failure status
+            Command execution result
         """
-        # Create new state with hello_requested flag set to True
-        builder = SessionStateBuilder(current_state)
-        new_state = builder.with_hello_requested(True).build()
-        
+        # Create a new session state with hello_requested=True
+        new_state = SessionState(
+            backend_config=state.backend_config,
+            reasoning_config=state.reasoning_config,
+            loop_config=state.loop_config,
+            project=state.project,
+            project_dir=state.project_dir,
+            interactive_just_enabled=state.interactive_just_enabled,
+            hello_requested=True,
+            is_cline_agent=state.is_cline_agent,
+        )
+
         return CommandHandlerResult(
             success=True,
             message="hello acknowledged",
-            new_state=new_state
+            new_state=new_state,
         )

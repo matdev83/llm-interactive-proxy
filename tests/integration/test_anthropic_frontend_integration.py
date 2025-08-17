@@ -14,7 +14,8 @@ try:
 except ImportError:
     ANTHROPIC_AVAILABLE = False
 
-from src.main import build_app
+from src.core.app.application_factory import build_app
+from src.core.config.app_config import AppConfig
 
 
 @pytest.mark.skipif(not ANTHROPIC_AVAILABLE, reason="anthropic package not available")
@@ -33,7 +34,7 @@ class TestAnthropicFrontendIntegration:
             "backend": "openrouter",
         }
 
-        self.app = build_app(test_config)
+        self.app = build_app(AppConfig(**test_config))
         self.client = TestClient(self.app)
 
         # Test API key for Anthropic SDK
@@ -321,7 +322,7 @@ class TestAnthropicFrontendWithoutSDK:
             "backend": "openrouter",
         }
 
-        self.app = build_app(test_config)
+        self.app = build_app(AppConfig(**test_config))
         self.client = TestClient(self.app)
 
     def test_endpoints_work_without_sdk(self):

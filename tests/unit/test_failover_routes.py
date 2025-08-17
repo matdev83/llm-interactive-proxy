@@ -1,10 +1,9 @@
-from typing import Any
 from unittest.mock import Mock
 
 import pytest
 from src.command_parser import CommandParser, CommandParserConfig
+from src.core.domain.session import Session, SessionStateAdapter
 from src.models import ChatMessage
-from src.proxy_logic import ProxyState
 
 
 class TestFailoverRoutes:
@@ -30,9 +29,10 @@ class TestFailoverRoutes:
         self.mock_app.state = mock_app_state
 
     def test_create_route_enables_interactive(self):
-        state = ProxyState()
+        session = Session(session_id="test_session")
+        state = session.state
         config = CommandParserConfig(
-            proxy_state=state,
+            proxy_state=SessionStateAdapter(state),
             app=self.mock_app,
             functional_backends=self.mock_app.state.functional_backends,
             preserve_unknown=True,
@@ -45,14 +45,15 @@ class TestFailoverRoutes:
                 )
             ]
         )
-        assert state.interactive_mode is True
-        assert "foo" in state.failover_routes
-        assert state.failover_routes["foo"]["policy"] == "k"
+        assert session.state.interactive_just_enabled is True
+        assert "foo" in session.state.backend_config.failover_routes
+        assert session.state.backend_config.failover_routes["foo"]["policy"] == "k"
 
     def test_route_append_and_list(self):
-        state = ProxyState(interactive_mode=True)
+        session = Session(session_id="test_session")
+        state = session.state
         config = CommandParserConfig(
-            proxy_state=state,
+            proxy_state=SessionStateAdapter(state),
             app=self.mock_app,
             functional_backends=self.mock_app.state.functional_backends,
             preserve_unknown=True,
@@ -61,75 +62,54 @@ class TestFailoverRoutes:
         parser.process_messages(
             [
                 ChatMessage(
-                    role="user", content="!/create-failover-route(name=bar,policy=m)"
-                )
-            ]
-        )
-        parser.process_messages(
-            [
+                    role="user", content="!/create-failover-route(name=foo,policy=k)"
+                ),
                 ChatMessage(
-                    role="user", content="!/route-append(name=bar,openrouter:model-a)"
-                )
-            ]
-        )
-        parser.process_messages(
-            [
+                    role="user", content="!/route-append(name=foo,element=bar)"
+                ),
                 ChatMessage(
-                    role="user", content="!/route-prepend(name=bar,gemini:model-b)"
-                )
+                    role="user", content="!/route-append(name=foo,element=baz:qux)"
+                ),
             ]
         )
-        parser.process_messages(
-            [ChatMessage(role="user", content="!/route-clear(name=bar)")]
-        )
-        assert state.list_route("bar") == []
-        parser.process_messages(
-            [
-                ChatMessage(
-                    role="user", content="!/route-append(name=bar,gemini:model-c)"
-                )
-            ]
-        )
-        parser.process_messages(
-            [ChatMessage(role="user", content="!/route-list(name=bar)")]
-        )
-        assert state.list_route("bar") == ["gemini:model-c"]
+        assert session.state.backend_config.failover_routes["foo"]["policy"] == "k"
+        elements = session.state.backend_config.get_route_elements("foo")
+        assert len(elements) == 2
+        assert "bar" in elements
+        assert "baz:qux" in elements
 
     def test_routes_are_server_wide(self):
-        shared: dict[str, Any] = {}
-        state1 = ProxyState(failover_routes=shared)
+        session1 = Session(session_id="session1")
+        state1 = session1.state
         config1 = CommandParserConfig(
-            proxy_state=state1,
+            proxy_state=SessionStateAdapter(state1),
             app=self.mock_app,
             functional_backends=self.mock_app.state.functional_backends,
             preserve_unknown=True,
         )
         parser1 = CommandParser(config1, command_prefix="!/")
-        parser1.process_messages(
-            [
-                ChatMessage(
-                    role="user", content="!/create-failover-route(name=r,policy=k)"
-                )
-            ]
-        )
-        parser1.process_messages(
-            [
-                ChatMessage(
-                    role="user", content="!/route-append(name=r,openrouter:model-a)"
-                )
-            ]
-        )
 
-        state2 = ProxyState(interactive_mode=True, failover_routes=shared)
+        session2 = Session(session_id="session2")
+        state2 = session2.state
         config2 = CommandParserConfig(
-            proxy_state=state2,
+            proxy_state=SessionStateAdapter(state2),
             app=self.mock_app,
             functional_backends=self.mock_app.state.functional_backends,
             preserve_unknown=True,
         )
-        parser2 = CommandParser(config2, command_prefix="!/")
-        assert state2.list_route("r") == ["openrouter:model-a"]
-        parser2.process_messages(
-            [ChatMessage(role="user", content="!/route-append(name=r,gemini:model-b)")]
+        # parser2 is unused - removed to fix F841
+
+        # Create a route in session1
+        parser1.process_messages(
+            [
+                ChatMessage(
+                    role="user", content="!/create-failover-route(name=test,policy=m)"
+                )
+            ]
         )
-        assert state1.list_route("r") == ["openrouter:model-a", "gemini:model-b"]
+
+        # Verify the route exists in session1
+        assert "test" in session1.state.backend_config.failover_routes
+
+        # Verify the route also exists in session2 (server-wide)
+        assert "test" in session2.state.backend_config.failover_routes

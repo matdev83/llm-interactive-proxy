@@ -16,7 +16,7 @@ try:
 except ImportError:
     GENAI_AVAILABLE = False
 
-from src.main import build_app
+from src.core.app.application_factory import build_app
 
 pytestmark = [
     pytest.mark.integration,
@@ -25,8 +25,8 @@ pytestmark = [
 
 
 @pytest.fixture
-def test_app():
-    """Create test app with disabled auth."""
+def gemini_app():
+    """Create test app with disabled auth for Gemini testing."""
     config = {
         "disable_auth": True,
         "interactive_mode": False,
@@ -42,9 +42,9 @@ def test_app():
 
 
 @pytest.fixture
-def client(test_app):
-    """Create test client."""
-    return TestClient(test_app)
+def gemini_client(gemini_app):
+    """Create test client for Gemini app."""
+    return TestClient(gemini_app)
 
 
 def test_gemini_client_creation():
@@ -62,22 +62,22 @@ def test_gemini_client_creation():
     assert hasattr(client, "models")
 
 
-def test_gemini_models_endpoint_format(client):
+def test_gemini_models_endpoint_format(gemini_client):
     """Test that our models endpoint returns Gemini-compatible format."""
     # Mock the functional backends and backend models
-    client.app.state.functional_backends = {"openrouter", "gemini"}
+    gemini_client.app.state.functional_backends = {"openrouter", "gemini"}
 
     # Create mock backends
     mock_or = MagicMock()
     mock_or.get_available_models.return_value = ["gpt-4", "gpt-3.5-turbo"]
-    client.app.state.openrouter_backend = mock_or
+    gemini_client.app.state.openrouter_backend = mock_or
 
     mock_gemini = MagicMock()
     mock_gemini.get_available_models.return_value = ["gemini-pro", "gemini-pro-vision"]
-    client.app.state.gemini_backend = mock_gemini
+    gemini_client.app.state.gemini_backend = mock_gemini
 
     # Test Gemini models endpoint
-    response = client.get("/v1beta/models")
+    response = gemini_client.get("/v1beta/models")
     assert response.status_code == 200
 
     data = response.json()

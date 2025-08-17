@@ -6,8 +6,11 @@ with the real Google Gemini client, testing all backends and conversion logic.
 """
 
 import asyncio
+import json
+import tempfile
 import threading
 import time
+from pathlib import Path
 from typing import Any
 from unittest.mock import AsyncMock, patch
 
@@ -15,7 +18,7 @@ import pytest
 import requests
 import uvicorn
 from fastapi import HTTPException
-from src.main import build_app
+from src.core.app.application_factory import build_app
 
 # Import Gemini client types
 try:
@@ -33,7 +36,14 @@ class ProxyServer:
     def __init__(self, config: dict[str, Any], port: int = 8001):
         self.config = config
         self.port = port
-        self.app = build_app(config)
+        self.config_file_path: Path | None = None
+
+        # Create a temporary config file
+        with tempfile.NamedTemporaryFile(mode="w", delete=False, suffix=".json") as f:
+            json.dump(config, f)
+            self.config_file_path = Path(f.name)
+
+        self.app = build_app(config_path=str(self.config_file_path))
         self.server: uvicorn.Server | None = None
         self.thread: threading.Thread | None = None
 
@@ -74,6 +84,10 @@ class ProxyServer:
             self.server.should_exit = True
         if self.thread:
             self.thread.join(timeout=5)
+
+        # Clean up the temporary config file
+        if self.config_file_path and self.config_file_path.exists():
+            self.config_file_path.unlink()  # Delete the file
 
 
 @pytest.fixture

@@ -1,3 +1,5 @@
+from src.core.config.app_config import AppConfig
+
 """
 Simple integration tests for loop detection functionality.
 
@@ -84,8 +86,9 @@ class TestLoopDetectionSimpleIntegration:
             enabled=True, buffer_size=256, max_pattern_length=50
         )
         # Lower thresholds for testing
-        config.short_pattern_threshold.min_repetitions = 3
-        config.short_pattern_threshold.min_total_length = 10
+        if config.short_pattern_threshold:
+            config.short_pattern_threshold.min_repetitions = 3
+            config.short_pattern_threshold.min_total_length = 10
 
         detector = LoopDetector(config=config)
 
@@ -177,8 +180,8 @@ class TestLoopDetectionSimpleIntegration:
     def test_app_startup_integration(self):
         """Test that app can start with loop detection enabled."""
         # This is a minimal test that just verifies imports and basic setup work
-        from src.core.config_adapter import _load_config
-        from src.main import build_app
+        from src.core.app.application_factory import build_app
+        from src.core.config.config_loader import _load_config
 
         # Get base config and override problematic settings
         base_config = _load_config()
@@ -191,7 +194,7 @@ class TestLoopDetectionSimpleIntegration:
         }
 
         # Should not raise an exception
-        app = build_app(cfg=test_config)
+        app = build_app(config=AppConfig(**test_config))
         assert app is not None
 
 

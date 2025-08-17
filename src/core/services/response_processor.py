@@ -25,16 +25,20 @@ class ResponseProcessor(IResponseProcessor):
     middleware components and other transformations.
     """
 
-    def __init__(self, loop_detector: ILoopDetector | None = None, middleware: list[IResponseMiddleware] | None = None):
+    def __init__(
+        self,
+        loop_detector: ILoopDetector | None = None,
+        middleware: list[IResponseMiddleware] | None = None,
+    ):
         """Initialize the response processor.
-        
+
         Args:
             loop_detector: Optional loop detector for detecting repetitive patterns
             middleware: Optional list of middleware components to register
         """
         self._loop_detector = loop_detector
         self._middleware: list[tuple[int, IResponseMiddleware]] = []
-        
+
         # Register any provided middleware with default priority
         if middleware:
             for mw in middleware:
@@ -244,7 +248,7 @@ class ResponseProcessor(IResponseProcessor):
                         content = message["content"] or ""
 
             if response.usage:
-                if hasattr(response.usage, 'model_dump'):
+                if hasattr(response.usage, "model_dump"):
                     usage = response.usage.model_dump()
                 else:
                     usage = dict(response.usage)
@@ -292,7 +296,7 @@ class ResponseProcessor(IResponseProcessor):
             metadata["id"] = getattr(chunk, "id", "")
             metadata["created"] = str(getattr(chunk, "created", ""))
 
-            if hasattr(chunk, 'choices') and chunk.choices:
+            if hasattr(chunk, "choices") and chunk.choices:
                 choice = chunk.choices[0]
                 if isinstance(choice, dict) and "delta" in choice:
                     delta = choice["delta"]
@@ -318,6 +322,26 @@ class ResponseProcessor(IResponseProcessor):
             try:
                 # Try to parse as JSON
                 text = chunk.decode("utf-8").strip()
+
+                # Handle multi-line SSE data (concatenated chunks)
+                if "\ndata: " in text:
+                    # This is concatenated SSE data - split it and process only the first chunk
+                    lines = text.split("\n")
+                    for line in lines:
+                        line = line.strip()
+                        if line.startswith("data: "):
+                            first_chunk_data = line[6:]  # Remove "data: " prefix
+                            if first_chunk_data == "[DONE]":
+                                return "", None, {"done": True}
+                            try:
+                                data = json.loads(first_chunk_data)
+                                return self._extract_chunk_data(data)
+                            except json.JSONDecodeError:
+                                continue
+                    # If we get here, no valid chunks found - return empty
+                    return "", None, {}
+
+                # Handle single chunk
                 if text.startswith("data: "):
                     text = text[6:]  # Remove "data: " prefix
 
@@ -327,8 +351,9 @@ class ResponseProcessor(IResponseProcessor):
                 data = json.loads(text)
                 return self._extract_chunk_data(data)
             except Exception:
-                # If parsing fails, treat as raw content
-                content = chunk.decode("utf-8", errors="replace")
+                # If parsing fails completely, don't use raw content for loop detection
+                # Instead, return empty content to avoid false positives
+                return "", None, {"parse_error": True}
 
         # Handle string (direct content)
         elif isinstance(chunk, str):

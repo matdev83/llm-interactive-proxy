@@ -1,0 +1,262 @@
+# Architecture
+
+This document describes the architecture of the LLM Interactive Proxy after the SOLID refactoring.
+
+## Overview
+
+The LLM Interactive Proxy is built using a clean architecture based on SOLID principles, with clear separation of concerns. The architecture is divided into the following layers:
+
+- **API Layer**: Handles HTTP requests and responses
+- **Core Services**: Implements business logic
+- **Domain Layer**: Defines domain models and interfaces
+- **Infrastructure Layer**: Provides concrete implementations of repositories and external services
+- **Dependency Injection**: Manages dependencies between components
+
+## SOLID Principles Implementation
+
+The architecture adheres to the following SOLID principles:
+
+1. **Single Responsibility Principle**: Each class has a single responsibility, making the codebase more modular and easier to maintain.
+   - Example: `SessionService` only handles session operations, `CommandService` only processes commands.
+
+2. **Open/Closed Principle**: Components are open for extension but closed for modification.
+   - Example: The middleware pipeline can be extended with new middleware without changing existing code.
+
+3. **Liskov Substitution Principle**: Subtypes are substitutable for their base types.
+   - Example: Any implementation of `ISessionRepository` can be used interchangeably.
+
+4. **Interface Segregation Principle**: Clients don't depend on interfaces they don't use.
+   - Example: `IBackendService`, `ICommandService`, and `ISessionService` are separate interfaces.
+
+5. **Dependency Inversion Principle**: High-level modules depend on abstractions, not concrete implementations.
+   - Example: Services depend on interfaces like `ISessionRepository`, not concrete classes.
+
+## Architecture Diagram
+
+```mermaid
+graph TD
+    subgraph "API Layer"
+        A[FastAPI Application] --> B[Chat Controller]
+        A --> C[Anthropic Controller]
+        A --> D[Gemini Controller]
+        A --> E[Usage Controller]
+        B --> F[RequestProcessor]
+        C --> F
+        D --> F
+    end
+    
+    subgraph "Core Services"
+        F --> G[CommandService]
+        F --> H[BackendService]
+        F --> I[SessionService]
+        F --> J[ResponseProcessor]
+        
+        J --> K[ResponseMiddleware]
+        K --> L[ContentFilterMiddleware]
+        K --> M[LoggingMiddleware]
+        K --> N[LoopDetectionMiddleware]
+        K --> O[ToolCallLoopDetectionMiddleware]
+        
+        N --> P[LoopDetector]
+        H --> Q[BackendFactory]
+        H --> R[RateLimiter]
+        H --> S[FailoverService]
+        
+        G --> T[CommandRegistry]
+        T --> U[CommandHandlers]
+    end
+    
+    subgraph "Domain Layer"
+        V[Session]
+        W[ChatRequest]
+        X[ChatResponse]
+        Y[SessionState]
+        
+        Y --> Z[BackendConfig]
+        Y --> AA[ReasoningConfig]
+        Y --> AB[LoopDetectionConfig]
+        Y --> AC[ToolCallLoopConfig]
+    end
+    
+    subgraph "Infrastructure Layer"
+        AD[SessionRepository]
+        AE[ConfigRepository]
+        AF[UsageRepository]
+        
+        I --> AD
+        G --> AE
+        E --> AF
+        
+        subgraph "Backend Connectors"
+            AG[OpenAI]
+            AH[Anthropic]
+            AI[Gemini]
+            AJ[OpenRouter]
+            AK[QwenOAuth]
+            AL[ZAI]
+            
+            Q --> AG
+            Q --> AH
+            Q --> AI
+            Q --> AJ
+            Q --> AK
+            Q --> AL
+        end
+    end
+    
+    subgraph "Dependency Injection"
+        AM[ServiceCollection]
+        AN[ServiceProvider]
+        
+        AM --> AN
+        AN --> G
+        AN --> H
+        AN --> I
+        AN --> J
+    end
+```
+
+## Key Components
+
+### API Layer
+
+- **FastAPI Application**: The main application entry point.
+- **Controllers**: Handle HTTP requests and coordinate service calls.
+  - **ChatController**: Processes chat completion requests.
+  - **AnthropicController**: Handles Anthropic-specific API requests.
+  - **GeminiController**: Handles Gemini-specific API requests.
+  - **UsageController**: Exposes usage statistics and audit logs.
+
+### Core Services
+
+- **RequestProcessor**: Orchestrates the request handling flow.
+- **CommandService**: Processes interactive commands in user messages.
+- **BackendService**: Manages LLM backend selection and API calls.
+- **SessionService**: Handles session state management.
+- **ResponseProcessor**: Processes and transforms responses with middleware.
+- **FailoverService**: Manages backend failover routing.
+- **RateLimiter**: Enforces rate limits on API calls.
+- **LoopDetector**: Detects repetitive patterns in responses.
+- **ToolCallLoopDetectionMiddleware**: Detects tool call loops in responses.
+
+### Domain Layer
+
+- **Session**: Represents a user session with state and history.
+- **SessionState**: Contains all session-specific configuration.
+- **ChatRequest/ChatResponse**: Domain models for chat interactions.
+- **BackendConfig**: Configuration for backend selection and options.
+- **ReasoningConfig**: Configuration for AI reasoning parameters.
+- **LoopDetectionConfig**: Configuration for loop detection.
+- **ToolCallLoopConfig**: Configuration for tool call loop detection.
+
+### Infrastructure Layer
+
+- **Repositories**: Store and retrieve data.
+  - **SessionRepository**: Stores session data.
+  - **ConfigRepository**: Stores configuration data.
+  - **UsageRepository**: Stores usage statistics.
+- **Backend Connectors**: Connect to various LLM providers.
+  - **OpenAI**: OpenAI API connector.
+  - **Anthropic**: Anthropic API connector.
+  - **Gemini**: Google Gemini API connector.
+  - **OpenRouter**: OpenRouter API connector.
+  - **QwenOAuth**: Qwen OAuth API connector.
+  - **ZAI**: ZAI API connector.
+
+### Dependency Injection
+
+- **ServiceCollection**: Registers services and their implementations.
+- **ServiceProvider**: Resolves services and manages their lifecycle.
+
+## Request Flow
+
+1. A request arrives at a controller endpoint.
+2. The controller uses the RequestProcessor to process the request.
+3. The RequestProcessor:
+   - Uses SessionService to get or create a session.
+   - Uses CommandService to process any commands in the messages.
+   - Uses BackendService to select a backend and make the API call.
+   - Uses ResponseProcessor to process the response through middleware.
+4. The controller returns the processed response to the client.
+
+## Middleware Pipeline
+
+The response middleware pipeline processes responses through these steps:
+
+1. **ContentFilterMiddleware**: Filters sensitive content from responses.
+2. **LoggingMiddleware**: Logs response details for auditing.
+3. **LoopDetectionMiddleware**: Detects repetitive patterns in responses.
+4. **ToolCallLoopDetectionMiddleware**: Detects tool call loops in responses.
+
+## Command Processing
+
+The command processing flow works as follows:
+
+1. CommandService receives messages from RequestProcessor.
+2. It extracts command text using regular expressions.
+3. It looks up the appropriate command handler in the CommandRegistry.
+4. The handler processes the command and returns a result.
+5. CommandService updates the messages and returns them to RequestProcessor.
+
+## Backend Selection
+
+The backend selection process works as follows:
+
+1. BackendService receives a request from RequestProcessor.
+2. It reads backend configuration from the session state.
+3. It checks for any failover routes that might apply.
+4. It selects an appropriate backend using BackendFactory.
+5. It makes the API call to the selected backend.
+6. If the call fails and failover routes exist, it tries alternative backends.
+
+## Session Management
+
+Session management works as follows:
+
+1. SessionService receives a session ID from RequestProcessor.
+2. It looks up the session in the SessionRepository.
+3. If the session doesn't exist, it creates a new one.
+4. It returns the session to RequestProcessor.
+5. After processing, any updates to the session are saved back to the repository.
+
+## Configuration System
+
+The configuration system is based on immutable value objects:
+
+1. Configuration is loaded from environment variables and files.
+2. Domain-specific configuration classes validate and normalize values.
+3. Services receive configuration through dependency injection.
+4. Configuration can be overridden at the session level.
+
+## Loop Detection
+
+Loop detection works in two ways:
+
+1. **Content Loop Detection**:
+   - LoopDetectionMiddleware analyzes response content.
+   - It detects repetitive patterns using the LoopDetector.
+   - It can interrupt responses with repetitive content.
+
+2. **Tool Call Loop Detection**:
+   - ToolCallLoopDetectionMiddleware tracks tool calls.
+   - It detects when the same tool is called with similar parameters.
+   - It can block tool calls that appear to be in a loop.
+
+## Error Handling
+
+Error handling follows these principles:
+
+1. Domain-specific exception types for different error categories.
+2. Consistent error response format across all endpoints.
+3. Detailed error messages for debugging.
+4. Appropriate HTTP status codes for different error types.
+
+## Testing Strategy
+
+The testing strategy follows these principles:
+
+1. **Unit Tests**: Test individual components in isolation.
+2. **Integration Tests**: Test interaction between components.
+3. **End-to-End Tests**: Test complete request flows.
+4. **Mocking**: Use mocks for external dependencies.
+5. **Test Coverage**: Aim for high test coverage of core functionality.

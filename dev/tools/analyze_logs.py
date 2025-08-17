@@ -7,14 +7,13 @@ It can extract metrics such as request counts, response times, error rates, etc.
 """
 
 import argparse
-import datetime
 import json
 import logging
 import re
 import sys
 from collections import Counter, defaultdict
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 
 def setup_logging() -> logging.Logger:
@@ -69,9 +68,9 @@ class LogAnalyzer:
             self._process_text_log(line)
             
         except Exception as e:
-            self.logger.debug(f"Error processing line: {str(e)}")
+            self.logger.debug(f"Error processing line: {e!s}")
     
-    def _process_json_log(self, log_entry: Dict[str, Any]) -> None:
+    def _process_json_log(self, log_entry: dict[str, Any]) -> None:
         """Process a JSON log entry.
         
         Args:
@@ -192,13 +191,13 @@ class LogAnalyzer:
         """
         self.logger.info(f"Processing log file: {file_path}")
         try:
-            with open(file_path, "r", encoding="utf-8") as f:
+            with open(file_path, encoding="utf-8") as f:
                 for line in f:
                     self.process_line(line)
         except Exception as e:
-            self.logger.error(f"Error processing file {file_path}: {str(e)}")
+            self.logger.error(f"Error processing file {file_path}: {e!s}")
     
-    def get_summary(self) -> Dict[str, Any]:
+    def get_summary(self) -> dict[str, Any]:
         """Get a summary of the analyzed logs.
         
         Returns:
@@ -308,10 +307,10 @@ class LogAnalyzer:
                 
             self.logger.info(f"Summary exported to {output_file}")
         except Exception as e:
-            self.logger.error(f"Error exporting summary: {str(e)}")
+            self.logger.error(f"Error exporting summary: {e!s}")
 
 
-def main(args: Optional[List[str]] = None) -> int:
+def main(args: list[str] | None = None) -> int:
     """Main entry point.
     
     Args:

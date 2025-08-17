@@ -6,7 +6,7 @@ from typing import TYPE_CHECKING, Any
 from .base import BaseCommand, CommandResult, command_registry, register_command
 
 if TYPE_CHECKING:
-    from src.proxy_logic import ProxyState
+    pass  # No imports needed
 
 
 @register_command
@@ -16,7 +16,7 @@ class HelpCommand(BaseCommand):
     description = "Show available commands or details for a single command"
     examples = ["!/help", "!/help(set)"]
 
-    def execute(self, args: Mapping[str, Any], state: ProxyState) -> CommandResult:
+    def execute(self, args: Mapping[str, Any], state: Any) -> CommandResult:
         if args:
             # assume first argument name is the command
             cmd_name = next(iter(args.keys())).lower()

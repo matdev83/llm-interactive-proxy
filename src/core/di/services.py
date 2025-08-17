@@ -9,7 +9,7 @@ _global_provider: IServiceProvider | None = None
 
 def get_service_collection() -> IServiceCollection:
     """Get the global service collection, creating it if it doesn't exist.
-    
+
     Returns:
         The global service collection
     """
@@ -21,7 +21,7 @@ def get_service_collection() -> IServiceCollection:
 
 def build_service_provider() -> IServiceProvider:
     """Build a service provider from the global service collection.
-    
+
     Returns:
         A new service provider
     """
@@ -30,7 +30,7 @@ def build_service_provider() -> IServiceProvider:
 
 def get_service_provider() -> IServiceProvider:
     """Get the global service provider, building it if it doesn't exist.
-    
+
     Returns:
         The global service provider
     """
@@ -42,7 +42,7 @@ def get_service_provider() -> IServiceProvider:
 
 def set_service_provider(provider: IServiceProvider) -> None:
     """Set the global service provider.
-    
+
     Args:
         provider: The service provider to use
     """

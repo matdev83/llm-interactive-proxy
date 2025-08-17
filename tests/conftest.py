@@ -14,13 +14,16 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from src.core.app.application_factory import build_app
-from src.core.config_adapter import AppConfig
+from src.core.config.app_config import AppConfig
 from src.core.di.container import ServiceCollection
-from src.core.di.services import get_service_collection, set_service_provider
 from src.core.interfaces.di import IServiceProvider
 
 # Silence logging during tests
 logging.getLogger().setLevel(logging.WARNING)
+
+# Global state for service provider isolation
+_original_global_provider: IServiceProvider | None = None
+_original_global_services: ServiceCollection | None = None
 
 
 @pytest.fixture(scope="session")
@@ -42,13 +45,11 @@ def test_config() -> AppConfig:
         proxy_timeout=10,
         command_prefix="!/",
         backends=AppConfig.BackendSettings(
-            default_backend="openai",
-            openai=AppConfig.BackendConfig(api_key="test_openai_key"),
-            openrouter=AppConfig.BackendConfig(api_key="test_openrouter_key"),
+            default_backend="openrouter",
+            openrouter=AppConfig.BackendConfig(api_key=["test_openrouter_key"]),
         ),
         auth=AppConfig.AuthConfig(
-            disable_auth=True,  # Disable auth for testing
-            api_keys=["test_api_key"],
+            disable_auth=True, api_keys=["test_api_key"], client_api_key="test_api_key"
         ),
         session=AppConfig.SessionConfig(
             cleanup_enabled=False,  # Disable cleanup for testing
@@ -78,128 +79,45 @@ async def mock_http_client() -> AsyncIterator[httpx.AsyncClient]:
 
 
 @pytest.fixture
-def test_app(test_config: AppConfig, mock_http_client: httpx.AsyncClient) -> FastAPI:
+def test_app(test_config: AppConfig, tmp_path: Path) -> FastAPI:
     """Create a FastAPI app for testing."""
-    # Disable API key middleware during app build so tests aren't gated by auth
-    from unittest.mock import patch
+    # Create a temporary config file for the test app
+    config_path = tmp_path / "test_config.yaml"
+    with open(config_path, "w") as f:
+        # Convert the config to legacy format to ensure compatibility
+        legacy_config = test_config.to_legacy_config()
 
-    with patch(
-        "src.core.app.middleware_config.configure_middleware",
-        lambda *_args, **_kwargs: None,
-    ):
-        app = build_app()
+        # Ensure test API key is present
+        if "api_keys" not in legacy_config or not legacy_config["api_keys"]:
+            legacy_config["api_keys"] = ["test-proxy-key"]
 
-    # Override app state with test config
-    app.state.config = test_config.to_legacy_config()
-    # Disable auth during tests to avoid 401s blocking mocked requests
-    app.state.disable_auth = True
+        # Write YAML config
+        import yaml
 
-    # Use the mock HTTP client
-    app.state.httpx_client = mock_http_client
-    # Signal to connectors to skip discovery in tests
-    import contextlib
+        yaml.dump(legacy_config, f)
 
-    with contextlib.suppress(Exception):
-        app.state.httpx_client.skip_backend_discovery = True
+    app = build_app(test_config)
 
-    # Provide backend configs with dummy API keys for connectors during tests
-    app.state.backend_configs = {
-        "openai": {"api_key": "test-openai-key"},
-        "openrouter": {"api_key": "test-openrouter-key"},
-        "anthropic": {"api_key": "test-anthropic-key"},
-        "gemini": {"api_key": "test-gemini-key"},
-    }
-
-    # Manually set up service provider for testing since TestClient doesn't trigger lifespan
-    from src.core.app.application_factory import register_services
-
-    services = get_service_collection()
-    register_services(services, app)
-
-    # Provide a minimal IConfig implementation backed by app.state.config for DI
-    from src.core.interfaces.configuration import IConfig as _IConfig
-
-    class _TestConfig(_IConfig):
-        def get(self, key: str, default=None):
-            return app.state.config.get(key, default)
-
-        def set(self, key: str, value):
-            app.state.config[key] = value
-
-        def has(self, key: str) -> bool:
-            return key in app.state.config
-
-        def keys(self) -> list[str]:
-            return list(app.state.config.keys())
-
-        def to_dict(self) -> dict[str, object]:
-            return dict(app.state.config)
-
-        def update(self, config: dict) -> None:
-            app.state.config.update(config)
-
-    from typing import Any, cast
-
-    services.add_instance(_IConfig, cast(Any, _TestConfig()))  # type: ignore[type-abstract]
-
-    provider = services.build_service_provider()
-    set_service_provider(provider)
-    app.state.service_provider = provider
-
-    # Prevent connector initialization from performing live HTTP calls during tests
-    try:
-        from unittest.mock import AsyncMock
-
-        from src.core.services.backend_factory import BackendFactory
-
-        factory = provider.get_service(BackendFactory)
-        if factory is not None:
-            from typing import Any, cast
-
-            cast(Any, factory).initialize_backend = AsyncMock(return_value=None)  # type: ignore[attr-defined]
-    except Exception:
-        pass
-
-    # Initialize integration bridge for legacy compatibility
-    import asyncio
-
-    from src.core.integration import get_integration_bridge
-
-    async def setup_bridge():
-        bridge = get_integration_bridge(app)
-        await bridge.initialize_legacy_architecture()
-        await bridge.initialize_new_architecture()
-
-    # Run the async setup
-    asyncio.run(setup_bridge())
+    # Ensure httpx_client is available for tests that might need it directly
+    # Note: build_app already creates httpx_client and registers all services
+    # including CommandRegistry, so we don't need to override the service provider
 
     return app
 
 
+# Legacy client fixture removed as part of migration to new architecture
+
+
 @pytest.fixture
 def test_client(test_app: FastAPI) -> TestClient:
-    """Create a FastAPI test client with default Authorization header."""
-    return TestClient(test_app, headers={"Authorization": "Bearer test_api_key"})
+    """Create a TestClient for the test app."""
+    with TestClient(
+        test_app, headers={"Authorization": "Bearer test-proxy-key"}
+    ) as client:
+        yield client
 
 
-@pytest.fixture
-def test_service_provider(
-    test_services: ServiceCollection,
-) -> Generator[IServiceProvider, None, None]:
-    """Create a service provider for testing."""
-    # Register the previous service provider to restore later
-    previous_provider = get_service_collection()
-
-    # Set our test service collection
-    test_provider = test_services.build_service_provider()
-    set_service_provider(test_provider)
-
-    # Return the provider
-    yield test_provider
-
-    # Restore the previous provider
-    if previous_provider:
-        set_service_provider(previous_provider.build_service_provider())
+# Legacy client fixture has been removed as part of the SOLID migration
 
 
 @pytest.fixture
@@ -222,6 +140,34 @@ def temp_config_path(tmp_path: Path) -> Path:
     config_path.write_text(config_content)
 
     return config_path
+
+
+# @pytest.fixture(autouse=True)
+# def isolate_global_state() -> Generator[None, None, None]:
+#     """Automatically isolate global state between tests.
+
+#     This fixture runs for every test and ensures that global service provider
+#     and integration bridge state doesn't contaminate other tests.
+#     """
+#     # Save the current global service provider state
+#     import src.core.di.services as services_module
+
+#     original_provider = services_module._global_provider
+#     original_services = services_module._global_services
+
+#     # Save the current global integration bridge state
+#     import src.core.integration.bridge as bridge_module
+
+#     original_bridge = bridge_module._integration_bridge
+
+#     try:
+#         # Run the test
+#         yield
+#     finally:
+#         # Restore the original global state
+#         services_module._global_provider = original_provider
+#         services_module._global_services = original_services
+#         bridge_module._integration_bridge = original_bridge
 
 
 @pytest.fixture

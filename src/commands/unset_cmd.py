@@ -6,10 +6,11 @@ from typing import TYPE_CHECKING, Any
 from fastapi import FastAPI
 
 from ..constants import DEFAULT_COMMAND_PREFIX
+from ..core.domain.session import SessionStateAdapter
 from .base import BaseCommand, CommandResult, register_command
 
 if TYPE_CHECKING:
-    from src.proxy_logic import ProxyState
+    pass  # No imports needed
 
 
 @register_command
@@ -29,7 +30,7 @@ class UnsetCommand(BaseCommand):
     ) -> None:
         super().__init__(app, functional_backends)
 
-    def _unset_default_backend(self, state: ProxyState) -> str:
+    def _unset_default_backend(self, state: Any) -> str:
         if not self.app:
             return ""
         initial_type = getattr(self.app.state, "initial_backend_type", "openrouter")
@@ -40,13 +41,13 @@ class UnsetCommand(BaseCommand):
             self.app.state.backend = self.app.state.openrouter_backend
         return "default-backend unset"
 
-    def _unset_command_prefix(self, state: ProxyState) -> str:
+    def _unset_command_prefix(self, state: Any) -> str:
         if not self.app:
             return ""
         self.app.state.command_prefix = DEFAULT_COMMAND_PREFIX
         return "command prefix unset"
 
-    def _unset_redact_api_keys(self, state: ProxyState) -> str:
+    def _unset_redact_api_keys(self, state: Any) -> str:
         if not self.app:
             return ""
         self.app.state.api_key_redaction_enabled = (
@@ -56,16 +57,16 @@ class UnsetCommand(BaseCommand):
 
     def _create_unset_action(
         self, method_name: str, message: str
-    ) -> Callable[[ProxyState], str]:
+    ) -> Callable[[SessionStateAdapter], str]:
         """Create an unset action that calls a method on ProxyState and returns a message."""
 
-        def action(state: ProxyState) -> str:
+        def action(state: Any) -> str:
             getattr(state, method_name)()
             return message
 
         return action
 
-    def execute(self, args: Mapping[str, Any], state: ProxyState) -> CommandResult:
+    def execute(self, args: Mapping[str, Any], state: Any) -> CommandResult:
         keys_to_unset = [k for k, v in args.items() if v is True]
         actions = self._build_unset_actions()
         messages, persistent_change = self._apply_unset_actions(
@@ -78,7 +79,7 @@ class UnsetCommand(BaseCommand):
 
     def _build_unset_actions(
         self,
-    ) -> dict[str, tuple[Callable[[ProxyState], str], bool]]:
+    ) -> dict[str, tuple[Callable[[SessionStateAdapter], str], bool]]:
         # type: ignore[func-returns-value]
         return {
             "model": (
@@ -224,8 +225,8 @@ class UnsetCommand(BaseCommand):
     def _apply_unset_actions(
         self,
         keys_to_unset: list[str],
-        state: ProxyState,
-        actions: dict[str, tuple[Callable[[ProxyState], str], bool]],
+        state: Any,
+        actions: dict[str, tuple[Callable[[Any], str], bool]],
     ) -> tuple[list[str], bool]:
         messages: list[str] = []
         persistent_change = False

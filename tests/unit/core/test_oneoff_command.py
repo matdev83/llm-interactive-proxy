@@ -19,8 +19,7 @@ def session_state():
     """Create a session state for testing."""
     return SessionState(
         backend_config=BackendConfiguration(
-            backend_type="openai",
-            model="gpt-3.5-turbo"
+            backend_type="openai", model="gpt-3.5-turbo"
         )
     )
 

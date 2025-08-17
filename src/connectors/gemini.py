@@ -36,10 +36,12 @@ class GeminiBackend(LLMBackend):
         gemini_api_base_url = kwargs.get("gemini_api_base_url")
         key_name = kwargs.get("key_name")
         api_key = kwargs.get("api_key")
-        
+
         if not gemini_api_base_url or not key_name or not api_key:
-            raise ValueError("gemini_api_base_url, key_name, and api_key are required for GeminiBackend")
-        
+            raise ValueError(
+                "gemini_api_base_url, key_name, and api_key are required for GeminiBackend"
+            )
+
         data = await self.list_models(
             gemini_api_base_url=gemini_api_base_url,
             key_name=key_name,

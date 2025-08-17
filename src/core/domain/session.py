@@ -42,9 +42,11 @@ class SessionState(ValueObject):
         frozen=True,
     )
 
-    backend_config: IBackendConfig = Field(default_factory=BackendConfiguration)
-    reasoning_config: IReasoningConfig = Field(default_factory=ReasoningConfiguration)
-    loop_config: ILoopDetectionConfig = Field(
+    backend_config: BackendConfiguration = Field(default_factory=BackendConfiguration)
+    reasoning_config: ReasoningConfiguration = Field(
+        default_factory=ReasoningConfiguration
+    )
+    loop_config: LoopDetectionConfiguration = Field(
         default_factory=LoopDetectionConfiguration
     )
     project: str | None = None
@@ -53,15 +55,17 @@ class SessionState(ValueObject):
     hello_requested: bool = False
     is_cline_agent: bool = False
 
-    def with_backend_config(self, backend_config: IBackendConfig) -> SessionState:
+    def with_backend_config(self, backend_config: BackendConfiguration) -> SessionState:
         """Create a new session state with updated backend config."""
         return self.model_copy(update={"backend_config": backend_config})
 
-    def with_reasoning_config(self, reasoning_config: IReasoningConfig) -> SessionState:
+    def with_reasoning_config(
+        self, reasoning_config: ReasoningConfiguration
+    ) -> SessionState:
         """Create a new session state with updated reasoning config."""
         return self.model_copy(update={"reasoning_config": reasoning_config})
 
-    def with_loop_config(self, loop_config: ILoopDetectionConfig) -> SessionState:
+    def with_loop_config(self, loop_config: LoopDetectionConfiguration) -> SessionState:
         """Create a new session state with updated loop config."""
         return self.model_copy(update={"loop_config": loop_config})
 
@@ -72,6 +76,10 @@ class SessionState(ValueObject):
     def with_project_dir(self, project_dir: str | None) -> SessionState:
         """Create a new session state with updated project directory."""
         return self.model_copy(update={"project_dir": project_dir})
+
+    def with_hello_requested(self, hello_requested: bool) -> SessionState:
+        """Create a new session state with updated hello_requested flag."""
+        return self.model_copy(update={"hello_requested": hello_requested})
 
 
 class SessionStateAdapter(ISessionState):
@@ -133,6 +141,143 @@ class SessionStateAdapter(ISessionState):
         """Create a value object from a dictionary."""
         state = SessionState.from_dict(data)
         return cls(state)  # type: ignore
+
+    # Methods that were missing but needed by commands
+    def with_backend_config(
+        self, backend_config: BackendConfiguration
+    ) -> SessionStateAdapter:
+        """Create a new session state with updated backend config."""
+        new_state = self._state.with_backend_config(backend_config)
+        return SessionStateAdapter(new_state)
+
+    def with_reasoning_config(
+        self, reasoning_config: ReasoningConfiguration
+    ) -> SessionStateAdapter:
+        """Create a new session state with updated reasoning config."""
+        new_state = self._state.with_reasoning_config(reasoning_config)
+        return SessionStateAdapter(new_state)
+
+    def with_project(self, project: str | None) -> SessionStateAdapter:
+        """Create a new session state with updated project."""
+        new_state = self._state.with_project(project)
+        return SessionStateAdapter(new_state)
+
+    def with_project_dir(self, project_dir: str | None) -> SessionStateAdapter:
+        """Create a new session state with updated project directory."""
+        new_state = self._state.with_project_dir(project_dir)
+        return SessionStateAdapter(new_state)
+
+    def with_interactive_just_enabled(self, enabled: bool) -> SessionStateAdapter:
+        """Create a new session state with updated interactive_just_enabled flag."""
+        # Create a new SessionState with the updated value
+        new_state = SessionState(
+            backend_config=self._state.backend_config,
+            reasoning_config=self._state.reasoning_config,
+            loop_config=self._state.loop_config,
+            project=self._state.project,
+            project_dir=self._state.project_dir,
+            interactive_just_enabled=enabled,
+            hello_requested=self._state.hello_requested,
+            is_cline_agent=self._state.is_cline_agent,
+        )
+        return SessionStateAdapter(new_state)
+
+    # Properties that need setters for backward compatibility
+    @hello_requested.setter
+    def hello_requested(self, value: bool) -> None:
+        """Set the hello requested flag."""
+        # Create a new SessionState with the updated value
+        new_state = SessionState(
+            backend_config=self._state.backend_config,
+            reasoning_config=self._state.reasoning_config,
+            loop_config=self._state.loop_config,
+            project=self._state.project,
+            project_dir=self._state.project_dir,
+            interactive_just_enabled=self._state.interactive_just_enabled,
+            hello_requested=value,
+            is_cline_agent=self._state.is_cline_agent,
+        )
+        self._state = new_state
+
+    # Methods that commands expect but aren't in the interface
+    @property
+    def interactive_mode(self) -> bool:
+        """Get the interactive mode."""
+        return self._state.backend_config.interactive_mode
+
+    def set_override_backend(self, backend: str) -> None:
+        """Set the backend override."""
+        new_backend_config = self._state.backend_config.with_backend(backend)
+        new_state = SessionState(
+            backend_config=new_backend_config,
+            reasoning_config=self._state.reasoning_config,
+            loop_config=self._state.loop_config,
+            project=self._state.project,
+            project_dir=self._state.project_dir,
+            interactive_just_enabled=self._state.interactive_just_enabled,
+            hello_requested=self._state.hello_requested,
+            is_cline_agent=self._state.is_cline_agent,
+        )
+        self._state = new_state
+
+    def unset_override_backend(self) -> None:
+        """Unset the backend override."""
+        new_backend_config = self._state.backend_config.without_override()
+        new_state = SessionState(
+            backend_config=new_backend_config,
+            reasoning_config=self._state.reasoning_config,
+            loop_config=self._state.loop_config,
+            project=self._state.project,
+            project_dir=self._state.project_dir,
+            interactive_just_enabled=self._state.interactive_just_enabled,
+            hello_requested=self._state.hello_requested,
+            is_cline_agent=self._state.is_cline_agent,
+        )
+        self._state = new_state
+
+    def set_override_model(
+        self, backend: str, model: str, invalid: bool = False
+    ) -> None:
+        """Set the model override."""
+        new_backend_config = self._state.backend_config.with_backend_and_model(
+            backend, model, invalid
+        )
+        new_state = SessionState(
+            backend_config=new_backend_config,
+            reasoning_config=self._state.reasoning_config,
+            loop_config=self._state.loop_config,
+            project=self._state.project,
+            project_dir=self._state.project_dir,
+            interactive_just_enabled=self._state.interactive_just_enabled,
+            hello_requested=self._state.hello_requested,
+            is_cline_agent=self._state.is_cline_agent,
+        )
+        self._state = new_state
+
+    def set_project(self, project: str) -> None:
+        """Set the project."""
+        new_state = self._state.with_project(project)
+        self._state = new_state
+
+    def set_project_dir(self, project_dir: str) -> None:
+        """Set the project directory."""
+        new_state = self._state.with_project_dir(project_dir)
+        self._state = new_state
+
+    def set_interactive_mode(self, enabled: bool) -> None:
+        """Set the interactive mode."""
+        new_backend_config = self._state.backend_config.with_interactive_mode(enabled)
+        new_state = SessionState(
+            backend_config=new_backend_config,
+            reasoning_config=self._state.reasoning_config,
+            loop_config=self._state.loop_config,
+            project=self._state.project,
+            project_dir=self._state.project_dir,
+            interactive_just_enabled=self._state.interactive_just_enabled,
+            hello_requested=self._state.hello_requested,
+            is_cline_agent=self._state.is_cline_agent,
+        )
+        self._state = new_state
 
 
 class Session(ISession):

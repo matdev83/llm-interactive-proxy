@@ -7,10 +7,10 @@ sensitive information from being sent to LLM backends.
 
 from __future__ import annotations
 
-import json
 import logging
 import re
-from typing import Any, Dict, Iterable, List, Optional
+from collections.abc import Iterable
+from typing import Any
 
 from src.core.domain.chat import ChatRequest
 from src.core.interfaces.request_processor import IRequestMiddleware
@@ -23,7 +23,7 @@ class APIKeyRedactor:
 
     def __init__(self, api_keys: Iterable[str] | None = None) -> None:
         """Initialize the API key redactor.
-        
+
         Args:
             api_keys: Iterable of API keys to redact
         """
@@ -50,10 +50,10 @@ class APIKeyRedactor:
 
     def redact(self, text: str) -> str:
         """Replace any occurrences of known API keys in *text*.
-        
+
         Args:
             text: The text to redact
-            
+
         Returns:
             The redacted text
         """
@@ -91,7 +91,7 @@ class ProxyCommandFilter:
 
     def __init__(self, command_prefix: str = "!/") -> None:
         """Initialize the proxy command filter.
-        
+
         Args:
             command_prefix: The prefix used for proxy commands
         """
@@ -109,7 +109,7 @@ class ProxyCommandFilter:
 
     def set_command_prefix(self, new_prefix: str) -> None:
         """Update the command prefix and regenerate the pattern.
-        
+
         Args:
             new_prefix: The new command prefix
         """
@@ -118,12 +118,12 @@ class ProxyCommandFilter:
 
     def filter_commands(self, text: str) -> str:
         """Remove any proxy commands from text and issue warnings.
-        
+
         This is an emergency filter to prevent command leaks to remote LLMs.
-        
+
         Args:
             text: The text to filter
-            
+
         Returns:
             The filtered text
         """
@@ -154,42 +154,42 @@ class ProxyCommandFilter:
 
 class RedactionMiddleware(IRequestMiddleware):
     """Middleware for redacting sensitive information from requests.
-    
+
     This middleware handles API key redaction and command filtering to prevent
     sensitive information from being sent to LLM backends.
     """
-    
-    def __init__(self, api_keys: Iterable[str] | None = None, command_prefix: str = "!/"):
+
+    def __init__(
+        self, api_keys: Iterable[str] | None = None, command_prefix: str = "!/"
+    ):
         """Initialize the redaction middleware.
-        
+
         Args:
             api_keys: API keys to redact
             command_prefix: Prefix for proxy commands
         """
         self._api_key_redactor = APIKeyRedactor(api_keys)
         self._command_filter = ProxyCommandFilter(command_prefix)
-        
+
     async def process(
-        self, 
-        request: ChatRequest, 
-        context: Dict[str, Any] | None = None
+        self, request: ChatRequest, context: dict[str, Any] | None = None
     ) -> ChatRequest:
         """Process a request to redact sensitive information.
-        
+
         Args:
             request: The chat request to process
             context: Additional context
-            
+
         Returns:
             The processed request with sensitive information redacted
         """
         # Skip if no messages
         if not request.messages:
             return request
-            
+
         # Create a copy of the request to modify
         processed_request = request.model_copy(deep=True)
-        
+
         # Process each message
         for message in processed_request.messages:
             if message.content:
@@ -198,7 +198,9 @@ class RedactionMiddleware(IRequestMiddleware):
                     # Apply API key redaction
                     message.content = self._api_key_redactor.redact(message.content)
                     # Apply command filtering
-                    message.content = self._command_filter.filter_commands(message.content)
+                    message.content = self._command_filter.filter_commands(
+                        message.content
+                    )
                 # Handle list of content parts
                 elif isinstance(message.content, list):
                     for part in message.content:
@@ -207,20 +209,20 @@ class RedactionMiddleware(IRequestMiddleware):
                             part.text = self._api_key_redactor.redact(part.text)
                             # Apply command filtering
                             part.text = self._command_filter.filter_commands(part.text)
-        
+
         return processed_request
-        
+
     def update_api_keys(self, api_keys: Iterable[str]) -> None:
         """Update the API keys to redact.
-        
+
         Args:
             api_keys: New API keys to redact
         """
         self._api_key_redactor = APIKeyRedactor(api_keys)
-        
+
     def update_command_prefix(self, command_prefix: str) -> None:
         """Update the command prefix.
-        
+
         Args:
             command_prefix: New command prefix
         """

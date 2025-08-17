@@ -16,7 +16,7 @@ def client(test_client: TestClient) -> TestClient:
 
 @pytest.fixture
 def app(test_app):
-    """Alias for test_app fixture to match test expectations."""
+    """Return the FastAPI app for tests that need direct app access."""
     return test_app
 
 
@@ -36,10 +36,16 @@ def commands_disabled_client(test_client: TestClient) -> TestClient:
 @pytest.fixture
 def mock_gemini_backend(interactive_client: TestClient) -> None:
     """Attach a minimal mock Gemini backend to the app state for tests expecting it."""
+
     class _MockGemini:
         api_keys: list[str] = ["k"]
+
         def get_available_models(self):
             return ["gemini:gemini-2.0-flash-001", "gemini:gemini-pro"]
-    if not hasattr(interactive_client.app.state, "gemini_backend") or getattr(interactive_client.app.state, "gemini_backend", None) is None:
+
+    if (
+        not hasattr(interactive_client.app.state, "gemini_backend")
+        or getattr(interactive_client.app.state, "gemini_backend", None) is None
+    ):
         interactive_client.app.state.gemini_backend = _MockGemini()
     return None

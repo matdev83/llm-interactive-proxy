@@ -74,8 +74,9 @@ class CommandHandlerFactory:
 
         # Register unified set and unset command handlers
         set_handler = SetCommandHandler()
+        unset_handler = UnsetCommandHandler()
         self.register_handler_class(lambda: set_handler)
-        self.register_handler_class(UnsetCommandHandler)
+        self.register_handler_class(lambda: unset_handler)
 
         # Register reasoning handlers
         reasoning_effort_handler = ReasoningEffortHandler()
@@ -85,10 +86,13 @@ class CommandHandlerFactory:
         self.register_handler_class(lambda: thinking_budget_handler)
         self.register_handler_class(lambda: gemini_config_handler)
 
-        # Register specialized handlers with the set command handler
+        # Register specialized handlers with the set and unset command handlers
         set_handler.register_handler(reasoning_effort_handler)
         set_handler.register_handler(thinking_budget_handler)
         set_handler.register_handler(gemini_config_handler)
+        unset_handler.register_handler(reasoning_effort_handler)
+        unset_handler.register_handler(thinking_budget_handler)
+        unset_handler.register_handler(gemini_config_handler)
 
         # Register loop detection handlers
         loop_detection_handler = LoopDetectionHandler()
@@ -102,12 +106,17 @@ class CommandHandlerFactory:
         self.register_handler_class(lambda: tool_loop_ttl_handler)
         self.register_handler_class(lambda: tool_loop_mode_handler)
 
-        # Register specialized handlers with the set command handler
+        # Register specialized handlers with the set and unset command handlers
         set_handler.register_handler(loop_detection_handler)
         set_handler.register_handler(tool_loop_detection_handler)
         set_handler.register_handler(tool_loop_max_repeats_handler)
         set_handler.register_handler(tool_loop_ttl_handler)
         set_handler.register_handler(tool_loop_mode_handler)
+        unset_handler.register_handler(loop_detection_handler)
+        unset_handler.register_handler(tool_loop_detection_handler)
+        unset_handler.register_handler(tool_loop_max_repeats_handler)
+        unset_handler.register_handler(tool_loop_ttl_handler)
+        unset_handler.register_handler(tool_loop_mode_handler)
 
         # Register failover route command handlers
         self.register_handler_class(CreateFailoverRouteHandler)
@@ -173,12 +182,21 @@ class CommandHandlerFactory:
                     result = self._inner.handle(param_value, current_state, None)
                     success = getattr(result, "success", False)
                     message = getattr(result, "message", "")
+
+                    # Apply new state to the session if provided
+                    new_state = getattr(result, "new_state", None)
+                    if success and new_state:
+                        session.state = new_state
+                        logger.debug(
+                            f"Applied new state from {self.name} command to session"
+                        )
+
                     return NewResult(
-                        success=success, message=message, data={"name": self.name}
+                        name=self.name, success=success, message=message, data={}
                     )
                 except Exception as e:
                     return NewResult(
-                        success=False, message=str(e), data={"name": self.name}
+                        name=self.name, success=False, message=str(e), data={}
                     )
 
         # Special case for help command - needs the registry

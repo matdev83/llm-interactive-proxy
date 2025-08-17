@@ -3,7 +3,15 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 from fastapi.testclient import TestClient
-from src.main import build_app
+from src.core.app.application_factory import build_app
+from src.core.config.app_config import (
+    AppConfig,
+    AuthConfig,
+    BackendConfig,
+    BackendSettings,
+    LoggingConfig,
+    SessionConfig,
+)
 from src.models import (
     ChatCompletionChoice,
     ChatCompletionChoiceMessage,
@@ -13,47 +21,45 @@ from src.models import (
 
 
 @pytest.fixture()
-def test_app():
-    """Create FastAPI test app with config patched for Anthropic."""
+def anthropic_client():
+    """Create TestClient with config patched for Anthropic."""
     with (
-        patch("src.main._load_config") as mock_cfg,
+        patch("src.core.config.app_config.load_config") as mock_cfg,
         patch(
             "src.connectors.anthropic.AnthropicBackend.get_available_models",
             return_value=["claude-3-haiku-20240229"],
         ),
     ):
-        mock_cfg.return_value = {
-            "disable_auth": False,
-            "disable_accounting": True,
-            "proxy_timeout": 10,
-            "interactive_mode": False,
-            "command_prefix": "!/",
-            "anthropic_api_keys": {"ANTHROPIC_API_KEY_1": "ant-key"},
-            "anthropic_api_base_url": "https://api.anthropic.com/v1",
-            # Keep other back-ends minimal but valid
-            "openrouter_api_keys": {},
-            "gemini_api_keys": {},
-        }
+        # Create a proper AppConfig object
+        config = AppConfig()
+        config.auth = AuthConfig(disable_auth=False, api_keys=["test-proxy-key"])
+        config.proxy_timeout = 10
+        config.session = SessionConfig(default_interactive_mode=False)
+        config.command_prefix = "!/"
+        config.backends = BackendSettings()
+        config.backends.anthropic = BackendConfig(
+            api_key=["ant-key"], api_url="https://api.anthropic.com/v1"
+        )
+        config.backends.default_backend = "anthropic"
+        config.logging = LoggingConfig()
+
+        mock_cfg.return_value = config
         app = build_app()
-        app.state.client_api_key = "client-key"
         with TestClient(app) as client:
             yield client
 
 
-def _dummy_openai_response(text: str = "Test reply") -> ChatCompletionResponse:
-    return ChatCompletionResponse(
-        id="chatcmpl-001",
-        created=1234567890,
-        model="anthropic/claude-3-haiku-20240229",
-        choices=[
-            ChatCompletionChoice(
-                index=0,
-                message=ChatCompletionChoiceMessage(role="assistant", content=text),
-                finish_reason="stop",
-            )
-        ],
-        usage=CompletionUsage(prompt_tokens=5, completion_tokens=7, total_tokens=12),
-    )
+def _dummy_anthropic_response(text: str = "Test reply") -> dict:
+    return {
+        "id": "msg_01",
+        "type": "message",
+        "role": "assistant",
+        "content": [{"type": "text", "text": text}],
+        "model": "claude-3-haiku-20240229",
+        "stop_reason": "end_turn",
+        "stop_sequence": None,
+        "usage": {"input_tokens": 5, "output_tokens": 7},
+    }
 
 
 # ------------------------------------------------------------
@@ -61,19 +67,16 @@ def _dummy_openai_response(text: str = "Test reply") -> ChatCompletionResponse:
 # ------------------------------------------------------------
 
 
-def test_anthropic_messages_non_streaming_frontend(test_app):
+def test_anthropic_messages_non_streaming_frontend(anthropic_client):
     with patch(
         "src.connectors.anthropic.AnthropicBackend.chat_completions",
         new_callable=AsyncMock,
     ) as mock_chat:
-        mock_chat.return_value = (
-            _dummy_openai_response().model_dump(exclude_none=True),
-            {},
-        )
+        mock_chat.return_value = (_dummy_anthropic_response(), {})
 
-        res = test_app.post(
+        res = anthropic_client.post(
             "/v1/messages",
-            headers={"x-api-key": "client-key"},
+            headers={"Authorization": "Bearer test-proxy-key"},
             json={
                 "model": "anthropic:claude-3-haiku-20240229",
                 "max_tokens": 128,
@@ -101,7 +104,7 @@ def _build_streaming_response() -> AsyncGenerator[bytes, None]:
     return generator()
 
 
-def test_anthropic_messages_streaming_frontend(test_app):
+def test_anthropic_messages_streaming_frontend(anthropic_client):
     from starlette.responses import StreamingResponse
 
     async_gen = _build_streaming_response()
@@ -113,16 +116,15 @@ def test_anthropic_messages_streaming_frontend(test_app):
     ) as mock_chat:
         mock_chat.return_value = stream_response
 
-        res = test_app.post(
+        res = anthropic_client.post(
             "/v1/messages",
-            headers={"x-api-key": "client-key"},
+            headers={"Authorization": "Bearer test-proxy-key"},
             json={
                 "model": "anthropic:claude-3-haiku-20240229",
                 "stream": True,
                 "max_tokens": 128,
                 "messages": [{"role": "user", "content": "Hi"}],
             },
-            stream=True,
         )
         collected = b"".join(list(res.iter_bytes()))
         text = collected.decode()
@@ -136,8 +138,8 @@ def test_anthropic_messages_streaming_frontend(test_app):
 # ------------------------------------------------------------
 
 
-def test_anthropic_messages_auth_failure(test_app):
-    res = test_app.post(
+def test_anthropic_messages_auth_failure(anthropic_client):
+    res = anthropic_client.post(
         "/v1/messages",
         json={
             "model": "anthropic:claude-3-haiku-20240229",
@@ -153,10 +155,9 @@ def test_anthropic_messages_auth_failure(test_app):
 # ------------------------------------------------------------
 
 
-def test_models_endpoint_includes_anthropic(test_app):
-    res = test_app.get(
-        "/models",
-        headers={"Authorization": "Bearer client-key"},
+def test_models_endpoint_includes_anthropic(anthropic_client):
+    res = anthropic_client.get(
+        "/models", headers={"Authorization": "Bearer test-proxy-key"}
     )
     assert res.status_code == 200
     models = {m["id"] for m in res.json()["data"]}

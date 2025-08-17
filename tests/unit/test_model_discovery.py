@@ -12,7 +12,7 @@ def test_openrouter_models_cached(monkeypatch):
         monkeypatch.delenv(f"GEMINI_API_KEY_{i}", raising=False)
     for i in range(1, 21):
         monkeypatch.delenv(f"OPENROUTER_API_KEY_{i}", raising=False)
-    monkeypatch.setenv("LLM_BACKEND", "openrouter")  # Add this line
+    monkeypatch.setenv("LLM_BACKEND", "openrouter")
     response = {"data": [{"id": "m1"}, {"id": "m2"}]}
     with patch.object(
         OpenRouterBackend, "list_models", new=AsyncMock(return_value=response)

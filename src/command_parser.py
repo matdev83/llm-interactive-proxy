@@ -14,9 +14,14 @@ from src.command_utils import (
     is_original_purely_command,
     is_tool_call_result,
 )
-from src.commands.base import BaseCommand, CommandResult, create_command_instances
+from src.commands.base import BaseCommand, create_command_instances
 from src.constants import DEFAULT_COMMAND_PREFIX
-from src.proxy_logic import ProxyState
+from src.core.domain.command_results import CommandResult
+from src.core.domain.session import SessionStateAdapter
+
+# Removed legacy import
+
+# Removed legacy import
 
 logger = logging.getLogger(__name__)
 
@@ -230,7 +235,7 @@ class CommandParser:
 
 def _process_text_for_commands(
     text_content: str,
-    current_proxy_state: ProxyState,
+    current_proxy_state: SessionStateAdapter,
     command_pattern: re.Pattern,
     app: FastAPI,
     functional_backends: set[str] | None = None,
@@ -264,7 +269,7 @@ def _process_text_for_commands(
 
 def process_commands_in_messages(
     messages: list[models.ChatMessage],
-    current_proxy_state: ProxyState,
+    current_proxy_state: SessionStateAdapter,
     app: FastAPI | None = None,
     command_prefix: str = DEFAULT_COMMAND_PREFIX,
 ) -> tuple[list[models.ChatMessage], bool]:

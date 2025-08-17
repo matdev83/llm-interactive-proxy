@@ -9,8 +9,8 @@ from src.command_parser import CommandParser, get_command_pattern
 from src.command_processor import parse_arguments
 from src.commands import BaseCommand, CommandResult
 from src.constants import DEFAULT_COMMAND_PREFIX
+from src.core.domain.session import SessionStateAdapter
 from src.models import ChatMessage, MessageContentPartText
-from src.proxy_logic import ProxyState
 
 
 class MockSuccessCommand(BaseCommand):
@@ -32,7 +32,9 @@ class MockSuccessCommand(BaseCommand):
         self._called = False
         self._called_with_args = None
 
-    def execute(self, args: Mapping[str, Any], state: ProxyState) -> CommandResult:
+    def execute(
+        self, args: Mapping[str, Any], state: SessionStateAdapter
+    ) -> CommandResult:
         self._called = True
         self._called_with_args = dict(args)  # Convert Mapping to Dict for storage
         return CommandResult(self.name, True, f"{self.name} executed successfully")
@@ -51,15 +53,18 @@ def mock_app() -> FastAPI:
 
 
 @pytest.fixture
-def proxy_state() -> ProxyState:
-    return ProxyState()
+def proxy_state() -> SessionStateAdapter:
+    from src.core.domain.session import SessionState
+
+    session_state = SessionState()
+    return SessionStateAdapter(session_state)
 
 
 @pytest.fixture(
     params=[True, False], ids=["preserve_unknown_True", "preserve_unknown_False"]
 )
 async def command_parser(
-    request, mock_app: FastAPI, proxy_state: ProxyState
+    request, mock_app: FastAPI, proxy_state: SessionStateAdapter
 ) -> AsyncGenerator[CommandParser, None]:
     preserve_unknown_val = request.param
     parser_config = CommandParserConfig(
@@ -78,9 +83,6 @@ async def command_parser(
     parser.register_command(hello_cmd)
     parser.register_command(another_cmd)
     yield parser
-
-
-# --- Tests for parse_arguments ---
 
 
 def test_parse_arguments_empty():
@@ -148,7 +150,6 @@ def test_get_command_pattern_custom_prefix():
 # --- Tests for CommandParser.process_text ---
 
 
-# Removed @pytest.mark.parametrize for preserve_unknown, fixture handles it.
 @pytest.mark.asyncio
 async def test_process_text_single_command(command_parser: CommandParser):
     text_content = "!/hello"
@@ -165,7 +166,6 @@ async def test_process_text_single_command(command_parser: CommandParser):
     assert hello_handler.called is True
 
 
-# Removed @pytest.mark.parametrize for preserve_unknown
 @pytest.mark.asyncio
 async def test_process_text_command_with_prefix_text(command_parser: CommandParser):
     text_content = "Some text !/hello"
@@ -203,7 +203,6 @@ async def test_process_text_command_with_suffix_text(command_parser: CommandPars
     assert hello_handler.called is True
 
 
-# Removed @pytest.mark.parametrize for preserve_unknown
 @pytest.mark.asyncio
 async def test_process_text_command_with_prefix_and_suffix_text(
     command_parser: CommandParser,
@@ -223,8 +222,6 @@ async def test_process_text_command_with_prefix_and_suffix_text(
     assert hello_handler.called is True
 
 
-# Removed @pytest.mark.parametrize for preserve_unknown
-@pytest.mark.asyncio
 async def test_process_text_multiple_commands_only_first_processed(
     command_parser: CommandParser,
 ):
@@ -255,7 +252,6 @@ async def test_process_text_multiple_commands_only_first_processed(
     assert another_cmd_handler.called is False  # Crucial check
 
 
-# Removed @pytest.mark.parametrize for preserve_unknown
 @pytest.mark.asyncio
 async def test_process_text_no_command(command_parser: CommandParser):
     text_content = "Just some text"
@@ -299,7 +295,6 @@ async def test_process_text_unknown_command(command_parser: CommandParser):
 # --- Tests for CommandParser.process_messages ---
 
 
-# Removed @pytest.mark.parametrize for preserve_unknown
 @pytest.mark.asyncio
 async def test_process_messages_single_message_with_command(
     command_parser: CommandParser,
@@ -322,7 +317,6 @@ async def test_process_messages_single_message_with_command(
     assert hello_handler.called is True
 
 
-# Removed @pytest.mark.parametrize for preserve_unknown
 @pytest.mark.asyncio
 async def test_process_messages_stops_after_first_command_in_message_content_list(
     command_parser: CommandParser,

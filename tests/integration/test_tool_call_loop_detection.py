@@ -4,25 +4,32 @@ from unittest.mock import patch
 
 import pytest
 from fastapi.testclient import TestClient
-from src.main import build_app
+from src.core.app.application_factory import build_app
 from src.tool_call_loop.config import ToolCallLoopConfig, ToolLoopMode
 
 
 @pytest.fixture
 def test_client():
     """Create a test client with tool call loop detection enabled."""
-    test_config = {
+    import os
+
+    # Set environment variables for tool call loop detection
+    os.environ["TOOL_LOOP_DETECTION_ENABLED"] = "true"
+    os.environ["TOOL_LOOP_MAX_REPEATS"] = "3"
+    os.environ["TOOL_LOOP_TTL_SECONDS"] = "60"
+    os.environ["TOOL_LOOP_MODE"] = "break"
+
+    # Build app with tool call loop detection enabled
+    test_app = build_app()
+
+    # Set up API key for tests
+    test_app.state.config = {
         "command_prefix": "!/",
-        "openai_api_keys": {"test": "test-key"},
-        "tool_loop_detection_enabled": True,
-        "tool_loop_max_repeats": 3,
-        "tool_loop_ttl_seconds": 60,
-        "tool_loop_mode": "break",
+        "api_keys": ["test-proxy-key"],
         "disable_auth": True,
     }
 
-    test_app = build_app(test_config)
-    return TestClient(test_app)
+    return TestClient(test_app, headers={"Authorization": "Bearer test-proxy-key"})
 
 
 def create_chat_completion_request(tool_calls=None, stream=False):
@@ -451,7 +458,7 @@ class TestToolCallLoopDetection:
         custom_mock = CustomMock()
 
         # We need to patch the right function in the OpenRouterBackend class
-        from src.main import OpenRouterBackend
+        from src.connectors.openrouter import OpenRouterBackend
 
         monkeypatch.setattr(OpenRouterBackend, "chat_completions", custom_mock)
 

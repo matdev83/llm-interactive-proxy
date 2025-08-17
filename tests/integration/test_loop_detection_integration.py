@@ -9,8 +9,8 @@ from unittest.mock import patch
 
 import pytest
 from fastapi.testclient import TestClient
+from src.core.app.application_factory import build_app
 from src.loop_detection.config import LoopDetectionConfig
-from src.main import build_app
 from src.response_middleware import (
     configure_loop_detection_middleware,
     get_response_middleware,
@@ -22,20 +22,15 @@ class TestLoopDetectionIntegration:
 
     def test_loop_detection_initialization_on_startup(self):
         """Test that loop detection is properly initialized during app startup."""
-        # Build app with loop detection enabled - need to provide required config
-        from src.core.config_adapter import _load_config
+        # Set environment variables for loop detection
+        import os
 
-        base_config = _load_config()
-        config = {
-            **base_config,
-            "loop_detection_enabled": True,
-            "loop_detection_buffer_size": 1024,
-            "loop_detection_max_pattern_length": 100,
-            "backend": "gemini",  # Use gemini backend
-            "gemini_api_keys": {"test_key": "test_value"},  # Add dummy API key
-        }
+        os.environ["LOOP_DETECTION_ENABLED"] = "true"
+        os.environ["LOOP_DETECTION_BUFFER_SIZE"] = "1024"
+        os.environ["LOOP_DETECTION_MAX_PATTERN_LENGTH"] = "100"
 
-        app = build_app(cfg=config)
+        # Build app with loop detection enabled
+        app = build_app()
 
         # Use TestClient to trigger lifespan events
         with TestClient(app):
@@ -60,17 +55,13 @@ class TestLoopDetectionIntegration:
 
     def test_loop_detection_disabled_on_startup(self):
         """Test that loop detection can be disabled via configuration."""
-        from src.core.config_adapter import _load_config
+        # Set environment variables for loop detection
+        import os
 
-        base_config = _load_config()
-        config = {
-            **base_config,
-            "loop_detection_enabled": False,
-            "backend": "gemini",  # Use gemini backend
-            "gemini_api_keys": {"test_key": "test_value"},  # Add dummy API key
-        }
+        os.environ["LOOP_DETECTION_ENABLED"] = "false"
 
-        app = build_app(cfg=config)
+        # Build app with loop detection disabled
+        app = build_app()
 
         with TestClient(app):
             middleware = get_response_middleware()
@@ -194,7 +185,7 @@ class TestLoopDetectionIntegration:
         }
 
         with patch.dict(os.environ, env_vars):
-            from src.core.config_adapter import _load_config
+            from src.core.config.config_loader import _load_config
 
             base_config = _load_config()
             config = {
@@ -202,7 +193,7 @@ class TestLoopDetectionIntegration:
                 "backend": "gemini",  # Use gemini backend
                 "gemini_api_keys": {"test_key": "test_value"},  # Add dummy API key
             }
-            app = build_app(cfg=config)
+            app = build_app(config=config)
 
             with TestClient(app):
                 middleware = get_response_middleware()
@@ -297,16 +288,13 @@ class TestLoopDetectionCommands:
 
     def test_loop_detection_status_in_help(self):
         """Test that loop detection status appears in help output."""
-        from src.core.config_adapter import _load_config
+        # Set environment variables for loop detection
+        import os
 
-        base_config = _load_config()
-        config = {
-            **base_config,
-            "loop_detection_enabled": True,
-            "backend": "gemini",  # Use gemini backend
-            "gemini_api_keys": {"test_key": "test_value"},  # Add dummy API key
-        }
-        app = build_app(cfg=config)
+        os.environ["LOOP_DETECTION_ENABLED"] = "true"
+
+        # Build app with loop detection enabled
+        app = build_app()
 
         with TestClient(app):
             # This would require implementing a command to show loop detection status

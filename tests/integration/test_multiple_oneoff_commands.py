@@ -8,7 +8,14 @@ and then reverting to the default backend.
 
 from unittest.mock import AsyncMock, patch
 
+import pytest
 from fastapi.testclient import TestClient
+
+
+@pytest.fixture
+def client(test_client: TestClient) -> TestClient:
+    """Alias fixture: some tests expect a fixture named `client`."""
+    return test_client
 
 
 class TestMultipleOneoffCommands:
@@ -79,17 +86,11 @@ class TestMultipleOneoffCommands:
             "chat_completions",
             new=AsyncMock(
                 side_effect=[
-                    (default_openrouter_response, {}),  # Step 1: Normal request
-                    (cypher_response, {}),  # Step 3: First oneoff use
-                    (
-                        default_openrouter_response,
-                        {},
-                    ),  # Step 4: Normal request after oneoff
-                    (mistral_response, {}),  # Step 6: Second oneoff use
-                    (
-                        default_openrouter_response,
-                        {},
-                    ),  # Step 7: Normal request after second oneoff
+                    default_openrouter_response,  # Step 1: Normal request
+                    cypher_response,  # Step 3: First oneoff use
+                    default_openrouter_response,  # Step 4: Normal request after oneoff
+                    mistral_response,  # Step 6: Second oneoff use
+                    default_openrouter_response,  # Step 7: Normal request after second oneoff
                 ]
             ),
         ):
@@ -256,9 +257,9 @@ class TestMultipleOneoffCommands:
             "chat_completions",
             new=AsyncMock(
                 side_effect=[
-                    (default_openrouter_response, {}),  # Session 2: Normal request
-                    (cypher_response, {}),  # Session 1: Oneoff use
-                    (default_openrouter_response, {}),  # Session 1: After oneoff
+                    default_openrouter_response,  # Session 2: Normal request
+                    cypher_response,  # Session 1: Oneoff use
+                    default_openrouter_response,  # Session 1: After oneoff
                 ]
             ),
         ):
@@ -340,30 +341,27 @@ class TestMultipleOneoffCommands:
             client.app.state.openrouter_backend,
             "chat_completions",
             new=AsyncMock(
-                return_value=(
-                    {
-                        "id": "test-response",
-                        "object": "chat.completion",
-                        "created": 1234567890,
-                        "model": "cypher-alpha:free",
-                        "choices": [
-                            {
-                                "index": 0,
-                                "message": {
-                                    "role": "assistant",
-                                    "content": "Mocked response",
-                                },
-                                "finish_reason": "stop",
-                            }
-                        ],
-                        "usage": {
-                            "prompt_tokens": 10,
-                            "completion_tokens": 5,
-                            "total_tokens": 15,
-                        },
+                return_value={
+                    "id": "test-response",
+                    "object": "chat.completion",
+                    "created": 1234567890,
+                    "model": "cypher-alpha:free",
+                    "choices": [
+                        {
+                            "index": 0,
+                            "message": {
+                                "role": "assistant",
+                                "content": "Mocked response",
+                            },
+                            "finish_reason": "stop",
+                        }
+                    ],
+                    "usage": {
+                        "prompt_tokens": 10,
+                        "completion_tokens": 5,
+                        "total_tokens": 15,
                     },
-                    {},
-                )
+                }
             ),
         ):
 

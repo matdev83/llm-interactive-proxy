@@ -13,7 +13,7 @@ import logging
 import sys
 import time
 import uuid
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 import httpx
 
@@ -35,15 +35,15 @@ def setup_logging() -> logging.Logger:
 async def send_chat_request(
     url: str,
     model: str,
-    messages: List[Dict[str, Any]],
+    messages: list[dict[str, Any]],
     stream: bool = False,
-    session_id: Optional[str] = None,
-    api_key: Optional[str] = None,
+    session_id: str | None = None,
+    api_key: str | None = None,
     temperature: float = 0.7,
-    max_tokens: Optional[int] = None,
+    max_tokens: int | None = None,
     timeout: int = 120,
-    backend_type: Optional[str] = None,
-) -> Dict[str, Any]:
+    backend_type: str | None = None,
+) -> dict[str, Any]:
     """Send a chat request to the proxy.
     
     Args:
@@ -123,7 +123,7 @@ async def send_chat_request(
                     # Process chunk
                     if chunk.startswith("data: "):
                         chunk_data = json.loads(chunk[6:])
-                        if "choices" in chunk_data and chunk_data["choices"]:
+                        if chunk_data.get("choices"):
                             delta = chunk_data["choices"][0].get("delta", {})
                             if "content" in delta:
                                 content_chunk = delta["content"]
@@ -136,9 +136,9 @@ async def send_chat_request(
 
 def create_messages(
     prompt: str,
-    system_prompt: Optional[str] = None,
-    conversation: Optional[List[Dict[str, str]]] = None,
-) -> List[Dict[str, str]]:
+    system_prompt: str | None = None,
+    conversation: list[dict[str, str]] | None = None,
+) -> list[dict[str, str]]:
     """Create a list of messages for the request.
     
     Args:
@@ -165,7 +165,7 @@ def create_messages(
     return messages
 
 
-async def main_async(args: Optional[List[str]] = None) -> int:
+async def main_async(args: list[str] | None = None) -> int:
     """Async main entry point.
     
     Args:
@@ -270,7 +270,7 @@ async def main_async(args: Optional[List[str]] = None) -> int:
             logger.info(f"Response time: {elapsed:.2f} seconds")
             
             # Print content from the response
-            if "choices" in response and response["choices"]:
+            if response.get("choices"):
                 content = response["choices"][0]["message"]["content"]
                 print(f"\nResponse:\n{content}")
             
@@ -286,11 +286,11 @@ async def main_async(args: Optional[List[str]] = None) -> int:
         return 0
     
     except Exception as e:
-        logger.error(f"Error: {str(e)}")
+        logger.error(f"Error: {e!s}")
         return 1
 
 
-def main(args: Optional[List[str]] = None) -> int:
+def main(args: list[str] | None = None) -> int:
     """Main entry point.
     
     Args:

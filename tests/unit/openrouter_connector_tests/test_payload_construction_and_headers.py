@@ -50,9 +50,9 @@ def sample_chat_request_data() -> models.ChatCompletionRequest:
 
 
 @pytest.fixture
-def sample_processed_messages() -> list[
-    models.ChatMessage
-]:  # This is unused in this specific file though
+def sample_processed_messages() -> (
+    list[models.ChatMessage]
+):  # This is unused in this specific file though
     return [models.ChatMessage(role="user", content="Hello")]
 
 

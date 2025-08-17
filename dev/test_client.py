@@ -2,7 +2,7 @@ import argparse
 import json
 import logging
 import os
-from typing import Any, Dict, List
+from typing import Any
 
 import openai
 
@@ -19,12 +19,12 @@ def validate_output_filename(filename: str) -> str:
     return os.path.join(OUTPUT_DIR, filename)
 
 
-def load_config(path: str) -> Dict[str, Any]:
+def load_config(path: str) -> dict[str, Any]:
     with open(path, encoding='utf-8') as f:
         return json.load(f)
 
 
-def run_prompts(client: openai.OpenAI, model: str, prompts: List[Any]) -> List[str]:
+def run_prompts(client: openai.OpenAI, model: str, prompts: list[Any]) -> list[str]:
     results = []
     for prm in prompts:
         if isinstance(prm, dict):

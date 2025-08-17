@@ -337,7 +337,7 @@ def get_anthropic_models() -> dict[str, Any]:
 openai_to_anthropic_stream = openai_stream_to_anthropic_stream  # type: ignore
 
 # Re-export commonly used pydantic models for convenience so that tests and
-# legacy code can simply "from src.anthropic_converters import AnthropicMessage"
+# Re-export for convenience
 # without having to know the internal module structure.
 
 __all__ = [

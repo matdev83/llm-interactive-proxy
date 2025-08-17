@@ -4,7 +4,7 @@ from typing import Any
 
 from src import models
 from src.command_config import CommandProcessorConfig
-from src.commands.base import CommandResult
+from src.core.domain.command_results import CommandResult
 
 logger = logging.getLogger(__name__)
 
@@ -75,9 +75,21 @@ class CommandProcessor:
             replacement = ""
             command_handler = self.config.handlers.get(command_name)
             if command_handler:
-                execution_result = command_handler.execute(
+                # Get the result from the command handler
+                # This could be either a legacy or new CommandResult
+                execution_result: Any = command_handler.execute(
                     args, self.config.proxy_state
                 )
+                # Convert legacy CommandResult to new CommandResult if needed
+                from src.commands.base import CommandResult as LegacyCommandResult
+
+                if isinstance(execution_result, LegacyCommandResult):
+                    new_result = CommandResult(
+                        name=getattr(execution_result, "name", "unknown"),
+                        success=getattr(execution_result, "success", False),
+                        message=getattr(execution_result, "message", ""),
+                    )
+                    execution_result = new_result
                 self.config.command_results.append(execution_result)
                 if text_content.strip() == command_full.strip():
                     return "", True

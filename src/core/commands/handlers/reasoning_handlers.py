@@ -10,11 +10,11 @@ import json
 import logging
 from typing import Any
 
-from src.commands.base import CommandContext
 from src.core.commands.handlers.base_handler import (
     BaseCommandHandler,
     CommandHandlerResult,
 )
+from src.core.domain.command_context import CommandContext
 from src.core.domain.session import SessionState
 
 logger = logging.getLogger(__name__)
@@ -22,21 +22,21 @@ logger = logging.getLogger(__name__)
 
 class ReasoningEffortHandler(BaseCommandHandler):
     """Handler for setting the reasoning effort level."""
-    
+
     def __init__(self):
         """Initialize the reasoning effort handler."""
         super().__init__("reasoning-effort")
-    
+
     @property
     def aliases(self) -> list[str]:
         """Aliases for the parameter name."""
         return ["reasoning_effort", "reasoning"]
-    
+
     @property
     def description(self) -> str:
         """Description of the command."""
         return "Set the reasoning effort level (low, medium, high, maximum)"
-    
+
     @property
     def examples(self) -> list[str]:
         """Examples of using this command."""
@@ -46,77 +46,78 @@ class ReasoningEffortHandler(BaseCommandHandler):
             "!/set(reasoning-effort=high)",
             "!/set(reasoning-effort=maximum)",
         ]
-    
+
     def can_handle(self, param_name: str) -> bool:
         """Check if this handler can handle the given parameter.
-        
+
         Args:
             param_name: The parameter name to check
-            
+
         Returns:
             True if this handler can handle the parameter
         """
         normalized = param_name.lower().replace("_", "-").replace(" ", "-")
-        return normalized == self.name or normalized in [a.lower() for a in self.aliases]
-    
+        return normalized == self.name or normalized in [
+            a.lower() for a in self.aliases
+        ]
+
     def handle(
-        self, 
-        param_value: Any, 
+        self,
+        param_value: Any,
         current_state: SessionState,
-        context: CommandContext | None = None
+        context: CommandContext | None = None,
     ) -> CommandHandlerResult:
         """Handle setting the reasoning effort level.
-        
+
         Args:
             param_value: The reasoning effort level
             current_state: The current session state
             context: Optional command context
-            
+
         Returns:
             A result containing success/failure status and updated state
         """
         if not param_value:
             return CommandHandlerResult(
-                success=False,
-                message="Reasoning effort level must be specified"
+                success=False, message="Reasoning effort level must be specified"
             )
-        
+
         effort = str(param_value).lower()
         if effort not in ("low", "medium", "high", "maximum"):
             return CommandHandlerResult(
                 success=False,
-                message=f"Invalid reasoning effort: {param_value}. Use low, medium, high, or maximum."
+                message=f"Invalid reasoning effort: {param_value}. Use low, medium, high, or maximum.",
             )
-        
+
         # Create new state with updated reasoning effort
         new_state = current_state.with_reasoning_config(
             current_state.reasoning_config.with_reasoning_effort(effort)
         )
-        
+
         return CommandHandlerResult(
             success=True,
             message=f"Reasoning effort set to {effort}",
-            new_state=new_state
+            new_state=new_state,
         )
 
 
 class ThinkingBudgetHandler(BaseCommandHandler):
     """Handler for setting the thinking budget."""
-    
+
     def __init__(self):
         """Initialize the thinking budget handler."""
         super().__init__("thinking-budget")
-    
+
     @property
     def aliases(self) -> list[str]:
         """Aliases for the parameter name."""
         return ["thinking_budget", "budget"]
-    
+
     @property
     def description(self) -> str:
         """Description of the command."""
         return "Set the thinking budget in tokens (128-32768)"
-    
+
     @property
     def examples(self) -> list[str]:
         """Examples of using this command."""
@@ -124,150 +125,149 @@ class ThinkingBudgetHandler(BaseCommandHandler):
             "!/set(thinking-budget=1024)",
             "!/set(thinking-budget=2048)",
         ]
-    
+
     def can_handle(self, param_name: str) -> bool:
         """Check if this handler can handle the given parameter.
-        
+
         Args:
             param_name: The parameter name to check
-            
+
         Returns:
             True if this handler can handle the parameter
         """
         normalized = param_name.lower().replace("_", "-").replace(" ", "-")
-        return normalized == self.name or normalized in [a.lower() for a in self.aliases]
-    
+        return normalized == self.name or normalized in [
+            a.lower() for a in self.aliases
+        ]
+
     def handle(
-        self, 
-        param_value: Any, 
+        self,
+        param_value: Any,
         current_state: SessionState,
-        context: CommandContext | None = None
+        context: CommandContext | None = None,
     ) -> CommandHandlerResult:
         """Handle setting the thinking budget.
-        
+
         Args:
             param_value: The thinking budget in tokens
             current_state: The current session state
             context: Optional command context
-            
+
         Returns:
             A result containing success/failure status and updated state
         """
         if not param_value:
             return CommandHandlerResult(
-                success=False,
-                message="Thinking budget must be specified"
+                success=False, message="Thinking budget must be specified"
             )
-        
+
         try:
             budget = int(param_value)
             if budget < 128 or budget > 32768:
                 return CommandHandlerResult(
                     success=False,
-                    message="Thinking budget must be between 128 and 32768 tokens"
+                    message="Thinking budget must be between 128 and 32768 tokens",
                 )
         except ValueError:
             return CommandHandlerResult(
                 success=False,
-                message=f"Invalid thinking budget: {param_value}. Must be an integer."
+                message=f"Invalid thinking budget: {param_value}. Must be an integer.",
             )
-        
+
         # Create new state with updated thinking budget
         new_state = current_state.with_reasoning_config(
             current_state.reasoning_config.with_thinking_budget(budget)
         )
-        
+
         return CommandHandlerResult(
             success=True,
             message=f"Thinking budget set to {budget}",
-            new_state=new_state
+            new_state=new_state,
         )
 
 
 class GeminiGenerationConfigHandler(BaseCommandHandler):
     """Handler for setting the Gemini generation config."""
-    
+
     def __init__(self):
         """Initialize the Gemini generation config handler."""
         super().__init__("gemini-generation-config")
-    
+
     @property
     def aliases(self) -> list[str]:
         """Aliases for the parameter name."""
         return ["gemini_generation_config", "gemini_config"]
-    
+
     @property
     def description(self) -> str:
         """Description of the command."""
         return "Set the Gemini generation config as a JSON object"
-    
+
     @property
     def examples(self) -> list[str]:
         """Examples of using this command."""
         return [
             "!/set(gemini-generation-config={'thinkingConfig': {'thinkingBudget': 1024}})",
         ]
-    
+
     def can_handle(self, param_name: str) -> bool:
         """Check if this handler can handle the given parameter.
-        
+
         Args:
             param_name: The parameter name to check
-            
+
         Returns:
             True if this handler can handle the parameter
         """
         normalized = param_name.lower().replace("_", "-").replace(" ", "-")
-        return normalized == self.name or normalized in [a.lower() for a in self.aliases]
-    
+        return normalized == self.name or normalized in [
+            a.lower() for a in self.aliases
+        ]
+
     def handle(
-        self, 
-        param_value: Any, 
+        self,
+        param_value: Any,
         current_state: SessionState,
-        context: CommandContext | None = None
+        context: CommandContext | None = None,
     ) -> CommandHandlerResult:
         """Handle setting the Gemini generation config.
-        
+
         Args:
             param_value: The Gemini generation config as a JSON string or object
             current_state: The current session state
             context: Optional command context
-            
+
         Returns:
             A result containing success/failure status and updated state
         """
         if not param_value:
             return CommandHandlerResult(
-                success=False,
-                message="Gemini generation config must be specified"
+                success=False, message="Gemini generation config must be specified"
             )
-        
+
         try:
             # Parse the config if it's a string
             if isinstance(param_value, str):
                 config = json.loads(param_value)
             else:
                 config = param_value
-                
+
             # Validate that it's a dict
             if not isinstance(config, dict):
                 return CommandHandlerResult(
                     success=False,
-                    message="Invalid Gemini generation config: must be a JSON object"
+                    message="Invalid Gemini generation config: must be a JSON object",
                 )
         except json.JSONDecodeError as e:
-            return CommandHandlerResult(
-                success=False,
-                message=f"Invalid JSON: {e}"
-            )
-        
+            return CommandHandlerResult(success=False, message=f"Invalid JSON: {e}")
+
         # Create new state with updated Gemini generation config
         new_state = current_state.with_reasoning_config(
             current_state.reasoning_config.with_gemini_generation_config(config)
         )
-        
+
         return CommandHandlerResult(
             success=True,
             message=f"Gemini generation config set to {config}",
-            new_state=new_state
+            new_state=new_state,
         )

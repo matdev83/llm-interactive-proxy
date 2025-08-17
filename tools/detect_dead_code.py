@@ -21,7 +21,6 @@ import json
 import os
 import sys
 from pathlib import Path
-from typing import Dict, List, Set, Tuple
 
 try:
     import vulture
@@ -36,7 +35,7 @@ class DeadCodeDetector:
     def __init__(
         self,
         min_confidence: int = 80,
-        exclude_patterns: List[str] = None,
+        exclude_patterns: list[str] = None,
         verbose: bool = False,
         quiet: bool = False,
     ):
@@ -79,7 +78,7 @@ class DeadCodeDetector:
             "**/examples/**",
         ])
 
-    def detect(self, paths: List[str]) -> List[Dict]:
+    def detect(self, paths: list[str]) -> list[dict]:
         """Run the detection on the given paths.
 
         Args:
@@ -139,7 +138,7 @@ class DeadCodeDetector:
                 return True
         return False
     
-    def print_results(self, results: List[Dict]) -> None:
+    def print_results(self, results: list[dict]) -> None:
         """Print the results in a human-readable format.
 
         Args:
@@ -152,7 +151,7 @@ class DeadCodeDetector:
         print(f"Found {len(results)} potentially dead code items:")
         
         # Group by file
-        files: Dict[str, List[Dict]] = {}
+        files: dict[str, list[dict]] = {}
         for item in results:
             filename = item["filename"]
             if filename not in files:
@@ -169,7 +168,7 @@ class DeadCodeDetector:
             for item in sorted(items, key=lambda x: x["line"]):
                 print(f"  Line {item['line']}: {item['type']} '{item['name']}' (confidence: {item['confidence']}%)")
     
-    def print_json(self, results: List[Dict]) -> None:
+    def print_json(self, results: list[dict]) -> None:
         """Print the results in JSON format.
 
         Args:

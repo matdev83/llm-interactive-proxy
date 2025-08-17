@@ -3,7 +3,7 @@ from unittest.mock import Mock
 import pytest
 import src.models as models
 from src.command_parser import process_commands_in_messages
-from src.proxy_logic import ProxyState
+from src.core.domain.session import Session
 
 
 class TestProcessCommandsInMessages:
@@ -40,7 +40,8 @@ class TestProcessCommandsInMessages:
         self.mock_app.state = mock_app_state
 
     def test_string_content_with_set_command(self):
-        current_proxy_state = ProxyState()
+        session = Session(session_id="test_session")
+        current_session_state = session.state
         messages = [
             models.ChatMessage(role="user", content="Hello"),
             models.ChatMessage(
@@ -49,16 +50,17 @@ class TestProcessCommandsInMessages:
             ),
         ]
         processed_messages, processed = process_commands_in_messages(
-            messages, current_proxy_state, app=self.mock_app
+            messages, current_session_state, app=self.mock_app
         )
         assert processed
         assert len(processed_messages) == 2
         assert processed_messages[0].content == "Hello"
         assert processed_messages[1].content == "Please use for this query."
-        assert current_proxy_state.override_model == "new-model"
+        assert session.state.backend_config.model == "new-model"
 
     def test_multimodal_content_with_command(self):
-        current_proxy_state = ProxyState()
+        session = Session(session_id="test_session")
+        current_session_state = session.state
         messages = [
             models.ChatMessage(
                 role="user",
@@ -74,7 +76,7 @@ class TestProcessCommandsInMessages:
             )
         ]
         processed_messages, processed = process_commands_in_messages(
-            messages, current_proxy_state, app=self.mock_app
+            messages, current_session_state, app=self.mock_app
         )
         assert not processed
         assert len(processed_messages) == 1
@@ -90,10 +92,11 @@ class TestProcessCommandsInMessages:
         )
         assert processed_messages[0].content[1].type == "image_url"
         assert processed_messages[0].content[1].image_url.url == "fake.jpg"
-        assert current_proxy_state.override_model is None
+        assert session.state.backend_config.model is None
 
     def test_command_strips_text_part_empty_in_multimodal(self):
-        current_proxy_state = ProxyState()
+        session = Session(session_id="test_session")
+        current_session_state = session.state
         messages = [
             models.ChatMessage(
                 role="user",
@@ -109,7 +112,7 @@ class TestProcessCommandsInMessages:
             )
         ]
         processed_messages, processed = process_commands_in_messages(
-            messages, current_proxy_state, app=self.mock_app
+            messages, current_session_state, app=self.mock_app
         )
         assert processed
         assert len(processed_messages) == 1
@@ -120,10 +123,11 @@ class TestProcessCommandsInMessages:
         )
         assert processed_messages[0].content[0].type == "image_url"
         assert processed_messages[0].content[0].image_url.url == "fake.jpg"
-        assert current_proxy_state.override_model == "text-only"
+        assert session.state.backend_config.model == "text-only"
 
     def test_command_strips_message_to_empty_multimodal(self):
-        current_proxy_state = ProxyState()
+        session = Session(session_id="test_session")
+        current_session_state = session.state
         messages = [
             models.ChatMessage(
                 role="user",
@@ -135,15 +139,22 @@ class TestProcessCommandsInMessages:
             )
         ]
         processed_messages, processed = process_commands_in_messages(
-            messages, current_proxy_state, app=self.mock_app
+            messages, current_session_state, app=self.mock_app
         )
         assert processed
         assert len(processed_messages) == 0
-        assert current_proxy_state.override_model == "empty-message-model"
+        assert session.state.backend_config.model == "empty-message-model"
 
     def test_command_in_earlier_message_not_processed_if_later_has_command(self):
-        current_proxy_state = ProxyState()
-        current_proxy_state.override_model = "initial-model"
+        session = Session(session_id="test_session")
+        current_session_state = session.state
+
+        # Simulate initial state
+        new_backend_config = current_session_state.backend_config.with_model(
+            "initial-model"
+        )
+        session.state = current_session_state.with_backend_config(new_backend_config)
+
         messages = [
             models.ChatMessage(
                 role="user", content="First message !/set(model=openrouter:first-try)"
@@ -153,7 +164,7 @@ class TestProcessCommandsInMessages:
             ),
         ]
         processed_messages, processed = process_commands_in_messages(
-            messages, current_proxy_state, app=self.mock_app
+            messages, session.state, app=self.mock_app
         )
         assert processed
         assert len(processed_messages) == 2
@@ -162,11 +173,18 @@ class TestProcessCommandsInMessages:
             == "First message !/set(model=openrouter:first-try)"
         )
         assert processed_messages[1].content == "Second message"
-        assert current_proxy_state.override_model == "second-try"
+        assert session.state.backend_config.model == "second-try"
 
     def test_command_in_earlier_message_processed_if_later_has_no_command(self):
-        current_proxy_state = ProxyState()
-        current_proxy_state.override_model = "initial-model"
+        session = Session(session_id="test_session")
+        current_session_state = session.state
+
+        # Simulate initial state
+        new_backend_config = current_session_state.backend_config.with_model(
+            "initial-model"
+        )
+        session.state = current_session_state.with_backend_config(new_backend_config)
+
         messages = [
             models.ChatMessage(
                 role="user",
@@ -175,56 +193,60 @@ class TestProcessCommandsInMessages:
             models.ChatMessage(role="user", content="Second message, plain text."),
         ]
         processed_messages, processed = process_commands_in_messages(
-            messages, current_proxy_state, app=self.mock_app
+            messages, session.state, app=self.mock_app
         )
         assert processed
         assert len(processed_messages) == 2
         assert processed_messages[0].content == "First message with"
         assert processed_messages[1].content == "Second message, plain text."
-        assert current_proxy_state.override_model == "model-from-past"
+        assert session.state.backend_config.model == "model-from-past"
 
     def test_no_commands_in_any_message(self):
-        current_proxy_state = ProxyState()
+        session = Session(session_id="test_session")
+        current_session_state = session.state
         messages = [
             models.ChatMessage(role="user", content="Hello"),
             models.ChatMessage(role="user", content="How are you?"),
         ]
         original_messages_copy = [m.model_copy(deep=True) for m in messages]
         processed_messages, processed = process_commands_in_messages(
-            messages, current_proxy_state, app=self.mock_app
+            messages, current_session_state, app=self.mock_app
         )
         assert not processed
         assert processed_messages == original_messages_copy
-        assert current_proxy_state.override_model is None
+        assert session.state.backend_config.model is None
 
     def test_process_empty_messages_list(self):
-        current_proxy_state = ProxyState()
+        session = Session(session_id="test_session")
+        current_session_state = session.state
         processed_messages, processed = process_commands_in_messages(
-            [], current_proxy_state, app=self.mock_app
+            [], current_session_state, app=self.mock_app
         )
         assert not processed
         assert processed_messages == []
         assert (
-            current_proxy_state.override_model is None
+            session.state.backend_config.model is None
         )  # Ensure state is not affected
 
     def test_message_with_only_command_string_content(self):
-        current_proxy_state = ProxyState()
+        session = Session(session_id="test_session")
+        current_session_state = session.state
         messages = [
             models.ChatMessage(
                 role="user", content="!/set(model=openrouter:full-command-message)"
             )
         ]
         processed_messages, processed = process_commands_in_messages(
-            messages, current_proxy_state, app=self.mock_app
+            messages, current_session_state, app=self.mock_app
         )
         assert processed
         assert len(processed_messages) == 1
         assert processed_messages[0].content == ""
-        assert current_proxy_state.override_model == "full-command-message"
+        assert session.state.backend_config.model == "full-command-message"
 
     def test_multimodal_text_part_preserved_if_empty_but_no_command_found(self):
-        current_proxy_state = ProxyState()
+        session = Session(session_id="test_session")
+        current_session_state = session.state
         messages = [
             models.ChatMessage(
                 role="user",
@@ -238,7 +260,7 @@ class TestProcessCommandsInMessages:
             )
         ]
         processed_messages, processed = process_commands_in_messages(
-            messages, current_proxy_state, app=self.mock_app
+            messages, current_session_state, app=self.mock_app
         )
         assert not processed
         assert len(processed_messages) == 1
@@ -254,38 +276,41 @@ class TestProcessCommandsInMessages:
         )
         assert processed_messages[0].content[1].type == "image_url"
         assert processed_messages[0].content[1].image_url.url == "fake.jpg"
-        assert current_proxy_state.override_model is None
+        assert session.state.backend_config.model is None
 
     def test_unknown_command_in_last_message(self):
-        current_proxy_state = ProxyState()
+        session = Session(session_id="test_session")
+        current_session_state = session.state
         messages = [
             models.ChatMessage(role="user", content="Hello !/unknown(cmd) there")
         ]
         processed_messages, processed = process_commands_in_messages(
-            messages, current_proxy_state, app=self.mock_app
+            messages, current_session_state, app=self.mock_app
         )
         assert processed
         assert len(processed_messages) == 1
         assert processed_messages[0].content == "Hello !/unknown(cmd) there"
-        assert current_proxy_state.override_model is None
+        assert session.state.backend_config.model is None
 
     def test_custom_command_prefix(self):
-        current_proxy_state = ProxyState()
+        session = Session(session_id="test_session")
+        current_session_state = session.state
         messages = [
-            models.ChatMessage(role="user", content="Hello $$set(model=openrouter:foo)")
+            models.ChatMessage(role="user", content="Hello $set(model=openrouter:foo)")
         ]
         processed_messages, processed = process_commands_in_messages(
             messages,
-            current_proxy_state,
+            current_session_state,
             app=self.mock_app,  # Pass app here
-            command_prefix="$$",
+            command_prefix="$",
         )
         assert processed
         assert processed_messages[0].content == "Hello"
-        assert current_proxy_state.override_model == "foo"
+        assert session.state.backend_config.model == "foo"
 
     def test_multiline_command_detection(self):
-        current_proxy_state = ProxyState()
+        session = Session(session_id="test_session")
+        current_session_state = session.state
         messages = [
             models.ChatMessage(
                 role="user",
@@ -293,86 +318,101 @@ class TestProcessCommandsInMessages:
             )
         ]
         processed_messages, processed = process_commands_in_messages(
-            messages, current_proxy_state, app=self.mock_app
+            messages, current_session_state, app=self.mock_app
         )
         assert processed
         assert processed_messages[0].content == "Line1 Line3"
-        assert current_proxy_state.override_model == "multi"
+        assert session.state.backend_config.model == "multi"
 
     def test_set_project_in_messages(self):
-        current_proxy_state = ProxyState()
+        session = Session(session_id="test_session")
+        current_session_state = session.state
         messages = [models.ChatMessage(role="user", content="!/set(project=proj1) hi")]
         processed_messages, processed = process_commands_in_messages(
-            messages, current_proxy_state, app=self.mock_app
+            messages, current_session_state, app=self.mock_app
         )
         assert processed
         assert processed_messages[0].content == "hi"
-        assert current_proxy_state.project == "proj1"
+        assert session.state.project == "proj1"
 
     def test_unset_model_and_project_in_message(self):
-        current_proxy_state = ProxyState()
-        current_proxy_state.set_override_model("openrouter", "foo")
-        current_proxy_state.set_project("bar")
+        session = Session(session_id="test_session")
+        current_session_state = session.state
+
+        # Set initial model and project
+        new_backend_config = current_session_state.backend_config.with_model("foo")
+        new_session_state = current_session_state.with_backend_config(
+            new_backend_config
+        )
+        new_session_state = new_session_state.with_project("bar")
+        session.state = new_session_state
+
         messages = [models.ChatMessage(role="user", content="!/unset(model, project)")]
         processed_messages, processed = process_commands_in_messages(
-            messages, current_proxy_state, app=self.mock_app
+            messages, session.state, app=self.mock_app
         )
         assert processed
         assert len(processed_messages) == 1
         assert processed_messages[0].content == ""
         assert "!/unset(model, project)" not in processed_messages[0].content
-        assert current_proxy_state.override_model is None
-        assert current_proxy_state.project is None
+        assert session.state.backend_config.model is None
+        assert session.state.project is None
 
     @pytest.mark.parametrize("variant", ["$/", "'$/'", '"$/"'])
     def test_set_command_prefix_variants(self, variant):
-        current_proxy_state = ProxyState()
+        session = Session(session_id="test_session")
+        current_session_state = session.state
         msg = models.ChatMessage(
             role="user", content=f"!/set(command-prefix={variant})"
         )
         processed_messages, processed = process_commands_in_messages(
-            [msg], current_proxy_state, app=self.mock_app
+            [msg], current_session_state, app=self.mock_app
         )
         assert processed
         assert processed_messages[0].content == ""
         assert self.mock_app.state.command_prefix == "$/"
 
     def test_unset_command_prefix(self):
-        current_proxy_state = ProxyState()
+        session = Session(session_id="test_session")
+        current_session_state = session.state
         msg_set = models.ChatMessage(role="user", content="!/set(command-prefix=~!)")
-        process_commands_in_messages([msg_set], current_proxy_state, app=self.mock_app)
+        process_commands_in_messages(
+            [msg_set], current_session_state, app=self.mock_app
+        )
         assert self.mock_app.state.command_prefix == "~!"
         msg_unset = models.ChatMessage(role="user", content="~!unset(command-prefix)")
         processed_messages, processed = process_commands_in_messages(
-            [msg_unset], current_proxy_state, app=self.mock_app, command_prefix="~!"
+            [msg_unset], current_session_state, app=self.mock_app, command_prefix="~!"
         )
         assert processed
         assert processed_messages[0].content == ""
         assert self.mock_app.state.command_prefix == "!/"
 
     def test_command_with_agent_environment_details(self):
-        current_proxy_state = ProxyState()
+        session = Session(session_id="test_session")
+        current_session_state = session.state
         msg = models.ChatMessage(
             role="user",
             content=("<task>\n!/hello\n</task>\n" "# detail"),
         )
         processed_messages, processed = process_commands_in_messages(
-            [msg], current_proxy_state, app=self.mock_app
+            [msg], current_session_state, app=self.mock_app
         )
         assert processed
         assert processed_messages == []
 
     def test_set_command_with_multiple_parameters_and_prefix(self):
-        current_proxy_state = ProxyState()
+        session = Session(session_id="test_session")
+        current_session_state = session.state
         msg = models.ChatMessage(
             role="user",
             content=("# prefix line\n" "!/set(model=openrouter:foo, project=bar)"),
         )
         processed_messages, processed = process_commands_in_messages(
-            [msg], current_proxy_state, app=self.mock_app
+            [msg], current_session_state, app=self.mock_app
         )
         assert processed
         assert len(processed_messages) == 1  # Message should be retained as empty
         assert processed_messages[0].content == ""  # Content becomes empty
-        assert current_proxy_state.override_model == "foo"
-        assert current_proxy_state.project == "bar"
+        assert session.state.backend_config.model == "foo"
+        assert session.state.project == "bar"

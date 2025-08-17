@@ -1,122 +1,73 @@
-<!-- DEPRECATED: This document has been superseded by dev/solid_refactoring_sot.md. It is kept for historical context. See that file for the authoritative plan and status. -->
-
 # Legacy Code Removal Plan
 
-This document outlines the plan for completely removing legacy code from the codebase, following the timeline specified in the migration guide.
+## Progress Summary
+
+### Phase 1: Inventory and Analysis (Completed ✅)
+- ✅ Created complete inventory of legacy code
+- ✅ Identified test dependencies on legacy code
+- ✅ Documented all legacy adapters
+
+### Phase 2: Adapter Removal (Completed ✅)
+- ✅ Removed legacy config adapter
+- ✅ Removed legacy session adapter
+- ✅ Removed legacy command adapter
+- ✅ Removed legacy backend adapter
+
+### Phase 3: Integration Bridge Cleanup (In Progress 🔄)
+- 🔄 Clean up integration bridge
+- ⏳ Fix hybrid controllers
+- ⏳ Update test fixtures
+
+### Phase 4: Test Suite Updates (Pending ⏳)
+- ⏳ Fix broken tests
+- ⏳ Add missing tests
+- ⏳ Create integration test suite
+
+### Phase 5: Documentation and Verification (Pending ⏳)
+- ⏳ Update all documentation
+- ⏳ Improve code quality
+- ⏳ Final verification
+
+## Next Steps
+
+1. **Integration Bridge Cleanup**: Remove legacy initialization methods from the integration bridge
+2. **Hybrid Controller Cleanup**: Remove legacy flow methods from the hybrid controller
+3. **Test Fixture Updates**: Update test fixtures to use the new architecture components directly
+4. **Test Suite Updates**: Fix broken tests and add missing tests
+5. **Documentation Updates**: Update all documentation to reflect the new architecture
+6. **Final Verification**: Verify that all functionality is preserved with no regressions
+
+## Remaining Legacy Components
+
+1. **Integration Bridge**:
+   - `initialize_legacy_architecture()`
+   - `_setup_legacy_backends()`
+   - `_setup_legacy_backends_sync()`
+   - `ensure_legacy_state()`
+
+2. **Hybrid Controller**:
+   - `_hybrid_legacy_flow_with_new_services()`
+
+3. **Legacy State Compatibility**:
+   - `src/core/app/legacy_state_compatibility.py`
+
+4. **Session Migration Service**:
+   - `migrate_legacy_session()`
+   - `sync_session_state()`
+   - `create_hybrid_session()`
+
+5. **Domain Model Compatibility Methods**:
+   - `to_legacy_format()`
+   - `from_legacy_response()`
+   - `from_legacy_chunk()`
+   - `from_legacy_message()`
 
 ## Timeline
 
-| Phase | Date | Description |
-|-------|------|-------------|
-| 1. Preparation | July 2024 | Add deprecation warnings and prepare for removal |
-| 2. Feature Flag Removal | September 2024 | Remove all feature flags and conditional code paths |
-| 3. Adapter Removal | October 2024 | Remove all adapter classes |
-| 4. Legacy Code Removal | November 2024 | Remove all legacy code |
-| 5. Final Cleanup | December 2024 | Final cleanup and verification |
-
-## Phase 1: Preparation (July 2024) - COMPLETED
-
-- ✅ Add deprecation warnings to legacy code
-- ✅ Update documentation with migration timeline
-- ✅ Create tests to verify new architecture works correctly
-- ✅ Ensure all new code uses the new architecture
-
-## Phase 2: Feature Flag Removal (September 2024)
-
-### 2.1 Remove Environment Variable Checks
-
-- Remove all environment variable checks for feature flags:
-  - `USE_NEW_SESSION_SERVICE`
-  - `USE_NEW_COMMAND_SERVICE`
-  - `USE_NEW_BACKEND_SERVICE`
-  - `USE_NEW_REQUEST_PROCESSOR`
-  - `ENABLE_DUAL_MODE`
-
-### 2.2 Remove Conditional Code Paths
-
-- Remove all conditional code paths that check feature flags
-- Update `IntegrationBridge` to always use new services
-- Remove `_hybrid_legacy_flow_with_new_services` method from `hybrid_controller.py`
-
-### 2.3 Update Tests
-
-- Update all tests to use the new architecture directly
-- Remove tests that test feature flag behavior
-
-## Phase 3: Adapter Removal (October 2024)
-
-### 3.1 Remove Adapter Usage
-
-- Remove all imports of adapter classes
-- Replace any remaining adapter usage with direct service usage
-
-### 3.2 Remove Adapter Classes
-
-- Remove all adapter class files:
-  - `src/core/adapters/legacy_backend_adapter.py`
-  - `src/core/adapters/legacy_command_adapter.py`
-  - `src/core/adapters/legacy_config_adapter.py`
-  - `src/core/adapters/legacy_session_adapter.py`
-
-### 3.3 Remove Adapter Package
-
-- Remove `src/core/adapters/__init__.py`
-- Remove `src/core/adapters/` directory
-
-## Phase 4: Legacy Code Removal (November 2024)
-
-### 4.1 Remove Legacy Modules
-
-- Remove `src/proxy_logic.py`
-- Remove `src/command_parser.py`
-- Remove `src/command_processor.py`
-- Remove `src/session.py`
-
-### 4.2 Update Main Module
-
-- Remove legacy endpoints from `src/main.py`
-- Update `src/main.py` to use new architecture directly or replace it entirely with `src/core/cli.py`
-
-### 4.3 Update Imports
-
-- Update all imports to use new modules
-- Remove any remaining imports of legacy modules
-
-## Phase 5: Final Cleanup (December 2024)
-
-### 5.1 Code Quality
-
-- Run linting and formatting tools on the entire codebase
-- Fix any issues identified by the tools
-
-### 5.2 Documentation
-
-- Update all documentation to reflect the new architecture
-- Remove any references to legacy code or migration
-
-### 5.3 Testing
-
-- Run all tests to ensure everything still works
-- Add new tests for any edge cases
-
-## Verification Steps
-
-After each phase, the following verification steps should be performed:
-
-1. Run all tests to ensure they pass
-2. Manually test key functionality
-3. Verify that no legacy code is being used
-4. Check for any remaining references to removed code
-
-## Rollback Plan
-
-In case of issues, the following rollback plan should be followed:
-
-1. Revert the changes made in the current phase
-2. Run all tests to ensure they pass
-3. Fix the issues identified
-4. Try again with a more gradual approach
-
-## Conclusion
-
-This plan provides a clear path for completely removing legacy code from the codebase, following the timeline specified in the migration guide. By following this plan, we can ensure a smooth transition to the new architecture without disrupting existing functionality.
+1. **Day 1**: Clean up integration bridge (in progress)
+2. **Day 2**: Fix hybrid controllers
+3. **Day 3**: Update test fixtures
+4. **Day 4**: Fix broken tests
+5. **Day 5**: Add missing tests
+6. **Day 6**: Update documentation
+7. **Day 7**: Final verification

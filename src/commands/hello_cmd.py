@@ -6,7 +6,7 @@ from typing import TYPE_CHECKING, Any
 from .base import BaseCommand, CommandResult, register_command
 
 if TYPE_CHECKING:
-    from src.proxy_logic import ProxyState
+    pass  # No imports needed
 
 
 @register_command
@@ -16,6 +16,6 @@ class HelloCommand(BaseCommand):
     description = "Return the interactive welcome banner"
     examples = ["!/hello"]
 
-    def execute(self, args: Mapping[str, Any], state: ProxyState) -> CommandResult:
+    def execute(self, args: Mapping[str, Any], state: Any) -> CommandResult:
         state.hello_requested = True
         return CommandResult(self.name, True, "hello acknowledged")

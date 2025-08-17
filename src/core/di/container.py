@@ -11,7 +11,7 @@ from src.core.interfaces.di import (
     ServiceLifetime,
 )
 
-T = TypeVar('T')
+T = TypeVar("T")
 
 
 class ServiceDescriptor:
@@ -26,7 +26,7 @@ class ServiceDescriptor:
         instance: Any | None = None,
     ):
         """Initialize a service descriptor.
-        
+
         Args:
             service_type: The type of service being registered
             lifetime: The lifetime of the service
@@ -42,15 +42,19 @@ class ServiceDescriptor:
 
         # Validate that at least one implementation method is provided
         if not implementation_type and not implementation_factory and instance is None:
-            raise ValueError("Either implementation_type, implementation_factory, or instance must be provided")
+            raise ValueError(
+                "Either implementation_type, implementation_factory, or instance must be provided"
+            )
 
 
 class ServiceScope(IServiceScope):
     """Implementation of a service scope."""
 
-    def __init__(self, provider: ServiceProvider, parent_scope: ServiceScope | None = None):
+    def __init__(
+        self, provider: ServiceProvider, parent_scope: ServiceScope | None = None
+    ):
         """Initialize a service scope.
-        
+
         Args:
             provider: The service provider that created this scope
             parent_scope: The parent scope (if this is a nested scope)
@@ -76,9 +80,9 @@ class ServiceScope(IServiceScope):
 
         # Dispose any instances that implement disposable pattern
         for instance in self._instances.values():
-            if hasattr(instance, '__aenter__') and hasattr(instance, '__aexit__'):
+            if hasattr(instance, "__aenter__") and hasattr(instance, "__aexit__"):
                 await instance.__aexit__(None, None, None)
-            elif hasattr(instance, 'dispose') and callable(instance.dispose):
+            elif hasattr(instance, "dispose") and callable(instance.dispose):
                 await instance.dispose()
 
         self._instances.clear()
@@ -89,7 +93,7 @@ class ScopedServiceProvider(IServiceProvider):
 
     def __init__(self, root_provider: ServiceProvider, scope: ServiceScope):
         """Initialize a scoped service provider.
-        
+
         Args:
             root_provider: The root service provider
             scope: The scope this provider belongs to
@@ -118,7 +122,7 @@ class ServiceProvider(IServiceProvider):
 
     def __init__(self, descriptors: dict[type, ServiceDescriptor]):
         """Initialize a service provider.
-        
+
         Args:
             descriptors: The service descriptors to use for resolution
         """
@@ -140,7 +144,9 @@ class ServiceProvider(IServiceProvider):
         """Create a new service scope."""
         return ServiceScope(self)
 
-    def _get_service(self, service_type: type[T], scope: ServiceScope | None) -> T | None:
+    def _get_service(
+        self, service_type: type[T], scope: ServiceScope | None
+    ) -> T | None:
         """Internal method to get a service of the given type."""
         descriptor = self._descriptors.get(service_type)
         if descriptor is None:
@@ -163,7 +169,9 @@ class ServiceProvider(IServiceProvider):
 
         elif descriptor.lifetime == ServiceLifetime.SCOPED:
             if scope is None:
-                raise RuntimeError(f"Cannot resolve scoped service {service_type.__name__} from root provider")
+                raise RuntimeError(
+                    f"Cannot resolve scoped service {service_type.__name__} from root provider"
+                )
 
             # Check for cached scoped instance
             if service_type in scope._instances:
@@ -177,7 +185,9 @@ class ServiceProvider(IServiceProvider):
         else:  # TRANSIENT
             return self._create_instance(descriptor, scope)
 
-    def _create_instance(self, descriptor: ServiceDescriptor, scope: ServiceScope | None) -> Any:
+    def _create_instance(
+        self, descriptor: ServiceDescriptor, scope: ServiceScope | None
+    ) -> Any:
         """Create an instance of a service."""
         # Use factory if provided
         if descriptor.implementation_factory:
@@ -193,7 +203,8 @@ class ServiceProvider(IServiceProvider):
         try:
             signature = inspect.signature(impl_type)
             has_provider_param = any(
-                param.name == "service_provider" and param.annotation == IServiceProvider
+                param.name == "service_provider"
+                and param.annotation == IServiceProvider
                 for param in signature.parameters.values()
             )
         except (ValueError, TypeError):
@@ -223,7 +234,7 @@ class ServiceCollection(IServiceCollection):
         # If only service_type is provided, use it as the implementation type
         if implementation_type is None and implementation_factory is None:
             implementation_type = service_type
-            
+
         self._descriptors[service_type] = ServiceDescriptor(
             service_type=service_type,
             lifetime=ServiceLifetime.SINGLETON,
@@ -231,6 +242,16 @@ class ServiceCollection(IServiceCollection):
             implementation_factory=implementation_factory,
         )
         return self
+
+    def add_singleton_factory(
+        self,
+        service_type: type[T],
+        implementation_factory: Callable[[IServiceProvider], T],
+    ) -> IServiceCollection:
+        """Register a singleton service with a factory."""
+        return self.add_singleton(
+            service_type, implementation_factory=implementation_factory
+        )
 
     def add_transient(
         self,
@@ -242,7 +263,7 @@ class ServiceCollection(IServiceCollection):
         # If only service_type is provided, use it as the implementation type
         if implementation_type is None and implementation_factory is None:
             implementation_type = service_type
-            
+
         self._descriptors[service_type] = ServiceDescriptor(
             service_type=service_type,
             lifetime=ServiceLifetime.TRANSIENT,
@@ -261,7 +282,7 @@ class ServiceCollection(IServiceCollection):
         # If only service_type is provided, use it as the implementation type
         if implementation_type is None and implementation_factory is None:
             implementation_type = service_type
-            
+
         self._descriptors[service_type] = ServiceDescriptor(
             service_type=service_type,
             lifetime=ServiceLifetime.SCOPED,
@@ -282,3 +303,43 @@ class ServiceCollection(IServiceCollection):
     def build_service_provider(self) -> IServiceProvider:
         """Build a service provider with the registered services."""
         return ServiceProvider(self._descriptors.copy())
+
+    def register_app_services(self) -> None:
+        """Register all application services.
+
+        This is a placeholder method to satisfy the interface requirement.
+        Actual service registration is done in the application factory.
+        """
+
+    def register_singleton(
+        self,
+        service_type: type[T],
+        implementation_type: type[T] | None = None,
+        implementation_factory: Callable[[IServiceProvider], T] | None = None,
+    ) -> IServiceCollection:
+        """Alias for add_singleton to maintain compatibility."""
+        return self.add_singleton(
+            service_type, implementation_type, implementation_factory
+        )
+
+    def register_transient(
+        self,
+        service_type: type[T],
+        implementation_type: type[T] | None = None,
+        implementation_factory: Callable[[IServiceProvider], T] | None = None,
+    ) -> IServiceCollection:
+        """Alias for add_transient to maintain compatibility."""
+        return self.add_transient(
+            service_type, implementation_type, implementation_factory
+        )
+
+    def register_scoped(
+        self,
+        service_type: type[T],
+        implementation_type: type[T] | None = None,
+        implementation_factory: Callable[[IServiceProvider], T] | None = None,
+    ) -> IServiceCollection:
+        """Alias for add_scoped to maintain compatibility."""
+        return self.add_scoped(
+            service_type, implementation_type, implementation_factory
+        )

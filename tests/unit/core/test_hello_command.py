@@ -34,7 +34,7 @@ def test_hello_handler_can_handle(hello_handler):
 
 def test_hello_handler_execution(hello_handler, session_state):
     """Test that the HelloCommandHandler sets the hello_requested flag."""
-    result = hello_handler.handle(None, session_state)
+    result = hello_handler.handle("hello", {}, session_state)
     assert result.success
     assert "hello acknowledged" in result.message
     assert result.new_state is not None

@@ -57,6 +57,7 @@ dev = [
     "mdformat",
     "types-PyYAML",
     "respx",
+    "dependency-injector",
 ]
 
 [build-system]
@@ -65,3 +66,15 @@ build-backend = "setuptools.build_meta"
 
 [tool.pytest.ini_options]
 pythonpath = "."
+addopts = "-v --asyncio-mode=auto -m 'not integration'"
+markers = [
+    "integration: marks tests as integration tests (deselect with '-m \"not integration\"')",
+    "unit: marks tests as unit tests",
+    "network: marks tests that require network access (deselect with '-m \"not network\"')",
+    "regression: marks tests as regression tests",
+]
+filterwarnings = [
+    "ignore::pytest.PytestUnraisableExceptionWarning",
+    "ignore::DeprecationWarning",
+    "ignore::UserWarning:pydantic._internal._fields",
+]

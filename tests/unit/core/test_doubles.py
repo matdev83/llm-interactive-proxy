@@ -64,8 +64,6 @@ class MockServiceProvider(IServiceProvider):
     def create_scope(self) -> IServiceScope:
         return MockServiceScope(self)
 
-    
-
 
 class MockServiceScope(IServiceScope):
     """A mock service scope for testing."""
@@ -79,9 +77,6 @@ class MockServiceScope(IServiceScope):
 
     async def dispose(self) -> None:
         pass
-
-
-
 
 
 #
@@ -103,17 +98,17 @@ class MockBackendService(IBackendService):
         self, request: ChatRequest, stream: bool = False
     ) -> ChatResponse | AsyncIterator[StreamingChatResponse]:
         self.calls.append(request)
-        
+
         if stream:
             if not self.stream_responses:
                 raise BackendError("No stream responses configured")
             responses = self.stream_responses.pop(0)
-            
+
             async def response_iterator():
                 for response in responses:
                     yield response
                     await asyncio.sleep(0.01)
-            
+
             return response_iterator()
         else:
             if not self.responses:
@@ -128,10 +123,10 @@ class MockBackendService(IBackendService):
     ) -> tuple[bool, str | None]:
         if backend not in self.validations:
             return False, f"Backend {backend} not supported"
-        
+
         if model not in self.validations[backend]:
             return False, f"Model {model} not supported on backend {backend}"
-        
+
         is_valid = self.validations[backend][model]
         error = None if is_valid else f"Invalid model {model} for backend {backend}"
         return is_valid, error
@@ -153,10 +148,10 @@ class MockSessionService(ISessionService):
                 state=SessionState(
                     backend_config=BackendConfig(),
                     reasoning_config=ReasoningConfig(),
-                    loop_config=LoopDetectionConfig()
+                    loop_config=LoopDetectionConfig(),
                 ),
                 created_at=datetime.now(timezone.utc),
-                last_active_at=datetime.now(timezone.utc)
+                last_active_at=datetime.now(timezone.utc),
             )
         return self.sessions[session_id]
 
@@ -188,14 +183,12 @@ class MockCommandService(ICommandService):
         self, messages: list[Any], session_id: str
     ) -> ProcessedResult:
         self.processed.append(messages)
-        
+
         if not self.results:
             return ProcessedResult(
-                modified_messages=messages,
-                command_executed=False,
-                command_results=[]
+                modified_messages=messages, command_executed=False, command_results=[]
             )
-        
+
         return self.results.pop(0)
 
     async def register_command(self, command_name: str, command_handler: Any) -> None:
@@ -222,7 +215,7 @@ class MockRateLimiter(IRateLimiter):
                 remaining=100,
                 reset_at=None,
                 limit=100,
-                time_window=60
+                time_window=60,
             )
         return self.limits[key]
 
@@ -239,7 +232,7 @@ class MockRateLimiter(IRateLimiter):
             remaining=limit,
             reset_at=None,
             limit=limit,
-            time_window=time_window
+            time_window=time_window,
         )
 
 
@@ -258,16 +251,20 @@ class MockLoopDetector(ILoopDetector):
             return LoopDetectionResult(has_loop=False)
         return self.results.pop(0)
 
-    async def register_tool_call(self, tool_name: str, arguments: dict[str, Any]) -> None:
+    async def register_tool_call(
+        self, tool_name: str, arguments: dict[str, Any]
+    ) -> None:
         self.tool_calls.append({"name": tool_name, "arguments": arguments})
 
     async def clear_history(self) -> None:
         self.tool_calls.clear()
 
-    async def configure(self, 
-                      _min_pattern_length: int = 100,
-                      _max_pattern_length: int = 8000,
-                      _min_repetitions: int = 2) -> None:
+    async def configure(
+        self,
+        _min_pattern_length: int = 100,
+        _max_pattern_length: int = 8000,
+        _min_repetitions: int = 2,
+    ) -> None:
         pass
 
     def add_result(self, result: LoopDetectionResult) -> None:
@@ -286,12 +283,14 @@ class MockResponseProcessor(IResponseProcessor):
         self.results: list[ProcessedResponse] = []
         self.stream_results: list[list[ProcessedResponse]] = []
 
-    async def process_response(self, response: Any, session_id: str) -> ProcessedResponse:
+    async def process_response(
+        self, response: Any, session_id: str
+    ) -> ProcessedResponse:
         self.processed.append(response)
-        
+
         if not self.results:
             return ProcessedResponse(content="Mock response")
-        
+
         return self.results.pop(0)
 
     def process_streaming_response(
@@ -299,22 +298,22 @@ class MockResponseProcessor(IResponseProcessor):
     ) -> AsyncIterator[ProcessedResponse]:
         # This is a simplified implementation for testing
         # In a real implementation, we'd process the stream
-        
+
         async def response_generator():
             chunks = []
             async for chunk in response_iter:
                 chunks.append(chunk)
-            
+
             self.processed.append(chunks)
-            
+
             if not self.stream_results:
                 yield ProcessedResponse(content="Mock chunk")
                 return
-            
+
             results = self.stream_results.pop(0)
             for result in results:
                 yield result
-        
+
         return response_generator()
 
     async def register_middleware(
@@ -362,17 +361,17 @@ class MockSessionRepository(ISessionRepository):
     async def cleanup_expired(self, max_age_seconds: int) -> int:
         count = 0
         current_time = datetime.now(timezone.utc)
-        
+
         expired_ids = [
             session_id
             for session_id, session in self.sessions.items()
             if (current_time - session.last_active_at).total_seconds() > max_age_seconds
         ]
-        
+
         for session_id in expired_ids:
             del self.sessions[session_id]
             count += 1
-        
+
         return count
 
 
@@ -389,44 +388,44 @@ class TestDataBuilder:
             session_id=session_id,
             state=SessionState(
                 backend_config=BackendConfig(
-                    backend_type="openai", 
-                    model="gpt-4",
-                    interactive_mode=True
+                    backend_type="openai", model="gpt-4", interactive_mode=True
                 ),
-                reasoning_config=ReasoningConfig(
-                    temperature=0.7
-                ),
-                loop_config=LoopDetectionConfig(
-                    loop_detection_enabled=True
-                )
+                reasoning_config=ReasoningConfig(temperature=0.7),
+                loop_config=LoopDetectionConfig(loop_detection_enabled=True),
             ),
             created_at=datetime.now(timezone.utc),
-            last_active_at=datetime.now(timezone.utc)
+            last_active_at=datetime.now(timezone.utc),
         )
-    
+
     @staticmethod
-    def create_interaction(prompt: str = "Hello", response: str = "Hi there!") -> SessionInteraction:
+    def create_interaction(
+        prompt: str = "Hello", response: str = "Hi there!"
+    ) -> SessionInteraction:
         """Create a test interaction."""
         return SessionInteraction(
             prompt=prompt,
             handler="backend",
             backend="openai",
             model="gpt-4",
-            response=response
+            response=response,
         )
-    
+
     @staticmethod
-    def create_chat_request(messages: list[dict[str, Any]] | None = None) -> ChatRequest:
+    def create_chat_request(
+        messages: list[dict[str, Any]] | None = None,
+    ) -> ChatRequest:
         """Create a test chat request."""
         if messages is None:
             messages = [{"role": "user", "content": "Hello"}]
-        
+
         return ChatRequest(
-            messages=[{"role": item["role"], "content": item["content"]} for item in messages],
+            messages=[
+                {"role": item["role"], "content": item["content"]} for item in messages
+            ],
             model="gpt-4",
-            stream=False
+            stream=False,
         )
-    
+
     @staticmethod
     def create_chat_response(content: str = "Hello there!") -> ChatResponse:
         """Create a test chat response."""
@@ -434,17 +433,12 @@ class TestDataBuilder:
             id="resp-123",
             created=int(datetime.now(timezone.utc).timestamp()),
             model="gpt-4",
-            choices=[{
-                "index": 0,
-                "message": {
-                    "role": "assistant", 
-                    "content": content
-                },
-                "finish_reason": "stop"
-            }],
-            usage={
-                "prompt_tokens": 10,
-                "completion_tokens": 20,
-                "total_tokens": 30
-            }
+            choices=[
+                {
+                    "index": 0,
+                    "message": {"role": "assistant", "content": content},
+                    "finish_reason": "stop",
+                }
+            ],
+            usage={"prompt_tokens": 10, "completion_tokens": 20, "total_tokens": 30},
         )

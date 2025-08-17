@@ -5,7 +5,7 @@ This demonstrates how to use the LLM Interactive Proxy as if it were
 the Google Gemini API, with proper request/response formats.
 """
 import json
-from typing import Any, Dict
+from typing import Any
 
 import requests
 
@@ -28,7 +28,7 @@ class GeminiAPIClient:
         self.api_key = api_key
         self.session = requests.Session()
 
-    def _get_headers(self) -> Dict[str, str]:
+    def _get_headers(self) -> dict[str, str]:
         """Get headers for Gemini API requests."""
         return {
             "Content-Type": "application/json",
@@ -37,7 +37,7 @@ class GeminiAPIClient:
             "Authorization": f"Bearer {self.api_key}"
         }
 
-    def list_models(self) -> Dict[str, Any]:
+    def list_models(self) -> dict[str, Any]:
         """
         List available models in Gemini API format.
         
@@ -49,7 +49,7 @@ class GeminiAPIClient:
         response.raise_for_status()
         return response.json()
 
-    def generate_content(self, model: str, contents: list, **kwargs) -> Dict[str, Any]:
+    def generate_content(self, model: str, contents: list, **kwargs) -> dict[str, Any]:
         """
         Generate content using Gemini API format.
         

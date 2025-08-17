@@ -1,3 +1,4 @@
+import pytest
 from unittest.mock import AsyncMock, patch
 
 
@@ -23,7 +24,8 @@ def test_first_reply_no_automatic_banner(interactive_client):
     mock_method.assert_called_once()
 
 
-def test_hello_command_returns_banner(interactive_client):
+@pytest.mark.asyncio
+async def test_hello_command_returns_banner(interactive_client):
     with patch.object(
         interactive_client.app.state.openrouter_backend,
         "chat_completions",
@@ -35,10 +37,8 @@ def test_hello_command_returns_banner(interactive_client):
     assert resp.status_code == 200
     data = resp.json()
     assert data["id"] == "proxy_cmd_processed"
-    message = data["choices"][0]["message"]
-    # EXPECT PLAIN TEXT NOW
-    project_name = interactive_client.app.state.project_metadata["name"]
-    project_version = interactive_client.app.state.project_metadata["version"]
+    project_name = interactive_client.app.state.app_config.name
+    project_version = interactive_client.app.state.app_config.version
     # Get the actual backends from the app state to make test robust
     backend_info = []
     if (
@@ -77,6 +77,7 @@ def test_hello_command_returns_banner(interactive_client):
         "hello acknowledged",  # Confirmation from HelloCommand
     ]
     expected_content = "\n".join(expected_lines)
+    message = data["choices"][0]["message"]
     content = message["content"]
     assert content == expected_content
     assert "<attempt_completion>" not in content  # Should be plain

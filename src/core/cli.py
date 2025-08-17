@@ -2,14 +2,12 @@ import argparse
 import logging
 import os
 import sys
-from collections.abc import Callable
-from typing import Any
 
 import colorama
 import uvicorn
 
 from src.command_prefix import validate_command_prefix
-from src.core.config_adapter import _load_config
+from src.core.config.app_config import AppConfig, LogLevel, load_config
 
 
 def _check_privileges() -> None:
@@ -139,110 +137,142 @@ def parse_cli_args(argv: list[str] | None = None) -> argparse.Namespace:
     return parser.parse_args(argv)
 
 
-def apply_cli_args(args: argparse.Namespace) -> dict[str, Any]:
-    _apply_env_mappings(args)
-    _validate_and_apply_prefix(args)
-    _apply_feature_flags(args)
-    _apply_security_flags(args)
-    return _load_config()
+def apply_cli_args(args: argparse.Namespace) -> AppConfig:
+    cfg = load_config()
+
+    if args.host is not None:
+        cfg.host = args.host
+    if args.port is not None:
+        cfg.port = args.port
+        os.environ["PROXY_PORT"] = str(args.port)
+    if args.timeout is not None:
+        cfg.proxy_timeout = args.timeout
+    if args.command_prefix is not None:
+        cfg.command_prefix = args.command_prefix
+        os.environ["COMMAND_PREFIX"] = args.command_prefix
+    if args.log_file is not None:
+        cfg.logging.log_file = args.log_file
+    if args.log_level is not None:
+        cfg.logging.level = LogLevel[args.log_level]
+
+    # Backend-specific keys
+    if args.default_backend is not None:
+        cfg.backends.default_backend = args.default_backend
+        os.environ["LLM_BACKEND"] = args.default_backend
+    if args.openrouter_api_key is not None:
+        cfg.backends.openrouter.api_key = args.openrouter_api_key
+    if args.openrouter_api_base_url is not None:
+        cfg.backends.openrouter.api_url = args.openrouter_api_base_url
+    if args.gemini_api_key is not None:
+        cfg.backends.gemini.api_key = args.gemini_api_key
+        os.environ["GEMINI_API_KEY"] = args.gemini_api_key
+    if args.gemini_api_base_url is not None:
+        cfg.backends.gemini.api_url = args.gemini_api_base_url
+    if args.zai_api_key is not None:
+        cfg.backends.zai.api_key = args.zai_api_key
+
+    # Inverted boolean logic flags
+    if args.disable_interactive_mode is not None:
+        cfg.session.default_interactive_mode = not args.disable_interactive_mode
+        os.environ["DISABLE_INTERACTIVE_MODE"] = (
+            "True" if args.disable_interactive_mode else "False"
+        )
+    if args.disable_auth is not None:
+        cfg.auth.disable_auth = args.disable_auth
+    if args.force_set_project is not None:
+        cfg.session.force_set_project = args.force_set_project
+        os.environ["FORCE_SET_PROJECT"] = "true" if args.force_set_project else "false"
+
+    # These still rely on environment variables for now
+    if args.disable_redact_api_keys_in_prompts is not None:
+        cfg.auth.redact_api_keys_in_prompts = (
+            not args.disable_redact_api_keys_in_prompts
+        )
+    if args.disable_interactive_commands is not None:
+        cfg.session.disable_interactive_commands = args.disable_interactive_commands
+    if args.disable_accounting is not None:
+        os.environ["DISABLE_ACCOUNTING"] = (
+            "true" if args.disable_accounting else "false"
+        )
+
+    _validate_and_apply_prefix(cfg)
+    _apply_feature_flags(cfg)
+    _apply_security_flags(cfg)
+    return cfg
 
 
-def _apply_env_mappings(args: argparse.Namespace) -> None:
-    mappings = {
-        "default_backend": "LLM_BACKEND",
-        "openrouter_api_key": "OPENROUTER_API_KEY",
-        "openrouter_api_base_url": "OPENROUTER_API_BASE_URL",
-        "gemini_api_key": "GEMINI_API_KEY",
-        "gemini_api_base_url": "GEMINI_API_BASE_URL",
-        "zai_api_key": "ZAI_API_KEY",
-        "host": "PROXY_HOST",
-        "port": "PROXY_PORT",
-        "timeout": "PROXY_TIMEOUT",
-        "command_prefix": "COMMAND_PREFIX",
-        "disable_interactive_mode": "DISABLE_INTERACTIVE_MODE",
-        "disable_auth": "DISABLE_AUTH",
-        "force_set_project": "FORCE_SET_PROJECT",
-        "disable_interactive_commands": "DISABLE_INTERACTIVE_COMMANDS",
-        "disable_accounting": "DISABLE_ACCOUNTING",
-    }
-    for attr, env_name in mappings.items():
-        value = getattr(args, attr)
-        if value is not None:
-            os.environ[env_name] = str(value)
-
-
-def _validate_and_apply_prefix(args: argparse.Namespace) -> None:
-    if args.command_prefix is None:
+def _validate_and_apply_prefix(cfg: AppConfig) -> None:
+    if cfg.command_prefix is None:
         return
-    err = validate_command_prefix(str(args.command_prefix))
+    err = validate_command_prefix(str(cfg.command_prefix))
     if err:
         raise ValueError(f"Invalid command prefix: {err}")
 
 
-def _apply_feature_flags(args: argparse.Namespace) -> None:
-    # Force enable all new SOLID architecture components
-    os.environ["USE_NEW_SESSION_SERVICE"] = "true"
-    os.environ["USE_NEW_COMMAND_SERVICE"] = "true"
-    os.environ["USE_NEW_BACKEND_SERVICE"] = "true"
-    os.environ["USE_NEW_REQUEST_PROCESSOR"] = "true"
-    os.environ["ENABLE_DUAL_MODE"] = "true"
-    
-    # Apply other feature flags from args
-    if getattr(args, "disable_redact_api_keys_in_prompts", None):
-        os.environ["REDACT_API_KEYS_IN_PROMPTS"] = "false"
-    if getattr(args, "force_set_project", None):
-        os.environ["FORCE_SET_PROJECT"] = "true"
-    if getattr(args, "disable_interactive_commands", None):
-        os.environ["DISABLE_INTERACTIVE_COMMANDS"] = "true"
-    if getattr(args, "disable_accounting", None):
-        os.environ["DISABLE_ACCOUNTING"] = "true"
+def _apply_feature_flags(cfg: AppConfig) -> None:
+    # Apply other feature flags from cfg
+    # These flags are now directly applied in apply_cli_args
+    pass
 
 
-def _apply_security_flags(args: argparse.Namespace) -> None:
-    if not getattr(args, "disable_auth", None):
+def _apply_security_flags(cfg: AppConfig) -> None:
+    if not cfg.auth.disable_auth:
         return
-    os.environ["DISABLE_AUTH"] = "true"
     # Security: Force localhost when auth is disabled via CLI
-    if getattr(args, "host", None) and args.host != "127.0.0.1":
+    if cfg.host != "127.0.0.1":
         logging.warning(
             "Authentication disabled via CLI. Forcing host to 127.0.0.1 for security (was: %s)",
-            args.host,
+            cfg.host,
         )
-    os.environ["PROXY_HOST"] = "127.0.0.1"
+    cfg.host = "127.0.0.1"
 
 
 def main(
     argv: list[str] | None = None,
-    build_app_fn: Callable[[dict[str, Any] | None], Any] | None = None,
+    *,
+    build_app_fn=None,
 ) -> None:
     if os.name == "nt":
         colorama.init()
 
     args = parse_cli_args(argv)
 
-    if _maybe_run_as_daemon(args):
-        return
+    cfg = apply_cli_args(args)  # <--- cfg is assigned here
 
-    cfg = apply_cli_args(args)
-    _configure_logging(args)
+    if _maybe_run_as_daemon(args, cfg):
+        return
+    _configure_logging(cfg)
     if not args.allow_admin:
         _check_privileges()
 
     _enforce_localhost_if_auth_disabled(cfg)
 
-    if build_app_fn is None:
-        from src.main import build_app as build_app_fn  # type: ignore[assignment]
-
+    # Allow tests to inject a custom build_app function (mock) by passing
+    # `build_app_fn`. The test mocks expect to be called with cfg and
+    # config_file keyword.
     config_file = getattr(args, "config_file", None)
     if build_app_fn is not None:
-        app = build_app_fn(cfg, config_file=config_file)  # type: ignore[call-arg]
-        uvicorn.run(app, host=cfg["proxy_host"], port=cfg["proxy_port"])
+        app = build_app_fn(cfg, config_file=config_file)
+    else:
+        from src.core.app.application_factory import build_app
+
+        # Backwards-compatible call: if the caller provided a cfg-based
+        # build step, prefer that interface; otherwise call the normal
+        # build_app which will derive config from environment/files.
+        try:
+            app = build_app(cfg)
+        except TypeError:
+            # Older build_app implementations may not accept cfg; fall
+            # back to calling with only config_file/path.
+            app = build_app(config_file=config_file)
+
+    uvicorn.run(app, host=cfg.host, port=cfg.port)
 
 
-def _maybe_run_as_daemon(args: argparse.Namespace) -> bool:
+def _maybe_run_as_daemon(args: argparse.Namespace, cfg: AppConfig) -> bool:
     if not args.daemon:
         return False
-    if not args.log_file:
+    if not cfg.logging.log_file:
         raise SystemExit("--log must be specified when running in daemon mode.")
     if os.name == "nt":
         import subprocess
@@ -261,24 +291,27 @@ def _maybe_run_as_daemon(args: argparse.Namespace) -> bool:
     return True
 
 
-def _configure_logging(args: argparse.Namespace) -> None:
+def _configure_logging(cfg: AppConfig) -> None:
     logging.basicConfig(
-        level=getattr(logging, args.log_level),
+        level=getattr(logging, cfg.logging.level.value),
         format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-        filename=args.log_file,
+        filename=cfg.logging.log_file,
     )
 
 
-def _enforce_localhost_if_auth_disabled(cfg: dict[str, Any]) -> None:
-    if not cfg.get("disable_auth"):
+from src.core.config.app_config import AppConfig
+
+
+def _enforce_localhost_if_auth_disabled(cfg: AppConfig) -> None:
+    if not cfg.auth.disable_auth:
         return
     logging.warning("Client authentication is DISABLED")
-    if cfg.get("proxy_host") != "127.0.0.1":
+    if cfg.host != "127.0.0.1":
         logging.warning(
             "Authentication disabled but host is %s. Forcing host to 127.0.0.1 for security.",
-            cfg.get("proxy_host"),
+            cfg.host,
         )
-        cfg["proxy_host"] = "127.0.0.1"
+        cfg.host = "127.0.0.1"
 
 
 if __name__ == "__main__":

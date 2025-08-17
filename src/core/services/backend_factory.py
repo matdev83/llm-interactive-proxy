@@ -40,11 +40,14 @@ class BackendFactory:
             BackendType.ZAI: ZAIConnector,
         }
 
-    def create_backend(self, backend_type: str) -> LLMBackend:
+    def create_backend(
+        self, backend_type: str, api_key: str | None = None
+    ) -> LLMBackend:
         """Create a backend instance of the specified type.
 
         Args:
             backend_type: The type of backend to create
+            api_key: The API key to use for the backend (deprecated, use initialize_backend instead)
 
         Returns:
             A new LLM backend instance
@@ -56,9 +59,9 @@ class BackendFactory:
             raise ValueError(f"Unsupported backend type: {backend_type}")
 
         backend_class = self._backend_types[backend_type]
-        backend = backend_class(self._client)
-
-        return backend
+        # Backend connectors only accept the client in constructor
+        # API keys are set during initialization
+        return backend_class(self._client)
 
     async def initialize_backend(
         self, backend: LLMBackend, config: dict[str, Any]

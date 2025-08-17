@@ -1,13 +1,16 @@
+import json
 import os
 import socket
+import tempfile
 import threading
 import time
+from pathlib import Path
 from typing import Any
 
 import pytest
 import requests
 import uvicorn
-from src.main import build_app
+from src.core.app.application_factory import build_app
 
 # Optional client libraries - skip related scenarios if missing.
 try:
@@ -32,7 +35,17 @@ class _ProxyServer:
         self.cfg = cfg
         # Pick an ephemeral port so tests can run in parallel
         self.port = self._find_free_port()
-        self.app = build_app(cfg)
+
+        self.config_file_path: Path | None = (
+            None  # To store the path of the temporary config file
+        )
+
+        # Create a temporary config file
+        with tempfile.NamedTemporaryFile(mode="w", delete=False, suffix=".json") as f:
+            json.dump(cfg, f)
+            self.config_file_path = Path(f.name)
+
+        self.app = build_app(config_path=str(self.config_file_path))
         self.server: uvicorn.Server | None = None
         self._thread: threading.Thread | None = None
 
@@ -76,6 +89,10 @@ class _ProxyServer:
             self.server.should_exit = True  # type: ignore[attr-defined]
         if self._thread:
             self._thread.join(timeout=5)
+
+        # Clean up the temporary config file
+        if self.config_file_path and self.config_file_path.exists():
+            self.config_file_path.unlink()  # Delete the file
 
 
 ######################################################################

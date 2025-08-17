@@ -1,0 +1,452 @@
+# Developer Guide
+
+This guide provides an overview of how to work with the LLM Interactive Proxy codebase. It covers the key architectural concepts, development workflow, and best practices.
+
+## Architecture Overview
+
+The LLM Interactive Proxy follows a clean architecture approach based on SOLID principles:
+
+- **S**ingle Responsibility Principle: Each class has one responsibility
+- **O**pen/Closed Principle: Open for extension, closed for modification
+- **L**iskov Substitution Principle: Subtypes must be substitutable for their base types
+- **I**nterface Segregation Principle: Clients shouldn't depend on methods they don't use
+- **D**ependency Inversion Principle: High-level modules depend on abstractions, not concrete implementations
+
+### Key Architectural Layers
+
+1. **Interface Layer** (`src/core/interfaces/`)
+   - Contains interfaces (abstract base classes) that define contracts
+   - Services interact with each other through these interfaces
+   - Enables dependency inversion and clean testing
+
+2. **Domain Layer** (`src/core/domain/`)
+   - Contains business entities and value objects
+   - Implements domain business logic
+   - Free from infrastructure concerns
+   - Uses immutable models (frozen Pydantic models) for data integrity
+
+3. **Application Layer** (`src/core/app/`)
+   - Orchestrates the flow of the application
+   - Connects domain layer to infrastructure
+   - Contains controllers and middleware
+
+4. **Service Layer** (`src/core/services/`)
+   - Implements the business use cases
+   - Orchestrates domain objects to accomplish tasks
+   - Depends on interfaces, not concrete implementations
+
+5. **Infrastructure Layer** (`src/core/repositories/`, `src/connectors/`)
+   - Implements interfaces defined in core
+   - Handles data storage and external services
+   - Adapters for third-party libraries and APIs
+
+## Development Workflow
+
+### Setting Up Development Environment
+
+1. Clone the repository
+2. Create a virtual environment: `python -m venv .venv`
+3. Activate the virtual environment:
+   - Windows: `.venv\Scripts\activate`
+   - Unix: `source .venv/bin/activate`
+4. Install dependencies: `pip install -e .[dev]`
+5. Create a `.env` file with your API keys (see README.md)
+
+### Running the Application
+
+```bash
+# Run with default settings
+python -m src.core.cli
+
+# Run with custom configuration
+python -m src.core.cli --config path/to/config.yaml
+
+# Run with different backends
+python -m src.core.cli --default-backend openrouter
+python -m src.core.cli --default-backend gemini
+python -m src.core.cli --default-backend anthropic
+```
+
+### Running Tests
+
+```bash
+# Run all tests
+python -m pytest
+
+# Run specific test file
+python -m pytest tests/unit/test_backend_service.py
+
+# Run with coverage
+python -m pytest --cov=src
+```
+
+### Linting and Formatting
+
+```bash
+# Run ruff
+python -m ruff check src
+
+# Run black
+python -m black src
+
+# Run mypy
+python -m mypy src
+```
+
+## Architecture Patterns and Best Practices
+
+### 1. Interface-Driven Development
+
+Define interfaces before implementations:
+
+```python
+# 1. Define the interface
+from abc import ABC, abstractmethod
+
+class ISessionRepository(ABC):
+    @abstractmethod
+    async def get_session(self, session_id: str) -> Session:
+        """Get a session by ID."""
+        pass
+
+    @abstractmethod
+    async def add_session(self, session: Session) -> None:
+        """Add a session."""
+        pass
+
+# 2. Implement the interface
+class InMemorySessionRepository(ISessionRepository):
+    def __init__(self):
+        self._sessions = {}
+
+    async def get_session(self, session_id: str) -> Session:
+        return self._sessions.get(session_id)
+
+    async def add_session(self, session: Session) -> None:
+        self._sessions[session.session_id] = session
+```
+
+### 2. Dependency Injection
+
+Use dependency injection to manage dependencies:
+
+```python
+# 1. Register services
+services = get_service_collection()
+services.add_singleton(ISessionRepository, InMemorySessionRepository)
+services.add_singleton(ISessionService, SessionService)
+provider = services.build_service_provider()
+
+# 2. Use services
+class ChatController:
+    def __init__(self, session_service: ISessionService):
+        self._session_service = session_service
+
+    async def handle_request(self, request: Request):
+        session = await self._session_service.get_session(request.session_id)
+        # ...
+```
+
+### 3. Domain Models
+
+Use immutable domain models:
+
+```python
+from pydantic import BaseModel, Field
+
+class SessionState(BaseModel):
+    """Session state configuration."""
+    
+    backend_config: BackendConfig = Field(default_factory=BackendConfig)
+    reasoning_config: ReasoningConfig = Field(default_factory=ReasoningConfig)
+    loop_detection_config: LoopDetectionConfig = Field(default_factory=LoopDetectionConfig)
+    project: str | None = None
+    project_dir: str | None = None
+    interactive_mode: bool = True
+    interactive_just_enabled: bool = False
+    hello_requested: bool = False
+    is_cline_agent: bool = False
+    
+    class Config:
+        frozen = True  # Make the model immutable
+        
+    def with_project(self, project: str) -> "SessionState":
+        """Return a new state with updated project."""
+        return self.copy(update={"project": project})
+```
+
+### 4. Command Pattern
+
+Use command handlers for interactive commands:
+
+```python
+class SetProjectHandler(CommandHandler):
+    """Handler for the set(project=...) command."""
+    
+    def can_handle(self, command: Command) -> bool:
+        return (
+            command.name == "set"
+            and len(command.args) == 1
+            and "project" in command.args
+        )
+    
+    async def handle(self, command: Command, context: CommandContext) -> CommandResult:
+        project_name = command.args["project"]
+        
+        # Update the session state
+        session = context.session
+        session.state = session.state.with_project(project_name)
+        
+        # Save the session
+        await context.session_service.update_session(session)
+        
+        return CommandResult(
+            success=True,
+            message=f"Project set to: {project_name}",
+        )
+```
+
+### 5. Middleware Pipeline
+
+Use middleware for cross-cutting concerns:
+
+```python
+class ResponseProcessor(IResponseProcessor):
+    """Processes responses through a middleware pipeline."""
+    
+    def __init__(self):
+        self._middleware = []
+    
+    def register_middleware(self, middleware: IResponseMiddleware) -> None:
+        """Register middleware in the pipeline."""
+        self._middleware.append(middleware)
+    
+    async def process_response(self, response: Any, context: ResponseContext) -> Any:
+        """Process a response through the middleware pipeline."""
+        current_response = response
+        
+        for middleware in self._middleware:
+            current_response = await middleware.process(current_response, context)
+        
+        return current_response
+```
+
+### 6. Repository Pattern
+
+Use repositories for data access:
+
+```python
+class InMemorySessionRepository(ISessionRepository):
+    """In-memory implementation of session repository."""
+    
+    def __init__(self):
+        self._sessions = {}
+    
+    async def get_session(self, session_id: str) -> Session | None:
+        """Get a session by ID."""
+        return self._sessions.get(session_id)
+    
+    async def add_session(self, session: Session) -> None:
+        """Add a session."""
+        self._sessions[session.session_id] = session
+    
+    async def update_session(self, session: Session) -> None:
+        """Update a session."""
+        self._sessions[session.session_id] = session
+```
+
+### 7. Factory Pattern
+
+Use factories for creating complex objects:
+
+```python
+class BackendFactory(IBackendFactory):
+    """Factory for creating backend instances."""
+    
+    def __init__(self, http_client: httpx.AsyncClient):
+        self._http_client = http_client
+        self._backend_types = {}
+    
+    def register_backend_type(self, backend_type: str, factory: Callable[[dict], IBackend]) -> None:
+        """Register a backend type."""
+        self._backend_types[backend_type] = factory
+    
+    def create_backend(self, backend_type: str, config: dict) -> IBackend:
+        """Create a backend instance."""
+        factory = self._backend_types.get(backend_type)
+        if factory is None:
+            raise ValueError(f"Unknown backend type: {backend_type}")
+        
+        return factory(config)
+```
+
+## Testing Guidelines
+
+### 1. Unit Testing
+
+Test individual components in isolation:
+
+```python
+def test_session_service_get_session():
+    # Arrange
+    session_id = "test_session"
+    session = Session(session_id=session_id)
+    
+    repository = Mock(spec=ISessionRepository)
+    repository.get_session.return_value = session
+    
+    service = SessionService(repository)
+    
+    # Act
+    result = await service.get_session(session_id)
+    
+    # Assert
+    assert result == session
+    repository.get_session.assert_called_once_with(session_id)
+```
+
+### 2. Integration Testing
+
+Test interaction between components:
+
+```python
+@pytest.mark.asyncio
+async def test_request_processor_with_command():
+    # Arrange
+    app = create_test_app()
+    command_service = app.state.service_provider.get_service(ICommandService)
+    session_service = app.state.service_provider.get_service(ISessionService)
+    processor = RequestProcessor(command_service, session_service, ...)
+    
+    # Create test request with command
+    request = ChatRequest(
+        model="test-model",
+        messages=[{"role": "user", "content": "!/set(project=test)"}],
+    )
+    
+    # Act
+    result = await processor.process_request(request)
+    
+    # Assert
+    assert "Project set to: test" in result.choices[0].message.content
+```
+
+### 3. End-to-End Testing
+
+Test complete request flows:
+
+```python
+def test_chat_completion_endpoint():
+    # Arrange
+    app = create_test_app()
+    client = TestClient(app)
+    
+    # Act
+    response = client.post(
+        "/v2/chat/completions",
+        json={
+            "model": "test-model",
+            "messages": [{"role": "user", "content": "Hello, world!"}],
+        },
+    )
+    
+    # Assert
+    assert response.status_code == 200
+    assert "content" in response.json()["choices"][0]["message"]
+```
+
+## Common Development Tasks
+
+### 1. Adding a New Backend
+
+1. Create a new connector class in `src/connectors/`:
+
+```python
+class NewBackend(IBackend):
+    def __init__(self, http_client: httpx.AsyncClient, config: dict):
+        self._http_client = http_client
+        self._config = config
+        
+    async def call_completion(self, request: ChatRequest, stream: bool) -> ChatResponse | AsyncGenerator[ChatResponseChunk, None]:
+        # Implement API call logic
+        pass
+```
+
+2. Register the backend type in `BackendFactory`:
+
+```python
+factory.register_backend_type("new-backend", lambda config: NewBackend(http_client, config))
+```
+
+3. Update configuration to include the new backend.
+
+### 2. Adding a New Command
+
+1. Create a new command handler class in `src/core/commands/handlers/`:
+
+```python
+class NewCommandHandler(CommandHandler):
+    def can_handle(self, command: Command) -> bool:
+        return command.name == "new-command"
+        
+    async def handle(self, command: Command, context: CommandContext) -> CommandResult:
+        # Implement command logic
+        return CommandResult(success=True, message="Command executed successfully")
+```
+
+2. Register the handler in the command registry:
+
+```python
+registry.register_handler(NewCommandHandler())
+```
+
+### 3. Adding a New Middleware
+
+1. Create a new middleware class in `src/core/services/`:
+
+```python
+class NewMiddleware(IResponseMiddleware):
+    async def process(self, response: Any, context: ResponseContext) -> Any:
+        # Implement middleware logic
+        return response
+```
+
+2. Register the middleware in the response processor:
+
+```python
+response_processor.register_middleware(NewMiddleware())
+```
+
+## Debugging Tips
+
+### 1. Enable Debug Logging
+
+```bash
+python -m src.core.cli --log-level debug
+```
+
+### 2. Use the `debug_streaming.py` Script
+
+```bash
+python debug_streaming.py
+```
+
+### 3. Use the Vulture Tool to Find Dead Code
+
+```bash
+python -m vulture src
+```
+
+### 4. Profile Performance
+
+```bash
+python -m cProfile -o profile.pstats -m src.core.cli
+python -m pstats profile.pstats
+```
+
+## Further Reading
+
+- See `docs/ARCHITECTURE.md` for detailed architecture information
+- See `docs/API_REFERENCE.md` for API documentation
+- See `docs/CONFIGURATION.md` for configuration options
+- See `docs/FAILOVER_ROUTES.md` for failover routing information
