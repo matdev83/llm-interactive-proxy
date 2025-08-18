@@ -20,6 +20,15 @@ def mock_request():
     mock.query_params = {}
     mock.client.host = "127.0.0.1"
     mock.method = "GET"
+
+    # Set up app.state with auth disabled = False to ensure auth checks run
+    mock.app = MagicMock()
+    mock.app.state = MagicMock()
+    mock.app.state.disable_auth = False
+    mock.app.state.app_config = MagicMock()
+    mock.app.state.app_config.auth = MagicMock()
+    mock.app.state.app_config.auth.disable_auth = False
+
     return mock
 
 

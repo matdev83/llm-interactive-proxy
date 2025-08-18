@@ -20,13 +20,34 @@ def test_env() -> None:
 
 
 @pytest.fixture
-def app_client(test_env: None) -> TestClient:
+async def app_client(test_env: None) -> TestClient:
     """Create a test client with the application."""
-    app, _ = build_app()
+    app, config = build_app()
+
+    # Disable auth for tests
+    app.state.disable_auth = True
+    if hasattr(app.state, "app_config") and hasattr(app.state.app_config, "auth"):
+        app.state.app_config.auth.disable_auth = True
+
+    # Ensure service provider is initialized
+    if not hasattr(app.state, "service_provider") or not app.state.service_provider:
+        from src.core.app.application_factory import ApplicationBuilder
+
+        # Initialize services
+        builder = ApplicationBuilder()
+        provider = await builder._initialize_services(app, config)
+
+        # Set service provider on app.state
+        app.state.service_provider = provider
+
+        # Initialize backends
+        await builder._initialize_backends(app, config)
+
     return TestClient(app)
 
 
-def test_functional_backends_in_test_env(app_client: TestClient) -> None:
+@pytest.mark.asyncio
+async def test_functional_backends_in_test_env(app_client: TestClient) -> None:
     """Test that functional backends are correctly identified in test env."""
     # The app should have initialized with at least the default backend
     response = app_client.get("/v1/models")
@@ -48,7 +69,8 @@ def test_functional_backends_in_test_env(app_client: TestClient) -> None:
     assert "openai" in backend_types
 
 
-def test_backend_config_provider_in_di(app_client: TestClient) -> None:
+@pytest.mark.asyncio
+async def test_backend_config_provider_in_di(app_client: TestClient) -> None:
     """Test that the BackendConfigProvider is correctly registered in DI."""
     # Access the service provider from app.state
     service_provider = app_client.app.state.service_provider
@@ -70,7 +92,8 @@ def test_backend_config_provider_in_di(app_client: TestClient) -> None:
     assert "openai" in functional_backends
 
 
-def test_httpx_client_shared_in_di(app_client: TestClient) -> None:
+@pytest.mark.asyncio
+async def test_httpx_client_shared_in_di(app_client: TestClient) -> None:
     """Test that a single httpx.AsyncClient is shared across services."""
     # Access the service provider from app.state
     service_provider = app_client.app.state.service_provider
@@ -91,7 +114,8 @@ def test_httpx_client_shared_in_di(app_client: TestClient) -> None:
     assert app_client.app.state.httpx_client is client1
 
 
-def test_backend_factory_uses_shared_client(app_client: TestClient) -> None:
+@pytest.mark.asyncio
+async def test_backend_factory_uses_shared_client(app_client: TestClient) -> None:
     """Test that BackendFactory uses the shared httpx client."""
     # Access the service provider from app.state
     service_provider = app_client.app.state.service_provider
@@ -113,7 +137,10 @@ def test_backend_factory_uses_shared_client(app_client: TestClient) -> None:
     assert factory._client is shared_client
 
 
-def test_backend_service_uses_backend_config_provider(app_client: TestClient) -> None:
+@pytest.mark.asyncio
+async def test_backend_service_uses_backend_config_provider(
+    app_client: TestClient,
+) -> None:
     """Test that BackendService uses the BackendConfigProvider."""
     # Access the service provider from app.state
     service_provider = app_client.app.state.service_provider

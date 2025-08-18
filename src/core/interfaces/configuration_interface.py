@@ -21,6 +21,11 @@ class IConfig(abc.ABC):
 class IBackendConfig(abc.ABC):
     """Interface for backend configuration."""
 
+    @property
+    @abc.abstractmethod
+    def interactive_mode(self) -> bool:
+        """Get whether interactive mode is enabled."""
+
     @abc.abstractmethod
     def with_backend(self, backend_type: str | None) -> IBackendConfig:
         """Create a new config with updated backend type."""

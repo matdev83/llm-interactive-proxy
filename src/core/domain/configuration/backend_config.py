@@ -22,7 +22,12 @@ class BackendConfiguration(ValueObject, IBackendConfig):
     model: str | None = None
     api_url: str | None = None
     interactive_mode: bool = True
-    failover_routes: dict[str, dict[str, Any]] = {}
+    _failover_routes: dict[str, dict[str, Any]] = {}
+
+    @property
+    def failover_routes(self) -> dict[str, dict[str, Any]]:
+        """Get the failover routes."""
+        return self._failover_routes
 
     # One-time override for next request
     oneoff_backend: str | None = None
@@ -106,49 +111,49 @@ class BackendConfiguration(ValueObject, IBackendConfig):
     # Failover route management
     def with_failover_route(self, name: str, policy: str) -> IBackendConfig:
         """Create a new config with a new failover route."""
-        new_routes = dict(self.failover_routes)
+        new_routes = dict(self._failover_routes)
         new_routes[name] = {"policy": policy, "elements": []}
-        return self.model_copy(update={"failover_routes": new_routes})
+        return self.model_copy(update={"_failover_routes": new_routes})
 
     def without_failover_route(self, name: str) -> IBackendConfig:
         """Create a new config with a failover route removed."""
-        new_routes = dict(self.failover_routes)
+        new_routes = dict(self._failover_routes)
         new_routes.pop(name, None)
-        return self.model_copy(update={"failover_routes": new_routes})
+        return self.model_copy(update={"_failover_routes": new_routes})
 
     def with_cleared_route(self, name: str) -> IBackendConfig:
         """Create a new config with a cleared failover route."""
-        new_routes = dict(self.failover_routes)
+        new_routes = dict(self._failover_routes)
         if name in new_routes:
             new_routes[name] = {**new_routes[name], "elements": []}
-        return self.model_copy(update={"failover_routes": new_routes})
+        return self.model_copy(update={"_failover_routes": new_routes})
 
     def with_appended_route_element(self, name: str, element: str) -> IBackendConfig:
         """Create a new config with an element appended to a failover route."""
-        new_routes = dict(self.failover_routes)
+        new_routes = dict(self._failover_routes)
         route = new_routes.setdefault(name, {"policy": "k", "elements": []})
         elements = list(route.get("elements", []))
         elements.append(element)
         route["elements"] = elements
-        return self.model_copy(update={"failover_routes": new_routes})
+        return self.model_copy(update={"_failover_routes": new_routes})
 
     def with_prepended_route_element(self, name: str, element: str) -> IBackendConfig:
         """Create a new config with an element prepended to a failover route."""
-        new_routes = dict(self.failover_routes)
+        new_routes = dict(self._failover_routes)
         route = new_routes.setdefault(name, {"policy": "k", "elements": []})
         elements = list(route.get("elements", []))
         elements.insert(0, element)
         route["elements"] = elements
-        return self.model_copy(update={"failover_routes": new_routes})
+        return self.model_copy(update={"_failover_routes": new_routes})
 
     # Utility methods
     def get_route_elements(self, name: str) -> list[str]:
         """Get elements of a failover route."""
-        route = self.failover_routes.get(name)
+        route = self._failover_routes.get(name)
         if route is None:
             return []
         return list(route.get("elements", []))
 
     def get_routes(self) -> dict[str, str]:
         """Get all route names and policies."""
-        return {n: r.get("policy", "") for n, r in self.failover_routes.items()}
+        return {n: r.get("policy", "") for n, r in self._failover_routes.items()}

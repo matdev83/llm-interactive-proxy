@@ -101,7 +101,7 @@ class TestBuildApp:
             spec=FastAPI
         )  # Mock the build method to return a FastAPI mock
 
-        app = build_app()
+        app, config_result = build_app()
 
         mock_app_config.from_env.assert_called_once()  # Verify AppConfig.from_env was called
         mock_application_builder.assert_called_once()  # Verify ApplicationBuilder was instantiated
@@ -109,6 +109,7 @@ class TestBuildApp:
             mock_config_instance
         )  # Verify build was called with the config
         assert isinstance(app, FastAPI)  # Still assert on FastAPI type
+        assert config_result == mock_config_instance  # Verify the config is returned
 
     @patch("src.core.app.application_factory.ApplicationBuilder")
     @patch("src.core.app.application_factory.AppConfig")
@@ -126,7 +127,7 @@ class TestBuildApp:
         )  # Mock FastAPI app with title
         mock_builder_instance.build.return_value = mock_fastapi_app
 
-        app = build_app()
+        app, _ = build_app()
 
         assert isinstance(app, FastAPI)
         assert app.title == "LLM Interactive Proxy"
@@ -157,7 +158,7 @@ class TestBuildApp:
         mock_fastapi_app.state = mock_state
         mock_builder_instance.build.return_value = mock_fastapi_app
 
-        app = build_app()
+        app, _ = build_app()
 
         assert hasattr(app.state, "app_config")
         assert hasattr(app.state, "service_provider")
@@ -178,9 +179,10 @@ class TestIntegration:
         monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
 
         # Create a config with auth disabled
-        config = AppConfig(auth={"disable_auth": True})
+        config = AppConfig()
+        config.auth.disable_auth = True
 
-        app = build_app(config=config)
+        app, _ = build_app(config=config)
 
         with TestClient(app) as client:
             response = client.get("/models")
@@ -190,9 +192,10 @@ class TestIntegration:
     def test_app_dependency_injection_works(self, monkeypatch):
         """Test that dependency injection is properly configured."""
         monkeypatch.setenv("DISABLE_AUTH", "true")
-        config = AppConfig(auth={"disable_auth": True})
+        config = AppConfig()
+        config.auth.disable_auth = True
 
-        app = build_app(config=config)
+        app, _ = build_app(config=config)
 
         with TestClient(app):
             # Verify service provider is available after startup

@@ -17,42 +17,34 @@ from src.core.interfaces.session_service_interface import ISessionService
 class CommandResultWrapper:
     """Wrapper for CommandResult to provide compatibility with both interfaces."""
 
-    def __init__(self, result: Any) -> None:
+    def __init__(self, result: CommandResult) -> None:
         """Initialize the wrapper.
 
         Args:
-            result: Either a legacy CommandResult or a new CommandResult
+            result: A CommandResult
         """
         self.result = result
 
     @property
     def success(self) -> bool:
-        return getattr(self.result, "success", False)
+        return self.result.success
 
     @property
-    def message(self) -> str | None:
-        return getattr(self.result, "message", None)
+    def message(self) -> str:
+        return self.result.message
 
     @property
     def new_state(self) -> Any | None:
-        return getattr(self.result, "new_state", None)
+        return self.result.new_state
 
     @property
     def data(self) -> dict[str, Any]:
-        # Legacy command result handling removed
-        return getattr(self.result, "data", {})
+        return self.result.data or {}
 
     @property
     def command(self) -> str:
         # Extract command name from CommandResult
-        if hasattr(self.result, "name"):
-            return self.result.name
-        # Fallback for legacy command results
-        if hasattr(self.result, "cmd_name"):
-            return self.result.cmd_name
-        if hasattr(self.result, "command"):
-            return self.result.command
-        return "command"
+        return self.result.name
 
 
 logger = logging.getLogger(__name__)

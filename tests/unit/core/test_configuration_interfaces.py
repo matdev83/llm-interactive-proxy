@@ -31,6 +31,7 @@ class TestBackendConfigInterface:
         assert config.backend_type == "openai"
         assert config.model == "gpt-4"
         assert config.api_url == "https://api.openai.com/v1"
+        assert hasattr(config, "failover_routes")
         assert isinstance(config.failover_routes, dict)
 
         # Test required methods exist
