@@ -3,9 +3,15 @@ import json
 import httpx
 import pytest
 import pytest_asyncio
-import src.models as models
 from pytest_httpx import HTTPXMock
 from src.connectors.gemini import GeminiBackend
+from src.core.domain.chat import (
+    ChatMessage,
+    ChatRequest,
+    ImageURL,
+    MessageContentPartImage,
+    MessageContentPartText,
+)
 
 TEST_GEMINI_API_BASE_URL = "https://generativelanguage.googleapis.com"
 
@@ -20,18 +26,17 @@ async def gemini_backend_fixture():
 async def test_multimodal_data_url_converts_to_inline_data(
     gemini_backend: GeminiBackend, httpx_mock: HTTPXMock
 ):
-    request_data = models.ChatCompletionRequest(
+    request_data = ChatRequest(
         model="models/gemini-pro",
         messages=[
-            models.ChatMessage(
+            ChatMessage(
                 role="user",
                 content=[
-                    models.MessageContentPartText(type="text", text="Describe this"),
-                    models.MessageContentPartImage(
+                    MessageContentPartText(type="text", text="Describe this"),
+                    MessageContentPartImage(
                         type="image_url",
-                        image_url=models.ImageURL(
-                            url="data:image/png;base64,aGVsbG8=",
-                            detail=None,
+                        image_url=ImageURL(
+                            url="data:image/png;base64,aGVsbG8=", detail=None
                         ),
                     ),
                 ],
@@ -84,18 +89,17 @@ async def test_multimodal_data_url_converts_to_inline_data(
 async def test_multimodal_http_url_converts_to_file_data(
     gemini_backend: GeminiBackend, httpx_mock: HTTPXMock
 ):
-    request_data = models.ChatCompletionRequest(
+    request_data = ChatRequest(
         model="gemini-pro",
         messages=[
-            models.ChatMessage(
+            ChatMessage(
                 role="user",
                 content=[
-                    models.MessageContentPartText(type="text", text="Describe this"),
-                    models.MessageContentPartImage(
+                    MessageContentPartText(type="text", text="Describe this"),
+                    MessageContentPartImage(
                         type="image_url",
-                        image_url=models.ImageURL(
-                            url="http://example.com/cat.jpg",
-                            detail=None,
+                        image_url=ImageURL(
+                            url="http://example.com/cat.jpg", detail=None
                         ),
                     ),
                 ],

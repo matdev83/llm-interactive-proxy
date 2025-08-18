@@ -2,13 +2,13 @@ from unittest.mock import AsyncMock, Mock
 
 import pytest
 from src.connectors.openrouter import OpenRouterBackend
-from src.models import ChatCompletionRequest, ChatMessage
+from src.core.domain.chat import ChatMessage, ChatRequest
 
 # Default OpenRouter settings for tests
 TEST_OPENROUTER_API_BASE_URL = "https://openrouter.ai/api/v1"
 
 
-def mock_get_openrouter_headers(key_name: str, api_key: str) -> dict[str, str]:
+def mock_get_openrouter_headers(_: str, api_key: str) -> dict[str, str]:
     # Create a mock config dictionary for testing
     mock_config = {
         "app_site_url": "http://localhost:test",
@@ -42,7 +42,7 @@ class TestOpenRouterTemperatureHandling:
 
     @pytest.fixture
     def sample_request_data(self):
-        return ChatCompletionRequest(
+        return ChatRequest(
             model="openrouter:openai/gpt-4",
             messages=[ChatMessage(role="user", content="Test message")],
         )
@@ -57,7 +57,7 @@ class TestOpenRouterTemperatureHandling:
     ):
         """Test that temperature is properly added to the request payload."""
         # Set temperature in request data
-        sample_request_data.temperature = 0.7
+        sample_request_data = sample_request_data.model_copy(update={"temperature": 0.7})
 
         # Mock the HTTP response
         mock_response = Mock()
@@ -96,7 +96,7 @@ class TestOpenRouterTemperatureHandling:
     ):
         """Test that temperature 0.0 is properly handled."""
         # Set temperature to 0.0
-        sample_request_data.temperature = 0.0
+        sample_request_data = sample_request_data.model_copy(update={"temperature": 0.0})
 
         # Mock the HTTP response
         mock_response = Mock()
@@ -135,7 +135,7 @@ class TestOpenRouterTemperatureHandling:
     ):
         """Test that temperature 2.0 (max OpenAI value) is properly handled."""
         # Set temperature to 2.0
-        sample_request_data.temperature = 2.0
+        sample_request_data = sample_request_data.model_copy(update={"temperature": 2.0})
 
         # Mock the HTTP response
         mock_response = Mock()
@@ -174,12 +174,11 @@ class TestOpenRouterTemperatureHandling:
     ):
         """Test that temperature works alongside extra_params."""
         # Set temperature and extra params
-        sample_request_data.temperature = 0.8
-        sample_request_data.extra_params = {
+        sample_request_data = sample_request_data.model_copy(update={"temperature": 0.8, "extra_params": {
             "top_p": 0.9,
             "max_tokens": 1000,
             "frequency_penalty": 0.1,
-        }
+        }})
 
         # Mock the HTTP response
         mock_response = Mock()
@@ -224,8 +223,7 @@ class TestOpenRouterTemperatureHandling:
     ):
         """Test that temperature works alongside reasoning effort."""
         # Set both temperature and reasoning effort
-        sample_request_data.temperature = 0.6
-        sample_request_data.reasoning_effort = "medium"
+        sample_request_data = sample_request_data.model_copy(update={"temperature": 0.6, "reasoning_effort": 0.5})
 
         # Mock the HTTP response
         mock_response = Mock()
@@ -258,7 +256,7 @@ class TestOpenRouterTemperatureHandling:
         assert "temperature" in payload
         assert payload["temperature"] == 0.6
         assert "reasoning_effort" in payload
-        assert payload["reasoning_effort"] == "medium"
+        assert payload["reasoning_effort"] == 0.5
 
     @pytest.mark.asyncio
     async def test_temperature_with_reasoning_config(
@@ -266,8 +264,7 @@ class TestOpenRouterTemperatureHandling:
     ):
         """Test that temperature works alongside reasoning config."""
         # Set both temperature and reasoning config
-        sample_request_data.temperature = 0.5
-        sample_request_data.reasoning = {"effort": "high", "max_tokens": 2048}
+        sample_request_data = sample_request_data.model_copy(update={"temperature": 0.5, "reasoning": {"effort": "high", "max_tokens": 2048}})
 
         # Mock the HTTP response
         mock_response = Mock()
@@ -347,12 +344,9 @@ class TestOpenRouterTemperatureHandling:
     ):
         """Test that extra_params can override temperature setting."""
         # Set temperature in request data
-        sample_request_data.temperature = 0.7
-
-        # Set extra_params with temperature that should override
-        sample_request_data.extra_params = {
+        sample_request_data = sample_request_data.model_copy(update={"temperature": 0.7, "extra_body": {
             "temperature": 0.3  # Should override the direct temperature setting
-        }
+        }})
 
         # Mock the HTTP response
         mock_response = Mock()
@@ -392,8 +386,7 @@ class TestOpenRouterTemperatureHandling:
     ):
         """Test temperature handling in streaming requests."""
         # Set temperature and enable streaming
-        sample_request_data.temperature = 0.9
-        sample_request_data.stream = True
+        sample_request_data = sample_request_data.model_copy(update={"temperature": 0.9, "stream": True})
 
         # Mock streaming response
         mock_response = Mock()
@@ -434,12 +427,14 @@ class TestOpenRouterTemperatureHandling:
     ):
         """Test temperature alongside all standard OpenAI parameters."""
         # Set temperature and other standard parameters
-        sample_request_data.temperature = 0.8
-        sample_request_data.max_tokens = 1500
-        sample_request_data.top_p = 0.95
-        sample_request_data.frequency_penalty = 0.2
-        sample_request_data.presence_penalty = 0.1
-        sample_request_data.stop = ["END", "STOP"]
+        sample_request_data = sample_request_data.model_copy(update={
+            "temperature": 0.8,
+            "max_tokens": 1500,
+            "top_p": 0.95,
+            "frequency_penalty": 0.2,
+            "presence_penalty": 0.1,
+            "stop": ["END", "STOP"]
+        })
 
         # Mock the HTTP response
         mock_response = Mock()

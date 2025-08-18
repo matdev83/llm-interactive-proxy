@@ -1,3 +1,4 @@
+from typing import Any
 from unittest.mock import AsyncMock, patch
 
 # import pytest # F401: Removed
@@ -7,33 +8,41 @@ from unittest.mock import AsyncMock, patch
 # import src.models as models # F401: Removed
 # import src.main # No longer needed to access module-level proxy_state
 import pytest
-from src.core.interfaces.session_service import ISessionService
+from src.core.interfaces.session_service_interface import ISessionService
+
+from tests.conftest import get_backend_instance
 
 
 @pytest.mark.asyncio
-async def test_set_model_command_integration(client):
+async def test_set_model_command_integration(client: Any) -> None:
     mock_backend_response = {
         "choices": [{"message": {"content": "Model set and called."}}]
     }
 
     with (
         patch.object(
-            client.app.state.openrouter_backend,
+            get_backend_instance(client.app, "openrouter"),
             "chat_completions",
             new_callable=AsyncMock,
         ) as mock_or,
         patch.object(
-            client.app.state.openai_backend, "chat_completions", new_callable=AsyncMock
+            get_backend_instance(client.app, "openai"),
+            "chat_completions",
+            new_callable=AsyncMock,
         ) as mock_openai,
         patch.object(
-            client.app.state.gemini_backend, "chat_completions", new_callable=AsyncMock
+            get_backend_instance(client.app, "gemini"),
+            "chat_completions",
+            new_callable=AsyncMock,
         ) as mock_gemini,
     ):
         mock_or.return_value = mock_backend_response
         mock_openai.return_value = mock_backend_response
         mock_gemini.return_value = mock_backend_response
 
-        client.app.state.openrouter_backend.available_models = ["override-model"]
+        get_backend_instance(client.app, "openrouter").available_models = [
+            "override-model"
+        ]
         payload = {
             "model": "original-model",
             "messages": [
@@ -92,7 +101,7 @@ async def test_set_model_command_integration(client):
 
 
 @pytest.mark.asyncio
-async def test_unset_model_command_integration(client):
+async def test_unset_model_command_integration(client: Any) -> None:
     # Access proxy_state from the app state within the test client
     session_service = client.app.state.service_provider.get_required_service(
         ISessionService
@@ -106,22 +115,28 @@ async def test_unset_model_command_integration(client):
 
     with (
         patch.object(
-            client.app.state.openrouter_backend,
+            get_backend_instance(client.app, "openrouter"),
             "chat_completions",
             new_callable=AsyncMock,
         ) as mock_or,
         patch.object(
-            client.app.state.openai_backend, "chat_completions", new_callable=AsyncMock
+            get_backend_instance(client.app, "openai"),
+            "chat_completions",
+            new_callable=AsyncMock,
         ) as mock_openai,
         patch.object(
-            client.app.state.gemini_backend, "chat_completions", new_callable=AsyncMock
+            get_backend_instance(client.app, "gemini"),
+            "chat_completions",
+            new_callable=AsyncMock,
         ) as mock_gemini,
     ):
         mock_or.return_value = mock_backend_response
         mock_openai.return_value = mock_backend_response
         mock_gemini.return_value = mock_backend_response
 
-        client.app.state.openrouter_backend.available_models = ["another-model"]
+        get_backend_instance(client.app, "openrouter").available_models = [
+            "another-model"
+        ]
         payload = {
             "model": "another-model",
             "messages": [{"role": "user", "content": "!/unset(model)"}],

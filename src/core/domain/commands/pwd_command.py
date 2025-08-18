@@ -25,7 +25,9 @@ class PwdCommand(BaseCommand):
     description = "Display the current project directory"
     examples = ["!/pwd"]
 
-    async def execute(self, args: Mapping[str, Any], session: Session, context: Any = None) -> CommandResult:
+    async def execute(
+        self, args: Mapping[str, Any], session: Session, context: Any = None
+    ) -> CommandResult:
         """
         Execute the pwd command.
 

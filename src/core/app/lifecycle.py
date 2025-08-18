@@ -6,7 +6,7 @@ from typing import Any
 
 from fastapi import FastAPI
 
-from src.core.interfaces.session_service import ISessionService
+from src.core.interfaces.session_service_interface import ISessionService
 
 logger = logging.getLogger(__name__)
 

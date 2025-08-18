@@ -79,7 +79,7 @@ async def http_exception_handler(request: Request, exc: HTTPException) -> Respon
     )
 
 
-async def proxy_exception_handler(request: Request, exc: ProxyError) -> Response:
+async def proxy_exception_handler(request: Request, exc: Exception) -> Response:
     """Handle custom proxy exceptions.
 
     Args:
@@ -89,21 +89,44 @@ async def proxy_exception_handler(request: Request, exc: ProxyError) -> Response
     Returns:
         JSON response with error details
     """
-    logger.warning(f"{exc.__class__.__name__} ({exc.status_code}): {exc.message}")
+    # Be defensive: exc may not be a ProxyError here (we register this
+    # handler for Exception as well). Safely extract fields when present.
+    exc_name = exc.__class__.__name__
+    exc_message = getattr(exc, "message", str(exc))
+    exc_status = getattr(exc, "status_code", None)
+    if exc_status is not None:
+        logger.warning(f"{exc_name} ({exc_status}): {exc_message}")
+    else:
+        logger.warning(f"{exc_name}: {exc_message}")
 
-    if exc.details and logger.isEnabledFor(logging.DEBUG):
-        logger.debug(f"Error details: {exc.details}")
+    # If this is a ProxyError, preserve its status_code and details.
+    if isinstance(exc, ProxyError):
+        if exc.details and logger.isEnabledFor(logging.DEBUG):
+            logger.debug(f"Error details: {exc.details}")
 
-    return JSONResponse(
-        status_code=(
+        status_code = (
             500
             if getattr(exc, "message", None) == "all backends failed"
             else exc.status_code
-        ),
-        content={
+        )
+        content = {
             "detail": {
                 "error": exc.message,
                 **({"details": exc.details} if getattr(exc, "details", None) else {}),
+            }
+        }
+        return JSONResponse(status_code=status_code, content=content)
+
+    # Fallback for non-ProxyError exceptions
+    return JSONResponse(
+        status_code=getattr(exc, "status_code", 500),
+        content={
+            "detail": {
+                "error": {
+                    "message": exc_message,
+                    "type": exc_name,
+                    "status_code": getattr(exc, "status_code", 500),
+                }
             }
         },
     )

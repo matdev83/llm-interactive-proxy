@@ -15,7 +15,7 @@ from src.core.commands.handlers.base_handler import (
     CommandHandlerResult,
 )
 from src.core.domain.command_context import CommandContext
-from src.core.interfaces.domain_entities import ISessionState
+from src.core.interfaces.domain_entities_interface import ISessionState
 
 logger = logging.getLogger(__name__)
 
@@ -68,16 +68,21 @@ class ProjectDirCommandHandler(BaseCommandHandler):
         """Handle setting the project directory.
 
         Args:
-            param_value: The project directory path
+            param_value: The project directory path (None to unset)
             current_state: The current session state
             context: Optional command context
 
         Returns:
             A result containing success/failure status and updated state
         """
+        # Handle unset case (None or empty value)
         if not param_value:
+            # Create new state with project directory unset
+            new_state = current_state.with_project_dir(None)
             return CommandHandlerResult(
-                success=False, message="Project directory path must be specified"
+                success=True,
+                message="Project directory unset",
+                new_state=new_state,
             )
 
         # Get the directory path

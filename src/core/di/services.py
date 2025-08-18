@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from src.core.di.container import ServiceCollection
-from src.core.interfaces.di import IServiceCollection, IServiceProvider
+from src.core.interfaces.di_interface import IServiceCollection, IServiceProvider
 
 _global_services: IServiceCollection | None = None
 _global_provider: IServiceProvider | None = None

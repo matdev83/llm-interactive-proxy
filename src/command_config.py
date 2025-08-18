@@ -4,10 +4,10 @@ from typing import TYPE_CHECKING
 from fastapi import FastAPI
 
 from src.core.domain.commands.base_command import BaseCommand
-from src.core.interfaces.domain_entities import ISessionState
+from src.core.interfaces.domain_entities_interface import ISessionState
 
 if TYPE_CHECKING:
-    from src.core.interfaces.domain_entities import ISessionState
+    from src.core.interfaces.domain_entities_interface import ISessionState
 
 
 class CommandParserConfig:

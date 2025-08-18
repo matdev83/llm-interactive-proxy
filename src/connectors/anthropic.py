@@ -15,7 +15,9 @@ from fastapi import HTTPException
 from starlette.responses import StreamingResponse
 
 from src.connectors.base import LLMBackend
-from src.models import ChatCompletionRequest
+from src.core.domain.chat import ChatRequest
+
+# Legacy ChatCompletionRequest removed from connector signatures; use domain ChatRequest
 
 # API key redaction and command filtering are now handled by middleware
 # from src.security import APIKeyRedactor, ProxyCommandFilter
@@ -29,6 +31,8 @@ ANTHROPIC_DEFAULT_BASE_URL = "https://api.anthropic.com/v1"
 
 class AnthropicBackend(LLMBackend):
     """LLMBackend implementation for Anthropic's Messages API."""
+
+    backend_type: str = "anthropic"
 
     def __init__(self, client: httpx.AsyncClient) -> None:
         self.client = client
@@ -86,13 +90,13 @@ class AnthropicBackend(LLMBackend):
     # -----------------------------------------------------------
     async def chat_completions(  # type: ignore[override]
         self,
-        request_data: ChatCompletionRequest,
+        request_data: ChatRequest,
         processed_messages: list[Any],
         effective_model: str,
-        openrouter_api_base_url: str,
-        openrouter_headers_provider: Callable[[str, str], dict[str, str]],
-        key_name: str,
-        api_key: str,
+        openrouter_api_base_url: str | None = None,
+        openrouter_headers_provider: Callable[[str, str], dict[str, str]] | None = None,
+        key_name: str | None = None,
+        api_key: str | None = None,
         project: str | None = None,
         agent: str | None = None,
         **kwargs: Any,
@@ -106,11 +110,9 @@ class AnthropicBackend(LLMBackend):
         base_url = (openrouter_api_base_url or ANTHROPIC_DEFAULT_BASE_URL).rstrip("/")
         url = f"{base_url}/messages"
 
+        # request_data is a domain ChatRequest; connectors can rely on adapter helpers
         anthropic_payload = self._prepare_anthropic_payload(
-            request_data,
-            processed_messages,
-            effective_model,
-            project,
+            request_data, processed_messages, effective_model, project
         )
 
         headers = {
@@ -145,7 +147,7 @@ class AnthropicBackend(LLMBackend):
     # -----------------------------------------------------------
     def _prepare_anthropic_payload(
         self,
-        request_data: ChatCompletionRequest,
+        request_data: ChatRequest,
         processed_messages: list[Any],
         effective_model: str,
         project: str | None,
@@ -191,7 +193,7 @@ class AnthropicBackend(LLMBackend):
         payload["messages"] = anth_messages
         if system_prompt:
             payload["system"] = system_prompt
-        if request_data.temperature is not None:
+        if getattr(request_data, "temperature", None) is not None:
             payload["temperature"] = request_data.temperature
         if request_data.top_p is not None:
             payload["top_p"] = request_data.top_p
@@ -200,9 +202,8 @@ class AnthropicBackend(LLMBackend):
         if project:
             payload["metadata"] = {"project": project}
 
-        # Include extra params directly (allows reasoning, etc.)
-        if request_data.extra_params:
-            payload.update(request_data.extra_params)
+        # Include extra params from domain extra_body directly (allows reasoning, etc.)
+        payload.update(request_data.extra_body or {})
         return payload
 
     # -----------------------------------------------------------
@@ -301,7 +302,9 @@ class AnthropicBackend(LLMBackend):
         }
 
     def _convert_full_response(
-        self, data: dict[str, Any], model: str
+        self,
+        data: dict[str, Any],
+        model: str,
     ) -> dict[str, Any]:
         """Convert full Anthropic message response to OpenAI format."""
         # Anthropic response example:

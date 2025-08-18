@@ -8,9 +8,16 @@ from __future__ import annotations
 
 from typing import Protocol
 
+from src.core.services.backend_factory_service import BackendFactory
+
 
 class CommandContext(Protocol):
     """Protocol for command execution context to decouple commands from FastAPI app."""
+
+    @property
+    def backend_factory(self) -> BackendFactory:
+        """Get the backend factory."""
+        ...
 
     @property
     def backend_type(self) -> str | None:

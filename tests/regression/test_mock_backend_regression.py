@@ -6,8 +6,8 @@ with the same mock backend and produce equivalent results.
 """
 
 import pytest
+from src.core.domain.chat import ChatMessage
 from src.core.domain.chat import ChatMessage as NewChatMessage
-from src.models import ChatMessage
 from tests.mocks.mock_regression_backend import MockRegressionBackend
 
 
@@ -15,18 +15,20 @@ class TestMockBackendRegression:
     """Test both implementations with the same mock backend."""
 
     @pytest.fixture
-    def mock_backend(self):
+    def mock_backend(self) -> MockRegressionBackend:
         """Create a mock backend for testing."""
         return MockRegressionBackend()
 
     @pytest.mark.asyncio
-    async def test_legacy_chat_completion(self, mock_backend):
+    async def test_legacy_chat_completion(
+        self, mock_backend: MockRegressionBackend
+    ) -> None:
         """Test chat completion with the legacy implementation."""
-        # Import legacy request model
-        from src.models import ChatCompletionRequest
+        # Legacy request model usage replaced with domain ChatRequest for testing
+        from src.core.domain.chat import ChatRequest
 
         # Create a request
-        request = ChatCompletionRequest(
+        request = ChatRequest(
             model="mock-model",
             messages=[ChatMessage(role="user", content="Hello, world!")],
             max_tokens=50,
@@ -50,7 +52,9 @@ class TestMockBackendRegression:
         assert response["choices"][0]["message"]["content"] is not None
 
     @pytest.mark.asyncio
-    async def test_new_chat_completion(self, mock_backend):
+    async def test_new_chat_completion(
+        self, mock_backend: MockRegressionBackend
+    ) -> None:
         """Test chat completion with the new implementation."""
         # Import new request model
         from src.core.domain.chat import ChatMessage, ChatRequest
@@ -80,13 +84,15 @@ class TestMockBackendRegression:
         assert response["choices"][0]["message"]["content"] is not None
 
     @pytest.mark.asyncio
-    async def test_legacy_streaming_chat_completion(self, mock_backend):
+    async def test_legacy_streaming_chat_completion(
+        self, mock_backend: MockRegressionBackend
+    ) -> None:
         """Test streaming chat completion with the legacy implementation."""
-        # Import legacy request model
-        from src.models import ChatCompletionRequest
+        # Legacy request model usage replaced with domain ChatRequest for testing
+        from src.core.domain.chat import ChatRequest
 
         # Create a request
-        request = ChatCompletionRequest(
+        request = ChatRequest(
             model="mock-model",
             messages=[ChatMessage(role="user", content="Hello, world!")],
             max_tokens=50,
@@ -115,7 +121,9 @@ class TestMockBackendRegression:
         assert chunks[-1]["choices"][0]["finish_reason"] == "stop"
 
     @pytest.mark.asyncio
-    async def test_new_streaming_chat_completion(self, mock_backend):
+    async def test_new_streaming_chat_completion(
+        self, mock_backend: MockRegressionBackend
+    ) -> None:
         """Test streaming chat completion with the new implementation."""
         # Import new request model
         from src.core.domain.chat import ChatMessage, ChatRequest
@@ -151,12 +159,14 @@ class TestMockBackendRegression:
         assert chunks[-1]["choices"][0]["finish_reason"] == "stop"
 
     @pytest.mark.asyncio
-    async def test_legacy_tool_calling(self, mock_backend):
+    async def test_legacy_tool_calling(
+        self, mock_backend: MockRegressionBackend
+    ) -> None:
         """Test tool calling with the legacy implementation."""
-        # Import legacy request model
-        from src.models import ChatCompletionRequest, FunctionDefinition, ToolDefinition
+        # Legacy request model and tool definitions replaced with domain equivalents
+        from src.core.domain.chat import FunctionDefinition, ToolDefinition
 
-        # Create a tool definition
+        # Create a tool definition using legacy-style classes (converted to dict later)
         tools = [
             ToolDefinition(
                 type="function",
@@ -178,13 +188,15 @@ class TestMockBackendRegression:
         ]
 
         # Create a request with tools
-        request = ChatCompletionRequest(
+        from src.core.domain.chat import ChatRequest
+
+        request = ChatRequest(
             model="mock-model",
             messages=[ChatMessage(role="user", content="What's the weather like?")],
             max_tokens=50,
             temperature=0.7,
             stream=False,
-            tools=tools,
+            tools=[t.model_dump() for t in tools],
             tool_choice="auto",
         )
 
@@ -199,25 +211,27 @@ class TestMockBackendRegression:
 
         # Verify tool call in response
         assert "choices" in response
-        assert len(response["choices"]) > 0
-        assert "message" in response["choices"][0]
-        assert "tool_calls" in response["choices"][0]["message"]
-        assert len(response["choices"][0]["message"]["tool_calls"]) > 0
-        assert (
-            response["choices"][0]["message"]["tool_calls"][0]["function"]["name"]
-            == "get_current_weather"
-        )
-        assert (
-            "arguments"
-            in response["choices"][0]["message"]["tool_calls"][0]["function"]
-        )
+        choices = response.get("choices")
+        assert isinstance(choices, list) and len(choices) > 0
+        first_choice = choices[0]
+        assert "message" in first_choice
+        message = first_choice.get("message")
+        assert isinstance(message, dict)
+        tool_calls = message.get("tool_calls")
+        assert isinstance(tool_calls, list) and len(tool_calls) > 0
+        assert tool_calls[0]["function"]["name"] == "get_current_weather"
+        assert "arguments" in tool_calls[0]["function"]
 
     @pytest.mark.asyncio
-    async def test_new_tool_calling(self, mock_backend):
+    async def test_new_tool_calling(self, mock_backend: MockRegressionBackend) -> None:
         """Test tool calling with the new implementation."""
         # Import new request model
-        from src.core.domain.chat import ChatMessage, ChatRequest
-        from src.models import FunctionDefinition, ToolDefinition
+        from src.core.domain.chat import (
+            ChatMessage,
+            ChatRequest,
+            FunctionDefinition,
+            ToolDefinition,
+        )
 
         # Create a tool definition
         tools = [
@@ -264,16 +278,13 @@ class TestMockBackendRegression:
         )
 
         # Verify tool call in response
-        assert "choices" in response
-        assert len(response["choices"]) > 0
-        assert "message" in response["choices"][0]
-        assert "tool_calls" in response["choices"][0]["message"]
-        assert len(response["choices"][0]["message"]["tool_calls"]) > 0
-        assert (
-            response["choices"][0]["message"]["tool_calls"][0]["function"]["name"]
-            == "get_current_weather"
-        )
-        assert (
-            "arguments"
-            in response["choices"][0]["message"]["tool_calls"][0]["function"]
-        )
+        choices = response.get("choices")
+        assert isinstance(choices, list) and len(choices) > 0
+        first_choice = choices[0]
+        assert "message" in first_choice
+        message = first_choice.get("message")
+        assert isinstance(message, dict)
+        tool_calls = message.get("tool_calls")
+        assert isinstance(tool_calls, list) and len(tool_calls) > 0
+        assert tool_calls[0]["function"]["name"] == "get_current_weather"
+        assert "arguments" in tool_calls[0]["function"]

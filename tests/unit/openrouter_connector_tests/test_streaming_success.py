@@ -1,9 +1,9 @@
 import httpx
 import pytest
 import pytest_asyncio
-import src.models as models
 from pytest_httpx import HTTPXMock
 from src.connectors.openrouter import OpenRouterBackend
+from src.core.domain.chat import ChatMessage, ChatRequest
 from starlette.responses import StreamingResponse
 
 # Default OpenRouter settings for tests
@@ -12,7 +12,7 @@ TEST_OPENROUTER_API_BASE_URL = (
 )
 
 
-def mock_get_openrouter_headers(key_name: str, api_key: str) -> dict[str, str]:
+def mock_get_openrouter_headers(_: str, api_key: str) -> dict[str, str]:
     # Create a mock config dictionary for testing
     mock_config = {
         "app_site_url": "http://localhost:test",
@@ -41,25 +41,24 @@ async def openrouter_backend_fixture():
 
 @pytest.fixture(name="sample_chat_request_data")
 def sample_chat_request_data_fixture():
-    return models.ChatCompletionRequest(
-        model="test-model",
-        messages=[models.ChatMessage(role="user", content="Hello")],
+    return ChatRequest(
+        model="test-model", messages=[ChatMessage(role="user", content="Hello")]
     )
 
 
 @pytest.fixture(name="sample_processed_messages")
 def sample_processed_messages_fixture():
-    return [models.ChatMessage(role="user", content="Hello")]
+    return [ChatMessage(role="user", content="Hello")]
 
 
 @pytest.mark.asyncio
 async def test_chat_completions_streaming_success(
     openrouter_backend: OpenRouterBackend,
     httpx_mock: HTTPXMock,
-    sample_chat_request_data: models.ChatCompletionRequest,
-    sample_processed_messages: list[models.ChatMessage],
+    sample_chat_request_data: ChatRequest,
+    sample_processed_messages: list[ChatMessage],
 ):
-    sample_chat_request_data.stream = True
+    sample_chat_request_data = sample_chat_request_data.model_copy(update={"stream": True})
     effective_model = "openai/gpt-4"
 
     # Mock streaming response chunks

@@ -2,36 +2,36 @@ from typing import Any
 
 from src.core.domain.command_results import CommandResult
 from src.core.domain.processed_result import ProcessedResult
-from src.core.interfaces.backend_service import IBackendService
-from src.core.interfaces.command_service import ICommandService
-from src.core.interfaces.response_processor import IResponseProcessor
-from src.core.interfaces.session_service import ISessionService
-from src.core.services.request_processor import RequestProcessor
+from src.core.interfaces.backend_service_interface import IBackendService
+from src.core.interfaces.command_service_interface import ICommandService
+from src.core.interfaces.response_processor_interface import IResponseProcessor
+from src.core.interfaces.session_service_interface import ISessionService
+from src.core.services.request_processor_service import RequestProcessor
 
 
-def test_top_p_fix_with_actual_request():
+def test_top_p_fix_with_actual_request() -> None:
     """Test that demonstrates our fix works with a real request that includes top_p."""
 
     # Create a mock session with minimal required attributes
     class MockSession:
-        def __init__(self):
+        def __init__(self) -> None:
             self.session_id = "test-session"
             self.state = MockState()
 
     class MockState:
-        def __init__(self):
+        def __init__(self) -> None:
             self.backend_config = MockBackendConfig()
             self.reasoning_config = MockReasoningConfig()
-            self.project = None
+            self.project: Any = None
 
     class MockBackendConfig:
-        def __init__(self):
-            self.backend_type = "anthropic"
-            self.model = "anthropic:claude-3-haiku-20240229"
+        def __init__(self) -> None:
+            self.backend_type: str = "anthropic"
+            self.model: str = "anthropic:claude-3-haiku-20240229"
 
     class MockReasoningConfig:
-        def __init__(self):
-            self.temperature = None
+        def __init__(self) -> None:
+            self.temperature: Any = None
 
     # This is a request that would have triggered the original error
     # It includes top_p which would have been added to extra_body before our fix
@@ -89,6 +89,9 @@ def test_top_p_fix_with_actual_request():
             raise NotImplementedError
 
         async def create_session(self, session_id: str) -> Any:
+            raise NotImplementedError
+
+        async def get_or_create_session(self, session_id: str | None = None) -> Any:
             raise NotImplementedError
 
         async def update_session(self, session: Any) -> None:

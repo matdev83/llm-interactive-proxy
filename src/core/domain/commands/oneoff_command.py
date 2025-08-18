@@ -12,8 +12,8 @@ from typing import Any
 
 from src.core.domain.command_results import CommandResult
 from src.core.domain.commands.base_command import BaseCommand
+from src.core.domain.model_utils import parse_model_backend
 from src.core.domain.session import Session
-from src.models import parse_model_backend
 
 logger = logging.getLogger(__name__)
 

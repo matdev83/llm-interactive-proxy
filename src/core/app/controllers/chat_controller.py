@@ -4,33 +4,18 @@ Chat Controller
 Handles all chat completion related API endpoints.
 """
 
-from __future__ import annotations
-
 import logging
 from typing import Any
 
-from fastapi import Body, HTTPException, Request, Response
-from pydantic import BaseModel
+from fastapi import HTTPException, Request, Response
 
+from src.core.adapters.api_adapters import legacy_to_domain_chat_request
 from src.core.common.exceptions import LoopDetectionError
-from src.core.interfaces.di import IServiceProvider
-from src.core.interfaces.request_processor import IRequestProcessor
+from src.core.domain.chat import ChatRequest
+from src.core.interfaces.di_interface import IServiceProvider
+from src.core.interfaces.request_processor_interface import IRequestProcessor
 
 logger = logging.getLogger(__name__)
-
-
-class ChatCompletionRequest(BaseModel):
-    """Chat completion request model."""
-
-    model: str
-    messages: list[dict[str, Any]]
-    stream: bool = False
-    temperature: float | None = None
-    max_tokens: int | None = None
-    tools: list[dict[str, Any]] | None = None
-    tool_choice: dict[str, Any] | None = None
-    user: str | None = None
-    session_id: str | None = None
 
 
 class ChatController:
@@ -45,7 +30,7 @@ class ChatController:
         self._processor = request_processor
 
     async def handle_chat_completion(
-        self, request: Request, request_data: ChatCompletionRequest
+        self, request: Request, request_data: ChatRequest | Any
     ) -> Response:
         """Handle chat completion requests.
 
@@ -59,8 +44,13 @@ class ChatController:
         logger.info(f"Handling chat completion request: model={request_data.model}")
 
         try:
+            # Convert legacy request to domain model if needed
+            domain_request = request_data
+            if not isinstance(request_data, ChatRequest):
+                domain_request = legacy_to_domain_chat_request(request_data)
+
             # Process the request using the request processor
-            return await self._processor.process_request(request, request_data)
+            return await self._processor.process_request(request, domain_request)
         except HTTPException:
             # Re-raise HTTP exceptions
             raise
@@ -73,44 +63,7 @@ class ChatController:
                 status_code=500, detail={"error": str(e), "type": "ChatCompletionError"}
             )
 
-    async def handle_legacy_compatibility(
-        self, request: Request, request_data: dict[str, Any] = Body(...)
-    ) -> Response:
-        """Handle legacy format requests.
-
-        Args:
-            request: The HTTP request
-            request_data: The raw request data
-
-        Returns:
-            An HTTP response
-        """
-        try:
-            # Convert legacy format to our model
-            # This is a simplified implementation - in reality we'd handle more formats
-            request_model = ChatCompletionRequest(
-                model=request_data.get("model", "unknown"),
-                messages=request_data.get("messages", []),
-                stream=request_data.get("stream", False),
-                temperature=request_data.get("temperature"),
-                max_tokens=request_data.get("max_tokens"),
-                tools=request_data.get("tools"),
-                tool_choice=request_data.get("tool_choice"),
-                user=request_data.get("user"),
-                session_id=request_data.get("session_id"),
-            )
-
-            # Process using standard handler
-            return await self.handle_chat_completion(request, request_model)
-        except HTTPException:
-            # Re-raise HTTP exceptions
-            raise
-        except Exception as e:
-            logger.error(f"Error handling legacy request: {e}", exc_info=True)
-            raise HTTPException(
-                status_code=500,
-                detail={"error": str(e), "type": "LegacyCompatibilityError"},
-            )
+    # Legacy compatibility method has been removed in favor of direct domain model usage
 
 
 def get_chat_controller(service_provider: IServiceProvider) -> ChatController:
@@ -121,6 +74,42 @@ def get_chat_controller(service_provider: IServiceProvider) -> ChatController:
 
     Returns:
         A configured chat controller
+        
+    Raises:
+        Exception: If the request processor could not be found or created
     """
-    request_processor = service_provider.get_required_service(IRequestProcessor)  # type: ignore
-    return ChatController(request_processor)
+    try:
+        # Try to get the existing request processor from the service provider
+        request_processor = service_provider.get_service(IRequestProcessor)
+        if request_processor is None:
+            # Try to get the concrete implementation
+            from src.core.services.request_processor_service import RequestProcessor
+            request_processor = service_provider.get_service(RequestProcessor)
+            
+        if request_processor is None:
+            # If still not found, try to create one on the fly
+            from src.core.interfaces.command_service_interface import ICommandService
+            from src.core.interfaces.backend_service_interface import IBackendService
+            from src.core.interfaces.session_service_interface import ISessionService
+            from src.core.interfaces.response_processor_interface import IResponseProcessor
+            
+            cmd = service_provider.get_service(ICommandService)
+            backend = service_provider.get_service(IBackendService)
+            session = service_provider.get_service(ISessionService)
+            response_proc = service_provider.get_service(IResponseProcessor)
+            
+            if cmd and backend and session and response_proc:
+                from src.core.services.request_processor_service import RequestProcessor
+                request_processor = RequestProcessor(cmd, backend, session, response_proc)
+                
+                # Register it for future use
+                if hasattr(service_provider, '_singleton_instances'):
+                    service_provider._singleton_instances[IRequestProcessor] = request_processor
+                    service_provider._singleton_instances[RequestProcessor] = request_processor
+        
+        if request_processor is None:
+            raise Exception("Could not find or create RequestProcessor")
+            
+        return ChatController(request_processor)
+    except Exception as e:
+        raise Exception(f"Failed to create ChatController: {e}")

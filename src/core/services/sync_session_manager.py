@@ -11,7 +11,7 @@ from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from src.core.domain.session import Session
-    from src.core.interfaces.session_service import ISessionService
+    from src.core.interfaces.session_service_interface import ISessionService
 
 
 class SyncSessionManager:
@@ -41,7 +41,7 @@ class SyncSessionManager:
                 # If we're already in an async context, create a task
                 import concurrent.futures
 
-                def run_in_thread():
+                def run_in_thread() -> Session:
                     new_loop = asyncio.new_event_loop()
                     try:
                         return new_loop.run_until_complete(
@@ -52,18 +52,21 @@ class SyncSessionManager:
 
                 with concurrent.futures.ThreadPoolExecutor() as executor:
                     future = executor.submit(run_in_thread)
-                    return future.result()
+                    result1: Session = future.result()  # type: ignore
+                    return result1
             else:
-                return loop.run_until_complete(
+                result2: Session = loop.run_until_complete(
                     self._session_service.get_session(session_id)
                 )
+                return result2
         except RuntimeError:
             # Create a new event loop for this operation
             loop = asyncio.new_event_loop()
             try:
-                return loop.run_until_complete(
+                result3: Session = loop.run_until_complete(
                     self._session_service.get_session(session_id)
                 )
+                return result3
             finally:
                 loop.close()
 

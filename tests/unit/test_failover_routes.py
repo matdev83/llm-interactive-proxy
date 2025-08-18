@@ -3,24 +3,36 @@ from unittest.mock import Mock
 
 import pytest
 from src.command_parser import CommandParser, CommandParserConfig
+from src.core.domain.chat import ChatMessage
 from src.core.domain.session import Session, SessionState, SessionStateAdapter
-from src.models import ChatMessage
 
 
 class TestFailoverRoutes:
 
     @pytest.fixture(autouse=True)
     def setup_mock_app(self):
-        # Create a mock app object with a state attribute and mock backends
+        # Create mock backends
         mock_openrouter_backend = Mock()
         mock_openrouter_backend.get_available_models.return_value = ["model-a"]
 
         mock_gemini_backend = Mock()
         mock_gemini_backend.get_available_models.return_value = ["model-b"]
 
+        # Create a mock service provider and backend service for DI
+
+        class MockBackendService:
+            def __init__(self):
+                self._backends = {
+                    "openrouter": mock_openrouter_backend,
+                    "gemini": mock_gemini_backend,
+                }
+
+        mock_service_provider = Mock()
+        mock_service_provider.get_required_service.return_value = MockBackendService()
+        mock_service_provider.get_service.return_value = MockBackendService()
+
         mock_app_state = Mock()
-        mock_app_state.openrouter_backend = mock_openrouter_backend
-        mock_app_state.gemini_backend = mock_gemini_backend
+        mock_app_state.service_provider = mock_service_provider
         mock_app_state.functional_backends = {
             "openrouter",
             "gemini",

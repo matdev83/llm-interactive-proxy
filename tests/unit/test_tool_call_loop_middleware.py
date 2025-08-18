@@ -7,8 +7,10 @@ from src.core.common.exceptions import ToolCallLoopError
 from src.core.domain.configuration.loop_detection_config import (
     LoopDetectionConfiguration,
 )
-from src.core.interfaces.response_processor import ProcessedResponse
-from src.core.services.tool_call_loop_middleware import ToolCallLoopDetectionMiddleware
+from src.core.interfaces.response_processor_interface import ProcessedResponse
+from src.core.services.tool_call_loop_middleware_service import (
+    ToolCallLoopDetectionMiddleware,
+)
 from src.tool_call_loop.config import ToolLoopMode
 
 

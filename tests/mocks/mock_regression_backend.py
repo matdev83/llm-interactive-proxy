@@ -10,13 +10,10 @@ import json
 from collections.abc import AsyncIterator
 from typing import Any, TypedDict
 
-from src.constants import BackendType
-
 
 class Message(TypedDict):
     role: str
     content: str | None
-    tool_calls: list[dict[str, Any]] | None
     tool_calls: list[dict[str, Any]] | None
 
 
@@ -48,17 +45,17 @@ class MockRegressionBackend:
     implementation and the new SOLID architecture.
     """
 
-    def __init__(self):
+    def __init__(self) -> None:
         self.name = "mock-regression"
         self.is_functional = True
         self.available_models = ["mock-model"]
         self.call_count = 0
-        self.last_request = None
-        self.last_messages = None
-        self.last_model = None
-        self.last_kwargs = None
+        self.last_request: Any | None = None
+        self.last_messages: list[dict[str, Any]] | None = None
+        self.last_model: str | None = None
+        self.last_kwargs: dict[str, Any] | None = None
 
-    async def initialize(self, **kwargs):
+    async def initialize(self, **kwargs: Any) -> bool:
         """Initialize the backend."""
         # Always succeed initialization
         self.is_functional = True
@@ -71,9 +68,9 @@ class MockRegressionBackend:
     async def chat_completions(
         self,
         request_data: Any,
-        processed_messages: list[dict[str, Any]],
+        processed_messages: list[Any],
         effective_model: str,
-        **kwargs,
+        **kwargs: Any,
     ) -> tuple[ChatCompletionResponse, dict[str, str]] | AsyncIterator[dict[str, Any]]:
         """Handle chat completion requests.
 
@@ -101,7 +98,7 @@ class MockRegressionBackend:
         else:
             return self._create_standard_response()
 
-    async def stream_generator(self):
+    async def stream_generator(self) -> AsyncIterator[dict[str, Any]]:
         """Generate streaming response chunks."""
         # First chunk with role
         yield {
@@ -192,49 +189,3 @@ class MockRegressionBackend:
         headers = {"content-type": "application/json", "x-mock-backend": "true"}
 
         return response, headers
-
-
-# Legacy compatibility
-class MockRegressionBackendFactory:
-    """Factory for creating MockRegressionBackend instances for legacy code."""
-
-    @staticmethod
-    def create_backend():
-        """Create a new MockRegressionBackend instance."""
-        return MockRegressionBackend()
-
-    @staticmethod
-    def register_backend():
-        """Register the mock backend with the legacy backend registry."""
-        try:
-            from src.backends import register_backend
-
-            # Create a factory function for the legacy backend registry
-            def factory_func(config, httpx_client):
-                backend = MockRegressionBackend()
-                return backend
-
-            # Register with legacy backend system
-            register_backend(BackendType.MOCK, factory_func)
-        except ImportError:
-            # src.backends might not be available in some environments
-            pass
-
-
-# New architecture compatibility
-class MockRegressionBackendProvider:
-    """Provider for creating MockRegressionBackend instances for new architecture."""
-
-    @staticmethod
-    def register_backend(app):
-        """Register the mock backend with the new architecture."""
-        from src.core.services.backend_factory import BackendFactory
-
-        # Get the backend factory from the service provider
-        service_provider = app.state.service_provider
-        backend_factory = service_provider.get_service(BackendFactory)
-
-        # Register the mock backend with the factory
-        backend_factory.register_backend_type(
-            "mock-regression", lambda client, **kwargs: MockRegressionBackend()
-        )

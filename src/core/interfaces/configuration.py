@@ -157,7 +157,9 @@ class IReasoningConfig(abc.ABC):
         """Create a new config with updated temperature."""
 
     @abc.abstractmethod
-    def with_gemini_generation_config(self, config: dict[str, Any] | None) -> IReasoningConfig:
+    def with_gemini_generation_config(
+        self, config: dict[str, Any] | None
+    ) -> IReasoningConfig:
         """Create a new config with updated Gemini generation configuration."""
 
 
@@ -183,7 +185,9 @@ class ILoopDetectionConfig(abc.ABC):
         """Create a new config with updated tool loop detection enabled status."""
 
     @abc.abstractmethod
-    def with_tool_loop_max_repeats(self, max_repeats: int | None) -> ILoopDetectionConfig:
+    def with_tool_loop_max_repeats(
+        self, max_repeats: int | None
+    ) -> ILoopDetectionConfig:
         """Create a new config with updated tool loop max repeats."""
 
     @abc.abstractmethod

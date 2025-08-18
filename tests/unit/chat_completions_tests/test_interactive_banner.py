@@ -2,6 +2,8 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
+from tests.conftest import get_backend_instance
+
 
 @patch("src.connectors.openai.OpenAIConnector.chat_completions", new_callable=AsyncMock)
 @patch(
@@ -65,8 +67,9 @@ async def test_hello_command_returns_banner(
 
 
 def test_hello_command_returns_xml_banner_for_cline_agent(interactive_client):
+    backend = get_backend_instance(interactive_client.app, "openrouter")
     with patch.object(
-        interactive_client.app.state.openrouter_backend,
+        backend,
         "chat_completions",
         new_callable=AsyncMock,
     ) as mock_method:
@@ -121,8 +124,9 @@ def test_hello_command_returns_xml_banner_for_cline_agent(interactive_client):
 
 
 def test_set_command_returns_xml_for_cline_agent(interactive_client):
+    backend = get_backend_instance(interactive_client.app, "openrouter")
     with patch.object(
-        interactive_client.app.state.openrouter_backend,
+        backend,
         "chat_completions",
         new_callable=AsyncMock,
     ) as mock_method:

@@ -3,15 +3,17 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 from fastapi.testclient import TestClient
-from src.core.interfaces.backend_service import IBackendService
-from src.models import (
+from src.core.domain.chat import (
     ChatCompletionChoice,
     ChatCompletionChoiceMessage,
-    ChatCompletionResponse,
-    CompletionUsage,
+    # CompletionUsage not present in domain; usage is dict in ChatResponse
     FunctionCall,
     ToolCall,
 )
+from src.core.domain.chat import (
+    ChatResponse as ChatCompletionResponse,
+)
+from src.core.interfaces.backend_service_interface import IBackendService
 
 
 def _dummy_openai_response() -> ChatCompletionResponse:
@@ -29,7 +31,7 @@ def _dummy_openai_response() -> ChatCompletionResponse:
                 finish_reason="stop",
             )
         ],
-        usage=CompletionUsage(prompt_tokens=10, completion_tokens=20, total_tokens=30),
+        usage={"prompt_tokens": 10, "completion_tokens": 20, "total_tokens": 30},
     )
 
 
@@ -61,7 +63,7 @@ def _dummy_openai_tool_call_response(
                 finish_reason="tool_calls",
             )
         ],
-        usage=CompletionUsage(prompt_tokens=10, completion_tokens=20, total_tokens=30),
+        usage={"prompt_tokens": 10, "completion_tokens": 20, "total_tokens": 30},
     )
 
 

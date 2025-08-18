@@ -2,19 +2,19 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 from fastapi.testclient import TestClient
-from src.core.interfaces.session_service import ISessionService
+
+from tests.conftest import get_backend_instance, get_session_service_from_app
 
 
 @pytest.mark.asyncio
 async def test_pwd_command_with_project_dir_set(client: TestClient):
-    session_service = client.app.state.service_provider.get_required_service(
-        ISessionService
-    )
+    session_service = get_session_service_from_app(client.app)
     session = await session_service.get_session("default")
     session.state.project_dir = "/test/project/dir"
 
+    backend = get_backend_instance(client.app, "openrouter")
     with patch.object(
-        client.app.state.openrouter_backend, "chat_completions", new_callable=AsyncMock
+        backend, "chat_completions", new_callable=AsyncMock
     ) as mock_method:
         mock_method.return_value = {"choices": [{"message": {"content": "ok"}}]}
         payload = {
@@ -30,14 +30,13 @@ async def test_pwd_command_with_project_dir_set(client: TestClient):
 
 @pytest.mark.asyncio
 async def test_pwd_command_without_project_dir_set(client: TestClient):
-    session_service = client.app.state.service_provider.get_required_service(
-        ISessionService
-    )
+    session_service = get_session_service_from_app(client.app)
     session = await session_service.get_session("default")
     session.state.project_dir = None
 
+    backend = get_backend_instance(client.app, "openrouter")
     with patch.object(
-        client.app.state.openrouter_backend, "chat_completions", new_callable=AsyncMock
+        backend, "chat_completions", new_callable=AsyncMock
     ) as mock_method:
         mock_method.return_value = {"choices": [{"message": {"content": "ok"}}]}
         payload = {

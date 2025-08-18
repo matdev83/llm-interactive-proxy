@@ -1,7 +1,8 @@
 from unittest.mock import AsyncMock, patch
 
 import pytest
-from src.core.interfaces.session_service import ISessionService
+
+from tests.conftest import get_backend_instance, get_session_service_from_app
 
 
 @pytest.mark.asyncio
@@ -12,8 +13,9 @@ async def test_cline_hello_command_tool_calls(
 
     # First, simulate a Cline agent by sending a message with <attempt_completion>
     # This should trigger Cline agent detection
+    backend = get_backend_instance(interactive_client.app, "openrouter")
     with patch.object(
-        interactive_client.app.state.openrouter_backend,
+        backend,
         "chat_completions",
         new_callable=AsyncMock,
     ) as mock_method:
@@ -51,19 +53,16 @@ async def test_cline_hello_command_tool_calls(
     assert "</attempt_completion>" in content
     assert "Hello! I am the interactive proxy." in content
 
-    # Verify session agent detection worked
-    # Note: This assumes the session ID is derived from the test client somehow
-    # In a real test, we might need to extract the session ID from headers or cookies
-
 
 @pytest.mark.asyncio
 async def test_cline_hello_command_same_request(interactive_client):
     """Test !/hello command when Cline detection and command are in the same request."""
 
+    backend = get_backend_instance(interactive_client.app, "openrouter")
     # Send a message that contains BOTH <attempt_completion> AND !/hello in the same request
     # This simulates what might happen in real Cline usage
     with patch.object(
-        interactive_client.app.state.openrouter_backend,
+        backend,
         "chat_completions",
         new_callable=AsyncMock,
     ) as mock_method:
@@ -87,11 +86,7 @@ async def test_cline_hello_command_same_request(interactive_client):
     assert data["id"] == "proxy_cmd_processed"
 
     # Get the session to check if Cline agent was detected
-    session_service = (
-        interactive_client.app.state.service_provider.get_required_service(
-            ISessionService
-        )
-    )
+    session_service = get_session_service_from_app(interactive_client.app)
     session = await session_service.get_session("default")
     print(
         f"DEBUG: is_cline_agent after same-request detection = {session.state.is_cline_agent}"
@@ -112,10 +107,11 @@ async def test_cline_hello_command_same_request(interactive_client):
 async def test_cline_hello_with_attempt_completion_only(interactive_client):
     """Test !/hello when only <attempt_completion> is present (real-world Cline scenario)."""
 
+    backend = get_backend_instance(interactive_client.app, "openrouter")
     # This simulates the EXACT real-world scenario: Cline sends a message with <attempt_completion>
     # and !/hello, but without the keyword "cline" in the text
     with patch.object(
-        interactive_client.app.state.openrouter_backend,
+        backend,
         "chat_completions",
         new_callable=AsyncMock,
     ) as mock_method:
@@ -139,11 +135,7 @@ async def test_cline_hello_with_attempt_completion_only(interactive_client):
     assert data["id"] == "proxy_cmd_processed"
 
     # Get the session to check if Cline agent was detected
-    session_service = (
-        interactive_client.app.state.service_provider.get_required_service(
-            ISessionService
-        )
-    )
+    session_service = get_session_service_from_app(interactive_client.app)
     session = await session_service.get_session("default")
     print(
         f"DEBUG: is_cline_agent after attempt_completion-only detection = {session.state.is_cline_agent}"
@@ -164,10 +156,11 @@ async def test_cline_hello_with_attempt_completion_only(interactive_client):
 async def test_cline_hello_command_first_message(interactive_client):
     """Test !/hello as the very first message without prior Cline detection."""
 
+    backend = get_backend_instance(interactive_client.app, "openrouter")
     # Send !/hello as the very first message without any prior Cline detection
     # This simulates the real-world scenario you encountered
     with patch.object(
-        interactive_client.app.state.openrouter_backend,
+        backend,
         "chat_completions",
         new_callable=AsyncMock,
     ) as mock_method:
@@ -185,11 +178,7 @@ async def test_cline_hello_command_first_message(interactive_client):
     assert data["id"] == "proxy_cmd_processed"
 
     # Get the session to check agent detection status
-    session_service = (
-        interactive_client.app.state.service_provider.get_required_service(
-            ISessionService
-        )
-    )
+    session_service = get_session_service_from_app(interactive_client.app)
     session = await session_service.get_session("default")
     print(f"DEBUG: is_cline_agent for first message = {session.state.is_cline_agent}")
     print(f"DEBUG: session.agent = {session.agent}")
@@ -209,9 +198,10 @@ async def test_cline_hello_command_first_message(interactive_client):
 async def test_non_cline_hello_command_no_xml_wrapping(interactive_client):
     """Test that !/hello command is NOT wrapped in XML for non-Cline agents."""
 
+    backend = get_backend_instance(interactive_client.app, "openrouter")
     # Send !/hello command without triggering Cline agent detection
     with patch.object(
-        interactive_client.app.state.openrouter_backend,
+        backend,
         "chat_completions",
         new_callable=AsyncMock,
     ) as mock_method:

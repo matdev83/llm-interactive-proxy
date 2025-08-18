@@ -18,8 +18,8 @@ from typing import Any
 from fastapi.responses import StreamingResponse
 
 from src.core.domain.usage_data import UsageData
-from src.core.interfaces.repositories import IUsageRepository
-from src.core.interfaces.usage_tracking import IUsageTrackingService
+from src.core.interfaces.repositories_interface import IUsageRepository
+from src.core.interfaces.usage_tracking_interface import IUsageTrackingService
 from src.llm_accounting_utils import (
     is_accounting_disabled,
     track_llm_request,

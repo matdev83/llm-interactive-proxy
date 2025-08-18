@@ -13,7 +13,7 @@ import httpx
 import pytest
 from fastapi import HTTPException
 from src.connectors.qwen_oauth import QwenOAuthConnector
-from src.models import ChatCompletionRequest, ChatMessage
+from src.core.domain.chat import ChatMessage, ChatRequest
 from starlette.responses import StreamingResponse
 
 
@@ -265,7 +265,7 @@ class TestQwenOAuthConnectorUnit:
         connector.api_base_url = "https://portal.qwen.ai/v1"
 
         test_message = ChatMessage(role="user", content="Hello")
-        request_data = ChatCompletionRequest(
+        request_data = ChatRequest(
             model="qwen3-coder-plus", messages=[test_message], stream=False
         )
 
@@ -332,7 +332,7 @@ class TestQwenOAuthConnectorUnit:
         connector.api_base_url = "https://portal.qwen.ai/v1"
 
         test_message = ChatMessage(role="user", content="Hello")
-        request_data = ChatCompletionRequest(
+        request_data = ChatRequest(
             model="qwen-oauth:qwen3-coder-plus", messages=[test_message], stream=False
         )
 
@@ -394,7 +394,7 @@ class TestQwenOAuthConnectorUnit:
         connector.api_base_url = "https://portal.qwen.ai/v1"
 
         test_message = ChatMessage(role="user", content="Hello")
-        request_data = ChatCompletionRequest(
+        request_data = ChatRequest(
             model="qwen3-coder-plus", messages=[test_message], stream=True
         )
 
@@ -427,7 +427,7 @@ class TestQwenOAuthConnectorUnit:
     async def test_chat_completions_token_refresh_failure(self, connector):
         """Test chat completion when token refresh fails."""
         test_message = ChatMessage(role="user", content="Hello")
-        request_data = ChatCompletionRequest(
+        request_data = ChatRequest(
             model="qwen3-coder-plus", messages=[test_message], stream=False
         )
 
@@ -453,7 +453,7 @@ class TestQwenOAuthConnectorUnit:
         }
 
         test_message = ChatMessage(role="user", content="Hello")
-        request_data = ChatCompletionRequest(
+        request_data = ChatRequest(
             model="qwen3-coder-plus", messages=[test_message], stream=False
         )
 

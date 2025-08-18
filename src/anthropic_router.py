@@ -20,8 +20,7 @@ from src.anthropic_converters import (
     openai_stream_to_anthropic_stream,
     openai_to_anthropic_response,
 )
-from src.constants import BackendType
-from src.models import ChatCompletionRequest
+from src.core.adapters.api_adapters import dict_to_domain_chat_request
 
 # Import will be done locally to avoid circular imports
 
@@ -52,18 +51,19 @@ async def anthropic_messages(
             raise HTTPException(status_code=422, detail=f"Invalid role '{m.role}'")
 
     openai_request_data = anthropic_to_openai_request(request_body)
-    openai_request_obj = ChatCompletionRequest(**openai_request_data)
+    # Convert OpenAI-format dict to domain ChatRequest
+    openai_request_obj = dict_to_domain_chat_request(openai_request_data)
 
     # --- Step 2: Temporarily switch backend type so chat_completions routes to Anthropic backend
 
     original_backend_type = getattr(
-        http_request.app.state, "backend_type", BackendType.OPENROUTER
+        http_request.app.state, "backend_type", "openrouter"
     )
-    http_request.app.state.backend_type = BackendType.ANTHROPIC
+    http_request.app.state.backend_type = "anthropic"
 
     try:
         # Get the request processor from the service provider
-        from src.core.interfaces.request_processor import IRequestProcessor
+        from src.core.interfaces.request_processor_interface import IRequestProcessor
 
         if (
             hasattr(http_request.app.state, "service_provider")

@@ -4,7 +4,7 @@ import inspect
 from collections.abc import Callable
 from typing import Any, TypeVar
 
-from src.core.interfaces.di import (
+from src.core.interfaces.di_interface import (
     IServiceCollection,
     IServiceProvider,
     IServiceScope,

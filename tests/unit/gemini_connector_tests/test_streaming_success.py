@@ -3,9 +3,9 @@ import json
 import httpx
 import pytest
 import pytest_asyncio
-import src.models as models
 from pytest_httpx import HTTPXMock
 from src.connectors.gemini import GeminiBackend
+from src.core.domain.chat import ChatMessage, ChatRequest
 from starlette.responses import StreamingResponse
 
 TEST_GEMINI_API_BASE_URL = "https://generativelanguage.googleapis.com"
@@ -18,26 +18,25 @@ async def gemini_backend_fixture():
 
 
 @pytest.fixture
-def sample_chat_request_data() -> models.ChatCompletionRequest:
-    return models.ChatCompletionRequest(
-        model="test-model",
-        messages=[models.ChatMessage(role="user", content="Hello")],
+def sample_chat_request_data() -> ChatRequest:
+    return ChatRequest(
+        model="test-model", messages=[ChatMessage(role="user", content="Hello")]
     )
 
 
 @pytest.fixture
-def sample_processed_messages() -> list[models.ChatMessage]:
-    return [models.ChatMessage(role="user", content="Hello")]
+def sample_processed_messages() -> list[ChatMessage]:
+    return [ChatMessage(role="user", content="Hello")]
 
 
 @pytest.mark.asyncio
 async def test_chat_completions_streaming_success(
     gemini_backend: GeminiBackend,
     httpx_mock: HTTPXMock,
-    sample_chat_request_data: models.ChatCompletionRequest,
-    sample_processed_messages: list[models.ChatMessage],
+    sample_chat_request_data: ChatRequest,
+    sample_processed_messages: list[ChatMessage],
 ):
-    sample_chat_request_data.stream = True
+    sample_chat_request_data = sample_chat_request_data.model_copy(update={"stream": True})
     effective_model = "gemini-1"
 
     # Gemini returns a streaming JSON array split across chunks

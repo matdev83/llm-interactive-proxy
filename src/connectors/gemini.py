@@ -11,11 +11,14 @@ from fastapi import HTTPException
 from starlette.responses import StreamingResponse
 
 from src.connectors.base import LLMBackend
-from src.models import (
-    ChatCompletionRequest,
+from src.core.domain.chat import (
+    ChatRequest,
     MessageContentPartImage,
     MessageContentPartText,
 )
+from src.core.services.backend_registry import backend_registry
+
+# Legacy ChatCompletionRequest removed from connector signatures; use domain ChatRequest
 
 # API key redaction and command filtering are now handled by middleware
 # from src.security import APIKeyRedactor, ProxyCommandFilter
@@ -25,6 +28,8 @@ logger = logging.getLogger(__name__)
 
 class GeminiBackend(LLMBackend):
     """LLMBackend implementation for Google's Gemini API."""
+
+    backend_type: str = "gemini"
 
     def __init__(self, client: httpx.AsyncClient) -> None:
         self.client = client
@@ -105,7 +110,9 @@ class GeminiBackend(LLMBackend):
         }
 
     def _convert_full_response(
-        self, data: dict[str, Any], model: str
+        self,
+        data: dict[str, Any],
+        model: str,
     ) -> dict[str, Any]:
         """Convert a Gemini JSON response to OpenAI format, including function calls."""
         candidate: dict[str, Any] = {}
@@ -324,7 +331,7 @@ class GeminiBackend(LLMBackend):
 
     async def chat_completions(  # type: ignore[override]
         self,
-        request_data: ChatCompletionRequest,
+        request_data: ChatRequest,
         processed_messages: list[Any],
         effective_model: str,
         openrouter_api_base_url: str | None = None,
@@ -348,8 +355,8 @@ class GeminiBackend(LLMBackend):
             "contents": self._prepare_gemini_contents(processed_messages)
         }
         self._apply_generation_config(payload, request_data)
-        if request_data.extra_params:
-            payload.update(request_data.extra_params)
+        if request_data.extra_body:
+            payload.update(request_data.extra_body)
 
         # Normalize model id and construct URL
         model_name = self._normalize_model_name(effective_model)
@@ -377,14 +384,10 @@ class GeminiBackend(LLMBackend):
         base = (
             gemini_api_base_url
             or openrouter_api_base_url
-            or kwargs.get("gemini_api_base_url")
+            or kwargs.get("gemini_api_base_url", None)
             or getattr(self, "gemini_api_base_url", None)
         )
-        key = (
-            api_key
-            or kwargs.get("api_key")
-            or getattr(self, "api_key", None)
-        )
+        key = api_key or kwargs.get("api_key", None) or getattr(self, "api_key", None)
         if not base or not key:
             raise HTTPException(
                 status_code=500,
@@ -393,7 +396,9 @@ class GeminiBackend(LLMBackend):
         return base.rstrip("/"), {"x-goog-api-key": key}
 
     def _apply_generation_config(
-        self, payload: dict[str, Any], request_data: ChatCompletionRequest
+        self,
+        payload: dict[str, Any],
+        request_data: ChatRequest,
     ) -> None:
         # thinking budget
         if getattr(request_data, "thinking_budget", None):
@@ -489,3 +494,4 @@ class GeminiBackend(LLMBackend):
                 status_code=503,
                 detail=f"Service unavailable: Could not connect to Gemini ({e})",
             )
+backend_registry.register_backend("gemini", GeminiBackend)

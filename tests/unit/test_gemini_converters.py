@@ -3,6 +3,7 @@ Unit tests for Gemini API converter functions.
 Tests the conversion logic between Gemini and OpenAI formats.
 """
 
+from src.core.domain.chat import ChatMessage
 from src.gemini_converters import (
     gemini_to_openai_messages,
     openai_to_gemini_contents,
@@ -11,9 +12,6 @@ from src.gemini_models import (
     Blob,
     Content,
     Part,
-)
-from src.models import (
-    ChatMessage,
 )
 
 

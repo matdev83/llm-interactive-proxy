@@ -15,7 +15,7 @@ from src.core.commands.handlers.base_handler import (
 )
 from src.core.domain.command_context import CommandContext
 from src.core.domain.session import SessionState
-from src.core.interfaces.domain_entities import ISessionState
+from src.core.interfaces.domain_entities_interface import ISessionState
 
 logger = logging.getLogger(__name__)
 
@@ -111,7 +111,7 @@ class HelloCommandHandler(ICommandHandler):
             from src.core.domain.configuration.reasoning_config import (
                 ReasoningConfiguration,
             )
-            
+
             backend_config = (
                 current_state.backend_config
                 if isinstance(current_state.backend_config, BackendConfiguration)
@@ -120,10 +120,12 @@ class HelloCommandHandler(ICommandHandler):
                     model=current_state.backend_config.model,
                     api_url=current_state.backend_config.api_url,
                     interactive_mode=current_state.backend_config.interactive_mode,
-                    openai_url=getattr(current_state.backend_config, 'openai_url', None),
+                    openai_url=getattr(
+                        current_state.backend_config, "openai_url", None
+                    ),
                 )
             )
-            
+
             reasoning_config = (
                 current_state.reasoning_config
                 if isinstance(current_state.reasoning_config, ReasoningConfiguration)
@@ -133,7 +135,7 @@ class HelloCommandHandler(ICommandHandler):
                     temperature=current_state.reasoning_config.temperature,
                 )
             )
-            
+
             loop_config = (
                 current_state.loop_config
                 if isinstance(current_state.loop_config, LoopDetectionConfiguration)
@@ -156,8 +158,9 @@ class HelloCommandHandler(ICommandHandler):
 
         # Wrap the SessionState in a SessionStateAdapter to make it ISessionState
         from src.core.domain.session import SessionStateAdapter
+
         adapted_state = SessionStateAdapter(new_state)
-        
+
         return CommandHandlerResult(
             success=True,
             message="Hello, this is llm-interactive-proxy v0.1.0. hello acknowledged",

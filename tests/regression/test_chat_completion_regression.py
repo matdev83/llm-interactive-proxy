@@ -11,11 +11,12 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 from fastapi import HTTPException
-from src.models import (
+from src.core.domain.chat import (
     ChatCompletionChoice,
     ChatCompletionChoiceMessage,
-    ChatCompletionResponse,
-    CompletionUsage,
+)
+from src.core.domain.chat import (
+    ChatResponse as ChatCompletionResponse,
 )
 from starlette.responses import StreamingResponse
 
@@ -83,7 +84,7 @@ class TestChatCompletionRegression:
             )
             for choice in mock_response_data["choices"]
         ]
-        usage = CompletionUsage(**mock_response_data["usage"])
+        usage = mock_response_data["usage"]
 
         mock_chat_completions.return_value = ChatCompletionResponse(
             id=mock_response_data["id"],

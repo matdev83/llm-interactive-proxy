@@ -5,8 +5,11 @@ def test_cline_output_format_exact(interactive_client):
     """Test that Cline XML output format is exactly as specified - no markdown code blocks."""
 
     # Test the exact output format for Cline
+    from tests.conftest import get_backend_instance
+
+    backend = get_backend_instance(interactive_client.app, "openrouter")
     with patch.object(
-        interactive_client.app.state.openrouter_backend,
+        backend,
         "chat_completions",
         new_callable=AsyncMock,
     ) as mock_method:
@@ -65,8 +68,11 @@ def test_cline_output_format_exact(interactive_client):
 def test_cline_output_format_other_commands(interactive_client):
     """Test XML format for other commands like !/help."""
 
+    from tests.conftest import get_backend_instance
+
+    backend = get_backend_instance(interactive_client.app, "openrouter")
     with patch.object(
-        interactive_client.app.state.openrouter_backend,
+        backend,
         "chat_completions",
         new_callable=AsyncMock,
     ) as mock_method:

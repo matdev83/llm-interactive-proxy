@@ -103,9 +103,11 @@ class BackendCommandHandler(ILegacyCommandHandler):
 
             # Create new session state with updated backend config
             # Create new session state with updated backend config
-            from src.core.domain.configuration.backend_config import BackendConfiguration
+            from src.core.domain.configuration.backend_config import (
+                BackendConfiguration,
+            )
             from src.core.domain.session import SessionState, SessionStateAdapter
-            from src.core.interfaces.domain_entities import ISessionState
+            from src.core.interfaces.domain_entities_interface import ISessionState
 
             updated_state: ISessionState
             if isinstance(session.state, SessionStateAdapter):
@@ -185,13 +187,24 @@ class ModelCommandHandler(ILegacyCommandHandler):
             )
 
         try:
-            # Create new backend config with updated model name
-            backend_config = session.state.backend_config.with_model(model_name)
+            # Parse model name for backend:model format
+            backend_type = None
+            actual_model = model_name
+
+            if ":" in model_name:
+                backend_type, actual_model = model_name.split(":", 1)
+
+            # Create new backend config with updated model name and optionally backend
+            backend_config = session.state.backend_config.with_model(actual_model)
+            if backend_type:
+                backend_config = backend_config.with_backend(backend_type)
 
             # Create new session state with updated backend config
-            from src.core.domain.configuration.backend_config import BackendConfiguration
+            from src.core.domain.configuration.backend_config import (
+                BackendConfiguration,
+            )
             from src.core.domain.session import SessionState, SessionStateAdapter
-            from src.core.interfaces.domain_entities import ISessionState
+            from src.core.interfaces.domain_entities_interface import ISessionState
 
             # Cast to concrete type
             concrete_backend_config = cast(BackendConfiguration, backend_config)
@@ -212,11 +225,16 @@ class ModelCommandHandler(ILegacyCommandHandler):
 
             session.update_state(updated_state)
 
+            message_parts = []
+            if backend_type:
+                message_parts.append(f"Backend changed to {backend_type}")
+            message_parts.append(f"Model changed to {actual_model}")
+
             return CommandResult(
                 name=self.name,
                 success=True,
-                message=f"Model changed to {model_name}",
-                data={"model": model_name},
+                message="; ".join(message_parts),
+                data={"model": actual_model, "backend": backend_type},
             )
         except Exception as e:
             logger.error(f"Error setting model: {e}")
@@ -284,9 +302,11 @@ class TemperatureCommandHandler(ILegacyCommandHandler):
             )
 
             # Create new session state with updated reasoning config
-            from src.core.domain.configuration.reasoning_config import ReasoningConfiguration
+            from src.core.domain.configuration.reasoning_config import (
+                ReasoningConfiguration,
+            )
             from src.core.domain.session import SessionState, SessionStateAdapter
-            from src.core.interfaces.domain_entities import ISessionState
+            from src.core.interfaces.domain_entities_interface import ISessionState
 
             # Cast to concrete type
             concrete_reasoning_config = cast(ReasoningConfiguration, reasoning_config)
@@ -299,7 +319,9 @@ class TemperatureCommandHandler(ILegacyCommandHandler):
                 updated_state = SessionStateAdapter(new_state)
             elif isinstance(session.state, SessionState):
                 # Working with SessionState directly
-                new_state = session.state.with_reasoning_config(concrete_reasoning_config)
+                new_state = session.state.with_reasoning_config(
+                    concrete_reasoning_config
+                )
                 updated_state = SessionStateAdapter(new_state)
             else:
                 # Fallback for other implementations

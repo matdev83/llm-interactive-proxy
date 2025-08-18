@@ -6,9 +6,7 @@ from typing import TYPE_CHECKING, Any
 from starlette.responses import StreamingResponse
 
 if TYPE_CHECKING:
-    from src.models import (
-        ChatCompletionRequest,
-    )  # Corrected path assuming models.py is in src
+    from src.core.domain.chat import ChatRequest
 
 
 class LLMBackend(abc.ABC):
@@ -17,11 +15,13 @@ class LLMBackend(abc.ABC):
     Defines the interface for interacting with different LLM providers.
     """
 
+    backend_type: str
+
     @abc.abstractmethod
     async def chat_completions(
         self,
-        request_data: ChatCompletionRequest,
-        processed_messages: list,  # Messages after command processing
+        request_data: ChatRequest,
+        processed_messages: list,  # Messages after command processing (domain objects or dicts)
         effective_model: str,  # Model after considering override
         **kwargs: Any,
     ) -> StreamingResponse | tuple[dict[str, Any], dict[str, str]]:
@@ -29,7 +29,7 @@ class LLMBackend(abc.ABC):
         Forwards a chat completion request to the LLM backend.
 
         Args:
-            request_data: The request payload, conforming to ChatCompletionRequest model.
+            request_data: The request payload as a domain `ChatRequest`.
             processed_messages: The list of messages after command processing.
             effective_model: The model name to be used after considering any overrides.
             **kwargs: Additional keyword arguments for the backend.

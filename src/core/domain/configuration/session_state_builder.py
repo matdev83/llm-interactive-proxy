@@ -9,12 +9,12 @@ from src.core.domain.configuration.loop_detection_config import (
 from src.core.domain.configuration.project_config import ProjectConfiguration
 from src.core.domain.configuration.reasoning_config import ReasoningConfiguration
 from src.core.domain.session import SessionState
-from src.core.interfaces.configuration import (
+from src.core.interfaces.configuration_interface import (
     IBackendConfig,
     ILoopDetectionConfig,
     IReasoningConfig,
 )
-from src.core.interfaces.domain_entities import ISessionState
+from src.core.interfaces.domain_entities_interface import ISessionState
 
 
 class SessionStateBuilder:

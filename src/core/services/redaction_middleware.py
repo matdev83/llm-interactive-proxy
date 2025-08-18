@@ -13,7 +13,7 @@ from collections.abc import Iterable
 from typing import Any
 
 from src.core.domain.chat import ChatRequest
-from src.core.interfaces.request_processor import IRequestMiddleware
+from src.core.interfaces.request_processor_interface import IRequestMiddleware
 
 logger = logging.getLogger(__name__)
 

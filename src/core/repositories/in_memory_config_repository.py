@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from src.core.interfaces.repositories import IConfigRepository
+from src.core.interfaces.repositories_interface import IConfigRepository
 
 logger = logging.getLogger(__name__)
 

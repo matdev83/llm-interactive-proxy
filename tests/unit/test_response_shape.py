@@ -2,7 +2,7 @@ from typing import Any
 from unittest.mock import Mock
 
 from src.core.domain.chat import ChatResponse
-from src.core.services.request_processor import RequestProcessor
+from src.core.services.request_processor_service import RequestProcessor
 
 
 def make_processor() -> RequestProcessor:

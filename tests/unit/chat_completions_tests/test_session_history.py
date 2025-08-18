@@ -1,11 +1,16 @@
 from unittest.mock import AsyncMock, patch
 
+import pytest
 from starlette.responses import StreamingResponse
 
+from tests.conftest import get_backend_instance, get_session_service_from_app
 
-def test_session_records_proxy_and_backend_interactions(client):
+
+@pytest.mark.asyncio
+async def test_session_records_proxy_and_backend_interactions(client):
+    backend = get_backend_instance(client.app, "openrouter")
     with patch.object(
-        client.app.state.openrouter_backend, "chat_completions", new_callable=AsyncMock
+        backend, "chat_completions", new_callable=AsyncMock
     ) as mock_method:
         mock_method.return_value = {
             "choices": [{"message": {"content": "backend reply"}}],
@@ -27,7 +32,10 @@ def test_session_records_proxy_and_backend_interactions(client):
             "/v1/chat/completions", json=payload2, headers={"X-Session-ID": "abc"}
         )
 
-    session = client.app.state.session_manager.get_session("abc")  # type: ignore
+    from tests.conftest import get_session_service_from_app
+
+    session_service = get_session_service_from_app(client.app)
+    session = await session_service.get_session("abc")  # type: ignore
     assert len(session.history) == 2
     assert session.history[0].handler == "proxy"
     assert session.history[0].prompt == "!/set(project=proj1)"
@@ -38,13 +46,15 @@ def test_session_records_proxy_and_backend_interactions(client):
     assert session.history[1].usage.total_tokens == 3
 
 
-def test_session_records_streaming_placeholder(client):
+@pytest.mark.asyncio
+async def test_session_records_streaming_placeholder(client):
     async def gen():
         yield b"data: hi\n\n"
 
     stream_resp = StreamingResponse(gen(), media_type="text/event-stream")
+    backend = get_backend_instance(client.app, "openrouter")
     with patch.object(
-        client.app.state.openrouter_backend, "chat_completions", new_callable=AsyncMock
+        backend, "chat_completions", new_callable=AsyncMock
     ) as mock_method:
         mock_method.return_value = stream_resp
         payload = {
@@ -56,5 +66,6 @@ def test_session_records_streaming_placeholder(client):
             "/v1/chat/completions", json=payload, headers={"X-Session-ID": "s2"}
         )
 
-    session = client.app.state.session_manager.get_session("s2")  # type: ignore
+    session_service = get_session_service_from_app(client.app)
+    session = await session_service.get_session("s2")  # type: ignore
     assert session.history[0].response == "<streaming>"

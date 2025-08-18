@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from collections.abc import AsyncIterator
+from typing import Any
 
 from src.core.domain.chat import ChatRequest, ChatResponse, StreamingChatResponse
 
@@ -56,5 +57,5 @@ class IBackendService(ABC):
     async def chat_completions(
         self,
         request: ChatRequest,
-        **kwargs,
+        **kwargs: Any,
     ) -> ChatResponse | AsyncIterator[StreamingChatResponse]: ...

@@ -1,7 +1,8 @@
 from unittest.mock import AsyncMock, patch
 
 import pytest
-from src.core.interfaces.session_service import ISessionService
+
+from tests.conftest import get_backend_instance, get_session_service_from_app
 
 
 @pytest.mark.asyncio
@@ -24,10 +25,11 @@ async def test_cline_xml_wrapping_for_all_commands(
         print(f"\n=== Testing command: {command} ===")
 
         # Create a fresh session for each test to avoid state pollution
-        session_id = f"test-{command.replace('/', '').replace('(', '-').replace(')', '').replace('=', '-')}"
+        session_id = f"test-{command.replace('/', '').replace('(', '-').replace(')', '').replace('=', '-') }"
 
+        backend = get_backend_instance(interactive_client.app, "openrouter")
         with patch.object(
-            interactive_client.app.state.openrouter_backend,
+            backend,
             "chat_completions",
             new_callable=AsyncMock,
         ) as mock_method:
@@ -99,11 +101,7 @@ async def test_cline_xml_wrapping_for_all_commands(
         ), f"Command {command} should produce non-empty result"
 
         # Verify session agent detection worked
-        session_service = (
-            interactive_client.app.state.service_provider.get_required_service(
-                ISessionService
-            )
-        )
+        session_service = get_session_service_from_app(interactive_client.app)
         session = await session_service.get_session(session_id)
         assert (
             session.state.is_cline_agent
@@ -117,8 +115,9 @@ def test_cline_xml_wrapping_error_commands(interactive_client, mock_openrouter_b
     """Test XML wrapping for pure command-only messages that produce errors."""
 
     # Test a pure command that should produce an error (command-only message)
+    backend = get_backend_instance(interactive_client.app, "openrouter")
     with patch.object(
-        interactive_client.app.state.openrouter_backend,
+        backend,
         "chat_completions",
         new_callable=AsyncMock,
     ) as mock_method:
@@ -153,8 +152,9 @@ def test_cline_xml_wrapping_pure_error_commands(interactive_client):
     """Test XML wrapping for pure command-only messages that produce errors."""
 
     # Test a pure command that should produce an error (truly command-only message)
+    backend = get_backend_instance(interactive_client.app, "openrouter")
     with patch.object(
-        interactive_client.app.state.openrouter_backend,
+        backend,
         "chat_completions",
         new_callable=AsyncMock,
     ) as mock_method:
@@ -190,7 +190,7 @@ def test_cline_xml_wrapping_pure_error_commands(interactive_client):
 
     # Test with a pure command (no extra content)
     with patch.object(
-        interactive_client.app.state.openrouter_backend,
+        backend,
         "chat_completions",
         new_callable=AsyncMock,
     ) as mock_method:

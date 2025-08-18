@@ -3,7 +3,7 @@
 import asyncio
 import logging
 
-from src.core.commands.handler_factory import register_command_handlers
+from src.core.domain.chat import ChatMessage
 from src.core.repositories.in_memory_session_repository import InMemorySessionRepository
 from src.core.services.command_service import CommandRegistry, CommandService
 from src.core.services.session_service import SessionService
@@ -19,7 +19,9 @@ async def test_session_persistence():
     repo = InMemorySessionRepository()
     session_service = SessionService(repo)
     command_registry = CommandRegistry()
-    register_command_handlers(command_registry)
+    from src.core.commands.set_command import SetCommand
+
+    command_registry.register(SetCommand())
     command_service = CommandService(command_registry, session_service, False)
 
     # Create initial session
@@ -29,7 +31,7 @@ async def test_session_persistence():
     print(f"Initial session state - project: {session.state.project}")
 
     # Process a set command
-    messages = [{"role": "user", "content": "!/set(project=test-project)"}]
+    messages = [ChatMessage(role="user", content="!/set(project=test-project)")]
 
     result = await command_service.process_commands(messages, session_id)
 

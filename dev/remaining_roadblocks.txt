@@ -1,10 +1,71 @@
 UPDATE: Categories 1 & 2 cleared. Actions taken: added mocked API key env vars to `tests/conftest.py` and ran QA checks. Moving on to Category 3 (Missing API Keys & Auth Failures).
 
-NEXT STEPS FOR CATEGORY 3:
-- **Add proper mock API keys in test fixtures** (done partially: `tests/conftest.py` updated; verify other tests using numbered keys).
-- **Ensure BackendService provides correct auth headers** (inspect `_get_or_create_backend` path and backend initialization mappings; adjust if any backends miss headers_provider/key_name).
-- **Update backend configurations in tests** to set `app_config.backends.*.api_key` where needed and add `OPENROUTER_API_KEY_1` / `GEMINI_API_KEY_1` envs to failing tests.
-- **Run the failing test subset** to identify remaining auth-related failures and add targeted mocks.
+PROGRESS (recent changes):
+- **SessionStateAdapter compatibility**: completed — adapter now exposes expected properties/setters and supports in-place mutation used by tests.
+- **Command DI & registration**: completed — domain `SetCommand` / `UnsetCommand` now registered into `CommandRegistry`, and project-dir handler wired for `set`.
+- **Unset handler fixes**: completed — aliases and success reporting adjusted for `project-dir` unsetting.
+- **Backend auth propagation**: in progress/completed for common cases — application factory now seeds test API keys for legacy backends and OpenRouter/Gemini config wiring improved.
+- **Temperature validation & command parsing**: completed — `set temperature` validation now enforced and command parsing trims quotes.
+
+NEXT STEPS FOR CATEGORY 3 (UPDATED):
+- **Add/verify mock API keys in test fixtures** (some keys added in `tests/conftest.py`, verify other tests use numbered keys like `*_API_KEY_1`).
+- **Ensure BackendService provides correct auth headers** (verify `openrouter` header provider and that `headers_override`/`api_key` are passed to connector init and runtime calls).
+- **Run failing test subsets** to identify remaining auth-related failures and add targeted mocks.
+
+TODO: IMMEDIATE NEXT STEPS (PRIORITISED, UPDATED)
+
+- **1) Fix session history recording for streaming responses (high)**
+  - Ensure `SessionInteraction` objects are recorded both for proxy-processed commands and backend responses.
+  - Streaming responses should record a `<streaming>` placeholder and not lose the original prompt/handler metadata.
+
+- **2) Re-run proxy/command unit tests (smoke) (done partially)**
+  - Target: `tests/unit/proxy_logic_tests/*`, `tests/unit/chat_completions_tests/*` (command-related tests).
+  - Confirm adapter and DI fixes reduce the large failure cluster.
+
+- **3) Harden command service and request processor (in progress)**
+  - Ensure `CommandService.process_commands` produces correct `modified_messages` (commands consume content when appropriate) and that command results persist to session.
+  - Fix edge cases where commands return `new_state` but `success` may be False — persist when `new_state` present.
+
+- **4) Align application factory model discovery/default backend selection (done partially)**
+  - Tests expecting `openrouter`/`gemini` selection should pass when keys/mocks exist. Continue adding unit tests for backend auto-selection behavior.
+
+- **5) HTTP mock & connector auth fixes (ongoing)**
+  - Ensure `OpenRouterBackend` computes and passes `Authorization` header consistently (both streaming and non-streaming paths).
+  - Verify connectors use the same URLs mocked in tests and propagate `headers_override`.
+
+- **6) Streaming response handling (medium)**
+  - Ensure streaming responses implement/return async iterators and are consumed correctly by response processing.
+
+- **7) Cleanups & final test run**
+  - Remove temporary debug prints, run full test suite, triage remaining failures, and create small, focused fixes.
+
+STATUS SUMMARY (what I will do next):
+- Re-run `tests/unit/chat_completions_tests/test_project_dir_commands.py` and iterate until all API-based project-dir tests return 200.
+- After those pass, run a broader subset of command-related unit tests and file a short list of remaining failures for priority fixes.
+
+ADDED PRIORITY ACTIONS:
+
+- **A) Fix asyncio.run() misuse in tests (highest immediate priority)**
+  - Remove `asyncio.run()` calls from within `@pytest.mark.asyncio` tests (examples: `tests/integration/test_end_to_end_loop_detection.py`, `tests/integration/test_failover_routes.py`).
+  - Rely on pytest-asyncio's event loop management (use `async def` tests or mark appropriately) to avoid "RuntimeError: asyncio.run() cannot be called from a running event loop".
+
+- **B) Ensure config objects (not dicts) are passed through DI and app factory**
+  - Audit `src/core/app/application_factory.py` and `src/core/config/config_loader.py` to guarantee `AppConfig` (and nested configs like `backends`) are instances with attributes, not raw dicts.
+  - Add explicit conversions/wrappers where tests or legacy code expect attribute access (e.g., `config.backends.openai.api_key`).
+
+- **C) Re-initialize middleware & processors on startup**
+  - Verify `src/response_middleware.py` and `ApplicationBuilder` lifecycle hooks in `src/core/app/application_factory.py` correctly register loop-detection and other processors so `middleware.middleware_stack` is non-empty after startup.
+
+- **D) Fix SessionStateAdapter / SessionState usage across handlers**
+  - Ensure `src/core/domain/session.py` exposes and mutates session fields consistently and that command handlers in `src/core/commands/handlers/` use the adapter API (e.g., `with_interactive_just_enabled`, `with_project`, `with_override_backend`) to update state.
+  - Add/adjust unit tests or small adapters where necessary to maintain compatibility with existing tests expecting attribute-style access.
+
+- **E) Address AppConfig enum/access issues**
+  - Investigate `AppConfig.LogLevel` access errors (e.g., in `tests/unit/core/test_config.py`) and ensure enum definitions or access paths match test expectations.
+
+- **F) Smoke test & iterate**
+  - After the above edits, run focused test subsets: start with the integration files and unit tests listed in the prioritized failure summary (e.g., `tests/integration/test_end_to_end_loop_detection.py`, `tests/unit/*chat_completions_tests*`).
+  - Triage and fix follow-up failures (likely smaller scope: backend mocking, response parsing).
 
 Based on my analysis of the test failures, here are the:
 
@@ -119,40 +180,3 @@ PRIORITIZED FAILURE CATEGORIES
 ◦  Risk: May affect streaming performance
 ◦  Mitigation: Add streaming benchmarks
 
-TODO: IMMEDIATE NEXT STEPS (PRIORITISED)
-
-- **1) Fix SessionStateAdapter compatibility (PRIORITY)**
-  - Implement/forward properties expected by tests: `interactive_mode`, `interactive_just_enabled`, `hello_requested`, `project`, `project_dir`, etc.
-  - Implement/update mutation/`with_` helpers and setters used by tests: `with_interactive_just_enabled`, `with_backend_config`, `with_project`, `with_project_dir`, `set_project`, `unset_project`, `set_override_model`, `unset_override_model`, etc.
-  - Ensure adapter read/write semantics match `SessionState` so commands and parser can operate on either type.
-
-- **2) Re-run proxy/command unit tests (smoke)**
-  - Target: `tests/unit/proxy_logic_tests/*`, `tests/unit/chat_completions_tests/*` (command-related tests).
-  - Confirm adapter fixes reduce the large failure cluster before broader changes.
-
-- **3) Fix command handlers/session persistence**
-  - Ensure command handlers return correct `new_state` or use `SessionService` to persist updates.
-  - Add/update tests where handlers must update session state atomically.
-
-- **4) Align application factory model discovery/default backend selection**
-  - Adjust logic so tests that expect `openrouter`/`gemini` selection pass when corresponding keys/mocks exist.
-  - Add unit tests for backend auto-selection behavior.
-
-- **5) HTTP mock & connector auth fixes**
-  - Ensure `OpenRouterBackend` computes and passes `Authorization` header consistently (both streaming and non-streaming paths).
-  - Verify connectors use the same URLs mocked in tests and propagate `headers_override`.
-  - Review `pytest_httpx` mock expectations and update to match actual request patterns.
-
-- **6) Streaming response handling**
-  - Ensure streaming responses implement/return async iterators and are consumed correctly.
-  - Add type checks and tests for streaming vs non-streaming code paths.
-
-- **7) Cleanups & small fixes**
-  - Remove stray `print()` calls (e.g., `VERIFY_FIXES.py`).
-  - Fix minor logging/exception shapes to preserve legacy test expectations.
-
-- **8) Iterate & verify**
-  - After implementing above, run full test suite. Triage remaining failures and repeat.
-
-Notes:
-- I will start with task (1) `SessionStateAdapter` as agreed and run the proxy/command test subset to validate. After that I'll proceed down the list.

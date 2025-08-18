@@ -5,7 +5,7 @@ Mock BackendService for testing.
 from collections.abc import AsyncIterator
 
 from src.core.domain.chat import ChatRequest, ChatResponse, StreamingChatResponse
-from src.core.interfaces.backend_service import IBackendService
+from src.core.interfaces.backend_service_interface import IBackendService
 
 
 class MockBackendService(IBackendService):
@@ -22,24 +22,32 @@ class MockBackendService(IBackendService):
 
     async def chat_completions(
         self, request: ChatRequest, **kwargs
-    ) -> ChatResponse | AsyncIterator[StreamingChatResponse]:
+    ) -> ChatResponse | AsyncIterator[dict]:
         self.call_completion_was_called = True
         if kwargs.get("stream", False):
 
             async def stream_generator():
-                yield StreamingChatResponse(
-                    choices=[{"delta": {"content": "Hello, "}, "index": 0}],
-                    model="test-model",
-                )
-                yield StreamingChatResponse(
-                    choices=[{"delta": {"content": "world!"}, "index": 0}],
-                    model="test-model",
-                )
+                # Return raw dictionaries that match OpenAI's streaming format
+                yield {
+                    "id": "test-id",
+                    "object": "chat.completion.chunk",
+                    "created": 123,
+                    "model": "test-model",
+                    "choices": [{"delta": {"content": "Hello, "}, "index": 0}],
+                }
+                yield {
+                    "id": "test-id",
+                    "object": "chat.completion.chunk",
+                    "created": 123,
+                    "model": "test-model",
+                    "choices": [{"delta": {"content": "world!"}, "index": 0}],
+                }
 
             return stream_generator()
         else:
             return ChatResponse(
                 id="test-id",
+                object="chat.completion",
                 created=123,
                 model="test-model",
                 choices=[

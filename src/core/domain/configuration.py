@@ -5,7 +5,7 @@ from typing import Any
 from pydantic import Field
 
 from src.core.domain.base import ValueObject
-from src.core.interfaces.configuration import (
+from src.core.interfaces.configuration_interface import (
     IBackendConfig,
     ILoopDetectionConfig,
     IReasoningConfig,

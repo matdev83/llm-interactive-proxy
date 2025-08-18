@@ -3,10 +3,10 @@
 import httpx
 import pytest
 import pytest_asyncio
+from src.connectors.openrouter import OpenRouterBackend
 
 # from pytest_httpx import HTTPXMock # F401: Removed
-import src.models as models
-from src.connectors.openrouter import OpenRouterBackend
+from src.core.domain.chat import ChatMessage, ChatRequest
 
 # Default OpenRouter settings for tests
 TEST_OPENROUTER_API_BASE_URL = (
@@ -14,7 +14,7 @@ TEST_OPENROUTER_API_BASE_URL = (
 )
 
 
-def mock_get_openrouter_headers(key_name: str, api_key: str) -> dict[str, str]:
+def mock_get_openrouter_headers(_: str, api_key: str) -> dict[str, str]:
     # Create a mock config dictionary for testing
     mock_config = {
         "app_site_url": "http://localhost:test",
@@ -42,26 +42,25 @@ async def openrouter_backend_fixture():
 
 
 @pytest.fixture
-def sample_chat_request_data() -> models.ChatCompletionRequest:
+def sample_chat_request_data() -> ChatRequest:
     """Return a minimal chat request without optional fields set."""
-    return models.ChatCompletionRequest(
-        model="test-model",
-        messages=[models.ChatMessage(role="user", content="Hello")],
+    return ChatRequest(
+        model="test-model", messages=[ChatMessage(role="user", content="Hello")]
     )
 
 
 @pytest.fixture
-def sample_processed_messages() -> list[models.ChatMessage]:
-    return [models.ChatMessage(role="user", content="Hello")]
+def sample_processed_messages() -> list[ChatMessage]:
+    return [ChatMessage(role="user", content="Hello")]
 
 
 @pytest.mark.asyncio
 async def test_chat_completions_http_error_streaming(
     monkeypatch: pytest.MonkeyPatch,  # Add monkeypatch fixture
-    sample_chat_request_data: models.ChatCompletionRequest,
-    sample_processed_messages: list[models.ChatMessage],
+    sample_chat_request_data: ChatRequest,
+    sample_processed_messages: list[ChatMessage],
 ):
-    sample_chat_request_data.stream = True
+    sample_chat_request_data = sample_chat_request_data.model_copy(update={"stream": True})
     error_text_response = "OpenRouter internal server error"
 
     async def mock_send_method(self, request, **kwargs):
@@ -106,7 +105,7 @@ async def test_chat_completions_http_error_streaming(
     assert isinstance(detail, dict)
     assert (
         detail.get("message")
-        == "OpenRouter stream error: 500 - OpenRouter internal server error"
+        == "OpenRouter internal server error"
     )
     assert detail.get("type") == "openrouter_error"
     assert detail.get("code") == 500

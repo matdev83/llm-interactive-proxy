@@ -5,16 +5,19 @@ from typing import Any
 
 import pytest
 from src.core.domain.chat import ChatResponse
-from src.core.interfaces.loop_detector import ILoopDetector, LoopDetectionResult
-from src.core.interfaces.response_processor import (
+from src.core.interfaces.loop_detector_interface import (
+    ILoopDetector,
+    LoopDetectionResult,
+)
+from src.core.interfaces.response_processor_interface import (
     IResponseMiddleware,
     ProcessedResponse,
 )
-from src.core.services.response_middleware import (
+from src.core.services.response_middleware_service import (
     ContentFilterMiddleware,
     LoggingMiddleware,
 )
-from src.core.services.response_processor import ResponseProcessor
+from src.core.services.response_processor_service import ResponseProcessor
 
 
 class MockLoopDetector(ILoopDetector):

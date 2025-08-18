@@ -72,7 +72,7 @@ class TestQwenOAuthConnector:
         """Test basic chat completion with Qwen OAuth connector."""
         import httpx
         from src.connectors.qwen_oauth import QwenOAuthConnector
-        from src.models import ChatCompletionRequest, ChatMessage
+        from src.core.domain.chat import ChatMessage, ChatRequest
 
         async with httpx.AsyncClient(timeout=30.0) as client:
             connector = QwenOAuthConnector(client)
@@ -84,7 +84,7 @@ class TestQwenOAuthConnector:
                 content="Respond with exactly 'Test successful' and nothing else.",
             )
 
-            request_data = ChatCompletionRequest(
+            request_data = ChatRequest(
                 model="qwen3-coder-plus",
                 messages=[test_message],
                 max_tokens=10,
@@ -120,7 +120,7 @@ class TestQwenOAuthConnector:
         """Test streaming chat completion with Qwen OAuth connector."""
         import httpx
         from src.connectors.qwen_oauth import QwenOAuthConnector
-        from src.models import ChatCompletionRequest, ChatMessage
+        from src.core.domain.chat import ChatMessage, ChatRequest
         from starlette.responses import StreamingResponse
 
         async with httpx.AsyncClient(timeout=30.0) as client:
@@ -132,7 +132,7 @@ class TestQwenOAuthConnector:
                 role="user", content="Count from 1 to 3, one number per line."
             )
 
-            request_data = ChatCompletionRequest(
+            request_data = ChatRequest(
                 model="qwen3-coder-plus",
                 messages=[test_message],
                 max_tokens=20,
@@ -184,7 +184,7 @@ class TestQwenOAuthProxyIntegration:
 
         # The backend should be functional if credentials are available
         if QWEN_OAUTH_AVAILABLE:
-            from src.constants import BackendType
+            from src.core.domain.backend_type import BackendType
 
             # The most important check: backend should be in functional_backends
             assert BackendType.QWEN_OAUTH in qwen_oauth_app.state.functional_backends

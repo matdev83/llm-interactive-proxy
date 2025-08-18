@@ -1,8 +1,68 @@
 from unittest.mock import AsyncMock, patch
 
 import pytest
-from src import models
-from src.core.interfaces.session_service import ISessionService
+from src.core.interfaces.session_service_interface import ISessionService
+
+from tests.conftest import get_backend_instance, get_session_service_from_app
+
+
+@pytest.mark.asyncio
+async def test_cline_isolation_scenario(interactive_client, mock_openrouter_backend):
+    # Simulate a Cline session and ensure it doesn't leak into other sessions
+    backend = get_backend_instance(interactive_client.app, "openrouter")
+
+    # Set initial Cline detection in one session
+    payload_init = {
+        "model": "gpt-4",
+        "messages": [
+            {
+                "role": "user",
+                "content": "<attempt_completion>init</attempt_completion> !/hello",
+            }
+        ],
+    }
+    headers_init = {
+        "Authorization": "Bearer test-proxy-key",
+        "X-Session-ID": "cline-session-1",
+    }
+    with patch.object(
+        backend, "chat_completions", new_callable=AsyncMock
+    ) as mock_method:
+        mock_method.return_value = {"choices": [{"message": {"content": "ok"}}]}
+        resp = interactive_client.post(
+            "/v1/chat/completions", json=payload_init, headers=headers_init
+        )
+        mock_method.assert_not_called()
+
+    assert resp.status_code == 200
+
+    # Verify Cline detected in session 1
+    session_service = get_session_service_from_app(interactive_client.app)
+    session1 = await session_service.get_session("cline-session-1")
+    assert session1.state.is_cline_agent is True
+
+    # Another session should not be Cline
+    payload_other = {
+        "model": "gpt-4",
+        "messages": [{"role": "user", "content": "!/hello"}],
+    }
+    headers_other = {
+        "Authorization": "Bearer test-proxy-key",
+        "X-Session-ID": "normal-session",
+    }
+
+    backend = get_backend_instance(interactive_client.app, "openrouter")
+    with patch.object(
+        backend, "chat_completions", new_callable=AsyncMock
+    ) as mock_method:
+        resp2 = interactive_client.post(
+            "/v1/chat/completions", json=payload_other, headers=headers_other
+        )
+        mock_method.assert_not_called()
+
+    assert resp2.status_code == 200
+    session2 = await session_service.get_session("normal-session")
+    assert session2.state.is_cline_agent is False
 
 
 @pytest.mark.asyncio
@@ -87,25 +147,23 @@ async def test_remote_llm_responses_never_xml_wrapped(interactive_client):
     """Test that remote LLM responses are never wrapped in XML, even for Cline agents."""
 
     # Mock successful LLM response
-    mock_llm_response = models.ChatCompletionResponse(
-        id="test-123",
-        object="chat.completion",
-        created=1234567890,
-        model="gpt-4",
-        choices=[
-            models.ChatCompletionChoice(
-                index=0,
-                message=models.ChatCompletionChoiceMessage(
-                    role="assistant",
-                    content="This is a response from the remote LLM model.",
-                ),
-                finish_reason="stop",
-            )
+    mock_llm_response = {
+        "id": "test-123",
+        "object": "chat.completion",
+        "created": 1234567890,
+        "model": "gpt-4",
+        "choices": [
+            {
+                "index": 0,
+                "message": {
+                    "role": "assistant",
+                    "content": "This is a response from the remote LLM model.",
+                },
+                "finish_reason": "stop",
+            }
         ],
-        usage=models.CompletionUsage(
-            prompt_tokens=10, completion_tokens=15, total_tokens=25
-        ),
-    )
+        "usage": {"prompt_tokens": 10, "completion_tokens": 15, "total_tokens": 25},
+    }
 
     with patch.object(
         interactive_client.app.state.openrouter_backend,
@@ -179,25 +237,23 @@ async def test_mixed_cline_command_and_llm_prompt(interactive_client):
     """Test that when Cline sends both commands and prompts, only commands get XML wrapped."""
 
     # Mock successful LLM response for the prompt part
-    mock_llm_response = models.ChatCompletionResponse(
-        id="test-456",
-        object="chat.completion",
-        created=1234567890,
-        model="gpt-4",
-        choices=[
-            models.ChatCompletionChoice(
-                index=0,
-                message=models.ChatCompletionChoiceMessage(
-                    role="assistant",
-                    content="Here's how to use Python lists effectively.",
-                ),
-                finish_reason="stop",
-            )
+    mock_llm_response = {
+        "id": "test-456",
+        "object": "chat.completion",
+        "created": 1234567890,
+        "model": "gpt-4",
+        "choices": [
+            {
+                "index": 0,
+                "message": {
+                    "role": "assistant",
+                    "content": "Here's how to use Python lists effectively.",
+                },
+                "finish_reason": "stop",
+            }
         ],
-        usage=models.CompletionUsage(
-            prompt_tokens=20, completion_tokens=10, total_tokens=30
-        ),
-    )
+        "usage": {"prompt_tokens": 20, "completion_tokens": 10, "total_tokens": 30},
+    }
 
     # First, send a command-only request (should get XML wrapped)
     with patch.object(

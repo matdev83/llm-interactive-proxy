@@ -1,7 +1,10 @@
+from typing import Any
 from unittest.mock import AsyncMock, patch
 
 # import pytest # F401: Removed
 from fastapi import HTTPException  # Used
+
+from tests.conftest import get_backend_instance
 
 # from httpx import Response # F401: Removed
 # from starlette.responses import StreamingResponse # F401: Removed
@@ -16,8 +19,8 @@ from fastapi import HTTPException  # Used
 )
 @patch("src.connectors.gemini.GeminiBackend.chat_completions", new_callable=AsyncMock)
 def test_empty_messages_after_processing_no_commands_bad_request(
-    mock_gemini, mock_openrouter, mock_openai, client
-):
+    mock_gemini: Any, mock_openrouter: Any, mock_openai: Any, client: Any
+) -> None:
     # Mock a response in case it gets called
     mock_response = {"choices": [{"message": {"content": "response"}}]}
     mock_openai.return_value = mock_response
@@ -50,8 +53,8 @@ def test_empty_messages_after_processing_no_commands_bad_request(
 )
 @patch("src.connectors.gemini.GeminiBackend.chat_completions", new_callable=AsyncMock)
 def test_get_openrouter_headers_no_api_key(
-    mock_gemini, mock_openrouter, mock_openai, client
-):
+    mock_gemini: Any, mock_openrouter: Any, mock_openai: Any, client: Any
+) -> None:
     # Simulate a backend error due to missing API key
     mock_openai.side_effect = HTTPException(
         status_code=500, detail="Simulated backend error due to bad headers"
@@ -84,9 +87,10 @@ def test_get_openrouter_headers_no_api_key(
 )
 @patch("src.connectors.gemini.GeminiBackend.chat_completions", new_callable=AsyncMock)
 def test_invalid_model_noninteractive(
-    mock_gemini, mock_openrouter, mock_openai, client
-):
-    client.app.state.openrouter_backend.available_models = []
+    mock_gemini: Any, mock_openrouter: Any, mock_openai: Any, client: Any
+) -> None:
+    backend = get_backend_instance(client.app, "openrouter")
+    backend.available_models = []
 
     # First request: set an invalid model
     payload = {

@@ -227,7 +227,7 @@ class TestQwenOAuthConfigurationMethods:
             backend_obj_1 = getattr(app.state, f"{backend_attr}_backend", None)
 
             # Method 2: Using the constants
-            from src.constants import BackendType
+            from src.core.domain.backend_type import BackendType
 
             backend_obj_2 = getattr(
                 app.state, f"{BackendType.QWEN_OAUTH.replace('-', '_')}_backend", None

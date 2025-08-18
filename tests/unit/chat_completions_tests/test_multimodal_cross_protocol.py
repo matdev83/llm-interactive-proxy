@@ -24,14 +24,16 @@ def client(app):
 
 
 def test_openai_frontend_to_gemini_backend_multimodal(client):
-    # Route to Gemini backend explicitly
+    # Route to Gemini backend explicitly via DI-backed BackendService
     client.app.state.backend_type = "gemini"
+    from src.core.interfaces.backend_service_interface import IBackendService
 
-    # Ensure backend exists on app state and patch its chat_completions
-    if (
-        not hasattr(client.app.state, "gemini_backend")
-        or client.app.state.gemini_backend is None
-    ):
+    backend_service = client.app.state.service_provider.get_required_service(
+        IBackendService
+    )
+
+    # Ensure a backend implementation exists in the BackendService cache
+    if "gemini" not in backend_service._backends:
 
         class _GB:  # minimal stub
             async def chat_completions(self, *args, **kwargs):
@@ -54,10 +56,10 @@ def test_openai_frontend_to_gemini_backend_multimodal(client):
                     },
                 }
 
-        client.app.state.gemini_backend = _GB()
+        backend_service._backends["gemini"] = _GB()
 
     with patch.object(
-        client.app.state.gemini_backend, "chat_completions", new_callable=AsyncMock
+        backend_service._backends["gemini"], "chat_completions", new_callable=AsyncMock
     ) as mock_gemini:
         mock_gemini.return_value = {
             "id": "x",
@@ -101,11 +103,14 @@ def test_openai_frontend_to_gemini_backend_multimodal(client):
 
 
 def test_gemini_frontend_to_openai_backend_multimodal(client):
-    # Ensure openrouter backend exists on state and patch it directly
-    if (
-        not hasattr(client.app.state, "openrouter_backend")
-        or client.app.state.openrouter_backend is None
-    ):
+    # Ensure openrouter backend exists via BackendService and patch it
+    from src.core.interfaces.backend_service_interface import IBackendService
+
+    backend_service = client.app.state.service_provider.get_required_service(
+        IBackendService
+    )
+
+    if "openrouter" not in backend_service._backends:
 
         class _OR:
             async def chat_completions(self, *args, **kwargs):
@@ -119,10 +124,12 @@ def test_gemini_frontend_to_openai_backend_multimodal(client):
                     ]
                 }, {}
 
-        client.app.state.openrouter_backend = _OR()
+        backend_service._backends["openrouter"] = _OR()
 
     with patch.object(
-        client.app.state.openrouter_backend, "chat_completions", new_callable=AsyncMock
+        backend_service._backends["openrouter"],
+        "chat_completions",
+        new_callable=AsyncMock,
     ) as mock_or:
         mock_or.return_value = (
             {

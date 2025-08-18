@@ -3,7 +3,6 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from src.constants import SUPPORTED_BACKENDS
 from src.core.commands.handlers.base_handler import (
     BaseCommandHandler,
     CommandHandlerResult,
@@ -11,7 +10,7 @@ from src.core.commands.handlers.base_handler import (
 from src.core.domain.command_context import CommandContext
 from src.core.domain.configuration.session_state_builder import SessionStateBuilder
 from src.core.domain.session import SessionStateAdapter
-from src.core.interfaces.domain_entities import ISessionState
+from src.core.interfaces.domain_entities_interface import ISessionState
 
 logger = logging.getLogger(__name__)
 
@@ -60,10 +59,14 @@ class BackendHandler(BaseCommandHandler):
             )
 
         backend_val = param_value.strip().lower()
-        if backend_val not in SUPPORTED_BACKENDS:
-            return CommandHandlerResult(
-                success=False, message=f"Backend {backend_val} not supported"
-            )
+        if context:
+            # Get BackendRegistry from service provider
+            from src.core.services.backend_registry_service import backend_registry
+
+            if backend_val not in backend_registry.get_registered_backends():
+                return CommandHandlerResult(
+                    success=False, message=f"Backend {backend_val} not supported"
+                )
 
         # Check against functional_backends if provided
         if (
@@ -72,7 +75,9 @@ class BackendHandler(BaseCommandHandler):
         ):
             # Create new state with backend override unset
             builder = SessionStateBuilder(current_state)
-            unset_state: ISessionState = SessionStateAdapter(builder.with_backend_type(None).build())
+            unset_state: ISessionState = SessionStateAdapter(
+                builder.with_backend_type(None).build()
+            )
 
             return CommandHandlerResult(
                 success=True,
@@ -82,7 +87,9 @@ class BackendHandler(BaseCommandHandler):
 
         # Create new state with backend override set
         builder = SessionStateBuilder(current_state)
-        set_state: ISessionState = SessionStateAdapter(builder.with_backend_type(backend_val).build())
+        set_state: ISessionState = SessionStateAdapter(
+            builder.with_backend_type(backend_val).build()
+        )
 
         return CommandHandlerResult(
             success=True, message=f"Backend set to {backend_val}", new_state=set_state
@@ -137,11 +144,15 @@ class ModelHandler(BaseCommandHandler):
         if ":" in model_val:
             backend_prefix, model_name = model_val.split(":", 1)
 
-            if backend_prefix not in SUPPORTED_BACKENDS:
-                return CommandHandlerResult(
-                    success=False,
-                    message=f"Backend {backend_prefix} in model {model_val} not supported",
-                )
+            if context:
+                # Get BackendRegistry from service provider
+                from src.core.services.backend_registry_service import backend_registry
+
+                if backend_prefix not in backend_registry.get_registered_backends():
+                    return CommandHandlerResult(
+                        success=False,
+                        message=f"Backend {backend_prefix} in model {model_val} not supported",
+                    )
 
             # Set both backend and model
             builder = SessionStateBuilder(current_state)
@@ -212,9 +223,11 @@ class OpenAIUrlHandler(BaseCommandHandler):
 
         # Update the state
         builder = SessionStateBuilder(current_state)
-        new_state = SessionStateAdapter(builder.with_backend_config(
-            current_state.backend_config.with_openai_url(url_val)  # type: ignore
-        ).build())
+        new_state = SessionStateAdapter(
+            builder.with_backend_config(
+                current_state.backend_config.with_openai_url(url_val)
+            ).build()
+        )
 
         return CommandHandlerResult(
             success=True, message=f"OpenAI URL set to {url_val}", new_state=new_state

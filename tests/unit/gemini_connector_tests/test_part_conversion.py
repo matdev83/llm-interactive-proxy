@@ -3,9 +3,9 @@ import json
 import httpx
 import pytest
 import pytest_asyncio
-import src.models as models
 from pytest_httpx import HTTPXMock
 from src.connectors.gemini import GeminiBackend
+from src.core.domain.chat import ChatMessage, ChatRequest, MessageContentPartText
 
 TEST_GEMINI_API_BASE_URL = "https://generativelanguage.googleapis.com"
 
@@ -20,28 +20,17 @@ async def gemini_backend_fixture():
 async def test_text_part_type_removed(
     gemini_backend: GeminiBackend, httpx_mock: HTTPXMock
 ):
-    request_data = models.ChatCompletionRequest(
+    request_data = ChatRequest(
         model="test-model",
         messages=[
-            models.ChatMessage(
-                role="user",
-                content=[models.MessageContentPartText(type="text", text="Hi")],
+            ChatMessage(
+                role="user", content=[MessageContentPartText(type="text", text="Hi")]
             )
         ],
-        temperature=None,
-        top_p=None,
-        n=None,
-        stream=False,
-        stop=None,
-        max_tokens=None,
-        presence_penalty=None,
-        frequency_penalty=None,
-        logit_bias=None,
-        user=None,
     )
     processed_messages = [
-        models.ChatMessage(
-            role="user", content=[models.MessageContentPartText(type="text", text="Hi")]
+        ChatMessage(
+            role="user", content=[MessageContentPartText(type="text", text="Hi")]
         )
     ]
     httpx_mock.add_response(
@@ -75,26 +64,16 @@ async def test_text_part_type_removed(
 async def test_system_message_filtered(
     gemini_backend: GeminiBackend, httpx_mock: HTTPXMock
 ):
-    request_data = models.ChatCompletionRequest(
+    request_data = ChatRequest(
         model="test-model",
         messages=[
-            models.ChatMessage(role="system", content="You are Roo"),
-            models.ChatMessage(role="user", content="Hello"),
+            ChatMessage(role="system", content="You are Roo"),
+            ChatMessage(role="user", content="Hello"),
         ],
-        temperature=None,
-        top_p=None,
-        n=None,
-        stream=False,
-        stop=None,
-        max_tokens=None,
-        presence_penalty=None,
-        frequency_penalty=None,
-        logit_bias=None,
-        user=None,
     )
     processed_messages = [
-        models.ChatMessage(role="system", content="You are Roo"),
-        models.ChatMessage(role="user", content="Hello"),
+        ChatMessage(role="system", content="You are Roo"),
+        ChatMessage(role="user", content="Hello"),
     ]
     httpx_mock.add_response(
         url=f"{TEST_GEMINI_API_BASE_URL}/v1beta/models/test-model:generateContent",

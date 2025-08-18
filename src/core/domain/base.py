@@ -5,7 +5,7 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict
 
-from src.core.interfaces.domain_entities import IEntity, IValueObject
+from src.core.interfaces.domain_entities_interface import IEntity, IValueObject
 
 
 class Entity(BaseModel, IEntity, ABC):

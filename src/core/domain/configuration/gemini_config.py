@@ -13,7 +13,7 @@ from typing import Any
 from pydantic import ConfigDict, Field, field_validator
 
 from src.core.domain.base import ValueObject
-from src.core.interfaces.configuration import IBackendSpecificConfig
+from src.core.interfaces.configuration_interface import IBackendSpecificConfig
 
 logger = logging.getLogger(__name__)
 

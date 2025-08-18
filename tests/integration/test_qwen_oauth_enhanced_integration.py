@@ -183,14 +183,14 @@ class TestQwenOAuthAuthenticationFlow:
             assert not connector.is_functional
 
             # Now simulate a chat completion that would trigger another refresh attempt
-            from src.models import ChatCompletionRequest, ChatMessage
+            from src.core.domain.chat import ChatMessage, ChatRequest
 
             # But first we need to mock the refresh to succeed this time
             mock_client.post.reset_mock()
             mock_client.post.return_value = mock_success_response
 
             # Set up a request
-            request = ChatCompletionRequest(
+            request = ChatRequest(
                 model="qwen3-coder-plus",
                 messages=[ChatMessage(role="user", content="Hello")],
             )

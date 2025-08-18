@@ -10,8 +10,8 @@ import pytest
 from fastapi import HTTPException, Request
 from src.core.domain.commands import CommandResult
 from src.core.domain.processed_result import ProcessedResult
-from src.core.interfaces.backend_service import BackendError
-from src.core.services.request_processor import RequestProcessor
+from src.core.interfaces.backend_service_interface import BackendError
+from src.core.services.request_processor_service import RequestProcessor
 from starlette.responses import StreamingResponse
 
 from tests.unit.core.test_doubles import (

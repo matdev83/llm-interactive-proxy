@@ -4,12 +4,12 @@ import httpx
 import pytest
 import pytest_asyncio
 
-# from starlette.responses import StreamingResponse # F401: Removed
-import src.models as models
-
 # from fastapi import HTTPException # F401: Removed
 from pytest_httpx import HTTPXMock
 from src.connectors.openrouter import OpenRouterBackend
+
+# from starlette.responses import StreamingResponse # F401: Removed
+from src.core.domain.chat import ChatMessage, ChatRequest
 
 # Default OpenRouter settings for tests
 TEST_OPENROUTER_API_BASE_URL = (
@@ -17,7 +17,7 @@ TEST_OPENROUTER_API_BASE_URL = (
 )
 
 
-def mock_get_openrouter_headers(key_name: str, api_key: str) -> dict[str, str]:
+def mock_get_openrouter_headers(_: str, api_key: str) -> dict[str, str]:
     # Create a mock config dictionary for testing
     mock_config = {
         "app_site_url": "http://localhost:test",
@@ -45,33 +45,18 @@ async def openrouter_backend_fixture():
 
 
 @pytest.fixture
-def sample_chat_request_data() -> models.ChatCompletionRequest:
+def sample_chat_request_data() -> ChatRequest:
     """Return a minimal chat request without optional fields set."""
-    return models.ChatCompletionRequest(
+    return ChatRequest(
         model="test-model",
-        messages=[models.ChatMessage(role="user", content="Hello")],
-        temperature=None,
-        top_p=None,
-        n=None,
-        stream=False,  # Explicitly set stream to False for non-streaming tests
-        stop=None,
-        max_tokens=None,
-        presence_penalty=None,
-        frequency_penalty=None,
-        logit_bias=None,
-        user=None,
-        tool_choice=None,
-        reasoning_effort=None,
-        reasoning=None,
-        thinking_budget=None,
-        generation_config=None,
-        extra_params=None,
+        messages=[ChatMessage(role="user", content="Hello")],
+        stream=False,
     )
 
 
 @pytest.fixture
-def sample_processed_messages() -> list[models.ChatMessage]:
-    return [models.ChatMessage(role="user", content="Hello")]
+def sample_processed_messages() -> list[ChatMessage]:
+    return [ChatMessage(role="user", content="Hello")]
 
 
 @pytest.mark.asyncio
@@ -80,10 +65,10 @@ def sample_processed_messages() -> list[models.ChatMessage]:
 async def test_chat_completions_non_streaming_success(
     openrouter_backend: OpenRouterBackend,
     httpx_mock: HTTPXMock,
-    sample_chat_request_data: models.ChatCompletionRequest,
-    sample_processed_messages: list[models.ChatMessage],
+    sample_chat_request_data: ChatRequest,
+    sample_processed_messages: list[ChatMessage],
 ):
-    sample_chat_request_data.stream = False
+    sample_chat_request_data = sample_chat_request_data.model_copy(update={"stream": False})
     effective_model = "openai/gpt-3.5-turbo"
 
     # Mock successful response from OpenRouter

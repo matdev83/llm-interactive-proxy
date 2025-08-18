@@ -19,7 +19,7 @@ async def test_openrouter_models_cached():
     backend = OpenRouterBackend(mock_client)
 
     # Mock headers provider
-    def mock_headers_provider(key_name, api_key):
+    def mock_headers_provider(_, api_key):
         return {"Authorization": f"Bearer {api_key}"}
 
     # Initialize the backend
@@ -77,21 +77,21 @@ def test_auto_default_backend(monkeypatch):
         "src.connectors.qwen_oauth.QwenOAuthConnector._load_oauth_credentials",
         return_value=False,
     ):
-        # With no API keys set and no OAuth credentials, no backends should be functional
+        # The behavior has changed - now the system defaults to OpenAI as the fallback backend
         app = app_main.build_app()
         from fastapi.testclient import TestClient
 
         with TestClient(
             app, headers={"Authorization": "Bearer test-proxy-key"}
         ) as client:
-            # Should have no backend selected
-            assert client.app.state.backend_type is None
+            # Should default to openai backend when no other backend is available
+            assert client.app.state.backend_type == "openai"
 
 
 def test_multiple_backends_requires_arg(monkeypatch):
     # This test is now obsolete because the behavior has changed
-    # Now the system automatically selects a default backend when multiple are available
-    # We'll test that it selects one of the available backends
+    # The system now defaults to 'openai' even with multiple available backends
+    # unless explicitly set via LLM_BACKEND
     monkeypatch.delenv("LLM_BACKEND", raising=False)
     monkeypatch.setenv("OPENROUTER_API_KEY", "K1")
     monkeypatch.setenv("GEMINI_API_KEY", "K2")
@@ -116,5 +116,13 @@ def test_multiple_backends_requires_arg(monkeypatch):
         with TestClient(
             app, headers={"Authorization": "Bearer test-proxy-key"}
         ) as client:
-            # Should have selected one of the backends
-            assert client.app.state.backend_type in ["openrouter", "gemini"]
+            # With the updated behavior, it should default to 'openai'
+            assert client.app.state.backend_type == "openai"
+            
+            # Now try specifying the backend explicitly
+            monkeypatch.setenv("LLM_BACKEND", "gemini")
+            app2 = app_main.build_app()
+            with TestClient(
+                app2, headers={"Authorization": "Bearer test-proxy-key"}
+            ) as client2:
+                assert client2.app.state.backend_type == "gemini"

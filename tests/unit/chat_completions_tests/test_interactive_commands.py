@@ -2,7 +2,8 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 from pytest_httpx import HTTPXMock
-from src.core.interfaces.session_service import ISessionService
+
+from tests.conftest import get_backend_instance, get_session_service_from_app
 
 
 @patch("src.connectors.openai.OpenAIConnector.chat_completions", new_callable=AsyncMock)
@@ -43,15 +44,11 @@ async def test_set_command_confirmation(
     # Using a model name that is part of the standard mock setup
     model_to_set = "m1"
     full_model_id_to_set = f"openrouter:{model_to_set}"
-    if not interactive_client.app.state.openrouter_backend.available_models:
-        interactive_client.app.state.openrouter_backend.available_models = []
-    if (
-        model_to_set
-        not in interactive_client.app.state.openrouter_backend.available_models
-    ):
-        interactive_client.app.state.openrouter_backend.available_models.append(
-            model_to_set
-        )
+    backend = get_backend_instance(interactive_client.app, "openrouter")
+    if not backend.available_models:
+        backend.available_models = []
+    if model_to_set not in backend.available_models:
+        backend.available_models.append(model_to_set)
 
     payload = {
         "model": "initial-model",  # This is the model that would be used if no command overrides
@@ -74,11 +71,7 @@ async def test_set_command_confirmation(
     mock_openrouter.assert_not_called()
     mock_gemini.assert_not_called()
 
-    session_service = (
-        interactive_client.app.state.service_provider.get_required_service(
-            ISessionService
-        )
-    )
+    session_service = get_session_service_from_app(interactive_client.app)
     session = await session_service.get_session("default")
     assert session.state.override_model == model_to_set
     assert session.state.override_backend == "openrouter"
@@ -117,11 +110,7 @@ async def test_set_backend_confirmation(
     assert "backend set to gemini" in content  # Command confirmation
     assert "resp" not in content  # Backend mock "resp" should not be in the content
 
-    session_service = (
-        interactive_client.app.state.service_provider.get_required_service(
-            ISessionService
-        )
-    )
+    session_service = get_session_service_from_app(interactive_client.app)
     session = await session_service.get_session("default")
     assert session.state.override_backend == "gemini"
 

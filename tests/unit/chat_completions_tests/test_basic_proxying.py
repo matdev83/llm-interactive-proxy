@@ -1,7 +1,7 @@
 from unittest.mock import AsyncMock, patch
 
 import pytest
-from src.core.interfaces.backend_service import IBackendService
+from src.core.interfaces.backend_service_interface import IBackendService
 
 # --- Test Cases ---
 
@@ -65,12 +65,21 @@ def test_basic_request_proxying_non_streaming(test_client):
 async def test_basic_request_proxying_streaming(test_client):
     """Test basic request proxying for streaming responses using new architecture."""
 
-    # Simulate a streaming response from the backend mock with proper JSON format
+    # Simulate a streaming response from the backend mock with proper format
+    from src.core.domain.chat import StreamingChatResponse
+
     async def mock_stream_gen():
-        # Yield properly formatted SSE chunks
-        yield b'data: {"object":"chat.completion.chunk","choices":[{"delta":{"content":"Hello"},"index":0}]}\n\n'
-        yield b'data: {"object":"chat.completion.chunk","choices":[{"delta":{"content":" world"},"index":0}]}\n\n'
-        yield b"data: [DONE]\n\n"
+        # Yield StreamingChatResponse objects that will be converted to SSE
+        yield StreamingChatResponse(
+            choices=[{"delta": {"content": "Hello"}, "index": 0}],
+            model="gpt-4",
+            content="Hello",  # Add required content field
+        )
+        yield StreamingChatResponse(
+            choices=[{"delta": {"content": " world"}, "index": 0}],
+            model="gpt-4",
+            content=" world",  # Add required content field
+        )
 
     # Get the backend service from the DI container
     backend_service = test_client.app.state.service_provider.get_required_service(

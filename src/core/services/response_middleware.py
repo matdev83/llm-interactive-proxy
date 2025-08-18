@@ -10,8 +10,8 @@ import logging
 from typing import Any
 
 from src.core.common.exceptions import LoopDetectionError
-from src.core.interfaces.loop_detector import ILoopDetector
-from src.core.interfaces.response_processor import (
+from src.core.interfaces.loop_detector_interface import ILoopDetector
+from src.core.interfaces.response_processor_interface import (
     IResponseMiddleware,
     ProcessedResponse,
 )

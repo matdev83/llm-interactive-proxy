@@ -1,8 +1,9 @@
+# type: ignore
 from typing import cast
 from unittest.mock import Mock
 
 import pytest
-import src.models as models
+import src.core.domain.chat as models
 from src.command_parser import process_commands_in_messages
 from src.core.domain.configuration.backend_config import BackendConfiguration
 from src.core.domain.session import Session
@@ -30,12 +31,19 @@ class TestProcessCommandsInMessages:
         mock_gemini_backend.get_available_models.return_value = ["gemini-model"]
 
         mock_app_state = Mock()
-        mock_app_state.openrouter_backend = mock_openrouter_backend
-        mock_app_state.gemini_backend = mock_gemini_backend
-        mock_app_state.functional_backends = {
-            "openrouter",
-            "gemini",
-        }  # Add functional backends
+        # Provide DI-style backend service via a fake service_provider to avoid legacy app.state fallbacks
+
+        class _FakeBackendService:
+            def __init__(self, or_backend, gem_backend):
+                self._backends = {"openrouter": or_backend, "gemini": gem_backend}
+
+        service_provider = Mock()
+        service_provider.get_required_service.return_value = _FakeBackendService(
+            mock_openrouter_backend, mock_gemini_backend
+        )
+
+        mock_app_state.service_provider = service_provider
+        mock_app_state.functional_backends = {"openrouter", "gemini"}
         mock_app_state.command_prefix = "!/"
 
         self.mock_app = Mock()

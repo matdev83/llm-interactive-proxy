@@ -5,8 +5,16 @@ to the internal OpenAI format used by existing backends.
 """
 
 import json
-from typing import Any
+from typing import Any, cast
 
+from src.core.domain.chat import (
+    ChatCompletionChoice,
+    ChatMessage,
+    ChatRequest,
+    ChatResponse,
+    MessageContentPartImage,
+    MessageContentPartText,
+)
 from src.gemini_models import (
     Blob,
     Candidate,
@@ -19,13 +27,6 @@ from src.gemini_models import (
     Model,
     Part,
     UsageMetadata,
-)
-from src.models import (
-    ChatCompletionRequest,
-    ChatCompletionResponse,
-    ChatMessage,
-    MessageContentPartImage,
-    MessageContentPartText,
 )
 
 
@@ -103,7 +104,7 @@ def openai_to_gemini_contents(messages: list[ChatMessage]) -> list[Content]:
 
 def gemini_to_openai_request(
     gemini_request: GenerateContentRequest, model: str
-) -> ChatCompletionRequest:
+) -> ChatRequest:
     """Convert Gemini GenerateContentRequest to OpenAI ChatCompletionRequest."""
     messages = gemini_to_openai_messages(gemini_request.contents)
 
@@ -127,7 +128,7 @@ def gemini_to_openai_request(
         top_p = config.top_p
         stop = config.stop_sequences
 
-    return ChatCompletionRequest(
+    return ChatRequest(
         model=model,
         messages=messages,
         max_tokens=max_tokens,
@@ -149,12 +150,12 @@ def gemini_to_openai_request(
 
 
 def openai_to_gemini_response(
-    openai_response: ChatCompletionResponse,
+    openai_response: ChatResponse,
 ) -> GenerateContentResponse:
     """Convert OpenAI ChatCompletionResponse to Gemini GenerateContentResponse."""
     candidates = []
 
-    for choice in openai_response.choices:
+    for choice in cast(list[ChatCompletionChoice], openai_response.choices):
         # Convert choice to candidate
         content = None
 
@@ -189,9 +190,9 @@ def openai_to_gemini_response(
     usage_metadata = None
     if openai_response.usage:
         usage_metadata = UsageMetadata(
-            promptTokenCount=openai_response.usage.prompt_tokens,
-            candidatesTokenCount=openai_response.usage.completion_tokens,
-            totalTokenCount=openai_response.usage.total_tokens,
+            promptTokenCount=openai_response.usage.get("prompt_tokens", 0),
+            candidatesTokenCount=openai_response.usage.get("completion_tokens", 0),
+            totalTokenCount=openai_response.usage.get("total_tokens", 0),
             cachedContentTokenCount=None,
         )
 

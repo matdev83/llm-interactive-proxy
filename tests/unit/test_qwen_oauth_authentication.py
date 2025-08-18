@@ -14,7 +14,7 @@ import httpx
 import pytest
 from fastapi import HTTPException
 from src.connectors.qwen_oauth import QwenOAuthConnector
-from src.models import ChatCompletionRequest, ChatMessage
+from src.core.domain.chat import ChatMessage, ChatRequest
 
 
 class TestQwenOAuthAuthentication:
@@ -241,7 +241,7 @@ class TestQwenOAuthAuthentication:
             ) as mock_chat,
         ):
             # Create a test request
-            request = ChatCompletionRequest(
+            request = ChatRequest(
                 model="qwen3-coder-plus",
                 messages=[ChatMessage(role="user", content="Test")],
                 stream=False,
@@ -268,7 +268,7 @@ class TestQwenOAuthAuthentication:
             connector, "_refresh_token_if_needed", AsyncMock(return_value=False)
         ):
             # Create a test request
-            request = ChatCompletionRequest(
+            request = ChatRequest(
                 model="qwen3-coder-plus",
                 messages=[ChatMessage(role="user", content="Test")],
                 stream=False,

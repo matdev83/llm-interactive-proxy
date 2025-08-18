@@ -2,43 +2,32 @@ from unittest.mock import AsyncMock
 
 import httpx
 import pytest
-
-# from starlette.responses import StreamingResponse # F401: Removed
-import src.models as models
 from fastapi import HTTPException
 from src.connectors.gemini import GeminiBackend
+
+# from starlette.responses import StreamingResponse # F401: Removed
+from src.core.domain.chat import ChatMessage, ChatRequest
 
 TEST_GEMINI_API_BASE_URL = "https://generativelanguage.googleapis.com"
 
 
 @pytest.fixture
-def sample_chat_request_data() -> models.ChatCompletionRequest:
-    return models.ChatCompletionRequest(
-        model="test-model",
-        messages=[models.ChatMessage(role="user", content="Hello")],
-        temperature=None,
-        top_p=None,
-        n=None,
-        stream=False,
-        stop=None,
-        max_tokens=None,
-        presence_penalty=None,
-        frequency_penalty=None,
-        logit_bias=None,
-        user=None,
+def sample_chat_request_data() -> ChatRequest:
+    return ChatRequest(
+        model="test-model", messages=[ChatMessage(role="user", content="Hello")]
     )
 
 
 @pytest.fixture
-def sample_processed_messages() -> list[models.ChatMessage]:
-    return [models.ChatMessage(role="user", content="Hello")]
+def sample_processed_messages() -> list[ChatMessage]:
+    return [ChatMessage(role="user", content="Hello")]
 
 
 @pytest.mark.asyncio
 async def test_chat_completions_http_error_streaming(
     monkeypatch: pytest.MonkeyPatch, sample_chat_request_data, sample_processed_messages
 ):
-    sample_chat_request_data.stream = True
+    sample_chat_request_data = sample_chat_request_data.model_copy(update={"stream": True})
     error_text_response = "Gemini internal server error"
 
     mock_send = AsyncMock()

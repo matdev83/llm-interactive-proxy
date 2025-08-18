@@ -8,8 +8,8 @@ from typing import Any
 
 from src.core.common.exceptions import BackendError, LoopDetectionError
 from src.core.domain.chat import ChatResponse, StreamingChatResponse
-from src.core.interfaces.loop_detector import ILoopDetector
-from src.core.interfaces.response_processor import (
+from src.core.interfaces.loop_detector_interface import ILoopDetector
+from src.core.interfaces.response_processor_interface import (
     IResponseMiddleware,
     IResponseProcessor,
     ProcessedResponse,
@@ -125,7 +125,7 @@ class ResponseProcessor(IResponseProcessor):
         """
 
         # Create a wrapper async generator function
-        async def _process_stream():
+        async def _process_stream() -> AsyncIterator[ProcessedResponse]:
             accumulated_content = ""
 
             try:
@@ -199,7 +199,7 @@ class ResponseProcessor(IResponseProcessor):
                 )
 
         # Return the async generator
-        return _process_stream()
+        return _process_stream()  # type: ignore[no-any-return]
 
     async def register_middleware(
         self, middleware: IResponseMiddleware, priority: int = 0

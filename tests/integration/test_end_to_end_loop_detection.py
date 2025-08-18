@@ -11,10 +11,10 @@ from unittest.mock import AsyncMock, patch
 import pytest
 from fastapi.testclient import TestClient
 from src.core.domain.chat import ChatResponse
-from src.core.interfaces.backend_service import IBackendService
-from src.core.services.loop_detector import LoopDetector
-from src.core.services.response_middleware import LoopDetectionMiddleware
-from src.core.services.response_processor import ResponseProcessor
+from src.core.interfaces.backend_service_interface import IBackendService
+from src.core.services.loop_detector_service import LoopDetector
+from src.core.services.response_middleware_service import LoopDetectionMiddleware
+from src.core.services.response_processor_service import ResponseProcessor
 
 
 @pytest.fixture
@@ -44,6 +44,8 @@ def repeating_response(repeating_content):
 async def test_loop_detection_with_mocked_backend():
     """Test loop detection with a mocked backend."""
 
+    import os
+
     from src.core.app.application_factory import build_app
     from src.core.config.app_config import (
         AppConfig,
@@ -52,6 +54,8 @@ async def test_loop_detection_with_mocked_backend():
         BackendSettings,
         SessionConfig,
     )
+
+    os.environ["LOOP_DETECTION_ENABLED"] = "true"
 
     # Create a test config with auth disabled
     test_config = AppConfig(
@@ -76,7 +80,8 @@ async def test_loop_detection_with_mocked_backend():
     app = build_app(test_config)
 
     # Create and set up a service provider for testing using app registration
-    from src.core.app.application_factory import register_services
+    from src.core.app.application_factory import ApplicationBuilder
+    from src.core.config.app_config import load_config
     from src.core.di.services import get_service_collection, set_service_provider
     from src.core.integration.bridge import get_integration_bridge
 
@@ -85,7 +90,18 @@ async def test_loop_detection_with_mocked_backend():
     import httpx as _httpx
 
     app.state.httpx_client = _httpx.AsyncClient()
-    register_services({}, app)  # Pass empty dict for compatibility
+    # Manually initialize services and backends
+    loop_config = load_config()
+    builder = ApplicationBuilder()
+
+    # We need to run this in an async context
+    async def init_services():
+        service_provider = await builder._initialize_services(app, loop_config)
+        app.state.service_provider = service_provider
+        await builder._initialize_backends(app, loop_config)
+        await builder._initialize_loop_detection_middleware(app, loop_config)
+
+    await init_services()
     service_provider = services.build_service_provider()
     set_service_provider(service_provider)
     app.state.service_provider = service_provider
@@ -152,6 +168,8 @@ async def test_loop_detection_with_mocked_backend():
 @pytest.mark.asyncio
 async def test_loop_detection_in_streaming_response():
     """Test loop detection in a streaming response."""
+    import os
+
     from src.core.app.application_factory import build_app
     from src.core.config.app_config import (
         AppConfig,
@@ -161,6 +179,8 @@ async def test_loop_detection_in_streaming_response():
         SessionConfig,
     )
     from src.core.domain.chat import StreamingChatResponse
+
+    os.environ["LOOP_DETECTION_ENABLED"] = "true"
 
     # Create a test config with auth disabled
     test_config = AppConfig(
@@ -187,7 +207,6 @@ async def test_loop_detection_in_streaming_response():
     # Create and set up a service provider with proper service registration
     from typing import cast
 
-    from src.core.app.application_factory import register_services
     from src.core.di.services import get_service_collection, set_service_provider
 
     from tests.mocks.mock_backend_service import MockBackendService
@@ -198,8 +217,21 @@ async def test_loop_detection_in_streaming_response():
 
     app.state.httpx_client = httpx.AsyncClient()
 
-    # Register all services
-    register_services({}, app)  # Pass empty dict for compatibility
+    # Manually initialize services and backends
+    from src.core.app.application_factory import ApplicationBuilder
+    from src.core.config.app_config import load_config
+
+    loop_config = load_config()
+    builder = ApplicationBuilder()
+
+    # We need to run this in an async context
+    async def init_services():
+        service_provider = await builder._initialize_services(app, loop_config)
+        app.state.service_provider = service_provider
+        await builder._initialize_backends(app, loop_config)
+        await builder._initialize_loop_detection_middleware(app, loop_config)
+
+    await init_services()
     # Replace with mock backend
     services.add_singleton(
         cast(type[IBackendService], IBackendService),
@@ -349,7 +381,7 @@ async def test_loop_detection_integration_with_middleware_chain():
 @pytest.mark.skip(reason="Needs further investigation of AsyncMock behavior")
 async def test_request_processor_uses_response_processor():
     """Test that RequestProcessor correctly uses ResponseProcessor."""
-    from src.core.services.request_processor import RequestProcessor
+    from src.core.services.request_processor_service import RequestProcessor
 
     # Create mock services
     command_service = AsyncMock()
@@ -359,7 +391,7 @@ async def test_request_processor_uses_response_processor():
 
     # Configure the AsyncMock to handle awaitable calls
     async def mock_process_response(response, session_id):
-        from src.core.interfaces.response_processor import ProcessedResponse
+        from src.core.interfaces.response_processor_interface import ProcessedResponse
 
         return ProcessedResponse(content="Processed response")
 

@@ -1,12 +1,12 @@
 import httpx
 import pytest
 import pytest_asyncio
-import src.models as models
 from pytest_httpx import HTTPXMock
 from src.connectors.openrouter import OpenRouterBackend
+from src.core.domain.chat import ChatMessage, ChatRequest
 
 
-def mock_headers_provider(key_name: str, api_key: str) -> dict[str, str]:
+def mock_headers_provider(_: str, api_key: str) -> dict[str, str]:
     return {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
 
 
@@ -30,25 +30,10 @@ async def test_headers_plumbing(
     openrouter_backend: OpenRouterBackend, httpx_mock: HTTPXMock
 ):
     # Arrange
-    request_data = models.ChatCompletionRequest(
+    request_data = ChatRequest(
         model="openai/gpt-3.5-turbo",
-        messages=[models.ChatMessage(role="user", content="Hello")],
-        temperature=None,
-        top_p=None,
-        n=None,
+        messages=[ChatMessage(role="user", content="Hello")],
         stream=False,
-        stop=None,
-        max_tokens=None,
-        presence_penalty=None,
-        frequency_penalty=None,
-        logit_bias=None,
-        user=None,
-        tool_choice=None,
-        reasoning_effort=None,
-        reasoning=None,
-        thinking_budget=None,
-        generation_config=None,
-        extra_params=None,
     )
 
     httpx_mock.add_response(json={"id": "ok"}, status_code=200)
@@ -56,7 +41,7 @@ async def test_headers_plumbing(
     # Act
     await openrouter_backend.chat_completions(
         request_data=request_data,
-        processed_messages=[models.ChatMessage(role="user", content="Hello")],
+        processed_messages=[ChatMessage(role="user", content="Hello")],
         effective_model="openai/gpt-3.5-turbo",
         openrouter_api_base_url="https://openrouter.ai/api/v1",
         openrouter_headers_provider=mock_headers_provider,

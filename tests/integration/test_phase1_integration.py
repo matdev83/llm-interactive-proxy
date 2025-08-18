@@ -79,7 +79,7 @@ async def test_integration_bridge_async_initialization():
     """Test that the integration bridge can be initialized asynchronously."""
     import httpx
     from fastapi import FastAPI
-    from src.core.integration import IntegrationBridge
+    from src.core.integration.bridge import IntegrationBridge
 
     app = FastAPI()
     app.state.config = {"command_prefix": "!/"}

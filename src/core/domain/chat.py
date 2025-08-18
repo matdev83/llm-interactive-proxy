@@ -1,13 +1,79 @@
-from __future__ import annotations
-
 from typing import Any, TypeVar
 
-from pydantic import BaseModel, field_validator
+from pydantic import BaseModel, Field, field_validator
 
 from src.core.domain.base import ValueObject
 
 # Define a type variable for generic methods
 T = TypeVar("T", bound="BaseModel")
+
+
+# For multimodal content parts
+class MessageContentPartText(BaseModel):
+    """Represents a text content part in a multimodal message."""
+
+    type: str = "text"
+    text: str
+
+
+class ImageURL(BaseModel):
+    """Specifies the URL and optional detail for an image in a multimodal message."""
+
+    # Should be a data URI (e.g., "data:image/jpeg;base64,...") or public URL
+    url: str
+    detail: str | None = Field(None, examples=["auto", "low", "high"])
+
+
+class MessageContentPartImage(BaseModel):
+    """Represents an image content part in a multimodal message."""
+
+    type: str = "image_url"
+    image_url: ImageURL
+
+
+# Extend with other multimodal types as needed (e.g., audio, video file, documents)
+# For now, text and image are common starting points.
+MessageContentPart = MessageContentPartText | MessageContentPartImage
+"""Type alias for possible content parts in a multimodal message."""
+
+
+class FunctionCall(BaseModel):
+    """Represents a function call within a tool call."""
+
+    name: str
+    arguments: str
+
+
+class ToolCall(BaseModel):
+    """Represents a tool call in a chat completion response."""
+
+    id: str
+    type: str = "function"
+    function: FunctionCall
+
+
+class FunctionDefinition(BaseModel):
+    """Represents a function definition for tool calling."""
+
+    name: str
+    description: str | None = None
+    parameters: dict[str, Any] | None = None
+
+
+class ToolDefinition(BaseModel):
+    """Represents a tool definition in a chat completion request."""
+
+    type: str = "function"
+    function: FunctionDefinition
+
+    @field_validator("function", mode="before")
+    @classmethod
+    def ensure_function_is_dict(cls, v: Any) -> dict[str, Any] | FunctionDefinition:
+        # Accept either a FunctionDefinition or a ToolDefinition/FunctionDefinition instance
+        # and normalize to a dict for ChatRequest validation
+        if isinstance(v, FunctionDefinition):
+            return v.model_dump()
+        return v
 
 
 class ChatMessage(BaseModel):
@@ -16,9 +82,9 @@ class ChatMessage(BaseModel):
     """
 
     role: str
-    content: str | None
+    content: str | list[MessageContentPart] | None = None
     name: str | None = None
-    tool_calls: list[dict[str, Any]] | None = None
+    tool_calls: list[ToolCall] | None = None
     tool_call_id: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
@@ -29,7 +95,7 @@ class ChatMessage(BaseModel):
         if self.name:
             result["name"] = self.name
         if self.tool_calls:
-            result["tool_calls"] = self.tool_calls
+            result["tool_calls"] = [tc.model_dump() for tc in self.tool_calls]
         if self.tool_call_id:
             result["tool_call_id"] = self.tool_call_id
         return result
@@ -56,8 +122,12 @@ class ChatRequest(ValueObject):
     tool_choice: str | dict[str, Any] | None = None
     session_id: str | None = None
     extra_body: dict[str, Any] | None = None
+
+    # Reasoning parameters for o1, o3, o4-mini and other reasoning models
     reasoning_effort: float | None = None
-    reasoning: str | None = None
+    reasoning: dict[str, Any] | None = None
+
+    # Gemini-specific reasoning parameters
     thinking_budget: int | None = None
     generation_config: dict[str, Any] | None = None
 
@@ -69,6 +139,27 @@ class ChatRequest(ValueObject):
             raise ValueError("At least one message is required")
         return [m if isinstance(m, ChatMessage) else ChatMessage(**m) for m in v]
 
+    @field_validator("tools", mode="before")
+    @classmethod
+    def validate_tools(cls, v: Any) -> list[dict[str, Any]] | None:
+        """Allow passing ToolDefinition instances or dicts for tools."""
+        if v is None:
+            return None
+        result: list[dict[str, Any]] = []
+        for item in v:
+            if isinstance(item, ToolDefinition):
+                result.append(item.model_dump())
+            elif isinstance(item, dict):
+                result.append(item)
+            else:
+                # Attempt to coerce
+                try:
+                    td = ToolDefinition(**item)
+                    result.append(td.model_dump())
+                except Exception:
+                    raise ValueError("Invalid tool definition")
+        return result
+
     def to_legacy_format(self) -> dict[str, Any]:
         """
         Convert to a format compatible with the legacy code.
@@ -79,17 +170,36 @@ class ChatRequest(ValueObject):
         result = {"model": self.model, "messages": [m.to_dict() for m in self.messages]}
 
         # Add optional fields if they have values
-        for field in self.__fields__:
-            if field not in ["model", "messages", "session_id", "extra_body"]:
-                value = getattr(self, field)
+        for field_name in self.model_fields:
+            if field_name not in ["model", "messages", "session_id", "extra_body"]:
+                value = getattr(self, field_name)
                 if value is not None:
-                    result[field] = value
+                    result[field_name] = value
 
         # Add extra_body fields directly to result
         if self.extra_body:
             result.update(self.extra_body)
 
         return result
+
+
+class ChatCompletionChoiceMessage(BaseModel):
+    """Represents the message content within a chat completion choice."""
+
+    role: str
+    content: str | None = None
+    tool_calls: list[ToolCall] | None = None
+
+
+class ChatCompletionChoice(BaseModel):
+    """Represents a single choice in a chat completion response."""
+
+    index: int
+    message: ChatCompletionChoiceMessage
+    finish_reason: str | None = None
+
+
+# ChatUsage class is defined elsewhere in this file
 
 
 class ChatResponse(ValueObject):
@@ -100,12 +210,13 @@ class ChatResponse(ValueObject):
     id: str
     created: int
     model: str
-    choices: list[dict[str, Any]]
+    choices: list[ChatCompletionChoice]
     usage: dict[str, Any] | None = None
     system_fingerprint: str | None = None
+    object: str = "chat.completion"
 
     @classmethod
-    def from_legacy_response(cls, response: dict[str, Any]) -> ChatResponse:
+    def from_legacy_response(cls, response: dict[str, Any]) -> "ChatResponse":
         """
         Create a ChatResponse from a legacy response format.
 
@@ -148,7 +259,7 @@ class StreamingChatResponse(ValueObject):
     system_fingerprint: str | None = None
 
     @classmethod
-    def from_legacy_chunk(cls, chunk: dict[str, Any]) -> StreamingChatResponse:
+    def from_legacy_chunk(cls, chunk: dict[str, Any]) -> "StreamingChatResponse":
         """
         Create a StreamingChatResponse from a legacy chunk format.
 
@@ -211,11 +322,4 @@ class StreamingChatResponse(ValueObject):
         )
 
 
-class ChatUsage(BaseModel):
-    """
-    Usage information for a chat completion.
-    """
-
-    prompt_tokens: int | None = None
-    completion_tokens: int | None = None
-    total_tokens: int | None = None
+# ChatUsage class is defined elsewhere in this file

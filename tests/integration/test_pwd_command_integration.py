@@ -7,14 +7,13 @@ from src.core.app.application_factory import build_app
 
 
 @pytest.fixture
-def app(monkeypatch: pytest.MonkeyPatch):
+async def app(monkeypatch: pytest.MonkeyPatch):
     """Create a test application."""
     # Build the app
     app = build_app()
 
     # Manually set up services for testing since lifespan isn't called in tests
-    import httpx
-    from src.core.app.application_factory import ServiceConfigurator
+    from src.core.app.application_factory import ApplicationBuilder
     from src.core.config.app_config import AppConfig, BackendConfig
     from src.core.di.services import set_service_provider
 
@@ -28,14 +27,14 @@ def app(monkeypatch: pytest.MonkeyPatch):
     app_config.backends.anthropic = BackendConfig(api_key=["test-anthropic-key"])
     app_config.backends.gemini = BackendConfig(api_key=["test-gemini-key"])
 
+    # Store minimal config in app.state
     app.state.app_config = app_config
 
-    # Create httpx client for services
-    app.state.httpx_client = httpx.AsyncClient()
+    # The httpx client should be managed by the DI container, not directly in app.state
 
-    # Create service provider
-    configurator = ServiceConfigurator()
-    service_provider = configurator.configure_services(app_config)
+    # Create service provider using ApplicationBuilder's method
+    builder = ApplicationBuilder()
+    service_provider = await builder._initialize_services(app, app_config)
 
     # Store the service provider
     set_service_provider(service_provider)
@@ -113,7 +112,7 @@ def app(monkeypatch: pytest.MonkeyPatch):
     mock_backend_service = CustomMockBackendService()
 
     # We need to patch the get_service and get_required_service methods
-    from src.core.interfaces.backend_service import IBackendService
+    from src.core.interfaces.backend_service_interface import IBackendService
 
     # Save the original methods
     original_get_service = service_provider.get_service

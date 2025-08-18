@@ -53,9 +53,11 @@ def app_with_mock_connector(app_config, mock_openai_connector):
         "src.connectors.openai.OpenAIConnector", return_value=mock_openai_connector
     ):
         app = build_app(app_config)
-        app.state.openai_backend = mock_openai_connector
-        app.state.backend_type = "openai"
-        app.state.backend = mock_openai_connector
+        # Register mock connector in DI-backed BackendService
+        from src.core.interfaces.backend_service_interface import IBackendService
+
+        svc = app.state.service_provider.get_required_service(IBackendService)
+        svc._backends["openai"] = mock_openai_connector
         app.state.functional_backends = {"openai"}
         yield app
 

@@ -1,27 +1,17 @@
-from __future__ import annotations
+"""Fixed command service with correct indentation."""
 
 import asyncio
+import json
 import logging
 import re
 from typing import Any
 
+from src.core.domain.chat import ChatMessage
 from src.core.domain.command_results import CommandResult
-from src.core.domain.commands import (
-    BaseCommand,
-    CreateFailoverRouteCommand,
-    DeleteFailoverRouteCommand,
-    HelloCommand,
-    HelpCommand,
-    ListFailoverRoutesCommand,
-    OneoffCommand,
-    RouteAppendCommand,
-    RouteClearCommand,
-    RouteListCommand,
-    RoutePrependCommand,
-)
+from src.core.domain.commands.base_command import BaseCommand
 from src.core.domain.processed_result import ProcessedResult
-from src.core.interfaces.command_service import ICommandService
-from src.core.interfaces.session_service import ISessionService
+from src.core.interfaces.command_service_interface import ICommandService
+from src.core.interfaces.session_service_interface import ISessionService
 
 
 class CommandResultWrapper:
@@ -60,51 +50,35 @@ def get_command_pattern(command_prefix: str) -> re.Pattern:
     """Get regex pattern for detecting commands.
 
     Args:
-        command_prefix: The prefix used for commands
+        command_prefix: The command prefix to use
 
     Returns:
         A compiled regex pattern
     """
-    prefix_escaped = re.escape(command_prefix)
-    # Updated regex to correctly handle commands with and without arguments.
-    # - (?P<cmd>[\w-]+) captures the command name.
-    # - (?:\s*\((?P<args>[^)]*)\))? is an optional non-capturing group for arguments.
-    pattern_string = rf"{prefix_escaped}(?P<cmd>[\w-]+)(?:\((?P<args>.*)\))?"
-    return re.compile(pattern_string)
+    # Escape special regex characters in the prefix
+    escaped_prefix = re.escape(command_prefix)
+    # Pattern to match commands with optional arguments in parentheses
+    return re.compile(rf"{escaped_prefix}(\w+)(?:$$(.*?)$$)?")
 
 
 class CommandRegistry:
     """Registry for command handlers."""
 
-    def __init__(self) -> None:
+    def __init__(self):
         """Initialize the command registry."""
         self._commands: dict[str, BaseCommand] = {}
 
-        # Register built-in commands
-        self.register(HelloCommand())
-        self.register(HelpCommand())
-        self.register(OneoffCommand())
-
-        # Register failover commands
-        self.register(CreateFailoverRouteCommand())
-        self.register(DeleteFailoverRouteCommand())
-        self.register(ListFailoverRoutesCommand())
-        self.register(RouteAppendCommand())
-        self.register(RoutePrependCommand())
-        self.register(RouteListCommand())
-        self.register(RouteClearCommand())
-
     def register(self, command: BaseCommand) -> None:
-        """Register a command.
+        """Register a command handler.
 
         Args:
-            command: The command to register
+            command: The command handler to register
         """
         self._commands[command.name] = command
         logger.info(f"Registered command: {command.name}")
 
     def get(self, name: str) -> BaseCommand | None:
-        """Get a command by name.
+        """Get a command handler by name.
 
         Args:
             name: The name of the command
@@ -120,7 +94,7 @@ class CommandRegistry:
         Returns:
             A dictionary of command name to handler
         """
-        return dict(self._commands)
+        return self._commands.copy()
 
     def get_commands(self) -> dict[str, BaseCommand]:
         """Get all registered commands.
@@ -165,8 +139,19 @@ class CommandService(ICommandService):
         self._session_service = session_service
         self._preserve_unknown = preserve_unknown
 
+    async def register_command(self, command_name: str, command_handler: Any) -> None:
+        """Register a command handler.
+        
+        Args:
+            command_name: The name of the command
+            command_handler: The command handler to register
+        """
+        self._registry.register(command_handler)
+
     async def process_commands(
-        self, messages: list[Any], session_id: str
+        self,
+        messages: list[ChatMessage],
+        session_id: str
     ) -> ProcessedResult:
         """
         Processes a list of messages to identify and execute commands.
@@ -198,40 +183,67 @@ class CommandService(ICommandService):
         # Process only the first user message
         for i in range(len(modified_messages) - 1, -1, -1):
             message = modified_messages[i]
-            if message.get("role") == "user":
-                content = message.get("content", "")
-                if content and content.startswith("!/"):
-                    # Extract command name and args
-                    match = re.match(r"!/([\w-]+)(?:\s*\(([^)]*)\))?\s*(.*)", content)
-                    if match:
-                        cmd_name, args_str, remaining = match.groups()
+
+            if message.role == "user":
+                content = message.content or ""
+                if isinstance(content, str):
+                    if content.startswith("!/"):
+                        # Extract command name and args
+                        # Handle format: !/command(args) 
+                        match = re.match(r"!/(\w+)\(([^)]*)\)", content)
+                        if match:
+                            cmd_name = match.group(1)
+                            args_str = match.group(2)
+                            # Find the end position after the closing parenthesis
+                            paren_start = content.find('(')
+                            if paren_start != -1:
+                                paren_end = content.find(')', paren_start)
+                                if paren_end != -1:
+                                    match_end = paren_end + 1
+                                else:
+                                    match_end = len(content)
+                            else:
+                                match_end = len(content)
+                            remaining = content[match_end:]  # Capture remaining content after command
+                        else:
+                            # Handle format: !/command (without parentheses)
+                            match = re.match(r"!/(\w+)", content)
+                            if match:
+                                cmd_name = match.group(1)
+                                args_str = None
+                                match_end = match.end()
+                                remaining = content[match_end:]  # Capture remaining content after command
+                            else:
+                                continue
+
                         cmd = self._registry.get(cmd_name)
 
                         if cmd:
                             # Parse args
                             args = {}
                             if args_str:
-                                for arg in args_str.split(","):
-                                    arg = arg.strip()
-                                    if "=" in arg:
-                                        # Handle key=value format (e.g., for set commands)
-                                        key, value = arg.split("=", 1)
-                                        val = value.strip()
-                                        # Strip surrounding quotes if present
-                                        if (val.startswith('"') and val.endswith('"')) or (
-                                            val.startswith("'") and val.endswith("'")
-                                        ):
-                                            val = val[1:-1]
-                                        args[key.strip()] = val
-                                    elif arg:
-                                        # If argument looks like a backend:model or backend/model
-                                        # (contains ':' or '/'), map it to the conventional
-                                        # parameter name 'element' used by failover handlers.
-                                        if ":" in arg or "/" in arg:
-                                            args["element"] = arg
-                                        else:
-                                            # For parameter-only args that are flags, set True
-                                            args[arg] = True
+                                try:
+                                    args = json.loads(args_str)
+                                except Exception:
+                                    for arg in args_str.split(","):
+                                        arg = arg.strip()
+                                        if "=" in arg:
+                                            key, value = arg.split("=", 1)
+                                            val = value.strip()
+                                            if (
+                                                val.startswith('"')
+                                                and val.endswith('"')
+                                            ) or (
+                                                val.startswith("'")
+                                                and val.endswith("'")
+                                            ):
+                                                val = val[1:-1]
+                                            args[key.strip()] = val
+                                        elif arg:
+                                            if ":" in arg or "/" in arg:
+                                                args["element"] = arg
+                                            else:
+                                                args[arg] = True
 
                             # Execute command
                             # Commands expect the session state (adapter or state object)
@@ -245,17 +257,24 @@ class CommandService(ICommandService):
                                 f"Executing command: {cmd_name} with session: {session.session_id if session else 'N/A'}"
                             )
 
+                            # Create context with command registry for commands that need it
+                            context = type(
+                                "CommandContext",
+                                (),
+                                {"command_registry": self._registry},
+                            )()
+
                             # Handle both async and sync execute methods
                             result: CommandResult
                             try:
-                                coro_result = cmd.execute(args, session, None)
+                                coro_result = cmd.execute(args, session, context)
                                 if asyncio.iscoroutine(coro_result):
                                     result = await coro_result
                                 else:
                                     result = coro_result
                             except Exception:
                                 # Fallback - this shouldn't happen but just in case
-                                result = await cmd.execute(args, session, None)
+                                result = await cmd.execute(args, session, context)
 
                             # If command was successful and we have a session service, update the session
                             logger.info(
@@ -264,7 +283,11 @@ class CommandService(ICommandService):
                             # Persist session changes when the command either
                             # succeeded or returned a new_state (some handlers may
                             # return new_state even when reporting partial failure).
-                            if (result.success or getattr(result, "new_state", None)) and self._session_service and session:
+                            if (
+                                (result.success or getattr(result, "new_state", None))
+                                and self._session_service
+                                and session
+                            ):
                                 if hasattr(result, "new_state") and result.new_state:
                                     logger.info(
                                         f"Updating session state with new_state from command: {result.new_state}"
@@ -291,49 +314,16 @@ class CommandService(ICommandService):
 
                             # Update message content
                             if remaining:
-                                modified_messages[i]["content"] = (
-                                    " " + remaining.strip()
-                                )
+                                modified_messages[i].content = " " + remaining.strip()
                             else:
-                                modified_messages[i]["content"] = ""
+                                modified_messages[i].content = ""
                         elif not self._preserve_unknown:
-                            # Remove unknown command
-                            content_without_cmd = content.replace(
-                                f"!/{cmd_name}", "", 1
-                            )
-                            if args_str:
-                                content_without_cmd = content_without_cmd.replace(
-                                    f"({args_str})", "", 1
-                                )
-                            modified_messages[i]["content"] = (
-                                " " + content_without_cmd.strip()
-                            )
-                break
+                            # Remove unknown command and set content to a single space
+                            modified_messages[i].content = " "
+                    break  # Only process the first user message
 
         return ProcessedResult(
             modified_messages=modified_messages,
             command_executed=command_executed,
             command_results=command_results,
         )
-
-    async def register_command(self, command_name: str, command_handler: Any) -> None:
-        """
-        Register a new command handler.
-
-        Args:
-            command_name: The name of the command to register
-            command_handler: The handler object or function for the command
-        """
-        if hasattr(command_handler, "name"):
-            self._registry.register(command_handler)
-        else:
-            # Create a wrapper command if the handler is a function
-            from src.core.domain.commands import BaseCommand
-
-            class DynamicCommand(BaseCommand):
-                name: str = command_name
-
-                async def execute(self, *args: Any, **kwargs: Any) -> Any:
-                    return await command_handler(*args, **kwargs)
-
-            self._registry.register(DynamicCommand())

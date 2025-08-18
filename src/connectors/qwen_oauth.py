@@ -10,16 +10,21 @@ from pathlib import Path
 from typing import (
     TYPE_CHECKING,
     Any,
+    cast,  # Added cast
 )
 
 import httpx
 from fastapi import HTTPException
 from starlette.responses import StreamingResponse
 
+from src.core.domain.chat import ChatRequest
+from src.core.services.backend_registry import backend_registry
+
 from .openai import OpenAIConnector
 
 if TYPE_CHECKING:
-    from src.models import ChatCompletionRequest
+    # No legacy ChatCompletionRequest here; connectors should use domain ChatRequest
+    pass
 
 logger = logging.getLogger(__name__)
 
@@ -30,6 +35,8 @@ class QwenOAuthConnector(OpenAIConnector):
     This is a specialized OpenAI-compatible connector that uses OAuth tokens
     instead of API keys for authentication.
     """
+
+    backend_type: str = "qwen-oauth"
 
     def __init__(self, client: httpx.AsyncClient):
         super().__init__(client)
@@ -233,7 +240,7 @@ class QwenOAuthConnector(OpenAIConnector):
                 self.api_base_url = self._get_endpoint_url()
 
             # Save updated credentials back to file
-            await self._save_oauth_credentials()
+            await self._save_oauth_credentials() # type: ignore
 
             logger.info("Successfully refreshed Qwen OAuth token")
             return True
@@ -243,19 +250,25 @@ class QwenOAuthConnector(OpenAIConnector):
             return False
 
     async def _save_oauth_credentials(self) -> None:
-        """Save OAuth credentials back to file"""
+        """Save OAuth credentials to the qwen-code CLI storage location"""
         try:
+            # Path where qwen-code stores OAuth credentials
             home_dir = Path.home()
-            creds_path = home_dir / ".qwen" / "oauth_creds.json"
+            creds_dir = home_dir / ".qwen"
+            creds_path = creds_dir / "oauth_creds.json"
 
-            # Ensure directory exists
-            creds_path.parent.mkdir(exist_ok=True)
+            # Create directory if it doesn't exist
+            creds_dir.mkdir(parents=True, exist_ok=True)
 
+            # Save credentials to file
             with open(creds_path, "w", encoding="utf-8") as f:
                 json.dump(self._oauth_credentials, f, indent=2)
 
+            logger.info(f"Saved Qwen OAuth credentials to {creds_path}")
+
         except Exception as e:
             logger.error(f"Error saving Qwen OAuth credentials: {e}")
+            # Don't raise the exception as this is part of token refresh flow
 
     def get_available_models(self) -> list[str]:
         """Return available Qwen models if functional"""
@@ -263,7 +276,7 @@ class QwenOAuthConnector(OpenAIConnector):
 
     async def chat_completions(
         self,
-        request_data: "ChatCompletionRequest",
+        request_data: ChatRequest,
         processed_messages: list[Any],
         effective_model: str,
         **kwargs: Any,
@@ -286,9 +299,24 @@ class QwenOAuthConnector(OpenAIConnector):
             if model_name.startswith("qwen-oauth:"):
                 model_name = model_name[11:]  # Remove "qwen-oauth:" prefix
 
-            # Create a modified request_data with the correct model name
-            modified_request = request_data.model_copy(deep=True)
-            modified_request.model = model_name
+            # Create a modified request_data with the correct model name.
+            # Use model_copy(update=...) to avoid mutating frozen ValueObject instances.
+            try:
+                modified_request = request_data.model_copy(update={"model": model_name})
+            except Exception:
+                # Fallback: build a new ChatRequest dict
+                modified_request = ChatRequest(
+                    model=model_name,
+                    messages=request_data.messages,
+                    temperature=getattr(request_data, "temperature", None),
+                    top_p=getattr(request_data, "top_p", None),
+                    max_tokens=getattr(request_data, "max_tokens", None),
+                    stream=getattr(request_data, "stream", None),
+                    tools=getattr(request_data, "tools", None),
+                    tool_choice=getattr(request_data, "tool_choice", None),
+                    session_id=getattr(request_data, "session_id", None),
+                    extra_body=getattr(request_data, "extra_body", None),
+                )
 
             # Call the parent class method to handle the actual API request
             return await super().chat_completions(
@@ -322,3 +350,6 @@ class QwenOAuthConnector(OpenAIConnector):
                 },
             }
             return error_response, {"content-type": "application/json"}
+
+
+backend_registry.register_backend("qwen-oauth", QwenOAuthConnector)

@@ -5,7 +5,6 @@ This script updates all imports from src.core.config_adapter to the appropriate
 direct imports from src.core.config modules.
 """
 
-import os
 import re
 from pathlib import Path
 
@@ -58,7 +57,7 @@ def update_imports(file_path: Path) -> bool:
     Returns:
         True if the file was modified, False otherwise
     """
-    with open(file_path, "r", encoding="utf-8") as f:
+    with open(file_path, encoding="utf-8") as f:
         content = f.read()
         
     original_content = content

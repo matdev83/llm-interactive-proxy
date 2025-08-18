@@ -59,7 +59,7 @@ def app():
     mock_backend.get_available_models = MagicMock(return_value=["gpt-4"])
 
     # Replace the backend service's get_backend method
-    from src.core.interfaces.backend_service import IBackendService
+    from src.core.interfaces.backend_service_interface import IBackendService
 
     backend_service = test_app.state.service_provider.get_required_service(
         IBackendService
@@ -74,8 +74,13 @@ def app():
 
     backend_service._get_or_create_backend = mock_get_backend
 
-    # Also set it directly on app.state for tests that might access it there
-    test_app.state.openai_backend = mock_backend
+    # Register the mock in BackendService cache so DI-based lookup returns it
+    from src.core.interfaces.backend_service_interface import IBackendService
+
+    backend_service = test_app.state.service_provider.get_required_service(
+        IBackendService
+    )
+    backend_service._backends["openai"] = mock_backend
 
     yield test_app
 
@@ -128,7 +133,7 @@ class TestClineCommandResponses:
             # Set the session ID in a cookie for subsequent requests
             client.cookies.set("session_id", session_id)
 
-        from src.core.interfaces.session_service import ISessionService
+        from src.core.interfaces.session_service_interface import ISessionService
 
         session_service = client.app.state.service_provider.get_required_service(
             ISessionService
@@ -220,7 +225,7 @@ class TestClineCommandResponses:
             # Set the session ID in a cookie for subsequent requests
             client.cookies.set("session_id", session_id)
 
-        from src.core.interfaces.session_service import ISessionService
+        from src.core.interfaces.session_service_interface import ISessionService
 
         session_service = client.app.state.service_provider.get_required_service(
             ISessionService

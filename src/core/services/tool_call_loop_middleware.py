@@ -15,8 +15,8 @@ from src.core.common.exceptions import ToolCallLoopError
 from src.core.domain.configuration.loop_detection_config import (
     LoopDetectionConfiguration,
 )
-from src.core.interfaces.response_processor import IResponseMiddleware
-from src.core.interfaces.response_processor import ProcessedResponse as ProcessedResult
+from src.core.interfaces.response_processor_interface import IResponseMiddleware
+from src.core.interfaces.response_processor_interface import ProcessedResponse as ProcessedResult
 from src.tool_call_loop.tracker import ToolCallTracker
 
 logger = logging.getLogger(__name__)
@@ -149,15 +149,17 @@ class ToolCallLoopDetectionMiddleware(IResponseMiddleware):
                 for choice in choices:
                     message = choice.get("message", {})
                     tool_calls = message.get("tool_calls", [])
-                    if tool_calls and isinstance(tool_calls, list):
-                        # Ensure all items are dictionaries
-                        if all(isinstance(item, dict) for item in tool_calls):
-                            # Create a new list with explicit typing
-                            result: list[dict[str, Any]] = []
-                            for item in tool_calls:
-                                if isinstance(item, dict):
-                                    result.append(item)
-                            return result
+                    if (
+                        tool_calls
+                        and isinstance(tool_calls, list)
+                        and all(isinstance(item, dict) for item in tool_calls)
+                    ):
+                        # Create a new list with explicit typing
+                        result: list[dict[str, Any]] = []
+                        for item in tool_calls:
+                            if isinstance(item, dict):
+                                result.append(item)
+                        return result
 
             # Check for direct tool calls array
             if isinstance(data, list) and all(

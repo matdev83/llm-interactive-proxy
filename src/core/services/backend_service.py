@@ -3,19 +3,22 @@ from __future__ import annotations
 import logging
 import os
 from collections.abc import AsyncIterator
-from typing import Any
+from typing import Any, cast
 
 from src.connectors.base import LLMBackend
-from src.constants import BackendType
 from src.core.common.exceptions import BackendError, RateLimitExceededError
-from src.core.domain.chat import ChatRequest, ChatResponse, StreamingChatResponse
-from src.core.interfaces.backend_service import IBackendService
-from src.core.interfaces.configuration import IConfig
-from src.core.interfaces.rate_limiter import IRateLimiter
+from src.core.config.app_config import AppConfig
+from src.core.domain.chat import (
+    ChatRequest,
+    ChatResponse,
+    StreamingChatResponse,
+)
+from src.core.interfaces.backend_service_interface import IBackendService
+from src.core.interfaces.configuration_interface import IConfig
+from src.core.interfaces.rate_limiter_interface import IRateLimiter
 from src.core.services.backend_config_service import BackendConfigService
-from src.core.services.backend_factory import BackendFactory
+from src.core.services.backend_factory_service import BackendFactory
 from src.core.services.failover_service import FailoverService
-from src.models import ChatMessage, ToolDefinition
 
 logger = logging.getLogger(__name__)
 
@@ -49,8 +52,16 @@ class BackendService(IBackendService):
         self._backend_configs = backend_configs or {}
         self._failover_routes = failover_routes or {}
         self._backends: dict[str, LLMBackend] = {}
-        self._failover_service = FailoverService(failover_routes=config.failover_routes if hasattr(config, 'failover_routes') else {})
+        self._failover_service = FailoverService(
+            failover_routes=(
+                config.failover_routes if hasattr(config, "failover_routes") else {}
+            )
+        )
         self._backend_config_service = BackendConfigService()
+        # Ensure backend_config_service exposes a domain-aware adapter method
+        # The method is named apply_backend_config, not apply_backend_config_domain
+        # No need for a passthrough adapter if the method is correctly named and implemented
+        # self._backend_config_service.apply_backend_config_domain = _passthrough_domain
 
     async def call_completion(
         self, request: ChatRequest, stream: bool = False, allow_failover: bool = True
@@ -80,13 +91,14 @@ class BackendService(IBackendService):
         effective_model = request.model  # Default to the original model name
         if not backend_type:
             # Parse the backend type from the model name
-            from src.models import parse_model_backend
+            # Use domain-level utility for parsing model backend; avoid importing legacy src.models
+            from src.core.domain.model_utils import parse_model_backend
 
             # Use configured default backend from application config instead of hardcoded OpenAI
             default_backend = (
                 self._config.backends.default_backend
                 if hasattr(self._config, "backends")
-                else BackendType.OPENAI
+                else "openai"
             )
             parsed_backend, parsed_model = parse_model_backend(
                 request.model, default_backend
@@ -101,16 +113,24 @@ class BackendService(IBackendService):
             request.extra_body.get("failover_routes") if request.extra_body else None
         )
         effective_failover_routes = (
-            request_failover_routes if request_failover_routes else self._failover_routes
+            request_failover_routes
+            if request_failover_routes
+            else self._failover_routes
         )
 
         # If a named failover route exists for this model, try its elements in order
         # and stop — do not fall back to unrelated backends.
         logger.info(
-            "Effective failover routes for request: %s", list(effective_failover_routes.keys())
+            "Effective failover routes for request: %s",
+            list(effective_failover_routes.keys()),
         )
-        logger.info("Request.extra_body keys: %s", list(request.extra_body.keys()) if request.extra_body else None)
-        logger.info("Effective_model=%s, backend_type=%s", effective_model, backend_type)
+        logger.info(
+            "Request.extra_body keys: %s",
+            list(request.extra_body.keys()) if request.extra_body else None,
+        )
+        logger.info(
+            "Effective_model=%s, backend_type=%s", effective_model, backend_type
+        )
 
         if effective_model in effective_failover_routes:
             logger.info(f"Using complex failover policy for model {effective_model}")
@@ -164,7 +184,9 @@ class BackendService(IBackendService):
                         continue
 
                 # All attempts failed
-                logger.error(f"All failover attempts failed. Last error: {last_error!s}")
+                logger.error(
+                    f"All failover attempts failed. Last error: {last_error!s}"
+                )
                 raise BackendError(message="all backends failed", backend=backend_type)
             except BackendError:
                 raise
@@ -197,53 +219,26 @@ class BackendService(IBackendService):
         # effective_model is already set above during backend type parsing
 
         try:
-            # Convert the chat request to the backend-specific format
-            processed_messages = self._prepare_messages(request.messages)
-
             # Record the usage
             await self._rate_limiter.record_usage(rate_key)
 
             # Call the backend
             # In the real implementation we'd convert back and forth between our domain types
             # and the backend-specific types, but for now we pass through to the legacy interface
-            from src.models import ChatCompletionRequest
+            # Prepare to call connector with domain ChatRequest directly.
+            # Let connectors use adapter helpers internally when necessary.
+            domain_request = request
 
-            # Create a legacy request for the existing backend
-            legacy_request = ChatCompletionRequest(
-                model=request.model,
-                messages=[ChatMessage(**m.model_dump()) for m in request.messages],
-                stream=stream,
-                temperature=request.temperature,
-                max_tokens=request.max_tokens,
-                tools=(
-                    [ToolDefinition(**tool) for tool in request.tools]
-                    if request.tools
-                    else None
-                ),
-                tool_choice=request.tool_choice,
-                user=request.user,
-                top_p=request.top_p,
-                n=request.n,
-                stop=request.stop,
-                presence_penalty=request.presence_penalty,
-                frequency_penalty=request.frequency_penalty,
-                logit_bias=request.logit_bias,
-                # reasoning_effort=request.reasoning_effort,
-                # reasoning=request.reasoning,
-                # thinking_budget=request.thinking_budget,
-                # generation_config=request.generation_config,
-                **(request.extra_body or {}),
+            # Apply backend-specific configuration using backend_config_service which
+            # may mutate domain_request.extra_body or similar fields as needed.
+            domain_request = self._backend_config_service.apply_backend_config(
+                domain_request, backend_type, cast(AppConfig, self._config)
             )
 
-            # Apply backend-specific configuration
-            legacy_request = self._backend_config_service.apply_backend_config(
-                legacy_request, backend_type
-            )
-
-            # Call the backend
+            # Call the backend with domain types
             result = await backend.chat_completions(
-                request_data=legacy_request,
-                processed_messages=processed_messages,
+                request_data=domain_request,
+                processed_messages=[m.to_dict() for m in request.messages],
                 effective_model=effective_model,
             )
 
@@ -267,7 +262,7 @@ class BackendService(IBackendService):
                     else:
                         # If tuple doesn't have enough elements, return as-is
                         return result  # type: ignore
-                elif hasattr(result, 'from_legacy_response'):
+                elif hasattr(result, "from_legacy_response"):
                     # If it's already a ChatResponse or similar, return as-is
                     return result  # type: ignore
                 else:
@@ -293,10 +288,14 @@ class BackendService(IBackendService):
             # state) over service-level/global routes. This allows per-session
             # routes created by commands to be honoured.
             request_failover_routes = (
-                request.extra_body.get("failover_routes") if request.extra_body else None
+                request.extra_body.get("failover_routes")
+                if request.extra_body
+                else None
             )
             effective_failover_routes = (
-                request_failover_routes if request_failover_routes else self._failover_routes
+                request_failover_routes
+                if request_failover_routes
+                else self._failover_routes
             )
 
             # Check if this model has complex failover routes configured
@@ -463,9 +462,11 @@ class BackendService(IBackendService):
             # If running in test environment and no API key, add a dummy one
             # but respect an explicitly requested default backend via LLM_BACKEND env
             default_backend_env = os.environ.get("LLM_BACKEND")
-            if os.environ.get("PYTEST_CURRENT_TEST") and (
-                not config or not config.get("api_key")
-            ) and (not default_backend_env or default_backend_env == backend_type):
+            if (
+                os.environ.get("PYTEST_CURRENT_TEST")
+                and (not config or not config.get("api_key"))
+                and (not default_backend_env or default_backend_env == backend_type)
+            ):
                 config = config.copy() if config else {}
                 config["api_key"] = [f"test-key-{backend_type}"]
                 logger.info(f"Added test API key for {backend_type}")
@@ -473,19 +474,23 @@ class BackendService(IBackendService):
             logger.info(f"Backend config for {backend_type}: {config}")
 
             # Convert BackendConfig to the format expected by each backend
-            if backend_type == BackendType.ANTHROPIC and config:
+            if backend_type == "anthropic" and config:
                 api_key_list = config.get("api_key")
                 converted_config = {
                     "key_name": backend_type,  # Use backend type as key name
                     "api_key": (
-                        api_key_list[0] if api_key_list and isinstance(api_key_list, list) and len(api_key_list) > 0 else None
+                        api_key_list[0]
+                        if api_key_list
+                        and isinstance(api_key_list, list)
+                        and len(api_key_list) > 0
+                        else None
                     ),
                     "anthropic_api_base_url": config.get("api_url"),
                 }
                 # Remove None values
                 config = {k: v for k, v in converted_config.items() if v is not None}
                 logger.info(f"Converted config for Anthropic: {config}")
-            elif backend_type == BackendType.OPENROUTER and config:
+            elif backend_type == "openrouter" and config:
                 # Import get_openrouter_headers function
                 from src.core.config.config_loader import get_openrouter_headers
 
@@ -493,7 +498,11 @@ class BackendService(IBackendService):
                 converted_config = {
                     "key_name": backend_type,  # Use backend type as key name
                     "api_key": (
-                        api_key_list[0] if api_key_list and isinstance(api_key_list, list) and len(api_key_list) > 0 else None
+                        api_key_list[0]
+                        if api_key_list
+                        and isinstance(api_key_list, list)
+                        and len(api_key_list) > 0
+                        else None
                     ),
                     "openrouter_api_base_url": config.get("api_url")
                     or "https://openrouter.ai/api/v1",
@@ -506,7 +515,7 @@ class BackendService(IBackendService):
                     if v is not None or k == "openrouter_headers_provider"
                 }
                 logger.info(f"Converted config for OpenRouter: {config}")
-            elif backend_type == BackendType.GEMINI and config:
+            elif backend_type == "gemini" and config:
                 # Convert generic backend config to Gemini-specific init kwargs
                 api_key_list = config.get("api_key")
                 converted_config = {
@@ -514,7 +523,11 @@ class BackendService(IBackendService):
                     or "https://generativelanguage.googleapis.com",
                     "key_name": backend_type,
                     "api_key": (
-                        api_key_list[0] if api_key_list and isinstance(api_key_list, list) and len(api_key_list) > 0 else None
+                        api_key_list[0]
+                        if api_key_list
+                        and isinstance(api_key_list, list)
+                        and len(api_key_list) > 0
+                        else None
                     ),
                 }
                 # Remove None values
@@ -537,41 +550,8 @@ class BackendService(IBackendService):
                 backend=backend_type,
             )
 
-    def _prepare_messages(self, messages: list[Any]) -> list[Any]:
-        """Prepare messages for the backend.
-
-        In a full implementation, this would handle any necessary message
-        transformations. For now, it's a simple pass-through.
-
-        Args:
-            messages: The messages to prepare
-
-        Returns:
-            The prepared messages
-        """
-        # Ensure we return domain ChatMessage instances (connectors expect objects
-        # with attributes like `.role` and `.content`). Accept either dicts
-        # (e.g., from legacy code) or Pydantic ChatMessage instances.
-        prepared: list[Any] = []
-        for m in messages:
-            if m is None:
-                continue
-            # If it's already an object with .role attribute, keep it
-            if hasattr(m, "role"):
-                prepared.append(m)
-            elif isinstance(m, dict):
-                # Convert dict to ChatMessage model
-                try:
-                    prepared.append(ChatMessage(**m))
-                except Exception:
-                    # Fallback: keep the original dict if conversion fails
-                    prepared.append(m)
-            else:
-                prepared.append(m)
-        return prepared
-
     async def chat_completions(
-        self, request: ChatRequest, **kwargs
+        self, request: ChatRequest, **kwargs: Any
     ) -> ChatResponse | AsyncIterator[StreamingChatResponse]:
         """Handle chat completions with the LLM."""
         stream = kwargs.get("stream", False)

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import contextlib
 from datetime import datetime, timezone
 from typing import Any, cast
 
@@ -11,12 +12,12 @@ from src.core.domain.configuration.loop_detection_config import (
     LoopDetectionConfiguration,
 )
 from src.core.domain.configuration.reasoning_config import ReasoningConfiguration
-from src.core.interfaces.configuration import (
+from src.core.interfaces.configuration_interface import (
     IBackendConfig,
     ILoopDetectionConfig,
     IReasoningConfig,
 )
-from src.core.interfaces.domain_entities import ISession, ISessionState
+from src.core.interfaces.domain_entities_interface import ISession, ISessionState
 
 
 class SessionInteraction(ValueObject):
@@ -115,13 +116,8 @@ class SessionStateAdapter(ISessionState):
     @project.setter
     def project(self, value: str | None) -> None:
         """Set the project on the underlying state (mutating adapter)."""
-        try:
+        with contextlib.suppress(Exception):
             self._state = self._state.with_project(value)
-        except Exception:
-            try:
-                setattr(self._state, "project", value)
-            except Exception:
-                pass
 
     @property
     def project_dir(self) -> str | None:
@@ -131,13 +127,8 @@ class SessionStateAdapter(ISessionState):
     @project_dir.setter
     def project_dir(self, value: str | None) -> None:
         """Set the project_dir on the underlying state (mutating adapter)."""
-        try:
+        with contextlib.suppress(Exception):
             self._state = self._state.with_project_dir(value)
-        except Exception:
-            try:
-                setattr(self._state, "project_dir", value)
-            except Exception:
-                pass
 
     @property
     def interactive_mode(self) -> bool:
@@ -155,13 +146,8 @@ class SessionStateAdapter(ISessionState):
     @interactive_just_enabled.setter
     def interactive_just_enabled(self, value: bool) -> None:
         """Set the interactive_just_enabled flag on the underlying state."""
-        try:
+        with contextlib.suppress(Exception):
             self._state = self._state.with_interactive_just_enabled(value)
-        except Exception:
-            try:
-                setattr(self._state, "interactive_just_enabled", bool(value))
-            except Exception:
-                pass
 
     @property
     def hello_requested(self) -> bool:
@@ -171,18 +157,23 @@ class SessionStateAdapter(ISessionState):
     @hello_requested.setter
     def hello_requested(self, value: bool) -> None:
         """Set the hello_requested flag on the underlying state."""
-        try:
+        with contextlib.suppress(Exception):
             self._state = self._state.with_hello_requested(value)
-        except Exception:
-            try:
-                setattr(self._state, "hello_requested", bool(value))
-            except Exception:
-                pass
 
     @property
     def is_cline_agent(self) -> bool:
         """Whether the agent is Cline for this session."""
         return self._state.is_cline_agent
+
+    @property
+    def override_model(self) -> str | None:
+        """Get the override model from backend configuration."""
+        return self._state.backend_config.model
+
+    @property
+    def override_backend(self) -> str | None:
+        """Get the override backend from backend configuration."""
+        return self._state.backend_config.backend_type
 
     def equals(self, other: Any) -> bool:
         """Check if this value object equals another."""
@@ -198,9 +189,7 @@ class SessionStateAdapter(ISessionState):
         state = SessionState.from_dict(data)
         return cls(state)  # type: ignore
 
-    def with_backend_config(
-        self, backend_config: IBackendConfig
-    ) -> ISessionState:
+    def with_backend_config(self, backend_config: IBackendConfig) -> ISessionState:
         """Create a new session state with updated backend config."""
         new_state = self._state.with_backend_config(
             cast(BackendConfiguration, backend_config)
@@ -256,13 +245,6 @@ class SessionStateAdapter(ISessionState):
         self.set_project_dir(None)
 
     # Legacy override helpers (adapter exposes legacy property names used by tests)
-    @property
-    def override_model(self) -> str | None:
-        return self._state.backend_config.model
-
-    @property
-    def override_backend(self) -> str | None:
-        return self._state.backend_config.backend_type
 
     def set_override_model(self, backend: str, model: str) -> None:
         """Set an override backend/model pair on the session state."""
@@ -328,22 +310,14 @@ class Session(ISession):
         # internal state in-place so external holders of the adapter observe the
         # update. This preserves identity for callers (tests) that passed the
         # adapter object around.
-        try:
-            from src.core.domain.session import SessionStateAdapter, SessionState
-        except Exception:
-            SessionStateAdapter = None  # type: ignore
-            SessionState = None  # type: ignore
-
-        if (
-            isinstance(self._state, object)
-            and SessionStateAdapter is not None
-            and isinstance(self._state, SessionStateAdapter)
+        if isinstance(self._state, object) and isinstance(
+            self._state, SessionStateAdapter
         ):
             # Mutate in-place if possible
             try:
                 if isinstance(value, SessionStateAdapter):
                     self._state._state = value._state
-                elif SessionState is not None and isinstance(value, SessionState):
+                elif isinstance(value, SessionState):
                     self._state._state = value
                 else:
                     # Best-effort: try to copy dict representation
@@ -424,26 +398,20 @@ class Session(ISession):
         """Update the session state."""
         # Prefer mutating existing adapter in-place so external holders of the
         # adapter observe changes. Fall back to replacing the reference.
-        try:
-            from src.core.domain.session import SessionStateAdapter, SessionState
-
-            if isinstance(self._state, SessionStateAdapter):
-                # If caller provided an adapter, copy its concrete state into ours
-                if isinstance(state, SessionStateAdapter):
-                    self._state._state = state._state
-                elif isinstance(state, SessionState):
-                    self._state._state = state
-                else:
-                    # Try to convert via to_dict/from_dict
-                    try:
-                        new_state = SessionState.from_dict(state.to_dict())
-                        self._state._state = new_state  # type: ignore
-                    except Exception:
-                        self._state = state
+        if isinstance(self._state, SessionStateAdapter):
+            # If caller provided an adapter, copy its concrete state into ours
+            if isinstance(state, SessionStateAdapter):
+                self._state._state = state._state
+            elif isinstance(state, SessionState):
+                self._state._state = state
             else:
-                self._state = state
-        except Exception:
-            # On any error, replace the state reference
+                # Try to convert via to_dict/from_dict
+                try:
+                    new_state = SessionState.from_dict(state.to_dict())
+                    self._state._state = new_state  # type: ignore
+                except Exception:
+                    self._state = state
+        else:
             self._state = state
         self._last_active_at = datetime.now(timezone.utc)
 

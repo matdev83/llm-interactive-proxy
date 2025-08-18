@@ -4,7 +4,7 @@ Tests for the dependency injection container.
 
 import pytest
 from src.core.di.container import ServiceCollection
-from src.core.interfaces.di import (
+from src.core.interfaces.di_interface import (
     IServiceProvider,
 )
 

@@ -39,48 +39,80 @@ class HelpCommand(BaseCommand):
         Returns:
             The command result
         """
-        # Get the command registry from the service provider
-        from src.core.services.command_service import CommandRegistry
+        # Try to get the command registry from context first
+        command_registry = None
+        commands = {}
 
-        # Access the command registry
-        if context and hasattr(context, "app"):
-            service_provider = context.app.state.service_provider
-            command_registry = service_provider.get_required_service(CommandRegistry)
+        if context and hasattr(context, "command_registry"):
+            # Use registry from context (test environment)
+            command_registry = context.command_registry
             commands = command_registry.get_commands()
         else:
-            # Fallback if no context is provided
-            from src.core.di.services import get_service_provider
+            # Get the command registry from the service provider (normal environment)
+            from src.core.services.command_service import CommandRegistry
 
-            service_provider = get_service_provider()
-            command_registry = service_provider.get_required_service(CommandRegistry)
-            commands = command_registry.get_commands()
+            # Access the command registry
+            if context and hasattr(context, "app"):
+                service_provider = context.app.state.service_provider
+                command_registry = service_provider.get_required_service(
+                    CommandRegistry
+                )
+                commands = command_registry.get_commands()
+            else:
+                # Fallback if no context is provided
+                from src.core.di.services import get_service_provider
+
+                service_provider = get_service_provider()
+                command_registry = service_provider.get_required_service(
+                    CommandRegistry
+                )
+                commands = command_registry.get_commands()
 
         if args:
-            # Assume first argument name is the command
-            cmd_name = next(iter(args.keys())).lower()
-            cmd_handler = command_registry.get_handler(cmd_name)
+            # For help(command=model), we want to look up the "model" command
+            # The args dict should have one key-value pair like {"command": "model"}
+            # So we get the value, not the key
+            cmd_name = None
+            if len(args) == 1:
+                # Check if the key is "command" and use its value
+                key, value = next(iter(args.items()))
+                if key == "command":
+                    cmd_name = value
+                else:
+                    # Fallback: use the key as the command name
+                    cmd_name = key
+            else:
+                # Multiple args, use the first key
+                cmd_name = next(iter(args.keys())).lower()
 
-            if not cmd_handler:
+            if cmd_name:
+                cmd_name = cmd_name.lower()
+                cmd_handler = command_registry.get_handler(cmd_name)
+
+                if not cmd_handler:
+                    return CommandResult(
+                        name=self.name,
+                        success=False,
+                        message=f"unknown command: {cmd_name}",
+                    )
+
+                parts = [
+                    f"Help for {cmd_handler.name}",
+                    f"{cmd_handler.name} - {cmd_handler.description}",
+                    f"format: {cmd_handler.format}",
+                ]
+
+                if hasattr(cmd_handler, "examples") and cmd_handler.examples:
+                    parts.append("examples: " + "; ".join(cmd_handler.examples))
+
                 return CommandResult(
-                    name=self.name,
-                    success=False,
-                    message=f"unknown command: {cmd_name}",
+                    name=self.name, success=True, message="; ".join(parts)
                 )
-
-            parts = [
-                f"{cmd_handler.name} - {cmd_handler.description}",
-                f"format: {cmd_handler.format}",
-            ]
-
-            if hasattr(cmd_handler, "examples") and cmd_handler.examples:
-                parts.append("examples: " + "; ".join(cmd_handler.examples))
-
-            return CommandResult(name=self.name, success=True, message="; ".join(parts))
 
         # List all available commands
         command_names = sorted(commands.keys())
         return CommandResult(
             name=self.name,
             success=True,
-            message="available commands: " + ", ".join(command_names),
+            message="Available commands: " + ", ".join(command_names),
         )

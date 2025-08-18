@@ -11,9 +11,9 @@ import httpx
 import pytest
 from fastapi import HTTPException
 from src.connectors.qwen_oauth import QwenOAuthConnector
-from src.models import (
-    ChatCompletionRequest,
+from src.core.domain.chat import (
     ChatMessage,
+    ChatRequest,
     FunctionCall,
     FunctionDefinition,
     ToolCall,
@@ -67,7 +67,7 @@ class TestQwenOAuthToolCallingUnit:
         ]
 
         test_message = ChatMessage(role="user", content="What's the weather?")
-        request_data = ChatCompletionRequest(
+        request_data = ChatRequest(
             model="qwen3-coder-plus",
             messages=[test_message],
             tools=tools,
@@ -147,7 +147,7 @@ class TestQwenOAuthToolCallingUnit:
         ]
 
         test_message = ChatMessage(role="user", content="What time is it?")
-        request_data = ChatCompletionRequest(
+        request_data = ChatRequest(
             model="qwen3-coder-plus",
             messages=[test_message],
             tools=tools,
@@ -227,7 +227,7 @@ class TestQwenOAuthToolCallingUnit:
         ]
 
         test_message = ChatMessage(role="user", content="Get me information")
-        request_data = ChatCompletionRequest(
+        request_data = ChatRequest(
             model="qwen3-coder-plus",
             messages=[test_message],
             tools=tools,
@@ -306,7 +306,7 @@ class TestQwenOAuthToolCallingUnit:
         ]
 
         test_message = ChatMessage(role="user", content="Search for Python info")
-        request_data = ChatCompletionRequest(
+        request_data = ChatRequest(
             model="qwen3-coder-plus",
             messages=[test_message],
             tools=tools,
@@ -378,7 +378,7 @@ class TestQwenOAuthToolCallingUnit:
 
         messages = [user_message, assistant_message, tool_message]
 
-        request_data = ChatCompletionRequest(
+        request_data = ChatRequest(
             model="qwen3-coder-plus",
             messages=messages,
             tools=[
@@ -462,7 +462,7 @@ class TestQwenOAuthToolCallingUnit:
         ]
 
         test_message = ChatMessage(role="user", content="Use the failing tool")
-        request_data = ChatCompletionRequest(
+        request_data = ChatRequest(
             model="qwen3-coder-plus",
             messages=[test_message],
             tools=tools,
@@ -509,7 +509,7 @@ class TestQwenOAuthToolCallingUnit:
         ]
 
         test_message = ChatMessage(role="user", content="Test message")
-        request_data = ChatCompletionRequest(
+        request_data = ChatRequest(
             model="qwen3-coder-plus", messages=[test_message], tools=tools, stream=False
         )
 

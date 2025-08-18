@@ -1,7 +1,7 @@
 from unittest.mock import AsyncMock, patch
 
 import pytest
-from src.core.interfaces.session_service import ISessionService
+from src.core.interfaces.session_service_interface import ISessionService
 
 
 @patch("src.connectors.openai.OpenAIConnector.chat_completions", new_callable=AsyncMock)

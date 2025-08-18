@@ -7,9 +7,9 @@ from src.command_parser import (
     CommandParserConfig,
     process_commands_in_messages,
 )
+from src.core.domain.chat import ChatMessage
 from src.core.domain.configuration.backend_config import BackendConfiguration
 from src.core.domain.session import Session, SessionStateAdapter
-from src.models import ChatMessage
 
 
 class TestProcessTextForCommands:
@@ -34,12 +34,19 @@ class TestProcessTextForCommands:
         mock_gemini_backend.get_available_models.return_value = ["gemini-model"]
 
         mock_app_state = Mock()
-        mock_app_state.openrouter_backend = mock_openrouter_backend
-        mock_app_state.gemini_backend = mock_gemini_backend
-        mock_app_state.functional_backends = {
-            "openrouter",
-            "gemini",
-        }  # Add functional backends
+        # Register backends via a fake BackendService on the service_provider to avoid legacy fallbacks
+
+        class _FakeBackendService:
+            def __init__(self, or_backend, gem_backend):
+                self._backends = {"openrouter": or_backend, "gemini": gem_backend}
+
+        service_provider = Mock()
+        service_provider.get_required_service.return_value = _FakeBackendService(
+            mock_openrouter_backend, mock_gemini_backend
+        )
+
+        mock_app_state.service_provider = service_provider
+        mock_app_state.functional_backends = {"openrouter", "gemini"}
         mock_app_state.default_api_key_redaction_enabled = True
         mock_app_state.api_key_redaction_enabled = True
 

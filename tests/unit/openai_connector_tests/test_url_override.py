@@ -3,7 +3,7 @@ from unittest.mock import AsyncMock, MagicMock
 import httpx
 import pytest
 from src.connectors.openai import OpenAIConnector
-from src.models import ChatCompletionRequest, ChatMessage
+from src.core.domain.chat import ChatMessage, ChatRequest
 
 # Removed legacy import
 
@@ -25,7 +25,7 @@ def openai_connector(mock_client):
 async def test_chat_completions_uses_default_url(openai_connector, mock_client):
     """Test that chat_completions uses the default API URL when no custom URL is provided."""
     # Setup
-    request_data = ChatCompletionRequest(
+    request_data = ChatRequest(
         model="gpt-3.5-turbo",
         messages=[ChatMessage(role="user", content="Hello")],
         stream=False,
@@ -65,7 +65,7 @@ async def test_chat_completions_uses_default_url(openai_connector, mock_client):
 async def test_chat_completions_uses_custom_url(openai_connector, mock_client):
     """Test that chat_completions uses a custom URL when provided."""
     # Setup
-    request_data = ChatCompletionRequest(
+    request_data = ChatRequest(
         model="gpt-3.5-turbo",
         messages=[ChatMessage(role="user", content="Hello")],
         stream=False,

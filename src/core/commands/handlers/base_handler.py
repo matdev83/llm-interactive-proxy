@@ -6,7 +6,7 @@ from typing import Any
 
 from src.core.domain.command_context import CommandContext
 from src.core.domain.command_results import CommandResult
-from src.core.interfaces.domain_entities import ISessionState
+from src.core.interfaces.domain_entities_interface import ISessionState
 
 logger = logging.getLogger(__name__)
 

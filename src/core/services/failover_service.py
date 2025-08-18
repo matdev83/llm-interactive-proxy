@@ -9,7 +9,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from src.core.common.logging_utils import get_logger
-from src.models import parse_model_backend
+from src.core.domain.model_utils import parse_model_backend
 
 logger = get_logger(__name__)
 

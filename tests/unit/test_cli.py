@@ -132,7 +132,7 @@ def test_build_app_uses_env(monkeypatch):
         assert app.state.app_config.backends.default_backend == "gemini"
         assert app.state.app_config.command_prefix == "??/"
         # Verify that the backend service is configured for gemini
-        from src.core.interfaces.backend_service import IBackendService
+        from src.core.interfaces.backend_service_interface import IBackendService
 
         backend_service = app.state.service_provider.get_required_service(
             IBackendService
@@ -156,7 +156,7 @@ async def test_build_app_uses_interactive_env(monkeypatch):
     monkeypatch.setenv("LLM_INTERACTIVE_PROXY_API_KEY", "test-key")
     app = app_main_build_app()
     with TestClient(app):  # Ensure lifespan runs
-        from src.core.interfaces.session_service import ISessionService
+        from src.core.interfaces.session_service_interface import ISessionService
 
         session_service = app.state.service_provider.get_required_service(
             ISessionService

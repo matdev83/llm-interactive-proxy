@@ -200,6 +200,7 @@ def log_async_call(
 
             # Check if func is a coroutine function
             import asyncio
+
             if asyncio.iscoroutinefunction(func):
                 result: T = await func(*args, **kwargs)
             else:
@@ -254,5 +255,7 @@ class LogContext:
             The bound logger
         """
         if self.bound_logger is None:
-            raise RuntimeError("Logger not bound. Use this context manager in a with statement.")
+            raise RuntimeError(
+                "Logger not bound. Use this context manager in a with statement."
+            )
         return self.bound_logger

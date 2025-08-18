@@ -5,7 +5,6 @@ Fix indentation issues in command files.
 This script fixes indentation issues in command files that have empty TYPE_CHECKING blocks.
 """
 
-import os
 import re
 from pathlib import Path
 
@@ -21,7 +20,7 @@ def fix_indentation(file_path: Path) -> bool:
         True if the file was modified, False otherwise
     """
     # Read the file content
-    with open(file_path, "r", encoding="utf-8") as f:
+    with open(file_path, encoding="utf-8") as f:
         content = f.read()
 
     # Check if the file has the indentation issue
@@ -55,7 +54,7 @@ def fix_proxy_state_references(file_path: Path) -> bool:
         True if the file was modified, False otherwise
     """
     # Read the file content
-    with open(file_path, "r", encoding="utf-8") as f:
+    with open(file_path, encoding="utf-8") as f:
         content = f.read()
 
     # Check if the file has ProxyState references

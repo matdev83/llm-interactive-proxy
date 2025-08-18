@@ -64,17 +64,23 @@ def test_gemini_client_creation():
 
 def test_gemini_models_endpoint_format(gemini_client):
     """Test that our models endpoint returns Gemini-compatible format."""
-    # Mock the functional backends and backend models
+    # Mock the functional backends and backend models via DI-backed BackendService
     gemini_client.app.state.functional_backends = {"openrouter", "gemini"}
 
-    # Create mock backends
+    from src.core.interfaces.backend_service_interface import IBackendService
+
+    backend_service = gemini_client.app.state.service_provider.get_required_service(
+        IBackendService
+    )
+
+    # Create mock backends and register them in the BackendService cache
     mock_or = MagicMock()
     mock_or.get_available_models.return_value = ["gpt-4", "gpt-3.5-turbo"]
-    gemini_client.app.state.openrouter_backend = mock_or
+    backend_service._backends["openrouter"] = mock_or
 
     mock_gemini = MagicMock()
     mock_gemini.get_available_models.return_value = ["gemini-pro", "gemini-pro-vision"]
-    gemini_client.app.state.gemini_backend = mock_gemini
+    backend_service._backends["gemini"] = mock_gemini
 
     # Test Gemini models endpoint
     response = gemini_client.get("/v1beta/models")
@@ -119,8 +125,13 @@ def test_gemini_generate_content_endpoint_format(configured_app):
 
     # Use TestClient with context manager to trigger lifespan events
     with TestClient(configured_app) as client:
-        # Mock the openrouter backend in the app state
-        client.app.state.openrouter_backend = mock_backend
+        # Register the openrouter backend in the BackendService cache
+        from src.core.interfaces.backend_service_interface import IBackendService
+
+        backend_service = client.app.state.service_provider.get_required_service(
+            IBackendService
+        )
+        backend_service._backends["openrouter"] = mock_backend
         # Set available_models to avoid coroutine issues in welcome banner
         mock_backend.available_models = ["test-model"]
         # Mock get_available_models to return a list, not a coroutine
@@ -189,8 +200,13 @@ def test_gemini_request_conversion_to_openai(configured_app):
 
     # Use TestClient with context manager to trigger lifespan events
     with TestClient(configured_app) as client:
-        # Mock the openrouter backend in the app state
-        client.app.state.openrouter_backend = mock_backend
+        # Register mock backend in the BackendService cache
+        from src.core.interfaces.backend_service_interface import IBackendService
+
+        backend_service = client.app.state.service_provider.get_required_service(
+            IBackendService
+        )
+        backend_service._backends["openrouter"] = mock_backend
         # Set available_models to avoid coroutine issues in welcome banner
         mock_backend.available_models = ["test-model"]
         # Mock get_available_models to return a list, not a coroutine
@@ -304,9 +320,14 @@ def test_backend_routing_through_gemini_format(configured_app):
 
     # Use TestClient with context manager to trigger lifespan events
     with TestClient(configured_app) as client:
-        # Mock all backends in the app state
-        client.app.state.openrouter_backend = mock_openrouter
-        client.app.state.gemini_backend = mock_gemini
+        # Register mocks in the BackendService cache
+        from src.core.interfaces.backend_service_interface import IBackendService
+
+        backend_service = client.app.state.service_provider.get_required_service(
+            IBackendService
+        )
+        backend_service._backends["openrouter"] = mock_openrouter
+        backend_service._backends["gemini"] = mock_gemini
 
         gemini_request = {
             "contents": [{"parts": [{"text": "Test message"}], "role": "user"}]

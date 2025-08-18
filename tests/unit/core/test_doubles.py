@@ -22,25 +22,28 @@ from src.core.domain.configuration import (
     ReasoningConfig,
 )
 from src.core.domain.session import Session, SessionInteraction, SessionState
-from src.core.interfaces.backend_service import BackendError, IBackendService
-from src.core.interfaces.command_service import (
+from src.core.interfaces.backend_service_interface import BackendError, IBackendService
+from src.core.interfaces.command_service_interface import (
     ICommandService,
     ProcessedResult,
 )
-from src.core.interfaces.di import (
+from src.core.interfaces.di_interface import (
     IServiceProvider,
     IServiceScope,
 )
-from src.core.interfaces.domain_entities import ISession
-from src.core.interfaces.loop_detector import ILoopDetector, LoopDetectionResult
-from src.core.interfaces.rate_limiter import IRateLimiter, RateLimitInfo
-from src.core.interfaces.repositories import ISessionRepository
-from src.core.interfaces.response_processor import (
+from src.core.interfaces.domain_entities_interface import ISession
+from src.core.interfaces.loop_detector_interface import (
+    ILoopDetector,
+    LoopDetectionResult,
+)
+from src.core.interfaces.rate_limiter_interface import IRateLimiter, RateLimitInfo
+from src.core.interfaces.repositories_interface import ISessionRepository
+from src.core.interfaces.response_processor_interface import (
     IResponseMiddleware,
     IResponseProcessor,
     ProcessedResponse,
 )
-from src.core.interfaces.session_service import ISessionService
+from src.core.interfaces.session_service_interface import ISessionService
 
 
 #

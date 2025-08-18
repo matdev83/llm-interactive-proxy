@@ -40,10 +40,26 @@ class HelloCommand(BaseCommand):
             The command result
         """
         # Create a new state with hello_requested=True
-        from src.core.domain.session import SessionStateAdapter
+        from src.core.domain.session import SessionStateAdapter, Session
 
+        # Accept either a SessionStateAdapter (adapter) or a Session object
+        # and set the hello_requested flag on the underlying state so that
+        # legacy tests observing the adapter see the change.
         if isinstance(session, SessionStateAdapter):
             session.hello_requested = True
+        elif isinstance(session, Session):
+            # Mutate the session state via the adapter so external holders
+            # of the adapter observe the change.
+            try:
+                session.state.hello_requested = True
+            except Exception:
+                # Best-effort: if session.state is plain SessionState, replace it
+                try:
+                    s = session.state
+                    s = s.with_hello_requested(True)  # type: ignore
+                    session.state = s
+                except Exception:
+                    pass
 
         return CommandResult(
             name=self.name,

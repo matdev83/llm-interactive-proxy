@@ -8,7 +8,7 @@ import logging
 import time
 from typing import Any
 
-from src.core.interfaces.rate_limiter import IRateLimiter, RateLimitInfo
+from src.core.interfaces.rate_limiter_interface import IRateLimiter, RateLimitInfo
 
 logger = logging.getLogger(__name__)
 
@@ -213,6 +213,10 @@ class ConfigurableRateLimiter(IRateLimiter):
             logger.info(f"Would apply rate limit for {key}: {limit}/{time_window}s")
 
 
+# Alias for backward compatibility
+RateLimiter = InMemoryRateLimiter
+
+
 def create_rate_limiter(config: Any) -> IRateLimiter:
     """Create a rate limiter based on configuration.
 
@@ -231,8 +235,12 @@ def create_rate_limiter(config: Any) -> IRateLimiter:
         config_dict = {}
 
     # Get rate limiter configuration with defaults
-    default_limit = config.default_rate_limit
-    default_time_window = config.default_rate_window
+    default_limit = (
+        config.default_rate_limit if hasattr(config, "default_rate_limit") else 60
+    )
+    default_time_window = (
+        config.default_rate_window if hasattr(config, "default_rate_window") else 60
+    )
 
     # Create base limiter
     base_limiter = InMemoryRateLimiter(

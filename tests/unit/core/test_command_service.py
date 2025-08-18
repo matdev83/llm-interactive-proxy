@@ -3,7 +3,8 @@
 from unittest.mock import AsyncMock
 
 import pytest
-from src.core.commands.handler_factory import register_command_handlers
+from src.core.commands.handler_factory import CommandHandlerFactory
+from src.core.domain.chat import ChatMessage
 from src.core.domain.configuration import (
     BackendConfig,
     LoopDetectionConfig,
@@ -17,7 +18,9 @@ from src.core.services.command_service import CommandRegistry, CommandService
 def command_registry():
     """Create a command registry with registered handlers."""
     registry = CommandRegistry()
-    register_command_handlers(registry)
+    factory = CommandHandlerFactory()
+    for handler in factory.create_handlers():
+        registry.register(handler)
     return registry
 
 
@@ -64,27 +67,9 @@ def command_service(command_registry, session_service):
 
 
 @pytest.mark.asyncio
-async def test_backend_command(command_service):
-    """Test the backend command."""
-    messages = [{"role": "user", "content": "!/backend(name=anthropic)"}]
-
-    # Process the command
-    result = await command_service.process_commands(messages, "test-session")
-
-    # Verify the result
-    assert result.command_executed
-    assert len(result.command_results) == 1
-    assert result.command_results[0].success
-    assert "anthropic" in result.command_results[0].message
-
-    # Verify the message was modified
-    assert result.modified_messages[0]["content"] == ""
-
-
-@pytest.mark.asyncio
 async def test_model_command(command_service):
     """Test the model command."""
-    messages = [{"role": "user", "content": "!/model(name=gpt-4)"}]
+    messages = [ChatMessage(role="user", content="!/model(name=gpt-4)")]
 
     # Process the command
     result = await command_service.process_commands(messages, "test-session")
@@ -96,13 +81,13 @@ async def test_model_command(command_service):
     assert "gpt-4" in result.command_results[0].message
 
     # Verify the message was modified
-    assert result.modified_messages[0]["content"] == ""
+    assert result.modified_messages[0].content == ""
 
 
 @pytest.mark.asyncio
 async def test_temperature_command(command_service):
     """Test the temperature command."""
-    messages = [{"role": "user", "content": "!/temperature(value=0.9)"}]
+    messages = [ChatMessage(role="user", content="!/temperature(value=0.9)")]
 
     # Process the command
     result = await command_service.process_commands(messages, "test-session")
@@ -114,13 +99,13 @@ async def test_temperature_command(command_service):
     assert "0.9" in result.command_results[0].message
 
     # Verify the message was modified
-    assert result.modified_messages[0]["content"] == ""
+    assert result.modified_messages[0].content == ""
 
 
 @pytest.mark.asyncio
 async def test_project_command(command_service):
     """Test the project command."""
-    messages = [{"role": "user", "content": "!/project(name=new-project)"}]
+    messages = [ChatMessage(role="user", content="!/project(name=new-project)")]
 
     # Process the command
     result = await command_service.process_commands(messages, "test-session")
@@ -132,13 +117,13 @@ async def test_project_command(command_service):
     assert "new-project" in result.command_results[0].message
 
     # Verify the message was modified
-    assert result.modified_messages[0]["content"] == ""
+    assert result.modified_messages[0].content == ""
 
 
 @pytest.mark.asyncio
 async def test_help_command(command_service):
     """Test the help command."""
-    messages = [{"role": "user", "content": "!/help"}]
+    messages = [ChatMessage(role="user", content="!/help")]
 
     # Process the command
     result = await command_service.process_commands(messages, "test-session")
@@ -150,13 +135,13 @@ async def test_help_command(command_service):
     assert "Available commands" in result.command_results[0].message
 
     # Verify the message was modified
-    assert result.modified_messages[0]["content"] == ""
+    assert result.modified_messages[0].content == ""
 
 
 @pytest.mark.asyncio
 async def test_help_command_with_specific_command(command_service):
     """Test the help command for a specific command."""
-    messages = [{"role": "user", "content": "!/help(command=model)"}]
+    messages = [ChatMessage(role="user", content="!/help(command=model)")]
 
     # Process the command
     result = await command_service.process_commands(messages, "test-session")
@@ -168,13 +153,13 @@ async def test_help_command_with_specific_command(command_service):
     assert "Help for model" in result.command_results[0].message
 
     # Verify the message was modified
-    assert result.modified_messages[0]["content"] == ""
+    assert result.modified_messages[0].content == ""
 
 
 @pytest.mark.asyncio
 async def test_unknown_command(command_service):
     """Test an unknown command."""
-    messages = [{"role": "user", "content": "!/nonexistent"}]
+    messages = [ChatMessage(role="user", content="!/nonexistent")]
 
     # Process the command
     result = await command_service.process_commands(messages, "test-session")
@@ -184,13 +169,15 @@ async def test_unknown_command(command_service):
     assert len(result.command_results) == 0
 
     # Verify the message was modified
-    assert result.modified_messages[0]["content"] == " "
+    assert result.modified_messages[0].content == " "
 
 
 @pytest.mark.asyncio
 async def test_command_with_remaining_text(command_service):
     """Test a command with remaining text."""
-    messages = [{"role": "user", "content": "!/model(name=gpt-4) Tell me about AI"}]
+    messages = [
+        ChatMessage(role="user", content="!/model(name=gpt-4) Tell me about AI")
+    ]
 
     # Process the command
     result = await command_service.process_commands(messages, "test-session")
@@ -201,4 +188,4 @@ async def test_command_with_remaining_text(command_service):
     assert result.command_results[0].success
 
     # Verify the message was modified to keep remaining text
-    assert result.modified_messages[0]["content"] == " Tell me about AI"
+    assert result.modified_messages[0].content == " Tell me about AI"

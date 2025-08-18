@@ -5,9 +5,9 @@ from typing import Any
 import httpx
 import pytest
 import pytest_asyncio
-import src.models as models
 from pytest_httpx import HTTPXMock
 from src.connectors.gemini import GeminiBackend
+from src.core.domain.chat import ChatMessage, ChatRequest
 
 TEST_GEMINI_API_BASE_URL = "https://generativelanguage.googleapis.com"
 
@@ -19,37 +19,25 @@ async def gemini_backend_fixture():
 
 
 @pytest.fixture
-def sample_chat_request_data() -> models.ChatCompletionRequest:
-    return models.ChatCompletionRequest(
-        model="test-model",
-        messages=[models.ChatMessage(role="user", content="Hello")],
-        temperature=None,
-        top_p=None,
-        n=None,
-        stream=False,  # Explicitly set stream to False for non-streaming tests
-        stop=None,
-        max_tokens=None,
-        presence_penalty=None,
-        frequency_penalty=None,
-        logit_bias=None,
-        user=None,
-        extra_params=None,
+def sample_chat_request_data() -> ChatRequest:
+    return ChatRequest(
+        model="test-model", messages=[ChatMessage(role="user", content="Hello")]
     )
 
 
 @pytest.fixture
-def sample_processed_messages() -> list[models.ChatMessage]:
-    return [models.ChatMessage(role="user", content="Hello")]
+def sample_processed_messages() -> list[ChatMessage]:
+    return [ChatMessage(role="user", content="Hello")]
 
 
 @pytest.mark.asyncio
 async def test_chat_completions_model_prefix_handled(
     gemini_backend: GeminiBackend,
     httpx_mock: HTTPXMock,
-    sample_chat_request_data: models.ChatCompletionRequest,
-    sample_processed_messages: list[models.ChatMessage],
+    sample_chat_request_data: ChatRequest,
+    sample_processed_messages: list[ChatMessage],
 ):
-    sample_chat_request_data.stream = False
+    sample_chat_request_data = sample_chat_request_data.model_copy(update={"stream": False})
     effective_model = "models/gemini-1"
 
     mock_response_payload = {

@@ -136,4 +136,4 @@ def test_session_mutability():
 
     # Assert
     assert len(session.history) == 1
-    assert session.state == new_state
+    assert session.state._state == new_state

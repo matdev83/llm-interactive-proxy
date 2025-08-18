@@ -3,7 +3,8 @@ Security middleware for API key and token authentication.
 """
 
 import logging
-from collections.abc import Callable, Iterable
+from collections.abc import Awaitable, Callable, Iterable
+from typing import Any
 
 from fastapi import Request, Response
 from starlette.middleware.base import BaseHTTPMiddleware
@@ -22,15 +23,17 @@ class APIKeyMiddleware(BaseHTTPMiddleware):
 
     def __init__(
         self,
-        app,
+        app: Any,
         valid_keys: Iterable[str],
         bypass_paths: list[str] | None = None,
-    ):
+    ) -> None:
         super().__init__(app)
         self.valid_keys = set(valid_keys)
         self.bypass_paths = bypass_paths or ["/docs", "/openapi.json", "/redoc"]
 
-    async def dispatch(self, request: Request, call_next: Callable) -> Response:
+    async def dispatch(
+        self, request: Request, call_next: Callable[[Request], Awaitable[Response]]
+    ) -> Response:
         """
         Process the request and check for a valid API key.
 
@@ -41,9 +44,10 @@ class APIKeyMiddleware(BaseHTTPMiddleware):
         Returns:
             The response from the next middleware or route handler
         """
-        # Skip authentication for certain paths
+        # Check if the path is in the bypass list
         if request.url.path in self.bypass_paths:
-            return await call_next(request)
+            response: Response = await call_next(request)
+            return response
 
         # Check for API key in header
         auth_header = request.headers.get("Authorization")
@@ -69,7 +73,8 @@ class APIKeyMiddleware(BaseHTTPMiddleware):
             )
 
         # API key is valid, continue processing
-        return await call_next(request)
+        response2: Response = await call_next(request)
+        return response2
 
 
 class AuthMiddleware(BaseHTTPMiddleware):
@@ -81,15 +86,17 @@ class AuthMiddleware(BaseHTTPMiddleware):
 
     def __init__(
         self,
-        app,
+        app: Any,
         valid_token: str,
         bypass_paths: list[str] | None = None,
-    ):
+    ) -> None:
         super().__init__(app)
         self.valid_token = valid_token
         self.bypass_paths = bypass_paths or ["/docs", "/openapi.json", "/redoc"]
 
-    async def dispatch(self, request: Request, call_next: Callable) -> Response:
+    async def dispatch(
+        self, request: Request, call_next: Callable[[Request], Awaitable[Response]]
+    ) -> Response:
         """
         Process the request and check for a valid token.
 
@@ -102,7 +109,8 @@ class AuthMiddleware(BaseHTTPMiddleware):
         """
         # Skip authentication for certain paths
         if request.url.path in self.bypass_paths:
-            return await call_next(request)
+            response: Response = await call_next(request)
+            return response
 
         # Check for token in header
         token = request.headers.get("X-Auth-Token")
@@ -120,4 +128,5 @@ class AuthMiddleware(BaseHTTPMiddleware):
             )
 
         # Token is valid, continue processing
-        return await call_next(request)
+        response3: Response = await call_next(request)
+        return response3

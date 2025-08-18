@@ -4,7 +4,7 @@ import logging
 import time
 
 from src.core.domain.session import Session
-from src.core.interfaces.repositories import ISessionRepository
+from src.core.interfaces.repositories_interface import ISessionRepository
 
 logger = logging.getLogger(__name__)
 

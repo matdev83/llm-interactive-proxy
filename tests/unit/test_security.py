@@ -18,7 +18,8 @@ def test_cli_disable_auth_forces_localhost():
 
         mock_app = object()
 
-        def mock_build_app(cfg, config_file=None):
+        def mock_build_app(cfg, config_file=None):  # type: ignore
+            # The config_file parameter is intentionally unused in this mock
             return mock_app
 
         # Test with localhost - should work
@@ -54,7 +55,8 @@ def test_env_disable_auth_forces_localhost():
 
         mock_app = object()
 
-        def mock_build_app(cfg, config_file=None):
+        def mock_build_app(cfg, config_file=None):  # type: ignore
+            # The config_file parameter is intentionally unused in this mock
             return mock_app
 
         main(["--port", "8080"], build_app_fn=mock_build_app)
@@ -77,7 +79,8 @@ def test_auth_enabled_allows_custom_host():
 
         mock_app = object()
 
-        def mock_build_app(cfg, config_file=None):
+        def mock_build_app(cfg, config_file=None):  # type: ignore
+            # The config_file parameter is intentionally unused in this mock
             return mock_app
 
         main(["--port", "8080"], build_app_fn=mock_build_app)

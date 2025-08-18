@@ -70,6 +70,9 @@ The foundational components of the new SOLID architecture (dependency injection 
 
 **Remaining Work:**
 The remaining test failures are primarily **runtime/business logic issues** rather than foundational architectural problems. These include:
+- `RuntimeError: asyncio.run() cannot be called from a running event loop` in integration tests.
+- Inconsistent handling of configuration and session state objects, leading to `AttributeError` and `KeyError` (e.g., expecting objects but getting dicts, or vice-versa).
+- Middleware and processor initialization issues, leading to `AssertionError`s related to empty middleware stacks.
 - Backend initialization trying to validate real API keys during tests (needs mocking)
 - Edge case handling in response converters (e.g., empty choices arrays)
 - Some command logic expecting different legacy state structures
@@ -101,10 +104,16 @@ A `pytest` run was executed to assess the factual state of the codebase. The res
 
 This phase addresses the core issues preventing most of the application from working.
 
-1.  **Fix Core Architectural Mismatches**:
-    *   **Problem**: A significant number of tests are failing due to incorrect `async` usage and improper access to the new session state.
-    *   **Task (In Progress)**: Continue fixing `TypeError: cannot unpack non-iterable coroutine object` by finding and correcting missing `await` keywords and `async` function definitions.
-    *   **Task (In Progress)**: Continue fixing `AttributeError: 'SessionStateAdapter' object has no attribute 'state'` by refactoring all components that still reference the old `.state` attribute to use the new adapter methods correctly.
+1.  **Fix Core Architectural Mismatches & Test Setup**:
+    *   **Problem**: Integration tests are failing with `RuntimeError: asyncio.run() cannot be called from a running event loop` due to incorrect async test setup.
+    *   **Task**: Replace direct `asyncio.run()` calls with `await` in `@pytest.mark.asyncio` tests to allow `pytest-asyncio` to manage the event loop.
+    *   **Problem**: Inconsistent handling of configuration and session state objects (e.g., `AttributeError: 'dict' object has no attribute 'backends'`, `KeyError: 'backend'`) and incorrect state updates (`AssertionError: assert False is True`).
+    *   **Task**: Ensure `AppConfig` and other configuration objects are consistently instantiated and passed as objects (not dictionaries) throughout the application, especially during application startup and service initialization.
+    *   **Task**: Review `src/core/domain/session.py` and command handlers to ensure `SessionStateAdapter` and `SessionState` are used consistently for setting and retrieving session attributes, and that all state attributes are properly initialized and updated.
+    *   **Problem**: Middleware and processor initialization issues, leading to `AssertionError`s related to empty middleware stacks.
+    *   **Task**: Investigate `src/response_middleware.py` and `src/core/app/application_factory.py` to ensure middleware and processors are correctly registered and initialized within the FastAPI application's lifespan events.
+    *   **Problem**: `AttributeError: LogLevel` in `test_app_config_defaults`.
+    *   **Task**: Address the `AttributeError: LogLevel` by correcting how `AppConfig.LogLevel` is accessed or defined.
 
 2.  **Fix Dependency Injection and Application State**:
     *   **Problem**: The `ApplicationBuilder` in `src/core/app/application_factory.py` does not correctly initialize and expose backend instances on `app.state` as the legacy parts of the application expect. The `_initialize_legacy_backends` function is empty. This is the root cause of the numerous `AttributeError: 'State' object has no attribute '..._backend'` and `KeyError: '..._backend'` errors in `pytest`.

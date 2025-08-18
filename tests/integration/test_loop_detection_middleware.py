@@ -11,14 +11,19 @@ import src.core.config.config_loader  # Added import
 from src.core.common.exceptions import LoopDetectionError
 from src.core.domain.chat import ChatResponse
 from src.core.domain.session import Session, SessionState  # Added import
-from src.core.interfaces.loop_detector import ILoopDetector, LoopDetectionResult
-from src.core.interfaces.response_processor import (
+from src.core.interfaces.loop_detector_interface import (
+    ILoopDetector,
+    LoopDetectionResult,
+)
+from src.core.interfaces.response_processor_interface import (
     IResponseMiddleware,
     ProcessedResponse,
 )
-from src.core.interfaces.session_service import ISessionService  # Added import
-from src.core.services.loop_detector import LoopDetector
-from src.core.services.response_middleware import LoopDetectionMiddleware
+from src.core.interfaces.session_service_interface import (
+    ISessionService,  # Added import
+)
+from src.core.services.loop_detector_service import LoopDetector
+from src.core.services.response_middleware_service import LoopDetectionMiddleware
 
 
 class MockLoopDetector(ILoopDetector):
@@ -124,7 +129,7 @@ async def test_loop_detection_middleware_with_loop(mock_loop_detector_detecting)
 @pytest.mark.asyncio
 async def test_full_processing_pipeline():
     """Test the full processing pipeline with a real LoopDetector."""
-    from src.core.services.response_processor import ResponseProcessor
+    from src.core.services.response_processor_service import ResponseProcessor
 
     # Create a response with repeating content
     repeating_content = "The cat sat on the mat. " * 20
@@ -171,8 +176,8 @@ async def test_full_processing_pipeline():
 @pytest.mark.asyncio
 async def test_request_processor_integration():
     """Test integration with the RequestProcessor."""
-    from src.core.services.request_processor import RequestProcessor
-    from src.core.services.response_processor import ResponseProcessor
+    from src.core.services.request_processor_service import RequestProcessor
+    from src.core.services.response_processor_service import ResponseProcessor
 
     # Mock dependencies
     mock_command_service = AsyncMock()
@@ -248,7 +253,7 @@ async def test_request_processor_integration():
     request.headers = {}
 
     # Create request data
-    from src.core.app.controllers.chat_controller import ChatCompletionRequest
+    from src.core.domain.chat import ChatRequest
 
     request_data = ChatCompletionRequest(
         model="test-model",
@@ -272,7 +277,7 @@ async def test_end_to_end_with_real_app():
     """Test the complete end-to-end flow with a real FastAPI app."""
     from fastapi.testclient import TestClient
     from src.core.app.application_factory import build_app
-    from src.core.interfaces.backend_service import IBackendService
+    from src.core.interfaces.backend_service_interface import IBackendService
 
     # Store original _load_config before patching
     original_load_config = src.core.config.config_loader._load_config

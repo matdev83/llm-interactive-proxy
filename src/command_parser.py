@@ -1,4 +1,3 @@
-import asyncio
 import inspect
 import logging
 import re
@@ -6,7 +5,6 @@ from typing import Any
 
 from fastapi import FastAPI
 
-from src import models
 from src.command_config import CommandParserConfig, CommandProcessorConfig
 from src.command_processor import CommandProcessor, get_command_pattern
 from src.command_utils import (
@@ -17,23 +15,24 @@ from src.command_utils import (
     is_tool_call_result,
 )
 from src.constants import DEFAULT_COMMAND_PREFIX
+from src.core.commands.set_command import SetCommand
+from src.core.commands.unset_command import UnsetCommand
+from src.core.domain.chat import ChatMessage, MessageContentPart
 from src.core.domain.command_results import CommandResult
-from src.core.domain.commands import (
+from src.core.domain.commands.base_command import BaseCommand
+from src.core.domain.commands.failover_commands import (
     CreateFailoverRouteCommand,
     DeleteFailoverRouteCommand,
-    HelloCommand,
-    HelpCommand,
     ListFailoverRoutesCommand,
-    OneoffCommand,
     RouteAppendCommand,
     RouteClearCommand,
     RouteListCommand,
     RoutePrependCommand,
-    SetCommand,
-    UnsetCommand,
 )
-from src.core.domain.commands.base_command import BaseCommand
-from src.core.interfaces.domain_entities import ISessionState
+from src.core.domain.commands.hello_command import HelloCommand
+from src.core.domain.commands.help_command import HelpCommand
+from src.core.domain.commands.oneoff_command import OneoffCommand
+from src.core.interfaces.domain_entities_interface import ISessionState
 
 # Removed legacy import
 
@@ -120,7 +119,7 @@ class CommandParser:
         return get_text_for_command_check(content)
 
     async def _execute_commands_in_target_message(
-        self, target_idx: int, modified_messages: list[models.ChatMessage]
+        self, target_idx: int, modified_messages: list[ChatMessage]
     ) -> bool:
         """Processes commands in the specified message and updates it.
         Returns True if a command was found and an attempt to execute it was made.
@@ -138,6 +137,7 @@ class CommandParser:
                 if inspect.isawaitable(cr):
                     # Create a new event loop to run the awaitable
                     import asyncio
+
                     loop = asyncio.new_event_loop()
                     try:
                         result = loop.run_until_complete(cr)
@@ -157,8 +157,8 @@ class CommandParser:
         return True
 
     async def _process_content(
-        self, msg_to_process: models.ChatMessage
-    ) -> tuple[str | list[models.MessageContentPart] | None, bool, bool]:
+        self, msg_to_process: ChatMessage
+    ) -> tuple[str | list[MessageContentPart] | None, bool, bool]:
         if isinstance(msg_to_process.content, str):
             return await self.command_processor.handle_string_content(
                 msg_to_process.content
@@ -172,9 +172,9 @@ class CommandParser:
     async def _maybe_use_error_message(
         self,
         original_content: Any,
-        processed_content: str | list[models.MessageContentPart] | None,
+        processed_content: str | list[MessageContentPart] | None,
         modified: bool,
-    ) -> tuple[str | list[models.MessageContentPart] | None, bool]:
+    ) -> tuple[str | list[MessageContentPart] | None, bool]:
         if (
             self._is_original_purely_command(original_content)
             and self._is_content_effectively_empty(processed_content)
@@ -190,10 +190,10 @@ class CommandParser:
 
     def _apply_processed_content(
         self,
-        msg_to_process: models.ChatMessage,
+        msg_to_process: ChatMessage,
         target_idx: int,
         original_content: Any,
-        processed_content: str | list[models.MessageContentPart] | None,
+        processed_content: str | list[MessageContentPart] | None,
         modified: bool,
     ) -> None:
         if modified and processed_content is not None:
@@ -218,11 +218,11 @@ class CommandParser:
 
     def _filter_empty_messages(
         self,
-        processed_messages: list[models.ChatMessage],
-        original_messages: list[models.ChatMessage],
-    ) -> list[models.ChatMessage]:
+        processed_messages: list[ChatMessage],
+        original_messages: list[ChatMessage],
+    ) -> list[ChatMessage]:
         """Filters out messages that became empty, unless they were purely commands."""
-        final_messages: list[models.ChatMessage] = []
+        final_messages: list[ChatMessage] = []
         for original_msg_idx, current_msg_state in enumerate(processed_messages):
             is_empty = is_content_effectively_empty(current_msg_state.content)
 
@@ -251,8 +251,8 @@ class CommandParser:
         return final_messages
 
     async def process_messages(
-        self, messages: list[models.ChatMessage]
-    ) -> tuple[list[models.ChatMessage], bool]:
+        self, messages: list[ChatMessage]
+    ) -> tuple[list[ChatMessage], bool]:
         self.command_results.clear()
         if not messages:
             logger.debug("process_messages received empty messages list.")
@@ -334,11 +334,11 @@ async def _process_text_for_commands(
 
 
 async def process_commands_in_messages(
-    messages: list[models.ChatMessage],
+    messages: list[ChatMessage],
     current_proxy_state: ISessionState,
     app: FastAPI | None = None,
     command_prefix: str = DEFAULT_COMMAND_PREFIX,
-) -> tuple[list[models.ChatMessage], bool]:
+) -> tuple[list[ChatMessage], bool]:
     """
     Processes a list of chat messages to identify and execute embedded commands.
 

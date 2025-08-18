@@ -10,7 +10,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from fastapi.testclient import TestClient
-from src.constants import BackendType
+
+# from src.constants import BackendType # Removed BackendType import
 from src.core.app.application_factory import build_app
 
 
@@ -137,31 +138,48 @@ class TestModelsEndpoints:
 
         # Patch the backend service's internal method to simulate an error
         with TestClient(app) as client:
-            # Get the backend service from the DI container
-            if hasattr(app.state, "service_provider"):
-                from src.core.interfaces.backend_service import IBackendService
+            # Ensure the service provider is available
+            from src.core.interfaces.backend_service_interface import IBackendService
+            from src.core.di.services import get_service_provider, set_service_provider
+            from src.core.app.application_factory import ApplicationBuilder
 
-                backend_service = app.state.service_provider.get_required_service(
-                    IBackendService
-                )
+            # Initialize services if needed
+            if not hasattr(app.state, "service_provider") or app.state.service_provider is None:
+                import asyncio
+                
+                # Get or create a basic config
+                config = getattr(app.state, "app_config", None)
+                if config is None:
+                    from src.core.config.app_config import AppConfig
+                    config = AppConfig()
+                    app.state.app_config = config
+                
+                # Initialize services synchronously in test context
+                builder = ApplicationBuilder()
+                service_provider = asyncio.run(builder._initialize_services(app, config))
+                
+                # Set as global provider and on app.state
+                set_service_provider(service_provider)
+                app.state.service_provider = service_provider
 
-                # Patch the internal method to raise an exception
-                with patch.object(
-                    backend_service,
-                    "_get_or_create_backend",
-                    side_effect=Exception("Backend initialization failed"),
-                ):
-                    response = client.get("/models")
+            # Get the backend service from DI
+            backend_service = app.state.service_provider.get_required_service(IBackendService)
 
-                    # The controller should catch the exception and return default models
-                    # or handle it gracefully (not crash with 500)
-                    assert (
-                        response.status_code == 200
-                    )  # Should still work with defaults
-                    data = response.json()
-                    assert "data" in data
-                    # Should have fallen back to default models
-                    assert len(data["data"]) > 0
+            # Patch the internal method to raise an exception
+            with patch.object(
+                backend_service,
+                "_get_or_create_backend",
+                side_effect=Exception("Backend initialization failed"),
+            ):
+                response = client.get("/models")
+
+                # The controller should catch the exception and return default models
+                # or handle it gracefully (not crash with 500)
+                assert response.status_code == 200  # Should still work with defaults
+                data = response.json()
+                assert "data" in data
+                # Should have fallen back to default models
+                assert len(data["data"]) > 0
 
 
 class TestModelsDiscovery:
@@ -170,7 +188,7 @@ class TestModelsDiscovery:
     @pytest.fixture
     def mock_backend_factory(self):
         """Create a mock backend factory."""
-        from src.core.services.backend_factory import BackendFactory
+        from src.core.services.backend_factory_service import BackendFactory
 
         factory = MagicMock(spec=BackendFactory)
         return factory
@@ -178,7 +196,7 @@ class TestModelsDiscovery:
     @pytest.mark.asyncio
     async def test_discover_openai_models(self, mock_backend_factory):
         """Test discovering models from OpenAI backend."""
-        from src.core.interfaces.rate_limiter import IRateLimiter
+        from src.core.interfaces.rate_limiter_interface import IRateLimiter
         from src.core.services.backend_service import BackendService
 
         # Create mock rate limiter
@@ -205,7 +223,7 @@ class TestModelsDiscovery:
         mock_backend_factory.initialize_backend = AsyncMock()
 
         # Get backend and discover models
-        backend = await service._get_or_create_backend(BackendType.OPENAI)
+        backend = await service._get_or_create_backend("openai")  # Used string literal
         models = backend.get_available_models()
 
         assert len(models) == 4
@@ -215,7 +233,7 @@ class TestModelsDiscovery:
     @pytest.mark.asyncio
     async def test_discover_anthropic_models(self, mock_backend_factory):
         """Test discovering models from Anthropic backend."""
-        from src.core.interfaces.rate_limiter import IRateLimiter
+        from src.core.interfaces.rate_limiter_interface import IRateLimiter
         from src.core.services.backend_service import BackendService
 
         # Create mock rate limiter
@@ -242,7 +260,9 @@ class TestModelsDiscovery:
         mock_backend_factory.initialize_backend = AsyncMock()
 
         # Get backend and discover models
-        backend = await service._get_or_create_backend(BackendType.ANTHROPIC)
+        backend = await service._get_or_create_backend(
+            "anthropic"
+        )  # Used string literal
         models = backend.get_available_models()
 
         assert len(models) == 4
@@ -252,7 +272,7 @@ class TestModelsDiscovery:
     @pytest.mark.asyncio
     async def test_discover_models_with_failover(self, mock_backend_factory):
         """Test model discovery when primary backend fails."""
-        from src.core.interfaces.rate_limiter import IRateLimiter
+        from src.core.interfaces.rate_limiter_interface import IRateLimiter
         from src.core.services.backend_service import BackendService
 
         # Create mock rate limiter
@@ -265,8 +285,8 @@ class TestModelsDiscovery:
 
         # Create backend service with failover routes
         failover_routes = {
-            BackendType.OPENAI.value: {
-                "backend": BackendType.OPENROUTER.value,
+            "openai": {  # Used string literal
+                "backend": "openrouter",  # Used string literal
                 "model": "openai/gpt-4",
             }
         }
@@ -289,10 +309,10 @@ class TestModelsDiscovery:
 
         # Should handle the error and not crash
         with contextlib.suppress(Exception):
-            backend = await service._get_or_create_backend(BackendType.OPENAI)
+            backend = await service._get_or_create_backend("openai")
 
         # Second attempt should work with fallback
-        backend = await service._get_or_create_backend(BackendType.OPENROUTER)
+        backend = await service._get_or_create_backend("openrouter")
         models = backend.get_available_models()
 
         assert len(models) == 2

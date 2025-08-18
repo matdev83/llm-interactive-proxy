@@ -6,7 +6,7 @@ import httpx
 import pytest
 from fastapi import HTTPException
 from src.connectors.qwen_oauth import QwenOAuthConnector
-from src.models import ChatCompletionRequest, ChatMessage
+from src.core.domain.chat import ChatMessage, ChatRequest
 
 
 class TestQwenOAuthEnhancedErrorHandling:
@@ -71,7 +71,7 @@ class TestQwenOAuthEnhancedErrorHandling:
     async def test_chat_completions_generic_error_handling(self, connector):
         """Test generic error handling in chat_completions method."""
         # Setup test data
-        request = ChatCompletionRequest(
+        request = ChatRequest(
             model="qwen3-coder-plus",
             messages=[ChatMessage(role="user", content="Hello")],
         )
@@ -106,7 +106,7 @@ class TestQwenOAuthEnhancedErrorHandling:
     async def test_model_prefix_stripping(self, connector):
         """Test that the qwen-oauth: prefix is properly stripped from model names."""
         # Setup
-        request = ChatCompletionRequest(
+        request = ChatRequest(
             model="qwen-oauth:qwen3-coder-plus",
             messages=[ChatMessage(role="user", content="Hello")],
         )
@@ -137,7 +137,7 @@ class TestQwenOAuthEnhancedErrorHandling:
     @pytest.mark.asyncio
     async def test_http_exception_passthrough(self, connector):
         """Test that HTTPExceptions from parent class are passed through."""
-        request = ChatCompletionRequest(
+        request = ChatRequest(
             model="qwen3-coder-plus",
             messages=[ChatMessage(role="user", content="Hello")],
         )
@@ -168,7 +168,7 @@ class TestQwenOAuthEnhancedErrorHandling:
     async def test_chat_completions_refresh_token_failure(self, connector):
         """Test chat_completions when token refresh fails."""
         # Setup
-        request = ChatCompletionRequest(
+        request = ChatRequest(
             model="qwen3-coder-plus",
             messages=[ChatMessage(role="user", content="Hello")],
         )

@@ -9,6 +9,8 @@ from typing import TYPE_CHECKING, Any
 import httpx
 from fastapi import HTTPException
 
+from src.core.services.backend_registry import backend_registry
+
 from .openai import OpenAIConnector
 
 if TYPE_CHECKING:
@@ -17,6 +19,8 @@ if TYPE_CHECKING:
 
 class ZAIConnector(OpenAIConnector):
     """ZAI backend connector for Zhipu AI's GLM models."""
+
+    backend_type: str = "zai"
 
     def __init__(self, client: httpx.AsyncClient) -> None:
         super().__init__(client)
@@ -38,10 +42,13 @@ class ZAIConnector(OpenAIConnector):
             with open(config_path, encoding="utf-8") as f:
                 config = json.load(f)
                 models = config.get("models", [])
-                return models if isinstance(models, list) else []
+                if isinstance(models, list) and models:
+                    return models
+                # If the config file exists but has no models, fall back to hardcoded defaults
+                return ["glm-4.5", "glm-4.5-flash", "glm-4.5-air"]
         except Exception:
             # Fallback to hardcoded models if config file is not found or invalid
-            return ["glm-4.5-flash", "glm-4.5-air", "glm-4.5"]
+            return ["glm-4.5", "glm-4.5-flash", "glm-4.5-air"]
 
     async def initialize(self, **kwargs: Any) -> None:
         """Initialize the connector and fetch available models."""
@@ -53,17 +60,35 @@ class ZAIConnector(OpenAIConnector):
         if api_base_url:
             self.api_base_url = api_base_url
 
+        # Load models
+        await self._ensure_models_loaded()
+        
+    async def _ensure_models_loaded(self) -> None:
+        """Ensure models are loaded, either from API or defaults."""
+        # Initialize available_models if not already set
+        if not hasattr(self, 'available_models'):
+            self.available_models = []
+            
+        # If we already have models, no need to reload
+        if self.available_models:
+            return
+            
         # Try to fetch models from /models endpoint
         try:
             data = await self.list_models()
-            self.available_models = [
-                m.get("id") for m in data.get("data", []) if m.get("id")
-            ]
+            models = [m.get("id") for m in data.get("data", []) if m.get("id")]
             # If we successfully fetched models, use them
-            if self.available_models:
+            if models:
+                self.available_models = models
                 return
-        except Exception:
-            # If /models endpoint is not supported, use default models from config
+        except Exception as e:
+            # Log the exception for debugging
+            import logging
+            logging.debug(f"Error fetching models from API: {e}")
+            
+        # If we get here, either the API call failed or returned no models
+        # Use default models from config
+        if not self.available_models:
             self.available_models = self._default_models.copy()
 
     def get_headers(self) -> dict[str, str]:
@@ -74,3 +99,15 @@ class ZAIConnector(OpenAIConnector):
             "Authorization": f"Bearer {self.api_key}",
             "Content-Type": "application/json",
         }
+        
+    def get_available_models(self) -> list[str]:
+        """
+        Get a list of available models for this backend.
+        
+        Returns:
+            A list of model identifiers supported by this backend.
+        """
+        if hasattr(self, 'available_models') and self.available_models:
+            return self.available_models
+        return self._default_models.copy()
+backend_registry.register_backend("zai", ZAIConnector)

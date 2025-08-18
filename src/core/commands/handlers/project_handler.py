@@ -11,7 +11,7 @@ from src.core.commands.handlers.base_handler import (
     BaseCommandHandler,
     CommandHandlerResult,
 )
-from src.core.interfaces.domain_entities import ISessionState
+from src.core.interfaces.domain_entities_interface import ISessionState
 
 logger = logging.getLogger(__name__)
 

@@ -1,6 +1,6 @@
 from unittest.mock import AsyncMock, patch
 
-from src.core.interfaces.backend_service import IBackendService
+from src.core.interfaces.backend_service_interface import IBackendService
 
 
 def test_help_list_commands(test_client):

@@ -3,7 +3,7 @@ name = "llm-interactive-proxy"
 version = "0.1.0"
 description = "A short description of my project." # Pyroma might suggest a longer one, but this is fine for now.
 authors = [
-    { name = "Your Name", email = "your.email@example.com" },
+    { name = "Mateusz B.", email = "matdev83@github.com" },
 ]
 dependencies = [
     "fastapi",
@@ -26,7 +26,7 @@ requires-python = ">=3.10"
 readme = "README.md"
 license = { text = "MIT" } # License specified here
 keywords = ["llm", "proxy", "interactive", "api", "ai", "chatgpt", "openai", "gemini", "openrouter"]
-urls = { Home = "https://github.com/example-user/llm-interactive-proxy" } # Example URL
+urls = { Home = "https://github.com/matdev83/llm-interactive-proxy" } # Example URL
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Intended Audience :: Developers",
@@ -58,6 +58,7 @@ dev = [
     "types-PyYAML",
     "respx",
     "dependency-injector",
+    "vulture",
 ]
 
 [build-system]
@@ -66,7 +67,8 @@ build-backend = "setuptools.build_meta"
 
 [tool.pytest.ini_options]
 pythonpath = "."
-addopts = "-v --asyncio-mode=auto -m 'not integration' -k 'not cline' --ignore-glob='**/*anthropic*.py' --ignore-glob='**/*Anthropic*.py'"
+addopts = "-v --asyncio-mode=auto -m 'not integration' -k 'not cline and not integration' --ignore-glob='**/*anthropic*.py' --ignore-glob='**/*Anthropic*.py'"
+# To run integration tests, use: pytest -m integration
 markers = [
     "integration: marks tests as integration tests (deselect with '-m \"not integration\"')",
     "unit: marks tests as unit tests",

@@ -16,9 +16,9 @@ from src.core.commands.handlers.base_handler import (
 )
 from src.core.domain.command_context import CommandContext
 from src.core.domain.configuration.session_state_builder import SessionStateBuilder
+from src.core.domain.model_utils import parse_model_backend
 from src.core.domain.session import SessionStateAdapter
-from src.core.interfaces.domain_entities import ISessionState
-from src.models import parse_model_backend
+from src.core.interfaces.domain_entities_interface import ISessionState
 
 logger = logging.getLogger(__name__)
 
@@ -114,9 +114,11 @@ class OneOffCommandHandler(BaseCommandHandler):
 
         # Create new state with oneoff route
         builder = SessionStateBuilder(current_state)
-        new_state = SessionStateAdapter(builder.with_backend_config(
-            current_state.backend_config.with_oneoff_route(backend, model)
-        ).build())
+        new_state = SessionStateAdapter(
+            builder.with_backend_config(
+                current_state.backend_config.with_oneoff_route(backend, model)
+            ).build()
+        )
 
         return CommandHandlerResult(
             success=True,

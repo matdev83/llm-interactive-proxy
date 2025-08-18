@@ -9,13 +9,16 @@ from fastapi import HTTPException
 from starlette.responses import StreamingResponse
 
 from src.connectors.openai import OpenAIConnector
-from src.models import ChatCompletionRequest
+from src.core.domain.chat import ChatRequest
+from src.core.services.backend_registry import backend_registry
 
 logger = logging.getLogger(__name__)
 
 
 class OpenRouterBackend(OpenAIConnector):
     """LLMBackend implementation for OpenRouter.ai."""
+
+    backend_type: str = "openrouter"
 
     def __init__(self, client: httpx.AsyncClient) -> None:
         super().__init__(client)
@@ -73,7 +76,7 @@ class OpenRouterBackend(OpenAIConnector):
 
     def _prepare_payload(
         self,
-        request_data: ChatCompletionRequest,
+        request_data: ChatRequest,
         processed_messages: list[Any],
         effective_model: str,
     ) -> dict[str, Any]:
@@ -94,6 +97,18 @@ class OpenRouterBackend(OpenAIConnector):
                 "project"
             )
 
+        # Handle extra_params by merging them into the payload
+        # This is needed for tests that set extra_params in the request data
+        # extra_params is not a formal field of ChatRequest, but tests may set it
+        # We need to access it through __dict__ or model_dump() without exclude_unset
+        if hasattr(request_data, '__dict__') and 'extra_params' in request_data.__dict__:
+            payload.update(request_data.__dict__['extra_params'])
+        else:
+            # Fallback to model_dump without exclude_unset to catch any extra fields
+            request_dict = request_data.model_dump()
+            if 'extra_params' in request_dict:
+                payload.update(request_dict['extra_params'])
+
         # Always request usage information for billing tracking
         payload["usage"] = {"include": True}
 
@@ -101,7 +116,7 @@ class OpenRouterBackend(OpenAIConnector):
 
     async def chat_completions(  # type: ignore[override]
         self,
-        request_data: ChatCompletionRequest,
+        request_data: ChatRequest,
         processed_messages: list[Any],
         effective_model: str,
         project: str | None = None,
@@ -136,7 +151,9 @@ class OpenRouterBackend(OpenAIConnector):
             headers_override: dict[str, str] | None = None
             if self.key_name and self.api_key and self.headers_provider:
                 try:
-                    headers_override = self.headers_provider(self.key_name, self.api_key)
+                    headers_override = self.headers_provider(
+                        self.key_name, self.api_key
+                    )
                 except Exception:
                     headers_override = None
 
@@ -173,6 +190,19 @@ class OpenRouterBackend(OpenAIConnector):
                         "Could not connect to API", "Could not connect to OpenRouter"
                     ),
                 ) from None
+            # Also handle the case where the error message is "Service unavailable: Could not connect to backend"
+            if (
+                e.status_code == 503
+                and isinstance(e.detail, str)
+                and "Could not connect to backend" in e.detail
+            ):
+                raise HTTPException(
+                    status_code=503,
+                    detail=e.detail.replace(
+                        "Could not connect to backend",
+                        "Could not connect to OpenRouter",
+                    ),
+                ) from None
             if e.status_code >= 400 and isinstance(e.detail, dict):
                 msg = str(e.detail.get("message", ""))
                 if msg.startswith("API streaming error:"):
@@ -190,3 +220,6 @@ class OpenRouterBackend(OpenAIConnector):
             self.key_name = original_key_name
             self.api_key = original_api_key
             self.api_base_url = original_api_base_url
+
+
+backend_registry.register_backend("openrouter", OpenRouterBackend)

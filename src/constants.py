@@ -3,17 +3,6 @@ from enum import Enum
 DEFAULT_COMMAND_PREFIX = "!/"
 
 
-class BackendType(str, Enum):
-    """Enum for supported backend types."""
-
-    OPENAI = "openai"
-    OPENROUTER = "openrouter"
-    GEMINI = "gemini"
-    ANTHROPIC = "anthropic"
-    QWEN_OAUTH = "qwen-oauth"
-    ZAI = "zai"
-
-
 class AgentType(str, Enum):
     """Enum for supported agent types."""
 
@@ -38,18 +27,3 @@ class ConfigKey(str, Enum):
     OPENROUTER_API_BASE_URL = "openrouter_api_base_url"
     GEMINI_API_BASE_URL = "gemini_api_base_url"
     GOOGLE_CLOUD_PROJECT = "google_cloud_project"
-
-
-# Helper constants
-SUPPORTED_BACKENDS: set[str] = {
-    BackendType.OPENAI,
-    BackendType.OPENROUTER,
-    BackendType.GEMINI,
-    BackendType.ANTHROPIC,
-    BackendType.QWEN_OAUTH,
-    BackendType.ZAI,
-}
-
-GEMINI_BACKENDS: set[str] = {
-    BackendType.GEMINI,
-}

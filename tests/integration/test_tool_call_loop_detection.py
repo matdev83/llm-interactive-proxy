@@ -9,7 +9,7 @@ from src.tool_call_loop.config import ToolCallLoopConfig, ToolLoopMode
 
 
 @pytest.fixture
-def test_client():
+async def test_client():
     """Create a test client with tool call loop detection enabled."""
     import os
 
@@ -21,10 +21,31 @@ def test_client():
     os.environ["OPENROUTER_API_KEY"] = "test-key"
 
     # Build app with tool call loop detection enabled
+    from src.core.app.application_factory import ApplicationBuilder
     from src.core.config.app_config import load_config
 
     config = load_config()
     test_app = build_app(config=config)
+
+    # Manually initialize services since TestClient doesn't run startup events
+    builder = ApplicationBuilder()
+    service_provider = await builder._initialize_services(test_app, config)
+    test_app.state.service_provider = service_provider
+
+    # Register commonly expected state attributes via the new architecture
+    test_app.state.app_config = config
+    test_app.state.backend_type = config.backends.default_backend
+    test_app.state.command_prefix = config.command_prefix
+    test_app.state.force_set_project = config.session.force_set_project
+    test_app.state.api_key_redaction_enabled = config.auth.redact_api_keys_in_prompts
+    test_app.state.default_api_key_redaction_enabled = (
+        config.auth.redact_api_keys_in_prompts
+    )
+    test_app.state.failover_routes = {}
+    test_app.state.model_defaults = {}
+
+    # Initialize backends (needed for some tests)
+    await builder._initialize_backends(test_app, config)
 
     # Set up API key for tests
     test_app.state.config = {
@@ -124,7 +145,7 @@ def mock_backend(test_client: TestClient):
     mock_backend.get_available_models.return_value = ["gpt-4"]
 
     # Replace the backend service's get_backend method to return our mock
-    from src.core.interfaces.backend_service import IBackendService
+    from src.core.interfaces.backend_service_interface import IBackendService
 
     backend_service = test_client.app.state.service_provider.get_required_service(
         IBackendService
@@ -139,8 +160,8 @@ def mock_backend(test_client: TestClient):
 
     backend_service._get_or_create_backend = mock_get_backend
 
-    # Also set it directly on app.state for tests that might access it there
-    test_client.app.state.openrouter_backend = mock_backend
+    # Also register into BackendService cache so DI-based lookup returns it
+    backend_service._backends["openrouter"] = mock_backend
 
     # Set up the chat_completions mock
     chat_completions_mock = AsyncMock()

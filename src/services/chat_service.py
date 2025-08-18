@@ -10,12 +10,9 @@ import logging
 import time
 from typing import Any
 
-from fastapi import Request
+from fastapi import FastAPI, Request
 
 from src.core.di.services import get_service_provider
-from src.core.interfaces.backend_service import IBackendService
-from src.core.interfaces.command_service import ICommandService
-from src.core.interfaces.session_service import ISessionService
 
 logger = logging.getLogger(__name__)
 
@@ -23,7 +20,7 @@ logger = logging.getLogger(__name__)
 class ChatService:
     """Service layer for handling chat completion requests."""
 
-    def __init__(self, app=None):
+    def __init__(self, app: FastAPI | None = None):
         """
         Initialize the chat service.
 
@@ -51,13 +48,13 @@ class ChatService:
             raise ValueError("Service provider not available")
 
         # Get services
-        from src.core.services.session_service import SessionService
-        from src.core.services.command_service import CommandService
         from src.core.services.backend_service import BackendService
-        
-        session_service = provider.get_service(ISessionService)
-        command_service = provider.get_service(ICommandService)
-        backend_service = provider.get_service(IBackendService)
+        from src.core.services.command_service import CommandService
+        from src.core.services.session_service import SessionService
+
+        session_service = provider.get_service(SessionService)
+        command_service = provider.get_service(CommandService)
+        backend_service = provider.get_service(BackendService)
 
         if not session_service:
             raise ValueError("Session service not available")
@@ -65,16 +62,11 @@ class ChatService:
             raise ValueError("Command service not available")
         if not backend_service:
             raise ValueError("Backend service not available")
-            
+
         # Type assertions to help mypy understand these are concrete classes
         assert isinstance(session_service, SessionService)
         assert isinstance(command_service, CommandService)
         assert isinstance(backend_service, BackendService)
-        
-        # Assign to typed variables
-        typed_session_service: SessionService = session_service
-        typed_command_service: CommandService = command_service
-        typed_backend_service: BackendService = backend_service
 
         # Get session ID
         session_id = http_request.headers.get("x-session-id", "default")
@@ -91,29 +83,27 @@ class ChatService:
 
         # If a command was executed, return the command result
         if processed_result.command_executed:
-            from src.models import ChatCompletionResponse, ChatCompletionChoice, ChatCompletionChoiceMessage
-
-            # Create a chat completion response with the command result
-            return ChatCompletionResponse(
-                id=f"cmd-{int(time.time())}",
-                object="chat.completion",
-                created=int(time.time()),
-                model=request_data.model,
-                choices=[
-                    ChatCompletionChoice(
-                        index=0,
-                        message=ChatCompletionChoiceMessage(
-                            role="assistant",
-                            content="\n".join(
+            # Return a domain ChatResponse-like dict for command-only results
+            return {
+                "id": f"cmd-{int(time.time())}",
+                "object": "chat.completion",
+                "created": int(time.time()),
+                "model": request_data.model,
+                "choices": [
+                    {
+                        "index": 0,
+                        "message": {
+                            "role": "assistant",
+                            "content": "\n".join(
                                 result.message
                                 for result in processed_result.command_results
                                 if result.message
                             ),
-                        ),
-                        finish_reason="stop",
-                    )
+                        },
+                        "finish_reason": "stop",
+                    }
                 ],
-            )
+            }
 
         # Call the backend service
         from src.core.domain.chat import ChatMessage, ChatRequest

@@ -2,7 +2,7 @@ import logging
 import re
 from typing import Any
 
-from src import models
+from src.core.domain.chat import MessageContentPartText
 
 logger = logging.getLogger(__name__)
 
@@ -22,7 +22,7 @@ def is_content_effectively_empty(content: Any) -> bool:
         # If the list has any non-text part (e.g., image), it's not empty.
         # If all parts are text parts, then it's empty if all those text parts are empty.
         for part in content:
-            if not isinstance(part, models.MessageContentPartText):
+            if not isinstance(part, MessageContentPartText):
                 return False  # Contains a non-text part (like an image), so not empty
             if part.text.strip():
                 return False  # Contains a non-empty text part
@@ -91,7 +91,7 @@ def get_text_for_command_check(content: Any) -> str:
         text_to_check = content
     elif isinstance(content, list):
         for part in content:
-            if isinstance(part, models.MessageContentPartText):
+            if isinstance(part, MessageContentPartText):
                 text_to_check += part.text + " "  # Add space to simulate separate words
 
     # CRITICAL FIX: Handle tool call results with embedded feedback

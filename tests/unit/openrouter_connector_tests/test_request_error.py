@@ -3,12 +3,12 @@
 import httpx
 import pytest
 import pytest_asyncio
-
-# from starlette.responses import StreamingResponse # F401: Removed
-import src.models as models
 from fastapi import HTTPException  # Used
 from pytest_httpx import HTTPXMock
 from src.connectors.openrouter import OpenRouterBackend
+
+# from starlette.responses import StreamingResponse # F401: Removed
+from src.core.domain.chat import ChatMessage, ChatRequest
 
 # Default OpenRouter settings for tests
 TEST_OPENROUTER_API_BASE_URL = (
@@ -16,7 +16,7 @@ TEST_OPENROUTER_API_BASE_URL = (
 )
 
 
-def mock_get_openrouter_headers(key_name: str, api_key: str) -> dict[str, str]:
+def mock_get_openrouter_headers(_: str, api_key: str) -> dict[str, str]:
     # Create a mock config dictionary for testing
     mock_config = {
         "app_site_url": "http://localhost:test",
@@ -44,17 +44,16 @@ async def openrouter_backend_fixture():
 
 
 @pytest.fixture
-def sample_chat_request_data() -> models.ChatCompletionRequest:
+def sample_chat_request_data() -> ChatRequest:
     """Return a minimal chat request without optional fields set."""
-    return models.ChatCompletionRequest(
-        model="test-model",
-        messages=[models.ChatMessage(role="user", content="Hello")],
+    return ChatRequest(
+        model="test-model", messages=[ChatMessage(role="user", content="Hello")]
     )
 
 
 @pytest.fixture
-def sample_processed_messages() -> list[models.ChatMessage]:
-    return [models.ChatMessage(role="user", content="Hello")]
+def sample_processed_messages() -> list[ChatMessage]:
+    return [ChatMessage(role="user", content="Hello")]
 
 
 @pytest.mark.asyncio
@@ -62,8 +61,8 @@ def sample_processed_messages() -> list[models.ChatMessage]:
 async def test_chat_completions_request_error(
     openrouter_backend: OpenRouterBackend,
     httpx_mock: HTTPXMock,
-    sample_chat_request_data: models.ChatCompletionRequest,
-    sample_processed_messages: list[models.ChatMessage],
+    sample_chat_request_data: ChatRequest,
+    sample_processed_messages: list[ChatMessage],
 ):
     httpx_mock.add_exception(httpx.ConnectError("Connection failed"))
 

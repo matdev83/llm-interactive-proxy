@@ -1,0 +1,16 @@
+"""Shim for `backend_service` exposing same API under `_service` name."""
+
+from __future__ import annotations
+
+import warnings
+
+from .backend_service import BackendService
+
+warnings.warn(
+    "Importing from 'src.core.services.backend_service_service' is deprecated; use 'src.core.services.backend_service' instead",
+    DeprecationWarning,
+)
+
+__all__ = ["BackendService"]
+
+

@@ -9,22 +9,33 @@ import pytest
 from fastapi.testclient import TestClient
 from src.core.app.application_factory import build_app
 from src.core.config.app_config import AppConfig
-from src.core.interfaces.backend_service import IBackendService
+from src.core.interfaces.backend_service_interface import IBackendService
 
 
 @pytest.fixture
-def app():
+async def app():
     """Create a test app with oneoff commands enabled."""
     # Create app with test config
     config = AppConfig()
     config.auth.disable_auth = True
     app = build_app(config)
 
+    # Manually trigger startup to initialize service provider
+    from src.core.app.application_factory import ApplicationBuilder
+
+    builder = ApplicationBuilder()
+    service_provider = await builder._initialize_services(app, config)
+    app.state.service_provider = service_provider
+
+    # Initialize minimal state attributes that tests expect
+    app.state.app_config = config
+    app.state.functional_backends = set()
+
     yield app
 
 
 # Mock the get_integration_bridge function to return the bridge from app.state
-def mock_get_integration_bridge(app_param=None):
+def mock_get_integration_bridge(_=None):
     return app.state.integration_bridge
 
 
@@ -32,7 +43,7 @@ async def mock_dispatch(self, request, call_next):
     return await call_next(request)
 
 
-def test_oneoff_command_integration(app):
+async def test_oneoff_command_integration(app):
     """Test that the OneOff command works correctly in the integration environment."""
     # Get the backend service from the service provider
     backend_service = app.state.service_provider.get_required_service(IBackendService)

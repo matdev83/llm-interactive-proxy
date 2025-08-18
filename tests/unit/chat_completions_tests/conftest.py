@@ -43,11 +43,12 @@ def mock_gemini_backend(interactive_client: TestClient) -> None:
         def get_available_models(self):
             return ["gemini:gemini-2.0-flash-001", "gemini:gemini-pro"]
 
-    if (
-        not hasattr(interactive_client.app.state, "gemini_backend")
-        or getattr(interactive_client.app.state, "gemini_backend", None) is None
-    ):
-        interactive_client.app.state.gemini_backend = _MockGemini()
+    from src.core.interfaces.backend_service_interface import IBackendService
+
+    svc = interactive_client.app.state.service_provider.get_required_service(
+        IBackendService
+    )
+    svc._backends["gemini"] = _MockGemini()
     return None
 
 
@@ -78,4 +79,11 @@ class _MockOpenRouter:
 @pytest.fixture
 def mock_openrouter_backend(interactive_client: TestClient) -> _MockOpenRouter:
     """Provide a minimal mock OpenRouter backend for tests."""
-    return _MockOpenRouter()
+    backend = _MockOpenRouter()
+    from src.core.interfaces.backend_service_interface import IBackendService
+
+    svc = interactive_client.app.state.service_provider.get_required_service(
+        IBackendService
+    )
+    svc._backends["openrouter"] = backend
+    return backend

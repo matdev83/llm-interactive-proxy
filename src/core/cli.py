@@ -6,6 +6,9 @@ import sys
 import colorama
 import uvicorn
 
+# Import backend connectors to ensure they register themselves
+from src.core.services import backend_imports  # noqa: F401
+
 from src.command_prefix import validate_command_prefix
 from src.core.config.app_config import AppConfig, LogLevel, load_config
 
@@ -43,19 +46,27 @@ def _daemonize() -> None:
         pass
 
 
+from src.core.services.backend_registry_service import backend_registry # Added this import
+
+# ... (rest of the file)
+
 def parse_cli_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Run the LLM proxy server")
+    
+    # Dynamically get registered backends
+    registered_backends = backend_registry.get_registered_backends()
+
     parser.add_argument(
         "--default-backend",
         dest="default_backend",
-        choices=["openrouter", "gemini", "anthropic", "qwen-oauth", "zai"],
+        choices=registered_backends, # Dynamically populated
         default=os.getenv("LLM_BACKEND"),
         help="Default backend when multiple backends are functional",
     )
     parser.add_argument(
         "--backend",
         dest="default_backend",
-        choices=["openrouter", "gemini", "anthropic", "qwen-oauth", "zai"],
+        choices=registered_backends, # Dynamically populated
         help=argparse.SUPPRESS,
     )
     parser.add_argument("--openrouter-api-key")
@@ -68,10 +79,7 @@ def parse_cli_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--timeout", type=int)
     parser.add_argument("--command-prefix")
     parser.add_argument(
-        "--log",
-        dest="log_file",
-        metavar="FILE",
-        help="Write logs to FILE",
+        "--log", dest="log_file", metavar="FILE", help="Write logs to FILE"
     )
     parser.add_argument(
         "--config",
@@ -138,7 +146,7 @@ def parse_cli_args(argv: list[str] | None = None) -> argparse.Namespace:
 
 
 def apply_cli_args(args: argparse.Namespace) -> AppConfig:
-    cfg = load_config()
+    cfg: AppConfig = cast(AppConfig, load_config())
 
     if args.host is not None:
         cfg.host = args.host
@@ -160,16 +168,16 @@ def apply_cli_args(args: argparse.Namespace) -> AppConfig:
         cfg.backends.default_backend = args.default_backend
         os.environ["LLM_BACKEND"] = args.default_backend
     if args.openrouter_api_key is not None:
-        cfg.backends.openrouter.api_key = args.openrouter_api_key
+        cfg.backends["openrouter"].api_key = args.openrouter_api_key
     if args.openrouter_api_base_url is not None:
-        cfg.backends.openrouter.api_url = args.openrouter_api_base_url
+        cfg.backends["openrouter"].api_url = args.openrouter_api_base_url
     if args.gemini_api_key is not None:
-        cfg.backends.gemini.api_key = args.gemini_api_key
+        cfg.backends["gemini"].api_key = args.gemini_api_key
         os.environ["GEMINI_API_KEY"] = args.gemini_api_key
     if args.gemini_api_base_url is not None:
-        cfg.backends.gemini.api_url = args.gemini_api_base_url
+        cfg.backends["gemini"].api_url = args.gemini_api_base_url
     if args.zai_api_key is not None:
-        cfg.backends.zai.api_key = args.zai_api_key
+        cfg.backends["zai"].api_key = args.zai_api_key
 
     # Inverted boolean logic flags
     if args.disable_interactive_mode is not None:
@@ -227,10 +235,24 @@ def _apply_security_flags(cfg: AppConfig) -> None:
     cfg.host = "127.0.0.1"
 
 
+import argparse
+from collections.abc import Callable  # Added cast to this import
+from typing import cast
+
+from fastapi import FastAPI  # Added this import
+
+from src.core.app.application_factory import build_app  # Moved this import to the top
+from src.core.config.app_config import AppConfig
+
+# ... (rest of the file)
+
+
+from collections.abc import Callable
+
+
 def main(
     argv: list[str] | None = None,
-    *,
-    build_app_fn=None,
+    build_app_fn: Callable[[AppConfig, str | None], FastAPI] | None = None,
 ) -> None:
     if os.name == "nt":
         colorama.init()
@@ -249,23 +271,11 @@ def main(
 
     # Allow tests to inject a custom build_app function (mock) by passing
     # `build_app_fn`. The test mocks expect to be called with cfg and
-    # config_file keyword.
-    config_file = getattr(args, "config_file", None)
+    # the config_file keyword argument.
     if build_app_fn is not None:
-        app = build_app_fn(cfg, config_file=config_file)
+        app = build_app_fn(cfg, args.config_file)
     else:
-        from src.core.app.application_factory import build_app
-
-        # Backwards-compatible call: if the caller provided a cfg-based
-        # build step, prefer that interface; otherwise call the normal
-        # build_app which will derive config from environment/files.
-        try:
-            # Try calling with cfg first
-            app = build_app(cfg)
-        except TypeError:
-            # Older build_app implementations may not accept cfg; fall
-            # back to calling with no arguments.
-            app = build_app()
+        app = build_app(cfg)
 
     uvicorn.run(app, host=cfg.host, port=cfg.port)
 
@@ -282,9 +292,7 @@ def _maybe_run_as_daemon(args: argparse.Namespace, cfg: AppConfig) -> bool:
         args_list = [arg for arg in sys.argv[1:] if not arg.startswith("--daemon")]
         command = [sys.executable, "-m", "src.core.cli", *args_list]
         subprocess.Popen(
-            command,
-            creationflags=subprocess.DETACHED_PROCESS,
-            close_fds=True,
+            command, creationflags=subprocess.DETACHED_PROCESS, close_fds=True
         )
         time.sleep(2)
         sys.exit(0)

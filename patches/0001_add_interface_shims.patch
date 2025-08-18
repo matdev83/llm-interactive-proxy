@@ -1,0 +1,538 @@
+"""Temporary backup index file for interface refactor."""
+
+from __future__ import annotations
+
+import abc
+from collections.abc import AsyncGenerator
+from contextlib import asynccontextmanager
+from typing import Any
+
+from src.core.domain.usage_data import UsageData
+
+
+class IUsageTrackingService(abc.ABC):
+    """Interface for tracking LLM usage across the application."""
+
+    @abc.abstractmethod
+    async def track_usage(
+        self,
+        model: str,
+        prompt_tokens: int | None = None,
+        completion_tokens: int | None = None,
+        total_tokens: int | None = None,
+        cost: float = 0.0,
+        execution_time: float = 0.0,
+        backend: str | None = None,
+        username: str | None = None,
+        project: str | None = None,
+        session_id: str | None = None,
+        reasoning_tokens: int = 0,
+        cached_tokens: int = 0,
+    ) -> UsageData:
+        """Track usage metrics for an LLM request.
+
+        Args:
+            model: The model name
+            prompt_tokens: Number of prompt tokens
+            completion_tokens: Number of completion tokens
+            total_tokens: Total number of tokens
+            cost: Estimated cost
+            execution_time: Execution time in seconds
+            backend: Backend provider name
+            username: Username
+            project: Project name
+            session_id: Session ID
+            reasoning_tokens: Number of reasoning tokens
+            cached_tokens: Number of cached tokens
+
+        Returns:
+            The created usage data entity
+        """
+
+    @abc.abstractmethod
+    @asynccontextmanager
+    async def track_request(
+        self,
+        model: str,
+        backend: str,
+        messages: list[dict[str, Any]],
+        username: str | None = None,
+        project: str | None = None,
+        session_id: str | None = None,
+        **kwargs: Any,
+    ) -> AsyncGenerator[Any, None]:
+        """Context manager to track both usage metrics and audit logs for LLM requests.
+
+        Args:
+            model: The model name
+            backend: Backend provider name
+            messages: The request messages
+            username: Username
+            project: Project name
+            session_id: Session ID
+            **kwargs: Additional arguments
+
+        Yields:
+            A request tracker object
+        """
+        yield
+
+    @abc.abstractmethod
+    async def get_usage_stats(
+        self, project: str | None = None, days: int = 30
+    ) -> dict[str, Any]:
+        """Get usage statistics.
+
+        Args:
+            project: Optional project filter
+            days: Number of days to include in stats
+
+        Returns:
+            Usage statistics dictionary
+        """
+
+    @abc.abstractmethod
+    async def get_recent_usage(
+        self, session_id: str | None = None, limit: int = 100
+    ) -> list[UsageData]:
+        """Get recent usage data.
+
+        Args:
+            session_id: Optional session ID filter
+            limit: Maximum number of records to return
+
+        Returns:
+            List of usage data entities
+        """
+
+
+from __future__ import annotations
+
+from abc import ABC, abstractmethod
+
+from src.core.domain.session import Session
+
+
+class ISessionService(ABC):
+    """Interface for session management operations.
+
+    This interface defines the contract for components that manage user sessions,
+    including creation, retrieval, and updates.
+    """
+
+    @abstractmethod
+    async def get_session(self, session_id: str) -> Session:
+        """Get or create a session for the given session ID.
+
+        Args:
+            session_id: The unique identifier for the session
+
+        Returns:
+            The session object
+        """
+
+    @abstractmethod
+    async def create_session(self, session_id: str) -> Session:
+        """Create a new session for the given session ID.
+
+        Args:
+            session_id: The unique identifier for the session
+
+        Returns:
+            The newly created session object
+        """
+
+    @abstractmethod
+    async def get_or_create_session(self, session_id: str | None = None) -> Session:
+        """Get or create a session for the given session ID.
+
+        Args:
+            session_id: The unique identifier for the session
+
+        Returns:
+            The session object
+        """
+
+    @abstractmethod
+    async def update_session(self, session: Session) -> None:
+        """Update a session with new data.
+
+        Args:
+            session: The session to update
+        """
+
+    @abstractmethod
+    async def delete_session(self, session_id: str) -> bool:
+        """Delete a session.
+
+        Args:
+            session_id: The unique identifier for the session to delete
+
+        Returns:
+            True if the session was deleted, False if it didn't exist
+        """
+
+    @abstractmethod
+    async def get_all_sessions(self) -> list[Session]:
+        """Get all active sessions.
+
+        Returns:
+            A list of all active sessions
+        """
+
+
+from __future__ import annotations
+
+from abc import ABC, abstractmethod
+from collections.abc import AsyncIterator
+from typing import Any
+
+
+class ProcessedResponse:
+    """Result of response processing."""
+
+    def __init__(
+        self,
+        content: str = "",
+        usage: dict[str, Any] | None = None,
+        metadata: dict[str, Any] | None = None,
+    ):
+        """Initialize a processed response.
+
+        Args:
+            content: The response content
+            usage: Usage information
+            metadata: Additional metadata
+        """
+        self.content = content
+        self.usage = usage
+        self.metadata = metadata or {}
+
+    content: str
+    usage: dict[str, Any] | None = None
+    metadata: dict[str, Any] = {}
+
+
+class IResponseProcessor(ABC):
+    """Interface for response processing operations.
+
+    This interface defines the contract for components that process
+    LLM responses before returning them to clients.
+    """
+
+    @abstractmethod
+    async def process_response(
+        self, response: Any, session_id: str
+    ) -> ProcessedResponse:
+        """Process a complete LLM response.
+
+        Args:
+            response: The raw LLM response
+            session_id: The session ID associated with this request
+
+        Returns:
+            A processed response object
+        """
+
+    @abstractmethod
+    def process_streaming_response(
+        self, response_iterator: AsyncIterator[Any], session_id: str
+    ) -> AsyncIterator[ProcessedResponse]:
+        """Process a streaming LLM response.
+
+        Args:
+            response_iterator: An async iterator of response chunks
+            session_id: The session ID associated with this request
+
+        Returns:
+            An async iterator of processed response chunks
+        """
+
+    @abstractmethod
+    async def register_middleware(
+        self, middleware: "IResponseMiddleware", priority: int = 0
+    ) -> None:
+        """Register a middleware component to process responses.
+
+        Args:
+            middleware: The middleware component to register
+            priority: The priority of the middleware (higher numbers run first)
+        """
+
+
+class IResponseMiddleware(ABC):
+    """Interface for response middleware components.
+
+    Response middleware components can modify or enhance responses
+    before they are returned to the client.
+    """
+
+    @abstractmethod
+    async def process(
+        self, response: Any, session_id: str, context: dict[str, Any]
+    ) -> Any:
+        """Process a response or response chunk.
+
+        Args:
+            response: The response or chunk to process
+            session_id: The session ID associated with this request
+            context: Additional context for processing
+
+        Returns:
+            The processed response or chunk
+        """
+
+
+from __future__ import annotations
+
+from abc import ABC, abstractmethod
+
+
+class RateLimitInfo:
+    """Information about rate limit status."""
+
+    is_limited: bool
+    remaining: int
+    reset_at: float | None = None
+    limit: int
+    time_window: int  # in seconds
+
+    def __init__(
+        self,
+        is_limited: bool = False,
+        remaining: int = 0,
+        reset_at: float | None = None,
+        limit: int = 0,
+        time_window: int = 0,
+    ) -> None:
+        self.is_limited = is_limited
+        self.remaining = remaining
+        self.reset_at = reset_at
+        self.limit = limit
+        self.time_window = time_window
+
+
+class IRateLimiter(ABC):
+    """Interface for rate limiting operations.
+
+    This interface defines the contract for components that implement
+    rate limiting for API calls.
+    """
+
+    @abstractmethod
+    async def check_limit(self, key: str) -> RateLimitInfo:
+        """Check if the given key is rate limited.
+
+        Args:
+            key: The key to check (typically user ID or API key)
+
+        Returns:
+            RateLimitInfo with rate limit status
+        """
+
+    @abstractmethod
+    async def record_usage(self, key: str, cost: int = 1) -> None:
+        """Record usage for the given key.
+
+        Args:
+            key: The key to record usage for
+            cost: The cost of the operation (default: 1)
+        """
+
+    @abstractmethod
+    async def reset(self, key: str) -> None:
+        """Reset rate limit counters for the given key.
+
+        Args:
+            key: The key to reset
+        """
+
+    @abstractmethod
+    async def set_limit(self, key: str, limit: int, time_window: int) -> None:
+        """Set a custom rate limit for the given key.
+
+        Args:
+            key: The key to set limits for
+            limit: The maximum number of operations
+            time_window: The time window in seconds
+        """
+
+
+from __future__ import annotations
+
+from abc import ABC, abstractmethod
+from typing import Any
+
+
+class LoopDetectionResult:
+    """Result of a loop detection check."""
+
+    def __init__(
+        self,
+        has_loop: bool,
+        pattern: str | None = None,
+        repetitions: int = 0,
+        details: dict[str, Any] | None = None,
+        modified_content: str | None = None,
+    ):
+        self.has_loop = has_loop
+        self.pattern = pattern
+        self.repetitions = repetitions
+        self.details = details or {}
+        self.modified_content = modified_content
+
+
+class ILoopDetector(ABC):
+    """Interface for loop detection operations.
+
+    This interface defines the contract for components that detect
+    repetitive patterns in LLM responses, particularly in tool calls.
+    """
+
+    @abstractmethod
+    async def check_for_loops(self, content: str) -> LoopDetectionResult:
+        """Check if the given content contains repetitive patterns.
+
+        Args:
+            content: The content to check for loops
+
+        Returns:
+            LoopDetectionResult with loop detection information
+        """
+
+    async def register_tool_call(
+        self, tool_name: str, arguments: dict[str, Any]
+    ) -> None:
+        """Register a tool call for future loop detection.
+
+        Default is a no-op to simplify tests.
+        """
+        return None
+
+    async def clear_history(self) -> None:
+        """Clear all recorded history.
+
+        Default is a no-op to simplify tests.
+        """
+        return None
+
+    @abstractmethod
+    async def configure(
+        self,
+        min_pattern_length: int = 100,
+        max_pattern_length: int = 8000,
+        min_repetitions: int = 2,
+    ) -> None:
+        """Configure the loop detector parameters.
+
+        Args:
+            min_pattern_length: Minimum length of pattern to detect
+            max_pattern_length: Maximum length of pattern to detect
+            min_repetitions: Minimum number of repetitions to consider a loop
+        """
+
+
+from abc import ABC, abstractmethod
+from typing import Any
+
+from src.core.domain.processed_result import ProcessedResult
+
+
+class ICommandService(ABC):
+    """Interface for command processing operations.
+
+    This interface defines the contract for components that handle command
+    parsing and execution within user messages.
+    """
+
+    @abstractmethod
+    async def process_commands(
+        self, messages: list[Any], session_id: str
+    ) -> ProcessedResult:
+        """Process any commands in the messages list.
+
+        Examines the messages for command patterns, executes any commands found,
+        and returns the potentially modified message list along with results.
+
+        Args:
+            messages: List of message objects to process
+            session_id: The session ID associated with this request
+
+        Returns:
+            A ProcessedResult object containing the processed messages and command results
+        """
+
+    @abstractmethod
+    async def register_command(self, command_name: str, command_handler: Any) -> None:
+        """Register a new command handler.
+
+        Args:
+            command_name: The name of the command to register
+            command_handler: The handler object or function for the command
+        """
+
+
+from __future__ import annotations
+
+from abc import ABC, abstractmethod
+from collections.abc import AsyncIterator
+from typing import Any
+
+from src.core.domain.chat import ChatRequest, ChatResponse, StreamingChatResponse
+
+
+class BackendError(Exception):
+    """Exception raised when a backend operation fails."""
+
+
+# Legacy alias for backward compatibility
+BackendException = BackendError
+
+
+class IBackendService(ABC):
+    """Interface for LLM backend service operations.
+
+    This interface defines the contract for components that interact with
+    LLM backend services like OpenAI, Anthropic, etc.
+    """
+
+    @abstractmethod
+    async def call_completion(
+        self, request: ChatRequest, stream: bool = False
+    ) -> ChatResponse | AsyncIterator[StreamingChatResponse]:
+        """Call the LLM backend for a completion.
+
+        Args:
+            request: The chat completion request
+            stream: Whether to stream the response
+
+        Returns:
+            Either a complete response or an async iterator of response chunks
+
+        Raises:
+            BackendException: If the backend call fails
+        """
+
+    @abstractmethod
+    async def validate_backend_and_model(
+        self, backend: str, model: str
+    ) -> tuple[bool, str | None]:
+        """Validate that a backend and model combination is valid.
+
+        Args:
+            backend: The backend identifier
+            model: The model identifier
+
+        Returns:
+            A tuple of (is_valid, error_message)
+        """
+
+    @abstractmethod
+    async def chat_completions(
+        self,
+        request: ChatRequest,
+        **kwargs: Any,
+    ) -> ChatResponse | AsyncIterator[StreamingChatResponse]: ...
+
+
+

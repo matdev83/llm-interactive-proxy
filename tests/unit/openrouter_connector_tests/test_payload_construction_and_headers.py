@@ -4,12 +4,18 @@ import httpx
 import pytest
 import pytest_asyncio
 
-# from starlette.responses import StreamingResponse # F401: Removed
-import src.models as models
-
 # from fastapi import HTTPException # F401: Removed
 from pytest_httpx import HTTPXMock
 from src.connectors.openrouter import OpenRouterBackend
+
+# from starlette.responses import StreamingResponse # F401: Removed
+from src.core.domain.chat import (
+    ChatMessage,
+    ChatRequest,
+    ImageURL,
+    MessageContentPartImage,
+    MessageContentPartText,
+)
 
 # Default OpenRouter settings for tests
 TEST_OPENROUTER_API_BASE_URL = (
@@ -17,7 +23,7 @@ TEST_OPENROUTER_API_BASE_URL = (
 )
 
 
-def mock_get_openrouter_headers(key_name: str, api_key: str) -> dict[str, str]:
+def mock_get_openrouter_headers(_: str, api_key: str) -> dict[str, str]:
     # Create a mock config dictionary for testing
     mock_config = {
         "app_site_url": "http://localhost:test",
@@ -45,11 +51,11 @@ async def openrouter_backend_fixture():
 
 
 @pytest.fixture
-def sample_chat_request_data() -> models.ChatCompletionRequest:
+def sample_chat_request_data() -> ChatRequest:
     """Return a minimal chat request without optional fields set."""
-    return models.ChatCompletionRequest(
+    return ChatRequest(
         model="test-model",
-        messages=[models.ChatMessage(role="user", content="Hello")],
+        messages=[ChatMessage(role="user", content="Hello")],
         temperature=0.7,
         stream=False,
         max_tokens=100,
@@ -58,35 +64,33 @@ def sample_chat_request_data() -> models.ChatCompletionRequest:
 
 @pytest.fixture
 def sample_processed_messages() -> (
-    list[models.ChatMessage]
+    list[ChatMessage]
 ):  # This is unused in this specific file though
-    return [models.ChatMessage(role="user", content="Hello")]
+    return [ChatMessage(role="user", content="Hello")]
 
 
 @pytest_asyncio.fixture(name="api_request_and_data")
 async def fixture_api_request_and_data(
     openrouter_backend: OpenRouterBackend,
     httpx_mock: HTTPXMock,
-    sample_chat_request_data: models.ChatCompletionRequest,
+    sample_chat_request_data: ChatRequest,
 ):
     """
     Calls chat_completions and returns a dictionary containing the sent request,
     parsed payload, original request data, processed messages, and effective model.
     """
-    sample_chat_request_data.stream = False
-    sample_chat_request_data.max_tokens = 100
-    sample_chat_request_data.temperature = 0.7
+    
 
     processed_msgs = [
-        models.ChatMessage(role="user", content="Hello"),
-        models.ChatMessage(role="assistant", content="Hi there!"),
-        models.ChatMessage(
+        ChatMessage(role="user", content="Hello"),
+        ChatMessage(role="assistant", content="Hi there!"),
+        ChatMessage(
             role="user",
             content=[
-                models.MessageContentPartText(type="text", text="What is this?"),
-                models.MessageContentPartImage(
+                MessageContentPartText(type="text", text="What is this?"),
+                MessageContentPartImage(
                     type="image_url",
-                    image_url=models.ImageURL(url="data:...", detail=None),
+                    image_url=ImageURL(url="data:...", detail=None),
                 ),
             ],
         ),
@@ -205,10 +209,8 @@ async def test_openrouter_processed_messages_remain_pydantic(
     # The connector receives 'processed_messages' which are already Pydantic models.
     # It then dumps them to dicts for the payload, but original list should be of Pydantic objects.
     processed_msgs_fixture = api_request_and_data["processed_messages_fixture"]
-    assert isinstance(processed_msgs_fixture[0], models.ChatMessage)
+    assert isinstance(processed_msgs_fixture[0], ChatMessage)
+    assert isinstance(processed_msgs_fixture[2].content[0], MessageContentPartText)
     assert isinstance(
-        processed_msgs_fixture[2].content[0], models.MessageContentPartText
-    )
-    assert isinstance(
-        processed_msgs_fixture[2].content[1], models.MessageContentPartImage
+        processed_msgs_fixture[2].content[1], MessageContentPartImage
     )  # Specific type

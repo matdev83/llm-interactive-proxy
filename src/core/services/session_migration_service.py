@@ -10,7 +10,7 @@ from __future__ import annotations
 import logging
 
 from src.core.domain.session import Session
-from src.core.interfaces.session_service import ISessionService
+from src.core.interfaces.session_service_interface import ISessionService
 
 logger = logging.getLogger(__name__)
 

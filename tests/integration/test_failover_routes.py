@@ -9,7 +9,7 @@ import pytest
 from fastapi.testclient import TestClient
 from src.core.app.application_factory import build_app
 from src.core.di.container import ServiceCollection
-from src.core.interfaces.configuration import IConfig
+from src.core.interfaces.configuration_interface import IConfig
 from src.core.services.failover_service import FailoverService
 
 
@@ -31,7 +31,7 @@ def test_failover_route_commands(app, monkeypatch):
     # Mock the APIKeyMiddleware's dispatch method to always return the next response
 
     # Patch the get_integration_bridge function to return the bridge from app.state
-    def mock_get_integration_bridge(app_param=None):
+    def mock_get_integration_bridge(_=None):
         return app.state.integration_bridge
 
     async def mock_dispatch(self, request, call_next):
@@ -228,7 +228,7 @@ async def test_backend_service_failover(monkeypatch):
     # Create the backend service
 
     # Create a mock service provider
-    from src.core.interfaces.backend_service import IBackendService
+    from src.core.interfaces.backend_service_interface import IBackendService
 
     from tests.mocks.mock_backend_service import MockBackendService
 

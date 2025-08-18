@@ -3,7 +3,6 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from src.constants import SUPPORTED_BACKENDS
 from src.core.commands.handlers.base_handler import (
     BaseCommandHandler,
     CommandHandlerResult,
@@ -11,7 +10,7 @@ from src.core.commands.handlers.base_handler import (
 from src.core.domain.command_context import CommandContext
 from src.core.domain.configuration.session_state_builder import SessionStateBuilder
 from src.core.domain.session import SessionStateAdapter
-from src.core.interfaces.domain_entities import ISessionState
+from src.core.interfaces.domain_entities_interface import ISessionState
 
 logger = logging.getLogger(__name__)
 
@@ -77,9 +76,11 @@ class CreateFailoverRouteHandler(BaseCommandHandler):
 
         # Create new state with failover route
         builder = SessionStateBuilder(current_state)
-        new_state = SessionStateAdapter(builder.with_backend_config(
-            current_state.backend_config.with_failover_route(name, policy)
-        ).build())
+        new_state = SessionStateAdapter(
+            builder.with_backend_config(
+                current_state.backend_config.with_failover_route(name, policy)
+            ).build()
+        )
 
         return CommandHandlerResult(
             success=True,
@@ -152,9 +153,11 @@ class DeleteFailoverRouteHandler(BaseCommandHandler):
 
         # Create new state without failover route
         builder = SessionStateBuilder(current_state)
-        new_state = SessionStateAdapter(builder.with_backend_config(
-            current_state.backend_config.without_failover_route(name)
-        ).build())
+        new_state = SessionStateAdapter(
+            builder.with_backend_config(
+                current_state.backend_config.without_failover_route(name)
+            ).build()
+        )
 
         return CommandHandlerResult(
             success=True,
@@ -166,7 +169,7 @@ class DeleteFailoverRouteHandler(BaseCommandHandler):
 class RouteListHandler(BaseCommandHandler):
     """Handler for listing failover routes."""
 
-    def __init__(self):
+    def __init__(self) -> None:
         """Initialize the route list handler."""
         super().__init__("route-list")
 
@@ -309,7 +312,12 @@ class RouteAppendHandler(BaseCommandHandler):
         # Validate element format (backend:model or model)
         if ":" in element:
             backend, model = element.split(":", 1)
-            if backend not in SUPPORTED_BACKENDS:
+            from src.core.services.backend_registry_service import backend_registry # Added this import
+            if (
+                context
+                and backend
+                not in backend_registry.get_registered_backends()
+            ):
                 return CommandHandlerResult(
                     success=False,
                     message=f"Backend '{backend}' in element '{element}' is not supported",
@@ -317,9 +325,11 @@ class RouteAppendHandler(BaseCommandHandler):
 
         # Create new state with appended element
         builder = SessionStateBuilder(current_state)
-        new_state = SessionStateAdapter(builder.with_backend_config(
-            current_state.backend_config.with_appended_route_element(name, element)
-        ).build())
+        new_state = SessionStateAdapter(
+            builder.with_backend_config(
+                current_state.backend_config.with_appended_route_element(name, element)
+            ).build()
+        )
 
         return CommandHandlerResult(
             success=True,
@@ -396,7 +406,11 @@ class RoutePrependHandler(BaseCommandHandler):
         # Validate element format (backend:model or model)
         if ":" in element:
             backend, model = element.split(":", 1)
-            if backend not in SUPPORTED_BACKENDS:
+            if (
+                context
+                and backend
+                not in context.backend_factory._backend_registry.get_registered_backends()
+            ):
                 return CommandHandlerResult(
                     success=False,
                     message=f"Backend '{backend}' in element '{element}' is not supported",
@@ -404,9 +418,11 @@ class RoutePrependHandler(BaseCommandHandler):
 
         # Create new state with prepended element
         builder = SessionStateBuilder(current_state)
-        new_state = SessionStateAdapter(builder.with_backend_config(
-            current_state.backend_config.with_prepended_route_element(name, element)
-        ).build())
+        new_state = SessionStateAdapter(
+            builder.with_backend_config(
+                current_state.backend_config.with_prepended_route_element(name, element)
+            ).build()
+        )
 
         return CommandHandlerResult(
             success=True,
@@ -479,9 +495,11 @@ class RouteClearHandler(BaseCommandHandler):
 
         # Create new state with cleared route
         builder = SessionStateBuilder(current_state)
-        new_state = SessionStateAdapter(builder.with_backend_config(
-            current_state.backend_config.with_cleared_route(name)
-        ).build())
+        new_state = SessionStateAdapter(
+            builder.with_backend_config(
+                current_state.backend_config.with_cleared_route(name)
+            ).build()
+        )
 
         return CommandHandlerResult(
             success=True,

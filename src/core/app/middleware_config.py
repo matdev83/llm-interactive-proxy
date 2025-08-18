@@ -3,11 +3,9 @@ from __future__ import annotations
 from typing import Any
 
 from fastapi import FastAPI
-from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.middleware.cors import CORSMiddleware
 
-from src.core.common.logging import LoggingMiddleware, get_logger
-from src.core.di.services import get_service_provider
+from src.core.common.logging import get_logger
 from src.core.security import APIKeyMiddleware, AuthMiddleware
 from src.request_middleware import CustomHeaderMiddleware
 from src.response_middleware import RetryAfterMiddleware
@@ -86,7 +84,6 @@ def configure_middleware(app: FastAPI, config: Any) -> None:
         )
         # For now, we'll use a simplified approach to logging middleware
         # TODO: Reimplement proper logging middleware integration
-        pass
 
 
 def register_custom_middleware(
@@ -101,4 +98,3 @@ def register_custom_middleware(
     """
     # For now, we'll skip custom middleware registration
     # TODO: Implement proper custom middleware registration
-    pass

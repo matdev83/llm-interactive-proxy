@@ -2,8 +2,8 @@ import logging
 import re
 from typing import Any
 
-from src import models
 from src.command_config import CommandProcessorConfig
+from src.core.domain.chat import MessageContentPart, MessageContentPartText
 from src.core.domain.command_results import CommandResult
 
 logger = logging.getLogger(__name__)
@@ -83,20 +83,18 @@ class CommandProcessor:
 
                 # Create a temporary session for the command execution
                 from src.core.domain.session import Session
-                from src.core.interfaces.domain_entities import ISessionState
-                
+
                 # Always create a proper Session object
                 # Type ignore because we're ensuring temp_session is always a Session
-                if hasattr(self.config.proxy_state, 'session_id'):
+                if hasattr(self.config.proxy_state, "session_id"):
                     # It's already a proper session object
                     temp_session: Session = self.config.proxy_state  # type: ignore
                 else:
                     # It's a state object, wrap it in a session
                     temp_session = Session(
-                        session_id="temp",
-                        state=self.config.proxy_state
+                        session_id="temp", state=self.config.proxy_state
                     )
-                
+
                 # Handle both async and sync execute methods
                 execution_result: CommandResult
                 try:
@@ -188,10 +186,10 @@ class CommandProcessor:
 
     async def process_single_part(
         self,
-        part: models.MessageContentPart,
-    ) -> tuple[models.MessageContentPart | None, bool]:
+        part: MessageContentPart,
+    ) -> tuple[MessageContentPart | None, bool]:
         """Processes a single part of a message."""
-        if not isinstance(part, models.MessageContentPartText):
+        if not isinstance(part, MessageContentPartText):
             return part.model_copy(deep=True), False
 
         processed_text, found_in_part = await self.process_text_and_execute_command(
@@ -203,14 +201,14 @@ class CommandProcessor:
                 not processed_text.strip()
             ):  # Command processed AND resulted in empty text
                 return None, True  # Drop the part, but signal command was handled
-            return models.MessageContentPartText(type="text", text=processed_text), True
+            return MessageContentPartText(type="text", text=processed_text), True
 
         # No command found in this part
         if (
             processed_text.strip()
         ):  # If text remains (e.g. from cleaning non-command text)
             return (
-                models.MessageContentPartText(type="text", text=processed_text),
+                MessageContentPartText(type="text", text=processed_text),
                 False,
             )
 
@@ -218,9 +216,9 @@ class CommandProcessor:
 
     async def handle_list_content(
         self,
-        msg_content_list: list[models.MessageContentPart],
-    ) -> tuple[list[models.MessageContentPart], bool, bool]:
-        new_parts: list[models.MessageContentPart] = []
+        msg_content_list: list[MessageContentPart],
+    ) -> tuple[list[MessageContentPart], bool, bool]:
+        new_parts: list[MessageContentPart] = []
         any_command_found_overall = (
             False  # Tracks if any command was found in any part of this list
         )
@@ -237,7 +235,7 @@ class CommandProcessor:
         # new_parts is already initialized above
 
         for original_part in original_parts_copy:  # Iterate over copy
-            processed_part_current_iteration: models.MessageContentPart | None = None
+            processed_part_current_iteration: MessageContentPart | None = None
             command_found_in_this_specific_part = False
 
             if not command_processed_within_this_list:

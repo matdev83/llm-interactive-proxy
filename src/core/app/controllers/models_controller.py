@@ -11,7 +11,8 @@ from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 
-from src.core.interfaces.backend_service import IBackendService
+from src.core.interfaces.backend_service_interface import IBackendService
+from src.core.services.backend_registry_service import backend_registry # Added this import
 
 logger = logging.getLogger(__name__)
 
@@ -29,7 +30,8 @@ async def get_backend_service(request: Request) -> IBackendService:
     """
     if hasattr(request.app.state, "service_provider"):
         service_provider = request.app.state.service_provider
-        return service_provider.get_required_service(IBackendService)
+        service = service_provider.get_required_service(IBackendService)
+        return service  # type: ignore[no-any-return]
     raise HTTPException(status_code=503, detail="Service provider not available")
 
 
@@ -46,86 +48,70 @@ async def list_models(
     try:
         logger.info("Listing available models")
 
-        # Get models from all configured backends
         all_models: list[dict[str, Any]] = []
-        discovered_models: set[str] = set()  # Track unique models
+        discovered_models: set[str] = set()
 
-        # Get configuration to check which backends are available
-        from src.constants import BackendType
+        # Get app config from DI
+        from src.core.config.app_config import AppConfig
+        from src.core.interfaces.configuration_interface import IConfig
+        from src.core.services.backend_factory_service import (
+            BackendFactory,  # Import BackendFactory
+        )
 
-        # Check if we can access the app config
-        if hasattr(request.app.state, "app_config"):
-            config = request.app.state.app_config
+        config: AppConfig | None = None
+        if hasattr(request.app.state, "service_provider"):
+            try:
+                config = request.app.state.service_provider.get_service(IConfig)
+            except Exception:
+                logger.warning("Failed to get config from service provider")
 
-            # List of backend types to check
-            backend_checks = [
-                (
-                    BackendType.OPENAI,
-                    config.backends.openai if config.backends else None,
-                ),
-                (
-                    BackendType.ANTHROPIC,
-                    config.backends.anthropic if config.backends else None,
-                ),
-                (
-                    BackendType.OPENROUTER,
-                    config.backends.openrouter if config.backends else None,
-                ),
-                (
-                    BackendType.GEMINI,
-                    config.backends.gemini if config.backends else None,
-                ),
-                (BackendType.ZAI, config.backends.zai if config.backends else None),
-            ]
+        if not config:
+            # Fallback to default config
+            config = AppConfig()
 
-            # Try to get models from each configured backend
-            for backend_type, backend_config in backend_checks:
-                if (
-                    backend_config
-                    and hasattr(backend_config, "api_key")
-                    and backend_config.api_key
-                ):
-                    try:
-                        # Get or create the backend
-                        # We need to access the backend through the service's public interface
-                        # For now, we'll skip this functionality as it's not critical
-                        # backend = await backend_service._get_or_create_backend(
-                        #     backend_type
-                        # )
-                        # 
-                        # # Get available models from the backend
-                        # if hasattr(backend, "get_available_models"):
-                        #     models = backend.get_available_models()
-                        # 
-                        #     # Add models to the list with proper formatting
-                        #     for model in models:
-                        #         model_id = (
-                        #             f"{backend_type}:{model}"
-                        #             if backend_type != BackendType.OPENAI
-                        #             else model
-                        #         )
-                        # 
-                        #         # Avoid duplicates
-                        #         if model_id not in discovered_models:
-                        #             discovered_models.add(model_id)
-                        #             all_models.append(
-                        #                 {
-                        #                     "id": model_id,
-                        #                     "object": "model",
-                        #                     "owned_by": str(backend_type).lower(),
-                        #                 }
-                        #             )
-                        # 
-                        #     logger.debug(
-                        #         f"Discovered {len(models)} models from {backend_type}"
-                        #     )
-                        # Continue with other backends
-                        continue
+        # Get the backend factory instance
+        backend_factory: BackendFactory = (
+            request.app.state.service_provider.get_required_service(BackendFactory)
+        )
 
-                    except Exception as e:
-                        logger.warning(f"Failed to get models from {backend_type}: {e}")
-                        # Continue with other backends
-                        continue
+        # Iterate through dynamically discovered backend types from the registry
+        for backend_type in backend_registry.get_registered_backends():
+            backend_config = None
+            if config.backends:
+                # Access backend config dynamically using getattr
+                backend_config = getattr(config.backends, backend_type, None)
+
+            if backend_config and backend_config.api_key:
+                try:
+                    # Create backend instance
+                    backend_instance = backend_factory.create_backend(backend_type)
+
+                    # Get available models from the backend
+                    models = backend_instance.get_available_models()
+
+                    # Add models to the list with proper formatting
+                    for model in models:
+                        model_id = (
+                            f"{backend_type}:{model}"
+                            if backend_type != "openai"
+                            else model
+                        )
+
+                        # Avoid duplicates
+                        if model_id not in discovered_models:
+                            discovered_models.add(model_id)
+                            all_models.append(
+                                {
+                                    "id": model_id,
+                                    "object": "model",
+                                    "owned_by": str(backend_type).lower(),
+                                }
+                            )
+                    logger.debug(f"Discovered {len(models)} models from {backend_type}")
+
+                except Exception as e:
+                    logger.warning(f"Failed to get models from {backend_type}: {e}")
+                    continue
 
         # If no models were discovered, provide default fallback models
         if not all_models:

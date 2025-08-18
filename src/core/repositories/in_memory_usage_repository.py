@@ -5,7 +5,7 @@ from collections import defaultdict
 from typing import Any
 
 from src.core.domain.usage_data import UsageData
-from src.core.interfaces.repositories import IUsageRepository
+from src.core.interfaces.repositories_interface import IUsageRepository
 
 logger = logging.getLogger(__name__)
 

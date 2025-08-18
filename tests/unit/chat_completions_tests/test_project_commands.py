@@ -3,6 +3,8 @@ from unittest.mock import AsyncMock, patch
 import pytest
 from fastapi.testclient import TestClient
 
+from tests.conftest import get_backend_instance, get_session_service_from_app
+
 
 @pytest.mark.asyncio
 async def test_set_project_command_integration(client: TestClient):
@@ -10,29 +12,31 @@ async def test_set_project_command_integration(client: TestClient):
         "model": "some-model",
         "messages": [{"role": "user", "content": "!/set(project=test-project) Hello"}],
     }
+    backend = get_backend_instance(client.app, "openrouter")
     with patch.object(
-        client.app.state.openrouter_backend, "chat_completions", new_callable=AsyncMock
+        backend, "chat_completions", new_callable=AsyncMock
     ) as mock_method:
         mock_method.return_value = {"choices": [{"message": {"content": "ok"}}]}
         response = client.post("/v1/chat/completions", json=payload)
     assert response.status_code == 200
-    session_service = client.app.state.session_manager
-    session = session_service.get_session("default")  # This is a sync method
+    session_service = get_session_service_from_app(client.app)
+    session = await session_service.get_session_async("default")  # Use async method
     assert session.state.project == "test-project"
 
 
 @pytest.mark.asyncio
 async def test_unset_project_command_integration(client: TestClient):
-    session_service = client.app.state.session_manager
-    session = session_service.get_session("default")  # This is a sync method
+    session_service = get_session_service_from_app(client.app)
+    session = await session_service.get_session_async("default")  # Use async method
     session.state.set_project("initial-project")  # Set initial project
 
     payload = {
         "model": "some-model",
         "messages": [{"role": "user", "content": "!/unset(project) Settings cleared"}],
     }
+    backend = get_backend_instance(client.app, "openrouter")
     with patch.object(
-        client.app.state.openrouter_backend, "chat_completions", new_callable=AsyncMock
+        backend, "chat_completions", new_callable=AsyncMock
     ) as mock_method:
         mock_method.return_value = {"choices": [{"message": {"content": "ok"}}]}
         response = client.post("/v1/chat/completions", json=payload)
@@ -48,21 +52,22 @@ async def test_set_project_name_alias_integration(client: TestClient):
             {"role": "user", "content": "!/set(project-name=alias-project) Query"}
         ],
     }
+    backend = get_backend_instance(client.app, "openrouter")
     with patch.object(
-        client.app.state.openrouter_backend, "chat_completions", new_callable=AsyncMock
+        backend, "chat_completions", new_callable=AsyncMock
     ) as mock_method:
         mock_method.return_value = {"choices": [{"message": {"content": "ok"}}]}
         response = client.post("/v1/chat/completions", json=payload)
     assert response.status_code == 200
-    session_service = client.app.state.session_manager
-    session = session_service.get_session("default")  # This is a sync method
+    session_service = get_session_service_from_app(client.app)
+    session = await session_service.get_session_async("default")  # Use async method
     assert session.state.project == "alias-project"
 
 
 @pytest.mark.asyncio
 async def test_unset_project_name_alias_integration(client: TestClient):
-    session_service = client.app.state.session_manager
-    session = session_service.get_session("default")  # This is a sync method
+    session_service = get_session_service_from_app(client.app)
+    session = await session_service.get_session_async("default")  # Use async method
     session.state.set_project("initial-alias-project")  # Set initial project
 
     payload = {
@@ -71,8 +76,9 @@ async def test_unset_project_name_alias_integration(client: TestClient):
             {"role": "user", "content": "!/unset(project-name) Settings reset"}
         ],
     }
+    backend = get_backend_instance(client.app, "openrouter")
     with patch.object(
-        client.app.state.openrouter_backend, "chat_completions", new_callable=AsyncMock
+        backend, "chat_completions", new_callable=AsyncMock
     ) as mock_method:
         mock_method.return_value = {"choices": [{"message": {"content": "ok"}}]}
         response = client.post("/v1/chat/completions", json=payload)
@@ -86,8 +92,8 @@ async def test_force_set_project_blocks_requests(client: TestClient):
     original_force_set_project = client.app.state.force_set_project
     client.app.state.force_set_project = True
     try:
-        session_service = client.app.state.session_manager
-        session = session_service.get_session("default")  # This is a sync method
+        session_service = get_session_service_from_app(client.app)
+        session = await session_service.get_session_async("default")  # Use async method
         session.state.unset_project()  # Ensure project is not set
 
         payload = {
@@ -107,8 +113,9 @@ async def test_force_set_project_allows_after_set(client: TestClient):
     client.app.state.force_set_project = True
     mock_backend_response = {"choices": [{"message": {"content": "ok"}}]}
     try:
+        backend = get_backend_instance(client.app, "openrouter")
         with patch.object(
-            client.app.state.openrouter_backend,
+            backend,
             "chat_completions",
             new_callable=AsyncMock,
         ) as mock_method:
@@ -123,8 +130,10 @@ async def test_force_set_project_allows_after_set(client: TestClient):
             }
             response_set = client.post("/v1/chat/completions", json=set_project_payload)
             assert response_set.status_code == 200
-            session_service = client.app.state.session_manager
-            session = session_service.get_session("default")  # This is a sync method
+            session_service = get_session_service_from_app(client.app)
+            session = await session_service.get_session_async(
+                "default"
+            )  # Use async method
             assert session.state.project == "forced-project"
 
             # Then, make a normal request

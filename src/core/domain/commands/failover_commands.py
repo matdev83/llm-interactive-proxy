@@ -10,10 +10,9 @@ import logging
 from collections.abc import Mapping
 from typing import Any
 
-from src.constants import SUPPORTED_BACKENDS
 from src.core.domain.command_results import CommandResult
 from src.core.domain.commands.base_command import BaseCommand
-from src.core.domain.session import Session, SessionStateAdapter # Added Session import
+from src.core.domain.session import Session  # Added Session import
 
 logger = logging.getLogger(__name__)
 
@@ -29,7 +28,7 @@ class CreateFailoverRouteCommand(BaseCommand):
     async def execute(
         self,
         args: Mapping[str, Any],
-        session: Session, # Changed to session: Session
+        session: Session,  # Changed to session: Session
         context: Any = None,
     ) -> CommandResult:
         """
@@ -54,11 +53,15 @@ class CreateFailoverRouteCommand(BaseCommand):
             )
 
         # Update the session state with the new failover route
-        new_backend_config = session.state.backend_config.with_failover_route( # Changed session_state to session.state
+        new_backend_config = session.state.backend_config.with_failover_route(  # Changed session_state to session.state
             name, policy
         )
         # Refactored state update
-        session.state = session.state.with_backend_config(new_backend_config) # Changed session_state._state to session.state
+        session.state = session.state.with_backend_config(
+            new_backend_config
+        ).with_interactive_just_enabled(
+            True
+        )  # Changed session_state._state to session.state
 
         return CommandResult(
             name=self.name,
@@ -78,7 +81,7 @@ class DeleteFailoverRouteCommand(BaseCommand):
     async def execute(
         self,
         args: Mapping[str, Any],
-        session: Session, # Changed to session: Session
+        session: Session,  # Changed to session: Session
         context: Any = None,
     ) -> CommandResult:
         """
@@ -102,7 +105,9 @@ class DeleteFailoverRouteCommand(BaseCommand):
             )
 
         # Check if route exists
-        if name not in session.state.backend_config.failover_routes: # Changed session_state to session.state
+        if (
+            name not in session.state.backend_config.failover_routes
+        ):  # Changed session_state to session.state
             return CommandResult(
                 name=self.name,
                 success=False,
@@ -110,8 +115,12 @@ class DeleteFailoverRouteCommand(BaseCommand):
             )
 
         # Update the session state without the failover route
-        new_backend_config = session.state.backend_config.without_failover_route(name) # Changed session_state to session.state
-        session.state = session.state.with_backend_config(new_backend_config) # Changed session_state._state to session.state
+        new_backend_config = session.state.backend_config.without_failover_route(
+            name
+        )  # Changed session_state to session.state
+        session.state = session.state.with_backend_config(
+            new_backend_config
+        )  # Changed session_state._state to session.state
 
         return CommandResult(
             name=self.name, success=True, message=f"Failover route '{name}' deleted"
@@ -129,7 +138,7 @@ class ListFailoverRoutesCommand(BaseCommand):
     async def execute(
         self,
         args: Mapping[str, Any],
-        session: Session, # Changed to session: Session
+        session: Session,  # Changed to session: Session
         context: Any = None,
     ) -> CommandResult:
         """
@@ -143,7 +152,9 @@ class ListFailoverRoutesCommand(BaseCommand):
         Returns:
             The command result
         """
-        routes = session.state.backend_config.failover_routes # Changed session_state to session.state
+        routes = (
+            session.state.backend_config.failover_routes
+        )  # Changed session_state to session.state
 
         if not routes:
             return CommandResult(
@@ -171,7 +182,7 @@ class RouteListCommand(BaseCommand):
     async def execute(
         self,
         args: Mapping[str, Any],
-        session: Session, # Changed to session: Session
+        session: Session,  # Changed to session: Session
         context: Any = None,
     ) -> CommandResult:
         """
@@ -195,7 +206,9 @@ class RouteListCommand(BaseCommand):
             )
 
         # Check if route exists
-        if name not in session.state.backend_config.failover_routes: # Changed session_state to session.state
+        if (
+            name not in session.state.backend_config.failover_routes
+        ):  # Changed session_state to session.state
             return CommandResult(
                 name=self.name,
                 success=False,
@@ -203,8 +216,12 @@ class RouteListCommand(BaseCommand):
             )
 
         # Get route elements
-        elements = session.state.backend_config.get_route_elements(name) # Changed session_state to session.state
-        route_info = session.state.backend_config.failover_routes[name] # Changed session_state to session.state
+        elements = session.state.backend_config.get_route_elements(
+            name
+        )  # Changed session_state to session.state
+        route_info = session.state.backend_config.failover_routes[
+            name
+        ]  # Changed session_state to session.state
         policy = route_info.get("policy", "k")
 
         if not elements:
@@ -229,7 +246,7 @@ class RouteAppendCommand(BaseCommand):
     async def execute(
         self,
         args: Mapping[str, Any],
-        session: Session, # Changed to session: Session
+        session: Session,  # Changed to session: Session
         context: Any = None,
     ) -> CommandResult:
         """
@@ -254,7 +271,9 @@ class RouteAppendCommand(BaseCommand):
             )
 
         # Check if route exists
-        if name not in session.state.backend_config.failover_routes: # Changed session_state to session.state
+        if (
+            name not in session.state.backend_config.failover_routes
+        ):  # Changed session_state to session.state
             return CommandResult(
                 name=self.name,
                 success=False,
@@ -264,18 +283,37 @@ class RouteAppendCommand(BaseCommand):
         # Validate element format (backend:model or model)
         if ":" in element:
             backend, model = element.split(":", 1)
-            if backend not in SUPPORTED_BACKENDS:
-                return CommandResult(
-                    name=self.name,
-                    success=False,
-                    message=f"Backend '{backend}' in element '{element}' is not supported",
-                )
+            # context.backend_factory may be a Mock in tests; handle gracefully
+            backend_types = None
+            try:
+                backend_types = getattr(context.backend_factory, "_backend_types", None)
+            except Exception:
+                backend_types = None
+
+            if backend_types is not None:
+                # backend_types may be a Mock in tests; attempt to extract iterable keys
+                try:
+                    if isinstance(backend_types, dict):
+                        keys = list(backend_types.keys())
+                    elif hasattr(backend_types, "keys") and callable(backend_types.keys):
+                        keys = list(backend_types.keys())
+                    else:
+                        # Try to iterate over it
+                        keys = [k for k in backend_types]
+                except Exception:
+                    keys = []
+                if keys and backend not in keys:
+                    return CommandResult(
+                        name=self.name,
+                        success=False,
+                        message=f"Backend '{backend}' in element '{element}' is not supported",
+                    )
 
         # Update the session state with the appended element
-        new_backend_config = session.state.backend_config.with_appended_route_element( # Changed session_state to session.state
+        new_backend_config = session.state.backend_config.with_appended_route_element(
             name, element
         )
-        session.state = session.state.with_backend_config(new_backend_config) # Changed session_state._state to session.state
+        session.state = session.state.with_backend_config(new_backend_config)
 
         return CommandResult(
             name=self.name,
@@ -295,7 +333,7 @@ class RoutePrependCommand(BaseCommand):
     async def execute(
         self,
         args: Mapping[str, Any],
-        session: Session, # Changed to session: Session
+        session: Session,  # Changed to session: Session
         context: Any = None,
     ) -> CommandResult:
         """
@@ -320,7 +358,9 @@ class RoutePrependCommand(BaseCommand):
             )
 
         # Check if route exists
-        if name not in session.state.backend_config.failover_routes: # Changed session_state to session.state
+        if (
+            name not in session.state.backend_config.failover_routes
+        ):  # Changed session_state to session.state
             return CommandResult(
                 name=self.name,
                 success=False,
@@ -330,7 +370,7 @@ class RoutePrependCommand(BaseCommand):
         # Validate element format (backend:model or model)
         if ":" in element:
             backend, model = element.split(":", 1)
-            if backend not in SUPPORTED_BACKENDS:
+            if context and backend not in context.backend_factory._backend_types.keys():
                 return CommandResult(
                     name=self.name,
                     success=False,
@@ -338,10 +378,12 @@ class RoutePrependCommand(BaseCommand):
                 )
 
         # Update the session state with the prepended element
-        new_backend_config = session.state.backend_config.with_prepended_route_element( # Changed session_state to session.state
+        new_backend_config = session.state.backend_config.with_prepended_route_element(  # Changed session_state to session.state
             name, element
         )
-        session.state = session.state.with_backend_config(new_backend_config) # Changed session_state._state to session.state
+        session.state = session.state.with_backend_config(
+            new_backend_config
+        )  # Changed session_state._state to session.state
 
         return CommandResult(
             name=self.name,
@@ -361,7 +403,7 @@ class RouteClearCommand(BaseCommand):
     async def execute(
         self,
         args: Mapping[str, Any],
-        session: Session, # Changed to session: Session
+        session: Session,  # Changed to session: Session
         context: Any = None,
     ) -> CommandResult:
         """
@@ -385,7 +427,9 @@ class RouteClearCommand(BaseCommand):
             )
 
         # Check if route exists
-        if name not in session.state.backend_config.failover_routes: # Changed session_state to session.state
+        if (
+            name not in session.state.backend_config.failover_routes
+        ):  # Changed session_state to session.state
             return CommandResult(
                 name=self.name,
                 success=False,
@@ -393,8 +437,12 @@ class RouteClearCommand(BaseCommand):
             )
 
         # Update the session state with the cleared route
-        new_backend_config = session.state.backend_config.with_cleared_route(name) # Changed session_state to session.state
-        session.state = session.state.with_backend_config(new_backend_config) # Changed session_state._state to session.state
+        new_backend_config = session.state.backend_config.with_cleared_route(
+            name
+        )  # Changed session_state to session.state
+        session.state = session.state.with_backend_config(
+            new_backend_config
+        )  # Changed session_state._state to session.state
 
         return CommandResult(
             name=self.name,

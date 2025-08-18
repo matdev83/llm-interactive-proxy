@@ -13,11 +13,11 @@ from src.core.domain.session import Session, SessionState
 logger = logging.getLogger(__name__)
 
 
-class SetCommandRefactored(BaseCommand):
-    """Refactored implementation of the set command.
+class SetCommand(BaseCommand):
+    """SOLID-based implementation of the set command.
 
     This command uses individual handlers for each parameter, making it more
-    maintainable and extensible than the original monolithic SetCommand.
+    maintainable and extensible than the original monolithic implementation.
     """
 
     name = "set"
@@ -70,14 +70,13 @@ class SetCommandRefactored(BaseCommand):
             # Find a handler for this parameter
             handler = None
             logger.debug(f"Looking for handler for parameter: {param}")
-            print(f"Looking for handler for parameter: {param}")
             # Try direct match first
             direct_match = False
             for h in handlers:
                 if hasattr(h, "name") and h.name == param:
                     handler = h
                     direct_match = True
-                    print(
+                    logger.debug(
                         f"Direct match found for {param}: {getattr(h, 'name', 'unknown')}"
                     )
                     break
@@ -86,11 +85,10 @@ class SetCommandRefactored(BaseCommand):
             if not direct_match:
                 for h in handlers:
                     logger.debug(f"Checking handler: {getattr(h, 'name', 'unknown')}")
-                    print(f"Checking handler: {getattr(h, 'name', 'unknown')}")
                     if hasattr(h, "can_handle") and callable(h.can_handle):
                         try:
                             can_handle_result = h.can_handle(param)
-                            print(
+                            logger.debug(
                                 f"Handler {getattr(h, 'name', 'unknown')}.can_handle({param}) = {can_handle_result}"
                             )
                             if can_handle_result:
@@ -98,12 +96,9 @@ class SetCommandRefactored(BaseCommand):
                                 logger.debug(
                                     f"Found handler for {param}: {getattr(h, 'name', 'unknown')}"
                                 )
-                                print(
-                                    f"Found handler for {param}: {getattr(h, 'name', 'unknown')}"
-                                )
                                 break
                         except Exception as e:
-                            print(
+                            logger.debug(
                                 f"Error in can_handle for {getattr(h, 'name', 'unknown')}: {e}"
                             )
 
@@ -116,12 +111,25 @@ class SetCommandRefactored(BaseCommand):
                     # Use execute method if handle is not available
                     import inspect
 
+                    # Domain BaseCommand implementations expect a Mapping of
+                    # arguments (e.g., {"name": <val>}). Legacy handlers
+                    # expect the raw value. Detect BaseCommand and adapt.
+                    try:
+                        from src.core.domain.commands.base_command import BaseCommand
+                    except Exception:
+                        BaseCommand = None  # type: ignore
+
+                    exec_arg = value
+                    if BaseCommand is not None and isinstance(handler, BaseCommand):
+                        # Provide a mapping with both 'name' and 'value' for
+                        # maximum compatibility during migration.
+                        exec_arg = {"name": value, "value": value}
+
                     if inspect.iscoroutinefunction(handler.execute):
-                        # We're already in an async context, so we can use await
-                        # Pass just the value, not the entire args dictionary
-                        handler_result = await handler.execute(value, session)
+                        # We're already in an async context, so we can await
+                        handler_result = await handler.execute(exec_arg, session)
                     else:
-                        handler_result = handler.execute(value, session)
+                        handler_result = handler.execute(exec_arg, session)
                 else:
                     handler_result = CommandHandlerResult(
                         success=False,
@@ -144,7 +152,7 @@ class SetCommandRefactored(BaseCommand):
                     else:
                         current_state = new_state
 
-                    print(
+                    logger.debug(
                         f"Updated current_state with new state from handler: {handler_result.new_state}"
                     )
                     # Also update the session state immediately
@@ -268,3 +276,9 @@ class SetCommandRefactored(BaseCommand):
         proxy_state.interactive_just_enabled = session_state.interactive_just_enabled
         proxy_state.hello_requested = session_state.hello_requested
         proxy_state.is_cline_agent = session_state.is_cline_agent
+
+
+# Backwards-compatible alias expected by some tests
+SetCommandRefactored = SetCommand
+
+__all__ = ["SetCommand", "SetCommandRefactored"]

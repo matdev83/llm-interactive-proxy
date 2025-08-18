@@ -1,7 +1,5 @@
 # WARP.md
 
-This file provides guidance to WARP (warp.dev) when working with code in this repository.
-
 ## Repository Overview
 
 The LLM Interactive Proxy is a sophisticated middleware service that sits between clients and various LLM backends (OpenAI, Anthropic, Gemini, etc.), providing enhanced features like command processing, rate limiting, failover, and unified API access. It follows a clean, SOLID architecture with dependency injection.

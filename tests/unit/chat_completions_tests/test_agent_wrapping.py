@@ -1,4 +1,3 @@
-# import pytest # F401: Removed
 import pytest
 
 
@@ -29,21 +28,22 @@ def test_cline_command_wrapping(client):
     args_dict = json.loads(tool_call_args)
     result_content = args_dict.get("result", "")
 
+    from tests.conftest import get_backend_instance
+
     project_name = client.app.state.project_metadata["name"]
     project_version = client.app.state.project_metadata["version"]
-    # Get the actual backends from the app state to make test robust
+    # Get the actual backends from DI helpers to make test robust
     backend_info = []
-    if hasattr(client.app.state, "gemini_backend") and client.app.state.gemini_backend:
-        models_count = len(client.app.state.gemini_backend.get_available_models())
-        keys_count = len([k for k in client.app.state.gemini_backend.api_keys if k])
+    gemini = get_backend_instance(client.app, "gemini")
+    if gemini:
+        models_count = len(gemini.get_available_models())
+        keys_count = len([k for k in getattr(gemini, "api_keys", []) if k])
         backend_info.append(f"gemini (K:{keys_count}, M:{models_count})")
 
-    if (
-        hasattr(client.app.state, "openrouter_backend")
-        and client.app.state.openrouter_backend
-    ):
-        models_count = len(client.app.state.openrouter_backend.get_available_models())
-        keys_count = len([k for k in client.app.state.openrouter_backend.api_keys if k])
+    openrouter = get_backend_instance(client.app, "openrouter")
+    if openrouter:
+        models_count = len(openrouter.get_available_models())
+        keys_count = len([k for k in getattr(openrouter, "api_keys", []) if k])
         backend_info.append(f"openrouter (K:{keys_count}, M:{models_count})")
 
     # We've disabled Qwen OAuth backend for these tests

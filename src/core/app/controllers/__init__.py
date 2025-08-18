@@ -7,20 +7,29 @@ This package contains controllers that handle HTTP endpoints in the application.
 from __future__ import annotations
 
 import logging
+from typing import Any
 
-from fastapi import Depends, FastAPI, HTTPException, Request, Body
+from fastapi import Body, Depends, FastAPI, HTTPException, Request
+from starlette.responses import Response  # Added this line
 
-import src.models as models
+# Legacy models are only used by the compatibility endpoints via the adapter layer
 from src.anthropic_models import AnthropicMessagesRequest
+from src.core.adapters.api_adapters import dict_to_domain_chat_request
+from src.core.app.controllers.anthropic_controller import (
+    AnthropicController,
+    get_anthropic_controller,
+)
 from src.core.app.controllers.chat_controller import (
-    ChatCompletionRequest,
     ChatController,
     get_chat_controller,
 )
 from src.core.app.controllers.usage_controller import router as usage_router
 
+# Import domain models for type annotations
+from src.core.domain.chat import ChatRequest as DomainChatRequest
+
 # No longer need integration bridge - using SOLID architecture directly
-from src.core.interfaces.di import IServiceProvider
+from src.core.interfaces.di_interface import IServiceProvider
 
 logger = logging.getLogger(__name__)
 
@@ -41,17 +50,10 @@ async def _ensure_service_provider_available(app: FastAPI) -> None:
         if not hasattr(app.state, "httpx_client"):
             app.state.httpx_client = httpx.AsyncClient()
 
-        # Set up basic config if not present
-        if not hasattr(app.state, "config"):
-            app.state.config = {
-                "command_prefix": "!/",
-                "proxy_timeout": 300,
-                "rate_limits": {
-                    "default": {"limit": 60, "time_window": 60},
-                },
-                "api_keys": [],
-                "failover_routes": {},
-            }
+        # Use AppConfig instead of app.state.config
+        from src.core.config.app_config import AppConfig
+
+        dummy_config = AppConfig()  # Create a minimal config for tests
 
         # Set up basic app state attributes
         if not hasattr(app.state, "backend_configs"):
@@ -65,10 +67,12 @@ async def _ensure_service_provider_available(app: FastAPI) -> None:
         from src.core.config.app_config import AppConfig
 
         dummy_config = AppConfig()  # Create a minimal config for tests
-        configurator = ServiceConfigurator()
-        provider = configurator.configure_services(
-            dummy_config
-        )  # This now returns a built provider
+        builder = (
+            ServiceConfigurator()
+        )  # Use builder instead of configurator for clarity
+        provider = await builder._initialize_services(
+            app, dummy_config
+        )  # Call the async method
         set_service_provider(provider)
         app.state.service_provider = provider
 
@@ -89,53 +93,164 @@ async def get_chat_controller_if_available(request: Request) -> ChatController:
         A configured chat controller
     """
     try:
-        # Try to get service provider from app state first (preferred method for new architecture)
+        # Ensure the app has a service provider
+        service_provider = None
+
+        # First try getting from app.state
         if (
             hasattr(request.app.state, "service_provider")
             and request.app.state.service_provider
         ):
             service_provider = request.app.state.service_provider
-            return get_chat_controller(service_provider)
 
-        # If service provider not available, try to initialize it for tests
-        if (
-            not hasattr(request.app.state, "service_provider")
-            or not request.app.state.service_provider
-        ):
-            await _ensure_service_provider_available(request.app)
-            if (
-                hasattr(request.app.state, "service_provider")
-                and request.app.state.service_provider
-            ):
-                return get_chat_controller(request.app.state.service_provider)
+        # If not available, try to initialize it for tests
+        if not service_provider:
+            try:
+                await _ensure_service_provider_available(request.app)
+                if (
+                    hasattr(request.app.state, "service_provider")
+                    and request.app.state.service_provider
+                ):
+                    service_provider = request.app.state.service_provider
+            except Exception as init_error:
+                logger.debug(f"Failed to initialize service provider: {init_error}")
 
-        # No fallback needed - service provider should always be available
-        raise Exception("Service provider not available in app state")
+        # Final fallback - use global service provider if available
+        if not service_provider:
+            from src.core.di.services import get_service_provider
+
+            service_provider = get_service_provider()
+
+        # If we have a service provider, try to get the controller directly
+        if service_provider:
+            try:
+                # Try to get the controller directly from DI container
+                chat_controller = service_provider.get_service(ChatController)
+                if chat_controller:
+                    return chat_controller
+
+                # If not registered directly, create using the factory function
+                return get_chat_controller(service_provider)
+            except Exception as controller_error:
+                logger.debug(
+                    f"Failed to get ChatController from service provider: {controller_error}"
+                )
+
+        raise Exception("Could not obtain a service provider or chat controller")
     except Exception as e:
         logger.debug(f"Chat controller not available: {e}")
+        # Make the error more specific to help troubleshooting
+        if "No service registered for" in str(e):
+            raise Exception(f"Required service not registered in DI container: {e}")
         raise Exception("Chat controller not available")
 
 
-async def get_service_provider_dependency() -> IServiceProvider:
-    """Get the service provider from app state."""
-    # This function needs access to the request to get the app state
-    # We'll modify the dependency to accept the request
-    raise HTTPException(
-        status_code=503, detail="Service provider dependency needs refactoring"
-    )
+async def get_anthropic_controller_if_available(
+    request: Request,
+) -> AnthropicController:
+    """Get an Anthropic controller if new architecture is available.
+
+    Args:
+        request: The FastAPI Request object
+
+    Returns:
+        A configured Anthropic controller
+    """
+    try:
+        # Ensure the app has a service provider
+        service_provider = None
+
+        # First try getting from app.state
+        if (
+            hasattr(request.app.state, "service_provider")
+            and request.app.state.service_provider
+        ):
+            service_provider = request.app.state.service_provider
+
+        # If not available, try to initialize it for tests
+        if not service_provider:
+            try:
+                await _ensure_service_provider_available(request.app)
+                if (
+                    hasattr(request.app.state, "service_provider")
+                    and request.app.state.service_provider
+                ):
+                    service_provider = request.app.state.service_provider
+            except Exception as init_error:
+                logger.debug(f"Failed to initialize service provider: {init_error}")
+
+        # Final fallback - use global service provider if available
+        if not service_provider:
+            from src.core.di.services import get_service_provider
+
+            service_provider = get_service_provider()
+
+        # If we have a service provider, try to get the controller directly
+        if service_provider:
+            try:
+                # Try to get the controller directly from DI container
+                anthropic_controller = service_provider.get_service(AnthropicController)
+                if anthropic_controller:
+                    return anthropic_controller
+
+                # If not registered directly, create using the factory function
+                return get_anthropic_controller(service_provider)
+            except Exception as controller_error:
+                logger.debug(
+                    f"Failed to get AnthropicController from service provider: {controller_error}"
+                )
+
+        raise Exception("Could not obtain a service provider or Anthropic controller")
+    except Exception as e:
+        logger.debug(f"Anthropic controller not available: {e}")
+        # Make the error more specific to help troubleshooting
+        if "No service registered for" in str(e):
+            raise Exception(f"Required service not registered in DI container: {e}")
+        raise Exception("Anthropic controller not available")
+
+
+async def get_service_provider_dependency(request: Request) -> IServiceProvider:
+    """Get the service provider from app state.
+
+    Args:
+        request: The FastAPI request object
+
+    Returns:
+        The service provider from app state
+
+    Raises:
+        HTTPException: If service provider is not available
+    """
+    if (
+        not hasattr(request.app.state, "service_provider")
+        or not request.app.state.service_provider
+    ):
+        # Try to initialize service provider for tests
+        try:
+            await _ensure_service_provider_available(request.app)
+        except Exception as e:
+            logger.error(f"Failed to initialize service provider: {e}")
+            raise HTTPException(
+                status_code=503, detail="Service provider not available"
+            )
+
+    # Cast to the correct type for mypy
+    service_provider: IServiceProvider = request.app.state.service_provider
+    return service_provider
 
 
 async def get_chat_controller_dependency(
-    service_provider: IServiceProvider = Depends(get_service_provider_dependency),
+    request: Request,
 ) -> ChatController:
     """Get a chat controller dependency.
 
     Args:
-        service_provider: The service provider
+        request: The FastAPI request object
 
     Returns:
         A configured chat controller
     """
+    service_provider = await get_service_provider_dependency(request)
     return get_chat_controller(service_provider)
 
 
@@ -170,9 +285,9 @@ def register_versioned_endpoints(app: FastAPI) -> None:
     @app.post("/v2/chat/completions")
     async def chat_completions_v2(
         request: Request,
-        request_data: ChatCompletionRequest,
-        controller=Depends(get_chat_controller_if_available),
-    ):
+        request_data: DomainChatRequest,
+        controller: ChatController = Depends(get_chat_controller_if_available),
+    ) -> Response:
         return await controller.handle_chat_completion(request, request_data)
 
     # Include usage router
@@ -185,28 +300,24 @@ def register_compatibility_endpoints(app: FastAPI) -> None:
     Args:
         app: The FastAPI application instance
     """
-    from fastapi import Body
 
-    # Import hybrid controller from the integration layer
-    from src.core.integration.hybrid_controller import (
-        get_service_provider_if_available,
-        hybrid_anthropic_messages,
-        hybrid_chat_completions,
-    )
-
-    # Register hybrid endpoints that can use either old or new architecture
+    # Register compatibility endpoints using direct controllers
     @app.post("/v1/chat/completions")
     async def compat_chat_completions(
         request: Request,
-        request_data: models.ChatCompletionRequest = Body(...),
-        service_provider=Depends(get_service_provider_if_available),
-    ):
-        return await hybrid_chat_completions(request, request_data, service_provider)
+        request_data: dict[str, Any] = Body(...),
+        controller: ChatController = Depends(get_chat_controller_if_available),
+    ) -> Response:
+        # Convert a raw dict (legacy shape from clients) to our domain model
+        domain_request = dict_to_domain_chat_request(request_data)
+        return await controller.handle_chat_completion(request, domain_request)
 
     @app.post("/v1/messages")
     async def compat_anthropic_messages(
         request: Request,
         request_data: AnthropicMessagesRequest = Body(...),
-        service_provider=Depends(get_service_provider_if_available),
-    ):
-        return await hybrid_anthropic_messages(request, request_data, service_provider)
+        controller: AnthropicController = Depends(
+            get_anthropic_controller_if_available
+        ),
+    ) -> Response:
+        return await controller.handle_anthropic_messages(request, request_data)

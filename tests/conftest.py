@@ -8,11 +8,13 @@ import asyncio
 import logging
 from collections.abc import AsyncIterator, Generator
 from pathlib import Path
+from typing import Any, cast
 
 import httpx
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
+from src.connectors.base import LLMBackend
 from src.core.app.application_factory import build_app
 from src.core.config.app_config import (
     AppConfig,
@@ -24,7 +26,11 @@ from src.core.config.app_config import (
     SessionConfig,
 )
 from src.core.di.container import ServiceCollection
-from src.core.interfaces.di import IServiceProvider
+from src.core.interfaces.backend_service_interface import IBackendService
+from src.core.interfaces.di_interface import IServiceProvider
+from src.core.interfaces.session_service_interface import ISessionService
+
+# Import shared fixtures
 
 # Silence logging during tests
 logging.getLogger().setLevel(logging.WARNING)
@@ -76,6 +82,39 @@ def test_services() -> ServiceCollection:
 
 
 @pytest.fixture
+async def test_service_provider(test_app: FastAPI) -> Any:  # type: ignore
+    """Get the service provider from the test app.
+
+    This fixture ensures that the service provider is properly initialized
+    for tests, even if the app's startup event hasn't been triggered.
+    """
+    # Ensure service provider is available
+    if (
+        not hasattr(test_app.state, "service_provider")
+        or not test_app.state.service_provider
+    ):
+        from src.core.app.application_factory import ApplicationBuilder
+        from src.core.di.services import set_service_provider
+
+        # Get or create a basic config for tests
+        config = getattr(test_app.state, "app_config", None)
+        if config is None:
+            from src.core.config.app_config import AppConfig
+
+            config = AppConfig()
+
+        # Initialize services
+        builder = ApplicationBuilder()
+        provider = await builder._initialize_services(test_app, config)
+
+        # Set global provider and app.state
+        set_service_provider(provider)
+        test_app.state.service_provider = provider
+
+    return test_app.state.service_provider
+
+
+@pytest.fixture
 async def mock_http_client() -> AsyncIterator[httpx.AsyncClient]:
     """Create a mock HTTP client for testing."""
     client = httpx.AsyncClient()
@@ -122,6 +161,12 @@ def test_client(test_app: FastAPI) -> Generator[TestClient, None, None]:
     with TestClient(
         test_app, headers={"Authorization": "Bearer test-proxy-key"}
     ) as client:
+        # Ensure the test client has a valid API key for services that need it
+        if (
+            hasattr(test_app.state, "app_config")
+            and not test_app.state.app_config.auth.api_keys
+        ):
+            test_app.state.app_config.auth.api_keys = ["test-proxy-key"]
         yield client
 
 
@@ -150,32 +195,90 @@ def temp_config_path(tmp_path: Path) -> Path:
     return config_path
 
 
-# @pytest.fixture(autouse=True)
-# def isolate_global_state() -> Generator[None, None, None]:
-#     """Automatically isolate global state between tests.
+# Helper utilities for migrating tests away from direct `app.state` usage
+def get_backend_instance(app: FastAPI, name: str) -> LLMBackend:
+    """Resolve a concrete backend instance by name using DI, fall back to app.state.
 
-#     This fixture runs for every test and ensures that global service provider
-#     and integration bridge state doesn't contaminate other tests.
-#     """
-#     # Save the current global service provider state
-#     import src.core.di.services as services_module
+    Args:
+        app: FastAPI application instance
+        name: backend short name (e.g., 'openrouter')
 
-#     original_provider = services_module._global_provider
-#     original_services = services_module._global_services
+    Returns:
+        Backend instance or None
+    """
+    # Require DI-backed backend registration. Do not fall back to legacy `app.state`.
+    svc = app.state.service_provider.get_required_service(IBackendService)
+    backend = getattr(svc, "_backends", {}).get(name)
+    if backend is None:
+        raise RuntimeError(
+            f"Backend '{name}' not registered in IBackendService. Ensure tests register the mock via the BackendService._backends mapping."
+        )
+    # mypy: narrow the type to LLMBackend for callers
+    return cast(LLMBackend, backend)
 
-#     # Save the current global integration bridge state
-#     import src.core.integration.bridge as bridge_module
 
-#     original_bridge = bridge_module._integration_bridge
+def get_session_service_from_app(app: FastAPI) -> ISessionService:
+    """Resolve ISessionService from DI. Do not fall back to legacy session_manager."""
+    svc = app.state.service_provider.get_required_service(ISessionService)
+    if svc is None:
+        raise RuntimeError(
+            "ISessionService not available from service provider. Ensure the application registers the session service via DI."
+        )
+    return cast(ISessionService, svc)
 
-#     try:
-#         # Run the test
-#         yield
-#     finally:
-#         # Restore the original global state
-#         services_module._global_provider = original_provider
-#         services_module._global_services = original_services
-#         bridge_module._integration_bridge = original_bridge
+
+async def initialize_backend_for_test(app: FastAPI, backend_name: str) -> LLMBackend:
+    """Initialize a backend for testing purposes.
+
+    Args:
+        app: FastAPI application instance
+        backend_name: Name of the backend to initialize
+
+    Returns:
+        Initialized backend instance
+    """
+    # Get the backend service
+    backend_service = app.state.service_provider.get_required_service(IBackendService)
+
+    # Initialize the backend (this will create and cache it)
+    backend_instance = await backend_service._get_or_create_backend(backend_name)
+
+    return cast(LLMBackend, backend_instance)
+
+
+@pytest.fixture(autouse=True)
+def isolate_global_state() -> Generator[None, None, None]:
+    """Automatically isolate global state between tests.
+
+    This fixture runs for every test and ensures that global service provider
+    and integration bridge state doesn't contaminate other tests.
+    """
+    # Save the current global service provider state
+    import src.core.di.services as services_module
+
+    original_provider = services_module._global_provider
+    original_services = services_module._global_services
+
+    # Save the current global integration bridge state (if it exists)
+    try:
+        import src.core.integration.bridge as bridge_module
+
+        original_bridge = getattr(bridge_module, "_integration_bridge", None)
+    except (ImportError, AttributeError):
+        bridge_module = None  # type: ignore
+        original_bridge = None
+
+    try:
+        # Run the test
+        yield
+    finally:
+        # Restore the original global state
+        services_module._global_provider = original_provider
+        services_module._global_services = original_services
+
+        # Restore bridge if it was available
+        if bridge_module is not None and hasattr(bridge_module, "_integration_bridge"):
+            bridge_module._integration_bridge = original_bridge
 
 
 @pytest.fixture

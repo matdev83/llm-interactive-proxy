@@ -8,10 +8,10 @@ from src.command_config import CommandParserConfig
 from src.command_parser import CommandParser, get_command_pattern
 from src.command_processor import parse_arguments
 from src.constants import DEFAULT_COMMAND_PREFIX
+from src.core.domain.chat import ChatMessage, MessageContentPartText
 from src.core.domain.command_results import CommandResult
 from src.core.domain.commands.base_command import BaseCommand
 from src.core.domain.session import Session, SessionStateAdapter
-from src.models import ChatMessage, MessageContentPartText
 
 
 class MockSuccessCommand(BaseCommand):

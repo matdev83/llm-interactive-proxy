@@ -7,7 +7,9 @@ from typing import Any  # Added Optional and Tuple
 from fastapi import FastAPI
 
 from src.command_prefix import validate_command_prefix
-from src.models import ModelDefaults  # Add import for model config classes
+from src.core.domain.model_utils import (
+    ModelDefaults,  # Add import for model config classes
+)
 
 logger = logging.getLogger(__name__)
 
@@ -60,8 +62,17 @@ class ConfigManager:
                 )
 
     def _apply_interactive_mode(self, mode_value: Any) -> None:
-        if isinstance(mode_value, bool):
-            self.app.state.session_manager.default_interactive_mode = mode_value
+        if isinstance(mode_value, bool) and hasattr(self.app.state, "service_provider"):
+            # Get session service from DI
+            try:
+                from src.core.interfaces.session_service_interface import ISessionService
+
+                session_service = self.app.state.service_provider.get_required_service(
+                    ISessionService
+                )
+                session_service.default_interactive_mode = mode_value
+            except Exception as e:
+                logger.warning(f"Failed to set interactive mode: {e}")
 
     def _apply_redact_api_keys(self, redact_value: Any) -> None:
         if isinstance(redact_value, bool):
@@ -118,7 +129,7 @@ class ConfigManager:
             )
 
         # Use robust parsing that handles both slash and colon syntax
-        from src.models import parse_model_backend
+        from src.core.domain.model_utils import parse_model_backend
 
         backend_name, model_name = parse_model_backend(elem_str)
         if not backend_name:
@@ -202,9 +213,24 @@ class ConfigManager:
             logger.warning(w)
 
     def collect(self) -> dict[str, Any]:
+        # Get interactive mode from session service
+        interactive_mode = False
+        if hasattr(self.app.state, "service_provider"):
+            try:
+                from src.core.interfaces.session_service_interface import ISessionService
+
+                session_service = self.app.state.service_provider.get_required_service(
+                    ISessionService
+                )
+                interactive_mode = getattr(
+                    session_service, "default_interactive_mode", False
+                )
+            except Exception as e:
+                logger.warning(f"Failed to get interactive mode: {e}")
+
         config_data = {
             "default_backend": self.app.state.backend_type,
-            "interactive_mode": self.app.state.session_manager.default_interactive_mode,
+            "interactive_mode": interactive_mode,
             "failover_routes": self.app.state.failover_routes,
             "redact_api_keys_in_prompts": self.app.state.api_key_redaction_enabled,
             "command_prefix": self.app.state.command_prefix,
@@ -215,7 +241,9 @@ class ConfigManager:
             # Convert ModelDefaults objects back to dict format for JSON serialization
             model_defaults_dict = {}
             for model_name, model_defaults in self.app.state.model_defaults.items():
-                model_defaults_dict[model_name] = model_defaults.dict(exclude_none=True)
+                model_defaults_dict[model_name] = model_defaults.model_dump(
+                    exclude_none=True
+                )
             config_data["model_defaults"] = model_defaults_dict
 
         return config_data
