@@ -110,7 +110,7 @@ def get_anthropic_controller(service_provider: IServiceProvider) -> AnthropicCon
     """
     try:
         # Try to get the existing request processor from the service provider
-        request_processor = service_provider.get_service(IRequestProcessor)
+        request_processor = service_provider.get_service(IRequestProcessor)  # type: ignore[type-abstract]
         if request_processor is None:
             # Try to get the concrete implementation
             from src.core.services.request_processor_service import RequestProcessor
@@ -123,19 +123,23 @@ def get_anthropic_controller(service_provider: IServiceProvider) -> AnthropicCon
             from src.core.interfaces.session_service_interface import ISessionService
             from src.core.interfaces.response_processor_interface import IResponseProcessor
             
-            cmd = service_provider.get_service(ICommandService)
-            backend = service_provider.get_service(IBackendService)
-            session = service_provider.get_service(ISessionService)
-            response_proc = service_provider.get_service(IResponseProcessor)
+            cmd = service_provider.get_service(ICommandService)  # type: ignore[type-abstract]
+            backend = service_provider.get_service(IBackendService)  # type: ignore[type-abstract]
+            session = service_provider.get_service(ISessionService)  # type: ignore[type-abstract]
+            response_proc = service_provider.get_service(IResponseProcessor)  # type: ignore[type-abstract]
             
             if cmd and backend and session and response_proc:
                 from src.core.services.request_processor_service import RequestProcessor
                 request_processor = RequestProcessor(cmd, backend, session, response_proc)
                 
                 # Register it for future use
-                if hasattr(service_provider, '_singleton_instances'):
-                    service_provider._singleton_instances[IRequestProcessor] = request_processor
-                    service_provider._singleton_instances[RequestProcessor] = request_processor
+                from src.core.di.container import ServiceProvider
+                if isinstance(service_provider, ServiceProvider):
+                    # Access the _singleton_instances attribute safely
+                    singleton_instances = getattr(service_provider, '_singleton_instances', None)
+                    if singleton_instances is not None:
+                        singleton_instances[IRequestProcessor] = request_processor
+                        singleton_instances[RequestProcessor] = request_processor
         
         if request_processor is None:
             raise Exception("Could not find or create RequestProcessor")

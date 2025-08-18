@@ -80,7 +80,7 @@ def get_chat_controller(service_provider: IServiceProvider) -> ChatController:
     """
     try:
         # Try to get the existing request processor from the service provider
-        request_processor = service_provider.get_service(IRequestProcessor)
+        request_processor = service_provider.get_service(IRequestProcessor)  # type: ignore[type-abstract]
         if request_processor is None:
             # Try to get the concrete implementation
             from src.core.services.request_processor_service import RequestProcessor
@@ -98,10 +98,10 @@ def get_chat_controller(service_provider: IServiceProvider) -> ChatController:
             )
             from src.core.interfaces.session_service_interface import ISessionService
 
-            cmd = service_provider.get_service(ICommandService)
-            backend = service_provider.get_service(IBackendService)
-            session = service_provider.get_service(ISessionService)
-            response_proc = service_provider.get_service(IResponseProcessor)
+            cmd = service_provider.get_service(ICommandService)  # type: ignore[type-abstract]
+            backend = service_provider.get_service(IBackendService)  # type: ignore[type-abstract]
+            session = service_provider.get_service(ISessionService)  # type: ignore[type-abstract]
+            response_proc = service_provider.get_service(IResponseProcessor)  # type: ignore[type-abstract]
 
             if cmd and backend and session and response_proc:
                 from src.core.services.request_processor_service import RequestProcessor
