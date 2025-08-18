@@ -21,8 +21,13 @@ class BackendConfiguration(ValueObject, IBackendConfig):
     backend_type: str | None = None
     model: str | None = None
     api_url: str | None = None
-    interactive_mode: bool = True
+    _interactive_mode: bool = True
     _failover_routes: dict[str, dict[str, Any]] = {}
+
+    @property
+    def interactive_mode(self) -> bool:
+        """Get whether interactive mode is enabled."""
+        return self._interactive_mode
 
     @property
     def failover_routes(self) -> dict[str, dict[str, Any]]:
@@ -71,7 +76,7 @@ class BackendConfiguration(ValueObject, IBackendConfig):
 
     def with_interactive_mode(self, enabled: bool) -> IBackendConfig:
         """Create a new config with updated interactive mode."""
-        return self.model_copy(update={"interactive_mode": enabled})
+        return self.model_copy(update={"_interactive_mode": enabled})
 
     def with_backend_and_model(
         self, backend: str, model: str, invalid: bool = False

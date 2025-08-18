@@ -74,7 +74,7 @@ def get_chat_controller(service_provider: IServiceProvider) -> ChatController:
 
     Returns:
         A configured chat controller
-        
+
     Raises:
         Exception: If the request processor could not be found or created
     """
@@ -84,32 +84,58 @@ def get_chat_controller(service_provider: IServiceProvider) -> ChatController:
         if request_processor is None:
             # Try to get the concrete implementation
             from src.core.services.request_processor_service import RequestProcessor
+
             request_processor = service_provider.get_service(RequestProcessor)
-            
+
         if request_processor is None:
             # If still not found, try to create one on the fly
-            from src.core.interfaces.command_service_interface import ICommandService
+            from typing import cast
+
             from src.core.interfaces.backend_service_interface import IBackendService
+            from src.core.interfaces.command_service_interface import ICommandService
+            from src.core.interfaces.response_processor_interface import (
+                IResponseProcessor,
+            )
             from src.core.interfaces.session_service_interface import ISessionService
-            from src.core.interfaces.response_processor_interface import IResponseProcessor
-            
+
             cmd = service_provider.get_service(ICommandService)
             backend = service_provider.get_service(IBackendService)
             session = service_provider.get_service(ISessionService)
             response_proc = service_provider.get_service(IResponseProcessor)
-            
+
             if cmd and backend and session and response_proc:
                 from src.core.services.request_processor_service import RequestProcessor
-                request_processor = RequestProcessor(cmd, backend, session, response_proc)
-                
+
+                # Cast the abstract interface types to concrete implementations
+                # The service provider is guaranteed to return concrete implementations
+                concrete_cmd = cast(ICommandService, cmd)
+                concrete_backend = cast(IBackendService, backend)
+                concrete_session = cast(ISessionService, session)
+                concrete_response_proc = cast(IResponseProcessor, response_proc)
+                request_processor = RequestProcessor(
+                    concrete_cmd,
+                    concrete_backend,
+                    concrete_session,
+                    concrete_response_proc,
+                )
+
                 # Register it for future use
-                if hasattr(service_provider, '_singleton_instances'):
-                    service_provider._singleton_instances[IRequestProcessor] = request_processor
-                    service_provider._singleton_instances[RequestProcessor] = request_processor
-        
+                # Only try to register if the service provider is a ServiceProvider instance
+                # that has the _singleton_instances attribute
+                from src.core.di.container import ServiceProvider
+
+                if isinstance(service_provider, ServiceProvider):
+                    # Access the _singleton_instances attribute safely
+                    singleton_instances = getattr(
+                        service_provider, "_singleton_instances", None
+                    )
+                    if singleton_instances is not None:
+                        singleton_instances[IRequestProcessor] = request_processor
+                        singleton_instances[RequestProcessor] = request_processor
+
         if request_processor is None:
             raise Exception("Could not find or create RequestProcessor")
-            
+
         return ChatController(request_processor)
     except Exception as e:
         raise Exception(f"Failed to create ChatController: {e}")
