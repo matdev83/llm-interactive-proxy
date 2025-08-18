@@ -19,7 +19,7 @@ class CommandParserConfig:
         app: FastAPI,
         preserve_unknown: bool,
         functional_backends: set[str] | None = None,
-    ):
+    ) -> None:
         self.proxy_state = proxy_state
         self.app = app
         self.preserve_unknown = preserve_unknown
@@ -37,7 +37,7 @@ class CommandProcessorConfig:
         handlers: dict[str, BaseCommand],
         preserve_unknown: bool,
         command_results: list,
-    ):
+    ) -> None:
         self.proxy_state = proxy_state
         self.app = app
         self.command_pattern = command_pattern

@@ -19,13 +19,13 @@ from src.anthropic_models import AnthropicMessage, AnthropicMessagesRequest
 class TestAnthropicConverters:
     """Test suite for Anthropic front-end converters."""
 
-    def test_anthropic_message_model(self):
+    def test_anthropic_message_model(self) -> None:
         """Test AnthropicMessage model validation."""
         msg = AnthropicMessage(role="user", content="Hello")
         assert msg.role == "user"
         assert msg.content == "Hello"
 
-    def test_anthropic_messages_request_model(self):
+    def test_anthropic_messages_request_model(self) -> None:
         """Test AnthropicMessagesRequest model validation."""
         req = AnthropicMessagesRequest(
             model="claude-3-sonnet-20240229",
@@ -44,7 +44,7 @@ class TestAnthropicConverters:
         assert req.system == "You are helpful"
         assert req.stream is True
 
-    def test_anthropic_to_openai_request_basic(self):
+    def test_anthropic_to_openai_request_basic(self) -> None:
         """Test basic Anthropic to OpenAI request conversion."""
         anthropic_req = AnthropicMessagesRequest(
             model="claude-3-sonnet-20240229",
@@ -61,7 +61,7 @@ class TestAnthropicConverters:
         assert openai_req["messages"][0]["role"] == "user"
         assert openai_req["messages"][0]["content"] == "Hello"
 
-    def test_anthropic_to_openai_request_with_system(self):
+    def test_anthropic_to_openai_request_with_system(self) -> None:
         """Test conversion with system message."""
         anthropic_req = AnthropicMessagesRequest(
             model="claude-3-haiku-20240307",
@@ -78,7 +78,7 @@ class TestAnthropicConverters:
         assert openai_req["messages"][1]["role"] == "user"
         assert openai_req["messages"][1]["content"] == "Hello"
 
-    def test_anthropic_to_openai_request_with_parameters(self):
+    def test_anthropic_to_openai_request_with_parameters(self) -> None:
         """Test conversion with all optional parameters."""
         anthropic_req = AnthropicMessagesRequest(
             model="claude-3-opus-20240229",
@@ -99,7 +99,7 @@ class TestAnthropicConverters:
         assert openai_req["stop"] == ["STOP", "END"]
         assert openai_req["stream"] is True
 
-    def test_openai_to_anthropic_response_basic(self):
+    def test_openai_to_anthropic_response_basic(self) -> None:
         """Test basic OpenAI to Anthropic response conversion."""
         openai_response = {
             "id": "chatcmpl-123",
@@ -131,7 +131,7 @@ class TestAnthropicConverters:
         assert anthropic_response["usage"]["input_tokens"] == 10
         assert anthropic_response["usage"]["output_tokens"] == 15
 
-    def test_openai_stream_to_anthropic_stream_start(self):
+    def test_openai_stream_to_anthropic_stream_start(self) -> None:
         """Test OpenAI stream chunk to Anthropic stream conversion - start."""
         openai_chunk = 'data: {"id": "chatcmpl-123", "object": "chat.completion.chunk", "choices": [{"index": 0, "delta": {"role": "assistant"}}]}'
 
@@ -141,7 +141,7 @@ class TestAnthropicConverters:
         assert "message_start" in anthropic_chunk
         assert "assistant" in anthropic_chunk
 
-    def test_openai_stream_to_anthropic_stream_content(self):
+    def test_openai_stream_to_anthropic_stream_content(self) -> None:
         """Test OpenAI stream chunk to Anthropic stream conversion - content."""
         openai_chunk = 'data: {"id": "chatcmpl-123", "object": "chat.completion.chunk", "choices": [{"index": 0, "delta": {"content": "Hello"}}]}'
 
@@ -151,7 +151,7 @@ class TestAnthropicConverters:
         assert "content_block_delta" in anthropic_chunk
         assert "Hello" in anthropic_chunk
 
-    def test_openai_stream_to_anthropic_stream_finish(self):
+    def test_openai_stream_to_anthropic_stream_finish(self) -> None:
         """Test OpenAI stream chunk to Anthropic stream conversion - finish."""
         openai_chunk = 'data: {"id": "chatcmpl-123", "object": "chat.completion.chunk", "choices": [{"index": 0, "delta": {}, "finish_reason": "stop"}]}'
 
@@ -161,7 +161,7 @@ class TestAnthropicConverters:
         assert "message_delta" in anthropic_chunk
         assert "end_turn" in anthropic_chunk
 
-    def test_openai_stream_to_anthropic_stream_invalid(self):
+    def test_openai_stream_to_anthropic_stream_invalid(self) -> None:
         """Test handling of invalid OpenAI stream chunks."""
         invalid_chunk = "invalid data"
 
@@ -170,7 +170,7 @@ class TestAnthropicConverters:
         # Should pass through unchanged
         assert anthropic_chunk == invalid_chunk
 
-    def test_map_finish_reason(self):
+    def test_map_finish_reason(self) -> None:
         """Test finish reason mapping."""
         assert _map_finish_reason("stop") == "end_turn"
         assert _map_finish_reason("length") == "max_tokens"
@@ -179,7 +179,7 @@ class TestAnthropicConverters:
         assert _map_finish_reason(None) is None
         assert _map_finish_reason("unknown") == "end_turn"
 
-    def test_get_anthropic_models(self):
+    def test_get_anthropic_models(self) -> None:
         """Test Anthropic models endpoint response."""
         models_response = get_anthropic_models()
 
@@ -201,7 +201,7 @@ class TestAnthropicConverters:
         assert "owned_by" in first_model
         assert first_model["owned_by"] == "anthropic"
 
-    def test_extract_anthropic_usage_dict(self):
+    def test_extract_anthropic_usage_dict(self) -> None:
         """Test usage extraction from dictionary response."""
         response = {"usage": {"input_tokens": 50, "output_tokens": 75}}
 
@@ -211,7 +211,7 @@ class TestAnthropicConverters:
         assert usage["output_tokens"] == 75
         assert usage["total_tokens"] == 125
 
-    def test_extract_anthropic_usage_object(self):
+    def test_extract_anthropic_usage_object(self) -> None:
         """Test usage extraction from object response."""
         mock_usage = Mock()
         mock_usage.input_tokens = 30
@@ -226,7 +226,7 @@ class TestAnthropicConverters:
         assert usage["output_tokens"] == 45
         assert usage["total_tokens"] == 75
 
-    def test_extract_anthropic_usage_empty(self):
+    def test_extract_anthropic_usage_empty(self) -> None:
         """Test usage extraction with empty/invalid response."""
         usage = extract_anthropic_usage({})
 
@@ -234,7 +234,7 @@ class TestAnthropicConverters:
         assert usage["output_tokens"] == 0
         assert usage["total_tokens"] == 0
 
-    def test_conversation_flow(self):
+    def test_conversation_flow(self) -> None:
         """Test a complete conversation flow conversion."""
         # Multi-turn conversation
         anthropic_req = AnthropicMessagesRequest(

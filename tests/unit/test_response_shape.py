@@ -10,7 +10,7 @@ def make_processor() -> RequestProcessor:
     return RequestProcessor(Mock(), Mock(), Mock(), Mock())
 
 
-def test_extract_response_content_with_dict():
+def test_extract_response_content_with_dict() -> None:
     proc = make_processor()
     mock_response_data = {
         "choices": [{"index": 0, "message": {"role": "assistant", "content": "Hello"}}]
@@ -21,7 +21,7 @@ def test_extract_response_content_with_dict():
     assert content == "Hello"
 
 
-def test_extract_response_content_with_object_choices():
+def test_extract_response_content_with_object_choices() -> None:
     proc = make_processor()
 
     # Simulate a ChatResponse-like object with .choices attribute
@@ -36,7 +36,7 @@ def test_extract_response_content_with_object_choices():
     assert content == "Hi there"
 
 
-def test_extract_response_content_with_tuple_is_invalid():
+def test_extract_response_content_with_tuple_is_invalid() -> None:
     """
     Historically some tests accidentally returned a tuple like (dict, {}) from mocked
     backend calls which caused AttributeError at runtime. Ensure such shapes are

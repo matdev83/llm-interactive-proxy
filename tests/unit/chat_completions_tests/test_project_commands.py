@@ -20,14 +20,14 @@ async def test_set_project_command_integration(client: TestClient):
         response = client.post("/v1/chat/completions", json=payload)
     assert response.status_code == 200
     session_service = get_session_service_from_app(client.app)
-    session = await session_service.get_session_async("default")  # Use async method
+    session = await session_service.get_session("default")  # Use async method
     assert session.state.project == "test-project"
 
 
 @pytest.mark.asyncio
 async def test_unset_project_command_integration(client: TestClient):
     session_service = get_session_service_from_app(client.app)
-    session = await session_service.get_session_async("default")  # Use async method
+    session = await session_service.get_session("default")  # Use async method
     session.state.set_project("initial-project")  # Set initial project
 
     payload = {
@@ -60,14 +60,14 @@ async def test_set_project_name_alias_integration(client: TestClient):
         response = client.post("/v1/chat/completions", json=payload)
     assert response.status_code == 200
     session_service = get_session_service_from_app(client.app)
-    session = await session_service.get_session_async("default")  # Use async method
+    session = await session_service.get_session("default")  # Use async method
     assert session.state.project == "alias-project"
 
 
 @pytest.mark.asyncio
 async def test_unset_project_name_alias_integration(client: TestClient):
     session_service = get_session_service_from_app(client.app)
-    session = await session_service.get_session_async("default")  # Use async method
+    session = await session_service.get_session("default")  # Use async method
     session.state.set_project("initial-alias-project")  # Set initial project
 
     payload = {
@@ -93,7 +93,7 @@ async def test_force_set_project_blocks_requests(client: TestClient):
     client.app.state.force_set_project = True
     try:
         session_service = get_session_service_from_app(client.app)
-        session = await session_service.get_session_async("default")  # Use async method
+        session = await session_service.get_session("default")  # Use async method
         session.state.unset_project()  # Ensure project is not set
 
         payload = {

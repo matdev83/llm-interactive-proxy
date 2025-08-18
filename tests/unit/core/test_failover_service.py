@@ -3,7 +3,7 @@ from unittest.mock import Mock
 from src.core.services.failover_service import FailoverService
 
 
-def test_get_failover_attempts():
+def test_get_failover_attempts() -> None:
     """Test that get_failover_attempts correctly parses route elements."""
     # Create a mock backend config with failover routes
     backend_config = Mock()
@@ -38,7 +38,7 @@ def test_get_failover_attempts():
     assert attempts[2].model == "mistralai/mistral-7b-instruct"
 
 
-def test_get_failover_attempts_empty_route():
+def test_get_failover_attempts_empty_route() -> None:
     """Test that get_failover_attempts returns empty list for non-existent route."""
     # Create a mock backend config with no routes
     backend_config = Mock()
@@ -54,7 +54,7 @@ def test_get_failover_attempts_empty_route():
     assert attempts == []
 
 
-def test_get_failover_attempts_invalid_element():
+def test_get_failover_attempts_invalid_element() -> None:
     """Test that get_failover_attempts handles invalid elements gracefully."""
     # Create a mock backend config with one valid and one invalid element
     backend_config = Mock()

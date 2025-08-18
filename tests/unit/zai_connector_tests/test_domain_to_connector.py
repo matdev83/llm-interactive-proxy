@@ -32,7 +32,7 @@ async def zai_backend_fixture(httpx_mock: HTTPXMock) -> ZAIConnector:
             {"id": "glm-4.5-air", "object": "model"},
         ]
     }
-    
+
     httpx_mock.add_response(
         url=f"{TEST_ZAI_API_BASE_URL}models",
         method="GET",
@@ -40,15 +40,15 @@ async def zai_backend_fixture(httpx_mock: HTTPXMock) -> ZAIConnector:
         status_code=200,
         headers={"Content-Type": "application/json"},
     )
-    
+
     async with httpx.AsyncClient() as client:
         backend = ZAIConnector(client)
         await backend.initialize(api_key="test_key")
-        
+
         # Manually set available_models for testing
         # This is a workaround for the mock response not being processed correctly
         backend.available_models = ["glm-4.5", "glm-4.5-flash", "glm-4.5-air"]
-        
+
         return backend
 
 
@@ -85,8 +85,7 @@ async def test_chat_completions_basic_request(
 
     # Get the request that was sent - specify method and URL to get the correct request
     sent_request = httpx_mock.get_request(
-        method="POST",
-        url=f"{TEST_ZAI_API_BASE_URL}chat/completions"
+        method="POST", url=f"{TEST_ZAI_API_BASE_URL}chat/completions"
     )
     assert sent_request is not None
     sent_payload = json.loads(sent_request.content)
@@ -158,8 +157,7 @@ async def test_chat_completions_with_tools(
 
     # Get the request that was sent - specify method and URL to get the correct request
     sent_request = httpx_mock.get_request(
-        method="POST",
-        url=f"{TEST_ZAI_API_BASE_URL}chat/completions"
+        method="POST", url=f"{TEST_ZAI_API_BASE_URL}chat/completions"
     )
     assert sent_request is not None
     sent_payload = json.loads(sent_request.content)
@@ -212,8 +210,7 @@ async def test_chat_completions_streaming(
 
     # Get the request that was sent - specify method and URL to get the correct request
     sent_request = httpx_mock.get_request(
-        method="POST",
-        url=f"{TEST_ZAI_API_BASE_URL}chat/completions"
+        method="POST", url=f"{TEST_ZAI_API_BASE_URL}chat/completions"
     )
     assert sent_request is not None
     sent_payload = json.loads(sent_request.content)
@@ -239,18 +236,18 @@ async def test_chat_completions_streaming(
 async def test_list_models(zai_backend: ZAIConnector, httpx_mock: HTTPXMock) -> None:
     """Test that the list_models method works correctly."""
     # The mock response for models was already set up in the fixture
-    
+
     # Directly set available_models for testing
     expected_models = ["glm-4.5", "glm-4.5-flash", "glm-4.5-air"]
     zai_backend.available_models = expected_models.copy()
-    
+
     # Verify that get_available_models returns the expected models
     available_models = zai_backend.get_available_models()
     assert "glm-4.5" in available_models
     assert "glm-4.5-flash" in available_models
     assert "glm-4.5-air" in available_models
     assert len(available_models) == 3
-    
+
     # Setup a new mock response for the list_models call
     mock_models = {
         "data": [
@@ -259,7 +256,7 @@ async def test_list_models(zai_backend: ZAIConnector, httpx_mock: HTTPXMock) -> 
             {"id": "glm-4.5-air", "object": "model"},
         ]
     }
-    
+
     httpx_mock.add_response(
         url=f"{TEST_ZAI_API_BASE_URL}models",
         method="GET",
@@ -267,10 +264,10 @@ async def test_list_models(zai_backend: ZAIConnector, httpx_mock: HTTPXMock) -> 
         status_code=200,
         headers={"Content-Type": "application/json"},
     )
-    
+
     # Call list_models to verify it works correctly
     models_data = await zai_backend.list_models()
-    
+
     # Verify the models data format
     assert "data" in models_data
     assert len(models_data["data"]) == 3
@@ -286,14 +283,14 @@ async def test_default_models_fallback(httpx_mock: HTTPXMock) -> None:
 
         # Setup the mock to fail for the models endpoint
         httpx_mock.add_exception(
-            url=f"{TEST_ZAI_API_BASE_URL}models", 
+            url=f"{TEST_ZAI_API_BASE_URL}models",
             exception=httpx.HTTPError("API error"),
-            method="GET"
+            method="GET",
         )
 
         # Initialize the backend
         await backend.initialize(api_key="test_key")
-        
+
         # Manually set available_models to match the expected default models
         # This is a workaround for the mock exception not triggering the fallback correctly
         expected_models = ["glm-4.5", "glm-4.5-flash", "glm-4.5-air"]

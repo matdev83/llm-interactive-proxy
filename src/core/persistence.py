@@ -43,19 +43,23 @@ class ConfigManager:
             if backend_value in self.app.state.functional_backends:
                 self.app.state.backend_type = backend_value
                 # Convert backend name to valid attribute name (replace hyphens with underscores)
-                backend_attr = backend_value.replace("-", "_")
-                backend_obj = getattr(self.app.state, f"{backend_attr}_backend", None)
-                if backend_obj:
-                    self.app.state.backend = backend_obj
-                else:
-                    # Fallback to openrouter if backend object not found
-                    # Safely get openrouter_backend, fallback to None if not available
-                    openrouter_backend = getattr(
-                        self.app.state, "openrouter_backend", None
-                    )
-                    if openrouter_backend:
-                        self.app.state.backend = openrouter_backend
-                    # If no backend is available, leave backend as None or use a mock
+                # Resolve backend via DI-backed BackendService if available
+                if hasattr(self.app.state, "service_provider"):
+                    try:
+                        from src.core.interfaces.backend_service_interface import (
+                            IBackendService,
+                        )
+
+                        backend_service = self.app.state.service_provider.get_required_service(
+                            IBackendService
+                        )
+                        if backend_service and backend_value in getattr(backend_service, "_backends", {}):
+                            self.app.state.backend = getattr(backend_service, "_backends")[backend_value]
+                            return
+                    except Exception:
+                        # If DI resolution fails, do not fall back to legacy state
+                        pass
+                # Do not use legacy app.state.<backend>_backend attributes; require DI
             else:
                 raise ValueError(
                     f"Default backend '{backend_value}' is not in functional_backends."

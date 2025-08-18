@@ -58,7 +58,9 @@ async def test_chat_completions_streaming_success(
     sample_chat_request_data: ChatRequest,
     sample_processed_messages: list[ChatMessage],
 ):
-    sample_chat_request_data = sample_chat_request_data.model_copy(update={"stream": True})
+    sample_chat_request_data = sample_chat_request_data.model_copy(
+        update={"stream": True}
+    )
     effective_model = "openai/gpt-4"
 
     # Mock streaming response chunks

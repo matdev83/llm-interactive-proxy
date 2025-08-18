@@ -1,7 +1,6 @@
 """Tests for the versioned API endpoints."""
 
 import os
-from unittest.mock import AsyncMock, patch
 
 import pytest
 from fastapi import FastAPI
@@ -82,51 +81,60 @@ async def initialized_app(app: FastAPI):
     This fixture exists for compatibility with tests that expect it.
     """
     # Ensure the app has all required services properly initialized
-    import asyncio
     from src.core.app.application_factory import ApplicationBuilder
-    from src.core.di.services import set_service_provider
+    from src.core.app.controllers.chat_controller import ChatController
     from src.core.config.app_config import AppConfig
+    from src.core.di.services import set_service_provider
     from src.core.interfaces.request_processor_interface import IRequestProcessor
     from src.core.services.request_processor_service import RequestProcessor
-    from src.core.app.controllers.chat_controller import ChatController
-    
+
     # If service provider is not available or chat controller isn't registered, initialize it
-    if (not hasattr(app.state, "service_provider") or 
-        app.state.service_provider is None or 
-        app.state.service_provider.get_service(ChatController) is None):
-        
+    if (
+        not hasattr(app.state, "service_provider")
+        or app.state.service_provider is None
+        or app.state.service_provider.get_service(ChatController) is None
+    ):
+
         # Get or create config
         config = getattr(app.state, "app_config", None)
         if config is None:
             config = AppConfig()
             app.state.app_config = config
-        
+
         # Create builder and initialize services
         builder = ApplicationBuilder()
         # Use await directly since we're already in an async context
         provider = await builder._initialize_services(app, config)
-        
+
         # Set service provider
         set_service_provider(provider)
         app.state.service_provider = provider
-        
+
         # Verify that the key services are available
         try:
             request_processor = provider.get_service(IRequestProcessor)
             if request_processor is None:
                 # Create and register RequestProcessor if not available
-                from src.core.interfaces.command_service_interface import ICommandService
-                from src.core.interfaces.backend_service_interface import IBackendService
-                from src.core.interfaces.session_service_interface import ISessionService
-                from src.core.interfaces.response_processor_interface import IResponseProcessor
-                
+                from src.core.interfaces.backend_service_interface import (
+                    IBackendService,
+                )
+                from src.core.interfaces.command_service_interface import (
+                    ICommandService,
+                )
+                from src.core.interfaces.response_processor_interface import (
+                    IResponseProcessor,
+                )
+                from src.core.interfaces.session_service_interface import (
+                    ISessionService,
+                )
+
                 # Get required dependencies
                 cmd = provider.get_service(ICommandService)
                 backend = provider.get_service(IBackendService)
                 session = provider.get_service(ISessionService)
                 response_proc = provider.get_service(IResponseProcessor)
-                
-                            # Create request processor if all dependencies are available
+
+                # Create request processor if all dependencies are available
             if cmd and backend and session and response_proc:
                 try:
                     # Create request processor properly
@@ -134,22 +142,23 @@ async def initialized_app(app: FastAPI):
                         command_service=cmd,
                         backend_service=backend,
                         session_service=session,
-                        response_processor=response_proc
+                        response_processor=response_proc,
                     )
-                    
+
                     # Register it in the provider
                     provider._singleton_instances[IRequestProcessor] = request_processor
                     provider._singleton_instances[RequestProcessor] = request_processor
-                    
+
                     # Also create ChatController and register it
                     from src.core.app.controllers.chat_controller import ChatController
+
                     chat_controller = ChatController(request_processor)
                     provider._singleton_instances[ChatController] = chat_controller
                 except Exception as e:
                     print(f"Error creating RequestProcessor or ChatController: {e}")
         except Exception as e:
             print(f"Error setting up request processor: {e}")
-            
+
     yield app
 
 
@@ -174,39 +183,41 @@ async def test_versioned_endpoint_with_backend_service(
 ):
     """Test that the versioned endpoint uses the backend service."""
     # Mock the backend service to return a successful response
-    from src.core.interfaces.backend_service_interface import IBackendService
     from src.core.domain.chat import ChatResponse
-    
+
     # Create a mock response
     mock_response = ChatResponse(
         id="test-id",
-        created=int(1629380000),  # Add timestamp for created field
+        created=1629380000,  # Add timestamp for created field
         model="test-model",
         choices=[
             {
-                "message": {"role": "assistant", "content": "This is a test response from the backend service"},
+                "message": {
+                    "role": "assistant",
+                    "content": "This is a test response from the backend service",
+                },
                 "index": 0,
                 "finish_reason": "stop",
             }
         ],
         usage={"prompt_tokens": 10, "completion_tokens": 20, "total_tokens": 30},
     )
-    
+
     # Get the service provider from the app
     service_provider = initialized_app.state.service_provider
-    
+
     # Get the backend service
     backend_service = service_provider.get_service(IBackendService)
-    
+
     # Mock the call_completion method
     original_call_completion = backend_service.call_completion
-    
+
     async def mock_call_completion(*args, **kwargs):
         return mock_response
-    
+
     # Apply the mock
     backend_service.call_completion = mock_call_completion
-    
+
     try:
         # Test with a direct call to the backend service
         response = client.post(
@@ -217,11 +228,14 @@ async def test_versioned_endpoint_with_backend_service(
             },
             headers={"Authorization": "Bearer test-proxy-key"},
         )
-        
+
         # Check the response
         assert response.status_code == 200
-        assert "This is a test response from the backend service" in response.json()["choices"][0]["message"]["content"]
-        
+        assert (
+            "This is a test response from the backend service"
+            in response.json()["choices"][0]["message"]["content"]
+        )
+
     finally:
         # Restore the original method
         backend_service.call_completion = original_call_completion
@@ -234,12 +248,11 @@ async def test_versioned_endpoint_with_commands(
     """Test that the versioned endpoint processes commands."""
     # Mock the request processor to handle commands
     from src.core.interfaces.request_processor_interface import IRequestProcessor
-    from src.core.domain.chat import ChatResponse
-    
+
     # Create a mock response
     mock_response = ChatResponse(
         id="test-id",
-        created=int(1629380000),  # Add timestamp for created field
+        created=1629380000,  # Add timestamp for created field
         model="test-model",
         choices=[
             {
@@ -250,16 +263,16 @@ async def test_versioned_endpoint_with_commands(
         ],
         usage={"prompt_tokens": 10, "completion_tokens": 20, "total_tokens": 30},
     )
-    
+
     # Get the service provider from the app
     service_provider = initialized_app.state.service_provider
-    
+
     # Get the request processor
     request_processor = service_provider.get_service(IRequestProcessor)
-    
+
     # Mock the process_request method
     original_process_request = request_processor.process_request
-    
+
     async def mock_process_request(*args, **kwargs):
         # The real process_request signature is (request, request_data).
         # Support both positional and keyword invocation so the mock
@@ -296,10 +309,10 @@ async def test_versioned_endpoint_with_commands(
                 return mock_response
 
         return await original_process_request(*args, **kwargs)
-    
+
     # Apply the mock
     request_processor.process_request = mock_process_request
-    
+
     try:
         # Test with a command
         response = client.post(
@@ -310,11 +323,14 @@ async def test_versioned_endpoint_with_commands(
             },
             headers={"Authorization": "Bearer test-proxy-key"},
         )
-        
+
         # Check that the command was processed
         assert response.status_code == 200
-        assert "Command processed: hello" in response.json()["choices"][0]["message"]["content"]
-        
+        assert (
+            "Command processed: hello"
+            in response.json()["choices"][0]["message"]["content"]
+        )
+
     finally:
         # Restore the original method
         request_processor.process_request = original_process_request
@@ -325,38 +341,40 @@ async def test_compatibility_endpoint(initialized_app: FastAPI, client: TestClie
     """Test that the compatibility endpoint works."""
     # Mock the request processor to return a successful response
     from src.core.interfaces.request_processor_interface import IRequestProcessor
-    from src.core.domain.chat import ChatResponse
-    
+
     # Create a mock response
     mock_response = ChatResponse(
         id="test-id",
-        created=int(1629380000),  # Add timestamp for created field
+        created=1629380000,  # Add timestamp for created field
         model="test-model",
         choices=[
             {
-                "message": {"role": "assistant", "content": "This is a compatibility test response"},
+                "message": {
+                    "role": "assistant",
+                    "content": "This is a compatibility test response",
+                },
                 "index": 0,
                 "finish_reason": "stop",
             }
         ],
         usage={"prompt_tokens": 10, "completion_tokens": 20, "total_tokens": 30},
     )
-    
+
     # Get the service provider from the app
     service_provider = initialized_app.state.service_provider
-    
+
     # Get the request processor
     request_processor = service_provider.get_service(IRequestProcessor)
-    
+
     # Mock the process_request method
     original_process_request = request_processor.process_request
-    
+
     async def mock_process_request(*args, **kwargs):
         return mock_response
-    
+
     # Apply the mock
     request_processor.process_request = mock_process_request
-    
+
     try:
         # Test the compatibility endpoint (v1)
         v1_response = client.post(
@@ -367,7 +385,7 @@ async def test_compatibility_endpoint(initialized_app: FastAPI, client: TestClie
             },
             headers={"Authorization": "Bearer test-proxy-key"},
         )
-        
+
         # Test the new endpoint (v2)
         v2_response = client.post(
             "/v2/chat/completions",
@@ -377,20 +395,23 @@ async def test_compatibility_endpoint(initialized_app: FastAPI, client: TestClie
             },
             headers={"Authorization": "Bearer test-proxy-key"},
         )
-        
+
         # Check that both endpoints return the same response structure
         assert v1_response.status_code == 200
         assert v2_response.status_code == 200
-        
+
         # Compare the response structures
         v1_json = v1_response.json()
         v2_json = v2_response.json()
-        
+
         # Both should have the same structure
         assert v1_json["id"] == v2_json["id"]
         assert v1_json["model"] == v2_json["model"]
-        assert v1_json["choices"][0]["message"]["content"] == v2_json["choices"][0]["message"]["content"]
-        
+        assert (
+            v1_json["choices"][0]["message"]["content"]
+            == v2_json["choices"][0]["message"]["content"]
+        )
+
     finally:
         # Restore the original method
         request_processor.process_request = original_process_request

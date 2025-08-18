@@ -37,7 +37,9 @@ async def test_chat_completions_model_prefix_handled(
     sample_chat_request_data: ChatRequest,
     sample_processed_messages: list[ChatMessage],
 ):
-    sample_chat_request_data = sample_chat_request_data.model_copy(update={"stream": False})
+    sample_chat_request_data = sample_chat_request_data.model_copy(
+        update={"stream": False}
+    )
     effective_model = "models/gemini-1"
 
     mock_response_payload = {

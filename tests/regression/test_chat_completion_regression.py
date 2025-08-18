@@ -18,7 +18,6 @@ from src.core.domain.chat import (
 from src.core.domain.chat import (
     ChatResponse as ChatCompletionResponse,
 )
-from starlette.responses import StreamingResponse
 
 
 class MockCompletionUsageData(TypedDict):
@@ -138,9 +137,7 @@ class TestChatCompletionRegression:
             yield 'data: {"id": "2", "choices": [{"delta": {"content": ", world!"}}]}'
             yield "data: [DONE]"
 
-        mock_chat_completions.return_value = StreamingResponse(
-            mock_stream(), media_type="text/event-stream"
-        )
+        mock_chat_completions.return_value = mock_stream()
         mock_initialize.return_value = None
 
         # Define a streaming chat completion request

@@ -4,6 +4,7 @@ from pytest_httpx import HTTPXMock
 from src.core.app.application_factory import build_app
 
 
+@pytest.mark.httpx_mock(allow_missing_responses=True)
 def test_failover_key_rotation(httpx_mock: HTTPXMock, monkeypatch):
     httpx_mock.non_mocked_hosts = []  # Mock all hosts
 
@@ -11,7 +12,12 @@ def test_failover_key_rotation(httpx_mock: HTTPXMock, monkeypatch):
     monkeypatch.setenv("OPENROUTER_API_KEY_2", "key2")
     monkeypatch.setenv("LLM_BACKEND", "openrouter")
 
-    app = build_app()
+    from src.core.config.app_config import AuthConfig
+
+    # Allow build_app to load config from environment variables
+    app, app_config = build_app()
+    # Override auth config if needed, but ensure other settings are loaded from env
+    app_config.auth = AuthConfig(api_keys=["test-proxy-key"])
     with TestClient(app, headers={"Authorization": "Bearer test-proxy-key"}) as client:
         # create route
         payload = {
@@ -40,7 +46,21 @@ def test_failover_key_rotation(httpx_mock: HTTPXMock, monkeypatch):
             url="https://openrouter.ai/api/v1/chat/completions",
             method="POST",
             status_code=200,
-            json={"choices": [{"message": {"content": "ok"}}]},
+            json={
+                "choices": [
+                    {"index": 0, "message": {"role": "assistant", "content": "ok"}}
+                ]
+            },
+        )
+        httpx_mock.add_response(
+            url="https://api.openai.com/v1/models",
+            method="GET",
+            json={"data": [{"id": "dummy"}]},
+        )
+        httpx_mock.add_response(
+            url="https://openrouter.ai/api/v1/models",
+            method="GET",
+            json={"data": [{"id": "dummy"}]},
         )
 
         payload2 = {"model": "r", "messages": [{"role": "user", "content": "hi"}]}
@@ -54,7 +74,7 @@ def test_failover_key_rotation(httpx_mock: HTTPXMock, monkeypatch):
             assert resp.json()["choices"][0]["message"]["content"].endswith("ok")
 
 
-@pytest.mark.httpx_mock()
+@pytest.mark.httpx_mock(allow_missing_responses=True)
 def test_failover_missing_keys(monkeypatch, httpx_mock: HTTPXMock):
     monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
     for i in range(1, 21):
@@ -65,15 +85,16 @@ def test_failover_missing_keys(monkeypatch, httpx_mock: HTTPXMock):
 
     monkeypatch.setenv("GEMINI_API_KEY", "G")
     monkeypatch.setenv("LLM_BACKEND", "gemini")
+    monkeypatch.setenv("GEMINI_API_BASE_URL", "https://zai.mock")
 
     from fastapi.testclient import TestClient
     from src.core.app import application_factory as app_main
-    from src.core.config.app_config import AppConfig
+    from src.core.config.app_config import AuthConfig
 
-    # Create config with auth disabled to avoid 401 errors
-    config = AppConfig()
-    config.auth.disable_auth = True
-    app = app_main.build_app(config)
+    # Allow build_app to load config from environment variables
+    app, app_config = app_main.build_app()
+    # Override auth config to disable authentication
+    app_config.auth = AuthConfig(disable_auth=True)
 
     # Mock the ZAI models endpoint that gets called during backend validation
     httpx_mock.add_response(

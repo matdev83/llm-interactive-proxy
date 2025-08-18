@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Mapping
-from typing import Any
+from typing import Any, cast
 
 from src.core.commands.handler_factory import CommandHandlerFactory
 from src.core.commands.handlers.base_handler import CommandHandlerResult
@@ -103,9 +103,11 @@ class UnsetCommand(BaseCommand):
             # If no direct match, try can_handle
             if not direct_match:
                 for h in handlers:
-                    if hasattr(h, "can_handle") and callable(h.can_handle):
+                    # Check if handler has can_handle method and it's callable
+                    if hasattr(h, "can_handle") and callable(getattr(h, "can_handle")):
                         try:
-                            if h.can_handle(param_str):
+                            can_handle_method = getattr(h, "can_handle")
+                            if can_handle_method(param_str):
                                 handler = h
                                 break
                         except Exception as e:
@@ -116,19 +118,21 @@ class UnsetCommand(BaseCommand):
             if handler:
                 # Handle the parameter - for unset, we pass None as the value
                 # Check if handler has handle or execute method
-                if hasattr(handler, "handle") and callable(handler.handle):
+                if hasattr(handler, "handle") and callable(getattr(handler, "handle")):
                     # For unset operations, we pass None to indicate removal
-                    handler_result = handler.handle(None, current_state)  # type: ignore
+                    handle_method = getattr(handler, "handle")
+                    handler_result = handle_method(None, current_state)
                 elif hasattr(handler, "execute") and callable(handler.execute):
                     # Use execute method if handle is not available
                     import inspect
 
-                    if inspect.iscoroutinefunction(handler.execute):
+                    execute_method = getattr(handler, "execute")
+                    if inspect.iscoroutinefunction(execute_method):
                         # We're already in an async context, so we can use await
                         # Pass None to indicate unset operation
-                                                 handler_result = await handler.execute({}, session)
+                        handler_result = await execute_method({}, session)
                     else:
-                        handler_result = handler.execute({}, session)
+                        handler_result = execute_method({}, session)
                 else:
                     handler_result = CommandHandlerResult(
                         success=False,
@@ -136,13 +140,25 @@ class UnsetCommand(BaseCommand):
                         new_state=None,
                     )
 
+                # Handle async results
+                import inspect
+                if inspect.isawaitable(handler_result):
+                    handler_result = await handler_result
+                
                 # Get message from result
                 message = getattr(handler_result, "message", str(handler_result))
                 if message.strip():  # Only add non-empty messages
                     results.append(message)
 
+                # Handle async results one more time
+                import inspect
+                if inspect.isawaitable(handler_result):
+                    handler_result = await handler_result
+                
                 # Update the current state for subsequent handlers
-                if hasattr(handler_result, "new_state") and handler_result.new_state:
+                # Use getattr to safely access attributes
+                new_state_attr = getattr(handler_result, "new_state", None)
+                if new_state_attr is not None and new_state_attr is not None:
                     # Wrap the new state in SessionStateAdapter if it's a raw SessionState
                     from src.core.domain.session import SessionStateAdapter
 
@@ -160,31 +176,17 @@ class UnsetCommand(BaseCommand):
                     success = False
             else:
                 # For unset, we have built-in fallbacks for common parameters
-                if param_str == "model":
-                    new_backend_config = current_state.backend_config.with_model(None)
-                    new_state = current_state.with_backend_config(new_backend_config)
-                    session.state = new_state
-                    results.append("Model unset")
-                elif param_str == "backend":
-                    new_backend_config = current_state.backend_config.without_override()
-                    new_state = current_state.with_backend_config(new_backend_config)
-                    session.state = new_state
-                    results.append("Backend unset")
-                elif param_str == "project":
-                    new_state = current_state.with_project(None)
-                    session.state = new_state
-                    results.append("Project unset")
-                elif param_str in ("project-dir", "dir", "project-directory"):
-                    new_state = current_state.with_project_dir(None)
-                    session.state = new_state
-                    results.append("Project directory unset")
-                elif param_str in ("interactive", "interactive-mode"):
-                    new_backend_config = (
-                        current_state.backend_config.with_interactive_mode(False)
-                    )
-                    new_state = current_state.with_backend_config(new_backend_config)
-                    session.state = new_state
-                    results.append("Interactive mode disabled")
+                # These are for parameters that don't have specific handlers yet
+                if param_str in ("interactive", "interactive-mode"):
+                    # Add None check for current_state
+                    if current_state is not None:
+                        from src.core.domain.configuration.backend_config import BackendConfiguration
+                        new_backend_config = (
+                            current_state.backend_config.with_interactive_mode(False)
+                        )
+                        new_state = current_state.with_backend_config(new_backend_config)
+                        session.state = new_state
+                        results.append("Interactive mode disabled")
                 else:
                     # Unknown parameter - silently ignore for unset (common behavior)
                     logger.debug(f"Unknown unset parameter ignored: {param_str}")

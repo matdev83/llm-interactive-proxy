@@ -15,7 +15,7 @@ from src.core.domain.session import (
 )
 
 
-def test_backend_config_immutability():
+def test_backend_config_immutability() -> None:
     """Test that BackendConfig is immutable and with_* methods work."""
     # Arrange
     config = BackendConfig(backend_type="openai", model="gpt-4")
@@ -39,7 +39,7 @@ def test_backend_config_immutability():
     # Note: model is cleared when changing backend, so we don't check it
 
 
-def test_reasoning_config_immutability():
+def test_reasoning_config_immutability() -> None:
     """Test that ReasoningConfig is immutable and with_* methods work."""
     # Arrange
     config = ReasoningConfig(temperature=0.7)
@@ -60,7 +60,7 @@ def test_reasoning_config_immutability():
     assert new_config.model_dump()["temperature"] == 0.8  # New config has updated value
 
 
-def test_loop_detection_config_immutability():
+def test_loop_detection_config_immutability() -> None:
     """Test that LoopDetectionConfig is immutable and with_* methods work."""
     # Arrange
     config = LoopDetectionConfig(loop_detection_enabled=True)
@@ -83,7 +83,7 @@ def test_loop_detection_config_immutability():
     )  # New config has updated value
 
 
-def test_session_state_immutability():
+def test_session_state_immutability() -> None:
     """Test that SessionState is immutable but its components can be updated."""
     # Arrange
     state = SessionState(
@@ -100,7 +100,7 @@ def test_session_state_immutability():
     assert "frozen" in str(excinfo.value).lower()
 
 
-def test_session_interaction_immutability():
+def test_session_interaction_immutability() -> None:
     """Test that SessionInteraction is immutable."""
     # Arrange
     interaction = SessionInteraction(
@@ -119,7 +119,7 @@ def test_session_interaction_immutability():
     assert "frozen" in str(excinfo.value).lower()
 
 
-def test_session_mutability():
+def test_session_mutability() -> None:
     """Test that Session is mutable."""
     from src.core.domain.session import Session, SessionInteraction
 

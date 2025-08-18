@@ -74,6 +74,8 @@ markers = [
     "unit: marks tests as unit tests",
     "network: marks tests that require network access (deselect with '-m \"not network\"')",
     "regression: marks tests as regression tests",
+    "backends: marks tests that need specific backends to be initialized",
+    "backend: marks tests that need a specific backend to be initialized",
 ]
 filterwarnings = [
     "ignore::pytest.PytestUnraisableExceptionWarning",

@@ -32,8 +32,6 @@ async def test_session_records_proxy_and_backend_interactions(client):
             "/v1/chat/completions", json=payload2, headers={"X-Session-ID": "abc"}
         )
 
-    from tests.conftest import get_session_service_from_app
-
     session_service = get_session_service_from_app(client.app)
     session = await session_service.get_session("abc")  # type: ignore
     assert len(session.history) == 2

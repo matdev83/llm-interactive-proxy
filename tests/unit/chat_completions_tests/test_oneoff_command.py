@@ -4,6 +4,8 @@ from unittest.mock import AsyncMock, patch
 import pytest
 from fastapi.testclient import TestClient
 
+from tests.conftest import get_backend_instance
+
 oneoff_test_cases = [
     (
         "oneoff_with_prompt",
@@ -65,14 +67,17 @@ def test_oneoff_command(
     }
 
     # Patch the actual backend methods that get called
+    backend_or = get_backend_instance(client.app, "openrouter")
+    backend_gem = get_backend_instance(client.app, "gemini")
+
     with (
         patch.object(
-            client.app.state.openrouter_backend,
+            backend_or,
             "chat_completions",
             new=AsyncMock(return_value=(mock_response, {})),
         ),
         patch.object(
-            client.app.state.gemini_backend,
+            backend_gem,
             "chat_completions",
             new=AsyncMock(return_value=(mock_response, {})),
         ),

@@ -73,7 +73,16 @@ class ToolDefinition(BaseModel):
         # and normalize to a dict for ChatRequest validation
         if isinstance(v, FunctionDefinition):
             return v.model_dump()
-        return v
+        # If v is already a dict, return it as is
+        if isinstance(v, dict):
+            return v
+        # If v is something else, try to convert it to a dict
+        # This should handle cases where v is a dict-like object
+        try:
+            return dict(v)  # type: ignore
+        except (TypeError, ValueError):
+            # If we can't convert to dict, raise a ValueError to let Pydantic handle the error properly
+            raise ValueError(f"Cannot convert {type(v)} to dict or FunctionDefinition")
 
 
 class ChatMessage(BaseModel):

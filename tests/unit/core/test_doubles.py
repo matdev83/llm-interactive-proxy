@@ -12,6 +12,8 @@ from datetime import datetime, timezone
 from typing import Any
 
 from src.core.domain.chat import (
+    ChatCompletionChoice,
+    ChatCompletionChoiceMessage,
     ChatRequest,
     ChatResponse,
     StreamingChatResponse,
@@ -52,7 +54,7 @@ from src.core.interfaces.session_service_interface import ISessionService
 class MockServiceProvider(IServiceProvider):
     """A mock service provider for testing."""
 
-    def __init__(self):
+    def __init__(self) -> None:
         self.services: dict[type, Any] = {}
 
     def get_service(self, service_type: type[Any]) -> Any | None:
@@ -71,7 +73,7 @@ class MockServiceProvider(IServiceProvider):
 class MockServiceScope(IServiceScope):
     """A mock service scope for testing."""
 
-    def __init__(self, provider: MockServiceProvider):
+    def __init__(self, provider: MockServiceProvider) -> None:
         self._provider = provider
 
     @property
@@ -88,7 +90,7 @@ class MockServiceScope(IServiceScope):
 class MockBackendService(IBackendService):
     """A mock backend service for testing."""
 
-    def __init__(self):
+    def __init__(self) -> None:
         self.responses: list[ChatResponse | Exception] = []
         self.stream_responses: list[list[StreamingChatResponse]] = []
         self.calls: list[ChatRequest] = []
@@ -107,7 +109,7 @@ class MockBackendService(IBackendService):
                 raise BackendError("No stream responses configured")
             responses = self.stream_responses.pop(0)
 
-            async def response_iterator():
+            async def response_iterator() -> AsyncIterator[StreamingChatResponse]:
                 for response in responses:
                     yield response
                     await asyncio.sleep(0.01)
@@ -148,7 +150,7 @@ class MockBackendService(IBackendService):
 class MockSessionService(ISessionService):
     """A mock session service for testing."""
 
-    def __init__(self):
+    def __init__(self) -> None:
         self.sessions: dict[str, Session] = {}
 
     async def get_session(self, session_id: str) -> Session:
@@ -184,7 +186,7 @@ class MockSessionService(ISessionService):
 class MockCommandService(ICommandService):
     """A mock command service for testing."""
 
-    def __init__(self):
+    def __init__(self) -> None:
         self.commands: dict[str, Any] = {}
         self.processed: list[list[Any]] = []
         self.results: list[ProcessedResult] = []
@@ -214,7 +216,7 @@ class MockCommandService(ICommandService):
 class MockRateLimiter(IRateLimiter):
     """A mock rate limiter for testing."""
 
-    def __init__(self):
+    def __init__(self) -> None:
         self.limits: dict[str, RateLimitInfo] = {}
         self.usage: dict[str, int] = {}
 
@@ -252,7 +254,7 @@ class MockRateLimiter(IRateLimiter):
 class MockLoopDetector(ILoopDetector):
     """A mock loop detector for testing."""
 
-    def __init__(self):
+    def __init__(self) -> None:
         self.tool_calls: list[dict[str, Any]] = []
         self.results: list[LoopDetectionResult] = []
 
@@ -287,7 +289,7 @@ class MockLoopDetector(ILoopDetector):
 class MockResponseProcessor(IResponseProcessor):
     """A mock response processor for testing."""
 
-    def __init__(self):
+    def __init__(self) -> None:
         self.middleware: list[IResponseMiddleware] = []
         self.processed: list[Any] = []
         self.results: list[ProcessedResponse] = []
@@ -309,7 +311,7 @@ class MockResponseProcessor(IResponseProcessor):
         # This is a simplified implementation for testing
         # In a real implementation, we'd process the stream
 
-        async def response_generator():
+        async def response_generator() -> AsyncIterator[ProcessedResponse]:
             chunks = []
             async for chunk in response_iter:
                 chunks.append(chunk)
@@ -341,7 +343,7 @@ class MockResponseProcessor(IResponseProcessor):
 class MockSessionRepository(ISessionRepository):
     """A mock session repository for testing."""
 
-    def __init__(self):
+    def __init__(self) -> None:
         self.sessions: dict[str, Session] = {}
         self.user_sessions: dict[str, list[Session]] = {}
 
@@ -444,11 +446,13 @@ class TestDataBuilder:
             created=int(datetime.now(timezone.utc).timestamp()),
             model="gpt-4",
             choices=[
-                {
-                    "index": 0,
-                    "message": {"role": "assistant", "content": content},
-                    "finish_reason": "stop",
-                }
+                ChatCompletionChoice(
+                    index=0,
+                    message=ChatCompletionChoiceMessage(
+                        role="assistant", content=content
+                    ),
+                    finish_reason="stop",
+                )
             ],
             usage={"prompt_tokens": 10, "completion_tokens": 20, "total_tokens": 30},
         )

@@ -65,7 +65,9 @@ async def test_chat_completions_http_error_non_streaming(
     sample_chat_request_data: ChatRequest,
     sample_processed_messages: list[ChatMessage],
 ):
-    sample_chat_request_data = sample_chat_request_data.model_copy(update={"stream": False})
+    sample_chat_request_data = sample_chat_request_data.model_copy(
+        update={"stream": False}
+    )
     error_payload = {
         "error": {"message": "Insufficient credits", "type": "billing_error"}
     }

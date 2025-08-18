@@ -95,7 +95,7 @@ class TestBackendFactory:
         # Mock the backend registry instead of non-existent _backend_types
         mock_backend = MockBackend(client)
         with patch.object(
-            registry, 'get_backend_factory', return_value=lambda client: mock_backend
+            registry, "get_backend_factory", return_value=lambda client: mock_backend
         ):
             # Act
             backend = factory.create_backend("openai")  # Used string literal
@@ -180,10 +180,15 @@ class TestBackendServiceBasic:
         # Arrange
         client = httpx.AsyncClient()
         mock_backend = MockBackend(client)
-        service._backends["openai"] = mock_backend  # Used string literal
+        # Use the proper way to add a backend through the factory
+        with patch.object(
+            service._factory, "ensure_backend", return_value=mock_backend
+        ):
+            # First call to cache the backend
+            await service._get_or_create_backend("openai")
 
-        # Act
-        result = await service._get_or_create_backend("openai")  # Used string literal
+        # Act - Second call should use the cached backend
+        result = await service._get_or_create_backend("openai")
 
         # Assert
         assert result is mock_backend
@@ -207,7 +212,7 @@ class TestBackendServiceBasic:
             # Assert
             assert result is mock_backend
             mock_create.assert_called_once_with("openai")  # Used string literal
-            
+
             # Check that initialize_backend was called, but with potentially different parameters
             # The actual parameter could be {} or {'api_key': ['test-key-openai']} depending on implementation
             assert mock_initialize.called
@@ -231,7 +236,9 @@ class TestBackendServiceBasic:
         """Test message preparation."""
         # Skip this test since _prepare_messages was moved to backend implementations
         # This functionality is now expected to be implemented by the specific backend connectors
-        pytest.skip("_prepare_messages is now implemented in each backend connector, not in BackendService")
+        pytest.skip(
+            "_prepare_messages is now implemented in each backend connector, not in BackendService"
+        )
 
 
 class TestBackendServiceCompletions:
@@ -331,9 +338,11 @@ class TestBackendServiceCompletions:
             # Act & Assert
             with pytest.raises(BackendError) as exc_info:
                 await service.call_completion(chat_request, stream=True)
-                
+
             # Verify the error was caught and wrapped in BackendError
-            assert "Streaming error" in str(exc_info.value) or "ValueError" in str(exc_info.value)
+            assert "Streaming error" in str(exc_info.value) or "ValueError" in str(
+                exc_info.value
+            )
 
     @pytest.mark.asyncio
     async def test_call_completion_rate_limited(self, service, chat_request):
@@ -341,7 +350,13 @@ class TestBackendServiceCompletions:
         # Arrange
         client = httpx.AsyncClient()
         mock_backend = MockBackend(client)
-        service._backends[BackendType.OPENAI] = mock_backend
+
+        # Add the backend properly through a patched factory
+        with patch.object(
+            service._factory, "ensure_backend", return_value=mock_backend
+        ):
+            # Cache the backend
+            await service._get_or_create_backend(BackendType.OPENAI)
 
         # Configure rate limiter to report limit exceeded
         service._rate_limiter.limits[f"backend:{BackendType.OPENAI}"] = RateLimitInfo(
@@ -382,7 +397,9 @@ class TestBackendServiceCompletions:
         client = httpx.AsyncClient()
         mock_backend = MockBackend(client)
         # Return invalid response format (not a tuple)
-        mock_backend.chat_completions_mock.side_effect = Exception("Invalid response format")
+        mock_backend.chat_completions_mock.side_effect = Exception(
+            "Invalid response format"
+        )
 
         with patch.object(service, "_get_or_create_backend", return_value=mock_backend):
             # Act & Assert
@@ -390,7 +407,9 @@ class TestBackendServiceCompletions:
                 await service.call_completion(chat_request)
 
             # Don't check for specific error message as it may vary across implementations
-            assert "Invalid response format" in str(exc_info.value) or "Backend call failed" in str(exc_info.value)
+            assert "Invalid response format" in str(
+                exc_info.value
+            ) or "Backend call failed" in str(exc_info.value)
 
     @pytest.mark.asyncio
     async def test_call_completion_invalid_streaming_response(
@@ -401,7 +420,9 @@ class TestBackendServiceCompletions:
         client = httpx.AsyncClient()
         mock_backend = MockBackend(client)
         # Return invalid response format (not a StreamingResponse)
-        mock_backend.chat_completions_mock.side_effect = Exception("Invalid streaming response format")
+        mock_backend.chat_completions_mock.side_effect = Exception(
+            "Invalid streaming response format"
+        )
 
         with patch.object(service, "_get_or_create_backend", return_value=mock_backend):
             # Act & Assert
@@ -409,7 +430,9 @@ class TestBackendServiceCompletions:
                 await service.call_completion(chat_request, stream=True)
 
             # Don't check for specific error message as it may vary across implementations
-            assert "Invalid streaming response" in str(exc_info.value) or "Exception" in str(exc_info.value)
+            assert "Invalid streaming response" in str(
+                exc_info.value
+            ) or "Exception" in str(exc_info.value)
 
 
 class TestBackendServiceValidation:

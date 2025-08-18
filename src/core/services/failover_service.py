@@ -25,19 +25,19 @@ class FailoverAttempt:
 class FailoverService:
     """Service for handling backend failover."""
 
-    def __init__(self, failover_routes: dict[str, str]):
+    def __init__(self, failover_routes: dict[str, Any]) -> None:
         """Initialize the failover service.
 
         Args:
             failover_routes: A dictionary mapping backend types to failover routes
         """
-        self.failover_routes = failover_routes or {}
+        self.failover_routes: dict[str, Any] = failover_routes or {}
         logger.debug(
             "Initialized failover service",
             failover_routes=self.failover_routes,
         )
 
-    def get_failover_route(self, backend_type: str) -> str | None:
+    def get_failover_route(self, backend_type: str) -> Any | None:
         """Get the failover route for a backend type.
 
         Args:
@@ -105,7 +105,7 @@ class FailoverService:
 
         return attempts
 
-    def add_failover_route(self, backend_type: str, failover_route: str) -> None:
+    def add_failover_route(self, backend_type: str, failover_route: Any) -> None:
         """Add a failover route.
 
         Args:
@@ -141,7 +141,7 @@ class FailoverService:
         )
         return False
 
-    def get_all_failover_routes(self) -> dict[str, str]:
+    def get_all_failover_routes(self) -> dict[str, Any]:
         """Get all failover routes.
 
         Returns:

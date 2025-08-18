@@ -302,7 +302,7 @@ class TestQwenOAuthAuthentication:
             await connector._save_oauth_credentials()
 
             # Verify the directory was created
-            mock_mkdir.assert_called_once_with(exist_ok=True)
+            mock_mkdir.assert_called_once_with(parents=True, exist_ok=True)
 
             # Verify the file was opened for writing
             mock_file.assert_called_once_with(

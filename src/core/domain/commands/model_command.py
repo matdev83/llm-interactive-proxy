@@ -35,10 +35,10 @@ class ModelCommand(BaseCommand):
     async def execute(
         self, args: Mapping[str, Any], session: Session, context: Any = None
     ) -> CommandResult:
-        """Set the model name.
+        """Set or unset the model name.
 
         Args:
-            args: Command arguments with model name
+            args: Command arguments with model name. If name is None or missing, model is unset.
             session: Current session
             context: Additional context data
 
@@ -46,6 +46,50 @@ class ModelCommand(BaseCommand):
             CommandResult indicating success or failure
         """
         model_name = args.get("name")
+        # If model_name is None or empty string, treat as unset request
+        if model_name is None or (
+            isinstance(model_name, str) and not model_name.strip()
+        ):
+            # Unset the model
+            try:
+                # Create new backend config with model unset
+                backend_config = session.state.backend_config.with_model(None)
+
+                # Create new session state with updated backend config
+                updated_state: ISessionState
+                if isinstance(session.state, SessionStateAdapter):
+                    # SessionStateAdapter.with_backend_config expects IBackendConfig and returns ISessionState
+                    updated_state = session.state.with_backend_config(backend_config)
+                elif isinstance(session.state, SessionState):
+                    # SessionState.with_backend_config expects BackendConfiguration and returns SessionState
+                    new_state = session.state.with_backend_config(
+                        cast(BackendConfiguration, backend_config)
+                    )
+                    updated_state = SessionStateAdapter(new_state)
+                else:
+                    # Fallback for other implementations
+                    try:
+                        updated_state = session.state.with_backend_config(
+                            backend_config
+                        )
+                    except AttributeError:
+                        updated_state = session.state
+
+                return CommandResult(
+                    name=self.name,
+                    success=True,
+                    message="Model unset",
+                    new_state=updated_state,
+                )
+            except Exception as e:
+                logger.error(f"Error unsetting model: {e}")
+                return CommandResult(
+                    success=False,
+                    message=f"Error unsetting model: {e}",
+                    name=self.name,
+                )
+
+        # Continue with normal model setting logic
         if not model_name:
             return CommandResult(
                 success=False,
@@ -66,23 +110,22 @@ class ModelCommand(BaseCommand):
             if backend_type:
                 backend_config = backend_config.with_backend(backend_type)
 
-            # Cast to concrete type
-            concrete_backend_config = cast(BackendConfiguration, backend_config)
-
             # Create new session state with updated backend config
-            updated_state: ISessionState
             if isinstance(session.state, SessionStateAdapter):
-                # Working with SessionStateAdapter - get the underlying state
-                old_state = session.state._state
-                new_state = old_state.with_backend_config(concrete_backend_config)
-                updated_state = SessionStateAdapter(new_state)
+                # SessionStateAdapter.with_backend_config expects IBackendConfig and returns ISessionState
+                updated_state = session.state.with_backend_config(backend_config)
             elif isinstance(session.state, SessionState):
-                # Working with SessionState directly
-                new_state = session.state.with_backend_config(concrete_backend_config)
+                # SessionState.with_backend_config expects BackendConfiguration and returns SessionState
+                new_state = session.state.with_backend_config(
+                    cast(BackendConfiguration, backend_config)
+                )
                 updated_state = SessionStateAdapter(new_state)
             else:
                 # Fallback for other implementations
-                updated_state = session.state
+                try:
+                    updated_state = session.state.with_backend_config(backend_config)
+                except AttributeError:
+                    updated_state = session.state
 
             message_parts = []
             if backend_type:

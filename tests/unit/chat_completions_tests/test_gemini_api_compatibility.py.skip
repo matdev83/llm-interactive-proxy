@@ -16,24 +16,25 @@ class TestGeminiModelsEndpoint:
     def test_list_models_gemini_format(self, client):
         """Test that /v1beta/models returns Gemini-formatted models."""
         # Mock the backend models
-        # Ensure backends exist on app.state first
-        if not hasattr(client.app.state, "openrouter_backend"):
-            from unittest.mock import Mock
+        # Register mock backends via DI-backed BackendService
+        from unittest.mock import Mock
+        from src.core.interfaces.backend_service_interface import IBackendService
 
-            client.app.state.openrouter_backend = Mock()
-        if not hasattr(client.app.state, "gemini_backend"):
-            from unittest.mock import Mock
-
-            client.app.state.gemini_backend = Mock()
-        if not hasattr(client.app.state, "gemini_cli_direct_backend"):
-            from unittest.mock import Mock
-
-            client.app.state.gemini_cli_direct_backend = Mock()
+        svc = client.app.state.service_provider.get_required_service(IBackendService)
+        mock_or = Mock()
+        mock_gemini = Mock()
+        mock_cli = Mock()
+        mock_or.get_available_models.return_value = ["gpt-4", "gpt-3.5-turbo"]
+        mock_gemini.get_available_models.return_value = ["gemini-pro", "gemini-pro-vision"]
+        mock_cli.get_available_models.return_value = ["gemini-1.5-pro"]
+        svc._backends["openrouter"] = mock_or
+        svc._backends["gemini"] = mock_gemini
+        svc._backends["gemini-cli-direct"] = mock_cli
 
         with (
-            patch.object(client.app.state, "openrouter_backend") as mock_or,
-            patch.object(client.app.state, "gemini_backend") as mock_gemini,
-            patch.object(client.app.state, "gemini_cli_direct_backend") as mock_cli,
+            patch.object(svc._backends["openrouter"]) as mock_or,
+            patch.object(svc._backends["gemini"]) as mock_gemini,
+            patch.object(svc._backends["gemini-cli-direct"]) as mock_cli,
         ):
 
             mock_or.get_available_models.return_value = ["gpt-4", "gpt-3.5-turbo"]

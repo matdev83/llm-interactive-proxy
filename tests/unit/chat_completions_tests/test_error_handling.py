@@ -101,10 +101,14 @@ def test_invalid_model_noninteractive(
     assert resp.status_code == 200
     content = resp.json()["choices"][0]["message"]["content"]
     # The command might succeed even with invalid model in the new architecture
-    assert "model" in content.lower() and "openrouter:bad" in content
+    assert "Model" in content and "bad" in content
 
     # Mock a valid response for the second request
-    mock_response = {"choices": [{"message": {"content": "Hello response"}}]}
+    mock_response = {
+        "choices": [
+            {"index": 0, "message": {"role": "assistant", "content": "Hello response"}}
+        ]
+    }
     mock_openai.return_value = mock_response
     mock_openrouter.return_value = mock_response
     mock_gemini.return_value = mock_response

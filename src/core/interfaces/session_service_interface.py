@@ -9,6 +9,11 @@ class ISessionService(ABC):
     @abstractmethod
     async def get_session(self, session_id: str) -> Session:
         pass
+        
+    @abstractmethod
+    async def get_session_async(self, session_id: str) -> Session:
+        """Legacy compatibility method, identical to get_session."""
+        pass
 
     @abstractmethod
     async def create_session(self, session_id: str) -> Session:

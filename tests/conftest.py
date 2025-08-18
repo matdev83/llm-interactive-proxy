@@ -143,7 +143,7 @@ def test_app(test_config: AppConfig, tmp_path: Path) -> FastAPI:
 
         yaml.dump(legacy_config, f)
 
-    app = build_app(test_config)
+    app, _ = build_app(test_config)
 
     # Ensure httpx_client is available for tests that might need it directly
     # Note: build_app already creates httpx_client and registers all services
@@ -158,15 +158,21 @@ def test_app(test_config: AppConfig, tmp_path: Path) -> FastAPI:
 @pytest.fixture
 def test_client(test_app: FastAPI) -> Generator[TestClient, None, None]:
     """Create a TestClient for the test app."""
+    # Set disable_auth for tests
+    test_app.state.disable_auth = True
+
     with TestClient(
         test_app, headers={"Authorization": "Bearer test-proxy-key"}
     ) as client:
         # Ensure the test client has a valid API key for services that need it
-        if (
-            hasattr(test_app.state, "app_config")
-            and not test_app.state.app_config.auth.api_keys
-        ):
-            test_app.state.app_config.auth.api_keys = ["test-proxy-key"]
+        if hasattr(test_app.state, "app_config"):
+            # First set API keys
+            if not test_app.state.app_config.auth.api_keys:
+                test_app.state.app_config.auth.api_keys = ["test-proxy-key"]
+
+            # Then disable auth for tests
+            test_app.state.app_config.auth.disable_auth = True
+
         yield client
 
 
@@ -195,26 +201,72 @@ def temp_config_path(tmp_path: Path) -> Path:
     return config_path
 
 
+import nest_asyncio
+
+nest_asyncio.apply()
+
+
 # Helper utilities for migrating tests away from direct `app.state` usage
 def get_backend_instance(app: FastAPI, name: str) -> LLMBackend:
-    """Resolve a concrete backend instance by name using DI, fall back to app.state.
+    """Resolve a concrete backend instance by name using the DI container only.
+
+    This function enforces the new SOLID/DIP architecture: no legacy fallbacks
+    (such as `app.state.<backend>_backend` or auto-created mock backends) are
+    permitted. Tests must ensure required backends are registered in the
+    application's service provider (for example via the `ensure_backend`
+    fixture).
 
     Args:
         app: FastAPI application instance
         name: backend short name (e.g., 'openrouter')
 
     Returns:
-        Backend instance or None
+        Backend instance registered in the DI container
+
+    Raises:
+        RuntimeError: if the service provider is not available or the backend
+            cannot be resolved/initialized via the DI-backed BackendService.
     """
-    # Require DI-backed backend registration. Do not fall back to legacy `app.state`.
-    svc = app.state.service_provider.get_required_service(IBackendService)
-    backend = getattr(svc, "_backends", {}).get(name)
-    if backend is None:
+    svc = getattr(app.state, "service_provider", None)
+    if not svc:
         raise RuntimeError(
-            f"Backend '{name}' not registered in IBackendService. Ensure tests register the mock via the BackendService._backends mapping."
+            "Service provider not available on app.state; ensure the application registers services via DI and the test initializes the service provider."
         )
-    # mypy: narrow the type to LLMBackend for callers
-    return cast(LLMBackend, backend)
+
+    # Resolve the backend service from DI
+    backend_service = svc.get_required_service(IBackendService)
+    if backend_service is None:
+        raise RuntimeError(
+            "IBackendService not available from service provider. Ensure the application registers the backend service via DI."
+        )
+
+    # If backend already created and cached, return it
+    backend = getattr(backend_service, "_backends", {}).get(name)
+    if backend is not None:
+        return cast(LLMBackend, backend)
+
+    # Otherwise initialize the backend using the DI-managed factory (async)
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+
+    try:
+        backend_instance = loop.run_until_complete(
+            initialize_backend_for_test(app, name)
+        )
+        if backend_instance is not None:
+            return backend_instance
+    except Exception as e:
+        raise RuntimeError(
+            f"Failed to initialize backend '{name}' via DI: {e!s}"
+        ) from e
+
+    # If we reach here, the backend couldn't be resolved via DI
+    raise RuntimeError(
+        f"Backend '{name}' not registered in IBackendService. Ensure tests register the backend via DI (e.g., using the 'ensure_backend' fixture)."
+    )
 
 
 def get_session_service_from_app(app: FastAPI) -> ISessionService:
@@ -246,6 +298,84 @@ async def initialize_backend_for_test(app: FastAPI, backend_name: str) -> LLMBac
     return cast(LLMBackend, backend_instance)
 
 
+@pytest.fixture
+async def ensure_backend(test_app: FastAPI, request: pytest.FixtureRequest) -> None:
+    """Ensure a specific backend is registered in the DI container.
+
+    Usage:
+        @pytest.mark.backends(["openai", "openrouter"])
+        def test_something(ensure_backend):
+            # The backends will be auto-registered
+            pass
+    """
+    # Check if we should use mock backends
+    use_mock_backends = getattr(request.config, "option", None)
+    if use_mock_backends is None or getattr(use_mock_backends, "mock_backends", True):
+        # Import and use the test backend factory
+        from tests.test_backend_factory import (
+            patch_backend_initialization,
+        )
+
+        patch_backend_initialization(test_app)
+
+    # Check if the test has the backends marker
+    marker = request.node.get_closest_marker("backends")
+    if marker:
+        backend_names = marker.args[0] if marker.args else []
+        for backend_name in backend_names:
+            try:
+                await initialize_backend_for_test(test_app, backend_name)
+            except Exception as e:
+                pytest.fail(f"Failed to initialize backend {backend_name}: {e}")
+
+    # Also check for a single backend marker
+    marker = request.node.get_closest_marker("backend")
+    if marker:
+        backend_name = marker.args[0] if marker.args else None
+        if backend_name:
+            try:
+                await initialize_backend_for_test(test_app, backend_name)
+            except Exception as e:
+                pytest.fail(f"Failed to initialize backend {backend_name}: {e}")
+
+
+@pytest.fixture
+def use_real_backends(request):
+    """Fixture to indicate that a test should use real backends instead of mocks.
+
+    Usage:
+        def test_something(use_real_backends):
+            # This test will use real backends
+            pass
+    """
+    # Set a flag to indicate that the test should use real backends
+    if not hasattr(request.config, "option"):
+        request.config.option = type("Options", (), {})
+    request.config.option.mock_backends = False
+    yield
+    # Reset the flag after the test
+    request.config.option.mock_backends = True
+
+
+@pytest.fixture
+def mock_backend_factory(test_app: FastAPI):
+    """Fixture to provide access to the mock backend factory.
+
+    Usage:
+        def test_something(mock_backend_factory):
+            # Configure a mock backend
+            backend = mock_backend_factory.create_backend("openai")
+            backend.configure_response({"choices": [{"message": {"content": "Custom response"}}]})
+    """
+    from tests.test_backend_factory import (
+        TestBackendFactory,
+        patch_backend_initialization,
+    )
+
+    patch_backend_initialization(test_app)
+    return TestBackendFactory
+
+
 @pytest.fixture(autouse=True)
 def isolate_global_state() -> Generator[None, None, None]:
     """Automatically isolate global state between tests.
@@ -268,6 +398,9 @@ def isolate_global_state() -> Generator[None, None, None]:
         bridge_module = None  # type: ignore
         original_bridge = None
 
+    # Save the original backend initialization function
+    original_init_backend = initialize_backend_for_test
+
     try:
         # Run the test
         yield
@@ -279,6 +412,9 @@ def isolate_global_state() -> Generator[None, None, None]:
         # Restore bridge if it was available
         if bridge_module is not None and hasattr(bridge_module, "_integration_bridge"):
             bridge_module._integration_bridge = original_bridge
+
+        # Restore the original backend initialization function
+        globals()["initialize_backend_for_test"] = original_init_backend
 
 
 @pytest.fixture

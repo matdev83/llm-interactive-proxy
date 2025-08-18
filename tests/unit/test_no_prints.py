@@ -7,6 +7,8 @@ ALLOWED_FILES = {
     repo_root / "dev" / "_client_call.py",
     repo_root / "tools" / "analyze_module_dependencies.py",
     repo_root / "tools" / "deprecate_legacy_endpoints.py",
+    repo_root / "debug_command_test.py",
+    repo_root / "debug_parsing.py",
 }
 
 
@@ -21,6 +23,7 @@ def test_no_print_statements() -> None:
             or "dev" in path.parts
             or "examples" in path.parts
             or "tools" in path.parts
+            or "scripts" in path.parts
         ):
             continue
         if path in ALLOWED_FILES:

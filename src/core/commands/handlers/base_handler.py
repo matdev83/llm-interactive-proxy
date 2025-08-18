@@ -20,7 +20,7 @@ class CommandHandlerResult:
         message: str,
         new_state: ISessionState | None = None,
         additional_data: dict[str, Any] | None = None,
-    ):
+    ) -> None:
         """Initialize command handler result.
 
         Args:
@@ -118,7 +118,7 @@ class BaseCommandHandler(ICommandHandler, ABC):
     Provides common functionality for command handlers.
     """
 
-    def __init__(self, name: str, aliases: list[str] | None = None):
+    def __init__(self, name: str, aliases: list[str] | None = None) -> None:
         """Initialize the base command handler.
 
         Args:

@@ -217,7 +217,7 @@ def create_streaming_response_chunks(
 class MockSessionService:
     """Mock session service for testing."""
 
-    def __init__(self):
+    def __init__(self) -> None:
         """Initialize the mock service."""
         self.sessions: dict[str, Session] = {}
 

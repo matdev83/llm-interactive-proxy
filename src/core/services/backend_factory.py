@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 import logging
+import os
 from typing import Any
 
 import httpx
 
 from src.connectors.base import LLMBackend
+from src.core.config.app_config import BackendConfig
 from src.core.interfaces.di_interface import IServiceProvider
 from src.core.services.backend_registry import BackendRegistry
 
@@ -20,7 +22,7 @@ class BackendFactory:
 
     def __init__(
         self, httpx_client: httpx.AsyncClient, backend_registry: BackendRegistry
-    ):
+    ) -> None:
         """Initialize the backend factory.
 
         Args:
@@ -61,6 +63,60 @@ class BackendFactory:
         """
         await backend.initialize(**config)
 
+    async def ensure_backend(
+        self, backend_type: str, backend_config: BackendConfig | None = None
+    ) -> LLMBackend:
+        """Create and initialize a backend given a canonical BackendConfig.
+
+        This method centralizes connector initialization logic so callers
+        don't need to duplicate api_key/url shaping and backend-specific
+        parameters.
+        """
+        logger = logging.getLogger(__name__)
+
+        # Build init_config from BackendConfig
+        init_config: dict[str, Any] = {}
+
+        if backend_config is not None:
+            api_key_list = backend_config.api_key
+            init_config["api_key"] = api_key_list[0] if api_key_list else None
+            if backend_config.api_url:
+                init_config["api_base_url"] = backend_config.api_url
+            for k, v in backend_config.extra.items():
+                init_config[k] = v
+
+        # Handle test env: add dummy key when running pytest and no key present
+        default_backend_env = os.environ.get("LLM_BACKEND")
+        if os.environ.get("PYTEST_CURRENT_TEST") and (
+            not init_config.get("api_key")
+            and (not default_backend_env or default_backend_env == backend_type)
+        ):
+            init_config["api_key"] = f"test-key-{backend_type}"
+            logger.info(f"Added test API key for {backend_type} in factory")
+
+        # Backend-specific augmentations
+        if backend_type == "anthropic":
+            init_config["key_name"] = backend_type
+        elif backend_type == "openrouter":
+            from src.core.config.config_loader import get_openrouter_headers
+
+            init_config["key_name"] = backend_type
+            init_config["openrouter_headers_provider"] = get_openrouter_headers
+            if "api_base_url" not in init_config:
+                init_config["api_base_url"] = "https://openrouter.ai/api/v1"
+        elif backend_type == "gemini":
+            init_config["key_name"] = backend_type
+            if "api_base_url" not in init_config:
+                init_config["api_base_url"] = (
+                    "https://generativelanguage.googleapis.com"
+                )
+
+        logger.info(f"Factory initializing backend {backend_type} with {init_config}")
+
+        backend = self.create_backend(backend_type)
+        await self.initialize_backend(backend, init_config)
+        return backend
+
     @staticmethod
     def create(service_provider: IServiceProvider) -> BackendFactory:
         """Create a backend factory using the service provider.
@@ -73,9 +129,8 @@ class BackendFactory:
         Returns:
             A new BackendFactory instance
         """
-        client = service_provider.get_service(httpx.AsyncClient)
-        if client is None:
-            client = httpx.AsyncClient()
+        # Get the shared httpx client from the provider
+        client = service_provider.get_required_service(httpx.AsyncClient)
 
         backend_registry_instance = service_provider.get_required_service(
             BackendRegistry

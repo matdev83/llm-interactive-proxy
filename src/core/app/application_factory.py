@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import logging
 import os
-from typing import Any
+from typing import Any, cast
 
 from fastapi import FastAPI
 
@@ -17,12 +17,12 @@ from src.core.app.controllers import register_routes
 from src.core.common.exceptions import ProxyError
 from src.core.config.app_config import AppConfig
 from src.core.interfaces.backend_service_interface import IBackendService
+from src.core.interfaces.configuration_interface import IConfig
 from src.core.interfaces.di_interface import IServiceProvider
 from src.core.interfaces.repositories_interface import ISessionRepository
-from src.core.services import backend_imports  # Import backend connectors to ensure they register
 from src.core.services.backend_factory import BackendFactory
-from src.core.services.backend_service import BackendService
 from src.core.services.backend_registry import BackendRegistry, backend_registry
+from src.core.services.backend_service import BackendService
 from src.core.services.command_service import CommandService
 from src.core.services.loop_detector_service import LoopDetector
 from src.core.services.rate_limiter_service import RateLimiter
@@ -40,6 +40,58 @@ class ApplicationBuilder:
         """Initialize the application builder."""
         self.middleware_configurator = MiddlewareConfigurator()
 
+    def _normalize_config(self, config: AppConfig) -> AppConfig:
+        """Normalize configuration shapes to ensure consistent types.
+
+        This method ensures that all backend configurations are properly
+        normalized to BackendConfig objects and that other configuration
+        sections have consistent shapes.
+
+        Args:
+            config: The application configuration to normalize
+
+        Returns:
+            Normalized application configuration
+        """
+        from src.core.services.backend_registry import backend_registry
+
+        # Ensure backends is a BackendSettings object
+        if not isinstance(config.backends, AppConfig.BackendSettings):
+            # If it's a dict, convert to BackendSettings
+            if isinstance(config.backends, dict):
+                config.backends = AppConfig.BackendSettings(**config.backends)
+            else:
+                # If it's neither, create a new BackendSettings object
+                config.backends = AppConfig.BackendSettings()
+
+        # Ensure all registered backends have a BackendConfig
+        for backend_name in backend_registry.get_registered_backends():
+            try:
+                # Try to access the backend config
+                backend_config = getattr(config.backends, backend_name, None)
+
+                # If it doesn't exist or isn't a BackendConfig, create one
+                if not isinstance(backend_config, AppConfig.BackendConfig):
+                    # If it's a dict, convert to BackendConfig
+                    if isinstance(backend_config, dict):
+                        setattr(
+                            config.backends,
+                            backend_name,
+                            AppConfig.BackendConfig(**backend_config),
+                        )
+                    else:
+                        # Otherwise create a new BackendConfig
+                        setattr(
+                            config.backends, backend_name, AppConfig.BackendConfig()
+                        )
+            except Exception as e:
+                # Log and continue if there's an error
+                logging.getLogger(__name__).warning(
+                    f"Error normalizing config for backend {backend_name}: {e}"
+                )
+
+        return config
+
     def build(self, config: AppConfig) -> FastAPI:
         """Build the FastAPI application.
 
@@ -49,6 +101,9 @@ class ApplicationBuilder:
         Returns:
             The FastAPI application
         """
+        # Normalize configuration shapes before building the application
+        config = self._normalize_config(config)
+
         app = FastAPI(
             title="LLM Interactive Proxy",
             description="A proxy for interacting with LLM APIs",
@@ -147,65 +202,131 @@ class ApplicationBuilder:
     async def _initialize_services(
         self, app: FastAPI, config: AppConfig
     ) -> IServiceProvider:
-        """Initialize services and register them with the service provider."""
+        """Initialize services and register them with the service provider.
+
+        This method creates and registers all core services in the DI container,
+        including shared resources like httpx.AsyncClient that should be reused
+        across the application.
+        """
         from src.core.di.services import get_service_collection
 
         # Use the global service collection to ensure all services are registered
         services = get_service_collection()
 
-        # Register core services
+        # Register httpx.AsyncClient as a singleton first so all services can use it
         import httpx
 
+        # Create a single shared httpx.AsyncClient instance and register it
+        shared_httpx_client = httpx.AsyncClient()
+        services.add_instance(httpx.AsyncClient, shared_httpx_client)
+
+        # Store on app.state for shutdown handling
+        app.state.httpx_client = shared_httpx_client
+
+        # Register AppConfig as a singleton instance
+        services.add_instance(AppConfig, config)
+
         def _backend_service_factory(provider: IServiceProvider) -> BackendService:
-            # Prefer a shared httpx client from the provider to avoid closing it prematurely
-            httpx_client = provider.get_service(httpx.AsyncClient)
-            if httpx_client is None:
-                # Fall back to creating a client and storing it on app.state later
-                httpx_client = httpx.AsyncClient()
-            backend_registry_instance = provider.get_required_service(BackendRegistry) # Get BackendRegistry
-            backend_factory = BackendFactory(httpx_client, backend_registry_instance) # Pass BackendRegistry
+            # Get the shared httpx client from the provider
+            httpx_client = provider.get_required_service(httpx.AsyncClient)
+            backend_registry_instance = provider.get_required_service(
+                BackendRegistry
+            )  # Get BackendRegistry
+            backend_factory = BackendFactory(
+                httpx_client, backend_registry_instance
+            )  # Pass BackendRegistry
             rate_limiter_instance = provider.get_required_service(RateLimiter)
-            return BackendService(backend_factory, rate_limiter_instance, config)  # type: ignore
+            app_config_from_provider = provider.get_required_service(AppConfig)
+            app_config_for_iface = cast(IConfig, app_config_from_provider)
+            # Use a dedicated BackendConfigProvider to normalize backend configs
+            from src.core.services.backend_config_provider import BackendConfigProvider
+
+            backend_config_provider = BackendConfigProvider(app_config_from_provider)
+
+            return BackendService(
+                backend_factory,
+                rate_limiter_instance,
+                app_config_for_iface,
+                backend_config_provider=backend_config_provider,
+            )  # type: ignore
 
         # Register BackendService with its factory
         services.add_singleton(
             BackendService, implementation_factory=_backend_service_factory
         )
-        
+
         # Register IBackendService interface with the same factory function
         # This ensures that when code requests IBackendService, it gets the exact same
         # instance as when requesting BackendService directly
         services.add_singleton(
-            IBackendService, implementation_factory=_backend_service_factory
+            cast(type, IBackendService), implementation_factory=_backend_service_factory
         )
         from src.core.interfaces.response_processor_interface import IResponseProcessor
 
         # Register ResponseProcessor and bind to interface
-        def _response_processor_factory(provider: IServiceProvider) -> ResponseProcessor:
+        def _response_processor_factory(
+            provider: IServiceProvider,
+        ) -> ResponseProcessor:
             return ResponseProcessor()
-            
-        services.add_singleton(ResponseProcessor, implementation_factory=_response_processor_factory)
-        services.add_singleton(IResponseProcessor, implementation_factory=_response_processor_factory)
+
+        services.add_singleton(
+            ResponseProcessor, implementation_factory=_response_processor_factory
+        )
+        services.add_singleton(
+            cast(type, IResponseProcessor),
+            implementation_factory=_response_processor_factory,
+        )
         services.add_singleton(LoopDetector)
         services.add_singleton(RateLimiter)
+        # Register FailoverService and coordinator
+        from src.core.services.failover_coordinator import FailoverCoordinator
+        from src.core.services.failover_service import FailoverService
+
+        services.add_singleton(FailoverService)
+
+        def _failover_coordinator_factory(
+            provider: IServiceProvider,
+        ) -> FailoverCoordinator:
+            svc = provider.get_required_service(FailoverService)
+            return FailoverCoordinator(svc)
+
+        services.add_singleton(
+            FailoverCoordinator, implementation_factory=_failover_coordinator_factory
+        )
+
         # Register BackendFactory service with a factory function
         def _backend_factory(provider: IServiceProvider) -> BackendFactory:
-            # Get httpx client from provider or create a new one
-            httpx_client = provider.get_service(httpx.AsyncClient)
-            if httpx_client is None:
-                httpx_client = httpx.AsyncClient()
-            
+            # Get the shared httpx client from the provider
+            httpx_client = provider.get_required_service(httpx.AsyncClient)
+
             # Get backend registry from provider
             backend_registry_instance = provider.get_required_service(BackendRegistry)
-            
+
             # Create and return BackendFactory instance
             return BackendFactory(httpx_client, backend_registry_instance)
-        
+
         # Register BackendRegistry singleton first (since BackendFactory depends on it)
         services.add_instance(BackendRegistry, backend_registry)
-        
+
         # Then register BackendFactory (which depends on BackendRegistry)
         services.add_singleton(BackendFactory, implementation_factory=_backend_factory)
+
+        # Register BackendConfigProvider so other services can request it
+        def _backend_config_provider_factory(provider: IServiceProvider) -> object:
+            app_cfg = provider.get_required_service(AppConfig)
+            from src.core.services.backend_config_provider import BackendConfigProvider
+
+            return BackendConfigProvider(app_cfg)
+
+        # Register under the concrete class; consumers should request via the interface
+        from src.core.interfaces.backend_config_provider_interface import (
+            IBackendConfigProvider,
+        )
+
+        services.add_singleton(
+            cast(type, IBackendConfigProvider),
+            implementation_factory=_backend_config_provider_factory,
+        )
 
         # Register CommandRegistry and CommandService (ICommandService) correctly
         from src.core.interfaces.command_service_interface import ICommandService
@@ -224,14 +345,15 @@ class ApplicationBuilder:
             CommandService, implementation_factory=_command_service_factory
         )
         # Also register the ICommandService interface using the same factory
-        try:
+        # Best-effort: if the interface is already registered or binding fails,
+        # continue without raising to avoid breaking startup in tests.
+        import contextlib
+
+        with contextlib.suppress(Exception):
             services.add_singleton(
-                ICommandService, implementation_factory=_command_service_factory  # type: ignore[arg-type]
+                cast(type, ICommandService),
+                implementation_factory=_command_service_factory,
             )
-        except Exception:
-            # Best-effort: if the interface is already registered or binding fails,
-            # continue without raising to avoid breaking startup in tests.
-            pass
 
         # Register IRequestProcessor with a factory so its constructor deps are injected
         def _request_processor_factory(provider: IServiceProvider) -> RequestProcessor:
@@ -242,6 +364,9 @@ class ApplicationBuilder:
             session = provider.get_required_service(ISessionService)  # type: ignore[type-abstract]
             response_proc = provider.get_required_service(IResponseProcessor)  # type: ignore[type-abstract]
             return RequestProcessor(cmd, backend, session, response_proc)  # type: ignore[arg-type]
+
+        # Import concrete RequestProcessor implementation before registering
+        from src.core.services.request_processor_service import RequestProcessor
 
         services.add_singleton(
             RequestProcessor, implementation_factory=_request_processor_factory
@@ -270,10 +395,13 @@ class ApplicationBuilder:
         # Also register the interface binding using the same factory to ensure
         # the interface can be resolved without attempting to call the concrete
         # implementation's constructor directly.
-        try:
-            services.add_singleton(ISessionService, implementation_factory=_session_service_factory)  # type: ignore[arg-type]
-        except Exception:
-            pass
+        import contextlib
+
+        with contextlib.suppress(Exception):
+            services.add_singleton(
+                cast(type, ISessionService),
+                implementation_factory=_session_service_factory,
+            )
 
         # Register IRequestProcessor interface using the factory defined above.
         # Do NOT register RequestProcessor without the factory: its constructor
@@ -281,25 +409,46 @@ class ApplicationBuilder:
         # fail. Bind the interface to the factory so both requests for the
         # concrete type and the interface resolve to the same singleton.
         from src.core.interfaces.request_processor_interface import IRequestProcessor
-        services.add_singleton(IRequestProcessor, implementation_factory=_request_processor_factory)
-        
+
+        # Register the concrete RequestProcessor and bind the interface to the same factory
+        from src.core.services.request_processor_service import RequestProcessor
+
+        services.add_singleton(
+            RequestProcessor, implementation_factory=_request_processor_factory
+        )
+        # Also register the interface; use cast to satisfy type checker
+        services.add_singleton(
+            cast(type, IRequestProcessor),
+            implementation_factory=_request_processor_factory,
+        )
+
         # Register ChatController
         from src.core.app.controllers.chat_controller import ChatController
-        
+
         def _chat_controller_factory(provider: IServiceProvider) -> ChatController:
-            request_processor = provider.get_required_service(IRequestProcessor)
+            request_processor: IRequestProcessor = provider.get_required_service(
+                cast(type, IRequestProcessor)
+            )
             return ChatController(request_processor)
-            
-        services.add_singleton(ChatController, implementation_factory=_chat_controller_factory)
-        
+
+        services.add_singleton(
+            ChatController, implementation_factory=_chat_controller_factory
+        )
+
         # Register AnthropicController
         from src.core.app.controllers.anthropic_controller import AnthropicController
-        
-        def _anthropic_controller_factory(provider: IServiceProvider) -> AnthropicController:
-            request_processor = provider.get_required_service(IRequestProcessor)
+
+        def _anthropic_controller_factory(
+            provider: IServiceProvider,
+        ) -> AnthropicController:
+            request_processor: IRequestProcessor = provider.get_required_service(
+                cast(type, IRequestProcessor)
+            )
             return AnthropicController(request_processor)
-            
-        services.add_singleton(AnthropicController, implementation_factory=_anthropic_controller_factory)
+
+        services.add_singleton(
+            AnthropicController, implementation_factory=_anthropic_controller_factory
+        )
 
         # Build service provider
         service_provider = services.build_service_provider()
@@ -339,34 +488,16 @@ class ApplicationBuilder:
         # Initialize functional backends set first
         app.state.functional_backends = set()
 
-        # Attempt to instantiate and initialize each registered backend to
-        # determine which backends are functional. Record backend instances
-        # on app.state like `openrouter_backend` for legacy tests.
-        try:
-            from src.core.services.backend_factory import BackendFactory
-            from src.core.services.backend_registry_service import backend_registry
-            import httpx
+        # Get the service provider from app.state
+        service_provider = getattr(app.state, "service_provider", None)
+        if service_provider is None:
+            logger.warning("No service provider available for backend initialization")
+            return
 
-            # Create a factory using DI if possible
-            service_provider = getattr(app.state, "service_provider", None)
-            if service_provider is not None:
-                # Use the more robust get_required_service_or_default method
-                factory = service_provider.get_required_service_or_default(
-                    BackendFactory,
-                    lambda: BackendFactory(
-                        service_provider.get_required_service_or_default(
-                            httpx.AsyncClient, 
-                            httpx.AsyncClient
-                        ),
-                        service_provider.get_required_service_or_default(
-                            BackendRegistry, 
-                            lambda: backend_registry
-                        )
-                    )
-                )
-            else:
-                # No service provider available, create with defaults
-                factory = BackendFactory(httpx.AsyncClient(), backend_registry)
+        # Use the BackendFactory from DI
+        try:
+            factory = service_provider.get_required_service(BackendFactory)
+            from src.core.services.backend_registry import backend_registry
 
             for backend_name in backend_registry.get_registered_backends():
                 try:
@@ -398,13 +529,10 @@ class ApplicationBuilder:
 
                     # If we reached here, backend initialized; mark functional
                     app.state.functional_backends.add(backend_name)
-                    # Store legacy alias e.g., openrouter_backend
-                    # Replace hyphens with underscores for valid Python attribute names
-                    try:
-                        attr_name = f"{backend_name.replace('-', '_')}_backend"
-                        setattr(app.state, attr_name, backend)
-                    except Exception:
-                        pass
+                    # NOTE: Do NOT store backend instances on app.state as
+                    # legacy fallbacks. Backends must be resolved via the DI
+                    # container (IBackendService). Tests and consumers should
+                    # use the service provider to get backend instances.
                 except Exception:
                     # Best-effort per-backend; continue on errors
                     continue
@@ -478,15 +606,18 @@ class MiddlewareConfigurator:
         configure_middleware(app, config)
 
 
-def build_app(config: AppConfig | dict[str, Any] | None = None) -> FastAPI:
+def build_app(
+    config: AppConfig | dict[str, Any] | None = None,
+) -> tuple[FastAPI, AppConfig]:
     """Build the FastAPI application.
 
     Args:
         config: The application configuration (AppConfig object or dict)
 
     Returns:
-        The FastAPI application
+        A tuple of (FastAPI app, normalized AppConfig)
     """
+    # Step 1: Ensure we have an AppConfig object
     if config is None:
         # Load configuration from environment
         config = AppConfig.from_env()
@@ -494,15 +625,14 @@ def build_app(config: AppConfig | dict[str, Any] | None = None) -> FastAPI:
         # Convert dict config to AppConfig object
         config = AppConfig.from_legacy_config(config)
 
-    # Ensure we have an AppConfig object at this point
-    # Skip type check in test environments where config may be mocked
-    # Use a try/except block to handle the case where AppConfig is mocked
+    # Handle mocked configs in test environments
     try:
         is_app_config = isinstance(config, AppConfig)
     except TypeError:
         # If isinstance fails (e.g., when AppConfig is mocked), assume it's valid in test environments
         is_app_config = os.environ.get("PYTEST_CURRENT_TEST") is not None
-    
+
+    # Validate config type outside of test environments
     if not is_app_config and not os.environ.get("PYTEST_CURRENT_TEST"):
         raise ValueError(
             f"Invalid config type: {type(config)}. Expected AppConfig or dict."
@@ -512,7 +642,8 @@ def build_app(config: AppConfig | dict[str, Any] | None = None) -> FastAPI:
     builder = ApplicationBuilder()
 
     # Build application
-    return builder.build(config)  # Pass the AppConfig object
+    app = builder.build(config)  # Pass the AppConfig object
+    return app, config
 
 
 # Backward compatibility aliases for tests

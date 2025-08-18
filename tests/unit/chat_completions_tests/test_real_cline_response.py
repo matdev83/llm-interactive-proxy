@@ -2,12 +2,15 @@ import json
 from typing import Any
 from unittest.mock import AsyncMock, patch
 
+from tests.conftest import get_backend_instance
+
 
 def test_real_cline_hello_response(interactive_client: Any) -> None:
     """Test exactly what Cline would receive for a !/hello command."""
 
+    backend = get_backend_instance(interactive_client.app, "openrouter")
     with patch.object(
-        interactive_client.app.state.openrouter_backend,
+        backend,
         "chat_completions",
         new_callable=AsyncMock,
     ) as mock_method:
@@ -76,8 +79,9 @@ def test_cline_pure_hello_command(interactive_client: Any) -> None:
         "usage": {"prompt_tokens": 10, "completion_tokens": 5, "total_tokens": 15},
     }
 
+    backend = get_backend_instance(interactive_client.app, "openrouter")
     with patch.object(
-        interactive_client.app.state.openrouter_backend,
+        backend,
         "chat_completions",
         new_callable=AsyncMock,
         return_value=mock_response,
@@ -134,8 +138,9 @@ def test_cline_pure_hello_command(interactive_client: Any) -> None:
 def test_cline_no_session_id(interactive_client: Any) -> None:
     """Test Cline request without explicit session ID."""
 
+    backend = get_backend_instance(interactive_client.app, "openrouter")
     with patch.object(
-        interactive_client.app.state.openrouter_backend,
+        backend,
         "chat_completions",
         new_callable=AsyncMock,
     ) as mock_method:
@@ -196,8 +201,9 @@ def test_cline_non_command_message(interactive_client: Any) -> None:
         "usage": {"prompt_tokens": 10, "completion_tokens": 5, "total_tokens": 15},
     }
 
+    backend = get_backend_instance(interactive_client.app, "openrouter")
     with patch.object(
-        interactive_client.app.state.openrouter_backend,
+        backend,
         "chat_completions",
         new_callable=AsyncMock,
         return_value=mock_response,
@@ -244,7 +250,7 @@ def test_cline_first_message_hello(interactive_client: Any) -> None:
     """Test what happens when !/hello is the very first message - this might be the real issue."""
 
     with patch.object(
-        interactive_client.app.state.openrouter_backend,
+        get_backend_instance(interactive_client.app, "openrouter"),
         "chat_completions",
         new_callable=AsyncMock,
     ) as mock_method:
@@ -291,7 +297,7 @@ def test_cline_first_message_with_detection(interactive_client: Any) -> None:
     """Test !/hello as first message but with Cline detection pattern included."""
 
     with patch.object(
-        interactive_client.app.state.openrouter_backend,
+        get_backend_instance(interactive_client.app, "openrouter"),
         "chat_completions",
         new_callable=AsyncMock,
     ) as mock_method:
@@ -352,7 +358,7 @@ When you complete a task, you should summarize what you did and confirm that it 
 """
 
     with patch.object(
-        interactive_client.app.state.openrouter_backend,
+        get_backend_instance(interactive_client.app, "openrouter"),
         "chat_completions",
         new_callable=AsyncMock,
     ) as mock_method:

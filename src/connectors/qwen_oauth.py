@@ -38,7 +38,7 @@ class QwenOAuthConnector(OpenAIConnector):
 
     backend_type: str = "qwen-oauth"
 
-    def __init__(self, client: httpx.AsyncClient):
+    def __init__(self, client: httpx.AsyncClient) -> None:
         super().__init__(client)
         self.name = "qwen-oauth"
         self._default_endpoint = "https://dashscope.aliyuncs.com/compatible-mode/v1"

@@ -7,7 +7,7 @@ This handler implements the hello command, which displays a welcome banner.
 from __future__ import annotations
 
 import logging
-from typing import Any
+from typing import Any, cast
 
 from src.core.commands.handlers.base_handler import (
     CommandHandlerResult,
@@ -48,16 +48,16 @@ class HelloCommandHandler(ICommandHandler):
         """Examples of command usage."""
         return ["!/hello"]
 
-    def can_handle(self, command_name: str) -> bool:
+    def can_handle(self, param_name: str) -> bool:
         """Check if this handler can handle the given command.
 
         Args:
-            command_name: The name of the command to check
+            param_name: The name of the command to check
 
         Returns:
             True if this handler can handle the command, False otherwise
         """
-        command_lower = command_name.lower()
+        command_lower = param_name.lower()
         return command_lower == self.name or command_lower in self.aliases
 
     def handle(
@@ -116,10 +116,10 @@ class HelloCommandHandler(ICommandHandler):
                 current_state.backend_config
                 if isinstance(current_state.backend_config, BackendConfiguration)
                 else BackendConfiguration(
-                    backend_type=current_state.backend_config.backend_type,
-                    model=current_state.backend_config.model,
-                    api_url=current_state.backend_config.api_url,
-                    interactive_mode=current_state.backend_config.interactive_mode,
+                    backend_type=cast(BackendConfiguration, current_state.backend_config).backend_type,
+                    model=cast(BackendConfiguration, current_state.backend_config).model,
+                    api_url=cast(BackendConfiguration, current_state.backend_config).api_url,
+                    interactive_mode=cast(BackendConfiguration, current_state.backend_config).interactive_mode,
                     openai_url=getattr(
                         current_state.backend_config, "openai_url", None
                     ),

@@ -10,7 +10,7 @@ logger = logging.getLogger(__name__)
 
 
 class InMemoryRateLimiter(IRateLimiter):
-    def __init__(self, default_limit: int = 60, default_time_window: int = 60):
+    def __init__(self, default_limit: int = 60, default_time_window: int = 60) -> None:
         self._usage: dict[str, list[float]] = {}
         self._limits: dict[str, tuple[int, int]] = {}
         self._default_limit = default_limit
@@ -50,7 +50,7 @@ class InMemoryRateLimiter(IRateLimiter):
 
 
 class ConfigurableRateLimiter(IRateLimiter):
-    def __init__(self, base_limiter: IRateLimiter, config: dict[str, Any]):
+    def __init__(self, base_limiter: IRateLimiter, config: dict[str, Any]) -> None:
         self._limiter = base_limiter
         self._config = config
 

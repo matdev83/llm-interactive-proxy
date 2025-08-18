@@ -17,7 +17,7 @@ class AppLifecycle:
     This class manages startup and shutdown tasks for the application.
     """
 
-    def __init__(self, app: FastAPI, config: dict[str, Any]):
+    def __init__(self, app: FastAPI, config: dict[str, Any]) -> None:
         """Initialize the lifecycle manager.
 
         Args:

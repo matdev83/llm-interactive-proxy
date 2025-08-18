@@ -15,7 +15,7 @@ from src.llm_accounting_utils import (
 class TestAnthropicFrontendAccounting:
     """Test suite for Anthropic front-end accounting."""
 
-    def test_extract_billing_info_from_headers_anthropic(self):
+    def test_extract_billing_info_from_headers_anthropic(self) -> None:
         """Test billing info extraction from headers for Anthropic backend."""
         headers = {
             "content-type": "application/json",
@@ -34,7 +34,7 @@ class TestAnthropicFrontendAccounting:
         assert billing_info["usage"]["completion_tokens"] == 0
         assert billing_info["usage"]["total_tokens"] == 0
 
-    def test_extract_billing_info_from_response_anthropic_dict(self):
+    def test_extract_billing_info_from_response_anthropic_dict(self) -> None:
         """Test billing info extraction from Anthropic response dictionary."""
         response = {
             "id": "msg-123",
@@ -51,7 +51,7 @@ class TestAnthropicFrontendAccounting:
         assert billing_info["usage"]["completion_tokens"] == 15
         assert billing_info["usage"]["total_tokens"] == 40
 
-    def test_extract_billing_info_from_response_anthropic_object(self):
+    def test_extract_billing_info_from_response_anthropic_object(self) -> None:
         """Test billing info extraction from Anthropic response object."""
         # Mock Anthropic response object
         mock_usage = Mock()
@@ -68,7 +68,7 @@ class TestAnthropicFrontendAccounting:
         assert billing_info["usage"]["completion_tokens"] == 20
         assert billing_info["usage"]["total_tokens"] == 50
 
-    def test_extract_billing_info_from_response_anthropic_no_usage(self):
+    def test_extract_billing_info_from_response_anthropic_no_usage(self) -> None:
         """Test billing info extraction when no usage info is available."""
         response = {
             "id": "msg-123",
@@ -85,7 +85,7 @@ class TestAnthropicFrontendAccounting:
         assert billing_info["usage"]["completion_tokens"] == 0
         assert billing_info["usage"]["total_tokens"] == 0
 
-    def test_extract_anthropic_usage_from_dict(self):
+    def test_extract_anthropic_usage_from_dict(self) -> None:
         """Test extract_anthropic_usage function with dictionary."""
         response = {"usage": {"input_tokens": 45, "output_tokens": 35}}
 
@@ -95,7 +95,7 @@ class TestAnthropicFrontendAccounting:
         assert usage["output_tokens"] == 35
         assert usage["total_tokens"] == 80
 
-    def test_extract_anthropic_usage_from_object(self):
+    def test_extract_anthropic_usage_from_object(self) -> None:
         """Test extract_anthropic_usage function with object."""
         mock_usage = Mock()
         mock_usage.input_tokens = 60
@@ -110,7 +110,7 @@ class TestAnthropicFrontendAccounting:
         assert usage["output_tokens"] == 40
         assert usage["total_tokens"] == 100
 
-    def test_extract_anthropic_usage_empty_response(self):
+    def test_extract_anthropic_usage_empty_response(self) -> None:
         """Test extract_anthropic_usage function with empty response."""
         usage = extract_anthropic_usage({})
 
@@ -118,7 +118,7 @@ class TestAnthropicFrontendAccounting:
         assert usage["output_tokens"] == 0
         assert usage["total_tokens"] == 0
 
-    def test_extract_anthropic_usage_invalid_response(self):
+    def test_extract_anthropic_usage_invalid_response(self) -> None:
         """Test extract_anthropic_usage function with invalid response."""
         usage = extract_anthropic_usage(None)
 
@@ -126,7 +126,7 @@ class TestAnthropicFrontendAccounting:
         assert usage["output_tokens"] == 0
         assert usage["total_tokens"] == 0
 
-    def test_extract_anthropic_usage_partial_data(self):
+    def test_extract_anthropic_usage_partial_data(self) -> None:
         """Test extract_anthropic_usage function with partial data."""
         response = {
             "usage": {
@@ -142,7 +142,7 @@ class TestAnthropicFrontendAccounting:
         assert usage["total_tokens"] == 25
 
     @patch("src.anthropic_converters.extract_anthropic_usage")
-    def test_billing_info_calls_extract_usage(self, mock_extract_usage):
+    def test_billing_info_calls_extract_usage(self, mock_extract_usage) -> None:
         """Test that billing info extraction calls extract_anthropic_usage."""
         mock_extract_usage.return_value = {
             "input_tokens": 50,
@@ -158,7 +158,7 @@ class TestAnthropicFrontendAccounting:
         assert billing_info["usage"]["completion_tokens"] == 30
         assert billing_info["usage"]["total_tokens"] == 80
 
-    def test_billing_info_structure_anthropic(self):
+    def test_billing_info_structure_anthropic(self) -> None:
         """Test the structure of billing info for Anthropic."""
         headers: dict[str, str] = {}
         response = {"usage": {"input_tokens": 10, "output_tokens": 15}}
@@ -184,7 +184,7 @@ class TestAnthropicFrontendAccounting:
             assert "completion_tokens" in billing["usage"]
             assert "total_tokens" in billing["usage"]
 
-    def test_anthropic_vs_other_backends(self):
+    def test_anthropic_vs_other_backends(self) -> None:
         """Test that Anthropic billing differs from other backends."""
         headers = {"x-request-id": "123"}
         response = {"usage": {"input_tokens": 10, "output_tokens": 5}}

@@ -36,7 +36,7 @@ class UsageTrackingService(IUsageTrackingService):
     while also storing usage data in the new repository structure.
     """
 
-    def __init__(self, usage_repository: IUsageRepository):
+    def __init__(self, usage_repository: IUsageRepository) -> None:
         """Initialize the usage tracking service.
 
         Args:

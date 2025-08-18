@@ -28,7 +28,7 @@ class MockSuccessCommand(BaseCommand):
     def called_with_args(self) -> dict[str, Any] | None:
         return self._called_with_args
 
-    def reset_mock_state(self):
+    def reset_mock_state(self) -> None:
         self._called = False
         self._called_with_args = None
 
@@ -87,7 +87,7 @@ async def command_parser(
     yield parser
 
 
-def test_parse_arguments_empty():
+def test_parse_arguments_empty() -> None:
     assert parse_arguments("") == {}
     assert parse_arguments("   ") == {}
 

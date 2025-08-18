@@ -80,8 +80,9 @@ async def test_non_cline_clients_no_xml_wrapping(interactive_client):
     for command in commands_to_test:
         print(f"\n=== Testing non-Cline command: {command} ===")
 
+        backend = get_backend_instance(interactive_client.app, "openrouter")
         with patch.object(
-            interactive_client.app.state.openrouter_backend,
+            backend,
             "chat_completions",
             new_callable=AsyncMock,
         ) as mock_method:
@@ -165,8 +166,9 @@ async def test_remote_llm_responses_never_xml_wrapped(interactive_client):
         "usage": {"prompt_tokens": 10, "completion_tokens": 15, "total_tokens": 25},
     }
 
+    backend = get_backend_instance(interactive_client.app, "openrouter")
     with patch.object(
-        interactive_client.app.state.openrouter_backend,
+        backend,
         "chat_completions",
         new_callable=AsyncMock,
         return_value=mock_llm_response,
@@ -256,8 +258,9 @@ async def test_mixed_cline_command_and_llm_prompt(interactive_client):
     }
 
     # First, send a command-only request (should get XML wrapped)
+    backend = get_backend_instance(interactive_client.app, "openrouter")
     with patch.object(
-        interactive_client.app.state.openrouter_backend,
+        backend,
         "chat_completions",
         new_callable=AsyncMock,
     ) as mock_method:
@@ -293,8 +296,9 @@ async def test_mixed_cline_command_and_llm_prompt(interactive_client):
     ), "Expected one tool call for command response"
 
     # Now send a regular prompt (should NOT get XML wrapped)
+    backend = get_backend_instance(interactive_client.app, "openrouter")
     with patch.object(
-        interactive_client.app.state.openrouter_backend,
+        backend,
         "chat_completions",
         new_callable=AsyncMock,
         return_value=mock_llm_response,
@@ -344,7 +348,7 @@ async def test_streaming_responses_never_xml_wrapped(interactive_client):
         yield "data: [DONE]\n\n"
 
     with patch.object(
-        interactive_client.app.state.openrouter_backend,
+        get_backend_instance(interactive_client.app, "openrouter"),
         "chat_completions",
         new_callable=AsyncMock,
         return_value=mock_streaming_response(),
@@ -395,7 +399,7 @@ async def test_error_responses_from_llm_never_xml_wrapped(interactive_client):
     from fastapi import HTTPException
 
     with patch.object(
-        interactive_client.app.state.openrouter_backend,
+        get_backend_instance(interactive_client.app, "openrouter"),
         "chat_completions",
         new_callable=AsyncMock,
         side_effect=HTTPException(status_code=500, detail="LLM backend error"),

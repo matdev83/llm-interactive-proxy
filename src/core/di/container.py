@@ -91,7 +91,7 @@ class ServiceScope(IServiceScope):
 class ScopedServiceProvider(IServiceProvider):
     """A service provider for a specific scope."""
 
-    def __init__(self, root_provider: ServiceProvider, scope: ServiceScope):
+    def __init__(self, root_provider: ServiceProvider, scope: ServiceScope) -> None:
         """Initialize a scoped service provider.
 
         Args:
@@ -122,7 +122,7 @@ class ScopedServiceProvider(IServiceProvider):
 class ServiceProvider(IServiceProvider):
     """Implementation of a service provider."""
 
-    def __init__(self, descriptors: dict[type, ServiceDescriptor]):
+    def __init__(self, descriptors: dict[type, ServiceDescriptor]) -> None:
         """Initialize a service provider.
 
         Args:

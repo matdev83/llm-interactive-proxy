@@ -68,7 +68,9 @@ async def test_chat_completions_non_streaming_success(
     sample_chat_request_data: ChatRequest,
     sample_processed_messages: list[ChatMessage],
 ):
-    sample_chat_request_data = sample_chat_request_data.model_copy(update={"stream": False})
+    sample_chat_request_data = sample_chat_request_data.model_copy(
+        update={"stream": False}
+    )
     effective_model = "openai/gpt-3.5-turbo"
 
     # Mock successful response from OpenRouter

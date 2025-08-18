@@ -25,7 +25,7 @@ logger = logging.getLogger(__name__)
 class AnthropicController:
     """Controller for Anthropic-related endpoints."""
 
-    def __init__(self, request_processor: IRequestProcessor):
+    def __init__(self, request_processor: IRequestProcessor) -> None:
         """Initialize the controller.
 
         Args:

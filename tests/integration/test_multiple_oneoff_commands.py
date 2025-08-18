@@ -11,6 +11,8 @@ from unittest.mock import AsyncMock, patch
 import pytest
 from fastapi.testclient import TestClient
 
+from tests.conftest import get_backend_instance
+
 
 @pytest.fixture
 def client(test_client: TestClient) -> TestClient:
@@ -82,7 +84,7 @@ class TestMultipleOneoffCommands:
         }
 
         with patch.object(
-            client.app.state.openrouter_backend,
+            get_backend_instance(client.app, "openrouter"),
             "chat_completions",
             new=AsyncMock(
                 side_effect=[
@@ -253,7 +255,7 @@ class TestMultipleOneoffCommands:
         }
 
         with patch.object(
-            client.app.state.openrouter_backend,
+            get_backend_instance(client.app, "openrouter"),
             "chat_completions",
             new=AsyncMock(
                 side_effect=[
@@ -338,7 +340,7 @@ class TestMultipleOneoffCommands:
         """
         # Mock the backend to prevent real API calls
         with patch.object(
-            client.app.state.openrouter_backend,
+            get_backend_instance(client.app, "openrouter"),
             "chat_completions",
             new=AsyncMock(
                 return_value={

@@ -25,7 +25,7 @@ from tests.unit.core.test_doubles import (
 class MockRequest:
     """Mock FastAPI request for testing."""
 
-    def __init__(self, headers=None):
+    def __init__(self, headers=None) -> None:
         self.headers = headers or {}
 
         # Mock app.state
@@ -37,7 +37,9 @@ class MockRequest:
 class MockRequestData:
     """Mock request data for testing."""
 
-    def __init__(self, stream=False, messages=None, model="gpt-4", session_id=None):
+    def __init__(
+        self, stream=False, messages=None, model="gpt-4", session_id=None
+    ) -> None:
         self.stream = stream
         self.messages = messages or [{"role": "user", "content": "Hello"}]
         self.model = model
@@ -51,7 +53,7 @@ class MockRequestData:
 
 @pytest.mark.asyncio
 @pytest.mark.skip(reason="SessionState is now frozen and cannot be modified directly")
-async def test_process_request_basic():
+async def test_process_request_basic() -> None:
     """Test basic request processing with no commands."""
     # Arrange
     command_service = MockCommandService()
@@ -95,7 +97,7 @@ async def test_process_request_basic():
 
 @pytest.mark.asyncio
 @pytest.mark.skip(reason="SessionState is now frozen and cannot be modified directly")
-async def test_process_request_with_commands():
+async def test_process_request_with_commands() -> None:
     """Test request processing with commands."""
     # Arrange
     command_service = MockCommandService()
@@ -153,7 +155,7 @@ async def test_process_request_with_commands():
 
 @pytest.mark.asyncio
 @pytest.mark.skip(reason="SessionState is now frozen and cannot be modified directly")
-async def test_process_command_only_request():
+async def test_process_command_only_request() -> None:
     """Test processing a command-only request with no meaningful content."""
     # Arrange
     command_service = MockCommandService()
@@ -199,7 +201,7 @@ async def test_process_command_only_request():
 
 @pytest.mark.asyncio
 @pytest.mark.skip(reason="SessionState is now frozen and cannot be modified directly")
-async def test_process_streaming_request():
+async def test_process_streaming_request() -> None:
     """Test processing a streaming request."""
     # Arrange
     command_service = MockCommandService()
@@ -279,7 +281,7 @@ async def test_process_streaming_request():
 
 @pytest.mark.asyncio
 @pytest.mark.skip(reason="SessionState is now frozen and cannot be modified directly")
-async def test_backend_error_handling():
+async def test_backend_error_handling() -> None:
     """Test handling of backend errors."""
     # Arrange
     command_service = MockCommandService()

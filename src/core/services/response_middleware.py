@@ -112,7 +112,7 @@ class ContentFilterMiddleware(IResponseMiddleware):
 class LoopDetectionMiddleware(IResponseMiddleware):
     """Middleware to detect response loops."""
 
-    def __init__(self, loop_detector: ILoopDetector):
+    def __init__(self, loop_detector: ILoopDetector) -> None:
         """Initialize the middleware.
 
         Args:

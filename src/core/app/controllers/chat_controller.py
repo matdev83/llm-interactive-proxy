@@ -21,7 +21,7 @@ logger = logging.getLogger(__name__)
 class ChatController:
     """Controller for chat-related endpoints."""
 
-    def __init__(self, request_processor: IRequestProcessor):
+    def __init__(self, request_processor: IRequestProcessor) -> None:
         """Initialize the controller.
 
         Args:

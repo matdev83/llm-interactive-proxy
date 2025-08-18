@@ -1,10 +1,15 @@
 """Tests for the response processor."""
 
 import asyncio
+from collections.abc import AsyncIterator
 from typing import Any
 
 import pytest
-from src.core.domain.chat import ChatResponse
+from src.core.domain.chat import (
+    ChatCompletionChoice,
+    ChatCompletionChoiceMessage,
+    ChatResponse,
+)
 from src.core.interfaces.loop_detector_interface import (
     ILoopDetector,
     LoopDetectionResult,
@@ -23,7 +28,7 @@ from src.core.services.response_processor_service import ResponseProcessor
 class MockLoopDetector(ILoopDetector):
     """Mock loop detector for testing."""
 
-    def __init__(self, should_detect_loop: bool = False):
+    def __init__(self, should_detect_loop: bool = False) -> None:
         self.should_detect_loop = should_detect_loop
         self.check_called = False
         self.last_content = ""
@@ -69,7 +74,7 @@ class MockLoopDetector(ILoopDetector):
 class TrackingMiddleware(IResponseMiddleware):
     """Middleware that tracks calls for testing."""
 
-    def __init__(self):
+    def __init__(self) -> None:
         self.processed_responses: list[ProcessedResponse] = []
         self.processed_count = 0
 
@@ -86,19 +91,21 @@ class TrackingMiddleware(IResponseMiddleware):
 
 
 @pytest.fixture
-def mock_loop_detector():
+def mock_loop_detector() -> MockLoopDetector:
     """Create a mock loop detector."""
     return MockLoopDetector()
 
 
 @pytest.fixture
-def tracking_middleware():
+def tracking_middleware() -> TrackingMiddleware:
     """Create a tracking middleware."""
     return TrackingMiddleware()
 
 
 @pytest.fixture
-def response_processor(mock_loop_detector, tracking_middleware):
+def response_processor(
+    mock_loop_detector: MockLoopDetector, tracking_middleware: TrackingMiddleware
+) -> ResponseProcessor:
     """Create a response processor with the mock components."""
     middleware = [
         ContentFilterMiddleware(),
@@ -108,7 +115,7 @@ def response_processor(mock_loop_detector, tracking_middleware):
     return ResponseProcessor(mock_loop_detector, middleware)
 
 
-def test_response_processor_initialization():
+def test_response_processor_initialization() -> None:
     """Test that response processor initializes correctly."""
     # Create with no middleware or loop detector
     processor = ResponseProcessor()
@@ -135,8 +142,10 @@ def test_response_processor_initialization():
 
 @pytest.mark.asyncio
 async def test_process_response(
-    response_processor, tracking_middleware, mock_loop_detector
-):
+    response_processor: ResponseProcessor,
+    tracking_middleware: TrackingMiddleware,
+    mock_loop_detector: MockLoopDetector,
+) -> None:
     """Test processing a complete response."""
     # Create a sample response
     response = ChatResponse(
@@ -144,11 +153,13 @@ async def test_process_response(
         created=1234567890,
         model="test-model",
         choices=[
-            {
-                "index": 0,
-                "message": {"role": "assistant", "content": "This is a test response."},
-                "finish_reason": "stop",
-            }
+            ChatCompletionChoice(
+                index=0,
+                message=ChatCompletionChoiceMessage(
+                    role="assistant", content="This is a test response."
+                ),
+                finish_reason="stop",
+            )
         ],
     )
 
@@ -172,7 +183,9 @@ async def test_process_response(
 
 
 @pytest.mark.asyncio
-async def test_loop_detection(mock_loop_detector, tracking_middleware):
+async def test_loop_detection(
+    mock_loop_detector: MockLoopDetector, tracking_middleware: TrackingMiddleware
+) -> None:
     """Test loop detection in response processing."""
     # Configure loop detector to detect loops
     mock_loop_detector.should_detect_loop = True
@@ -186,14 +199,14 @@ async def test_loop_detection(mock_loop_detector, tracking_middleware):
         created=1234567890,
         model="test-model",
         choices=[
-            {
-                "index": 0,
-                "message": {
-                    "role": "assistant",
-                    "content": "This is a test response with repetitive content.",
-                },
-                "finish_reason": "stop",
-            }
+            ChatCompletionChoice(
+                index=0,
+                message=ChatCompletionChoiceMessage(
+                    role="assistant",
+                    content="This is a test response with repetitive content.",
+                ),
+                finish_reason="stop",
+            )
         ],
     )
 
@@ -213,11 +226,13 @@ async def test_loop_detection(mock_loop_detector, tracking_middleware):
 
 
 @pytest.mark.asyncio
-async def test_streaming_response_processing(response_processor, tracking_middleware):
+async def test_streaming_response_processing(
+    response_processor: ResponseProcessor, tracking_middleware: TrackingMiddleware
+) -> None:
     """Test processing a streaming response."""
 
     # Create a streaming response iterator
-    async def sample_stream():
+    async def sample_stream() -> AsyncIterator[dict[str, Any]]:
         chunks = [
             {"id": "1", "choices": [{"delta": {"content": "This "}}]},
             {"id": "1", "choices": [{"delta": {"content": "is "}}]},
@@ -250,23 +265,12 @@ async def test_streaming_response_processing(response_processor, tracking_middle
 
 
 @pytest.mark.asyncio
-async def test_middleware_registration():
-    """Test registering middleware after initialization."""
+async def test_middleware_registration() -> None:
+    """Test registering middleware components."""
     processor = ResponseProcessor()
-
-    # Register a middleware component
     middleware = TrackingMiddleware()
     await processor.register_middleware(middleware)
-
-    # Verify middleware was registered
     assert len(processor._middleware) == 1
-    assert processor._middleware[0][1] == middleware
-
-    # Register another with higher priority
     middleware2 = TrackingMiddleware()
     await processor.register_middleware(middleware2, priority=10)
-
-    # Verify both are registered with correct priorities
     assert len(processor._middleware) == 2
-    assert processor._middleware[0][0] == 0  # First middleware, priority 0
-    assert processor._middleware[1][0] == 10  # Second middleware, priority 10

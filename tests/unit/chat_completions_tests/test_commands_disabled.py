@@ -18,7 +18,9 @@ async def test_commands_ignored(
     commands_disabled_client,
 ):
     # Configure the mock response
-    mock_response = {"choices": [{"message": {"content": "ok"}}]}
+    mock_response = {
+        "choices": [{"index": 0, "message": {"role": "assistant", "content": "ok"}}]
+    }
     mock_openai_completions.return_value = mock_response
     mock_openrouter_completions.return_value = mock_response
     mock_gemini_completions.return_value = mock_response

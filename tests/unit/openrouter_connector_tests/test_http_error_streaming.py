@@ -60,12 +60,14 @@ async def test_chat_completions_http_error_streaming(
     sample_chat_request_data: ChatRequest,
     sample_processed_messages: list[ChatMessage],
 ):
-    sample_chat_request_data = sample_chat_request_data.model_copy(update={"stream": True})
+    sample_chat_request_data = sample_chat_request_data.model_copy(
+        update={"stream": True}
+    )
     error_text_response = "OpenRouter internal server error"
 
     async def mock_send_method(self, request, **kwargs):
         class MockResponse:
-            def __init__(self, status_code, request, stream, headers):
+            def __init__(self, status_code, request, stream, headers) -> None:
                 self.status_code = status_code
                 self.request = request
                 self.stream = stream
@@ -103,9 +105,6 @@ async def test_chat_completions_http_error_streaming(
     assert exc_info.value.status_code == 500
     detail = exc_info.value.detail
     assert isinstance(detail, dict)
-    assert (
-        detail.get("message")
-        == "OpenRouter internal server error"
-    )
+    assert detail.get("message") == "OpenRouter internal server error"
     assert detail.get("type") == "openrouter_error"
     assert detail.get("code") == 500

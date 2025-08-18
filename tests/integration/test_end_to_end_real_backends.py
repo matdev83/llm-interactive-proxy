@@ -31,7 +31,7 @@ ANTHROPIC_AVAILABLE = False
 class _ProxyServer:
     """Run the FastAPI app under Uvicorn in a thread for integration tests."""
 
-    def __init__(self, cfg: dict[str, Any]):
+    def __init__(self, cfg: dict[str, Any]) -> None:
         self.cfg = cfg
         # Pick an ephemeral port so tests can run in parallel
         self.port = self._find_free_port()

@@ -12,18 +12,18 @@ from src.core.interfaces.di_interface import (
 class ExampleService:
     """A test service for DI testing."""
 
-    def __init__(self):
+    def __init__(self) -> None:
         self.value = "test"
 
 
 class ExampleServiceWithDependency:
     """A test service that depends on another service."""
 
-    def __init__(self, service_provider: IServiceProvider):
+    def __init__(self, service_provider: IServiceProvider) -> None:
         self.dependency = service_provider.get_required_service(ExampleService)
 
 
-def test_service_collection_singleton():
+def test_service_collection_singleton() -> None:
     """Test registering and resolving a singleton service."""
     # Arrange
     services = ServiceCollection()
@@ -40,7 +40,7 @@ def test_service_collection_singleton():
     assert service1 is service2  # Same instance
 
 
-def test_service_collection_transient():
+def test_service_collection_transient() -> None:
     """Test registering and resolving a transient service."""
     # Arrange
     services = ServiceCollection()
@@ -57,7 +57,7 @@ def test_service_collection_transient():
     assert service1 is not service2  # Different instances
 
 
-def test_service_collection_scoped():
+def test_service_collection_scoped() -> None:
     """Test registering and resolving a scoped service."""
     # Arrange
     services = ServiceCollection()
@@ -83,7 +83,7 @@ def test_service_collection_scoped():
     assert service1_1 is not service2_1  # Different instances across scopes
 
 
-def test_service_provider_get_required_service():
+def test_service_provider_get_required_service() -> None:
     """Test that get_required_service throws for unregistered services."""
     # Arrange
     provider = ServiceCollection().build_service_provider()
@@ -93,7 +93,7 @@ def test_service_provider_get_required_service():
         provider.get_required_service(ExampleService)
 
 
-def test_service_factory():
+def test_service_factory() -> None:
     """Test registering a service with a factory."""
     # Arrange
     services = ServiceCollection()
@@ -110,7 +110,7 @@ def test_service_factory():
     assert isinstance(service, ExampleService)
 
 
-def test_service_with_dependency():
+def test_service_with_dependency() -> None:
     """Test a service that depends on another service."""
     # Arrange
     services = ServiceCollection()

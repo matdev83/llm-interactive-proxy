@@ -18,7 +18,7 @@ logger = logging.getLogger(__name__)
 class BackendHandler(BaseCommandHandler):
     """Handler for setting the backend."""
 
-    def __init__(self, functional_backends: set[str] | None = None):
+    def __init__(self, functional_backends: set[str] | None = None) -> None:
         """Initialize the backend handler.
 
         Args:
@@ -133,6 +133,16 @@ class ModelHandler(BaseCommandHandler):
         Returns:
             Result of the operation
         """
+        # If no value provided, treat this as an unset request
+        if param_value is None:
+            # Create new backend config with model unset
+            new_backend_config = current_state.backend_config.with_model(None)
+            # Create new state with updated backend config
+            new_state = current_state.with_backend_config(new_backend_config)
+            return CommandHandlerResult(
+                success=True, message="model unset", new_state=new_state
+            )
+
         if not isinstance(param_value, str):
             return CommandHandlerResult(
                 success=False, message="Model value must be a string"

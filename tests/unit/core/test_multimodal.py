@@ -13,7 +13,7 @@ from src.core.domain.multimodal import (
 class TestContentPart:
     """Test the ContentPart class."""
 
-    def test_text_content_part(self):
+    def test_text_content_part(self) -> None:
         """Test creating a text content part."""
         part = ContentPart.text("Hello, world!")
 
@@ -22,7 +22,7 @@ class TestContentPart:
         assert part.data == "Hello, world!"
         assert part.mime_type == "text/plain"
 
-    def test_image_url_content_part(self):
+    def test_image_url_content_part(self) -> None:
         """Test creating an image URL content part."""
         url = "https://example.com/image.jpg"
         part = ContentPart.image_url(url)
@@ -32,7 +32,7 @@ class TestContentPart:
         assert part.data == url
         assert part.mime_type == "image/jpeg"
 
-    def test_image_base64_content_part(self):
+    def test_image_base64_content_part(self) -> None:
         """Test creating an image base64 content part."""
         base64_data = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=="
         part = ContentPart.image_base64(base64_data, mime_type="image/png")
@@ -42,7 +42,7 @@ class TestContentPart:
         assert part.data == base64_data
         assert part.mime_type == "image/png"
 
-    def test_to_dict(self):
+    def test_to_dict(self) -> None:
         """Test converting a content part to a dictionary."""
         part = ContentPart(
             type=ContentType.AUDIO,
@@ -60,7 +60,7 @@ class TestContentPart:
         assert result["mime_type"] == "audio/mp3"
         assert result["metadata"] == {"duration": 120}
 
-    def test_to_openai_format_text(self):
+    def test_to_openai_format_text(self) -> None:
         """Test converting a text content part to OpenAI format."""
         part = ContentPart.text("Hello, world!")
         result = part.to_openai_format()
@@ -68,7 +68,7 @@ class TestContentPart:
         assert result["type"] == "text"
         assert result["text"] == "Hello, world!"
 
-    def test_to_openai_format_image_url(self):
+    def test_to_openai_format_image_url(self) -> None:
         """Test converting an image URL content part to OpenAI format."""
         url = "https://example.com/image.jpg"
         part = ContentPart.image_url(url)
@@ -77,7 +77,7 @@ class TestContentPart:
         assert result["type"] == "image_url"
         assert result["image_url"]["url"] == url
 
-    def test_to_openai_format_image_base64(self):
+    def test_to_openai_format_image_base64(self) -> None:
         """Test converting an image base64 content part to OpenAI format."""
         base64_data = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=="
         part = ContentPart.image_base64(base64_data, mime_type="image/png")
@@ -86,7 +86,7 @@ class TestContentPart:
         assert result["type"] == "image_url"
         assert result["image_url"]["url"] == f"data:image/png;base64,{base64_data}"
 
-    def test_to_anthropic_format_text(self):
+    def test_to_anthropic_format_text(self) -> None:
         """Test converting a text content part to Anthropic format."""
         part = ContentPart.text("Hello, world!")
         result = part.to_anthropic_format()
@@ -94,7 +94,7 @@ class TestContentPart:
         assert result["type"] == "text"
         assert result["text"] == "Hello, world!"
 
-    def test_to_anthropic_format_image_url(self):
+    def test_to_anthropic_format_image_url(self) -> None:
         """Test converting an image URL content part to Anthropic format."""
         url = "https://example.com/image.jpg"
         part = ContentPart.image_url(url)
@@ -104,7 +104,7 @@ class TestContentPart:
         assert result["source"]["type"] == "url"
         assert result["source"]["url"] == url
 
-    def test_to_anthropic_format_image_base64(self):
+    def test_to_anthropic_format_image_base64(self) -> None:
         """Test converting an image base64 content part to Anthropic format."""
         base64_data = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=="
         part = ContentPart.image_base64(base64_data, mime_type="image/png")
@@ -115,7 +115,7 @@ class TestContentPart:
         assert result["source"]["media_type"] == "image/png"
         assert result["source"]["data"] == base64_data
 
-    def test_to_gemini_format_text(self):
+    def test_to_gemini_format_text(self) -> None:
         """Test converting a text content part to Gemini format."""
         part = ContentPart.text("Hello, world!")
         result = part.to_gemini_format()
@@ -123,7 +123,7 @@ class TestContentPart:
         assert "text" in result
         assert result["text"] == "Hello, world!"
 
-    def test_to_gemini_format_image_base64(self):
+    def test_to_gemini_format_image_base64(self) -> None:
         """Test converting an image base64 content part to Gemini format."""
         base64_data = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=="
         part = ContentPart.image_base64(base64_data, mime_type="image/png")
@@ -137,7 +137,7 @@ class TestContentPart:
 class TestMultimodalMessage:
     """Test the MultimodalMessage class."""
 
-    def test_text_message(self):
+    def test_text_message(self) -> None:
         """Test creating a text message."""
         message = MultimodalMessage.text("user", "Hello, world!")
 
@@ -147,7 +147,7 @@ class TestMultimodalMessage:
         assert message.content[0].type == ContentType.TEXT
         assert message.content[0].data == "Hello, world!"
 
-    def test_with_image_message(self):
+    def test_with_image_message(self) -> None:
         """Test creating a message with text and an image."""
         message = MultimodalMessage.with_image(
             "user", "Check out this image:", "https://example.com/image.jpg"
@@ -161,7 +161,7 @@ class TestMultimodalMessage:
         assert message.content[1].type == ContentType.IMAGE
         assert message.content[1].data == "https://example.com/image.jpg"
 
-    def test_is_multimodal(self):
+    def test_is_multimodal(self) -> None:
         """Test checking if a message is multimodal."""
         text_message = MultimodalMessage(role="user", content="Hello, world!")
         multimodal_message = MultimodalMessage.with_image(
@@ -171,7 +171,7 @@ class TestMultimodalMessage:
         assert not text_message.is_multimodal()
         assert multimodal_message.is_multimodal()
 
-    def test_get_text_content(self):
+    def test_get_text_content(self) -> None:
         """Test getting the text content of a message."""
         text_message = MultimodalMessage(role="user", content="Hello, world!")
         multimodal_message = MultimodalMessage.with_image(
@@ -186,7 +186,7 @@ class TestMultimodalMessage:
         assert multimodal_message.get_text_content() == "Check out this image:"
         assert no_text_message.get_text_content() == "[Multimodal content]"
 
-    def test_to_dict(self):
+    def test_to_dict(self) -> None:
         """Test converting a message to a dictionary."""
         message = MultimodalMessage.with_image(
             "user",
@@ -204,7 +204,7 @@ class TestMultimodalMessage:
         assert result["content"][0]["type"] == ContentType.TEXT
         assert result["content"][1]["type"] == ContentType.IMAGE
 
-    def test_to_legacy_format(self):
+    def test_to_legacy_format(self) -> None:
         """Test converting a message to legacy format."""
         message = MultimodalMessage.with_image(
             "user",
@@ -219,7 +219,7 @@ class TestMultimodalMessage:
         assert result["name"] == "test_user"
         assert result["content"] == "Check out this image:"
 
-    def test_to_legacy_format_no_text(self):
+    def test_to_legacy_format_no_text(self) -> None:
         """Test converting a message with no text to legacy format."""
         message = MultimodalMessage(
             role="user",
@@ -233,7 +233,7 @@ class TestMultimodalMessage:
         assert result["name"] == "test_user"
         assert result["content"] == "[Multimodal content]"
 
-    def test_to_openai_format(self):
+    def test_to_openai_format(self) -> None:
         """Test converting a message to OpenAI format."""
         message = MultimodalMessage.with_image(
             "user",
@@ -251,7 +251,7 @@ class TestMultimodalMessage:
         assert result["content"][0]["type"] == "text"
         assert result["content"][1]["type"] == "image_url"
 
-    def test_to_anthropic_format(self):
+    def test_to_anthropic_format(self) -> None:
         """Test converting a message to Anthropic format."""
         message = MultimodalMessage.with_image(
             "user", "Check out this image:", "https://example.com/image.jpg"
@@ -265,7 +265,7 @@ class TestMultimodalMessage:
         assert result["content"][0]["type"] == "text"
         assert result["content"][1]["type"] == "image"
 
-    def test_to_gemini_format(self):
+    def test_to_gemini_format(self) -> None:
         """Test converting a message to Gemini format."""
         message = MultimodalMessage.with_image(
             "user", "Check out this image:", "https://example.com/image.jpg"
@@ -279,7 +279,7 @@ class TestMultimodalMessage:
         assert "text" in result["parts"][0]
         assert "inline_data" in result["parts"][1]
 
-    def test_from_legacy_message(self):
+    def test_from_legacy_message(self) -> None:
         """Test creating a message from a legacy message."""
         legacy_message = {
             "role": "user",
@@ -296,7 +296,7 @@ class TestMultimodalMessage:
         assert message.content[0].type == ContentType.TEXT
         assert message.content[0].data == "Hello, world!"
 
-    def test_backend_format_selection(self):
+    def test_backend_format_selection(self) -> None:
         """Test selecting the correct backend format."""
         message = MultimodalMessage.text("user", "Hello, world!")
 

@@ -11,7 +11,7 @@ from src.core.interfaces.backend_service_interface import IBackendService
 class MockBackendService(IBackendService):
     """Mock implementation of IBackendService for testing."""
 
-    def __init__(self):
+    def __init__(self) -> None:
         self.call_completion_was_called = False
 
     async def call_completion(

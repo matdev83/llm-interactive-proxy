@@ -20,7 +20,7 @@ class InMemoryRateLimiter(IRateLimiter):
     for single-instance deployments.
     """
 
-    def __init__(self, default_limit: int = 60, default_time_window: int = 60):
+    def __init__(self, default_limit: int = 60, default_time_window: int = 60) -> None:
         """Initialize the rate limiter.
 
         Args:
@@ -148,7 +148,7 @@ class ConfigurableRateLimiter(IRateLimiter):
     based on app configuration.
     """
 
-    def __init__(self, base_limiter: IRateLimiter, config: dict[str, Any]):
+    def __init__(self, base_limiter: IRateLimiter, config: dict[str, Any]) -> None:
         """Initialize the rate limiter.
 
         Args:

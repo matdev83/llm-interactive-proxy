@@ -17,7 +17,7 @@ from src.core.interfaces.session_service_interface import ISessionService
 class CommandResultWrapper:
     """Wrapper for CommandResult to provide compatibility with both interfaces."""
 
-    def __init__(self, result: Any):
+    def __init__(self, result: Any) -> None:
         """Initialize the wrapper.
 
         Args:
@@ -42,6 +42,18 @@ class CommandResultWrapper:
         # Legacy command result handling removed
         return getattr(self.result, "data", {})
 
+    @property
+    def command(self) -> str:
+        # Extract command name from CommandResult
+        if hasattr(self.result, "name"):
+            return self.result.name
+        # Fallback for legacy command results
+        if hasattr(self.result, "cmd_name"):
+            return self.result.cmd_name
+        if hasattr(self.result, "command"):
+            return self.result.command
+        return "command"
+
 
 logger = logging.getLogger(__name__)
 
@@ -64,7 +76,7 @@ def get_command_pattern(command_prefix: str) -> re.Pattern:
 class CommandRegistry:
     """Registry for command handlers."""
 
-    def __init__(self):
+    def __init__(self) -> None:
         """Initialize the command registry."""
         self._commands: dict[str, BaseCommand] = {}
 
@@ -126,7 +138,7 @@ class CommandService(ICommandService):
         command_registry: CommandRegistry,
         session_service: ISessionService,
         preserve_unknown: bool = False,
-    ):
+    ) -> None:
         """
         Initialize the command service.
 
@@ -224,6 +236,9 @@ class CommandService(ICommandService):
                             if args_str:
                                 try:
                                     args = json.loads(args_str)
+                                    # Normalize scalar JSON args (e.g. 0.6) to a dict
+                                    if not isinstance(args, dict):
+                                        args = {"value": args}
                                 except Exception:
                                     for arg in args_str.split(","):
                                         arg = arg.strip()

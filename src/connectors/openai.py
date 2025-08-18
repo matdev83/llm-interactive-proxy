@@ -1,5 +1,9 @@
 from __future__ import annotations
 
+import logging
+
+logger = logging.getLogger(__name__)
+
 import asyncio
 from collections.abc import AsyncGenerator
 from typing import Any
@@ -34,14 +38,14 @@ class OpenAIConnector(LLMBackend):
 
     def get_headers(self) -> dict[str, str]:
         if not self.api_key:
-            raise HTTPException(status_code=500, detail="API key is not set.")
+            return {}
         return {"Authorization": f"Bearer {self.api_key}"}
 
     async def initialize(self, **kwargs: Any) -> None:
         self.api_key = kwargs.get("api_key")
-        api_base_url = kwargs.get("api_base_url")
-        if api_base_url:
-            self.api_base_url = api_base_url
+        logger.info(f"OpenAIConnector initialize called. api_key: {self.api_key}")
+        if "api_base_url" in kwargs:
+            self.api_base_url = kwargs["api_base_url"]
 
         # Fetch available models
         try:
@@ -53,7 +57,8 @@ class OpenAIConnector(LLMBackend):
             # or might not be 200, so we just try to access the data directly
             data = response.json()
             self.available_models = [model["id"] for model in data.get("data", [])]
-        except Exception:
+        except Exception as e:
+            logger.warning(f"Failed to fetch models: {e}")
             # Log the error but don't fail initialization
             pass
 
@@ -221,6 +226,7 @@ class OpenAIConnector(LLMBackend):
     async def list_models(self, api_base_url: str | None = None) -> dict[str, Any]:
         headers = self.get_headers()
         base = api_base_url or self.api_base_url
+        logger.info(f"OpenAIConnector list_models - base URL: {base}")
         try:
             response = await self.client.get(f"{base.rstrip('/')}/models", headers=headers)
         except RuntimeError:

@@ -6,11 +6,12 @@ from typing import Any
 from pydantic import field_validator
 
 from src.core.domain.base import ValueObject
+from src.core.interfaces.configuration_interface import IBackendConfig
 
 logger = logging.getLogger(__name__)
 
 
-class BackendConfiguration(ValueObject):
+class BackendConfiguration(ValueObject, IBackendConfig):
     """Configuration for backend services.
 
     This class handles backend and model selection, API URLs, and failover routes.
@@ -41,7 +42,7 @@ class BackendConfiguration(ValueObject):
             raise ValueError("OpenAI URL must start with http:// or https://")
         return v
 
-    def with_backend(self, backend_type: str | None) -> BackendConfiguration:
+    def with_backend(self, backend_type: str | None) -> IBackendConfig:
         """Create a new config with updated backend type."""
         return self.model_copy(
             update={
@@ -51,25 +52,25 @@ class BackendConfiguration(ValueObject):
             }
         )
 
-    def with_model(self, model: str | None) -> BackendConfiguration:
+    def with_model(self, model: str | None) -> IBackendConfig:
         """Create a new config with updated model."""
         return self.model_copy(update={"model": model})
 
-    def with_api_url(self, api_url: str | None) -> BackendConfiguration:
+    def with_api_url(self, api_url: str | None) -> IBackendConfig:
         """Create a new config with updated API URL."""
         return self.model_copy(update={"api_url": api_url})
 
-    def with_openai_url(self, url: str | None) -> BackendConfiguration:
+    def with_openai_url(self, url: str | None) -> IBackendConfig:
         """Create a new config with updated OpenAI URL."""
         return self.model_copy(update={"openai_url": url})
 
-    def with_interactive_mode(self, enabled: bool) -> BackendConfiguration:
+    def with_interactive_mode(self, enabled: bool) -> IBackendConfig:
         """Create a new config with updated interactive mode."""
         return self.model_copy(update={"interactive_mode": enabled})
 
     def with_backend_and_model(
         self, backend: str, model: str, invalid: bool = False
-    ) -> BackendConfiguration:
+    ) -> IBackendConfig:
         """Create a new config with updated backend and model."""
         return self.model_copy(
             update={
@@ -79,17 +80,17 @@ class BackendConfiguration(ValueObject):
             }
         )
 
-    def with_oneoff_route(self, backend: str, model: str) -> BackendConfiguration:
+    def with_oneoff_route(self, backend: str, model: str) -> IBackendConfig:
         """Create a new config with a one-off route for the next request."""
         return self.model_copy(
             update={"oneoff_backend": backend, "oneoff_model": model}
         )
 
-    def without_oneoff_route(self) -> BackendConfiguration:
+    def without_oneoff_route(self) -> IBackendConfig:
         """Create a new config with cleared one-off route."""
         return self.model_copy(update={"oneoff_backend": None, "oneoff_model": None})
 
-    def without_override(self) -> BackendConfiguration:
+    def without_override(self) -> IBackendConfig:
         """Create a new config with cleared override settings."""
         return self.model_copy(
             update={
@@ -103,28 +104,26 @@ class BackendConfiguration(ValueObject):
         )
 
     # Failover route management
-    def with_failover_route(self, name: str, policy: str) -> BackendConfiguration:
+    def with_failover_route(self, name: str, policy: str) -> IBackendConfig:
         """Create a new config with a new failover route."""
         new_routes = dict(self.failover_routes)
         new_routes[name] = {"policy": policy, "elements": []}
         return self.model_copy(update={"failover_routes": new_routes})
 
-    def without_failover_route(self, name: str) -> BackendConfiguration:
+    def without_failover_route(self, name: str) -> IBackendConfig:
         """Create a new config with a failover route removed."""
         new_routes = dict(self.failover_routes)
         new_routes.pop(name, None)
         return self.model_copy(update={"failover_routes": new_routes})
 
-    def with_cleared_route(self, name: str) -> BackendConfiguration:
+    def with_cleared_route(self, name: str) -> IBackendConfig:
         """Create a new config with a cleared failover route."""
         new_routes = dict(self.failover_routes)
         if name in new_routes:
             new_routes[name] = {**new_routes[name], "elements": []}
         return self.model_copy(update={"failover_routes": new_routes})
 
-    def with_appended_route_element(
-        self, name: str, element: str
-    ) -> BackendConfiguration:
+    def with_appended_route_element(self, name: str, element: str) -> IBackendConfig:
         """Create a new config with an element appended to a failover route."""
         new_routes = dict(self.failover_routes)
         route = new_routes.setdefault(name, {"policy": "k", "elements": []})
@@ -133,9 +132,7 @@ class BackendConfiguration(ValueObject):
         route["elements"] = elements
         return self.model_copy(update={"failover_routes": new_routes})
 
-    def with_prepended_route_element(
-        self, name: str, element: str
-    ) -> BackendConfiguration:
+    def with_prepended_route_element(self, name: str, element: str) -> IBackendConfig:
         """Create a new config with an element prepended to a failover route."""
         new_routes = dict(self.failover_routes)
         route = new_routes.setdefault(name, {"policy": "k", "elements": []})

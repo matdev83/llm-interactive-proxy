@@ -46,6 +46,8 @@ from src.core.domain.commands.loop_detection_commands import (
 from src.core.domain.commands.model_command import ModelCommand
 from src.core.domain.commands.project_command import ProjectCommand
 from src.core.domain.commands.temperature_command import TemperatureCommand
+from src.core.domain.commands.set_command import SetCommand
+from src.core.domain.commands.unset_command import UnsetCommand
 
 # Import moved to local scope to avoid circular imports
 
@@ -67,6 +69,8 @@ class CommandHandlerFactory:
         self.register_handler_class(ModelCommand)
         self.register_handler_class(ProjectCommand)
         self.register_handler_class(TemperatureCommand)
+        self.register_handler_class(SetCommand)
+        self.register_handler_class(UnsetCommand)
 
         # Import help command
         from src.core.domain.commands.help_command import HelpCommand

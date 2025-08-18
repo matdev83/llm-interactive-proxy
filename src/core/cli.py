@@ -275,7 +275,7 @@ def main(
     if build_app_fn is not None:
         app = build_app_fn(cfg, args.config_file)
     else:
-        app = build_app(cfg)
+        app, _ = build_app(cfg)
 
     uvicorn.run(app, host=cfg.host, port=cfg.port)
 

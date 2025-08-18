@@ -20,6 +20,8 @@ import uvicorn
 from fastapi import HTTPException
 from src.core.app.application_factory import build_app
 
+from tests.conftest import get_backend_instance
+
 # Import Gemini client types
 try:
     import google.genai as genai
@@ -33,7 +35,7 @@ except ImportError:
 class ProxyServer:
     """Test server for integration tests."""
 
-    def __init__(self, config: dict[str, Any], port: int = 8001):
+    def __init__(self, config: dict[str, Any], port: int = 8001) -> None:
         self.config = config
         self.port = port
         self.config_file_path: Path | None = None
@@ -144,7 +146,7 @@ class TestGeminiClientIntegration:
         mock_models = ["gemini-pro", "gemini-pro-vision", "gemini-1.5-pro"]
 
         with patch.object(
-            proxy_server.app.state.gemini_backend,
+            get_backend_instance(proxy_server.app, "gemini"),
             "get_available_models",
             return_value=mock_models,
         ):
@@ -229,7 +231,7 @@ class TestBackendIntegration:
         }
 
         with patch.object(
-            proxy_server.app.state.openrouter_backend,
+            get_backend_instance(proxy_server.app, "openrouter"),
             "chat_completions",
             new=AsyncMock(return_value=(mock_response, {})),
         ):
@@ -257,7 +259,7 @@ class TestBackendIntegration:
     ):
         """Test Gemini backend through Gemini client."""
         with patch.object(
-            proxy_server.app.state.gemini_backend,
+            get_backend_instance(proxy_server.app, "gemini"),
             "chat_completions",
             new=AsyncMock(return_value=(gemini_mock_response, {})),
         ):
@@ -300,7 +302,7 @@ class TestBackendIntegration:
         }
 
         with patch.object(
-            proxy_server.app.state.gemini_cli_direct_backend,
+            get_backend_instance(proxy_server.app, "gemini-cli-direct"),
             "chat_completions",
             new=AsyncMock(return_value=(cli_response, {})),
         ):
@@ -334,7 +336,7 @@ class TestComplexConversions:
         }
 
         with patch.object(
-            proxy_server.app.state.openrouter_backend,
+            get_backend_instance(proxy_server.app, "openrouter"),
             "chat_completions",
             new=AsyncMock(return_value=(mock_response, {})),
         ):
@@ -381,7 +383,7 @@ class TestComplexConversions:
         }
 
         with patch.object(
-            proxy_server.app.state.openrouter_backend,
+            get_backend_instance(proxy_server.app, "openrouter"),
             "chat_completions",
             new=AsyncMock(return_value=(mock_response, {})),
         ):
@@ -430,7 +432,7 @@ class TestStreamingIntegration:
         )
 
         with patch.object(
-            proxy_server.app.state.openrouter_backend,
+            get_backend_instance(proxy_server.app, "openrouter"),
             "chat_completions",
             new=AsyncMock(return_value=(mock_streaming_response, {})),
         ):
@@ -483,7 +485,7 @@ class TestErrorHandling:
         """Test model not found error handling."""
         with (
             patch.object(
-                proxy_server.app.state.openrouter_backend,
+                get_backend_instance(proxy_server.app, "openrouter"),
                 "chat_completions",
                 new=AsyncMock(
                     side_effect=HTTPException(status_code=404, detail="Model not found")
@@ -516,7 +518,7 @@ class TestPerformanceAndReliability:
         }
 
         with patch.object(
-            proxy_server.app.state.openrouter_backend,
+            get_backend_instance(proxy_server.app, "openrouter"),
             "chat_completions",
             new=AsyncMock(return_value=(mock_response, {})),
         ):
@@ -564,7 +566,7 @@ class TestPerformanceAndReliability:
         }
 
         with patch.object(
-            proxy_server.app.state.openrouter_backend,
+            get_backend_instance(proxy_server.app, "openrouter"),
             "chat_completions",
             new=AsyncMock(return_value=(mock_response, {})),
         ):

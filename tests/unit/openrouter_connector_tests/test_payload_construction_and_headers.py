@@ -79,7 +79,6 @@ async def fixture_api_request_and_data(
     Calls chat_completions and returns a dictionary containing the sent request,
     parsed payload, original request data, processed messages, and effective model.
     """
-    
 
     processed_msgs = [
         ChatMessage(role="user", content="Hello"),

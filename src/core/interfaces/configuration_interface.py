@@ -21,31 +21,6 @@ class IConfig(abc.ABC):
 class IBackendConfig(abc.ABC):
     """Interface for backend configuration."""
 
-    @property
-    @abc.abstractmethod
-    def backend_type(self) -> str | None:
-        """Get the backend type."""
-
-    @property
-    @abc.abstractmethod
-    def model(self) -> str | None:
-        """Get the model name."""
-
-    @property
-    @abc.abstractmethod
-    def api_url(self) -> str | None:
-        """Get the API URL."""
-
-    @property
-    @abc.abstractmethod
-    def openai_url(self) -> str | None:
-        """Get the OpenAI URL."""
-
-    @property
-    @abc.abstractmethod
-    def interactive_mode(self) -> bool:
-        """Get the interactive mode status."""
-
     @abc.abstractmethod
     def with_backend(self, backend_type: str | None) -> IBackendConfig:
         """Create a new config with updated backend type."""

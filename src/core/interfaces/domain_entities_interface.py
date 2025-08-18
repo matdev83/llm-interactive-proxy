@@ -172,5 +172,19 @@ class ISessionState(IValueObject):
 
     @property
     @abc.abstractmethod
+    def hello_requested(self) -> bool:
+        """Get whether hello was requested in this session."""
+
+    @hello_requested.setter
+    @abc.abstractmethod
+    def hello_requested(self, value: bool) -> None:
+        """Set whether hello was requested in this session."""
+
+    @abc.abstractmethod
+    def with_hello_requested(self, hello_requested: bool) -> ISessionState:
+        """Create a new state with updated hello_requested flag."""
+
+    @property
+    @abc.abstractmethod
     def is_cline_agent(self) -> bool:
         """Get whether the current agent is a CLI agent."""

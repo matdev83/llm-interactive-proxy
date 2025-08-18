@@ -9,7 +9,7 @@ from unittest.mock import AsyncMock, MagicMock, patch  # Added MagicMock
 import pytest
 import src.core.config.config_loader  # Added import
 from src.core.common.exceptions import LoopDetectionError
-from src.core.domain.chat import ChatResponse
+from src.core.domain.chat import ChatRequest, ChatResponse
 from src.core.domain.session import Session, SessionState  # Added import
 from src.core.interfaces.loop_detector_interface import (
     ILoopDetector,
@@ -29,7 +29,7 @@ from src.core.services.response_middleware_service import LoopDetectionMiddlewar
 class MockLoopDetector(ILoopDetector):
     """Mock implementation of ILoopDetector for testing."""
 
-    def __init__(self, should_detect_loop: bool = False):
+    def __init__(self, should_detect_loop: bool = False) -> None:
         self.should_detect_loop = should_detect_loop
         self.check_called = False
         self.last_content = ""
@@ -253,9 +253,8 @@ async def test_request_processor_integration():
     request.headers = {}
 
     # Create request data
-    from src.core.domain.chat import ChatRequest
 
-    request_data = ChatCompletionRequest(
+    request_data = ChatRequest(
         model="test-model",
         messages=[{"role": "user", "content": "Hello"}],
         stream=False,

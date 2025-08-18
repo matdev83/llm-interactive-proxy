@@ -246,7 +246,7 @@ def test_non_cline_commands_no_xml_wrapping(
 
     for command in commands_to_test:
         with patch.object(
-            interactive_client.app.state.openrouter_backend,
+            get_backend_instance(interactive_client.app, "openrouter"),
             "chat_completions",
             new_callable=AsyncMock,
         ) as mock_method:

@@ -8,7 +8,7 @@ import pytest
 from src.core.config.app_config import AppConfig, load_config
 
 
-def test_app_config_defaults():
+def test_app_config_defaults() -> None:
     """Test default values in AppConfig."""
     # Arrange & Act
     config = AppConfig()
@@ -24,7 +24,7 @@ def test_app_config_defaults():
     assert config.logging.level == AppConfig.LogLevel.INFO
 
 
-def test_app_config_validation():
+def test_app_config_validation() -> None:
     """Test validation in AppConfig."""
     # Arrange & Act & Assert
     with pytest.raises(ValueError):
@@ -38,7 +38,7 @@ def test_app_config_validation():
         )
 
 
-def test_app_config_to_legacy_config():
+def test_app_config_to_legacy_config() -> None:
     """Test conversion to legacy config format."""
     # Arrange
     config = AppConfig(
@@ -68,7 +68,7 @@ def test_app_config_to_legacy_config():
     assert legacy_config["openai_foo"] == "bar"
 
 
-def test_app_config_from_legacy_config():
+def test_app_config_from_legacy_config() -> None:
     """Test creation from legacy config format."""
     # Arrange
     legacy_config = {
@@ -94,7 +94,7 @@ def test_app_config_from_legacy_config():
     assert config.backends.openai.extra == {"foo": "bar"}
 
 
-def test_app_config_from_env(mock_env_vars: dict[str, str]):
+def test_app_config_from_env(mock_env_vars: dict[str, str]) -> None:
     """Test creation from environment variables."""
     # Arrange & Act
     config = AppConfig.from_env()
@@ -118,7 +118,7 @@ def test_app_config_from_env(mock_env_vars: dict[str, str]):
 #     assert "proxy_port" in config
 
 
-def test_load_config(temp_config_path: Path):
+def test_load_config(temp_config_path: Path) -> None:
     """Test the load_config function."""
     # Arrange & Act
     config = load_config(temp_config_path)
@@ -129,7 +129,7 @@ def test_load_config(temp_config_path: Path):
     assert config.port == 9000
 
 
-def test_load_config_debug(temp_config_path: Path):
+def test_load_config_debug(temp_config_path: Path) -> None:
     """Test the load_config function."""
     # Arrange & Act
     import os

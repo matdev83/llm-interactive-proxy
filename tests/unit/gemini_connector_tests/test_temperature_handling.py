@@ -33,7 +33,9 @@ class TestGeminiTemperatureHandling:
     ):
         """Test that temperature is properly added to generationConfig."""
         # Set temperature in request data
-        sample_request_data = sample_request_data.model_copy(update={"temperature": 0.7})
+        sample_request_data = sample_request_data.model_copy(
+            update={"temperature": 0.7}
+        )
 
         # Mock the HTTP response
         mock_response = Mock()
@@ -74,7 +76,9 @@ class TestGeminiTemperatureHandling:
     ):
         """Test that temperature > 1.0 is clamped to 1.0 for Gemini."""
         # Set temperature above 1.0
-        sample_request_data = sample_request_data.model_copy(update={"temperature": 1.5})
+        sample_request_data = sample_request_data.model_copy(
+            update={"temperature": 1.5}
+        )
 
         # Mock the HTTP response
         mock_response = Mock()
@@ -121,7 +125,9 @@ class TestGeminiTemperatureHandling:
     ):
         """Test that temperature 0.0 is properly handled."""
         # Set temperature to 0.0
-        sample_request_data = sample_request_data.model_copy(update={"temperature": 0.0})
+        sample_request_data = sample_request_data.model_copy(
+            update={"temperature": 0.0}
+        )
 
         # Mock the HTTP response
         mock_response = Mock()
@@ -162,7 +168,12 @@ class TestGeminiTemperatureHandling:
     ):
         """Test that temperature is added to existing generationConfig."""
         # Set temperature and existing generation config
-        sample_request_data = sample_request_data.model_copy(update={"temperature": 0.8, "generation_config": {"maxOutputTokens": 1000, "topP": 0.9}})
+        sample_request_data = sample_request_data.model_copy(
+            update={
+                "temperature": 0.8,
+                "generation_config": {"maxOutputTokens": 1000, "topP": 0.9},
+            }
+        )
 
         # Mock the HTTP response
         mock_response = Mock()
@@ -207,7 +218,9 @@ class TestGeminiTemperatureHandling:
     ):
         """Test that temperature works alongside thinking budget."""
         # Set both temperature and thinking budget
-        sample_request_data = sample_request_data.model_copy(update={"temperature": 0.6, "thinking_budget": 2048})
+        sample_request_data = sample_request_data.model_copy(
+            update={"temperature": 0.6, "thinking_budget": 2048}
+        )
 
         # Mock the HTTP response
         mock_response = Mock()
@@ -292,11 +305,16 @@ class TestGeminiTemperatureHandling:
     ):
         """Test that extra_params can override temperature setting."""
         # Set temperature in request data
-        sample_request_data = sample_request_data.model_copy(update={"temperature": 0.7, "extra_body": {
-            "generationConfig": {
-                "temperature": 0.3  # Should override the direct temperature setting
+        sample_request_data = sample_request_data.model_copy(
+            update={
+                "temperature": 0.7,
+                "extra_body": {
+                    "generationConfig": {
+                        "temperature": 0.3  # Should override the direct temperature setting
+                    }
+                },
             }
-        }})
+        )
 
         # Mock the HTTP response
         mock_response = Mock()
@@ -338,7 +356,9 @@ class TestGeminiTemperatureHandling:
     ):
         """Test temperature handling in streaming requests."""
         # Set temperature and enable streaming
-        sample_request_data = sample_request_data.model_copy(update={"temperature": 0.9, "stream": True})
+        sample_request_data = sample_request_data.model_copy(
+            update={"temperature": 0.9, "stream": True}
+        )
 
         # Mock streaming response
         mock_response = Mock()

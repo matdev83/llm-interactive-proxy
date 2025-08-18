@@ -46,7 +46,26 @@ class APIKeyMiddleware(BaseHTTPMiddleware):
         """
         # Check if the path is in the bypass list
         if request.url.path in self.bypass_paths:
-            response: Response = await call_next(request)
+            response = await call_next(request)
+            return response
+            
+        # Check if auth is disabled for tests or development
+        if (
+            hasattr(request.app.state, "disable_auth")
+            and request.app.state.disable_auth
+        ):
+            # Auth is disabled, skip validation
+            response = await call_next(request)
+            return response
+            
+        # Check if auth is disabled in the app config
+        if (
+            hasattr(request.app.state, "app_config") 
+            and hasattr(request.app.state.app_config, "auth")
+            and getattr(request.app.state.app_config.auth, "disable_auth", False)
+        ):
+            # Auth is disabled in the config, skip validation
+            response = await call_next(request)
             return response
 
         # Check for API key in header
@@ -61,6 +80,7 @@ class APIKeyMiddleware(BaseHTTPMiddleware):
             api_key = request.query_params.get("api_key")
 
         # Validate the API key
+        logger.info(f"API Key authentication is enabled key_count={len(self.valid_keys)}")
         if not api_key or api_key not in self.valid_keys:
             logger.warning(
                 "Invalid or missing API key for %s %s from client %s",
@@ -73,8 +93,8 @@ class APIKeyMiddleware(BaseHTTPMiddleware):
             )
 
         # API key is valid, continue processing
-        response2: Response = await call_next(request)
-        return response2
+        response = await call_next(request)
+        return response
 
 
 class AuthMiddleware(BaseHTTPMiddleware):
@@ -109,7 +129,7 @@ class AuthMiddleware(BaseHTTPMiddleware):
         """
         # Skip authentication for certain paths
         if request.url.path in self.bypass_paths:
-            response: Response = await call_next(request)
+            response = await call_next(request)
             return response
 
         # Check for token in header
@@ -128,5 +148,5 @@ class AuthMiddleware(BaseHTTPMiddleware):
             )
 
         # Token is valid, continue processing
-        response3: Response = await call_next(request)
-        return response3
+        response = await call_next(request)
+        return response

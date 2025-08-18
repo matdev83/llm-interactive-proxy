@@ -189,26 +189,26 @@ class SessionStateAdapter(ISessionState):
         state = SessionState.from_dict(data)
         return cls(state)  # type: ignore
 
-    def with_backend_config(self, backend_config: IBackendConfig) -> ISessionState:
+    def with_backend_config(self, config: IBackendConfig) -> ISessionState:
         """Create a new session state with updated backend config."""
         new_state = self._state.with_backend_config(
-            cast(BackendConfiguration, backend_config)
+            cast(BackendConfiguration, config)
         )
         return SessionStateAdapter(new_state)
 
     def with_reasoning_config(
-        self, reasoning_config: IReasoningConfig
+        self, config: IReasoningConfig
     ) -> ISessionState:
         """Create a new session state with updated reasoning config."""
         new_state = self._state.with_reasoning_config(
-            cast(ReasoningConfiguration, reasoning_config)
+            cast(ReasoningConfiguration, config)
         )
         return SessionStateAdapter(new_state)
 
-    def with_loop_config(self, loop_config: ILoopDetectionConfig) -> ISessionState:
+    def with_loop_config(self, config: ILoopDetectionConfig) -> ISessionState:
         """Create a new session state with updated loop config."""
         new_state = self._state.with_loop_config(
-            cast(LoopDetectionConfiguration, loop_config)
+            cast(LoopDetectionConfiguration, config)
         )
         return SessionStateAdapter(new_state)
 
@@ -225,6 +225,11 @@ class SessionStateAdapter(ISessionState):
     def with_interactive_just_enabled(self, enabled: bool) -> ISessionState:
         """Create a new session state with updated interactive_just_enabled flag."""
         new_state = self._state.with_interactive_just_enabled(enabled)
+        return SessionStateAdapter(new_state)
+
+    def with_hello_requested(self, hello_requested: bool) -> ISessionState:
+        """Create a new session state with updated hello_requested flag."""
+        new_state = self._state.with_hello_requested(hello_requested)
         return SessionStateAdapter(new_state)
 
     # Mutable convenience methods expected by legacy tests
@@ -251,12 +256,16 @@ class SessionStateAdapter(ISessionState):
         new_backend_config = self._state.backend_config.with_backend_and_model(
             backend, model
         )
-        self._state = self._state.with_backend_config(new_backend_config)
+        self._state = self._state.with_backend_config(
+            cast(BackendConfiguration, new_backend_config)
+        )
 
     def unset_override_model(self) -> None:
         """Clear any override backend/model on the session state."""
         new_backend_config = self._state.backend_config.without_override()
-        self._state = self._state.with_backend_config(new_backend_config)
+        self._state = self._state.with_backend_config(
+            cast(BackendConfiguration, new_backend_config)
+        )
 
 
 class Session(ISession):

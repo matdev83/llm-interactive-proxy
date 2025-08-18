@@ -87,3 +87,41 @@ def mock_openrouter_backend(interactive_client: TestClient) -> _MockOpenRouter:
     )
     svc._backends["openrouter"] = backend
     return backend
+
+
+class _MockOpenAI:
+    def __init__(self):
+        self.available_models = ["gpt-3.5-turbo", "gpt-4"]
+        self.api_keys = ["test-key"]
+
+    def get_available_models(self):
+        return self.available_models
+
+    async def chat_completions(self, *args, **kwargs):
+        return {
+            "id": "mock-openai-response",
+            "object": "chat.completion",
+            "created": 1234567890,
+            "model": "gpt-3.5-turbo",
+            "choices": [
+                {
+                    "index": 0,
+                    "message": {"role": "assistant", "content": "Mock OpenAI response"},
+                    "finish_reason": "stop",
+                }
+            ],
+            "usage": {"prompt_tokens": 10, "completion_tokens": 20, "total_tokens": 30},
+        }
+
+
+@pytest.fixture
+def mock_openai_backend(interactive_client: TestClient) -> _MockOpenAI:
+    """Provide a minimal mock OpenAI backend for tests."""
+    backend = _MockOpenAI()
+    from src.core.interfaces.backend_service_interface import IBackendService
+
+    svc = interactive_client.app.state.service_provider.get_required_service(
+        IBackendService
+    )
+    svc._backends["openai"] = backend
+    return backend

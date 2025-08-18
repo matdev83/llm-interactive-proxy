@@ -16,7 +16,9 @@ from starlette.responses import StreamingResponse
 class MockResponse:
     """Mock response for testing."""
 
-    def __init__(self, status_code=200, headers=None, content=None, is_error=False):
+    def __init__(
+        self, status_code=200, headers=None, content=None, is_error=False
+    ) -> None:
         self.status_code = status_code
         self.headers = headers or {}
         self.content = content or b"test content"
@@ -35,7 +37,7 @@ class MockResponse:
 class AsyncIterBytes:
     """Mock async iterator for bytes."""
 
-    def __init__(self, chunks):
+    def __init__(self, chunks) -> None:
         self.chunks = chunks
         self.index = 0
 
@@ -53,7 +55,7 @@ class AsyncIterBytes:
 class SyncIterBytes:
     """Mock sync iterator for bytes."""
 
-    def __init__(self, chunks):
+    def __init__(self, chunks) -> None:
         self.chunks = chunks
         self.index = 0
 

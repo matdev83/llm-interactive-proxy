@@ -32,7 +32,7 @@ def create_session_migration_service(
 class SessionMigrationService:
     """Service for migrating sessions between different versions."""
 
-    def __init__(self, session_service: ISessionService):
+    def __init__(self, session_service: ISessionService) -> None:
         """Initialize the migration service.
 
         Args:

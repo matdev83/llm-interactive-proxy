@@ -19,7 +19,7 @@ logger = logging.getLogger(__name__)
 
 
 class ResponseProcessor(IResponseProcessor):
-    def __init__(self, loop_detector: ILoopDetector | None = None, middleware: list[IResponseMiddleware] | None = None):
+    def __init__(self, loop_detector: ILoopDetector | None = None, middleware: list[IResponseMiddleware] | None = None) -> None:
         self._loop_detector = loop_detector
         self._middleware: list[tuple[int, IResponseMiddleware]] = []
         if middleware:

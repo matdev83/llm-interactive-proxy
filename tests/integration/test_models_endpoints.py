@@ -139,31 +139,39 @@ class TestModelsEndpoints:
         # Patch the backend service's internal method to simulate an error
         with TestClient(app) as client:
             # Ensure the service provider is available
-            from src.core.interfaces.backend_service_interface import IBackendService
-            from src.core.di.services import get_service_provider, set_service_provider
             from src.core.app.application_factory import ApplicationBuilder
+            from src.core.di.services import set_service_provider
+            from src.core.interfaces.backend_service_interface import IBackendService
 
             # Initialize services if needed
-            if not hasattr(app.state, "service_provider") or app.state.service_provider is None:
+            if (
+                not hasattr(app.state, "service_provider")
+                or app.state.service_provider is None
+            ):
                 import asyncio
-                
+
                 # Get or create a basic config
                 config = getattr(app.state, "app_config", None)
                 if config is None:
                     from src.core.config.app_config import AppConfig
+
                     config = AppConfig()
                     app.state.app_config = config
-                
+
                 # Initialize services synchronously in test context
                 builder = ApplicationBuilder()
-                service_provider = asyncio.run(builder._initialize_services(app, config))
-                
+                service_provider = asyncio.run(
+                    builder._initialize_services(app, config)
+                )
+
                 # Set as global provider and on app.state
                 set_service_provider(service_provider)
                 app.state.service_provider = service_provider
 
             # Get the backend service from DI
-            backend_service = app.state.service_provider.get_required_service(IBackendService)
+            backend_service = app.state.service_provider.get_required_service(
+                IBackendService
+            )
 
             # Patch the internal method to raise an exception
             with patch.object(

@@ -118,7 +118,7 @@ def test_multiple_backends_requires_arg(monkeypatch):
         ) as client:
             # With the updated behavior, it should default to 'openai'
             assert client.app.state.backend_type == "openai"
-            
+
             # Now try specifying the backend explicitly
             monkeypatch.setenv("LLM_BACKEND", "gemini")
             app2 = app_main.build_app()

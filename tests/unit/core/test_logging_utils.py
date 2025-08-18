@@ -5,7 +5,6 @@ Tests for logging utilities.
 import logging
 from unittest.mock import MagicMock, patch
 
-import pytest
 import structlog
 from src.core.common.logging_utils import (
     LogContext,
@@ -21,7 +20,7 @@ from src.core.common.logging_utils import (
 class TestRedaction:
     """Test redaction functions."""
 
-    def test_redact(self):
+    def test_redact(self) -> None:
         """Test redacting a value."""
         # Test with a long string
         assert redact("api_key_12345678") == "ap***78"
@@ -35,7 +34,7 @@ class TestRedaction:
         # Test with a custom mask
         assert redact("password123", mask="[REDACTED]") == "pa[REDACTED]23"
 
-    def test_redact_dict(self):
+    def test_redact_dict(self) -> None:
         """Test redacting a dictionary."""
         # Test with sensitive fields
         data = {
@@ -66,8 +65,8 @@ class TestRedaction:
 
         assert result["api_key"] == "sk[REDACTED]78"
 
-    def test_redact_text(self):
-        """Test redacting text."""
+    def test_redact_text_with_secrets(self) -> None:
+        """Test redacting text with secrets."""
         # Test with a simple text
         text = "This is a test"
         result = redact_text(text)
@@ -86,8 +85,8 @@ class TestRedaction:
 class TestLogging:
     """Test logging functions."""
 
-    def test_get_logger(self):
-        """Test getting a logger."""
+    def test_get_logger(self) -> None:
+        """Test get_logger function."""
         # Patch structlog.get_logger
         with patch("structlog.get_logger") as mock_get_logger:
             # Setup mock
@@ -101,7 +100,7 @@ class TestLogging:
             mock_get_logger.assert_called_once_with("test_logger")
             assert logger == mock_logger
 
-    def test_log_call(self):
+    def test_log_call(self) -> None:
         """Test log_call decorator."""
         mock_logger = MagicMock()
 
@@ -110,7 +109,7 @@ class TestLogging:
         ):
             # Define a decorated function
             @log_call(level=logging.INFO)
-            def test_function():
+            def test_function() -> str:
                 return "result"
 
             # Mock isEnabledFor
@@ -137,8 +136,7 @@ class TestLogging:
                 module="tests.unit.core.test_logging_utils",
             )
 
-    @pytest.mark.asyncio
-    async def test_log_async_call(self):
+    async def test_log_async_call(self) -> None:
         """Test log_async_call decorator."""
         mock_logger = MagicMock()
 
@@ -147,7 +145,7 @@ class TestLogging:
         ):
             # Define a decorated function
             @log_async_call(level=logging.INFO)
-            async def test_async_function():
+            async def test_async_function() -> str:
                 return "async result"
 
             # Mock isEnabledFor
@@ -174,8 +172,8 @@ class TestLogging:
                 module="tests.unit.core.test_logging_utils",
             )
 
-    def test_log_context(self):
-        """Test LogContext context manager."""
+    def test_log_context(self) -> None:
+        """Test LogContext class."""
         mock_logger = MagicMock()
         mock_bound_logger = MagicMock()
         mock_logger.bind.return_value = mock_bound_logger
