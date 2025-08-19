@@ -3,7 +3,8 @@ from __future__ import annotations
 import abc
 from typing import TYPE_CHECKING, Any
 
-from starlette.responses import StreamingResponse
+from src.core.domain.response_envelope import ResponseEnvelope
+from src.core.domain.streaming_response_envelope import StreamingResponseEnvelope
 
 if TYPE_CHECKING:
     from src.core.domain.chat import ChatRequest
@@ -24,7 +25,7 @@ class LLMBackend(abc.ABC):
         processed_messages: list,  # Messages after command processing (domain objects or dicts)
         effective_model: str,  # Model after considering override
         **kwargs: Any,
-    ) -> StreamingResponse | tuple[dict[str, Any], dict[str, str]]:
+    ) -> ResponseEnvelope | StreamingResponseEnvelope:
         """
         Forwards a chat completion request to the LLM backend.
 
@@ -35,9 +36,8 @@ class LLMBackend(abc.ABC):
             **kwargs: Additional keyword arguments for the backend.
 
         Returns:
-            A StreamingResponse if the request is for a stream, or a tuple containing
-            a dictionary representing the JSON response and a dictionary of headers
-            for a non-streaming request.
+            Either a ResponseEnvelope for non-streaming requests or
+            a StreamingResponseEnvelope for streaming requests.
         """
 
     @abc.abstractmethod

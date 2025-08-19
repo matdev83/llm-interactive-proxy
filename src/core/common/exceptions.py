@@ -3,273 +3,150 @@ from __future__ import annotations
 from typing import Any
 
 
-class ProxyError(Exception):
-    """Base class for all exceptions in the proxy."""
-
-    def __init__(
-        self,
-        message: str,
-        status_code: int = 500,
-        details: dict[str, Any] | None = None,
-    ):
-        """Initialize the exception.
-
-        Args:
-            message: The error message
-            status_code: The HTTP status code
-            details: Additional error details
-        """
-        self.message = message
-        self.status_code = status_code
-        self.details = details or {}
+class LLMProxyError(Exception):
+    """Base exception for the LLM proxy."""
+    
+    def __init__(self, message: str = "", code: str | None = None, status_code: int = 500):
         super().__init__(message)
-
+        self.message = message
+        self.code = code
+        self.status_code = status_code
+        
     def to_dict(self) -> dict[str, Any]:
-        """Convert the exception to a dictionary for API responses.
-
-        Returns:
-            Dictionary representation of the exception
-        """
-        result = {
+        """Convert the exception to a dictionary for serialization."""
+        return {
             "error": {
                 "message": self.message,
                 "type": self.__class__.__name__,
-                "status_code": self.status_code,
+                "code": self.code,
             }
         }
 
-        if self.details:
-            result["error"]["details"] = self.details
 
+class BackendError(LLMProxyError):
+    """Exception raised when a backend operation fails."""
+    
+    def __init__(
+        self,
+        message: str = "Backend operation failed",
+        code: str | None = "backend_error",
+        status_code: int = 500,
+        backend_name: str | None = None
+    ):
+        super().__init__(message=message, code=code, status_code=status_code)
+        self.backend_name = backend_name
+        
+    def to_dict(self) -> dict[str, Any]:
+        """Convert the exception to a dictionary for serialization."""
+        result = super().to_dict()
+        if self.backend_name:
+            result["error"]["backend"] = self.backend_name
         return result
 
 
-class ConfigurationError(ProxyError):
-    """Exception raised for configuration errors."""
+class AuthenticationError(LLMProxyError):
+    """Exception raised when authentication fails."""
+    
+    def __init__(self, message: str = "Authentication failed", code: str | None = "auth_error"):
+        super().__init__(message=message, code=code, status_code=401)
 
+
+class ConfigurationError(LLMProxyError):
+    """Exception raised when configuration is invalid or missing."""
+    
     def __init__(
-        self,
-        message: str,
-        details: dict[str, Any] | None = None,
+        self, 
+        message: str = "Configuration error", 
+        code: str | None = "config_error",
+        details: dict[str, Any] | None = None
     ):
-        """Initialize the exception.
-
-        Args:
-            message: The error message
-            details: Additional error details
-        """
-        super().__init__(
-            message=message,
-            status_code=500,  # Internal Server Error
-            details=details,
-        )
+        super().__init__(message=message, code=code, status_code=400)
+        self.details = details
+        
+    def to_dict(self) -> dict[str, Any]:
+        """Convert the exception to a dictionary for serialization."""
+        result = super().to_dict()
+        if self.details:
+            result["details"] = self.details
+        return result
 
 
-class AuthenticationError(ProxyError):
-    """Exception raised for authentication errors."""
-
+class RateLimitExceededError(LLMProxyError):
+    """Exception raised when rate limit is exceeded."""
+    
     def __init__(
-        self,
-        message: str = "Authentication failed",
-        details: dict[str, Any] | None = None,
-    ):
-        """Initialize the exception.
-
-        Args:
-            message: The error message
-            details: Additional error details
-        """
-        super().__init__(
-            message=message,
-            status_code=401,  # Unauthorized
-            details=details,
-        )
-
-
-class RateLimitExceededError(ProxyError):
-    """Exception raised when rate limits are exceeded."""
-
-    def __init__(
-        self,
-        message: str = "Rate limit exceeded",
+        self, 
+        message: str = "Rate limit exceeded", 
+        code: str | None = "rate_limit_exceeded",
         reset_at: float | None = None,
         limit: int | None = None,
         remaining: int | None = None,
-        details: dict[str, Any] | None = None,
     ):
-        """Initialize the exception.
-
-        Args:
-            message: The error message
-            reset_at: When the rate limit will reset
-            limit: The rate limit
-            remaining: The remaining quota
-            details: Additional error details
-        """
-        error_details = details or {}
-        if reset_at is not None:
-            error_details["reset_at"] = reset_at
-        if limit is not None:
-            error_details["limit"] = limit
-        if remaining is not None:
-            error_details["remaining"] = remaining
-
-        super().__init__(
-            message=message,
-            status_code=429,  # Too Many Requests
-            details=error_details,
-        )
+        super().__init__(message=message, code=code, status_code=429)
+        self.reset_at = reset_at
+        self.limit = limit
+        self.remaining = remaining
+        
+    def to_dict(self) -> dict[str, Any]:
+        """Convert the exception to a dictionary for serialization."""
+        result = super().to_dict()
+        if self.reset_at is not None:
+            result["error"]["reset_at"] = self.reset_at
+        if self.limit is not None:
+            result["error"]["limit"] = self.limit
+        if self.remaining is not None:
+            result["error"]["remaining"] = self.remaining
+        return result
 
 
-class BackendError(ProxyError):
-    """Exception raised for backend API errors."""
-
-    def __init__(
-        self,
-        message: str,
-        backend: str | None = None,
-        backend_status_code: int | None = None,
-        backend_response: dict[str, Any] | None = None,
-        details: dict[str, Any] | None = None,
-    ):
-        """Initialize the exception.
-
-        Args:
-            message: The error message
-            backend: The backend that raised the error
-            backend_status_code: The status code returned by the backend
-            backend_response: The raw response from the backend
-            details: Additional error details
-        """
-        error_details = details or {}
-        if backend is not None:
-            error_details["backend"] = backend
-        if backend_status_code is not None:
-            error_details["backend_status_code"] = backend_status_code
-        if backend_response is not None:
-            error_details["backend_response"] = backend_response
-
-        super().__init__(
-            message=message,
-            status_code=502,  # Bad Gateway
-            details=error_details,
-        )
+class ServiceUnavailableError(LLMProxyError):
+    """Exception raised when a backend service is unavailable."""
+    
+    def __init__(self, message: str = "Service unavailable", code: str | None = "service_unavailable"):
+        super().__init__(message=message, code=code, status_code=503)
 
 
-class ValidationError(ProxyError):
-    """Exception raised for validation errors."""
-
-    def __init__(
-        self,
-        message: str,
-        field: str | None = None,
-        details: dict[str, Any] | None = None,
-    ):
-        """Initialize the exception.
-
-        Args:
-            message: The error message
-            field: The field that failed validation
-            details: Additional error details
-        """
-        error_details = details or {}
-        if field is not None:
-            error_details["field"] = field
-
-        super().__init__(
-            message=message,
-            status_code=400,  # Bad Request
-            details=error_details,
-        )
-
-
-class CommandError(ProxyError):
-    """Exception raised for command execution errors."""
-
-    def __init__(
-        self,
-        message: str,
-        command: str | None = None,
-        details: dict[str, Any] | None = None,
-    ):
-        """Initialize the exception.
-
-        Args:
-            message: The error message
-            command: The command that failed
-            details: Additional error details
-        """
-        error_details = details or {}
-        if command is not None:
-            error_details["command"] = command
-
-        super().__init__(
-            message=message,
-            status_code=400,  # Bad Request
-            details=error_details,
-        )
-
-
-class LoopDetectionError(ProxyError):
+class LoopDetectionError(LLMProxyError):
     """Exception raised when a loop is detected."""
+    
+    def __init__(self, message: str = "Loop detected", code: str | None = "loop_detected"):
+        super().__init__(message=message, code=code, status_code=400)
+
+
+class InvalidRequestError(LLMProxyError):
+    """Error raised when a request is invalid."""
 
     def __init__(
         self,
-        message: str = "Response loop detected",
-        pattern: str | None = None,
-        repetitions: int | None = None,
+        message: str,
+        param: str | None = None,
+        code: str | None = "invalid_request",
         details: dict[str, Any] | None = None,
     ):
-        """Initialize the exception.
+        """Initialize the error.
 
         Args:
             message: The error message
-            pattern: The repeating pattern detected
-            repetitions: The number of repetitions detected
-            details: Additional error details
+            param: The parameter that caused the error
+            code: An error code
+            details: Additional details about the error
         """
-        error_details = details or {}
-        if pattern is not None:
-            # Truncate long patterns
-            error_details["pattern"] = (
-                pattern[:100] + "..." if len(pattern) > 100 else pattern
-            )
-        if repetitions is not None:
-            error_details["repetitions"] = repetitions
+        super().__init__(message=message, code=code, status_code=400)
+        self.param = param
+        self.details = details
 
-        super().__init__(
-            message=message,
-            status_code=400,  # Bad Request
-            details=error_details,
-        )
+    def to_dict(self) -> dict[str, Any]:
+        """Convert the error to a dictionary representation.
 
-
-class ToolCallLoopError(ProxyError):
-    """Exception raised when a tool call loop is detected."""
-
-    def __init__(
-        self,
-        message: str = "Tool call loop detected",
-        tool_name: str | None = None,
-        repetitions: int | None = None,
-        details: dict[str, Any] | None = None,
-    ):
-        """Initialize the exception.
-
-        Args:
-            message: The error message
-            tool_name: The tool involved in the loop
-            repetitions: The number of repetitions detected
-            details: Additional error details
+        Returns:
+            A dictionary representation of the error
         """
-        error_details = details or {}
-        if tool_name is not None:
-            error_details["tool_name"] = tool_name
-        if repetitions is not None:
-            error_details["repetitions"] = repetitions
-
-        super().__init__(
-            message=message,
-            status_code=400,  # Bad Request
-            details=error_details,
-        )
+        result = super().to_dict()
+        
+        if self.param:
+            result["error"]["param"] = self.param
+            
+        if self.details:
+            result["error"]["details"] = self.details
+            
+        return result

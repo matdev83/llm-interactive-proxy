@@ -3,10 +3,10 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from typing import Any
 
-from fastapi import Request
-from starlette.responses import Response
-
 from src.core.domain.chat import ChatRequest
+from src.core.domain.request_context import RequestContext
+from src.core.domain.response_envelope import ResponseEnvelope
+from src.core.domain.streaming_response_envelope import StreamingResponseEnvelope
 
 
 class IRequestMiddleware(ABC):
@@ -40,13 +40,16 @@ class IRequestProcessor(ABC):
     """
 
     @abstractmethod
-    async def process_request(self, request: Request, request_data: Any) -> Response:
-        """Process an incoming chat completion request.
+    async def process_request(
+        self, context: RequestContext, request_data: Any
+    ) -> ResponseEnvelope | StreamingResponseEnvelope:
+        """Process an incoming chat completion request in a transport-agnostic way.
 
         Args:
-            request: The FastAPI Request object
-            request_data: The parsed request data
+            context: Transport-agnostic request context containing headers/cookies/state
+            request_data: The parsed request data (domain ChatRequest or legacy dict)
 
         Returns:
-            An appropriate FastAPI Response object
+            Either a ResponseEnvelope for non-streaming requests or
+            a StreamingResponseEnvelope for streaming requests.
         """

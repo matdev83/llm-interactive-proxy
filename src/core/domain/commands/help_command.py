@@ -1,9 +1,3 @@
-"""
-Help command implementation.
-
-This module provides the help command, which displays available commands or details for a specific command.
-"""
-
 from __future__ import annotations
 
 import logging
@@ -26,93 +20,52 @@ class HelpCommand(BaseCommand):
     examples = ["!/help", "!/help(set)"]
 
     async def execute(
-        self, args: Mapping[str, Any], session: Session, context: Any = None
+        self,
+        args: Mapping[str, Any],
+        session: Session,
+        context: Any = None,
     ) -> CommandResult:
         """
         Execute the help command.
 
         Args:
-            args: Command arguments
-            session: The session
-            context: Optional context
+            args: Command arguments.
+            session: The current session.
+            context: Optional context, expected to contain 'handlers'.
 
         Returns:
-            The command result
+            The command result.
         """
-        # Try to get the command registry from context first
-        command_registry = None
-        commands = {}
+        handlers = context.get("handlers", {}) if context else {}
 
-        if context and hasattr(context, "command_registry"):
-            # Use registry from context (test environment)
-            command_registry = context.command_registry
-            commands = command_registry.get_commands()
-        else:
-            # Get the command registry from the service provider (normal environment)
-            from src.core.services.command_service import CommandRegistry
-
-            # Access the command registry
-            if context and hasattr(context, "app"):
-                service_provider = context.app.state.service_provider
-                command_registry = service_provider.get_required_service(
-                    CommandRegistry
-                )
-                commands = command_registry.get_commands()
-            else:
-                # Fallback if no context is provided
-                from src.core.di.services import get_service_provider
-
-                service_provider = get_service_provider()
-                command_registry = service_provider.get_required_service(
-                    CommandRegistry
-                )
-                commands = command_registry.get_commands()
-
+        # Case 1: Help for a specific command, e.g., !/help(set)
         if args:
-            # For help(command=model), we want to look up the "model" command
-            # The args dict should have one key-value pair like {"command": "model"}
-            # So we get the value, not the key
-            cmd_name = None
-            if len(args) == 1:
-                # Check if the key is "command" and use its value
-                key, value = next(iter(args.items()))
-                if key == "command":
-                    cmd_name = value
-                else:
-                    # Fallback: use the key as the command name
-                    cmd_name = key
-            else:
-                # Multiple args, use the first key
-                cmd_name = next(iter(args.keys())).lower()
+            cmd_name = next(iter(args.keys()), None)
+            if not cmd_name:
+                 return CommandResult(success=False, message="Invalid format for help command.", name=self.name)
 
-            if cmd_name:
-                cmd_name = cmd_name.lower()
-                cmd_handler = command_registry.get_handler(cmd_name)
+            cmd_handler = handlers.get(cmd_name.lower())
 
-                if not cmd_handler:
-                    return CommandResult(
-                        name=self.name,
-                        success=False,
-                        message=f"unknown command: {cmd_name}",
-                    )
-
-                parts = [
-                    f"Help for {cmd_handler.name}",
-                    f"{cmd_handler.name} - {cmd_handler.description}",
-                    f"format: {cmd_handler.format}",
-                ]
-
-                if hasattr(cmd_handler, "examples") and cmd_handler.examples:
-                    parts.append("examples: " + "; ".join(cmd_handler.examples))
-
+            if not cmd_handler:
                 return CommandResult(
-                    name=self.name, success=True, message="; ".join(parts)
+                    name=self.name,
+                    success=False,
+                    message=f"Unknown command: {cmd_name}",
                 )
 
-        # List all available commands
-        command_names = sorted(commands.keys())
-        return CommandResult(
-            name=self.name,
-            success=True,
-            message="Available commands: " + ", ".join(command_names),
-        )
+            parts = [
+                f"{cmd_handler.name} - {cmd_handler.description}",
+                f"Format: {cmd_handler.format}",
+            ]
+            if cmd_handler.examples:
+                parts.append("Examples: " + ", ".join(cmd_handler.examples))
+
+            return CommandResult(name=self.name, success=True, message="\n".join(parts))
+
+        # Case 2: List all available commands
+        if not handlers:
+            return CommandResult(name=self.name, success=True, message="No commands available.")
+
+        command_lines = [f"- {name} - {cmd.description}" for name, cmd in sorted(handlers.items())]
+        message = "Available commands:\n" + "\n".join(command_lines)
+        return CommandResult(name=self.name, success=True, message=message)

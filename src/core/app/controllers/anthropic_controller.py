@@ -15,7 +15,11 @@ from src.anthropic_converters import (
     openai_to_anthropic_response,
 )
 from src.anthropic_models import AnthropicMessagesRequest
-from src.core.common.exceptions import LoopDetectionError
+from src.core.transport.fastapi.exception_adapters import map_domain_exception_to_http_exception
+from src.core.transport.fastapi.request_adapters import fastapi_to_domain_request_context
+from src.core.transport.fastapi.response_adapters import domain_response_to_fastapi
+from src.core.common.exceptions import LoopDetectionError, LLMProxyError
+from src.core.domain.request_context import RequestContext
 from src.core.interfaces.di_interface import IServiceProvider
 from src.core.interfaces.request_processor_interface import IRequestProcessor
 
@@ -53,13 +57,17 @@ class AnthropicController:
                 request_data
             )
 
+            # Convert FastAPI Request to RequestContext and process via core processor
+            ctx = fastapi_to_domain_request_context(request, attach_original=True)
+
             # Process the request using the request processor
-            openai_response = await self._processor.process_request(
-                request, openai_request_data
-            )
+            response = await self._processor.process_request(ctx, openai_request_data)
+            
+            # Convert domain response to FastAPI response
+            adapted_response = domain_response_to_fastapi(response)
 
             # Convert the OpenAI response back to Anthropic format
-            body_content: bytes | memoryview = openai_response.body
+            body_content: bytes | memoryview = adapted_response.body
             if isinstance(body_content, memoryview):
                 body_content = body_content.tobytes()
             openai_response_data: dict[str, Any] = json.loads(body_content.decode())
@@ -80,19 +88,20 @@ class AnthropicController:
             return FastAPIResponse(
                 content=json.dumps(anthropic_response_data),
                 media_type="application/json",
-                headers=openai_response.headers,
+                headers=adapted_response.headers,
             )
+        except LLMProxyError as e:
+            # Map domain exceptions to HTTP exceptions
+            raise map_domain_exception_to_http_exception(e)
         except HTTPException:
             # Re-raise HTTP exceptions
             raise
-        except LoopDetectionError as e:
-            # Re-raise LoopDetectionError directly
-            raise e
         except Exception as e:
+            # Log and convert other exceptions to HTTP exceptions
             logger.error(f"Error handling Anthropic messages: {e}", exc_info=True)
             raise HTTPException(
-                status_code=500,
-                detail={"error": str(e), "type": "AnthropicMessagesError"},
+                status_code=500, 
+                detail={"error": {"message": str(e), "type": "server_error"}}
             )
 
 

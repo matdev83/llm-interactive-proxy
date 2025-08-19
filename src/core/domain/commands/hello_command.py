@@ -1,9 +1,3 @@
-"""
-Hello command implementation.
-
-This module provides the hello command, which displays a welcome banner.
-"""
-
 from __future__ import annotations
 
 import logging
@@ -18,51 +12,41 @@ logger = logging.getLogger(__name__)
 
 
 class HelloCommand(BaseCommand):
-    """Command to display a welcome banner."""
+    """
+    Domain command for handling the 'hello' command.
+    It returns a welcome banner and sets a flag on the session state.
+    """
 
-    name = "hello"
-    format = "hello"
-    description = "Return the interactive welcome banner"
-    examples = ["!/hello"]
+    name: str = "hello"
+    format: str = "!/hello"
+    description: str = "Return the interactive welcome banner"
+    examples: list[str] = ["!/hello"]
 
     async def execute(
-        self, args: Mapping[str, Any], session: Session, context: Any = None
+        self,
+        args: Mapping[str, Any],
+        session: Session,
+        context: Any = None,
     ) -> CommandResult:
         """
         Execute the hello command.
 
         Args:
-            args: Command arguments
-            session: The session
-            context: Optional context
+            args: Command arguments (ignored for this command).
+            session: The current session.
+            context: Optional context (ignored for this command).
 
         Returns:
-            The command result
+            The command result with a welcome message and updated state.
         """
-        # Create a new state with hello_requested=True
-        from src.core.domain.session import Session, SessionStateAdapter
+        logger.debug("Executing HelloCommand")
 
-        # Accept either a SessionStateAdapter (adapter) or a Session object
-        # and set the hello_requested flag on the underlying state so that
-        # legacy tests observing the adapter see the change.
-        if isinstance(session, SessionStateAdapter):
-            session.hello_requested = True
-        elif isinstance(session, Session):
-            # Mutate the session state via the adapter so external holders
-            # of the adapter observe the change.
-            try:
-                session.state.hello_requested = True
-            except Exception:
-                # Best-effort: if session.state is plain SessionState, replace it
-                try:
-                    s = session.state
-                    s = s.with_hello_requested(True)  # type: ignore
-                    session.state = s
-                except Exception:
-                    pass
+        # The core logic is to set the hello_requested flag on the state.
+        updated_state = session.state.with_hello_requested(True)
 
         return CommandResult(
             name=self.name,
             success=True,
-            message="Hello, this is llm-interactive-proxy v0.1.0. How can I help you today?",
+            message="Welcome to LLM Interactive Proxy!\n\nAvailable commands:\n- !/help - Show help information\n- !/set(param=value) - Set a parameter value\n- !/unset(param) - Unset a parameter value",
+            new_state=updated_state,
         )

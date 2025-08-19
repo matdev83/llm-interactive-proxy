@@ -46,85 +46,13 @@ def test_top_p_fix_with_actual_request() -> None:
     session = MockSession()
 
     # Create a RequestProcessor (we won't actually use its methods)
-    class MockCommandService(ICommandService):
-        async def process_command(
-            self, command_name: str, args: dict[str, Any], session: Any
-        ) -> CommandResult:
-            raise NotImplementedError
-
-        async def process_text_for_commands(
-            self, text: str, session: Any
-        ) -> tuple[str, bool]:
-            raise NotImplementedError
-
-        async def process_messages_for_commands(
-            self, messages: list[Any], session: Any
-        ) -> tuple[list[Any], bool]:
-            raise NotImplementedError
-
-        async def process_commands(
-            self, messages: list[Any], session_id: str
-        ) -> ProcessedResult:
-            raise NotImplementedError
-
-        async def register_command(
-            self, command_name: str, command_handler: Any
-        ) -> None:
-            raise NotImplementedError
-
-    class MockBackendService(IBackendService):
-        async def call_completion(self, request: Any, stream: bool = False) -> Any:
-            raise NotImplementedError
-
-        async def validate_backend_and_model(
-            self, backend: str, model: str
-        ) -> tuple[bool, str | None]:
-            raise NotImplementedError
-
-        async def chat_completions(self, request: Any, **kwargs: Any) -> Any:
-            raise NotImplementedError
-
-    class MockSessionService(ISessionService):
-        async def get_session(self, session_id: str) -> Any:
-            raise NotImplementedError
-
-        async def create_session(self, session_id: str) -> Any:
-            raise NotImplementedError
-
-        async def get_or_create_session(self, session_id: str | None = None) -> Any:
-            raise NotImplementedError
-
-        async def update_session(self, session: Any) -> None:
-            raise NotImplementedError
-
-        async def delete_session(self, session_id: str) -> bool:
-            raise NotImplementedError
-
-        async def get_all_sessions(self) -> list[Any]:
-            raise NotImplementedError
-
-    class MockResponseProcessor(IResponseProcessor):
-        async def process_response(self, response: Any, session: Any) -> Any:
-            raise NotImplementedError
-
-        def _extract_response_content(self, response: Any) -> Any:
-            raise NotImplementedError
-
-        def process_streaming_response(
-            self, response_iter: Any, session_id: str
-        ) -> Any:
-            raise NotImplementedError
-
-        async def register_middleware(
-            self, middleware: Any, _priority: int = 0
-        ) -> None:
-            raise NotImplementedError
+    from unittest.mock import MagicMock, AsyncMock
 
     processor = RequestProcessor(
-        command_service=MockCommandService(),
-        backend_service=MockBackendService(),
-        session_service=MockSessionService(),
-        response_processor=MockResponseProcessor(),
+        command_service=MagicMock(spec=ICommandService),
+        backend_service=MagicMock(spec=IBackendService),
+        session_service=MagicMock(spec=ISessionService),
+        response_processor=MagicMock(spec=IResponseProcessor),
     )
 
     # This would have failed before our fix with:

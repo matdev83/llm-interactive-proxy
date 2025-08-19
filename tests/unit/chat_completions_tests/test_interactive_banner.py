@@ -67,7 +67,7 @@ async def test_hello_command_returns_banner(
 
     # The current implementation returns a simple hello message
     # instead of the full banner with session and backend info
-    expected_content = "Hello, this is llm-interactive-proxy v0.1.0. hello acknowledged"
+    expected_content = "hello: Hello, this is llm-interactive-proxy v0.1.0. hello acknowledged"
     message = data["choices"][0]["message"]
     content = message["content"]
     assert content == expected_content

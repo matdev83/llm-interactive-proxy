@@ -9,7 +9,7 @@ from typing import Any
 
 from fastapi import APIRouter, Depends, Query
 
-from src.core.di.services import get_service_provider
+from src.core.di.services import get_or_build_service_provider
 from src.core.domain.usage_data import UsageData
 from src.core.interfaces.usage_tracking_interface import IUsageTrackingService
 
@@ -22,7 +22,7 @@ router = APIRouter(prefix="/usage", tags=["usage"])
 async def get_usage_stats(
     project: str | None = Query(None, description="Filter by project name"),
     days: int = Query(30, description="Number of days to include in stats"),
-    service_provider: Any = Depends(get_service_provider),
+    service_provider: Any = Depends(get_or_build_service_provider),
 ) -> dict[str, Any]:
     """Get usage statistics.
 
@@ -43,7 +43,7 @@ async def get_usage_stats(
 async def get_recent_usage(
     session_id: str | None = Query(None, description="Filter by session ID"),
     limit: int = Query(100, description="Maximum number of records to return"),
-    service_provider: Any = Depends(get_service_provider),
+    service_provider: Any = Depends(get_or_build_service_provider),
 ) -> list[UsageData]:
     """Get recent usage data.
 

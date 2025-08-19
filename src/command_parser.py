@@ -15,23 +15,10 @@ from src.command_utils import (
     is_tool_call_result,
 )
 from src.constants import DEFAULT_COMMAND_PREFIX
-from src.core.domain.commands.set_command import SetCommand
-from src.core.domain.commands.unset_command import UnsetCommand
 from src.core.domain.chat import ChatMessage, MessageContentPart
 from src.core.domain.command_results import CommandResult
 from src.core.domain.commands.base_command import BaseCommand
-from src.core.domain.commands.failover_commands import (
-    CreateFailoverRouteCommand,
-    DeleteFailoverRouteCommand,
-    ListFailoverRoutesCommand,
-    RouteAppendCommand,
-    RouteClearCommand,
-    RouteListCommand,
-    RoutePrependCommand,
-)
-from src.core.domain.commands.hello_command import HelloCommand
-from src.core.domain.commands.help_command import HelpCommand
-from src.core.domain.commands.oneoff_command import OneoffCommand
+from src.core.domain.commands.discovery import discover_commands
 from src.core.interfaces.domain_entities_interface import ISessionState
 
 # Removed legacy import
@@ -39,32 +26,6 @@ from src.core.interfaces.domain_entities_interface import ISessionState
 # Removed legacy import
 
 logger = logging.getLogger(__name__)
-
-
-def create_command_instances(
-    app: FastAPI, functional_backends: set[str] | None = None
-) -> list[BaseCommand]:
-    """
-    Create instances of all available commands.
-    This is a temporary replacement for the old command creation logic.
-    """
-    # The app and functional_backends arguments are ignored for now as the new
-    # command classes do not require them at construction time.
-    commands = [
-        HelloCommand(),
-        HelpCommand(),
-        OneoffCommand(),
-        SetCommand(),
-        UnsetCommand(),
-        CreateFailoverRouteCommand(),
-        DeleteFailoverRouteCommand(),
-        ListFailoverRoutesCommand(),
-        RouteAppendCommand(),
-        RoutePrependCommand(),
-        RouteListCommand(),
-        RouteClearCommand(),
-    ]
-    return commands
 
 
 class CommandParser:
@@ -77,13 +38,8 @@ class CommandParser:
     ) -> None:
         self.config = config
         self.command_pattern = get_command_pattern(command_prefix)
-        self.handlers: dict[str, BaseCommand] = {}
+        self.handlers: dict[str, BaseCommand] = discover_commands()
         self.command_results: list[CommandResult] = []
-
-        for cmd_instance in create_command_instances(
-            config.app, config.functional_backends
-        ):
-            self.register_command(cmd_instance)
 
         processor_config = CommandProcessorConfig(
             proxy_state=config.proxy_state,

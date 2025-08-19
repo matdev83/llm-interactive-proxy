@@ -99,7 +99,7 @@ class CommandProcessor:
                 execution_result: CommandResult
                 try:
                     # Provide context as a dict to support domain command expectations
-                    context = {"app": self.config.app}
+                    context = {"app": self.config.app, "handlers": self.config.handlers}
                     coro_result = command_handler.execute(
                         args, temp_session, context
                     )  # type: ignore

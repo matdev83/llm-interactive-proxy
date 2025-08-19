@@ -5,15 +5,17 @@ import logging
 logger = logging.getLogger(__name__)
 
 import asyncio
-from collections.abc import AsyncGenerator
+from collections.abc import AsyncGenerator, AsyncIterator
 from typing import Any
 
 import httpx
 from fastapi import HTTPException
-from starlette.responses import StreamingResponse
 
 from src.connectors.base import LLMBackend
+from src.core.common.exceptions import AuthenticationError, ServiceUnavailableError
 from src.core.domain.chat import ChatRequest
+from src.core.domain.response_envelope import ResponseEnvelope
+from src.core.domain.streaming_response_envelope import StreamingResponseEnvelope
 from src.core.services.backend_registry import backend_registry
 
 # Legacy ChatCompletionRequest removed from connector signatures; use domain ChatRequest
@@ -84,7 +86,7 @@ class OpenAIConnector(LLMBackend):
         processed_messages: list[Any],
         effective_model: str,
         **kwargs: Any,
-    ) -> StreamingResponse | tuple[dict[str, Any], dict[str, str]]:
+    ) -> ResponseEnvelope | StreamingResponseEnvelope:
         payload = self._prepare_payload(
             request_data, processed_messages, effective_model
         )
@@ -99,63 +101,73 @@ class OpenAIConnector(LLMBackend):
         url = f"{api_base.rstrip('/')}/chat/completions"
 
         if request_data.stream:
-            # _handle_streaming_response now returns StreamingResponse
-            return await self._handle_streaming_response(url, payload, headers)
+            # Returns StreamingResponseEnvelope (domain object)
+            content_iterator = await self._handle_streaming_response(url, payload, headers)
+            return StreamingResponseEnvelope(
+                content=content_iterator,
+                media_type="text/event-stream",
+                headers={},  # Only include required headers for domain models
+            )
         else:
-            return await self._handle_non_streaming_response(url, payload, headers)
+            # Returns ResponseEnvelope (domain object)
+            content, response_headers = await self._handle_non_streaming_response(url, payload, headers)
+            return ResponseEnvelope(
+                content=content,
+                headers=response_headers,
+                status_code=200,
+            )
 
     async def _handle_non_streaming_response(
         self, url: str, payload: dict[str, Any], headers: dict[str, str] | None
     ) -> tuple[dict[str, Any], dict[str, str]]:
         if not headers or not headers.get("Authorization"):
-            raise HTTPException(
-                status_code=401,
-                detail={"error": {"message": "No auth credentials found", "code": 401}},
-            )
+            raise AuthenticationError(message="No auth credentials found")
+            
         try:
             response = await self.client.post(url, json=payload, headers=headers)
         except RuntimeError:
             # Client was closed by caller; create a new client for this request
-
             self.client = httpx.AsyncClient()
             response = await self.client.post(url, json=payload, headers=headers)
         except httpx.RequestError as e:
-            raise HTTPException(
-                status_code=503,
-                detail=f"Service unavailable: Could not connect to backend ({e})",
-            )
+            raise ServiceUnavailableError(message=f"Could not connect to backend ({e})")
+            
         if int(response.status_code) >= 400:
+            # For backwards compatibility with existing error handlers, still use HTTPException here.
+            # This will be replaced in a future update with domain exceptions.
             try:
                 err = response.json()
             except Exception:
                 err = response.text
             raise HTTPException(status_code=response.status_code, detail=err)
+            
         return response.json(), dict(response.headers)
 
     async def _handle_streaming_response(
         self, url: str, payload: dict[str, Any], headers: dict[str, str] | None
-    ) -> StreamingResponse:
+    ) -> AsyncIterator[bytes]:
+        """Return an AsyncIterator of bytes directly (transport-agnostic)"""
+        
         if not headers or not headers.get("Authorization"):
-            raise HTTPException(
-                status_code=401,
-                detail={"error": {"message": "No auth credentials found", "code": 401}},
-            )
+            raise AuthenticationError(message="No auth credentials found")
 
         request = self.client.build_request("POST", url, json=payload, headers=headers)
         try:
             response = await self.client.send(request, stream=True)
         except RuntimeError:
             # Recreate client if it was closed and retry once
-
             self.client = httpx.AsyncClient()
             request = self.client.build_request(
                 "POST", url, json=payload, headers=headers
             )
             response = await self.client.send(request, stream=True)
+            
         status_code = (
             int(response.status_code) if hasattr(response, "status_code") else 200
         )
         if status_code >= 400:
+            # For backwards compatibility with existing error handlers, still use HTTPException here.
+            # This will be replaced in a future update with domain exceptions.
             try:
                 body = (await response.aread()).decode("utf-8")
             except Exception:
@@ -191,43 +203,8 @@ class OpenAIConnector(LLMBackend):
                 with contextlib.suppress(Exception):
                     await response.aclose()
 
-        # Safely convert headers to dict, handling both real httpx responses and mocks
-        headers_dict = {}
-        try:
-            # Try the normal way first
-            raw_headers = dict(response.headers)
-            # Filter out any sentinel objects or invalid values
-            headers_dict = {
-                k: v
-                for k, v in raw_headers.items()
-                if hasattr(k, "encode") and hasattr(v, "encode")
-            }
-        except (TypeError, ValueError, AttributeError):
-            # If that fails, try to handle Mock objects
-            try:
-                if hasattr(response.headers, "__dict__") and isinstance(
-                    response.headers.__dict__, dict
-                ):
-                    raw_headers = response.headers.__dict__
-                    # Filter out any sentinel objects or invalid values
-                    headers_dict = {
-                        k: v
-                        for k, v in raw_headers.items()
-                        if hasattr(k, "encode") and hasattr(v, "encode")
-                    }
-                else:
-                    # Last resort: empty dict
-                    headers_dict = {}
-            except Exception:
-                # If all else fails, use empty dict
-                headers_dict = {}
-
-        # Return a StreamingResponse via helper for consistent behavior
-        from src.connectors.streaming_utils import to_streaming_response
-
-        return to_streaming_response(
-            lambda: gen(), media_type="text/event-stream", headers=headers_dict
-        )
+        # Return the generator directly without StreamingResponse wrapper
+        return gen()
 
     async def list_models(self, api_base_url: str | None = None) -> dict[str, Any]:
         headers = self.get_headers()

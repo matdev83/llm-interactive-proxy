@@ -36,8 +36,8 @@ from src.core.interfaces.session_service_interface import ISessionService
 logging.getLogger().setLevel(logging.WARNING)
 
 # Global state for service provider isolation
-_original_global_provider: IServiceProvider | None = None
-_original_global_services: ServiceCollection | None = None
+_original_service_provider: IServiceProvider | None = None
+_original_service_collection: ServiceCollection | None = None
 
 
 @pytest.fixture(scope="session")
@@ -386,8 +386,8 @@ def isolate_global_state() -> Generator[None, None, None]:
     # Save the current global service provider state
     import src.core.di.services as services_module
 
-    original_provider = services_module._global_provider
-    original_services = services_module._global_services
+    original_provider = services_module._service_provider
+    original_services = services_module._service_collection
 
     # Save the current global integration bridge state (if it exists)
     try:
@@ -406,8 +406,8 @@ def isolate_global_state() -> Generator[None, None, None]:
         yield
     finally:
         # Restore the original global state
-        services_module._global_provider = original_provider
-        services_module._global_services = original_services
+        services_module._service_provider = original_provider
+        services_module._service_collection = original_services
 
         # Restore bridge if it was available
         if bridge_module is not None and hasattr(bridge_module, "_integration_bridge"):

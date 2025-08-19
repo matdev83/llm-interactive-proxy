@@ -4,7 +4,9 @@ from abc import ABC, abstractmethod
 from collections.abc import AsyncIterator
 from typing import Any
 
-from src.core.domain.chat import ChatRequest, ChatResponse, StreamingChatResponse
+from src.core.domain.chat import ChatRequest
+from src.core.domain.response_envelope import ResponseEnvelope
+from src.core.domain.streaming_response_envelope import StreamingResponseEnvelope
 
 
 class BackendError(Exception):
@@ -25,7 +27,7 @@ class IBackendService(ABC):
     @abstractmethod
     async def call_completion(
         self, request: ChatRequest, stream: bool = False
-    ) -> ChatResponse | AsyncIterator[bytes]:
+    ) -> ResponseEnvelope | StreamingResponseEnvelope:
         """Call the LLM backend for a completion."""
 
     @abstractmethod
@@ -39,4 +41,4 @@ class IBackendService(ABC):
         self,
         request: ChatRequest,
         **kwargs: Any,
-    ) -> ChatResponse | AsyncIterator[bytes]: ...
+    ) -> ResponseEnvelope | StreamingResponseEnvelope: ...

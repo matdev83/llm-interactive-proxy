@@ -5,11 +5,11 @@ from collections.abc import Callable
 from typing import Any, cast
 
 import httpx
-from fastapi import HTTPException
-from starlette.responses import StreamingResponse
-
-from src.connectors.openai import OpenAIConnector
+from src.core.common.exceptions import AuthenticationError, BackendError, ServiceUnavailableError
 from src.core.domain.chat import ChatRequest
+from src.core.domain.response_envelope import ResponseEnvelope
+from src.core.domain.streaming_response_envelope import StreamingResponseEnvelope
+from src.connectors.openai import OpenAIConnector
 from src.core.services.backend_registry import backend_registry
 
 logger = logging.getLogger(__name__)
@@ -29,9 +29,9 @@ class OpenRouterBackend(OpenAIConnector):
 
     def get_headers(self) -> dict[str, str]:
         if not self.headers_provider or not self.key_name or not self.api_key:
-            raise HTTPException(
-                status_code=500,
-                detail="OpenRouter headers provider, key name, or API key not set.",
+            raise AuthenticationError(
+                message="OpenRouter headers provider, key name, or API key not set.",
+                code="missing_credentials",
             )
         return self.headers_provider(self.key_name, self.api_key)
 
@@ -124,7 +124,7 @@ class OpenRouterBackend(OpenAIConnector):
         effective_model: str,
         project: str | None = None,
         **kwargs: Any,
-    ) -> StreamingResponse | tuple[dict[str, Any], dict[str, str]]:
+    ) -> ResponseEnvelope | StreamingResponseEnvelope:
         # Allow tests and callers to provide per-call OpenRouter settings via kwargs
         headers_provider = kwargs.pop("openrouter_headers_provider", None)
         key_name = kwargs.pop("key_name", None)
@@ -180,43 +180,34 @@ class OpenRouterBackend(OpenAIConnector):
                 effective_model=effective_model,
                 **call_kwargs,
             )
-        except HTTPException as e:
-            # Adapt parent error details to OpenRouter-specific wording expected by tests
-            if (
-                e.status_code == 503
-                and isinstance(e.detail, str)
-                and "Could not connect to API" in e.detail
-            ):
-                raise HTTPException(
-                    status_code=503,
-                    detail=e.detail.replace(
+        except ServiceUnavailableError as e:
+            # Adapt parent error details to OpenRouter-specific wording
+            if "Could not connect to API" in e.message:
+                raise ServiceUnavailableError(
+                    message=e.message.replace(
                         "Could not connect to API", "Could not connect to OpenRouter"
                     ),
+                    code="openrouter_unavailable",
                 ) from None
-            # Also handle the case where the error message is "Service unavailable: Could not connect to backend"
-            if (
-                e.status_code == 503
-                and isinstance(e.detail, str)
-                and "Could not connect to backend" in e.detail
-            ):
-                raise HTTPException(
-                    status_code=503,
-                    detail=e.detail.replace(
+            # Also handle the case where the error message is "Could not connect to backend"
+            if "Could not connect to backend" in e.message:
+                raise ServiceUnavailableError(
+                    message=e.message.replace(
                         "Could not connect to backend",
                         "Could not connect to OpenRouter",
                     ),
+                    code="openrouter_unavailable",
                 ) from None
-            if e.status_code >= 400 and isinstance(e.detail, dict):
-                msg = str(e.detail.get("message", ""))
-                if msg.startswith("API streaming error:"):
-                    new_detail = dict(e.detail)
-                    new_detail["message"] = msg.replace(
+            raise
+        except BackendError as e:
+            # Handle streaming errors
+            if e.message.startswith("API streaming error:"):
+                raise BackendError(
+                    message=e.message.replace(
                         "API streaming error:", "OpenRouter stream error:"
-                    )
-                    new_detail["type"] = "openrouter_error"
-                    raise HTTPException(
-                        status_code=e.status_code, detail=new_detail
-                    ) from None
+                    ),
+                    code="openrouter_error",
+                ) from None
             raise
         finally:
             self.headers_provider = original_headers_provider

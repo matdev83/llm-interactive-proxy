@@ -1,131 +1,63 @@
-"""
-Model command implementation.
-
-This module provides a domain command for setting the model name.
-"""
-
 from __future__ import annotations
 
 import logging
 from collections.abc import Mapping
-from typing import Any, cast
+from typing import Any
 
 from src.core.domain.command_results import CommandResult
 from src.core.domain.commands.base_command import BaseCommand
-from src.core.domain.configuration.backend_config import BackendConfiguration
-from src.core.domain.session import Session, SessionState, SessionStateAdapter
-from src.core.interfaces.domain_entities_interface import ISessionState
+from src.core.domain.session import Session
 
 logger = logging.getLogger(__name__)
-
 
 class ModelCommand(BaseCommand):
     """Command for setting the model name."""
 
     name = "model"
-    format = "model([name=model-name])"
+    format = "model(name=<model-name>)"
     description = "Change the active model for LLM requests"
-    examples = [
-        "!/model(name=gpt-4)",
-        "!/model(name=gemini-pro)",
-        "!/model(name=claude-3-opus)",
-        "!/model(name=openrouter:gpt-4)",
-    ]
+    examples = ["!/model(name=gpt-4)", "!/model(name=openrouter:gpt-4)"]
 
     async def execute(
         self, args: Mapping[str, Any], session: Session, context: Any = None
     ) -> CommandResult:
-        """Set or unset the model name.
-
-        Args:
-            args: Command arguments with model name. If name is None or missing, model is unset.
-            session: Current session
-            context: Additional context data
-
-        Returns:
-            CommandResult indicating success or failure
-        """
+        """Set or unset the model name."""
         model_name = args.get("name")
-        # If model_name is None or empty string, treat as unset request
-        if model_name is None or (
-            isinstance(model_name, str) and not model_name.strip()
-        ):
-            # Unset the model
-            try:
-                # Create new backend config with model unset
-                backend_config = session.state.backend_config.with_model(None)
 
-                # Create new session state with updated backend config
-                updated_state: ISessionState
-                if isinstance(session.state, SessionStateAdapter):
-                    # SessionStateAdapter.with_backend_config expects IBackendConfig and returns ISessionState
-                    updated_state = session.state.with_backend_config(backend_config)
-                elif isinstance(session.state, SessionState):
-                    # SessionState.with_backend_config expects BackendConfiguration and returns SessionState
-                    new_state = session.state.with_backend_config(
-                        cast(BackendConfiguration, backend_config)
-                    )
-                    updated_state = SessionStateAdapter(new_state)
-                else:
-                    # Fallback for other implementations
-                    try:
-                        updated_state = session.state.with_backend_config(
-                            backend_config
-                        )
-                    except AttributeError:
-                        updated_state = session.state
+        if model_name is None or (isinstance(model_name, str) and not model_name.strip()):
+            return self._unset_model(session)
+        
+        return self._set_model(model_name, session)
 
-                return CommandResult(
-                    name=self.name,
-                    success=True,
-                    message="Model unset",
-                    new_state=updated_state,
-                )
-            except Exception as e:
-                logger.error(f"Error unsetting model: {e}")
-                return CommandResult(
-                    success=False,
-                    message=f"Error unsetting model: {e}",
-                    name=self.name,
-                )
-
-        # Continue with normal model setting logic
-        if not model_name:
-            return CommandResult(
-                success=False,
-                message="Model name must be specified",
-                name=self.name,
-            )
-
+    def _unset_model(self, session: Session) -> CommandResult:
+        """Unsets the model override."""
         try:
-            # Parse model name for backend:model format
+            backend_config = session.state.backend_config.with_model(None)
+            updated_state = session.state.with_backend_config(backend_config)
+            return CommandResult(
+                name=self.name,
+                success=True,
+                message="Model unset",
+                new_state=updated_state,
+            )
+        except Exception as e:
+            logger.error(f"Error unsetting model: {e}")
+            return CommandResult(success=False, message=f"Error unsetting model: {e}", name=self.name)
+
+    def _set_model(self, model_name: str, session: Session) -> CommandResult:
+        """Sets the model, potentially with a backend override."""
+        try:
             backend_type = None
             actual_model = model_name
 
             if ":" in model_name:
                 backend_type, actual_model = model_name.split(":", 1)
 
-            # Create new backend config with updated model name and optionally backend
             backend_config = session.state.backend_config.with_model(actual_model)
             if backend_type:
                 backend_config = backend_config.with_backend(backend_type)
 
-            # Create new session state with updated backend config
-            if isinstance(session.state, SessionStateAdapter):
-                # SessionStateAdapter.with_backend_config expects IBackendConfig and returns ISessionState
-                updated_state = session.state.with_backend_config(backend_config)
-            elif isinstance(session.state, SessionState):
-                # SessionState.with_backend_config expects BackendConfiguration and returns SessionState
-                new_state = session.state.with_backend_config(
-                    cast(BackendConfiguration, backend_config)
-                )
-                updated_state = SessionStateAdapter(new_state)
-            else:
-                # Fallback for other implementations
-                try:
-                    updated_state = session.state.with_backend_config(backend_config)
-                except AttributeError:
-                    updated_state = session.state
+            updated_state = session.state.with_backend_config(backend_config)
 
             message_parts = []
             if backend_type:
@@ -141,8 +73,4 @@ class ModelCommand(BaseCommand):
             )
         except Exception as e:
             logger.error(f"Error setting model: {e}")
-            return CommandResult(
-                success=False,
-                message=f"Error setting model: {e}",
-                name=self.name,
-            )
+            return CommandResult(success=False, message=f"Error setting model: {e}", name=self.name)

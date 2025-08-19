@@ -7,8 +7,9 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 import httpx
-from fastapi import HTTPException
-
+from src.core.common.exceptions import AuthenticationError, ConfigurationError
+from src.core.domain.response_envelope import ResponseEnvelope
+from src.core.domain.streaming_response_envelope import StreamingResponseEnvelope
 from src.core.services.backend_registry import backend_registry
 
 from .openai import OpenAIConnector
@@ -54,7 +55,10 @@ class ZAIConnector(OpenAIConnector):
         """Initialize the connector and fetch available models."""
         self.api_key = kwargs.get("api_key")
         if not self.api_key:
-            raise ValueError("api_key is required for ZAIConnector")
+            raise ConfigurationError(
+                message="api_key is required for ZAIConnector",
+                code="missing_api_key"
+            )
 
         api_base_url = kwargs.get("api_base_url")
         if api_base_url:
@@ -95,7 +99,10 @@ class ZAIConnector(OpenAIConnector):
     def get_headers(self) -> dict[str, str]:
         """Get headers with ZAI API key."""
         if not self.api_key:
-            raise HTTPException(status_code=500, detail="API key is not set.")
+            raise AuthenticationError(
+                message="ZAI API key is not set.",
+                code="missing_api_key"
+            )
         return {
             "Authorization": f"Bearer {self.api_key}",
             "Content-Type": "application/json",

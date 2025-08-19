@@ -20,7 +20,13 @@ from src.anthropic_converters import (
     openai_stream_to_anthropic_stream,
     openai_to_anthropic_response,
 )
-from src.core.adapters.api_adapters import dict_to_domain_chat_request
+from src.core.common.exceptions import LLMProxyError
+from src.core.domain.request_context import RequestContext
+from src.core.interfaces.request_processor_interface import IRequestProcessor
+from src.core.transport.fastapi.api_adapters import dict_to_domain_chat_request
+from src.core.transport.fastapi.exception_adapters import map_domain_exception_to_http_exception
+from src.core.transport.fastapi.request_adapters import fastapi_to_domain_request_context
+from src.core.transport.fastapi.response_adapters import domain_response_to_fastapi
 
 # Import will be done locally to avoid circular imports
 
@@ -63,8 +69,6 @@ async def anthropic_messages(
 
     try:
         # Get the request processor from the service provider
-        from src.core.interfaces.request_processor_interface import IRequestProcessor
-
         if (
             hasattr(http_request.app.state, "service_provider")
             and http_request.app.state.service_provider
@@ -74,36 +78,51 @@ async def anthropic_messages(
                     IRequestProcessor
                 )
             )
-            # Process the request using the new architecture
-            openai_response = await request_processor.process_request(
-                http_request, openai_request_obj
-            )
-        else:
-            # Fall back to legacy chat_completions_func if available
-            import inspect
+            # Convert to RequestContext and process using core processor
+            ctx = fastapi_to_domain_request_context(http_request, attach_original=True)
 
-            chat_completions_fn = getattr(
-                http_request.app.state, "chat_completions_func", None
-            )
-            if chat_completions_fn is None or not inspect.iscoroutinefunction(
-                chat_completions_fn
-            ):
-                raise HTTPException(
-                    status_code=501,
-                    detail="Anthropic endpoint not yet fully integrated - use OpenAI endpoint with anthropic backend",
+            # Process the request using the domain request processor
+            try:
+                openai_response = await request_processor.process_request(
+                    ctx, openai_request_obj
                 )
-            openai_response = await chat_completions_fn(
-                openai_request_obj, http_request
+            except LLMProxyError as e:
+                # Map domain exceptions to HTTP exceptions
+                raise map_domain_exception_to_http_exception(e)
+        else:
+            # No fallback to legacy chat_completions_func - require service provider
+            raise HTTPException(
+                status_code=501,
+                detail="Anthropic endpoint requires service provider to be configured",
             )
 
         # --- Step 3: Convert response back to Anthropic format
-        if isinstance(openai_response, StreamingResponse):
-            return _convert_streaming_response(openai_response)
-        elif isinstance(openai_response, dict):
-            return openai_to_anthropic_response(openai_response[0])
+        # First convert domain response to FastAPI response
+        fastapi_response = domain_response_to_fastapi(openai_response)
+        
+        # Then convert to Anthropic format
+        if isinstance(fastapi_response, StreamingResponse):
+            return _convert_streaming_response(fastapi_response)
         else:
-            # Unknown response type - forward as-is
-            return openai_response
+            # Extract response body
+            body_content: bytes | memoryview = fastapi_response.body
+            if isinstance(body_content, memoryview):
+                body_content = body_content.tobytes()
+            
+            # Parse response body
+            import json
+            openai_response_data = json.loads(body_content.decode())
+            
+            # Convert to Anthropic format
+            anthropic_response_data = openai_to_anthropic_response(openai_response_data)
+            
+            # Return as FastAPI Response
+            from fastapi import Response as FastAPIResponse
+            return FastAPIResponse(
+                content=json.dumps(anthropic_response_data),
+                media_type="application/json",
+                headers=fastapi_response.headers,
+            )
     finally:
         # Restore original backend type
         http_request.app.state.backend_type = original_backend_type
@@ -119,9 +138,15 @@ async def anthropic_models() -> dict[str, Any]:
     try:
         logger.info("Anthropic models request")
         return get_anthropic_models()
+    except LLMProxyError as e:
+        # Map domain exceptions to HTTP exceptions
+        raise map_domain_exception_to_http_exception(e)
     except Exception as e:
         logger.error(f"Error in anthropic_models: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(
+            status_code=500, 
+            detail={"error": {"message": str(e), "type": "server_error"}}
+        )
 
 
 def _convert_streaming_response(openai_stream_response: StreamingResponse) -> Response:

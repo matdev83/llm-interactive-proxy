@@ -436,7 +436,7 @@ class BackendService(IBackendService):
             # No fallover route or all fallback attempts failed
             logger.error(f"Backend call failed: {e!s}")
             raise BackendError(
-                message=f"Backend call failed: {e!s}", backend=backend_type
+                message=f"Backend call failed: {e!s}", backend_name=backend_type
             )
 
     async def validate_backend_and_model(

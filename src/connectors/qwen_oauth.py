@@ -13,10 +13,10 @@ from typing import (
 )
 
 import httpx
-from fastapi import HTTPException
-from starlette.responses import StreamingResponse
-
+from src.core.common.exceptions import AuthenticationError, BackendError, ServiceUnavailableError
 from src.core.domain.chat import ChatRequest
+from src.core.domain.response_envelope import ResponseEnvelope
+from src.core.domain.streaming_response_envelope import StreamingResponseEnvelope
 from src.core.services.backend_registry import backend_registry
 
 from .openai import OpenAIConnector
@@ -49,9 +49,9 @@ class QwenOAuthConnector(OpenAIConnector):
         """Override to use OAuth access token instead of API key."""
         access_token = self._get_access_token()
         if not access_token:
-            raise HTTPException(
-                status_code=401,
-                detail="No valid Qwen OAuth access token available. Please authenticate using qwen-code CLI.",
+            raise AuthenticationError(
+                message="No valid Qwen OAuth access token available. Please authenticate using qwen-code CLI.",
+                code="missing_oauth_token",
             )
         return {
             "Authorization": f"Bearer {access_token}",
@@ -279,7 +279,7 @@ class QwenOAuthConnector(OpenAIConnector):
         processed_messages: list[Any],
         effective_model: str,
         **kwargs: Any,
-    ) -> tuple[dict[str, Any], dict[str, str]] | StreamingResponse:
+    ) -> ResponseEnvelope | StreamingResponseEnvelope:
         """Handle chat completions using Qwen OAuth API.
 
         This overrides the parent class method to handle OAuth token refresh
@@ -288,9 +288,9 @@ class QwenOAuthConnector(OpenAIConnector):
         try:
             # Refresh token if needed
             if not await self._refresh_token_if_needed():
-                raise HTTPException(
-                    status_code=401,
-                    detail="Failed to refresh Qwen OAuth token. Please re-authenticate using qwen-code CLI.",
+                raise AuthenticationError(
+                    message="Failed to refresh Qwen OAuth token. Please re-authenticate using qwen-code CLI.",
+                    code="oauth_refresh_failed",
                 )
 
             # Use the effective model (strip qwen-oauth: prefix if present)
@@ -326,30 +326,37 @@ class QwenOAuthConnector(OpenAIConnector):
                 **kwargs,
             )
 
-        except HTTPException:
+        except (AuthenticationError, BackendError, ServiceUnavailableError):
+            # Re-raise domain exceptions
             raise
         except Exception as e:
+            # Convert other exceptions to BackendError
             logger.error(f"Error in Qwen OAuth chat_completions: {e}")
-            # Return error in OpenAI format
-            error_response = {
-                "id": f"chatcmpl-qwen-{secrets.token_hex(8)}",
-                "object": "chat.completion",
-                "created": int(asyncio.get_event_loop().time()),
-                "model": effective_model,
-                "choices": [
-                    {
-                        "index": 0,
-                        "message": {"role": "assistant", "content": f"Error: {e!s}"},
-                        "finish_reason": "stop",
-                    }
-                ],
-                "usage": {
-                    "prompt_tokens": 0,
-                    "completion_tokens": 0,
-                    "total_tokens": 0,
+            error_message = f"Qwen OAuth error: {e!s}"
+            
+            # Create a response envelope with the error
+            return ResponseEnvelope(
+                content={
+                    "id": f"chatcmpl-qwen-{secrets.token_hex(8)}",
+                    "object": "chat.completion",
+                    "created": int(asyncio.get_event_loop().time()),
+                    "model": effective_model,
+                    "choices": [
+                        {
+                            "index": 0,
+                            "message": {"role": "assistant", "content": f"Error: {e!s}"},
+                            "finish_reason": "stop",
+                        }
+                    ],
+                    "usage": {
+                        "prompt_tokens": 0,
+                        "completion_tokens": 0,
+                        "total_tokens": 0,
+                    },
                 },
-            }
-            return error_response, {"content-type": "application/json"}
+                headers={"content-type": "application/json"},
+                status_code=500
+            )
 
 
 backend_registry.register_backend("qwen-oauth", QwenOAuthConnector)

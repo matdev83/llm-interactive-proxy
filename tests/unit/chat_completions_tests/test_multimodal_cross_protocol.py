@@ -15,12 +15,13 @@ def app():
         "openrouter_api_keys": {"k": "v"},
         "gemini_api_keys": {"k": "v"},
     }
-    return build_app(cfg)
+    return build_app(cfg)[0]
 
 
 @pytest.fixture
 def client(app):
-    return TestClient(app)
+    with TestClient(app) as client:
+        yield client
 
 
 def test_openai_frontend_to_gemini_backend_multimodal(client):

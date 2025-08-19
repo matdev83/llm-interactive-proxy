@@ -13,13 +13,16 @@ from typing import Any, cast
 
 from fastapi import FastAPI
 
+from src.core.transport.fastapi.exception_adapters import register_exception_handlers
 from src.core.app.controllers import register_routes
-from src.core.common.exceptions import ProxyError
+
 from src.core.config.app_config import AppConfig
 from src.core.interfaces.backend_service_interface import IBackendService
 from src.core.interfaces.configuration_interface import IConfig
 from src.core.interfaces.di_interface import IServiceProvider
 from src.core.interfaces.repositories_interface import ISessionRepository
+from src.core.interfaces.session_resolver_interface import ISessionResolver
+from src.core.services.session_resolver_service import DefaultSessionResolver
 from src.core.services.backend_factory import BackendFactory
 from src.core.services.backend_registry import BackendRegistry, backend_registry
 from src.core.services.backend_service import BackendService
@@ -27,7 +30,7 @@ from src.core.services.command_service import CommandService
 from src.core.services.loop_detector_service import LoopDetector
 from src.core.services.rate_limiter_service import RateLimiter
 from src.core.services.request_processor_service import RequestProcessor
-from src.core.services.response_processor_service import ResponseProcessor
+from src.core.services.response_processor import ResponseProcessor
 from src.core.services.session_service import SessionService
 
 logger = logging.getLogger(__name__)
@@ -92,7 +95,7 @@ class ApplicationBuilder:
 
         return config
 
-    def build(self, config: AppConfig) -> FastAPI:
+    def build(self, config: AppConfig, service_provider: IServiceProvider | None = None) -> FastAPI:
         """Build the FastAPI application.
 
         Args:
@@ -116,8 +119,8 @@ class ApplicationBuilder:
         # Register routes
         register_routes(app)
 
-        # Register exception handlers
-        self._register_exception_handlers(app)
+        # Register exception handlers using the new domain-to-HTTP adapter
+        register_exception_handlers(app)
 
         # Register lifespan handler
         @app.on_event("startup")
@@ -137,14 +140,45 @@ class ApplicationBuilder:
             except Exception:
                 pass
 
+        # Store the service provider on app.state immediately if provided
+        if service_provider is not None:
+            app.state.service_provider = service_provider
+            
         # Add lifespan context manager
         @app.on_event("startup")
         async def startup_event() -> None:
-            # Initialize the service provider and store it on app.state
-            service_provider = await self._initialize_services(app, config)
-            app.state.service_provider = service_provider
+            # Initialize the service provider and store it on app.state only if not already set
+            if not hasattr(app.state, "service_provider") or app.state.service_provider is None:
+                new_service_provider = await self._initialize_services(app, config)
+                app.state.service_provider = new_service_provider
 
             # Minimal legacy state stored for tests and controllers
+            # Register command settings service
+            from src.core.interfaces.command_settings_interface import ICommandSettingsService
+            from src.core.services.command_settings_service import CommandSettingsService, get_default_instance
+            
+            # Create command settings service with config values
+            cmd_settings = CommandSettingsService(
+                default_command_prefix=config.command_prefix,
+                default_api_key_redaction=config.auth.redact_api_keys_in_prompts,
+            )
+            
+            # Get the service collection and register the command settings
+            from src.core.di.services import get_service_collection
+            services = get_service_collection()
+            services.add_instance(CommandSettingsService, cmd_settings)
+            services.add_instance(ICommandSettingsService, cmd_settings)  # type: ignore[arg-type]
+            
+            # Rebuild the service provider with the new services
+            if not hasattr(app.state, "service_provider") or app.state.service_provider is None:
+                app.state.service_provider = services.build_service_provider()
+            
+            # Update the default instance for legacy compatibility
+            default_instance = get_default_instance()
+            default_instance.command_prefix = config.command_prefix
+            default_instance.api_key_redaction_enabled = config.auth.redact_api_keys_in_prompts
+            
+            # Set required app.state variables (legacy support during transition)
             app.state.command_prefix = config.command_prefix
             app.state.force_set_project = config.session.force_set_project
             app.state.api_key_redaction_enabled = config.auth.redact_api_keys_in_prompts
@@ -181,23 +215,6 @@ class ApplicationBuilder:
             logger.info("Application startup complete")
 
         return app
-
-    def _register_exception_handlers(self, app: FastAPI) -> None:
-        """Register exception handlers.
-
-        Args:
-            app: The FastAPI application
-        """
-        from fastapi.exceptions import RequestValidationError
-
-        from src.core.app.error_handlers import (
-            proxy_exception_handler,
-            validation_exception_handler,
-        )
-
-        app.add_exception_handler(ProxyError, proxy_exception_handler)
-        app.add_exception_handler(Exception, proxy_exception_handler)
-        app.add_exception_handler(RequestValidationError, validation_exception_handler)  # type: ignore[arg-type]
 
     async def _initialize_services(
         self, app: FastAPI, config: AppConfig
@@ -267,7 +284,16 @@ class ApplicationBuilder:
         def _response_processor_factory(
             provider: IServiceProvider,
         ) -> ResponseProcessor:
-            return ResponseProcessor()
+            # Get loop detector if available
+            detector = None
+            try:
+                from src.core.interfaces.loop_detector_interface import ILoopDetector
+                detector = provider.get_service(ILoopDetector)
+            except Exception:
+                pass
+                
+            # Create response processor with loop detector
+            return ResponseProcessor(loop_detector=detector)
 
         services.add_singleton(
             ResponseProcessor, implementation_factory=_response_processor_factory
@@ -355,15 +381,48 @@ class ApplicationBuilder:
                 implementation_factory=_command_service_factory,
             )
 
-        # Register IRequestProcessor with a factory so its constructor deps are injected
-        def _request_processor_factory(provider: IServiceProvider) -> RequestProcessor:
-            # Always resolve the ICommandService interface (CommandService is not registered directly)
+            # Register IRequestProcessor with a factory so its constructor deps are injected
+    def _request_processor_factory(provider: IServiceProvider) -> RequestProcessor:
+        # Get required services
+        from src.core.interfaces.command_processor_interface import ICommandProcessor
+        from src.core.interfaces.backend_processor_interface import IBackendProcessor
+        
+        # Try to get command processor and backend processor
+        command_proc = None
+        backend_proc = None
+        try:
+            command_proc = provider.get_service(ICommandProcessor)  # type: ignore[type-abstract]
+            backend_proc = provider.get_service(IBackendProcessor)  # type: ignore[type-abstract]
+        except Exception:
+            pass
+            
+        # If processors are not available, create them
+        if command_proc is None:
+            # Create command processor
             cmd = provider.get_required_service(ICommandService)  # type: ignore[type-abstract]
-
+            from src.core.services.command_processor import CommandProcessor
+            command_proc = CommandProcessor(cmd)
+            
+        if backend_proc is None:
+            # Create backend processor
             backend = provider.get_required_service(IBackendService)  # type: ignore[type-abstract]
             session = provider.get_required_service(ISessionService)  # type: ignore[type-abstract]
-            response_proc = provider.get_required_service(IResponseProcessor)  # type: ignore[type-abstract]
-            return RequestProcessor(cmd, backend, session, response_proc)  # type: ignore[arg-type]
+            from src.core.services.backend_processor import BackendProcessor
+            backend_proc = BackendProcessor(backend, session)
+            
+        # Get other required services
+        response_proc = provider.get_required_service(IResponseProcessor)  # type: ignore[type-abstract]
+        session = provider.get_required_service(ISessionService)  # type: ignore[type-abstract]
+        
+        # Get session resolver if available, otherwise it will use the default one
+        from src.core.interfaces.session_resolver_interface import ISessionResolver
+        session_resolver = None
+        try:
+            session_resolver = provider.get_service(ISessionResolver)  # type: ignore[type-abstract]
+        except Exception:
+            pass
+            
+        return RequestProcessor(command_proc, backend_proc, session, response_proc, session_resolver)  # type: ignore[arg-type]
 
         # Import concrete RequestProcessor implementation before registering
         from src.core.services.request_processor_service import RequestProcessor
@@ -381,6 +440,11 @@ class ApplicationBuilder:
         # Register both the concrete type and the interface
         services.add_singleton(InMemorySessionRepository)
         services.add_singleton(ISessionRepository, InMemorySessionRepository)  # type: ignore[type-abstract]
+        
+        # Register session resolver
+        session_resolver = DefaultSessionResolver(config)
+        services.add_instance(DefaultSessionResolver, session_resolver)
+        services.add_instance(ISessionResolver, session_resolver)  # type: ignore[type-abstract]
 
         # Register session service and bind to its interface via factory
         from src.core.interfaces.session_service_interface import ISessionService
@@ -465,6 +529,7 @@ class ApplicationBuilder:
             from src.core.commands.unset_command import UnsetCommand
             from src.core.domain.commands.model_command import ModelCommand
             from src.core.domain.commands.temperature_command import TemperatureCommand
+            from src.core.domain.commands.hello_command import HelloCommand # Added HelloCommand
 
             # Register domain commands
             registry.register(SetCommand())
@@ -472,6 +537,7 @@ class ApplicationBuilder:
 
             registry.register(ModelCommand())
             registry.register(TemperatureCommand())
+            registry.register(HelloCommand()) # Registered HelloCommand
         except Exception as e:
             # Best-effort registration for tests; if DI shape differs, skip
             logger.debug(f"Could not register domain commands into registry: {e}")

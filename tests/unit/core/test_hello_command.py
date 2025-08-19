@@ -1,41 +1,34 @@
-"""
-Tests for the Hello command in the new SOLID architecture.
-"""
-
 import pytest
-from src.core.commands.handlers.hello_handler import HelloCommandHandler
-from src.core.domain.session import SessionState
+from unittest.mock import Mock
+import asyncio
 
-
-@pytest.fixture
-def hello_handler():
-    """Create a HelloCommandHandler for testing."""
-    return HelloCommandHandler()
-
+from src.core.domain.commands.hello_command import HelloCommand
+from src.core.domain.session import Session, SessionState
 
 @pytest.fixture
-def session_state():
-    """Create a session state for testing."""
-    return SessionState()
+def command() -> HelloCommand:
+    """Returns a new instance of the HelloCommand for each test."""
+    return HelloCommand()
 
+@pytest.fixture
+def mock_session() -> Mock:
+    """Creates a mock session object with a default state."""
+    mock = Mock(spec=Session)
+    mock.state = SessionState()
+    return mock
 
-def test_hello_handler_initialization(hello_handler):
-    """Test that the HelloCommandHandler initializes correctly."""
-    assert hello_handler.name == "hello"
-    assert "welcome banner" in hello_handler.description.lower()
+@pytest.mark.asyncio
+async def test_hello_command_execution(command: HelloCommand, mock_session: Mock):
+    """Test that the HelloCommand executes correctly."""
+    # Arrange
+    args = {}
+    context = {}
 
+    # Act
+    result = await command.execute(args, mock_session, context)
 
-def test_hello_handler_can_handle(hello_handler):
-    """Test that the HelloCommandHandler can handle the correct parameters."""
-    assert hello_handler.can_handle("hello")
-    assert hello_handler.can_handle("HELLO")
-    assert not hello_handler.can_handle("other")
-
-
-def test_hello_handler_execution(hello_handler, session_state):
-    """Test that the HelloCommandHandler sets the hello_requested flag."""
-    result = hello_handler.handle("hello", session_state, None)
-    assert result.success
-    assert "hello acknowledged" in result.message
+    # Assert
+    assert result.success is True
+    assert "Welcome to LLM Interactive Proxy!" in result.message
     assert result.new_state is not None
-    assert result.new_state.hello_requested
+    assert result.new_state.hello_requested is True

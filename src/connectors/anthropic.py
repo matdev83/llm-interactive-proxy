@@ -7,20 +7,24 @@ from __future__ import annotations
 import json
 import logging
 import time
-from collections.abc import AsyncGenerator, Callable
+from collections.abc import AsyncGenerator, AsyncIterator, Callable
 from typing import Any, cast
 
 import httpx
-from fastapi import HTTPException
-from starlette.responses import StreamingResponse
 
 from src.connectors.base import LLMBackend
+from src.core.common.exceptions import (
+    AuthenticationError,
+    ConfigurationError,
+    ServiceUnavailableError,
+)
 from src.core.domain.chat import ChatRequest
+from src.core.domain.response_envelope import ResponseEnvelope
+from src.core.domain.streaming_response_envelope import StreamingResponseEnvelope
 
 # Legacy ChatCompletionRequest removed from connector signatures; use domain ChatRequest
 
 # API key redaction and command filtering are now handled by middleware
-# from src.security import APIKeyRedactor, ProxyCommandFilter
 
 logger = logging.getLogger(__name__)
 
@@ -48,7 +52,10 @@ class AnthropicBackend(LLMBackend):
         self.api_key = kwargs.get("api_key")
 
         if not self.key_name or not self.api_key:
-            raise ValueError("key_name and api_key are required for AnthropicBackend")
+            raise ConfigurationError(
+                message="key_name and api_key are required for AnthropicBackend",
+                code="missing_config",
+            )
 
         # Don't make HTTP calls during initialization
         # Models will be fetched on first use
@@ -88,7 +95,7 @@ class AnthropicBackend(LLMBackend):
     # -----------------------------------------------------------
     # Core entry - called by proxy
     # -----------------------------------------------------------
-    async def chat_completions(  # type: ignore[override]
+    async def chat_completions(
         self,
         request_data: ChatRequest,
         processed_messages: list[Any],
@@ -100,13 +107,14 @@ class AnthropicBackend(LLMBackend):
         project: str | None = None,
         agent: str | None = None,
         **kwargs: Any,
-    ) -> tuple[dict[str, Any], dict[str, str]] | StreamingResponse:
-        """Send request to Anthropic Messages endpoint and return data in OpenAI format."""
+    ) -> ResponseEnvelope | StreamingResponseEnvelope:
+        """Send request to Anthropic Messages endpoint and return domain response envelope."""
         # Allow per-call api_key or fall back to instance-api_key set during initialize
         effective_api_key = api_key or getattr(self, "api_key", None)
         if effective_api_key is None:
-            raise HTTPException(
-                status_code=500, detail="Anthropic API key not configured"
+            raise AuthenticationError(
+                message="Anthropic API key not configured",
+                code="missing_api_key",
             )
 
         base_url = (openrouter_api_base_url or ANTHROPIC_DEFAULT_BASE_URL).rstrip("/")
@@ -135,14 +143,22 @@ class AnthropicBackend(LLMBackend):
             )
 
         if request_data.stream:
-            return await self._handle_streaming_response(
+            stream_iterator = await self._handle_streaming_response(
                 url, anthropic_payload, headers, effective_model
+            )
+            return StreamingResponseEnvelope(
+                content=stream_iterator,
+                media_type="text/event-stream",
             )
         else:
             response_json, response_headers = await self._handle_non_streaming_response(
                 url, anthropic_payload, headers, effective_model
             )
-            return response_json, response_headers
+            return ResponseEnvelope(
+                content=response_json,
+                headers=response_headers,
+                status_code=200,
+            )
 
     # -----------------------------------------------------------
     # Payload helpers
@@ -226,12 +242,25 @@ class AnthropicBackend(LLMBackend):
 
             self.client = httpx.AsyncClient()
             response = await self.client.post(url, json=payload, headers=headers)
+        except httpx.RequestError as e:
+            raise ServiceUnavailableError(
+                message=f"Could not connect to Anthropic API: {e}"
+            )
+            
         if response.status_code >= 400:
+            from src.core.common.exceptions import BackendError
+            
             try:
                 detail = response.json()
             except json.JSONDecodeError:
                 detail = response.text
-            raise HTTPException(status_code=response.status_code, detail=detail)
+                
+            raise BackendError(
+                message=str(detail),
+                code="anthropic_error",
+                status_code=response.status_code,
+            )
+            
         data = response.json()
         converted = self._convert_full_response(data, model)
         return converted, dict(response.headers)
@@ -245,7 +274,8 @@ class AnthropicBackend(LLMBackend):
         payload: dict,
         headers: dict,
         model: str,
-    ) -> StreamingResponse:
+    ) -> AsyncIterator[bytes]:
+        """Handle a streaming response from Anthropic and return an async iterator of bytes."""
         request = self.client.build_request("POST", url, json=payload, headers=headers)
         try:
             response = await self.client.send(request, stream=True)
@@ -258,14 +288,26 @@ class AnthropicBackend(LLMBackend):
                 "POST", url, json=payload, headers=headers
             )
             response = await self.client.send(request, stream=True)
+        except httpx.RequestError as e:
+            raise ServiceUnavailableError(
+                message=f"Could not connect to Anthropic API: {e}"
+            )
+            
         if response.status_code >= 400:
+            from src.core.common.exceptions import BackendError
+            
             try:
                 body_text = (await response.aread()).decode("utf-8")
             except Exception:
                 body_text = ""
             finally:
                 await response.aclose()
-            raise HTTPException(status_code=response.status_code, detail=body_text)
+                
+            raise BackendError(
+                message=body_text,
+                code="anthropic_error",
+                status_code=response.status_code,
+            )
 
         async def event_stream() -> AsyncGenerator[bytes, None]:
             buffer = ""
@@ -291,11 +333,7 @@ class AnthropicBackend(LLMBackend):
                     yield ("data: " + json.dumps(chunk_dict) + "\n\n").encode("utf-8")
             await response.aclose()
 
-        from src.connectors.streaming_utils import to_streaming_response
-
-        return to_streaming_response(
-            lambda: event_stream(), media_type="text/event-stream"
-        )
+        return event_stream()
 
     # -----------------------------------------------------------
     # Converters
@@ -378,9 +416,11 @@ class AnthropicBackend(LLMBackend):
         key = key_name or getattr(self, "key_name", None)
         key_api = api_key or getattr(self, "api_key", None)
         if not key or not key_api:
-            raise HTTPException(
-                status_code=500, detail="Anthropic list_models missing credentials"
+            raise AuthenticationError(
+                message="Anthropic list_models missing credentials",
+                code="missing_api_key",
             )
+            
         url = f"{base.rstrip('/')}/models"
         headers = {
             "x-api-key": key_api,
@@ -393,12 +433,25 @@ class AnthropicBackend(LLMBackend):
 
             self.client = httpx.AsyncClient()
             response = await self.client.get(url, headers=headers)
+        except httpx.RequestError as e:
+            raise ServiceUnavailableError(
+                message=f"Could not connect to Anthropic API: {e}"
+            )
+            
         if response.status_code >= 400:
+            from src.core.common.exceptions import BackendError
+            
             try:
                 detail = response.json()
             except json.JSONDecodeError:
                 detail = response.text
-            raise HTTPException(status_code=response.status_code, detail=detail)
+                
+            raise BackendError(
+                message=str(detail),
+                code="anthropic_error",
+                status_code=response.status_code,
+            )
+            
         return cast(
             list[dict[str, Any]], response.json().get("models", response.json())
         )

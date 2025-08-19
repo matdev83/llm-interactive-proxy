@@ -3,16 +3,21 @@ Tests for the RequestProcessor implementation.
 """
 
 import json
-from typing import cast
+from typing import Any, Dict, Optional, cast
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from fastapi import HTTPException, Request
+from src.core.common.exceptions import BackendError, LLMProxyError
 from src.core.domain.commands import CommandResult
 from src.core.domain.processed_result import ProcessedResult
-from src.core.interfaces.backend_service_interface import BackendError
+from src.core.domain.request_context import RequestContext
+from src.core.domain.response_envelope import ResponseEnvelope
+from src.core.domain.streaming_response_envelope import StreamingResponseEnvelope
+from src.core.interfaces.session_resolver_interface import ISessionResolver
 from src.core.services.request_processor_service import RequestProcessor
-from starlette.responses import StreamingResponse
+from src.core.services.session_resolver_service import StaticSessionResolver
+from starlette.responses import Response, StreamingResponse
 
 from tests.unit.core.test_doubles import (
     MockBackendService,
@@ -22,16 +27,42 @@ from tests.unit.core.test_doubles import (
 )
 
 
-class MockRequest:
-    """Mock FastAPI request for testing."""
+class MockState:
+    """Mock state for testing."""
+    
+    def __init__(self) -> None:
+        self.project = None
+        self.backend_config = MagicMock()
+        self.backend_config.backend_type = None
+        self.backend_config.model = None
+        self.backend_config.failover_routes = {}
+        self.disable_commands = False
 
-    def __init__(self, headers=None) -> None:
+
+class MockRequestContext:
+    """Mock RequestContext for testing."""
+
+    def __init__(
+        self, 
+        headers: Optional[Dict[str, str]] = None, 
+        cookies: Optional[Dict[str, str]] = None,
+        session_id: Optional[str] = None,
+        disable_commands: bool = False,
+        disable_interactive_commands: bool = False,
+    ) -> None:
         self.headers = headers or {}
-
-        # Mock app.state
-        self.app = MagicMock()
-        self.app.state = MagicMock()
-        self.app.state.force_set_project = False
+        self.cookies = cookies or {}
+        self.state = MagicMock()
+        self.state.disable_commands = disable_commands
+        
+        self.app_state = MagicMock()
+        self.app_state.force_set_project = False
+        self.app_state.disable_interactive_commands = disable_interactive_commands
+        self.app_state.failover_routes = {}
+        
+        self.client_host = "127.0.0.1"
+        self.original_request = None
+        self.session_id = session_id
 
 
 class MockRequestData:
@@ -44,26 +75,45 @@ class MockRequestData:
         self.messages = messages or [{"role": "user", "content": "Hello"}]
         self.model = model
         self.temperature = None
+        self.top_p = None
         self.max_tokens = None
         self.tools = None
         self.tool_choice = None
         self.user = None
         self.session_id = session_id
+        self.extra_body = None
+
+
+class TestSessionResolver(ISessionResolver):
+    """Test implementation of ISessionResolver that always returns the test session ID."""
+    
+    def __init__(self, session_id: str = "test-session") -> None:
+        self.session_id = session_id
+    
+    async def resolve_session_id(self, context: RequestContext) -> str:
+        """Always returns the test session ID."""
+        return self.session_id
 
 
 @pytest.mark.asyncio
-@pytest.mark.skip(reason="SessionState is now frozen and cannot be modified directly")
 async def test_process_request_basic() -> None:
     """Test basic request processing with no commands."""
     # Arrange
     command_service = MockCommandService()
     backend_service = MockBackendService()
     session_service = MockSessionService()
+    session_resolver = TestSessionResolver("test-session")
 
-    processor = RequestProcessor(command_service, backend_service, session_service)
+    processor = RequestProcessor(
+        command_service, 
+        backend_service, 
+        session_service, 
+        response_processor=MagicMock(),
+        session_resolver=session_resolver
+    )
 
-    # Create a request
-    request = MockRequest(headers={"x-session-id": "test-session"})
+    # Create a request context and data
+    context = MockRequestContext(headers={"x-session-id": "test-session"})
     request_data = MockRequestData()
 
     # Setup command service to return no commands processed
@@ -80,12 +130,12 @@ async def test_process_request_basic() -> None:
     backend_service.add_response(response)
 
     # Act
-    response_obj = await processor.process_request(cast(Request, request), request_data)
-    result = json.loads(response_obj.body)
-
-    # Assert
-    assert result["id"] == response.id
-    assert result["choices"][0]["message"]["content"] == "Hello there!"
+    response_obj = await processor.process_request(context, request_data)
+    
+    # Assert - should be a ResponseEnvelope now
+    assert isinstance(response_obj, ResponseEnvelope)
+    assert response_obj.content["id"] == response.id
+    assert response_obj.content["choices"][0]["message"]["content"] == "Hello there!"
 
     # Check that session was retrieved and updated
     assert "test-session" in session_service.sessions
@@ -96,18 +146,24 @@ async def test_process_request_basic() -> None:
 
 
 @pytest.mark.asyncio
-@pytest.mark.skip(reason="SessionState is now frozen and cannot be modified directly")
 async def test_process_request_with_commands() -> None:
     """Test request processing with commands."""
     # Arrange
     command_service = MockCommandService()
     backend_service = MockBackendService()
     session_service = MockSessionService()
+    session_resolver = TestSessionResolver("test-session")
 
-    processor = RequestProcessor(command_service, backend_service, session_service)
+    processor = RequestProcessor(
+        command_service, 
+        backend_service, 
+        session_service,
+        response_processor=MagicMock(),
+        session_resolver=session_resolver
+    )
 
-    # Create a request
-    request = MockRequest(headers={"x-session-id": "test-session"})
+    # Create a request context and data
+    context = MockRequestContext(headers={"x-session-id": "test-session"})
     request_data = MockRequestData(
         messages=[{"role": "user", "content": "!/set(project=test) How are you?"}]
     )
@@ -129,21 +185,19 @@ async def test_process_request_with_commands() -> None:
     # Mock the session service to return a session with project set
     session = await session_service.get_session("test-session")
     # Mock the state property to return a value with project set
-    session_service.sessions["test-session"].state.project = (
-        "test"  # This is a mock, so we can set it directly
-    )
+    session_service.sessions["test-session"].state.project = "test"
 
     # Setup backend service to return a response
     response = TestDataBuilder.create_chat_response("I'm doing well, thanks!")
     backend_service.add_response(response)
 
     # Act
-    response_obj = await processor.process_request(cast(Request, request), request_data)
-    result = json.loads(response_obj.body)
-
-    # Assert
-    assert result["id"] == response.id
-    assert result["choices"][0]["message"]["content"] == "I'm doing well, thanks!"
+    response_obj = await processor.process_request(context, request_data)
+    
+    # Assert - should be a ResponseEnvelope now
+    assert isinstance(response_obj, ResponseEnvelope)
+    assert response_obj.content["id"] == response.id
+    assert response_obj.content["choices"][0]["message"]["content"] == "I'm doing well, thanks!"
 
     # Check that session was updated
     assert "test-session" in session_service.sessions
@@ -154,18 +208,24 @@ async def test_process_request_with_commands() -> None:
 
 
 @pytest.mark.asyncio
-@pytest.mark.skip(reason="SessionState is now frozen and cannot be modified directly")
 async def test_process_command_only_request() -> None:
     """Test processing a command-only request with no meaningful content."""
     # Arrange
     command_service = MockCommandService()
     backend_service = MockBackendService()
     session_service = MockSessionService()
+    session_resolver = TestSessionResolver("test-session")
 
-    processor = RequestProcessor(command_service, backend_service, session_service)
+    processor = RequestProcessor(
+        command_service, 
+        backend_service, 
+        session_service,
+        response_processor=MagicMock(),
+        session_resolver=session_resolver
+    )
 
-    # Create a request
-    request = MockRequest(headers={"x-session-id": "test-session"})
+    # Create a request context and data
+    context = MockRequestContext(headers={"x-session-id": "test-session"})
     request_data = MockRequestData(messages=[{"role": "user", "content": "!/hello"}])
 
     # Setup command service to return command processed with no remaining content
@@ -183,13 +243,13 @@ async def test_process_command_only_request() -> None:
     )
 
     # Act
-    response_obj = await processor.process_request(cast(Request, request), request_data)
-    result = json.loads(response_obj.body)
-
-    # Assert
-    assert result["id"] == "proxy_cmd_processed"
-    assert "choices" in result
-    assert len(result["choices"]) == 1
+    response_obj = await processor.process_request(context, request_data)
+    
+    # Assert - should be a ResponseEnvelope now
+    assert isinstance(response_obj, ResponseEnvelope)
+    assert response_obj.content["id"] == "proxy_cmd_processed"
+    assert "choices" in response_obj.content
+    assert len(response_obj.content["choices"]) == 1
 
     # Check that session was updated
     assert "test-session" in session_service.sessions
@@ -200,18 +260,24 @@ async def test_process_command_only_request() -> None:
 
 
 @pytest.mark.asyncio
-@pytest.mark.skip(reason="SessionState is now frozen and cannot be modified directly")
 async def test_process_streaming_request() -> None:
     """Test processing a streaming request."""
     # Arrange
     command_service = MockCommandService()
     backend_service = MockBackendService()
     session_service = MockSessionService()
+    session_resolver = TestSessionResolver("test-session")
 
-    processor = RequestProcessor(command_service, backend_service, session_service)
+    processor = RequestProcessor(
+        command_service, 
+        backend_service, 
+        session_service,
+        response_processor=MagicMock(),
+        session_resolver=session_resolver
+    )
 
-    # Create a request
-    request = MockRequest(headers={"x-session-id": "test-session"})
+    # Create a request context and data
+    context = MockRequestContext(headers={"x-session-id": "test-session"})
     request_data = MockRequestData(stream=True)
 
     # Setup command service to return no commands processed
@@ -224,74 +290,58 @@ async def test_process_streaming_request() -> None:
     )
 
     # Setup backend service for streaming
-    from src.core.domain.chat import StreamingChatResponse
+    async def mock_stream_generator():
+        yield b"data: {\"choices\":[{\"delta\":{\"content\":\"Hello\"},\"index\":0}]}\n\n"
+        yield b"data: {\"choices\":[{\"delta\":{\"content\":\" there!\"},\"index\":0}]}\n\n"
+        yield b"data: [DONE]\n\n"
 
-    async def mock_stream_response():
-        chunk1 = StreamingChatResponse(
-            id="resp-123",
-            created=123,
-            model="gpt-4",
-            choices=[{"delta": {"content": "Hello"}, "index": 0}],
-        )
-        yield chunk1
-
-        chunk2 = StreamingChatResponse(
-            id="resp-123",
-            created=123,
-            model="gpt-4",
-            choices=[{"delta": {"content": " there!"}, "index": 0}],
-        )
-        yield chunk2
-
-    backend_service._backend_service = AsyncMock()
-    backend_service._backend_service.call_completion = AsyncMock(
-        return_value=mock_stream_response()
+    # Create StreamingResponseEnvelope to return
+    streaming_envelope = StreamingResponseEnvelope(
+        content=mock_stream_generator(),
+        media_type="text/event-stream",
     )
-
+    
     with patch.object(
-        backend_service, "call_completion", return_value=mock_stream_response()
+        backend_service, "call_completion", return_value=streaming_envelope
     ):
         # Act
-        response = await processor.process_request(cast(Request, request), request_data)
+        response = await processor.process_request(context, request_data)
 
         # Assert
-        assert isinstance(response, StreamingResponse)
+        assert isinstance(response, StreamingResponseEnvelope)
+        assert response.media_type == "text/event-stream"
 
         # Collect the streamed chunks
         chunks = []
-        async for chunk in response.body_iterator:
+        async for chunk in response.content:
             chunks.append(chunk.decode("utf-8"))
 
         # Check the streamed content
         assert len(chunks) == 3  # 2 content chunks + [DONE]
-        assert (
-            json.loads(chunks[0].replace("data: ", ""))["choices"][0]["delta"][
-                "content"
-            ]
-            == "Hello"
-        )
-        assert (
-            json.loads(chunks[1].replace("data: ", ""))["choices"][0]["delta"][
-                "content"
-            ]
-            == " there!"
-        )
+        assert "Hello" in chunks[0]
+        assert "there!" in chunks[1]
         assert chunks[2] == "data: [DONE]\n\n"
 
 
 @pytest.mark.asyncio
-@pytest.mark.skip(reason="SessionState is now frozen and cannot be modified directly")
 async def test_backend_error_handling() -> None:
     """Test handling of backend errors."""
     # Arrange
     command_service = MockCommandService()
     backend_service = MockBackendService()
     session_service = MockSessionService()
+    session_resolver = TestSessionResolver("test-session")
 
-    processor = RequestProcessor(command_service, backend_service, session_service)
+    processor = RequestProcessor(
+        command_service, 
+        backend_service, 
+        session_service,
+        response_processor=MagicMock(),
+        session_resolver=session_resolver
+    )
 
-    # Create a request
-    request = MockRequest(headers={"x-session-id": "test-session"})
+    # Create a request context and data
+    context = MockRequestContext(headers={"x-session-id": "test-session"})
     request_data = MockRequestData()
 
     # Setup command service to return no commands processed
@@ -308,8 +358,7 @@ async def test_backend_error_handling() -> None:
     backend_service.add_response(backend_error)
 
     # Act & Assert
-    with pytest.raises(HTTPException) as exc:
-        await processor.process_request(cast(Request, request), request_data)
+    with pytest.raises(LLMProxyError) as exc:
+        await processor.process_request(context, request_data)
 
-    assert exc.value.status_code == 500
-    assert "API unavailable" in str(exc.value.detail)
+    assert "API unavailable" in str(exc.value.message)

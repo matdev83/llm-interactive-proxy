@@ -14,7 +14,7 @@ from starlette.responses import Response  # Added this line
 
 # Legacy models are only used by the compatibility endpoints via the adapter layer
 from src.anthropic_models import AnthropicMessagesRequest
-from src.core.adapters.api_adapters import dict_to_domain_chat_request
+from src.core.transport.fastapi.api_adapters import dict_to_domain_chat_request
 from src.core.app.controllers.anthropic_controller import (
     AnthropicController,
     get_anthropic_controller,

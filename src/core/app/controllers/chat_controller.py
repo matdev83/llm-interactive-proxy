@@ -9,9 +9,14 @@ from typing import Any
 
 from fastapi import HTTPException, Request, Response
 
-from src.core.adapters.api_adapters import legacy_to_domain_chat_request
-from src.core.common.exceptions import LoopDetectionError
+from src.core.adapters.exception_adapters import create_exception_handler  # Keep for now during transition
+from src.core.transport.fastapi.api_adapters import legacy_to_domain_chat_request
+from src.core.transport.fastapi.exception_adapters import map_domain_exception_to_http_exception
+from src.core.transport.fastapi.request_adapters import fastapi_to_domain_request_context
+from src.core.transport.fastapi.response_adapters import domain_response_to_fastapi
+from src.core.common.exceptions import LoopDetectionError, LLMProxyError
 from src.core.domain.chat import ChatRequest
+from src.core.domain.request_context import RequestContext
 from src.core.interfaces.di_interface import IServiceProvider
 from src.core.interfaces.request_processor_interface import IRequestProcessor
 
@@ -49,21 +54,28 @@ class ChatController:
             if not isinstance(request_data, ChatRequest):
                 domain_request = legacy_to_domain_chat_request(request_data)
 
+            # Convert FastAPI Request to RequestContext and process via core processor
+            ctx = fastapi_to_domain_request_context(request, attach_original=True)
+            
             # Process the request using the request processor
-            return await self._processor.process_request(request, domain_request)
+            response = await self._processor.process_request(ctx, domain_request)
+            
+            # Convert domain response to FastAPI response
+            return domain_response_to_fastapi(response)
+            
+        except LLMProxyError as e:
+            # Map domain exceptions to HTTP exceptions
+            raise map_domain_exception_to_http_exception(e)
         except HTTPException:
             # Re-raise HTTP exceptions
             raise
-        except LoopDetectionError as e:
-            # Re-raise LoopDetectionError directly so it can be handled by proxy_exception_handler
-            raise e
         except Exception as e:
+            # Log and convert other exceptions to HTTP exceptions
             logger.error(f"Error handling chat completion: {e}", exc_info=True)
             raise HTTPException(
-                status_code=500, detail={"error": str(e), "type": "ChatCompletionError"}
+                status_code=500, 
+                detail={"error": {"message": str(e), "type": "server_error"}}
             )
-
-    # Legacy compatibility method has been removed in favor of direct domain model usage
 
 
 def get_chat_controller(service_provider: IServiceProvider) -> ChatController:

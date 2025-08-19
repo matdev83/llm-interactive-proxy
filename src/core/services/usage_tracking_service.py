@@ -13,9 +13,23 @@ import uuid
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 from datetime import datetime
-from typing import Any
+from typing import Any, Protocol
 
-from fastapi.responses import StreamingResponse
+# Define a protocol for objects that behave like StreamingResponse
+class StreamingResponseLike(Protocol):
+    """Protocol for objects that behave like StreamingResponse."""
+    
+    @property
+    def body_iterator(self) -> AsyncGenerator[bytes, None]:
+        ...
+        
+    @property
+    def headers(self) -> dict[str, str]:
+        ...
+        
+    @property
+    def media_type(self) -> str:
+        ...
 
 from src.core.domain.usage_data import UsageData
 from src.core.interfaces.repositories_interface import IUsageRepository
@@ -144,14 +158,14 @@ class UsageTrackingService(IUsageTrackingService):
 
         class RequestTracker:
             def __init__(self) -> None:
-                self.response: dict[str, Any] | StreamingResponse | None = None
+                self.response: dict[str, Any] | StreamingResponseLike | None = None
                 self.response_headers: dict[str, str] = {}
                 self.cost = 0.0
                 self.remote_completion_id: str | None = None
                 self.usage_data: UsageData | None = None
 
             def set_response(
-                self, response: dict[str, Any] | StreamingResponse
+                self, response: dict[str, Any] | StreamingResponseLike
             ) -> None:
                 """Set the response and extract information."""
                 self.response = response

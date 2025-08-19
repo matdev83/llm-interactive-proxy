@@ -59,6 +59,7 @@ dev = [
     "respx",
     "dependency-injector",
     "vulture",
+    "pytest-snapshot",
 ]
 
 [build-system]

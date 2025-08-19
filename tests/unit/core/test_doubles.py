@@ -9,7 +9,7 @@ from __future__ import annotations
 import asyncio
 from collections.abc import AsyncIterator, Mapping
 from datetime import datetime, timezone
-from typing import Any
+from typing import Any, Dict
 
 from fastapi import FastAPI
 from src.core.domain.chat import (
@@ -19,6 +19,8 @@ from src.core.domain.chat import (
     ChatResponse,
     StreamingChatResponse,
 )
+from src.core.domain.response_envelope import ResponseEnvelope
+from src.core.domain.streaming_response_envelope import StreamingResponseEnvelope
 from src.core.domain.command_results import CommandResult
 from src.core.domain.commands.base_command import BaseCommand
 from src.core.domain.configuration import (
@@ -43,10 +45,10 @@ from src.core.interfaces.loop_detector_interface import (
 )
 from src.core.interfaces.rate_limiter_interface import IRateLimiter, RateLimitInfo
 from src.core.interfaces.repositories_interface import ISessionRepository
-from src.core.interfaces.response_processor_interface import (
-    IResponseMiddleware,
-    IResponseProcessor,
-    ProcessedResponse,
+from src.core.interfaces.response_processor_interface import IResponseProcessor
+from src.core.interfaces.response_handler_interface import (
+    INonStreamingResponseHandler,
+    IStreamingResponseHandler,
 )
 from src.core.interfaces.session_service_interface import ISessionService
 
@@ -321,51 +323,56 @@ class MockResponseProcessor(IResponseProcessor):
     """A mock response processor for testing."""
 
     def __init__(self) -> None:
-        self.middleware: list[IResponseMiddleware] = []
         self.processed: list[Any] = []
-        self.results: list[ProcessedResponse] = []
-        self.stream_results: list[list[ProcessedResponse]] = []
+        self.non_streaming_handler = MockNonStreamingResponseHandler()
+        self.streaming_handler = MockStreamingResponseHandler()
 
     async def process_response(
-        self, response: Any, session_id: str
-    ) -> ProcessedResponse:
+        self, response: Any, is_streaming: bool = False
+    ) -> ResponseEnvelope | StreamingResponseEnvelope:
         self.processed.append(response)
 
-        if not self.results:
-            return ProcessedResponse(content="Mock response")
+        if is_streaming:
+            return await self.process_streaming_response(response)
+        else:
+            return await self.process_non_streaming_response(response)
 
-        return self.results.pop(0)
+    async def process_non_streaming_response(
+        self, response: Dict[str, Any]
+    ) -> ResponseEnvelope:
+        return await self.non_streaming_handler.process_response(response)
 
-    def process_streaming_response(
-        self, response_iter: AsyncIterator[Any], session_id: str
-    ) -> AsyncIterator[ProcessedResponse]:
-        # This is a simplified implementation for testing
-        # In a real implementation, we'd process the stream
+    async def process_streaming_response(
+        self, response: AsyncIterator[bytes]
+    ) -> StreamingResponseEnvelope:
+        return await self.streaming_handler.process_response(response)
 
-        async def response_generator() -> AsyncIterator[ProcessedResponse]:
-            chunks = []
-            async for chunk in response_iter:
-                chunks.append(chunk)
 
-            self.processed.append(chunks)
+class MockNonStreamingResponseHandler(INonStreamingResponseHandler):
+    """A mock non-streaming response handler for testing."""
 
-            if not self.stream_results:
-                yield ProcessedResponse(content="Mock chunk")
-                return
+    async def process_response(self, response: Dict[str, Any]) -> ResponseEnvelope:
+        return ResponseEnvelope(
+            content=response,
+            status_code=200,
+            headers={"content-type": "application/json"},
+        )
 
-            results = self.stream_results.pop(0)
-            for result in results:
-                yield result
 
-        return response_generator()
+class MockStreamingResponseHandler(IStreamingResponseHandler):
+    """A mock streaming response handler for testing."""
 
-    async def register_middleware(
-        self, middleware: IResponseMiddleware, _priority: int = 0
-    ) -> None:
-        self.middleware.append(middleware)
+    async def process_response(
+        self, response: AsyncIterator[bytes]
+    ) -> StreamingResponseEnvelope:
+        async def mock_iterator() -> AsyncIterator[bytes]:
+            async for chunk in response:
+                yield chunk
 
-    def add_result(self, result: ProcessedResponse) -> None:
-        self.results.append(result)
+        return StreamingResponseEnvelope(
+            iterator_supplier=mock_iterator,
+            headers={"content-type": "text/event-stream"},
+        )
 
 
 #

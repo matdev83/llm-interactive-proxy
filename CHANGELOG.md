@@ -1,6 +1,7 @@
 # CHANGELOG.md
 
 ## 2025-08-26
+- **Refactored Command Testing**: Overhauled the entire testing architecture for interactive commands. Replaced fragile legacy tests with a robust suite of unit and snapshot tests, and implemented command auto-discovery.
 - **SOLID ARCHITECTURE MIGRATION FINALIZED**: Completely finalized migration to new SOLID architecture
   - Removed all legacy code files (proxy_logic.py, session.py, main.py)
   - Removed all legacy adapters and compatibility layers
