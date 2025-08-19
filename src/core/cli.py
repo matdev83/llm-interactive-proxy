@@ -6,11 +6,11 @@ import sys
 import colorama
 import uvicorn
 
-# Import backend connectors to ensure they register themselves
-from src.core.services import backend_imports  # noqa: F401
-
 from src.command_prefix import validate_command_prefix
 from src.core.config.app_config import AppConfig, LogLevel, load_config
+
+# Import backend connectors to ensure they register themselves
+from src.core.services import backend_imports  # noqa: F401
 
 
 def _check_privileges() -> None:
@@ -46,7 +46,9 @@ def _daemonize() -> None:
         pass
 
 
-from src.core.services.backend_registry_service import backend_registry # Added this import
+from src.core.services.backend_registry_service import (
+    backend_registry,  # Added this import
+)
 
 # ... (rest of the file)
 
@@ -247,7 +249,6 @@ from src.core.config.app_config import AppConfig
 # ... (rest of the file)
 
 
-from collections.abc import Callable
 
 
 def main(

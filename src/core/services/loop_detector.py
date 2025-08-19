@@ -9,7 +9,10 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from src.core.interfaces.loop_detector_interface import ILoopDetector, LoopDetectionResult
+from src.core.interfaces.loop_detector_interface import (
+    ILoopDetector,
+    LoopDetectionResult,
+)
 from src.loop_detection.config import LoopDetectionConfig
 from src.loop_detection.detector import LoopDetector as InternalLoopDetector
 

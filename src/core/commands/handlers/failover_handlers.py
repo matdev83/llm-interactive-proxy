@@ -312,7 +312,9 @@ class RouteAppendHandler(BaseCommandHandler):
         # Validate element format (backend:model or model)
         if ":" in element:
             backend, model = element.split(":", 1)
-            from src.core.services.backend_registry_service import backend_registry # Added this import
+            from src.core.services.backend_registry_service import (
+                backend_registry,  # Added this import
+            )
             if (
                 context
                 and backend

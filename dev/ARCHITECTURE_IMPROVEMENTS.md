@@ -38,6 +38,22 @@ This document summarizes the architectural improvements made to address issues i
 - **Updated Unit Tests**: Fixed tests to work with the new architecture.
 - **Improved Test Fixtures**: Enhanced fixtures to properly set up test environments.
 
+### 7. Backward Compatibility
+
+- **Added `build_app_compat`**: Created a compatibility wrapper for the `build_app` function to support legacy code.
+- **Updated Tests**: Fixed tests that were using the old `build_app` function signature.
+
+### 8. Fixed Mutable Defaults
+
+- **Used Pydantic `default_factory`**: Replaced class-level mutable defaults with `default_factory` to avoid shared state.
+- **Renamed Private Fields**: Fixed Pydantic field naming to avoid issues with leading underscores.
+
+### 9. Improved Documentation
+
+- **Added API Documentation**: Created documentation for the new API surface.
+- **Added DI Container Usage Guide**: Documented the DI container usage and best practices.
+- **Updated Architecture Documentation**: Updated the architecture documentation to reflect the new design.
+
 ## Benefits
 
 1. **Simplified Code**: Removed complex branching logic and duplicated code.
@@ -52,9 +68,32 @@ This document summarizes the architectural improvements made to address issues i
    - **Interface Segregation Principle**: Interfaces are focused and specific.
    - **Dependency Inversion Principle**: High-level modules depend on abstractions.
 
+## Implemented Changes
+
+1. ✅ Created `IBackendConfigProvider` interface
+2. ✅ Implemented `BackendConfigProvider` adapter
+3. ✅ Registered `BackendConfigProvider` in DI
+4. ✅ Refactored `BackendService` constructor to use `IBackendConfigProvider`
+5. ✅ Moved backend initialization logic to `BackendFactory.ensure_backend()`
+6. ✅ Introduced `FailoverCoordinator` to encapsulate failover strategies
+7. ✅ Ensured single `httpx.AsyncClient` is registered in DI and used everywhere
+8. ✅ Normalized config shapes early in `ApplicationBuilder`
+9. ✅ Added unit tests for `BackendConfigProvider`
+10. ✅ Updated unit tests that relied on previous implicit shapes
+11. ✅ Added integration tests for startup and backend probing
+12. ✅ Fixed tests using `build_app` directly
+13. ✅ Fixed class-level mutable defaults in `BackendConfiguration`
+14. ✅ Added shutdown handler to close the shared `httpx.AsyncClient`
+15. ✅ Added documentation for the new API surface and DI container usage
+
 ## Next Steps
 
-1. Continue applying these patterns to other parts of the codebase.
-2. Consider further refactoring of `ApplicationBuilder` to make it more modular.
-3. Add more comprehensive integration tests.
-4. Review error handling and logging throughout the system.
+1. **Continue Refactoring**: Apply these patterns to other parts of the codebase.
+2. **Improve Test Coverage**: Add more comprehensive tests for the new architecture.
+3. **Enhance Error Handling**: Improve error handling and recovery mechanisms.
+4. **Performance Optimization**: Optimize performance by reducing unnecessary operations.
+5. **Documentation**: Continue to improve documentation for the new architecture.
+
+## Conclusion
+
+The architectural improvements have significantly enhanced the codebase's maintainability, testability, and extensibility. By following SOLID principles and using dependency injection, the code is now more modular and easier to reason about. The changes have addressed the specific issues identified in the application factory and backend service components, resulting in a more robust and reliable system.

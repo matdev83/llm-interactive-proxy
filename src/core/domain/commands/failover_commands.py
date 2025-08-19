@@ -293,9 +293,7 @@ class RouteAppendCommand(BaseCommand):
             if backend_types is not None:
                 # backend_types may be a Mock in tests; attempt to extract iterable keys
                 try:
-                    if isinstance(backend_types, dict):
-                        keys = list(backend_types.keys())
-                    elif hasattr(backend_types, "keys") and callable(backend_types.keys):
+                    if isinstance(backend_types, dict) or (hasattr(backend_types, "keys") and callable(backend_types.keys)):
                         keys = list(backend_types.keys())
                     else:
                         # Try to iterate over it

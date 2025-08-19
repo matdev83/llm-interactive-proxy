@@ -1,4 +1,5 @@
-from typing import Callable, Dict, Any, TYPE_CHECKING
+from collections.abc import Callable
+from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from src.connectors.base import LLMBackend
@@ -7,7 +8,7 @@ class BackendRegistry:
     """A registry for dynamically discovering and managing LLM backend factories."""
 
     def __init__(self) -> None:
-        self._factories: Dict[str, Callable[..., "LLMBackend"]] = {}
+        self._factories: dict[str, Callable[..., LLMBackend]] = {}
 
     def register_backend(self, name: str, factory: Callable[..., "LLMBackend"]) -> None:
         """Registers a backend factory with the given name.

@@ -646,6 +646,23 @@ def build_app(
     return app, config
 
 
+# Backward compatibility wrapper for tests that expect only the app
+def build_app_compat(config: AppConfig | dict[str, Any] | None = None) -> FastAPI:
+    """Backward compatibility wrapper for build_app that returns only the app.
+
+    This function exists to support legacy tests that expect build_app to return
+    only the FastAPI app, not the (app, config) tuple.
+
+    Args:
+        config: The application configuration (AppConfig object or dict)
+
+    Returns:
+        The FastAPI application
+    """
+    app, _ = build_app(config)
+    return app
+
+
 # Backward compatibility aliases for tests
 ServiceConfigurator = ApplicationBuilder
 register_services = ApplicationBuilder._initialize_services

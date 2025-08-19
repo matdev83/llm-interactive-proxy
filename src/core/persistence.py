@@ -54,7 +54,7 @@ class ConfigManager:
                             IBackendService
                         )
                         if backend_service and backend_value in getattr(backend_service, "_backends", {}):
-                            self.app.state.backend = getattr(backend_service, "_backends")[backend_value]
+                            self.app.state.backend = backend_service._backends[backend_value]
                             return
                     except Exception:
                         # If DI resolution fails, do not fall back to legacy state
@@ -69,7 +69,9 @@ class ConfigManager:
         if isinstance(mode_value, bool) and hasattr(self.app.state, "service_provider"):
             # Get session service from DI
             try:
-                from src.core.interfaces.session_service_interface import ISessionService
+                from src.core.interfaces.session_service_interface import (
+                    ISessionService,
+                )
 
                 session_service = self.app.state.service_provider.get_required_service(
                     ISessionService
@@ -221,7 +223,9 @@ class ConfigManager:
         interactive_mode = False
         if hasattr(self.app.state, "service_provider"):
             try:
-                from src.core.interfaces.session_service_interface import ISessionService
+                from src.core.interfaces.session_service_interface import (
+                    ISessionService,
+                )
 
                 session_service = self.app.state.service_provider.get_required_service(
                     ISessionService

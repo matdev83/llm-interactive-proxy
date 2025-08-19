@@ -9,8 +9,8 @@ from __future__ import annotations
 import warnings
 
 from .response_middleware import (
-    LoggingMiddleware,
     ContentFilterMiddleware,
+    LoggingMiddleware,
     LoopDetectionMiddleware,
 )
 
@@ -20,6 +20,6 @@ warnings.warn(
     DeprecationWarning,
 )
 
-__all__ = ["LoggingMiddleware", "ContentFilterMiddleware", "LoopDetectionMiddleware"]
+__all__ = ["ContentFilterMiddleware", "LoggingMiddleware", "LoopDetectionMiddleware"]
 
 

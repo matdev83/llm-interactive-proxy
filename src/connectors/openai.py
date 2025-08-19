@@ -9,7 +9,6 @@ from collections.abc import AsyncGenerator
 from typing import Any
 
 import httpx
-import httpx
 from fastapi import HTTPException
 from starlette.responses import StreamingResponse
 
@@ -60,7 +59,6 @@ class OpenAIConnector(LLMBackend):
         except Exception as e:
             logger.warning(f"Failed to fetch models: {e}")
             # Log the error but don't fail initialization
-            pass
 
     def _prepare_payload(
         self,

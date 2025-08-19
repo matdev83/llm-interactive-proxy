@@ -24,7 +24,6 @@ from src.core.commands.handlers.loop_detection_handlers import (
 from src.core.commands.handlers.oneoff_handler import OneOffCommandHandler
 from src.core.commands.handlers.openai_url_handler import OpenAIURLHandler
 from src.core.commands.handlers.project_dir_handler import ProjectDirCommandHandler
-from src.core.commands.handlers.project_handler import ProjectCommandHandler
 from src.core.commands.handlers.pwd_handler import PwdCommandHandler
 from src.core.commands.handlers.reasoning_handlers import (
     GeminiGenerationConfigHandler,
@@ -45,8 +44,8 @@ from src.core.domain.commands.loop_detection_commands import (
 # Import domain commands that replace legacy handlers
 from src.core.domain.commands.model_command import ModelCommand
 from src.core.domain.commands.project_command import ProjectCommand
-from src.core.domain.commands.temperature_command import TemperatureCommand
 from src.core.domain.commands.set_command import SetCommand
+from src.core.domain.commands.temperature_command import TemperatureCommand
 from src.core.domain.commands.unset_command import UnsetCommand
 
 # Import moved to local scope to avoid circular imports

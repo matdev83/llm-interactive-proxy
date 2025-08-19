@@ -125,11 +125,11 @@ class ResponseProcessor(IResponseProcessor):
                     if isinstance(message, dict) and "content" in message:
                         content = message["content"] or ""
                 elif hasattr(choice, "message"):
-                    msg = getattr(choice, "message")
+                    msg = choice.message
                     if isinstance(msg, dict) and "content" in msg:
                         content = msg.get("content") or ""
                     elif hasattr(msg, "content"):
-                        content = getattr(msg, "content") or ""
+                        content = msg.content or ""
 
             if response.usage:
                 if hasattr(response.usage, "model_dump"):

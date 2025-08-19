@@ -4,13 +4,13 @@ from __future__ import annotations
 
 import warnings
 
-from .command_service import CommandService, CommandRegistry
+from .command_service import CommandRegistry, CommandService
 
 warnings.warn(
     "Importing from 'src.core.services.command_service_service' is deprecated; use 'src.core.services.command_service' instead",
     DeprecationWarning,
 )
 
-__all__ = ["CommandService", "CommandRegistry"]
+__all__ = ["CommandRegistry", "CommandService"]
 
 

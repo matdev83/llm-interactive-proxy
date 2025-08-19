@@ -1,5 +1,7 @@
 # Refactoring Status: From Legacy to SOLID
 
+This file has been consolidated into `dev/refactoring_status_consolidated.md`. Please edit that consolidated file for all refactor status changes; it contains the merged authoritative content and archives of the original notes.
+
 ## Major Progress Update (2025-08-17)
 
 ### **FOUNDATIONAL SYSTEMIC ISSUES RESOLVED** ✅

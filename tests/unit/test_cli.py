@@ -4,7 +4,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 from fastapi.testclient import TestClient
 from src.constants import DEFAULT_COMMAND_PREFIX
-from src.core.app.application_factory import build_app as app_main_build_app
+from src.core.app.application_factory import build_app_compat as app_main_build_app
 from src.core.cli import apply_cli_args, main, parse_cli_args
 
 

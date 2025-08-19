@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Mapping
-from typing import Any, cast
+from typing import Any
 
 from src.core.commands.handler_factory import CommandHandlerFactory
 from src.core.commands.handlers.base_handler import CommandHandlerResult
@@ -104,9 +104,9 @@ class UnsetCommand(BaseCommand):
             if not direct_match:
                 for h in handlers:
                     # Check if handler has can_handle method and it's callable
-                    if hasattr(h, "can_handle") and callable(getattr(h, "can_handle")):
+                    if hasattr(h, "can_handle") and callable(h.can_handle):
                         try:
-                            can_handle_method = getattr(h, "can_handle")
+                            can_handle_method = h.can_handle
                             if can_handle_method(param_str):
                                 handler = h
                                 break
@@ -118,15 +118,15 @@ class UnsetCommand(BaseCommand):
             if handler:
                 # Handle the parameter - for unset, we pass None as the value
                 # Check if handler has handle or execute method
-                if hasattr(handler, "handle") and callable(getattr(handler, "handle")):
+                if hasattr(handler, "handle") and callable(handler.handle):
                     # For unset operations, we pass None to indicate removal
-                    handle_method = getattr(handler, "handle")
+                    handle_method = handler.handle
                     handler_result = handle_method(None, current_state)
                 elif hasattr(handler, "execute") and callable(handler.execute):
                     # Use execute method if handle is not available
                     import inspect
 
-                    execute_method = getattr(handler, "execute")
+                    execute_method = handler.execute
                     if inspect.iscoroutinefunction(execute_method):
                         # We're already in an async context, so we can use await
                         # Pass None to indicate unset operation
@@ -180,7 +180,6 @@ class UnsetCommand(BaseCommand):
                 if param_str in ("interactive", "interactive-mode"):
                     # Add None check for current_state
                     if current_state is not None:
-                        from src.core.domain.configuration.backend_config import BackendConfiguration
                         new_backend_config = (
                             current_state.backend_config.with_interactive_mode(False)
                         )

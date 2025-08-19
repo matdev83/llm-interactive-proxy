@@ -384,10 +384,10 @@ class GeminiBackend(LLMBackend):
         base = (
             gemini_api_base_url
             or openrouter_api_base_url
-            or kwargs.get("gemini_api_base_url", None)
+            or kwargs.get("gemini_api_base_url")
             or getattr(self, "gemini_api_base_url", None)
         )
-        key = api_key or kwargs.get("api_key", None) or getattr(self, "api_key", None)
+        key = api_key or kwargs.get("api_key") or getattr(self, "api_key", None)
         if not base or not key:
             raise HTTPException(
                 status_code=500,

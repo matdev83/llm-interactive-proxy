@@ -118,10 +118,12 @@ def get_anthropic_controller(service_provider: IServiceProvider) -> AnthropicCon
             
         if request_processor is None:
             # If still not found, try to create one on the fly
-            from src.core.interfaces.command_service_interface import ICommandService
             from src.core.interfaces.backend_service_interface import IBackendService
+            from src.core.interfaces.command_service_interface import ICommandService
+            from src.core.interfaces.response_processor_interface import (
+                IResponseProcessor,
+            )
             from src.core.interfaces.session_service_interface import ISessionService
-            from src.core.interfaces.response_processor_interface import IResponseProcessor
             
             cmd = service_provider.get_service(ICommandService)  # type: ignore[type-abstract]
             backend = service_provider.get_service(IBackendService)  # type: ignore[type-abstract]

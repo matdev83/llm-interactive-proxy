@@ -12,7 +12,9 @@ from typing import Any
 from fastapi import APIRouter, Depends, HTTPException, Request
 
 from src.core.interfaces.backend_service_interface import IBackendService
-from src.core.services.backend_registry_service import backend_registry # Added this import
+from src.core.services.backend_registry_service import (
+    backend_registry,  # Added this import
+)
 
 logger = logging.getLogger(__name__)
 

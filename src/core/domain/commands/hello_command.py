@@ -40,7 +40,7 @@ class HelloCommand(BaseCommand):
             The command result
         """
         # Create a new state with hello_requested=True
-        from src.core.domain.session import SessionStateAdapter, Session
+        from src.core.domain.session import Session, SessionStateAdapter
 
         # Accept either a SessionStateAdapter (adapter) or a Session object
         # and set the hello_requested flag on the underlying state so that

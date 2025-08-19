@@ -7,9 +7,9 @@ from enum import Enum
 from pathlib import Path
 from typing import Any, ClassVar, cast
 
-from src.core.config.config_loader import _collect_api_keys
-
 from pydantic import BaseModel, ConfigDict, Field, field_validator
+
+from src.core.config.config_loader import _collect_api_keys
 
 # Note: Avoid self-imports to prevent circular dependencies. Classes are defined below.
 
@@ -116,8 +116,9 @@ class SessionConfig(BaseModel):
     disable_interactive_commands: bool = False
 
 
-from src.core.services.backend_registry_service import backend_registry  # Added this import
-from src.core.services import backend_imports  # Added this import to ensure backends are registered
+from src.core.services.backend_registry_service import (
+    backend_registry,  # Added this import
+)
 
 
 class BackendSettings(BaseModel):

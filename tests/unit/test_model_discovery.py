@@ -1,7 +1,7 @@
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from src.connectors import GeminiBackend, OpenRouterBackend
-from src.core.app import application_factory as app_main
+from src.core.app.application_factory import build_app_compat
 
 
 async def test_openrouter_models_cached():
@@ -78,7 +78,7 @@ def test_auto_default_backend(monkeypatch):
         return_value=False,
     ):
         # The behavior has changed - now the system defaults to OpenAI as the fallback backend
-        app = app_main.build_app()
+        app = build_app_compat()
         from fastapi.testclient import TestClient
 
         with TestClient(
@@ -110,7 +110,7 @@ def test_multiple_backends_requires_arg(monkeypatch):
             return_value=False,
         ),
     ):
-        app = app_main.build_app()
+        app = build_app_compat()
         from fastapi.testclient import TestClient
 
         with TestClient(
@@ -119,10 +119,10 @@ def test_multiple_backends_requires_arg(monkeypatch):
             # With the updated behavior, it should default to 'openai'
             assert client.app.state.backend_type == "openai"
 
-            # Now try specifying the backend explicitly
-            monkeypatch.setenv("LLM_BACKEND", "gemini")
-            app2 = app_main.build_app()
-            with TestClient(
-                app2, headers={"Authorization": "Bearer test-proxy-key"}
-            ) as client2:
-                assert client2.app.state.backend_type == "gemini"
+        # Now try specifying the backend explicitly
+        monkeypatch.setenv("LLM_BACKEND", "gemini")
+        app2 = build_app_compat()
+        with TestClient(
+            app2, headers={"Authorization": "Bearer test-proxy-key"}
+        ) as client2:
+            assert client2.app.state.backend_type == "gemini"

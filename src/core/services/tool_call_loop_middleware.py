@@ -16,7 +16,9 @@ from src.core.domain.configuration.loop_detection_config import (
     LoopDetectionConfiguration,
 )
 from src.core.interfaces.response_processor_interface import IResponseMiddleware
-from src.core.interfaces.response_processor_interface import ProcessedResponse as ProcessedResult
+from src.core.interfaces.response_processor_interface import (
+    ProcessedResponse as ProcessedResult,
+)
 from src.tool_call_loop.tracker import ToolCallTracker
 
 logger = logging.getLogger(__name__)
