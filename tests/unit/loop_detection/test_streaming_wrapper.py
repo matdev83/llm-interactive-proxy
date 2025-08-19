@@ -17,7 +17,7 @@ async def test_stream_cancellation_on_loop() -> None:
     config.short_pattern_threshold.min_total_length = 3
     detector = LoopDetector(config=config)
 
-    async def fake_stream():
+    async def fake_stream() -> str:
         # Emit a short normal prefix
         yield "Hello, world!\n"
         # Then emit a 120-char block repeated to form a loop

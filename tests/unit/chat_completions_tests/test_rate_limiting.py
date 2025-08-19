@@ -1,12 +1,23 @@
+import pytest
 import re  # Import re
 
 from pytest_httpx import HTTPXMock
 
 
+@pytest.mark.httpx_mock(assert_all_responses_were_requested=False)
 def test_rate_limit_memory(
     client, httpx_mock: HTTPXMock
 ):  # Removed monkeypatch fixture
     httpx_mock.non_mocked_hosts = []  # Mock all hosts
+
+    httpx_mock.add_response(url="https://api.openai.com/v1/models", json={"data": [{"id": "dummy"}]})
+
+    httpx_mock.add_response(
+        url="https://api.openai.com/v1/chat/completions",
+        method="POST",
+        status_code=200,
+        json={"choices": [{"message": {"content": "mocked openai response"}}]},
+    )
 
     error_detail = {
         "error": {

@@ -320,7 +320,11 @@ class GeminiBackend(LLMBackend):
                 finally:
                     await response.aclose()
 
-            return StreamingResponse(stream_generator(), media_type="text/event-stream")
+            from src.connectors.streaming_utils import to_streaming_response
+
+            return to_streaming_response(
+                lambda: stream_generator(), media_type="text/event-stream"
+            )
         except httpx.RequestError as e:
             if logger.isEnabledFor(logging.ERROR):
                 logger.error("Request error connecting to Gemini: %s", e, exc_info=True)
@@ -494,4 +498,6 @@ class GeminiBackend(LLMBackend):
                 status_code=503,
                 detail=f"Service unavailable: Could not connect to Gemini ({e})",
             )
+
+
 backend_registry.register_backend("gemini", GeminiBackend)

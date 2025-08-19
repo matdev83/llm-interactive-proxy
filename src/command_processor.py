@@ -1,6 +1,6 @@
 import logging
 import re
-from typing import Any
+from typing import Any, cast
 
 from src.command_config import CommandProcessorConfig
 from src.core.domain.chat import MessageContentPart, MessageContentPartText
@@ -98,21 +98,45 @@ class CommandProcessor:
                 # Handle both async and sync execute methods
                 execution_result: CommandResult
                 try:
+                    # Provide context as a dict to support domain command expectations
+                    context = {"app": self.config.app}
                     coro_result = command_handler.execute(
-                        args, temp_session, self.config.app
+                        args, temp_session, context
                     )  # type: ignore
                     if asyncio.iscoroutine(coro_result):
                         execution_result = await coro_result
                     else:
                         execution_result = coro_result
                 except Exception:
-                    # Fallback - this shouldn't happen but just in case
-                    execution_result = await command_handler.execute(
-                        args, temp_session, self.config.app
-                    )  # type: ignore
+                    # Fallback - try calling again with context dict but suppress errors
+                    import contextlib
+
+                    with contextlib.suppress(Exception):
+                        execution_result = await command_handler.execute(
+                            args, temp_session, {"app": self.config.app}
+                        )  # type: ignore
+                    if "execution_result" not in locals():
+                        # Re-raise original exception to surface the error
+                        raise
 
                 # No need to convert legacy CommandResult anymore since we removed the imports
                 self.config.command_results.append(execution_result)
+                # If the command returned a new_state, apply it to the original proxy_state
+                new_state = getattr(execution_result, "new_state", None)
+                if new_state is not None:
+                    # Debug
+                    logger.debug(
+                        f"execution_result: success={getattr(execution_result,'success',None)} message={getattr(execution_result,'message',None)} new_state_type={type(new_state)}"
+                    )
+                    try:
+                        self._apply_new_state(new_state)
+                        logger.debug("_apply_new_state completed")
+                    except Exception as e:
+                        logger.debug(f"_apply_new_state failed: {e}")
+                        logger.debug(
+                            "Could not apply new_state to proxy_state: %s",
+                            type(self.config.proxy_state),
+                        )
                 if text_content.strip() == command_full.strip():
                     return "", True
             else:
@@ -139,6 +163,133 @@ class CommandProcessor:
             "Text after command processing and normalization: '%s'", final_text
         )
         return final_text, commands_found
+
+    def _apply_new_state(self, new_state: Any) -> None:
+        """Normalize and apply a new_state returned by a command to the parser proxy_state.
+
+        Handles the following proxy_state shapes:
+        - `Session` instances exposing `update_state` or `state` setter
+        - `SessionStateAdapter` instances with mutable `_state`
+        - Raw dict-like or other objects (attempt to convert via to_dict/from_dict)
+        """
+        # If proxy_state is a Session with update_state
+        proxy = self.config.proxy_state
+        # Use print for test-time visibility (tests run with logging suppressed)
+        logger.debug(
+            f"_apply_new_state called: proxy_type={type(proxy)}, new_state_type={type(new_state)}"
+        )
+        # If new_state is an adapter, unwrap repeatedly to get concrete SessionState
+        concrete_state = new_state
+        try:
+            while hasattr(concrete_state, "_state"):
+                concrete_state = concrete_state._state
+        except Exception:
+            # If unwrapping fails, keep original
+            concrete_state = new_state
+
+        # Case 1: Session-like with update_state
+        # Use isinstance check to appease static typing when possible
+        from src.core.domain.session import Session as _Session
+
+        if (
+            isinstance(proxy, _Session)
+            and hasattr(proxy, "update_state")
+            and callable(proxy.update_state)
+        ):
+            logger.debug("Applying new_state via proxy.update_state")
+            logger.debug(
+                f"before update_state: proxy._state id={(getattr(proxy,'_state',None) and id(proxy._state))}"
+            )
+            # mypy: proxy may be an ISessionState adapter or concrete Session with update_state
+            proxy.update_state(concrete_state)  # type: ignore[arg-type]
+            logger.debug(
+                f"after update_state: proxy._state id={(getattr(proxy,'_state',None) and id(proxy._state))}"
+            )
+            return
+
+        # Case 2: Adapter with internal _state
+        if hasattr(proxy, "_state"):
+            try:
+                logger.debug(
+                    f"before set proxy._state id={(getattr(proxy,'_state',None) and id(proxy._state))}"
+                )
+                # If concrete_state is adapter (already unwrapped, unlikely here)
+                if hasattr(concrete_state, "_state"):
+                    # concrete_state._state should be SessionState
+                    try:
+                        logger.debug(
+                            "concrete_state._state.backend_config.model=",
+                            concrete_state._state.backend_config.model,
+                        )
+                    except Exception:
+                        logger.debug(
+                            "concrete_state._state.backend_config.model=<unavailable>"
+                        )
+                    proxy._state = concrete_state._state
+                else:
+                    try:
+                        logger.debug(
+                            "concrete_state.backend_config.model=",
+                            concrete_state.backend_config.model,
+                        )
+                    except Exception:
+                        logger.debug(
+                            "concrete_state.backend_config.model=<unavailable>"
+                        )
+                    proxy._state = concrete_state
+                logger.debug(
+                    f"after set proxy._state id={(getattr(proxy,'_state',None) and id(proxy._state))}"
+                )
+                try:
+                    logger.debug(
+                        "proxy._state.backend_config.model(after)=",
+                        proxy._state.backend_config.model,
+                    )
+                except Exception:
+                    logger.debug(
+                        "proxy._state.backend_config.model(after)=<unavailable>"
+                    )
+                logger.debug(
+                    "Applied new_state to proxy._state; proxy._state type=%s",
+                    type(proxy._state),
+                )
+                return
+            except Exception:
+                pass
+
+        # Case 3: Fallback try dict conversion
+        try:
+            if hasattr(proxy, "to_dict") and hasattr(concrete_state, "to_dict"):
+                # attempt to set via from_dict -> adapter
+                from src.core.domain.session import SessionState
+
+                if isinstance(concrete_state, dict):
+                    new_session_state = SessionState.from_dict(concrete_state)
+                    if hasattr(proxy, "_state"):
+                        # proxy._state may be an IValueObject adapter; assign carefully
+                        import contextlib
+
+                        with contextlib.suppress(Exception):
+                            proxy._state = new_session_state  # type: ignore[attr-defined]
+                    else:
+                        # last resort
+                        from src.core.domain.session import SessionStateAdapter
+
+                        # Prefer replacing the configured proxy_state with a new adapter
+                        try:
+                            # cast new_session_state to concrete SessionState for adapter ctor
+                            from src.core.domain.session import SessionState
+
+                            self.config.proxy_state = SessionStateAdapter(cast(SessionState, new_session_state))  # type: ignore[attr-defined]
+                        except Exception:
+                            import contextlib
+
+                            with contextlib.suppress(Exception):
+                                # assign via dynamic attribute to avoid mypy attribute errors
+                                cast(Any, proxy).state = new_session_state
+            return
+        except Exception:
+            return
 
     def _clean_remaining_text(self, text: str) -> str:
         text = re.sub(r"<[^>]+>", "", text)

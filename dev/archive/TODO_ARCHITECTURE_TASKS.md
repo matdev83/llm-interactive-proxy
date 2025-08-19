@@ -1,4 +1,4 @@
-# Architecture refactor tasks
+# Architecture refactor tasks (archived snapshot)
 
 Use this file to track the refactor steps. Check items as you complete them.
 

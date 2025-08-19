@@ -69,7 +69,7 @@ class BackendService(IBackendService):
 
     async def call_completion(
         self, request: ChatRequest, stream: bool = False, allow_failover: bool = True
-    ) -> ChatResponse | AsyncIterator[StreamingChatResponse]:
+    ) -> ChatResponse | AsyncIterator[bytes]:
         """Call the LLM backend for a completion.
 
         Args:
@@ -498,7 +498,7 @@ class BackendService(IBackendService):
 
     async def chat_completions(
         self, request: ChatRequest, **kwargs: Any
-    ) -> ChatResponse | AsyncIterator[StreamingChatResponse]:
+    ) -> ChatResponse | AsyncIterator[bytes]:
         """Handle chat completions with the LLM."""
         stream = kwargs.get("stream", False)
         return await self.call_completion(request, stream=stream)

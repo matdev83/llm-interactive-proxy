@@ -23,7 +23,7 @@ def test_client():
 
     # Build the app with authentication disabled
     app_config = load_config(config_path)
-    app = build_app(app_config)
+    app, _ = build_app(app_config)
 
     # Create a test client
     client = TestClient(app)

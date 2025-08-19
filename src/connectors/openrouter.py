@@ -101,13 +101,16 @@ class OpenRouterBackend(OpenAIConnector):
         # This is needed for tests that set extra_params in the request data
         # extra_params is not a formal field of ChatRequest, but tests may set it
         # We need to access it through __dict__ or model_dump() without exclude_unset
-        if hasattr(request_data, '__dict__') and 'extra_params' in request_data.__dict__:
-            payload.update(request_data.__dict__['extra_params'])
+        if (
+            hasattr(request_data, "__dict__")
+            and "extra_params" in request_data.__dict__
+        ):
+            payload.update(request_data.__dict__["extra_params"])
         else:
             # Fallback to model_dump without exclude_unset to catch any extra fields
             request_dict = request_data.model_dump()
-            if 'extra_params' in request_dict:
-                payload.update(request_dict['extra_params'])
+            if "extra_params" in request_dict:
+                payload.update(request_dict["extra_params"])
 
         # Always request usage information for billing tracking
         payload["usage"] = {"include": True}

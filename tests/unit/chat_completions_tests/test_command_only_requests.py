@@ -7,7 +7,7 @@ from tests.conftest import get_backend_instance
 
 @pytest.mark.backends(["openrouter"])
 @pytest.mark.asyncio
-async def test_command_only_request_direct_response(client, ensure_backend):  # noqa: F841
+async def test_command_only_request_direct_response(client, ensure_backend):
     get_backend_instance(client.app, "openrouter").available_models = [
         "command-only-model"
     ]

@@ -239,7 +239,7 @@ class QwenOAuthConnector(OpenAIConnector):
                 self.api_base_url = self._get_endpoint_url()
 
             # Save updated credentials back to file
-            await self._save_oauth_credentials() # type: ignore
+            await self._save_oauth_credentials()  # type: ignore
 
             logger.info("Successfully refreshed Qwen OAuth token")
             return True
@@ -318,6 +318,7 @@ class QwenOAuthConnector(OpenAIConnector):
                 )
 
             # Call the parent class method to handle the actual API request
+            # Parent now returns StreamingResponse | (json, headers)
             return await super().chat_completions(
                 request_data=modified_request,
                 processed_messages=processed_messages,

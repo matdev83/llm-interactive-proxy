@@ -15,13 +15,13 @@ from src.tool_call_loop.config import ToolLoopMode
 
 
 @pytest.fixture
-def middleware():
+def middleware() -> ToolCallLoopDetectionMiddleware:
     """Create a ToolCallLoopDetectionMiddleware instance."""
     return ToolCallLoopDetectionMiddleware()
 
 
 @pytest.fixture
-def loop_config():
+def loop_config() -> LoopDetectionConfiguration:
     """Create a LoopDetectionConfiguration instance."""
     return LoopDetectionConfiguration(
         tool_loop_detection_enabled=True,
@@ -32,7 +32,7 @@ def loop_config():
 
 
 @pytest.fixture
-def tool_call_response():
+def tool_call_response() -> ProcessedResponse:
     """Create a response with tool calls."""
     response_dict = {
         "id": "chatcmpl-123",
@@ -65,7 +65,7 @@ def tool_call_response():
 
 
 @pytest.mark.asyncio
-async def test_process_no_context(middleware):
+async def test_process_no_context(middleware: ToolCallLoopDetectionMiddleware) -> None:
     """Test that the middleware returns the response unchanged if no context is provided."""
     response = ProcessedResponse(content="test content")
     result = await middleware.process(response, "session123")
@@ -73,7 +73,7 @@ async def test_process_no_context(middleware):
 
 
 @pytest.mark.asyncio
-async def test_process_no_config(middleware):
+async def test_process_no_config(middleware: ToolCallLoopDetectionMiddleware) -> None:
     """Test that the middleware returns the response unchanged if no config is provided."""
     response = ProcessedResponse(content="test content")
     result = await middleware.process(response, "session123", context={})
@@ -81,7 +81,7 @@ async def test_process_no_config(middleware):
 
 
 @pytest.mark.asyncio
-async def test_process_disabled(middleware):
+async def test_process_disabled(middleware: ToolCallLoopDetectionMiddleware) -> None:
     """Test that the middleware returns the response unchanged if disabled."""
     # Create a new config with tool loop detection disabled
     disabled_config = LoopDetectionConfiguration(
@@ -98,7 +98,7 @@ async def test_process_disabled(middleware):
 
 
 @pytest.mark.asyncio
-async def test_process_no_tool_calls(middleware, loop_config):
+async def test_process_no_tool_calls(middleware: ToolCallLoopDetectionMiddleware, loop_config: LoopDetectionConfiguration) -> None:
     """Test that the middleware returns the response unchanged if no tool calls are present."""
     response = ProcessedResponse(content="test content")
     result = await middleware.process(
@@ -108,7 +108,7 @@ async def test_process_no_tool_calls(middleware, loop_config):
 
 
 @pytest.mark.asyncio
-async def test_process_with_tool_calls(middleware, loop_config, tool_call_response):
+async def test_process_with_tool_calls(middleware, loop_config, tool_call_response) -> None:
     """Test that the middleware processes responses with tool calls."""
     # First call should pass through
     result = await middleware.process(
@@ -135,7 +135,7 @@ async def test_process_with_tool_calls(middleware, loop_config, tool_call_respon
 
 
 @pytest.mark.asyncio
-async def test_reset_session(middleware, loop_config, tool_call_response):
+async def test_reset_session(middleware, loop_config, tool_call_response) -> None:
     """Test that resetting a session clears its tracking state."""
     # First call should pass through
     await middleware.process(
@@ -154,7 +154,7 @@ async def test_reset_session(middleware, loop_config, tool_call_response):
 
 
 @pytest.mark.asyncio
-async def test_different_tool_calls(middleware, loop_config):
+async def test_different_tool_calls(middleware, loop_config) -> None:
     """Test that different tool calls are tracked separately."""
     # Create two different tool call responses
     tool_call_1 = ProcessedResponse(

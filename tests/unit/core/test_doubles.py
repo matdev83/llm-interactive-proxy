@@ -7,10 +7,11 @@ This module provides test implementations of interfaces for use in unit tests.
 from __future__ import annotations
 
 import asyncio
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Mapping
 from datetime import datetime, timezone
 from typing import Any
 
+from fastapi import FastAPI
 from src.core.domain.chat import (
     ChatCompletionChoice,
     ChatCompletionChoiceMessage,
@@ -18,6 +19,8 @@ from src.core.domain.chat import (
     ChatResponse,
     StreamingChatResponse,
 )
+from src.core.domain.command_results import CommandResult
+from src.core.domain.commands.base_command import BaseCommand
 from src.core.domain.configuration import (
     BackendConfig,
     LoopDetectionConfig,
@@ -46,6 +49,34 @@ from src.core.interfaces.response_processor_interface import (
     ProcessedResponse,
 )
 from src.core.interfaces.session_service_interface import ISessionService
+
+
+class MockSuccessCommand(BaseCommand):
+    def __init__(self, command_name: str, app: FastAPI | None = None) -> None:
+        self.name = command_name
+        self._called = False
+        self._called_with_args: dict[str, Any] | None = None
+
+    @property
+    def called(self) -> bool:
+        return self._called
+
+    @property
+    def called_with_args(self) -> dict[str, Any] | None:
+        return self._called_with_args
+
+    def reset_mock_state(self) -> None:
+        self._called = False
+        self._called_with_args = None
+
+    async def execute(
+        self, args: Mapping[str, Any], session: Session, context: Any = None
+    ) -> CommandResult:
+        self._called = True
+        self._called_with_args = dict(args)  # Convert Mapping to Dict for storage
+        return CommandResult(
+            success=True, message=f"{self.name} executed successfully", name=self.name
+        )
 
 
 #

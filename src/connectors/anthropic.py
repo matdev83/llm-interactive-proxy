@@ -102,7 +102,9 @@ class AnthropicBackend(LLMBackend):
         **kwargs: Any,
     ) -> tuple[dict[str, Any], dict[str, str]] | StreamingResponse:
         """Send request to Anthropic Messages endpoint and return data in OpenAI format."""
-        if api_key is None:
+        # Allow per-call api_key or fall back to instance-api_key set during initialize
+        effective_api_key = api_key or getattr(self, "api_key", None)
+        if effective_api_key is None:
             raise HTTPException(
                 status_code=500, detail="Anthropic API key not configured"
             )
@@ -116,7 +118,7 @@ class AnthropicBackend(LLMBackend):
         )
 
         headers = {
-            "x-api-key": api_key,
+            "x-api-key": effective_api_key,
             "anthropic-version": ANTHROPIC_VERSION_HEADER,
             "content-type": "application/json",
         }
@@ -216,7 +218,14 @@ class AnthropicBackend(LLMBackend):
         headers: dict,
         model: str,
     ) -> tuple[dict[str, Any], dict[str, str]]:
-        response = await self.client.post(url, json=payload, headers=headers)
+        try:
+            response = await self.client.post(url, json=payload, headers=headers)
+        except RuntimeError:
+            # Client may have been closed by the fixture scope; recreate and retry
+            import httpx
+
+            self.client = httpx.AsyncClient()
+            response = await self.client.post(url, json=payload, headers=headers)
         if response.status_code >= 400:
             try:
                 detail = response.json()
@@ -238,7 +247,17 @@ class AnthropicBackend(LLMBackend):
         model: str,
     ) -> StreamingResponse:
         request = self.client.build_request("POST", url, json=payload, headers=headers)
-        response = await self.client.send(request, stream=True)
+        try:
+            response = await self.client.send(request, stream=True)
+        except RuntimeError:
+            # Recreate client and retry
+            import httpx
+
+            self.client = httpx.AsyncClient()
+            request = self.client.build_request(
+                "POST", url, json=payload, headers=headers
+            )
+            response = await self.client.send(request, stream=True)
         if response.status_code >= 400:
             try:
                 body_text = (await response.aread()).decode("utf-8")
@@ -272,7 +291,11 @@ class AnthropicBackend(LLMBackend):
                     yield ("data: " + json.dumps(chunk_dict) + "\n\n").encode("utf-8")
             await response.aclose()
 
-        return StreamingResponse(event_stream(), media_type="text/event-stream")
+        from src.connectors.streaming_utils import to_streaming_response
+
+        return to_streaming_response(
+            lambda: event_stream(), media_type="text/event-stream"
+        )
 
     # -----------------------------------------------------------
     # Converters
@@ -340,14 +363,36 @@ class AnthropicBackend(LLMBackend):
     # Model listing
     # -----------------------------------------------------------
     async def list_models(
-        self, *, base_url: str, key_name: str, api_key: str
+        self,
+        *,
+        base_url: str | None = None,
+        key_name: str | None = None,
+        api_key: str | None = None,
     ) -> list[dict[str, Any]]:
-        url = f"{base_url}/models"
+        # Allow callers to omit args and use initialized instance values
+        base = (
+            base_url
+            or getattr(self, "anthropic_api_base_url", None)
+            or ANTHROPIC_DEFAULT_BASE_URL
+        )
+        key = key_name or getattr(self, "key_name", None)
+        key_api = api_key or getattr(self, "api_key", None)
+        if not key or not key_api:
+            raise HTTPException(
+                status_code=500, detail="Anthropic list_models missing credentials"
+            )
+        url = f"{base.rstrip('/')}/models"
         headers = {
-            "x-api-key": api_key,
+            "x-api-key": key_api,
             "anthropic-version": ANTHROPIC_VERSION_HEADER,
         }
-        response = await self.client.get(url, headers=headers)
+        try:
+            response = await self.client.get(url, headers=headers)
+        except RuntimeError:
+            import httpx
+
+            self.client = httpx.AsyncClient()
+            response = await self.client.get(url, headers=headers)
         if response.status_code >= 400:
             try:
                 detail = response.json()

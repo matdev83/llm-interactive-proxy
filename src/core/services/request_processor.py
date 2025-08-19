@@ -89,6 +89,7 @@ class RequestProcessor(IRequestProcessor):
         stream: bool = (
             domain_request.stream if domain_request.stream is not None else False
         )
+        logger.debug(f"domain_request.stream: {domain_request.stream}, Calculated stream: {stream}")
 
         # Normalize message items: ensure all messages are DomainChatMessage objects for internal processing
         messages: list[DomainChatMessage] = [
@@ -142,12 +143,32 @@ class RequestProcessor(IRequestProcessor):
             command_result = await self._command_service.process_commands(
                 messages, session_id
             )
+        logger.debug(f"command_result.command_executed: {command_result.command_executed}")
 
         processed_messages = [m.to_dict() for m in command_result.modified_messages]
         logger.debug(f"Command executed: {command_result.command_executed}")
         logger.debug(
             f"Processed messages after command processing: {processed_messages}"
         )
+
+        # Add this block
+        if not processed_messages:
+            logger.warning("No messages after command processing, returning 400 Bad Request.")
+            return Response(
+                content=json.dumps(
+                    {
+                        "error": {
+                            "message": "At least one message is required.",
+                            "type": "invalid_request_error",
+                            "param": "messages",
+                            "code": "empty_messages",
+                        }
+                    }
+                ),
+                status_code=400,
+                media_type="application/json",
+            )
+        # End of new block
 
         # If commands were processed, update session
         if command_result.command_executed:
@@ -172,6 +193,7 @@ class RequestProcessor(IRequestProcessor):
             # command result carries meaningful 'data' (like temperature), we
             # continue to call the backend; otherwise we return a command-only
             # response.
+            logger.debug(f"command_result.command_results: {command_result.command_results}")
             continue_to_backend = False
             for cr in command_result.command_results:
                 try:
@@ -182,6 +204,7 @@ class RequestProcessor(IRequestProcessor):
                 except Exception:
                     continue
 
+            logger.debug(f"continue_to_backend: {continue_to_backend}")
             if not continue_to_backend:
                 # Format command result response
                 response_data: dict[str, Any] = await self._handle_command_only_response(
@@ -243,9 +266,7 @@ class RequestProcessor(IRequestProcessor):
                     extra_body_dict["failover_routes"] = failover_routes
 
                 backend_response_data: (
-                    ChatResponse
-                    | StreamingChatResponse
-                    | AsyncIterator[StreamingChatResponse]
+                    ChatResponse | AsyncIterator[bytes]
                 ) = await self._backend_service.call_completion(
                     request=ChatRequest(
                         model=request_model,
@@ -279,10 +300,12 @@ class RequestProcessor(IRequestProcessor):
                 raise
 
             # Process the response
+            logger.debug(f"Stream flag: {stream}")
+            logger.debug(f"Stream flag in process_request: {stream}")
             if stream:
                 # For streaming responses, we need to wrap the iterator
                 return self._create_streaming_response(
-                    cast(AsyncIterator[StreamingChatResponse], backend_response_data),
+                    backend_response_data,
                     request_data,
                     session,
                 )
@@ -628,7 +651,7 @@ class RequestProcessor(IRequestProcessor):
 
     def _create_streaming_response(
         self,
-        response_data: AsyncIterator[StreamingChatResponse],
+        response_data: AsyncIterator[bytes],
         request_data: ChatRequest,
         session: Session,
     ) -> StreamingResponse:
@@ -674,7 +697,7 @@ class RequestProcessor(IRequestProcessor):
 
     async def _stream_response(
         self,
-        response_data: AsyncIterator[StreamingChatResponse],
+        response_data: AsyncIterator[bytes],
         request_data: ChatRequest,
         session: Session,
     ) -> AsyncIterator[bytes]:
@@ -688,38 +711,8 @@ class RequestProcessor(IRequestProcessor):
             Chunks of the streaming response
         """
         try:
-            agent_type = session.agent
-            is_cline = agent_type == "cline"
-
             async for chunk in response_data:
-                # Convert chunk to JSON directly
-                if hasattr(chunk, "model_dump"):
-                    chunk_json = chunk.model_dump(exclude_none=True)
-                elif isinstance(chunk, dict):
-                    chunk_json = chunk
-                else:
-                    # Try to extract a dict representation
-                    chunk_json = {
-                        "id": getattr(chunk, "id", ""),
-                        "object": getattr(chunk, "object", "chat.completion.chunk"),
-                        "created": getattr(chunk, "created", int(time.time())),
-                        "model": getattr(chunk, "model", "unknown"),
-                        "choices": getattr(chunk, "choices", []),
-                    }
-
-                # Special handling for Cline tool calls
-                if is_cline and chunk_json.get("choices", []):
-                    for choice in chunk_json["choices"]:
-                        if (
-                            choice.get("delta", {}).get("content") is not None
-                            and "```cline-tool-call" in choice["delta"]["content"]
-                        ):
-                            choice["delta"] = convert_cline_marker_to_openai_tool_call(
-                                choice["delta"]["content"]
-                            )
-
-                # Yield the chunk
-                yield f"data: {json.dumps(chunk_json)}\n\n".encode()
+                yield chunk
 
             # End the stream
             yield b"data: [DONE]\n\n"

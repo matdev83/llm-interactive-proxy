@@ -59,55 +59,94 @@ class UnsetCommand(BaseCommand):
         for param, value in args.items():
             if value:  # Value could be True or any non-empty string
                 parameters_to_unset.append(param)
-        
+
         if not parameters_to_unset:
             return CommandResult(
                 success=False,
                 message="Parameter to unset must be specified",
                 name=self.name,
             )
-            
+
         updated_state = session.state
         messages = []
         data: dict[str, Any] = {}
-        
+
         for param in parameters_to_unset:
+            # Accept legacy alias 'interactive' for 'interactive-mode'
+            if param == "interactive":
+                param = "interactive-mode"
             # Handle backend parameter
             if param == "backend":
-                updated_state = self._update_session_state(updated_state, "override_backend", None)
+                # Clear backend override via BackendConfiguration helper
+                try:
+                    new_backend_config = updated_state.backend_config.without_override()
+                    updated_state = updated_state.with_backend_config(
+                        new_backend_config
+                    )
+                except Exception:
+                    # Fallback to attribute-level update
+                    updated_state = self._update_session_state(
+                        updated_state, "override_backend", None
+                    )
                 messages.append("Backend reset to default")
                 data["backend"] = None
-                
+
             # Handle model parameter
             elif param == "model":
-                updated_state = self._update_session_state(updated_state, "override_model", None)
+                # Clear model override via BackendConfiguration helper
+                try:
+                    new_backend_config = updated_state.backend_config.with_model(None)
+                    updated_state = updated_state.with_backend_config(
+                        new_backend_config
+                    )
+                except Exception:
+                    updated_state = self._update_session_state(
+                        updated_state, "override_model", None
+                    )
                 messages.append("Model reset to default")
                 data["model"] = None
-                
+
             # Handle temperature parameter
             elif param == "temperature":
                 # Get default temperature from reasoning config default
                 default_config = ReasoningConfiguration()
                 default_temp = default_config.temperature
-                
+
                 # Create new reasoning config with default temperature
-                reasoning_config = session.state.reasoning_config.with_temperature(default_temp)
-                concrete_reasoning_config = cast(ReasoningConfiguration, reasoning_config)
-                
+                reasoning_config = session.state.reasoning_config.with_temperature(
+                    default_temp
+                )
+                concrete_reasoning_config = cast(
+                    ReasoningConfiguration, reasoning_config
+                )
+
                 # Update session state with new reasoning config
                 updated_state = self._update_session_state_reasoning_config(
                     updated_state, concrete_reasoning_config
                 )
-                
+
                 messages.append(f"Temperature reset to default ({default_temp})")
                 data["temperature"] = default_temp
-                
+
             # Handle interactive-mode parameter
             elif param == "interactive-mode":
-                updated_state = self._update_session_state(updated_state, "interactive_mode", True)
+                # Reset interactive mode in backend_config
+                try:
+                    new_backend_config = (
+                        updated_state.backend_config.with_interactive_mode(True)
+                    )
+                    updated_state = updated_state.with_backend_config(
+                        new_backend_config
+                    )
+                    # Also clear interactive_just_enabled flag
+                    updated_state = updated_state.with_interactive_just_enabled(False)
+                except Exception:
+                    updated_state = self._update_session_state(
+                        updated_state, "interactive_mode", True
+                    )
                 messages.append("Interactive mode reset to default (enabled)")
                 data["interactive-mode"] = True
-                
+
             # Handle redact-api-keys-in-prompts parameter
             elif param == "redact-api-keys-in-prompts":
                 app = context.get("app")
@@ -115,7 +154,7 @@ class UnsetCommand(BaseCommand):
                     app.state.api_key_redaction_enabled = True
                 messages.append("API key redaction reset to default (enabled)")
                 data["redact-api-keys-in-prompts"] = True
-                
+
             # Handle command-prefix parameter
             elif param == "command-prefix":
                 app = context.get("app")
@@ -123,18 +162,29 @@ class UnsetCommand(BaseCommand):
                     app.state.command_prefix = "!/"
                 messages.append("Command prefix reset to default (!/)")
                 data["command-prefix"] = "!/"  # type: ignore
-                
+
+            elif param == "project":
+                # Clear project
+                try:
+                    updated_state = updated_state.with_project(None)
+                except Exception:
+                    updated_state = self._update_session_state(
+                        updated_state, "project", None
+                    )
+                messages.append("Project reset to default")
+                data["project"] = None
+
             else:
                 messages.append(f"Unknown parameter: {param}")
-        
+
         # If all parameters were unknown, return failure
         if all("Unknown parameter" in msg for msg in messages):
             return CommandResult(
                 success=False,
-                message="Unknown parameter(s). Supported parameters: backend, model, temperature, interactive-mode, redact-api-keys-in-prompts, command-prefix",
+                message="unset: nothing to do",
                 name=self.name,
             )
-            
+
         # Return success with all parameter reset messages
         return CommandResult(
             success=True,
@@ -143,8 +193,10 @@ class UnsetCommand(BaseCommand):
             data=data,
             new_state=updated_state,
         )
-        
-    def _update_session_state(self, state: ISessionState, attr_name: str, value: Any) -> ISessionState:
+
+    def _update_session_state(
+        self, state: ISessionState, attr_name: str, value: Any
+    ) -> ISessionState:
         """Update session state with new attribute value."""
         if isinstance(state, SessionStateAdapter):
             # Working with SessionStateAdapter - get the underlying state
@@ -167,9 +219,11 @@ class UnsetCommand(BaseCommand):
             try:
                 setattr(state, attr_name, value)
             except (AttributeError, TypeError):
-                logger.warning(f"Could not set {attr_name} on session state of type {type(state)}")
+                logger.warning(
+                    f"Could not set {attr_name} on session state of type {type(state)}"
+                )
             return state
-            
+
     def _update_session_state_reasoning_config(
         self, state: ISessionState, reasoning_config: ReasoningConfiguration
     ) -> ISessionState:
@@ -185,5 +239,7 @@ class UnsetCommand(BaseCommand):
             return SessionStateAdapter(new_state)
         else:
             # Fallback for other implementations
-            logger.warning(f"Could not set reasoning_config on session state of type {type(state)}")
+            logger.warning(
+                f"Could not set reasoning_config on session state of type {type(state)}"
+            )
             return state

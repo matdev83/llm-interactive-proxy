@@ -3,12 +3,7 @@ from typing import cast
 import pytest
 from src.command_parser import CommandParser
 from src.core.domain.chat import ChatMessage, MessageContentPartText
-
-from .command_parser_fixtures import (
-    MockSuccessCommand,
-    mock_app,  # noqa: F401
-    proxy_state,  # noqa: F401
-)
+from tests.unit.core.test_doubles import MockSuccessCommand
 
 # --- Tests for CommandParser.process_messages ---
 

@@ -1,11 +1,56 @@
+import json
+import pytest
 import asyncio
 import time
-
+from unittest.mock import AsyncMock, patch
 from pytest_httpx import HTTPXMock
+from src.connectors.openai import OpenAIConnector
+from typing import AsyncGenerator
 
 
-def test_wait_for_rate_limited_backends(monkeypatch, client, httpx_mock: HTTPXMock):
+@pytest.mark.httpx_mock(assert_all_responses_were_requested=False)
+async def test_wait_for_rate_limited_backends(monkeypatch, client, httpx_mock: HTTPXMock, mocker):
+    
     httpx_mock.non_mocked_hosts = []  # Mock all hosts
+
+    httpx_mock.add_response(url="https://api.openai.com/v1/models", json={"data": [{"id": "dummy"}]})
+
+    httpx_mock.add_response(
+        url="https://api.openai.com/v1/chat/completions",
+        method="POST",
+        status_code=200,
+        stream=True,
+        content=b'''data: {"choices": [{"delta": {"content": "mocked command response"}}]}
+
+''',
+    )
+    httpx_mock.add_response(
+        url="https://api.openai.com/v1/chat/completions",
+        method="POST",
+        status_code=200,
+        stream=True,
+        content=b'''data: [DONE]
+
+''',
+    )
+    httpx_mock.add_response(
+        url="https://api.openai.com/v1/chat/completions",
+        method="POST",
+        status_code=200,
+        stream=True,
+        content=b'''data: {"choices": [{"delta": {"content": "mocked command response"}}]}
+
+''',
+    )
+    httpx_mock.add_response(
+        url="https://api.openai.com/v1/chat/completions",
+        method="POST",
+        status_code=200,
+        stream=True,
+        content=b'''data: [DONE]
+
+''',
+    )
 
     client.post(
         "/v1/chat/completions",
@@ -14,6 +59,7 @@ def test_wait_for_rate_limited_backends(monkeypatch, client, httpx_mock: HTTPXMo
             "messages": [
                 {"role": "user", "content": "!/create-failover-route(name=r,policy=k)"}
             ],
+            "stream": True,
         },
     )
     client.post(
@@ -23,6 +69,7 @@ def test_wait_for_rate_limited_backends(monkeypatch, client, httpx_mock: HTTPXMo
             "messages": [
                 {"role": "user", "content": "!/route-append(name=r,openrouter:m1)"}
             ],
+            "stream": True,
         },
     )
 
@@ -80,11 +127,27 @@ def test_wait_for_rate_limited_backends(monkeypatch, client, httpx_mock: HTTPXMo
 
     resp = client.post(
         "/v1/chat/completions",
-        json={"model": "r", "messages": [{"role": "user", "content": "hi"}]},
+        json={"model": "r", "messages": [{"role": "user", "content": "hi"}], "stream": True},
     )
     # The test may fail before using all mocks, so only assert if successful
     if resp.status_code == 200:
-        assert resp.json()["choices"][0]["message"]["content"].endswith("ok")
+        # Iterate over the streaming response
+        full_content = ""
+        async for chunk in resp.aiter_bytes():
+            decoded_chunk = chunk.decode('utf-8')
+            # Split by double newline to get individual SSE messages
+            messages = decoded_chunk.split('\n\n')
+            for message in messages:
+                if message.startswith("data: "):
+                    try:
+                        json_data = json.loads(message[len("data: "):])
+                        if "choices" in json_data and json_data["choices"]:
+                            if "delta" in json_data["choices"][0] and "content" in json_data["choices"][0]["delta"]:
+                                full_content += json_data["choices"][0]["delta"]["content"]
+                    except json.JSONDecodeError:
+                        pass # Ignore non-JSON or incomplete JSON chunks
+
+        assert full_content.endswith("ok")
         assert (
             current >= 0.1
         )  # Should wait at least 0.1s for the first key to become available

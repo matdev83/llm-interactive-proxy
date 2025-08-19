@@ -114,13 +114,16 @@ class SetCommand(BaseCommand):
                     # Domain BaseCommand implementations expect a Mapping of
                     # arguments (e.g., {"name": <val>}). Legacy handlers
                     # expect the raw value. Detect BaseCommand and adapt.
+                    # Detect BaseCommand type safely; avoid UnboundLocalError if import fails
+                    base_command = None
                     try:
-                        from src.core.domain.commands.base_command import BaseCommand
+                        from src.core.domain.commands.base_command import BaseCommand as _BaseCommand
+                        base_command = _BaseCommand
                     except Exception:
-                        BaseCommand = None  # type: ignore
+                        base_command = None  # type: ignore
 
                     exec_arg = value
-                    if BaseCommand is not None and isinstance(handler, BaseCommand):
+                    if base_command is not None and isinstance(handler, base_command):
                         # Provide a mapping with both 'name' and 'value' for
                         # maximum compatibility during migration.
                         exec_arg = {"name": value, "value": value}

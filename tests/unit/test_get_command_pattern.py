@@ -4,7 +4,7 @@ from src.constants import DEFAULT_COMMAND_PREFIX
 # --- Tests for get_command_pattern ---
 
 
-def test_get_command_pattern_default_prefix():
+def test_get_command_pattern_default_prefix() -> None:
     pattern = get_command_pattern(DEFAULT_COMMAND_PREFIX)
     assert pattern.match("!/hello")
     assert pattern.match("!/cmd(arg=val)")
@@ -15,7 +15,7 @@ def test_get_command_pattern_default_prefix():
     assert m and m.group("cmd") == "cmd" and m.group("args") == "arg=val"
 
 
-def test_get_command_pattern_custom_prefix():
+def test_get_command_pattern_custom_prefix() -> None:
     pattern = get_command_pattern("@")
     assert pattern.match("@hello")
     assert pattern.match("@cmd(arg=val)")

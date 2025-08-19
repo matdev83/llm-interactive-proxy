@@ -39,6 +39,19 @@ class TestProcessTextForCommands:
         class _FakeBackendService:
             def __init__(self, or_backend, gem_backend):
                 self._backends = {"openrouter": or_backend, "gemini": gem_backend}
+            
+            async def validate_backend_and_model(self, backend: str, model: str) -> tuple[bool, str | None]:
+                """Test adapter implementation that checks the fake backend's available models."""
+                be = self._backends.get(backend)
+                if be is None:
+                    return False, f"Backend {backend} not supported"
+                try:
+                    avail = be.get_available_models()
+                except Exception:
+                    return False, f"Backend {backend} did not report available models"
+                if model in avail:
+                    return True, None
+                return False, f"Model {model} not available on backend {backend}"
 
         service_provider = Mock()
         service_provider.get_required_service.return_value = _FakeBackendService(

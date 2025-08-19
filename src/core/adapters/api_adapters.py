@@ -220,6 +220,10 @@ def _convert_tools(
     return domain_tools
 
 
+from fastapi import HTTPException # Add this import
+
+# ... (rest of the file)
+
 def dict_to_domain_chat_request(request_dict: dict[str, Any]) -> ChatRequest:
     """
     Convert a dictionary to a domain ChatRequest.
@@ -232,6 +236,22 @@ def dict_to_domain_chat_request(request_dict: dict[str, Any]) -> ChatRequest:
     """
     # Handle messages specially to ensure proper conversion
     messages = request_dict.get("messages", [])
+
+    # Add this check
+    if not messages:
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "error": {
+                    "message": "At least one message is required.",
+                    "type": "invalid_request_error",
+                    "param": "messages",
+                    "code": "empty_messages",
+                }
+            },
+        )
+    # End of new block
+
     domain_messages = []
 
     for message in messages:

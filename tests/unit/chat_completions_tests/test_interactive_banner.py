@@ -1,3 +1,7 @@
+import logging
+
+logging.basicConfig(level=logging.DEBUG)
+
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -45,6 +49,10 @@ def test_first_reply_no_automatic_banner(
 async def test_hello_command_returns_banner(
     mock_gemini, mock_openrouter, mock_openai, interactive_client
 ):
+    import logging
+    logger = logging.getLogger("src.core.services.request_processor")
+    logger.setLevel(logging.DEBUG)
+
     payload = {"model": "m", "messages": [{"role": "user", "content": "!/hello"}]}
     resp = interactive_client.post("/v1/chat/completions", json=payload)
 

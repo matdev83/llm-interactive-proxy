@@ -25,7 +25,7 @@ class IBackendService(ABC):
     @abstractmethod
     async def call_completion(
         self, request: ChatRequest, stream: bool = False
-    ) -> ChatResponse | AsyncIterator[StreamingChatResponse]:
+    ) -> ChatResponse | AsyncIterator[bytes]:
         """Call the LLM backend for a completion."""
 
     @abstractmethod
@@ -39,4 +39,4 @@ class IBackendService(ABC):
         self,
         request: ChatRequest,
         **kwargs: Any,
-    ) -> ChatResponse | AsyncIterator[StreamingChatResponse]: ...
+    ) -> ChatResponse | AsyncIterator[bytes]: ...

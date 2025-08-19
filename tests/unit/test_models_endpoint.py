@@ -2,7 +2,7 @@ from fastapi.testclient import TestClient
 from src.core.app.application_factory import build_app_compat
 
 
-def test_models_endpoint_lists_all(monkeypatch):
+def test_models_endpoint_lists_all(monkeypatch) -> None:
     from unittest.mock import MagicMock, patch
 
     # Mock the backend service to return our test models
@@ -39,7 +39,7 @@ def test_models_endpoint_lists_all(monkeypatch):
             assert True
 
 
-def test_v1_models_endpoint_lists_all(monkeypatch):
+def test_v1_models_endpoint_lists_all(monkeypatch) -> None:
     from unittest.mock import MagicMock, patch
 
     # Mock the backend service to return our test models

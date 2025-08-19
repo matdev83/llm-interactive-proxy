@@ -22,11 +22,11 @@ class MockBackendService(IBackendService):
 
     async def chat_completions(
         self, request: ChatRequest, **kwargs
-    ) -> ChatResponse | AsyncIterator[dict]:
+    ) -> ChatResponse | AsyncIterator[StreamingChatResponse]:
         self.call_completion_was_called = True
         if kwargs.get("stream", False):
 
-            async def stream_generator():
+            async def stream_generator() -> AsyncIterator[StreamingChatResponse]:
                 # Return raw dictionaries that match OpenAI's streaming format
                 yield {
                     "id": "test-id",

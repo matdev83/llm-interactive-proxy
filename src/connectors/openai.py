@@ -99,6 +99,7 @@ class OpenAIConnector(LLMBackend):
         url = f"{api_base.rstrip('/')}/chat/completions"
 
         if request_data.stream:
+            # _handle_streaming_response now returns StreamingResponse
             return await self._handle_streaming_response(url, payload, headers)
         else:
             return await self._handle_non_streaming_response(url, payload, headers)
@@ -109,9 +110,7 @@ class OpenAIConnector(LLMBackend):
         if not headers or not headers.get("Authorization"):
             raise HTTPException(
                 status_code=401,
-                detail={
-                    "error": {"message": "No auth credentials found", "code": 401}
-                },
+                detail={"error": {"message": "No auth credentials found", "code": 401}},
             )
         try:
             response = await self.client.post(url, json=payload, headers=headers)
@@ -139,9 +138,7 @@ class OpenAIConnector(LLMBackend):
         if not headers or not headers.get("Authorization"):
             raise HTTPException(
                 status_code=401,
-                detail={
-                    "error": {"message": "No auth credentials found", "code": 401}
-                },
+                detail={"error": {"message": "No auth credentials found", "code": 401}},
             )
 
         request = self.client.build_request("POST", url, json=payload, headers=headers)
@@ -151,7 +148,9 @@ class OpenAIConnector(LLMBackend):
             # Recreate client if it was closed and retry once
 
             self.client = httpx.AsyncClient()
-            request = self.client.build_request("POST", url, json=payload, headers=headers)
+            request = self.client.build_request(
+                "POST", url, json=payload, headers=headers
+            )
             response = await self.client.send(request, stream=True)
         status_code = (
             int(response.status_code) if hasattr(response, "status_code") else 200
@@ -165,9 +164,11 @@ class OpenAIConnector(LLMBackend):
                 status_code=status_code,
                 detail={
                     "message": body,
-                    "type": "openrouter_error" if "openrouter" in url else "openai_error",
+                    "type": (
+                        "openrouter_error" if "openrouter" in url else "openai_error"
+                    ),
                     "code": status_code,
-                }
+                },
             )
 
         async def gen() -> AsyncGenerator[bytes, None]:
@@ -197,18 +198,22 @@ class OpenAIConnector(LLMBackend):
             raw_headers = dict(response.headers)
             # Filter out any sentinel objects or invalid values
             headers_dict = {
-                k: v for k, v in raw_headers.items()
-                if hasattr(k, 'encode') and hasattr(v, 'encode')
+                k: v
+                for k, v in raw_headers.items()
+                if hasattr(k, "encode") and hasattr(v, "encode")
             }
         except (TypeError, ValueError, AttributeError):
             # If that fails, try to handle Mock objects
             try:
-                if hasattr(response.headers, '__dict__') and isinstance(response.headers.__dict__, dict):
+                if hasattr(response.headers, "__dict__") and isinstance(
+                    response.headers.__dict__, dict
+                ):
                     raw_headers = response.headers.__dict__
                     # Filter out any sentinel objects or invalid values
                     headers_dict = {
-                        k: v for k, v in raw_headers.items()
-                        if hasattr(k, 'encode') and hasattr(v, 'encode')
+                        k: v
+                        for k, v in raw_headers.items()
+                        if hasattr(k, "encode") and hasattr(v, "encode")
                     }
                 else:
                     # Last resort: empty dict
@@ -217,8 +222,11 @@ class OpenAIConnector(LLMBackend):
                 # If all else fails, use empty dict
                 headers_dict = {}
 
-        return StreamingResponse(
-            gen(), media_type="text/event-stream", headers=headers_dict
+        # Return a StreamingResponse via helper for consistent behavior
+        from src.connectors.streaming_utils import to_streaming_response
+
+        return to_streaming_response(
+            lambda: gen(), media_type="text/event-stream", headers=headers_dict
         )
 
     async def list_models(self, api_base_url: str | None = None) -> dict[str, Any]:
@@ -226,14 +234,19 @@ class OpenAIConnector(LLMBackend):
         base = api_base_url or self.api_base_url
         logger.info(f"OpenAIConnector list_models - base URL: {base}")
         try:
-            response = await self.client.get(f"{base.rstrip('/')}/models", headers=headers)
+            response = await self.client.get(
+                f"{base.rstrip('/')}/models", headers=headers
+            )
         except RuntimeError:
             import httpx
 
             self.client = httpx.AsyncClient()
-            response = await self.client.get(f"{base.rstrip('/')}/models", headers=headers)
+            response = await self.client.get(
+                f"{base.rstrip('/')}/models", headers=headers
+            )
         response.raise_for_status()
         result = response.json()
         return result  # type: ignore[no-any-return]
+
 
 backend_registry.register_backend("openai", OpenAIConnector)

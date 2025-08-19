@@ -69,17 +69,9 @@ async def test_basic_request_proxying_streaming(test_client):
     from src.core.domain.chat import StreamingChatResponse
 
     async def mock_stream_gen():
-        # Yield StreamingChatResponse objects that will be converted to SSE
-        yield StreamingChatResponse(
-            choices=[{"delta": {"content": "Hello"}, "index": 0}],
-            model="gpt-4",
-            content="Hello",  # Add required content field
-        )
-        yield StreamingChatResponse(
-            choices=[{"delta": {"content": " world"}, "index": 0}],
-            model="gpt-4",
-            content=" world",  # Add required content field
-        )
+        yield b'data: {"choices": [{"delta": {"content": "Hello"}, "index": 0}]}\\n\n'
+        yield b'data: {"choices": [{"delta": {"content": " world"}, "index": 0}]}\\n\n'
+        yield b'data: [DONE]\\n\n'
 
     # Get the backend service from the DI container
     backend_service = test_client.app.state.service_provider.get_required_service(

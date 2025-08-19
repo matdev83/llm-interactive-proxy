@@ -133,9 +133,11 @@ class TestChatCompletionRegression:
         """Test streaming chat completion functionality."""
 
         async def mock_stream():
-            yield 'data: {"id": "1", "choices": [{"delta": {"content": "Hello"}}]}'
-            yield 'data: {"id": "2", "choices": [{"delta": {"content": ", world!"}}]}'
-            yield "data: [DONE]"
+            chunk1 = {"id": "1", "choices": [{"delta": {"content": "Hello"}}]}
+            yield f"data: {json.dumps(chunk1)}\n\n".encode()
+            chunk2 = {"id": "2", "choices": [{"delta": {"content": ", world!"}}]}
+            yield f"data: {json.dumps(chunk2)}\n\n".encode()
+            yield b"data: [DONE]\n\n"
 
         mock_chat_completions.return_value = mock_stream()
         mock_initialize.return_value = None
@@ -207,8 +209,46 @@ class TestChatCompletionRegression:
         # Should have an error message
         assert "error" in error or "detail" in error
 
-    def test_command_processing(self, test_client):
+    @patch("src.connectors.openai.OpenAIConnector.initialize", new_callable=AsyncMock)
+    @patch("src.connectors.openai.OpenAIConnector.chat_completions")
+    def test_command_processing(self, mock_chat_completions, mock_initialize, test_client):
         """Test command processing functionality."""
+        # Define a mock response
+        mock_response_data: MockChatCompletionResponseData = {
+            "id": "chatcmpl-123",
+            "object": "chat.completion",
+            "created": 1677652288,
+            "model": "mock-model",
+            "choices": [
+                {
+                    "index": 0,
+                    "message": {"role": "assistant", "content": "Hello from command!"},
+                    "finish_reason": "stop",
+                }
+            ],
+            "usage": {"prompt_tokens": 9, "completion_tokens": 12, "total_tokens": 21},
+        }
+        # Convert raw dicts to Pydantic models
+        choices = [
+            ChatCompletionChoice(
+                index=choice["index"],
+                message=ChatCompletionChoiceMessage(**choice["message"]),
+                finish_reason=choice["finish_reason"],
+            )
+            for choice in mock_response_data["choices"]
+        ]
+        usage = mock_response_data["usage"]
+
+        mock_chat_completions.return_value = ChatCompletionResponse(
+            id=mock_response_data["id"],
+            object=mock_response_data["object"],
+            created=mock_response_data["created"],
+            model=mock_response_data["model"],
+            choices=choices,
+            usage=usage,
+        )
+        mock_initialize.return_value = None
+        
         # Define a request with a command
         request_payload = {
             "model": "mock-model",

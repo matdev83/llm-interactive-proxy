@@ -69,13 +69,13 @@ class TestToolCallTracker:
     """Tests for the ToolCallTracker class."""
 
     @pytest.fixture
-    def config(self):
+    def config(self) -> ToolCallLoopConfig:
         """Create a default configuration for testing."""
         return ToolCallLoopConfig(
             enabled=True, max_repeats=3, ttl_seconds=60, mode=ToolLoopMode.BREAK
         )
 
-    def test_init(self, config):
+    def test_init(self, config) -> None:
         """Test initializing the tracker."""
         tracker = ToolCallTracker(config)
 
@@ -84,7 +84,7 @@ class TestToolCallTracker:
         assert tracker.consecutive_repeats == {}
         assert tracker.chance_given == {}
 
-    def test_prune_expired_no_signatures(self, config):
+    def test_prune_expired_no_signatures(self, config) -> None:
         """Test pruning when there are no signatures."""
         tracker = ToolCallTracker(config)
 
@@ -93,7 +93,7 @@ class TestToolCallTracker:
         assert pruned == 0
         assert tracker.signatures == []
 
-    def test_prune_expired_with_expired(self, config):
+    def test_prune_expired_with_expired(self, config) -> None:
         """Test pruning with expired signatures."""
         tracker = ToolCallTracker(config)
 
@@ -127,7 +127,7 @@ class TestToolCallTracker:
         assert expired_sig.get_full_signature() not in tracker.consecutive_repeats
         assert valid_sig.get_full_signature() in tracker.consecutive_repeats
 
-    def test_track_tool_call_disabled(self, config):
+    def test_track_tool_call_disabled(self, config) -> None:
         """Test tracking when disabled."""
         config.enabled = False
         tracker = ToolCallTracker(config)
@@ -142,7 +142,7 @@ class TestToolCallTracker:
         # No signature should be added when disabled
         assert len(tracker.signatures) == 0
 
-    def test_track_tool_call_first_call(self, config):
+    def test_track_tool_call_first_call(self, config) -> None:
         """Test tracking the first call."""
         tracker = ToolCallTracker(config)
 
@@ -160,7 +160,7 @@ class TestToolCallTracker:
         full_sig = tracker.signatures[0].get_full_signature()
         assert tracker.consecutive_repeats[full_sig] == 1
 
-    def test_track_tool_call_different_calls(self, config):
+    def test_track_tool_call_different_calls(self, config) -> None:
         """Test tracking different tool calls."""
         tracker = ToolCallTracker(config)
 
@@ -178,7 +178,7 @@ class TestToolCallTracker:
         for sig in tracker.signatures:
             assert tracker.consecutive_repeats[sig.get_full_signature()] == 1
 
-    def test_track_tool_call_repeated_below_threshold(self, config):
+    def test_track_tool_call_repeated_below_threshold(self, config) -> None:
         """Test tracking repeated calls below the threshold."""
         tracker = ToolCallTracker(config)
 
@@ -194,7 +194,7 @@ class TestToolCallTracker:
         full_sig = tracker.signatures[0].get_full_signature()
         assert tracker.consecutive_repeats[full_sig] == config.max_repeats - 1
 
-    def test_track_tool_call_repeated_at_threshold_break_mode(self, config):
+    def test_track_tool_call_repeated_at_threshold_break_mode(self, config) -> None:
         """Test tracking repeated calls at the threshold with break mode."""
         config.mode = ToolLoopMode.BREAK
         tracker = ToolCallTracker(config)
@@ -216,7 +216,7 @@ class TestToolCallTracker:
         assert "Tool call loop detected" in reason
         assert count == config.max_repeats
 
-    def test_track_tool_call_repeated_at_threshold_chance_mode(self, config):
+    def test_track_tool_call_repeated_at_threshold_chance_mode(self, config) -> None:
         """Test tracking repeated calls at the threshold with chance_then_break mode."""
         config.mode = ToolLoopMode.CHANCE_THEN_BREAK
         tracker = ToolCallTracker(config)
@@ -242,7 +242,7 @@ class TestToolCallTracker:
         full_sig = tracker.signatures[0].get_full_signature()
         assert tracker.chance_given[full_sig] is True
 
-    def test_track_tool_call_after_chance_different_call(self, config):
+    def test_track_tool_call_after_chance_different_call(self, config) -> None:
         """Test tracking a different call after a chance was given."""
         config.mode = ToolLoopMode.CHANCE_THEN_BREAK
         tracker = ToolCallTracker(config)
@@ -266,7 +266,7 @@ class TestToolCallTracker:
         full_sig = f"test_tool:{json.dumps({'arg': 'different'}, sort_keys=True)}"
         assert full_sig not in tracker.chance_given
 
-    def test_track_tool_call_after_chance_same_call(self, config):
+    def test_track_tool_call_after_chance_same_call(self, config) -> None:
         """Test tracking the same call after a chance was given."""
         config.mode = ToolLoopMode.CHANCE_THEN_BREAK
         tracker = ToolCallTracker(config)
@@ -285,7 +285,7 @@ class TestToolCallTracker:
         assert "After guidance" in reason
         assert count == config.max_repeats + 1
 
-    def test_track_tool_call_reset_after_different(self, config):
+    def test_track_tool_call_reset_after_different(self, config) -> None:
         """Test that consecutive count resets after a different call."""
         tracker = ToolCallTracker(config)
 
@@ -309,7 +309,7 @@ class TestToolCallTracker:
         full_sig = f"test_tool:{json.dumps({'arg': 'value'}, sort_keys=True)}"
         assert tracker.consecutive_repeats[full_sig] == 1
 
-    def test_track_tool_call_with_ttl_expiry(self, config):
+    def test_track_tool_call_with_ttl_expiry(self, config) -> None:
         """Test that TTL expiry resets consecutive counting."""
         tracker = ToolCallTracker(config)
 

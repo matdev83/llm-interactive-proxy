@@ -15,8 +15,8 @@ from src.command_utils import (
     is_tool_call_result,
 )
 from src.constants import DEFAULT_COMMAND_PREFIX
-from src.core.commands.set_command import SetCommand
-from src.core.commands.unset_command import UnsetCommand
+from src.core.domain.commands.set_command import SetCommand
+from src.core.domain.commands.unset_command import UnsetCommand
 from src.core.domain.chat import ChatMessage, MessageContentPart
 from src.core.domain.command_results import CommandResult
 from src.core.domain.commands.base_command import BaseCommand

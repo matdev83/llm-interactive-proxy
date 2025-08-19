@@ -4,7 +4,7 @@ from src.connectors import GeminiBackend, OpenRouterBackend
 from src.core.app.application_factory import build_app_compat
 
 
-async def test_openrouter_models_cached():
+async def test_openrouter_models_cached() -> None:
     # Create a real OpenRouterBackend instance
     from src.connectors.openrouter import OpenRouterBackend
 
@@ -33,7 +33,7 @@ async def test_openrouter_models_cached():
     assert backend.available_models == ["m1", "m2"]
 
 
-async def test_gemini_models_cached():
+async def test_gemini_models_cached() -> None:
     # Create a real GeminiBackend instance
     from src.connectors.gemini import GeminiBackend
 
@@ -61,7 +61,7 @@ async def test_gemini_models_cached():
     assert backend.get_available_models() == ["g1"]
 
 
-def test_auto_default_backend(monkeypatch):
+def test_auto_default_backend(monkeypatch) -> None:
     # Test a scenario where only one backend is functional for auto-detection
     monkeypatch.delenv("LLM_BACKEND", raising=False)
     monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
@@ -88,7 +88,7 @@ def test_auto_default_backend(monkeypatch):
             assert client.app.state.backend_type == "openai"
 
 
-def test_multiple_backends_requires_arg(monkeypatch):
+def test_multiple_backends_requires_arg(monkeypatch) -> None:
     # This test is now obsolete because the behavior has changed
     # The system now defaults to 'openai' even with multiple available backends
     # unless explicitly set via LLM_BACKEND

@@ -4,13 +4,13 @@ from pytest_httpx import HTTPXMock
 from src.core.app.application_factory import build_app
 
 
-@pytest.mark.httpx_mock(allow_missing_responses=True)
+@pytest.mark.httpx_mock(assert_all_responses_were_requested=False)
 def test_failover_key_rotation(httpx_mock: HTTPXMock, monkeypatch):
-    httpx_mock.non_mocked_hosts = []  # Mock all hosts
-
     monkeypatch.setenv("OPENROUTER_API_KEY_1", "key1")
     monkeypatch.setenv("OPENROUTER_API_KEY_2", "key2")
     monkeypatch.setenv("LLM_BACKEND", "openrouter")
+
+    httpx_mock.add_response(url="https://api.openai.com/v1/models", json={"data": [{"id": "dummy"}]})
 
     from src.core.config.app_config import AuthConfig
 
@@ -52,16 +52,7 @@ def test_failover_key_rotation(httpx_mock: HTTPXMock, monkeypatch):
                 ]
             },
         )
-        httpx_mock.add_response(
-            url="https://api.openai.com/v1/models",
-            method="GET",
-            json={"data": [{"id": "dummy"}]},
-        )
-        httpx_mock.add_response(
-            url="https://openrouter.ai/api/v1/models",
-            method="GET",
-            json={"data": [{"id": "dummy"}]},
-        )
+        httpx_mock.add_response(url="https://openrouter.ai/api/v1/models", json={"data": [{"id": "dummy"}]})
 
         payload2 = {"model": "r", "messages": [{"role": "user", "content": "hi"}]}
         resp = client.post("/v1/chat/completions", json=payload2)
@@ -74,7 +65,7 @@ def test_failover_key_rotation(httpx_mock: HTTPXMock, monkeypatch):
             assert resp.json()["choices"][0]["message"]["content"].endswith("ok")
 
 
-@pytest.mark.httpx_mock(allow_missing_responses=True)
+@pytest.mark.httpx_mock(assert_all_responses_were_requested=False)
 def test_failover_missing_keys(monkeypatch, httpx_mock: HTTPXMock):
     monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
     for i in range(1, 21):
@@ -87,6 +78,8 @@ def test_failover_missing_keys(monkeypatch, httpx_mock: HTTPXMock):
     monkeypatch.setenv("LLM_BACKEND", "gemini")
     monkeypatch.setenv("GEMINI_API_BASE_URL", "https://zai.mock")
 
+    httpx_mock.add_response(url="https://api.openai.com/v1/models", json={"data": [{"id": "dummy"}]})
+
     from fastapi.testclient import TestClient
     from src.core.app import application_factory as app_main
     from src.core.config.app_config import AuthConfig
@@ -96,12 +89,13 @@ def test_failover_missing_keys(monkeypatch, httpx_mock: HTTPXMock):
     # Override auth config to disable authentication
     app_config.auth = AuthConfig(disable_auth=True)
 
-    # Mock the ZAI models endpoint that gets called during backend validation
+    
     httpx_mock.add_response(
         url="https://zai.mock/models",
         method="GET",
         json={"data": [{"id": "test-model"}]},
     )
+    httpx_mock.add_response(url="https://openrouter.ai/api/v1/models", json={"data": [{"id": "dummy"}]})
 
     with TestClient(app) as client:
         client.post(
