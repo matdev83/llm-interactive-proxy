@@ -1,127 +1,212 @@
-"""
-Pytest configuration for chat completions tests.
-
-This file provides fixtures specific to chat completion tests.
-"""
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from fastapi.testclient import TestClient
+from src.core.app.test_builder import build_test_app as build_app
+from src.core.config.app_config import (
+    AppConfig,
+    AuthConfig,
+    BackendConfig,
+    BackendSettings,
+)
 
 
 @pytest.fixture
-def client(test_client: TestClient) -> TestClient:
-    """Alias for test_client fixture to match test expectations."""
-    return test_client
-
-
-@pytest.fixture
-def app(test_app):
-    """Return the FastAPI app for tests that need direct app access."""
-    return test_app
-
-
-@pytest.fixture
-def interactive_client(test_client: TestClient) -> TestClient:
-    """Alias for an interactive-mode client used across cline-oriented tests."""
-    return test_client
-
-
-@pytest.fixture
-def commands_disabled_client(test_client: TestClient) -> TestClient:
-    """Client with interactive commands disabled for tests expecting that behavior."""
-    test_client.app.state.disable_interactive_commands = True
-    return test_client
-
-
-@pytest.fixture
-def mock_gemini_backend(interactive_client: TestClient) -> None:
-    """Attach a minimal mock Gemini backend to the app state for tests expecting it."""
-
-    class _MockGemini:
-        api_keys: list[str] = ["k"]
-
-        def get_available_models(self):
-            return ["gemini:gemini-2.0-flash-001", "gemini:gemini-pro"]
-
-    from src.core.interfaces.backend_service_interface import IBackendService
-
-    svc = interactive_client.app.state.service_provider.get_required_service(
-        IBackendService
+def mock_openai_backend():
+    """Mock OpenAI backend."""
+    backend = MagicMock()
+    backend.chat_completions = AsyncMock(
+        return_value=({"choices": [{"message": {"content": "ok"}}]}, {})
     )
-    svc._backends["gemini"] = _MockGemini()
-    return None
-
-
-class _MockOpenRouter:
-    def __init__(self):
-        pass
-
-    def get_available_models(self):
-        return ["openrouter:gpt-4", "openrouter:claude-3-sonnet"]
-
-    async def chat_completions(self, *args, **kwargs):
-        return {
-            "id": "mock-response",
-            "object": "chat.completion",
-            "created": 1234567890,
-            "model": "openrouter:gpt-4",
-            "choices": [
-                {
-                    "index": 0,
-                    "message": {"role": "assistant", "content": "Mock response"},
-                    "finish_reason": "stop",
-                }
-            ],
-            "usage": {"prompt_tokens": 10, "completion_tokens": 20, "total_tokens": 30},
-        }
-
-
-@pytest.fixture
-def mock_openrouter_backend(interactive_client: TestClient) -> _MockOpenRouter:
-    """Provide a minimal mock OpenRouter backend for tests."""
-    backend = _MockOpenRouter()
-    from src.core.interfaces.backend_service_interface import IBackendService
-
-    svc = interactive_client.app.state.service_provider.get_required_service(
-        IBackendService
-    )
-    svc._backends["openrouter"] = backend
+    backend.get_available_models = lambda: ["gpt-3.5-turbo", "gpt-4"]
     return backend
 
 
-class _MockOpenAI:
-    def __init__(self):
-        self.available_models = ["gpt-3.5-turbo", "gpt-4"]
-        self.api_keys = ["test-key"]
-
-    def get_available_models(self):
-        return self.available_models
-
-    async def chat_completions(self, *args, **kwargs):
-        return {
-            "id": "mock-openai-response",
-            "object": "chat.completion",
-            "created": 1234567890,
-            "model": "gpt-3.5-turbo",
-            "choices": [
-                {
-                    "index": 0,
-                    "message": {"role": "assistant", "content": "Mock OpenAI response"},
-                    "finish_reason": "stop",
-                }
-            ],
-            "usage": {"prompt_tokens": 10, "completion_tokens": 20, "total_tokens": 30},
-        }
+@pytest.fixture
+def mock_openrouter_backend():
+    """Mock OpenRouter backend."""
+    backend = MagicMock()
+    backend.chat_completions = AsyncMock(
+        return_value=({"choices": [{"message": {"content": "ok"}}]}, {})
+    )
+    backend.get_available_models = lambda: ["m1", "m2", "model-a"]
+    return backend
 
 
 @pytest.fixture
-def mock_openai_backend(interactive_client: TestClient) -> _MockOpenAI:
-    """Provide a minimal mock OpenAI backend for tests."""
-    backend = _MockOpenAI()
-    from src.core.interfaces.backend_service_interface import IBackendService
-
-    svc = interactive_client.app.state.service_provider.get_required_service(
-        IBackendService
+def mock_gemini_backend():
+    """Mock Gemini backend."""
+    backend = MagicMock()
+    backend.chat_completions = AsyncMock(
+        return_value=({"choices": [{"message": {"content": "ok"}}]}, {})
     )
-    svc._backends["openai"] = backend
+    backend.get_available_models = lambda: ["gemini-pro", "gemini-ultra"]
     return backend
+
+
+@pytest.fixture
+def mock_anthropic_backend():
+    """Mock Anthropic backend."""
+    backend = MagicMock()
+    backend.chat_completions = AsyncMock(
+        return_value=({"choices": [{"message": {"content": "ok"}}]}, {})
+    )
+    backend.get_available_models = lambda: ["claude-2", "claude-3-opus"]
+    return backend
+
+
+@pytest.fixture
+def mock_qwen_oauth_backend():
+    """Mock Qwen OAuth backend."""
+    backend = MagicMock()
+    backend.chat_completions = AsyncMock(
+        return_value=({"choices": [{"message": {"content": "ok"}}]}, {})
+    )
+    backend.get_available_models = lambda: ["qwen-turbo", "qwen-max"]
+    return backend
+
+
+@pytest.fixture
+def mock_zai_backend():
+    """Mock ZAI backend."""
+    backend = MagicMock()
+    backend.chat_completions = AsyncMock(
+        return_value=({"choices": [{"message": {"content": "ok"}}]}, {})
+    )
+    backend.get_available_models = lambda: ["zai-model-1", "zai-model-2"]
+    return backend
+
+
+@pytest.fixture
+def mock_model_discovery():
+    """Mock model discovery."""
+    return {
+        "openai": ["gpt-3.5-turbo", "gpt-4"],
+        "openrouter": ["m1", "m2", "model-a"],
+        "gemini": ["gemini-pro", "gemini-ultra"],
+        "anthropic": ["claude-2", "claude-3-opus"],
+        "qwen-oauth": ["qwen-turbo", "qwen-max"],
+        "zai": ["zai-model-1", "zai-model-2"],
+    }
+
+
+@pytest.fixture
+def client(
+    mock_openai_backend,
+    mock_openrouter_backend,
+    mock_gemini_backend,
+    mock_anthropic_backend,
+    mock_qwen_oauth_backend,
+    mock_zai_backend,
+    mock_model_discovery,
+):
+    """Create a test client with mocked backends."""
+    config = AppConfig(
+        auth=AuthConfig(disable_auth=True),
+        backends=BackendSettings(
+            default_backend="openai",
+            openai=BackendConfig(api_key=["test_key"]),
+            openrouter=BackendConfig(api_key=["test_key"]),
+            gemini=BackendConfig(api_key=["test_key"]),
+            anthropic=BackendConfig(api_key=["test_key"]),
+            qwen_oauth=BackendConfig(api_key=["test_key"]),
+            zai=BackendConfig(api_key=["test_key"]),
+        ),
+    )
+    app = build_app(config)
+
+    with TestClient(app) as client, \
+         patch('src.core.services.backend_factory_service.BackendFactory.create_backend') as mock_create_backend:
+        def side_effect(self, name, *args, **kwargs):
+            if name == "openai": return mock_openai_backend
+            if name == "openrouter": return mock_openrouter_backend
+            if name == "gemini": return mock_gemini_backend
+            if name == "anthropic": return mock_anthropic_backend
+            if name == "qwen-oauth": return mock_qwen_oauth_backend
+            if name == "zai": return mock_zai_backend
+            return MagicMock()
+        mock_create_backend.side_effect = side_effect
+
+        yield client
+
+
+@pytest.fixture
+def interactive_client(
+    mock_openai_backend,
+    mock_openrouter_backend,
+    mock_gemini_backend,
+    mock_anthropic_backend,
+    mock_qwen_oauth_backend,
+    mock_zai_backend,
+    mock_model_discovery,
+):
+    """Create a test client with interactive mode enabled."""
+    config = AppConfig(
+        auth=AuthConfig(disable_auth=True),
+        backends=BackendSettings(
+            default_backend="openai",
+            openai=BackendConfig(api_key=["test_key"]),
+            openrouter=BackendConfig(api_key=["test_key"]),
+            gemini=BackendConfig(api_key=["test_key"]),
+            anthropic=BackendConfig(api_key=["test_key"]),
+            qwen_oauth=BackendConfig(api_key=["test_key"]),
+            zai=BackendConfig(api_key=["test_key"]),
+        ),
+        session={"default_interactive_mode": True},
+    )
+    app = build_app(config)
+
+    with TestClient(app) as client, \
+         patch('src.core.services.backend_factory_service.BackendFactory.create_backend') as mock_create_backend:
+        def side_effect(self, name, *args, **kwargs):
+            if name == "openai": return mock_openai_backend
+            if name == "openrouter": return mock_openrouter_backend
+            if name == "gemini": return mock_gemini_backend
+            if name == "anthropic": return mock_anthropic_backend
+            if name == "qwen-oauth": return mock_qwen_oauth_backend
+            if name == "zai": return mock_zai_backend
+            return MagicMock()
+        mock_create_backend.side_effect = side_effect
+
+        yield client
+
+
+@pytest.fixture
+def commands_disabled_client(
+    mock_openai_backend,
+    mock_openrouter_backend,
+    mock_gemini_backend,
+    mock_anthropic_backend,
+    mock_qwen_oauth_backend,
+    mock_zai_backend,
+    mock_model_discovery,
+):
+    """Create a test client with commands disabled."""
+    config = AppConfig(
+        auth=AuthConfig(disable_auth=True),
+        backends=BackendSettings(
+            default_backend="openai",
+            openai=BackendConfig(api_key=["test_key"]),
+            openrouter=BackendConfig(api_key=["test_key"]),
+            gemini=BackendConfig(api_key=["test_key"]),
+            anthropic=BackendConfig(api_key=["test_key"]),
+            qwen_oauth=BackendConfig(api_key=["test_key"]),
+            zai=BackendConfig(api_key=["test_key"]),
+        ),
+        commands_enabled=False,
+    )
+    app = build_app(config)
+
+    with TestClient(app) as client, \
+         patch('src.core.services.backend_factory_service.BackendFactory.create_backend') as mock_create_backend:
+        def side_effect(self, name, *args, **kwargs):
+            if name == "openai": return mock_openai_backend
+            if name == "openrouter": return mock_openrouter_backend
+            if name == "gemini": return mock_gemini_backend
+            if name == "anthropic": return mock_anthropic_backend
+            if name == "qwen-oauth": return mock_qwen_oauth_backend
+            if name == "zai": return mock_zai_backend
+            return MagicMock()
+        mock_create_backend.side_effect = side_effect
+
+        yield client

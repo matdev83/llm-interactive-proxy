@@ -7,15 +7,12 @@ This module provides the implementation of the backend processor interface.
 from __future__ import annotations
 
 import logging
-import time
-from typing import Any, Optional, cast
+from typing import Any
 
-from src.core.common.exceptions import LoopDetectionError
 from src.core.domain.chat import ChatRequest
 from src.core.domain.request_context import RequestContext
-from src.core.domain.response_envelope import ResponseEnvelope
-from src.core.domain.session import Session, SessionInteraction
-from src.core.domain.streaming_response_envelope import StreamingResponseEnvelope
+from src.core.domain.responses import ResponseEnvelope, StreamingResponseEnvelope
+from src.core.domain.session import SessionInteraction
 from src.core.interfaces.backend_processor_interface import IBackendProcessor
 from src.core.interfaces.backend_service_interface import IBackendService
 from src.core.interfaces.session_service_interface import ISessionService
@@ -25,43 +22,43 @@ logger = logging.getLogger(__name__)
 
 class BackendProcessor(IBackendProcessor):
     """Implementation of the backend processor interface."""
-    
+
     def __init__(
         self,
         backend_service: IBackendService,
         session_service: ISessionService,
     ) -> None:
         """Initialize the backend processor.
-        
+
         Args:
             backend_service: The backend service to use for processing requests
             session_service: The session service to use for managing sessions
         """
         self._backend_service = backend_service
         self._session_service = session_service
-    
+
     async def process_backend_request(
         self,
         request: ChatRequest,
         session_id: str,
-        context: Optional[RequestContext] = None
+        context: RequestContext | None = None,
     ) -> ResponseEnvelope | StreamingResponseEnvelope:
         """Process a request through the backend service.
-        
+
         Args:
             request: The request to process
             session_id: The session ID
             context: Optional request context
-            
+
         Returns:
             The response from the backend
         """
         # Get the session
         session = await self._session_service.get_session(session_id)
-        
+
         # Extract raw prompt content for session tracking
         raw_prompt = self._extract_raw_prompt(request.messages)
-        
+
         try:
             # Include any app-level failover routes if available
             extra_body_dict = {}
@@ -76,17 +73,17 @@ class BackendProcessor(IBackendProcessor):
                     for k, v in request.__dict__.items()
                     if not k.startswith("_") and not callable(v)
                 }
-                
+
             # Get failover routes from session and add them to extra_body
             failover_routes = None
             if context and hasattr(context.app_state, "failover_routes"):
                 failover_routes = context.app_state.failover_routes
             elif hasattr(session.state.backend_config, "failover_routes"):
                 failover_routes = session.state.backend_config.failover_routes
-                
+
             if failover_routes:
                 extra_body_dict["failover_routes"] = failover_routes
-                
+
             # Call the backend
             backend_response = await self._backend_service.call_completion(
                 request=ChatRequest(
@@ -100,7 +97,7 @@ class BackendProcessor(IBackendProcessor):
                 ),
                 stream=request.stream if request.stream is not None else False,
             )
-            
+
             # Add session interaction for the request
             session.add_interaction(
                 SessionInteraction(
@@ -116,18 +113,16 @@ class BackendProcessor(IBackendProcessor):
                     },
                 )
             )
-            
+
             return backend_response
-            
+
         except Exception as e:
             # Add a failed interaction to the session
             session.add_interaction(
                 SessionInteraction(
                     prompt=raw_prompt,
                     handler="backend",
-                    backend=getattr(
-                        session.state.backend_config, "backend_type", None
-                    ),
+                    backend=getattr(session.state.backend_config, "backend_type", None),
                     model=getattr(session.state.backend_config, "model", None),
                     project=getattr(session.state, "project", None),
                     response=str(e),
@@ -135,7 +130,7 @@ class BackendProcessor(IBackendProcessor):
             )
             # Re-raise the exception
             raise
-    
+
     def _extract_raw_prompt(self, messages: list[Any]) -> str:
         """Extract the raw prompt from a list of messages.
 
@@ -150,9 +145,17 @@ class BackendProcessor(IBackendProcessor):
 
         # Get the last user message
         for message in reversed(messages):
-            role = message.get("role") if isinstance(message, dict) else getattr(message, "role", None)
+            role = (
+                message.get("role")
+                if isinstance(message, dict)
+                else getattr(message, "role", None)
+            )
             if role == "user":
-                content_value = message.get("content") if isinstance(message, dict) else getattr(message, "content", None)
+                content_value = (
+                    message.get("content")
+                    if isinstance(message, dict)
+                    else getattr(message, "content", None)
+                )
                 if isinstance(content_value, str):
                     return content_value
                 elif isinstance(content_value, list):
@@ -168,7 +171,7 @@ class BackendProcessor(IBackendProcessor):
 
         # If no user message found, return empty string
         return ""
-    
+
     def _convert_content_to_str(self, content_parts: list[Any]) -> str:
         """Converts a list of content parts to a single string."""
         text_content = []

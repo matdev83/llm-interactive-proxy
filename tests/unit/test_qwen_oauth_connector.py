@@ -14,7 +14,12 @@ import pytest
 from fastapi import HTTPException
 from src.connectors.qwen_oauth import QwenOAuthConnector
 from src.core.domain.chat import ChatMessage, ChatRequest
-from starlette.responses import StreamingResponse
+from src.core.domain.responses import (
+    ResponseEnvelope,
+    StreamingResponseEnvelope,
+)
+
+# from starlette.responses import StreamingResponse  # Not needed anymore
 
 
 class TestQwenOAuthConnectorUnit:
@@ -316,10 +321,9 @@ class TestQwenOAuthConnectorUnit:
                 effective_model="qwen3-coder-plus",
             )
 
-            assert isinstance(result, tuple)
-            response, headers = result
-            assert "choices" in response
-            assert response["choices"][0]["message"]["content"] == "Hello!"
+            assert isinstance(result, ResponseEnvelope)
+            assert "choices" in result.content
+            assert result.content["choices"][0]["message"]["content"] == "Hello!"
 
     @pytest.mark.asyncio
     async def test_chat_completions_with_prefix(self, connector, mock_client):
@@ -378,10 +382,9 @@ class TestQwenOAuthConnectorUnit:
             _, kwargs = parent_mock.call_args
             assert kwargs["effective_model"] == "qwen3-coder-plus"
 
-            assert isinstance(result, tuple)
-            response, headers = result
-            assert "choices" in response
-            assert response["choices"][0]["message"]["content"] == "Hello!"
+            assert isinstance(result, ResponseEnvelope)
+            assert "choices" in result.content
+            assert result.content["choices"][0]["message"]["content"] == "Hello!"
 
     @pytest.mark.asyncio
     async def test_chat_completions_streaming(self, connector, mock_client):
@@ -399,7 +402,7 @@ class TestQwenOAuthConnectorUnit:
         )
 
         # Mock streaming response
-        mock_stream_response = StreamingResponse(
+        mock_stream_response = StreamingResponseEnvelope(
             content=AsyncMock(), media_type="text/event-stream"
         )
 
@@ -420,7 +423,7 @@ class TestQwenOAuthConnectorUnit:
                 effective_model="qwen3-coder-plus",
             )
 
-            assert isinstance(result, StreamingResponse)
+            assert isinstance(result, StreamingResponseEnvelope)
             assert result.media_type == "text/event-stream"
 
     @pytest.mark.asyncio
@@ -474,9 +477,8 @@ class TestQwenOAuthConnectorUnit:
                 effective_model="qwen3-coder-plus",
             )
 
-            assert isinstance(result, tuple)
-            response, headers = result
-            assert "Error: Test error" in response["choices"][0]["message"]["content"]
+            assert isinstance(result, ResponseEnvelope)
+            assert "Error: Test error" in result.content["choices"][0]["message"]["content"]
 
     @pytest.mark.asyncio
     async def test_save_oauth_credentials(self, connector, mock_credentials):

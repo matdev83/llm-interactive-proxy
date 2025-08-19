@@ -17,7 +17,7 @@ class SessionService(ISessionService):
             session = Session(session_id=session_id)
             await self._session_repository.add(session)
         return session
-        
+
     async def get_session_async(self, session_id: str) -> Session:
         """Legacy compatibility method, identical to get_session."""
         return await self.get_session(session_id)
@@ -42,5 +42,3 @@ class SessionService(ISessionService):
 
     async def get_all_sessions(self) -> list[Session]:
         return await self._session_repository.get_all()
-
-

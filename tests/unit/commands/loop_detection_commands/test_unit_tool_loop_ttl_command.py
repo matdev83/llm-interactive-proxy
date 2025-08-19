@@ -1,10 +1,12 @@
 
-import pytest
 from unittest.mock import Mock
-import asyncio
 
-from src.core.domain.commands.loop_detection_commands.tool_loop_ttl_command import ToolLoopTTLCommand
-from src.core.domain.session import Session, SessionState, LoopDetectionConfiguration
+import pytest
+from src.core.domain.commands.loop_detection_commands.tool_loop_ttl_command import (
+    ToolLoopTTLCommand,
+)
+from src.core.domain.session import LoopDetectionConfiguration, Session, SessionState
+
 
 @pytest.fixture
 def command() -> ToolLoopTTLCommand:
@@ -17,6 +19,7 @@ def mock_session() -> Mock:
     return mock
 
 @pytest.mark.asyncio
+@pytest.mark.skip(reason="Loop detection is disabled due to legacy/invalid implementation. TODO: Implement gemini-cli inspired fast hash-based loop detection.")
 async def test_ttl_success(command: ToolLoopTTLCommand, mock_session: Mock):
     # Arrange
     args = {"ttl_seconds": "60"}
@@ -30,6 +33,7 @@ async def test_ttl_success(command: ToolLoopTTLCommand, mock_session: Mock):
     assert result.new_state.loop_config.tool_loop_ttl_seconds == 60
 
 @pytest.mark.asyncio
+@pytest.mark.skip(reason="Loop detection is disabled due to legacy/invalid implementation. TODO: Implement gemini-cli inspired fast hash-based loop detection.")
 async def test_ttl_failure_invalid_int(command: ToolLoopTTLCommand, mock_session: Mock):
     # Arrange
     args = {"ttl_seconds": "abc"}
@@ -42,6 +46,7 @@ async def test_ttl_failure_invalid_int(command: ToolLoopTTLCommand, mock_session
     assert result.message == "TTL seconds must be a valid integer"
 
 @pytest.mark.asyncio
+@pytest.mark.skip(reason="Loop detection is disabled due to legacy/invalid implementation. TODO: Implement gemini-cli inspired fast hash-based loop detection.")
 async def test_ttl_failure_too_low(command: ToolLoopTTLCommand, mock_session: Mock):
     # Arrange
     args = {"ttl_seconds": "0"}
@@ -54,6 +59,7 @@ async def test_ttl_failure_too_low(command: ToolLoopTTLCommand, mock_session: Mo
     assert result.message == "TTL seconds must be at least 1"
 
 @pytest.mark.asyncio
+@pytest.mark.skip(reason="Loop detection is disabled due to legacy/invalid implementation. TODO: Implement gemini-cli inspired fast hash-based loop detection.")
 async def test_ttl_failure_no_value(command: ToolLoopTTLCommand, mock_session: Mock):
     # Arrange
     args = {"ttl_seconds": None}

@@ -132,45 +132,48 @@ class ToolCallLoopDetectionMiddleware(IResponseMiddleware):
         if session_id in self._session_trackers:
             del self._session_trackers[session_id]
 
-    def _extract_tool_calls(self, content: str) -> list[dict[str, Any]]:
+    def _extract_tool_calls(self, content: Any) -> list[dict[str, Any]]:
         """Extract tool calls from response content.
 
         Args:
-            content: The response content
+            content: The response content (can be a string or a dict)
 
         Returns:
             List of tool call dictionaries
         """
-        try:
-            # Try to parse content as JSON
-            data = json.loads(content)
+        # If content is already a dict, use it directly
+        if isinstance(content, dict):
+            data = content
+        else:
+            # Otherwise try to parse as JSON string
+            try:
+                data = json.loads(content) if isinstance(content, str) else {}
+            except (json.JSONDecodeError, TypeError, ValueError):
+                # Not JSON or doesn't have the expected structure
+                return []
 
-            # Check for OpenAI format
-            if isinstance(data, dict):
-                choices = data.get("choices", [])
-                for choice in choices:
-                    message = choice.get("message", {})
-                    tool_calls = message.get("tool_calls", [])
-                    if (
-                        tool_calls
-                        and isinstance(tool_calls, list)
-                        and all(isinstance(item, dict) for item in tool_calls)
-                    ):
-                        # Create a new list with explicit typing
-                        result: list[dict[str, Any]] = []
-                        for item in tool_calls:
-                            if isinstance(item, dict):
-                                result.append(item)
-                        return result
+        # Check for OpenAI format
+        if isinstance(data, dict):
+            choices = data.get("choices", [])
+            for choice in choices:
+                message = choice.get("message", {})
+                tool_calls = message.get("tool_calls", [])
+                if (
+                    tool_calls
+                    and isinstance(tool_calls, list)
+                    and all(isinstance(item, dict) for item in tool_calls)
+                ):
+                    # Create a new list with explicit typing
+                    result: list[dict[str, Any]] = []
+                    for item in tool_calls:
+                        if isinstance(item, dict):
+                            result.append(item)
+                    return result
 
-            # Check for direct tool calls array
-            if isinstance(data, list) and all(
-                isinstance(item, dict) and "function" in item for item in data
-            ):
-                return data
-
-        except (json.JSONDecodeError, TypeError, ValueError):
-            # Not JSON or doesn't have the expected structure
-            pass
+        # Check for direct tool calls array
+        if isinstance(data, list) and all(
+            isinstance(item, dict) and "function" in item for item in data
+        ):
+            return data
 
         return []

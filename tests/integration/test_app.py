@@ -17,87 +17,16 @@ def test_app_client(monkeypatch: pytest.MonkeyPatch) -> TestClient:
     monkeypatch.setenv("DISABLE_AUTH", "true")
     monkeypatch.setenv("API_KEYS", "test-key")
 
-    from src.core.app.application_factory import build_app as new_build_app
+    from src.core.app.test_builder import build_test_app as new_build_app
     from src.core.config.app_config import AppConfig, BackendConfig
-    from src.core.di.container import IServiceProvider, ServiceCollection
-    from src.core.interfaces.backend_service_interface import IBackendService
-    from src.core.interfaces.command_service_interface import ICommandService
-    from src.core.interfaces.repositories_interface import ISessionRepository
-    from src.core.interfaces.request_processor_interface import IRequestProcessor
-    from src.core.interfaces.response_processor_interface import IResponseProcessor
-    from src.core.interfaces.session_service_interface import ISessionService
-    from src.core.repositories.in_memory_session_repository import (
-        InMemorySessionRepository,
-    )
-    from src.core.services.command_service import CommandRegistry, CommandService
-    from src.core.services.request_processor_service import RequestProcessor
-    from src.core.services.response_processor_service import ResponseProcessor
-    from src.core.services.session_service import SessionService
 
-    from tests.mocks.mock_backend_service import MockBackendService
 
     # Build the app with a test-specific configuration
     config = AppConfig(
         auth={"api_keys": ["test-key"]},
         backends={"default_backend": "mock", "mock": BackendConfig()},
     )
-    app = new_build_app(config=config)
-
-    # Create a new service collection for the test
-    services = ServiceCollection()
-    services.add_singleton(IBackendService, MockBackendService)
-    services.add_singleton(IResponseProcessor, ResponseProcessor)
-    services.add_singleton(ISessionRepository, InMemorySessionRepository)
-
-    # Configure CommandRegistry with a factory to ensure it's properly initialized
-    def command_registry_factory(sp: IServiceProvider) -> CommandRegistry:
-        from src.core.commands.set_command import SetCommand
-        from src.core.commands.unset_command import UnsetCommand
-        from src.core.domain.commands.help_command import HelpCommand
-
-        registry = CommandRegistry()
-        # Register commands (they don't take constructor arguments)
-        registry.register(HelpCommand())
-        registry.register(SetCommand())
-        registry.register(UnsetCommand())
-        return registry
-
-    services.add_singleton(
-        CommandRegistry, implementation_factory=command_registry_factory
-    )
-
-    def session_service_factory(sp: IServiceProvider) -> ISessionService:
-        return SessionService(
-            session_repository=sp.get_required_service(ISessionRepository),
-        )
-
-    services.add_singleton(
-        ISessionService, implementation_factory=session_service_factory
-    )
-
-    def command_service_factory(sp: IServiceProvider) -> ICommandService:
-        return CommandService(
-            command_registry=sp.get_required_service(CommandRegistry),
-            session_service=sp.get_required_service(ISessionService),
-        )
-
-    services.add_singleton(
-        ICommandService, implementation_factory=command_service_factory
-    )
-
-    def request_processor_factory(sp: IServiceProvider) -> IRequestProcessor:
-        return RequestProcessor(
-            command_service=sp.get_required_service(ICommandService),
-            backend_service=sp.get_required_service(IBackendService),
-            session_service=sp.get_required_service(ISessionService),
-            response_processor=sp.get_required_service(IResponseProcessor),
-        )
-
-    services.add_singleton(
-        IRequestProcessor, implementation_factory=request_processor_factory
-    )
-    app.state.service_provider = services.build_service_provider()
-
+    app, config = new_build_app(config=config)
     return TestClient(app)
 
 

@@ -7,9 +7,11 @@ from enum import Enum
 from pathlib import Path
 from typing import Any, ClassVar, cast
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import ConfigDict, Field, field_validator
 
 from src.core.config.config_loader import _collect_api_keys
+from src.core.interfaces.configuration_interface import IConfig
+from src.core.interfaces.model_bases import DomainModel
 
 # Note: Avoid self-imports to prevent circular dependencies. Classes are defined below.
 
@@ -61,7 +63,7 @@ class LogLevel(str, Enum):
     CRITICAL = "CRITICAL"
 
 
-class BackendConfig(BaseModel):
+class BackendConfig(DomainModel):
     """Configuration for a backend service."""
 
     api_key: list[str] = Field(default_factory=list)
@@ -87,7 +89,7 @@ class BackendConfig(BaseModel):
         return v
 
 
-class AuthConfig(BaseModel):
+class AuthConfig(DomainModel):
     """Authentication configuration."""
 
     disable_auth: bool = False
@@ -96,7 +98,7 @@ class AuthConfig(BaseModel):
     redact_api_keys_in_prompts: bool = True
 
 
-class LoggingConfig(BaseModel):
+class LoggingConfig(DomainModel):
     """Logging configuration."""
 
     level: LogLevel = LogLevel.INFO
@@ -105,7 +107,7 @@ class LoggingConfig(BaseModel):
     log_file: str | None = None
 
 
-class SessionConfig(BaseModel):
+class SessionConfig(DomainModel):
     """Session management configuration."""
 
     cleanup_enabled: bool = True
@@ -121,26 +123,26 @@ from src.core.services.backend_registry_service import (
 )
 
 
-class BackendSettings(BaseModel):
+class BackendSettings(DomainModel):
     """Settings for all backends."""
 
     default_backend: str = "openai"
     # Store backend configs as dynamic fields
-    model_config = ConfigDict(extra='allow')
+    model_config = ConfigDict(extra="allow")
 
     def __init__(self, **data: Any) -> None:
         # Extract backend configs from data before calling super().__init__
         backend_configs = {}
         registered_backends = backend_registry.get_registered_backends()
-        
+
         # Extract backend configs from data
         for backend_name in registered_backends:
             if backend_name in data:
                 backend_configs[backend_name] = data.pop(backend_name)
-        
+
         # Call parent constructor with remaining data
         super().__init__(**data)
-        
+
         # Set backend configs using __dict__ to bypass Pydantic's field system
         for backend_name, config_data in backend_configs.items():
             if isinstance(config_data, dict):
@@ -151,7 +153,7 @@ class BackendSettings(BaseModel):
                 config = BackendConfig()
             # Use __dict__ to bypass Pydantic's field system
             self.__dict__[backend_name] = config
-            
+
         # Add default BackendConfig for any registered backends that don't have configs
         for backend_name in registered_backends:
             if backend_name not in self.__dict__:
@@ -162,11 +164,11 @@ class BackendSettings(BaseModel):
         if key in self.__dict__:
             return cast(BackendConfig, self.__dict__[key])
         raise KeyError(f"Backend '{key}' not found")
-        
+
     def __setitem__(self, key: str, value: BackendConfig) -> None:
         """Allow dictionary-style setting of backend configs."""
         self.__dict__[key] = value
-        
+
     def get(self, key: str, default: Any = None) -> Any:
         """Dictionary-style get with default."""
         return cast(BackendConfig | None, self.__dict__.get(key, default))
@@ -182,7 +184,7 @@ class BackendSettings(BaseModel):
                     functional.add(backend_name)
         return functional
 
-    def __getattr__(self, name: str) -> BackendConfig:
+    def __getattr__(self, name: str) -> Any:
         """Allow accessing backend configs as attributes.
 
         If an attribute for a backend is missing, create a default
@@ -191,14 +193,20 @@ class BackendSettings(BaseModel):
         even if the registry hasn't been populated yet.
         """
         if name == "default_backend":  # Handle default_backend separately
-            return self.__dict__.get("default_backend", "openai")
+            # Ensure we use the explicitly set default_backend if available
+            if "default_backend" in self.__dict__:
+                return self.__dict__["default_backend"]
+            # Otherwise fall back to openai
+            return "openai"
 
         # Check if the attribute exists in __dict__
         if name in self.__dict__:
             return cast(BackendConfig, self.__dict__[name])
-        
+
         # For other attributes, raise AttributeError to maintain normal behavior
-        raise AttributeError(f"'{self.__class__.__name__}' object has no attribute '{name}'")
+        raise AttributeError(
+            f"'{self.__class__.__name__}' object has no attribute '{name}'"
+        )
 
     def model_dump(self, **kwargs: Any) -> dict[str, Any]:
         """Override model_dump to include default_backend and dynamic backends."""
@@ -212,7 +220,7 @@ class BackendSettings(BaseModel):
         return dumped
 
 
-class AppConfig(BaseModel):
+class AppConfig(DomainModel, IConfig):
     """Complete application configuration."""
 
     host: str = "0.0.0.0"
@@ -409,7 +417,7 @@ class AppConfig(BaseModel):
             AppConfig instance
         """
         # Build configuration from environment
-        config: dict[str, object] = {
+        config: dict[str, Any] = {
             # Server settings
             "host": os.environ.get("APP_HOST", "0.0.0.0"),
             "port": int(os.environ.get("APP_PORT", "8000")),
@@ -454,7 +462,9 @@ class AppConfig(BaseModel):
         }
 
         # Log the determined default_backend
-        logger.info(f"AppConfig.from_env - Determined default_backend: {config['backends']['default_backend']}")
+        logger.info(
+            f"AppConfig.from_env - Determined default_backend: {config['backends']['default_backend']}"
+        )
 
         # Extract backend configurations from environment
         config_backends = config["backends"]
@@ -465,28 +475,40 @@ class AppConfig(BaseModel):
         if openrouter_keys:
             config_backends["openrouter"] = config_backends.get("openrouter", {})
             config_backends["openrouter"]["api_key"] = list(openrouter_keys.values())
-            config_backends["openrouter"]["api_url"] = os.environ.get("OPENROUTER_API_BASE_URL", "https://openrouter.ai/api/v1")
+            config_backends["openrouter"]["api_url"] = os.environ.get(
+                "OPENROUTER_API_BASE_URL", "https://openrouter.ai/api/v1"
+            )
             if os.environ.get("OPENROUTER_TIMEOUT"):
                 with contextlib.suppress(ValueError):
-                    config_backends["openrouter"]["timeout"] = int(os.environ.get("OPENROUTER_TIMEOUT"))
+                    config_backends["openrouter"]["timeout"] = int(
+                        os.environ.get("OPENROUTER_TIMEOUT", "0")
+                    )
 
         gemini_keys = _collect_api_keys("GEMINI_API_KEY")
         if gemini_keys:
             config_backends["gemini"] = config_backends.get("gemini", {})
             config_backends["gemini"]["api_key"] = list(gemini_keys.values())
-            config_backends["gemini"]["api_url"] = os.environ.get("GEMINI_API_BASE_URL", "https://generativelanguage.googleapis.com")
+            config_backends["gemini"]["api_url"] = os.environ.get(
+                "GEMINI_API_BASE_URL", "https://generativelanguage.googleapis.com"
+            )
             if os.environ.get("GEMINI_TIMEOUT"):
                 with contextlib.suppress(ValueError):
-                    config_backends["gemini"]["timeout"] = int(os.environ.get("GEMINI_TIMEOUT"))
+                    config_backends["gemini"]["timeout"] = int(
+                        os.environ.get("GEMINI_TIMEOUT", "0")
+                    )
 
         anthropic_keys = _collect_api_keys("ANTHROPIC_API_KEY")
         if anthropic_keys:
             config_backends["anthropic"] = config_backends.get("anthropic", {})
             config_backends["anthropic"]["api_key"] = list(anthropic_keys.values())
-            config_backends["anthropic"]["api_url"] = os.environ.get("ANTHROPIC_API_BASE_URL", "https://api.anthropic.com/v1")
+            config_backends["anthropic"]["api_url"] = os.environ.get(
+                "ANTHROPIC_API_BASE_URL", "https://api.anthropic.com/v1"
+            )
             if os.environ.get("ANTHROPIC_TIMEOUT"):
                 with contextlib.suppress(ValueError):
-                    config_backends["anthropic"]["timeout"] = int(os.environ.get("ANTHROPIC_TIMEOUT"))
+                    config_backends["anthropic"]["timeout"] = int(
+                        os.environ.get("ANTHROPIC_TIMEOUT", "0")
+                    )
 
         zai_keys = _collect_api_keys("ZAI_API_KEY")
         if zai_keys:
@@ -495,22 +517,52 @@ class AppConfig(BaseModel):
             config_backends["zai"]["api_url"] = os.environ.get("ZAI_API_BASE_URL")
             if os.environ.get("ZAI_TIMEOUT"):
                 with contextlib.suppress(ValueError):
-                    config_backends["zai"]["timeout"] = int(os.environ.get("ZAI_TIMEOUT"))
+                    config_backends["zai"]["timeout"] = int(
+                        os.environ.get("ZAI_TIMEOUT", "0")
+                    )
 
         # Handle default backend if it's not explicitly configured above
         default_backend_type = os.environ.get("LLM_BACKEND", "openai")
         if default_backend_type not in config_backends:
             # If the default backend is not explicitly configured, ensure it has a basic config
-            config_backends[default_backend_type] = config_backends.get(default_backend_type, {})
+            config_backends[default_backend_type] = config_backends.get(
+                default_backend_type, {}
+            )
             # Add a dummy API key if running in test environment and no API key is present
-            if (
-                os.environ.get("PYTEST_CURRENT_TEST")
-                and (not config_backends[default_backend_type] or not config_backends[default_backend_type].get("api_key"))
+            if os.environ.get("PYTEST_CURRENT_TEST") and (
+                not config_backends[default_backend_type]
+                or not config_backends[default_backend_type].get("api_key")
             ):
-                config_backends[default_backend_type]["api_key"] = [f"test-key-{default_backend_type}"]
-                logger.info(f"Added test API key for default backend {default_backend_type}")
+                config_backends[default_backend_type]["api_key"] = [
+                    f"test-key-{default_backend_type}"
+                ]
+                logger.info(
+                    f"Added test API key for default backend {default_backend_type}"
+                )
 
         return cls(**config)  # type: ignore
+
+    def get(self, key: str, default: Any = None) -> Any:
+        """Get a configuration value by key."""
+        # Split the key by dots to handle nested attributes
+        keys = key.split(".")
+        value: Any = self
+
+        try:
+            for k in keys:
+                if isinstance(value, dict):
+                    value = value.get(k, default)
+                else:
+                    value = getattr(value, k, default)
+            return value
+        except Exception:
+            return default
+
+    def set(self, key: str, value: Any) -> None:
+        """Set a configuration value."""
+        # For simplicity, we'll only handle top-level attributes
+        # In a more complex implementation, we might want to handle nested attributes
+        setattr(self, key, value)
 
 
 def _merge_dicts(d1: dict[str, Any], d2: dict[str, Any]) -> dict[str, Any]:

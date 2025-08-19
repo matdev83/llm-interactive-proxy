@@ -14,7 +14,7 @@ try:
 except ImportError:
     ANTHROPIC_AVAILABLE = False
 
-from src.core.app.application_factory import build_app
+from src.core.app.test_builder import build_test_app as build_app
 from src.core.config.app_config import (
     AppConfig,
     AuthConfig,

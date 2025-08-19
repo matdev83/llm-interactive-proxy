@@ -66,7 +66,7 @@ class TestQwenOAuthToolCallingUnit:
             )
         ]
 
-        test_message = ChatMessage(role="user", content="What's the weather?")
+        test_message = ChatMessage(role="user", content="What\'s the weather?")
         request_data = ChatRequest(
             model="qwen3-coder-plus",
             messages=[test_message],
@@ -111,8 +111,8 @@ class TestQwenOAuthToolCallingUnit:
                 effective_model="qwen3-coder-plus",
             )
 
-            assert isinstance(result, tuple)
-            response, headers = result
+            response = result.content
+            # headers = result.headers
 
             # Verify the request was made with tools
             mock_client.post.assert_called_once()
@@ -181,7 +181,8 @@ class TestQwenOAuthToolCallingUnit:
                 effective_model="qwen3-coder-plus",
             )
 
-            response, headers = result
+            response = result.content
+            # headers = result.headers
 
             # Verify the request was made with tool_choice="none"
             call_args = mock_client.post.call_args
@@ -271,7 +272,8 @@ class TestQwenOAuthToolCallingUnit:
                 effective_model="qwen3-coder-plus",
             )
 
-            response, headers = result
+            response = result.content
+            # headers = result.headers
 
             # Verify the request was made with specific tool_choice
             call_args = mock_client.post.call_args
@@ -340,9 +342,9 @@ class TestQwenOAuthToolCallingUnit:
             )
 
             # Verify streaming response is returned
-            from starlette.responses import StreamingResponse
+            from src.core.domain.responses import StreamingResponseEnvelope
 
-            assert isinstance(result, StreamingResponse)
+            assert isinstance(result, StreamingResponseEnvelope)
             assert result.media_type == "text/event-stream"
 
             # Verify the request included tools
@@ -424,7 +426,8 @@ class TestQwenOAuthToolCallingUnit:
                 effective_model="qwen3-coder-plus",
             )
 
-            response, headers = result
+            response = result.content
+            # headers = result.headers
 
             # Verify the conversation context was sent
             call_args = mock_client.post.call_args

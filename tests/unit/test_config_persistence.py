@@ -2,7 +2,7 @@ import json
 
 import pytest
 from fastapi.testclient import TestClient
-from src.core.app.application_factory import build_app_compat as build_app
+from src.core.app.test_builder import build_test_app as build_app
 from src.core.config.app_config import load_config
 
 

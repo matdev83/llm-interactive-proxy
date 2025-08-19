@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import logging
-from collections.abc import AsyncIterator
 from typing import Any, cast
 
 from src.connectors.base import LLMBackend
@@ -10,8 +9,8 @@ from src.core.config.app_config import AppConfig
 from src.core.domain.chat import (
     ChatRequest,
     ChatResponse,
-    StreamingChatResponse,
 )
+from src.core.domain.responses import ResponseEnvelope, StreamingResponseEnvelope
 from src.core.interfaces.backend_config_provider_interface import IBackendConfigProvider
 from src.core.interfaces.backend_service_interface import IBackendService
 from src.core.interfaces.configuration_interface import IConfig
@@ -69,7 +68,7 @@ class BackendService(IBackendService):
 
     async def call_completion(
         self, request: ChatRequest, stream: bool = False, allow_failover: bool = True
-    ) -> ChatResponse | AsyncIterator[bytes]:
+    ) -> ResponseEnvelope | StreamingResponseEnvelope:
         """Call the LLM backend for a completion.
 
         Args:
@@ -155,7 +154,7 @@ class BackendService(IBackendService):
                 backend_config = BackendConfiguration(
                     backend_type=backend_type,
                     model=effective_model,
-                    failover_routes=effective_failover_routes,
+                    failover_routes_data=effective_failover_routes,
                 )
 
                 attempts = self._failover_coordinator.get_failover_attempts(
@@ -168,7 +167,7 @@ class BackendService(IBackendService):
                         f"No failover attempts available for model {effective_model}"
                     )
                     raise BackendError(
-                        message="all backends failed", backend=backend_type
+                        message="all backends failed", backend_name=backend_type
                     )
 
                 last_error = None
@@ -201,12 +200,16 @@ class BackendService(IBackendService):
                 logger.error(
                     f"All failover attempts failed. Last error: {last_error!s}"
                 )
-                raise BackendError(message="all backends failed", backend=backend_type)
+                raise BackendError(
+                    message="all backends failed", backend_name=backend_type
+                )
             except BackendError:
                 raise
             except Exception as failover_error:
                 logger.error(f"Failover processing failed: {failover_error!s}")
-                raise BackendError(message="all backends failed", backend=backend_type)
+                raise BackendError(
+                    message="all backends failed", backend_name=backend_type
+                )
 
         # Get or create the backend instance
         try:
@@ -214,7 +217,7 @@ class BackendService(IBackendService):
         except Exception as e:
             raise BackendError(
                 message=f"Failed to initialize backend {backend_type}",
-                backend=backend_type,
+                backend_name=backend_type,
                 details={"error": str(e)},
             )
 
@@ -269,21 +272,32 @@ class BackendService(IBackendService):
                         response_dict, headers = result
                         # Check if response_dict is a dict before converting
                         if isinstance(response_dict, dict):
-                            return ChatResponse.from_legacy_response(response_dict)
+                            chat_response = ChatResponse.from_legacy_response(
+                                response_dict
+                            )
+                            return ResponseEnvelope(
+                                content=chat_response.model_dump(), headers=headers
+                            )
                         else:
-                            # If it's not a dict, return as-is
-                            return result  # type: ignore
+                            # If it's not a dict, wrap it in ResponseEnvelope
+                            return ResponseEnvelope(
+                                content=response_dict, headers=headers
+                            )
                     else:
                         # If tuple doesn't have enough elements, return as-is
                         return result  # type: ignore
                 elif hasattr(result, "from_legacy_response"):
-                    # If it's already a ChatResponse or similar, return as-is
-                    return result  # type: ignore
+                    # If it's already a ChatResponse or similar, wrap it in ResponseEnvelope
+                    if hasattr(result, "model_dump"):
+                        return ResponseEnvelope(content=result.model_dump())
+                    else:
+                        return ResponseEnvelope(content=result)
                 else:
                     # For other cases, try to convert if it's a dict
                     if isinstance(result, dict):
                         try:
-                            return ChatResponse.from_legacy_response(result)
+                            chat_response = ChatResponse.from_legacy_response(result)
+                            return ResponseEnvelope(content=chat_response.model_dump())
                         except Exception:
                             # Tests often provide minimal dict mocks (e.g., only
                             # 'choices'->{'message':{'content':...}}). Instead of
@@ -292,10 +306,10 @@ class BackendService(IBackendService):
                             logger.debug(
                                 "ChatResponse.from_legacy_response failed; returning raw dict"
                             )
-                            return result  # type: ignore
+                            return ResponseEnvelope(content=result)
                     else:
-                        # If we can't convert, return as-is
-                        return result  # type: ignore
+                        # If we can't convert, wrap it in ResponseEnvelope
+                        return ResponseEnvelope(content=result)
 
         except (BackendError, RateLimitExceededError):
             # Re-raise our custom exceptions
@@ -305,7 +319,7 @@ class BackendService(IBackendService):
             if not allow_failover:
                 logger.error(f"Backend call failed (no failover allowed): {e!s}")
                 raise BackendError(
-                    message=f"Backend call failed: {e!s}", backend=backend_type
+                    message=f"Backend call failed: {e!s}", backend_name=backend_type
                 )
 
             # Prefer failover routes provided on the request (e.g., from session
@@ -337,7 +351,7 @@ class BackendService(IBackendService):
                     backend_config = BackendConfiguration(
                         backend_type=backend_type,
                         model=request.model,
-                        failover_routes=effective_failover_routes,
+                        failover_routes_data=effective_failover_routes,
                     )
 
                     # Get all failover attempts
@@ -351,7 +365,7 @@ class BackendService(IBackendService):
                         )
                         raise BackendError(
                             message=f"No failover attempts available for model {request.model}",
-                            backend=backend_type,
+                            backend_name=backend_type,
                         )
 
                     # Try each attempt in order. When running a named failover
@@ -397,13 +411,13 @@ class BackendService(IBackendService):
                         )
                         raise BackendError(
                             message=f"All failover attempts failed: {last_error!s}",
-                            backend=backend_type,
+                            backend_name=backend_type,
                         )
                 except Exception as failover_error:
                     logger.error(f"Failover processing failed: {failover_error!s}")
                     raise BackendError(
                         message=f"Failover processing failed: {failover_error!s}",
-                        backend=backend_type,
+                        backend_name=backend_type,
                     )
 
             # Handle simple backend-level failover if configured
@@ -493,12 +507,12 @@ class BackendService(IBackendService):
         except Exception as e:
             raise BackendError(
                 message=f"Failed to create backend {backend_type}: {e!s}",
-                backend=backend_type,
+                backend_name=backend_type,
             )
 
     async def chat_completions(
         self, request: ChatRequest, **kwargs: Any
-    ) -> ChatResponse | AsyncIterator[bytes]:
+    ) -> ResponseEnvelope | StreamingResponseEnvelope:  # type: ignore
         """Handle chat completions with the LLM."""
         stream = kwargs.get("stream", False)
         return await self.call_completion(request, stream=stream)

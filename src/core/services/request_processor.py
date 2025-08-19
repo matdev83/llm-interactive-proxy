@@ -1,39 +1,36 @@
 from __future__ import annotations
 
-import json
 import logging
 import time
 from collections.abc import AsyncIterator
 from typing import Any, cast
 
-from src.core.common.exceptions import LLMProxyError, ServiceUnavailableError
-
 from src.agents import (
-    convert_cline_marker_to_openai_tool_call,
     detect_agent,
     format_command_response_for_agent,
 )
-from src.core.transport.fastapi.api_adapters import legacy_to_domain_chat_request
-from src.core.common.exceptions import LoopDetectionError
+from src.core.common.exceptions import (
+    LoopDetectionError,
+)
 from src.core.domain.chat import (
     ChatCompletionChoice,
     ChatRequest,
     ChatResponse,
-    StreamingChatResponse,
 )
 from src.core.domain.chat import ChatMessage as DomainChatMessage
 from src.core.domain.processed_result import ProcessedResult
 from src.core.domain.request_context import RequestContext
-from src.core.domain.response_envelope import ResponseEnvelope
+from src.core.domain.responses import ResponseEnvelope, StreamingResponseEnvelope
 from src.core.domain.session import Session, SessionInteraction
-from src.core.domain.streaming_response_envelope import StreamingResponseEnvelope
 from src.core.interfaces.backend_service_interface import IBackendService
 from src.core.interfaces.command_service_interface import ICommandService
+from src.core.interfaces.model_bases import DomainModel, InternalDTO
 from src.core.interfaces.request_processor_interface import IRequestProcessor
 from src.core.interfaces.response_processor_interface import IResponseProcessor
 from src.core.interfaces.session_resolver_interface import ISessionResolver
 from src.core.interfaces.session_service_interface import ISessionService
 from src.core.services.session_resolver_service import DefaultSessionResolver
+from src.core.transport.fastapi.api_adapters import legacy_to_domain_chat_request
 
 logger = logging.getLogger(__name__)
 
@@ -66,12 +63,14 @@ class RequestProcessor(IRequestProcessor):
         self._backend_service = backend_service
         self._session_service = session_service
         self._response_processor = response_processor
-        
+
         # Use provided session resolver or create a default one
         self._session_resolver = session_resolver or DefaultSessionResolver()
 
     async def process_request(
-        self, context: RequestContext, request_data: ChatRequest
+        self,
+        context: RequestContext,
+        request_data: DomainModel | InternalDTO | dict[str, Any],
     ) -> ResponseEnvelope | StreamingResponseEnvelope:
         """Process an incoming chat completion request.
 
@@ -86,12 +85,17 @@ class RequestProcessor(IRequestProcessor):
         domain_request = request_data
         if not isinstance(request_data, ChatRequest):
             domain_request = legacy_to_domain_chat_request(request_data)
+        else:
+            # If it's already a ChatRequest, use it as is
+            domain_request = request_data
 
         # Extract key data from request for processing
         stream: bool = (
             domain_request.stream if domain_request.stream is not None else False
         )
-        logger.debug(f"domain_request.stream: {domain_request.stream}, Calculated stream: {stream}")
+        logger.debug(
+            f"domain_request.stream: {domain_request.stream}, Calculated stream: {stream}"
+        )
 
         # Normalize message items: ensure all messages are DomainChatMessage objects for internal processing
         messages: list[DomainChatMessage] = [
@@ -135,7 +139,9 @@ class RequestProcessor(IRequestProcessor):
             command_result = await self._command_service.process_commands(
                 messages, session_id
             )
-        logger.debug(f"command_result.command_executed: {command_result.command_executed}")
+        logger.debug(
+            f"command_result.command_executed: {command_result.command_executed}"
+        )
 
         processed_messages = [m.to_dict() for m in command_result.modified_messages]
         logger.debug(f"Command executed: {command_result.command_executed}")
@@ -145,7 +151,9 @@ class RequestProcessor(IRequestProcessor):
 
         # Add this block
         if not processed_messages:
-            logger.warning("No messages after command processing, returning 400 Bad Request.")
+            logger.warning(
+                "No messages after command processing, returning 400 Bad Request."
+            )
             return ResponseEnvelope(
                 content={
                     "error": {
@@ -155,7 +163,7 @@ class RequestProcessor(IRequestProcessor):
                         "code": "empty_messages",
                     }
                 },
-                status_code=400
+                status_code=400,
             )
         # End of new block
 
@@ -167,14 +175,13 @@ class RequestProcessor(IRequestProcessor):
 
             # Propagate per-session failover routes to application state so
             # subsequent requests without session_id still see the route.
+            from contextlib import suppress
+
             try:
                 fr = getattr(session.state.backend_config, "failover_routes", None)
                 if fr:
-                    try:
+                    with suppress(Exception):
                         context.app_state.failover_routes = fr
-                    except Exception:
-                        # App-state may be dict-like or otherwise; ignore failures
-                        pass
             except Exception:
                 pass
 
@@ -186,7 +193,9 @@ class RequestProcessor(IRequestProcessor):
             # command result carries meaningful 'data' (like temperature), we
             # continue to call the backend; otherwise we return a command-only
             # response.
-            logger.debug(f"command_result.command_results: {command_result.command_results}")
+            logger.debug(
+                f"command_result.command_results: {command_result.command_results}"
+            )
             continue_to_backend = False
             for cr in command_result.command_results:
                 try:
@@ -200,8 +209,10 @@ class RequestProcessor(IRequestProcessor):
             logger.debug(f"continue_to_backend: {continue_to_backend}")
             if not continue_to_backend:
                 # Format command result response
-                response_data: dict[str, Any] = await self._handle_command_only_response(
-                    domain_request, command_result, session, raw_prompt
+                response_data: dict[str, Any] = (
+                    await self._handle_command_only_response(
+                        domain_request, command_result, session, raw_prompt
+                    )
                 )
 
                 # Return the command response as a domain envelope
@@ -239,9 +250,9 @@ class RequestProcessor(IRequestProcessor):
             )
 
             # Convert request_data to a plain dict if it's a Pydantic model
-            extra_body_dict = {}
+            extra_body_dict: dict[str, Any] = {}
             if hasattr(request_data, "model_dump"):
-                extra_body_dict = request_data.model_dump()
+                extra_body_dict = cast(dict[str, Any], request_data.model_dump())
             elif isinstance(request_data, dict):
                 extra_body_dict = request_data
             else:
@@ -255,26 +266,28 @@ class RequestProcessor(IRequestProcessor):
             # Call the backend
             try:
                 # Get failover routes from session and add them to extra_body
-                failover_routes = getattr(session.state.backend_config, "failover_routes", None)
+                failover_routes = getattr(
+                    session.state.backend_config, "failover_routes", None
+                )
                 if failover_routes:
                     extra_body_dict["failover_routes"] = failover_routes
 
-                backend_response_data: (
-                    ChatResponse | AsyncIterator[bytes] | ResponseEnvelope | StreamingResponseEnvelope
-                ) = await self._backend_service.call_completion(
-                    request=ChatRequest(
-                        model=request_model,
-                        messages=[
-                            DomainChatMessage.model_validate(msg)
-                            for msg in processed_messages
-                        ],
-                        temperature=temperature,
-                        top_p=top_p,
-                        max_tokens=max_tokens,
+                backend_response_data: ResponseEnvelope | StreamingResponseEnvelope = (
+                    await self._backend_service.call_completion(
+                        request=ChatRequest(
+                            model=request_model,
+                            messages=[
+                                DomainChatMessage.model_validate(msg)
+                                for msg in processed_messages
+                            ],
+                            temperature=temperature,
+                            top_p=top_p,
+                            max_tokens=max_tokens,
+                            stream=stream,
+                            extra_body=extra_body_dict,
+                        ),
                         stream=stream,
-                        extra_body=extra_body_dict,
-                    ),
-                    stream=stream,
+                    )
                 )
             except Exception as e:
                 # Add a failed interaction to the session
@@ -295,7 +308,7 @@ class RequestProcessor(IRequestProcessor):
 
             # Process the response
             logger.debug(f"Stream flag: {stream}")
-            
+
             # Handle various response types
             if isinstance(backend_response_data, ResponseEnvelope):
                 # Return the envelope directly
@@ -312,7 +325,9 @@ class RequestProcessor(IRequestProcessor):
             else:
                 # For non-streaming responses from legacy backends, process directly
                 return ResponseEnvelope(
-                    content=self._convert_to_dict(cast(ChatResponse, backend_response_data)),
+                    content=self._convert_to_dict(
+                        cast(ChatResponse, backend_response_data)
+                    ),
                     status_code=200,
                 )
 
@@ -373,10 +388,10 @@ class RequestProcessor(IRequestProcessor):
 
     def _convert_to_dict(self, obj: Any) -> dict[str, Any]:
         """Convert an object to a dictionary.
-        
+
         Args:
             obj: The object to convert
-            
+
         Returns:
             A dictionary representation of the object
         """
@@ -384,22 +399,22 @@ class RequestProcessor(IRequestProcessor):
             return obj
         elif hasattr(obj, "model_dump"):
             # Handle pydantic models
-            return obj.model_dump(exclude_none=True)
+            return cast(dict[str, Any], obj.model_dump(exclude_none=True))
         else:
             # Generic fallback for other types
-            result = {
-                "id": getattr(obj, "id", f"chatcmpl-{time.time_ns()}"),
-                "object": getattr(obj, "object", "chat.completion"),
-                "created": getattr(obj, "created", int(time.time())),
-                "model": getattr(obj, "model", "unknown"),
-                "choices": getattr(obj, "choices", []),
-                "usage": getattr(obj, "usage", {}),
+            result: dict[str, Any] = {
+                "id": str(getattr(obj, "id", f"chatcmpl-{time.time_ns()}")),
+                "object": str(getattr(obj, "object", "chat.completion")),
+                "created": int(getattr(obj, "created", int(time.time()))),
+                "model": str(getattr(obj, "model", "unknown")),
+                "choices": list(getattr(obj, "choices", [])),
+                "usage": dict(getattr(obj, "usage", {})),
             }
-            
+
             # Ensure the object field is present
             if "object" not in result:
                 result["object"] = "chat.completion"
-                
+
             return result
 
     def _extract_response_content(self, response: Any) -> Any:
@@ -493,7 +508,9 @@ class RequestProcessor(IRequestProcessor):
         for result in command_result.command_results:
             # CommandResultWrapper doesn't have 'command' attribute, but has 'result'
             # which might have 'cmd_name' or other identifiers
-            cmd_name = result.command # Directly use the 'command' property from CommandResultWrapper
+            cmd_name = (
+                result.command
+            )  # Directly use the 'command' property from CommandResultWrapper
 
             results.append(
                 {
@@ -549,10 +566,10 @@ class RequestProcessor(IRequestProcessor):
                 [f"{r['command']}: {r['message']}" for r in results], agent_type
             )
             # Ensure the nested structure exists before assigning
-            if response_dict.get("choices"):
-                if "message" in response_dict["choices"][0]:
-                    response_dict["choices"][0]["message"]["content"] = (
-                        formatted_content
-                    )
+            if (
+                response_dict.get("choices")
+                and "message" in response_dict["choices"][0]
+            ):
+                response_dict["choices"][0]["message"]["content"] = formatted_content
 
         return response_dict

@@ -16,7 +16,7 @@ from unittest.mock import patch
 
 import pytest
 from fastapi.testclient import TestClient
-from src.core.app.application_factory import build_app
+from src.core.app.test_builder import build_test_app as build_app
 
 # Mark all tests in this module as integration and network tests
 pytestmark = [pytest.mark.integration, pytest.mark.network]

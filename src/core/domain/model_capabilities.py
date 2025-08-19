@@ -10,6 +10,8 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any
 
+from src.core.interfaces.model_bases import InternalDTO
+
 
 class ModelCapability(str, Enum):
     """Enumeration of model capabilities."""
@@ -41,7 +43,7 @@ class ModelCapability(str, Enum):
 
 
 @dataclass
-class ModelLimits:
+class ModelLimits(InternalDTO):
     """Limits and constraints for a model."""
 
     max_tokens: int | None = None
@@ -67,7 +69,7 @@ class ModelLimits:
 
 
 @dataclass
-class ModelPricing:
+class ModelPricing(InternalDTO):
     """Pricing information for a model."""
 
     # Cost per 1K tokens
@@ -123,7 +125,7 @@ class ModelPricing:
 
 
 @dataclass
-class ModelMetadata:
+class ModelMetadata(InternalDTO):
     """Metadata about a model."""
 
     # Basic info
@@ -154,7 +156,7 @@ class ModelMetadata:
 
 
 @dataclass
-class ModelCapabilities:
+class ModelCapabilities(InternalDTO):
     """Complete capability profile for a model."""
 
     # Model identification

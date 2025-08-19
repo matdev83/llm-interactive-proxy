@@ -6,7 +6,6 @@ import pytest_asyncio
 from pytest_httpx import HTTPXMock
 from src.connectors.gemini import GeminiBackend
 from src.core.domain.chat import ChatMessage, ChatRequest
-from starlette.responses import StreamingResponse
 
 TEST_GEMINI_API_BASE_URL = "https://generativelanguage.googleapis.com"
 
@@ -67,10 +66,13 @@ async def test_chat_completions_streaming_success(
         api_key="FAKE_KEY",
     )
 
-    assert isinstance(response, StreamingResponse)
+    # The response is now a StreamingResponseEnvelope
+    assert hasattr(response, 'content')
+    # Extract the content generator from the envelope
+    content_generator = response.content
 
     chunks = []
-    async for chunk in response.body_iterator:
+    async for chunk in content_generator:
         chunks.append(chunk)
 
     joined = b"".join(

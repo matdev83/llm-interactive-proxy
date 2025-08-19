@@ -10,6 +10,7 @@ from src.core.domain.session import Session
 
 logger = logging.getLogger(__name__)
 
+
 class ModelCommand(BaseCommand):
     """Command for setting the model name."""
 
@@ -24,9 +25,11 @@ class ModelCommand(BaseCommand):
         """Set or unset the model name."""
         model_name = args.get("name")
 
-        if model_name is None or (isinstance(model_name, str) and not model_name.strip()):
+        if model_name is None or (
+            isinstance(model_name, str) and not model_name.strip()
+        ):
             return self._unset_model(session)
-        
+
         return self._set_model(model_name, session)
 
     def _unset_model(self, session: Session) -> CommandResult:
@@ -42,7 +45,9 @@ class ModelCommand(BaseCommand):
             )
         except Exception as e:
             logger.error(f"Error unsetting model: {e}")
-            return CommandResult(success=False, message=f"Error unsetting model: {e}", name=self.name)
+            return CommandResult(
+                success=False, message=f"Error unsetting model: {e}", name=self.name
+            )
 
     def _set_model(self, model_name: str, session: Session) -> CommandResult:
         """Sets the model, potentially with a backend override."""
@@ -73,4 +78,6 @@ class ModelCommand(BaseCommand):
             )
         except Exception as e:
             logger.error(f"Error setting model: {e}")
-            return CommandResult(success=False, message=f"Error setting model: {e}", name=self.name)
+            return CommandResult(
+                success=False, message=f"Error setting model: {e}", name=self.name
+            )

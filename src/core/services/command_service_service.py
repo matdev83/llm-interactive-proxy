@@ -9,8 +9,7 @@ from .command_service import CommandRegistry, CommandService
 warnings.warn(
     "Importing from 'src.core.services.command_service_service' is deprecated; use 'src.core.services.command_service' instead",
     DeprecationWarning,
+    stacklevel=2,
 )
 
 __all__ = ["CommandRegistry", "CommandService"]
-
-

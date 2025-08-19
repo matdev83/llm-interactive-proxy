@@ -1,0 +1,2 @@
+client.post.call_args: call('https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-pro:generateContent', json={'contents': [{'role': 'user', 'parts': [{'text': 'Test'}]}], 'generationConfig': {'temperature': 0.7}}, headers={'x-goog-api-key': 'test-key'})
+payload generationConfig: {'temperature': 0.7}

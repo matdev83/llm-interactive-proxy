@@ -13,6 +13,7 @@ from typing import Any
 from fastapi import FastAPI, Request
 
 from src.core.di.services import get_service_provider
+from src.core.interfaces.model_bases import DomainModel, InternalDTO
 
 logger = logging.getLogger(__name__)
 
@@ -30,7 +31,9 @@ class ChatService:
         self.app = app
 
     async def process_chat_request(
-        self, http_request: Request, request_data: Any
+        self,
+        http_request: Request,
+        request_data: DomainModel | InternalDTO | dict[str, Any],
     ) -> Any:
         """
         Process a chat completion request.
@@ -71,14 +74,20 @@ class ChatService:
         # Get session ID
         session_id = http_request.headers.get("x-session-id", "default")
 
+        # Convert incoming request to domain ChatRequest (handles dicts/legacy models)
+        from src.core.domain.processed_result import ProcessedResult
+        from src.core.transport.fastapi.api_adapters import (
+            legacy_to_domain_chat_request,
+        )
+
+        domain_request = legacy_to_domain_chat_request(request_data)
+
         # Get session (needed for command processing)
         await session_service.get_session(session_id)
 
         # Process commands
-        from src.core.domain.processed_result import ProcessedResult
-
         processed_result: ProcessedResult = await command_service.process_commands(
-            request_data.messages, session_id
+            domain_request.messages, session_id
         )
 
         # If a command was executed, return the command result
@@ -88,7 +97,7 @@ class ChatService:
                 "id": f"cmd-{int(time.time())}",
                 "object": "chat.completion",
                 "created": int(time.time()),
-                "model": request_data.model,
+                "model": domain_request.model,
                 "choices": [
                     {
                         "index": 0,
@@ -122,13 +131,13 @@ class ChatService:
 
         chat_request = ChatRequest(
             messages=chat_messages,
-            model=request_data.model,
-            stream=getattr(request_data, "stream", False),
-            temperature=getattr(request_data, "temperature", None),
-            max_tokens=getattr(request_data, "max_tokens", None),
-            tools=getattr(request_data, "tools", None),
-            tool_choice=getattr(request_data, "tool_choice", None),
-            user=getattr(request_data, "user", None),
+            model=domain_request.model,
+            stream=domain_request.stream,
+            temperature=domain_request.temperature,
+            max_tokens=domain_request.max_tokens,
+            tools=domain_request.tools,
+            tool_choice=domain_request.tool_choice,
+            user=domain_request.user,
             session_id=session_id,
         )
 

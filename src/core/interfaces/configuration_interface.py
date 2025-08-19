@@ -158,6 +158,10 @@ class ILoopDetectionConfig(abc.ABC):
         """Create a new config with updated tool loop TTL."""
 
     @abc.abstractmethod
+    def with_tool_loop_ttl_seconds(self, ttl_seconds: int) -> ILoopDetectionConfig:
+        """Create a new config with updated tool loop TTL seconds."""
+
+    @abc.abstractmethod
     def with_tool_loop_mode(self, mode: str | None) -> ILoopDetectionConfig:
         """Create a new config with updated tool loop mode."""
 

@@ -42,7 +42,11 @@ class HelpCommand(BaseCommand):
         if args:
             cmd_name = next(iter(args.keys()), None)
             if not cmd_name:
-                 return CommandResult(success=False, message="Invalid format for help command.", name=self.name)
+                return CommandResult(
+                    success=False,
+                    message="Invalid format for help command.",
+                    name=self.name,
+                )
 
             cmd_handler = handlers.get(cmd_name.lower())
 
@@ -64,8 +68,12 @@ class HelpCommand(BaseCommand):
 
         # Case 2: List all available commands
         if not handlers:
-            return CommandResult(name=self.name, success=True, message="No commands available.")
+            return CommandResult(
+                name=self.name, success=True, message="No commands available."
+            )
 
-        command_lines = [f"- {name} - {cmd.description}" for name, cmd in sorted(handlers.items())]
+        command_lines = [
+            f"- {name} - {cmd.description}" for name, cmd in sorted(handlers.items())
+        ]
         message = "Available commands:\n" + "\n".join(command_lines)
         return CommandResult(name=self.name, success=True, message=message)

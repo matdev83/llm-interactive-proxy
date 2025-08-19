@@ -6,7 +6,7 @@ from unittest.mock import patch
 
 import pytest
 from fastapi.testclient import TestClient
-from src.core.app.application_factory import build_app
+from src.core.app.test_builder import build_test_app as build_app
 
 
 @pytest.fixture
@@ -16,7 +16,7 @@ async def app(monkeypatch: pytest.MonkeyPatch):
     app = build_app()
 
     # Manually set up services for testing since lifespan isn't called in tests
-    from src.core.app.application_factory import ApplicationBuilder
+    from src.core.app.test_builder import TestApplicationBuilder as ApplicationBuilder
     from src.core.config.app_config import AppConfig, BackendConfig
     from src.core.di.services import set_service_provider
 

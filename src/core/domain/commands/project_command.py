@@ -52,7 +52,7 @@ class ProjectCommand(BaseCommand):
         try:
             # Create new session state with updated project name
             updated_state = session.state.with_project(project_name)
-            
+
             return CommandResult(
                 name=self.name,
                 success=True,

@@ -15,8 +15,7 @@ warnings.warn(
     "Importing from 'src.core.services.backend_registry_service' is deprecated; "
     "use 'src.core.services.backend_registry' instead",
     DeprecationWarning,
+    stacklevel=2,
 )
 
 __all__ = ["BackendRegistry", "backend_registry"]
-
-

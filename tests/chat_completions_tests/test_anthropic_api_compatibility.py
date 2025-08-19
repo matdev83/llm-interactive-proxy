@@ -121,9 +121,20 @@ async def test_anthropic_messages_non_streaming(test_client: TestClient):
         mock_call_completion.assert_called_once()
         # Check the call arguments for the mocked function
         args, kwargs = mock_call_completion.call_args
-        # The request should be the first positional argument after self
-        openai_request = args[0]  # First argument after self
+        # Print debug info to see what arguments were actually passed
+        # print(f"Args: {args}")
+        # print(f"Kwargs: {kwargs}")
+        
+        # The request should be in kwargs with key 'request'
+        openai_request = kwargs.get('request')
+        if openai_request is None and len(args) > 1:
+            # If not in kwargs, it might be the second positional argument (first is self)
+            openai_request = args[1]
+        elif openai_request is None and len(args) == 1:
+            # If only one arg, it might be the request
+            openai_request = args[0]
 
+        assert openai_request is not None
         assert openai_request.model == "some-model"
         assert len(openai_request.messages) == 1
         assert openai_request.messages[0].role == "user"

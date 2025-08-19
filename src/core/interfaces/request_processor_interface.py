@@ -5,8 +5,8 @@ from typing import Any
 
 from src.core.domain.chat import ChatRequest
 from src.core.domain.request_context import RequestContext
-from src.core.domain.response_envelope import ResponseEnvelope
-from src.core.domain.streaming_response_envelope import StreamingResponseEnvelope
+from src.core.domain.responses import ResponseEnvelope, StreamingResponseEnvelope
+from src.core.interfaces.model_bases import DomainModel, InternalDTO
 
 
 class IRequestMiddleware(ABC):
@@ -41,7 +41,9 @@ class IRequestProcessor(ABC):
 
     @abstractmethod
     async def process_request(
-        self, context: RequestContext, request_data: Any
+        self,
+        context: RequestContext,
+        request_data: DomainModel | InternalDTO | dict[str, Any],
     ) -> ResponseEnvelope | StreamingResponseEnvelope:
         """Process an incoming chat completion request in a transport-agnostic way.
 

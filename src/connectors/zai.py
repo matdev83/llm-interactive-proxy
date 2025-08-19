@@ -7,9 +7,9 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 import httpx
+
 from src.core.common.exceptions import AuthenticationError, ConfigurationError
-from src.core.domain.response_envelope import ResponseEnvelope
-from src.core.domain.streaming_response_envelope import StreamingResponseEnvelope
+from src.core.domain.responses import ResponseEnvelope, StreamingResponseEnvelope
 from src.core.services.backend_registry import backend_registry
 
 from .openai import OpenAIConnector
@@ -56,8 +56,7 @@ class ZAIConnector(OpenAIConnector):
         self.api_key = kwargs.get("api_key")
         if not self.api_key:
             raise ConfigurationError(
-                message="api_key is required for ZAIConnector",
-                code="missing_api_key"
+                message="api_key is required for ZAIConnector", code="missing_api_key"
             )
 
         api_base_url = kwargs.get("api_base_url")
@@ -100,8 +99,7 @@ class ZAIConnector(OpenAIConnector):
         """Get headers with ZAI API key."""
         if not self.api_key:
             raise AuthenticationError(
-                message="ZAI API key is not set.",
-                code="missing_api_key"
+                message="ZAI API key is not set.", code="missing_api_key"
             )
         return {
             "Authorization": f"Bearer {self.api_key}",
@@ -118,6 +116,34 @@ class ZAIConnector(OpenAIConnector):
         if hasattr(self, "available_models") and self.available_models:
             return self.available_models
         return self._default_models.copy()
+
+    async def chat_completions(
+        self,
+        request_data: Any,
+        processed_messages: list[Any],
+        effective_model: str,
+        **kwargs: Any,
+    ) -> ResponseEnvelope | StreamingResponseEnvelope:
+        result = await super().chat_completions(
+            request_data=request_data,
+            processed_messages=processed_messages,
+            effective_model=effective_model,
+            **kwargs,
+        )
+
+        # Handle different return types from parent
+        if isinstance(result, ResponseEnvelope | StreamingResponseEnvelope):
+            # Parent returned domain envelope -> return it directly
+            return result
+        elif isinstance(result, tuple) and len(result) == 2:
+            # Parent returned (content, headers) tuple -> wrap into domain envelope
+            content, headers = result
+            return ResponseEnvelope(content=content, headers=headers or {})
+        else:
+            # Unknown type -> error
+            raise TypeError(
+                f"Unexpected return type from parent chat_completions: {type(result)}"
+            )
 
 
 backend_registry.register_backend("zai", ZAIConnector)

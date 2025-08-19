@@ -4,7 +4,7 @@ import os
 
 import pytest
 from fastapi.testclient import TestClient
-from src.core.app.application_factory import build_app
+from src.core.app.test_builder import build_test_app as build_app
 from src.core.interfaces.backend_config_provider_interface import IBackendConfigProvider
 
 
@@ -31,7 +31,9 @@ async def app_client(test_env: None) -> TestClient:
 
     # Ensure service provider is initialized
     if not hasattr(app.state, "service_provider") or not app.state.service_provider:
-        from src.core.app.application_factory import ApplicationBuilder
+        from src.core.app.test_builder import (
+            TestApplicationBuilder as ApplicationBuilder,
+        )
 
         # Initialize services
         builder = ApplicationBuilder()

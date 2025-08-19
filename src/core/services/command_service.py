@@ -145,7 +145,7 @@ class CommandService(ICommandService):
 
     async def register_command(self, command_name: str, command_handler: Any) -> None:
         """Register a command handler.
-        
+
         Args:
             command_name: The name of the command
             command_handler: The command handler to register
@@ -153,9 +153,7 @@ class CommandService(ICommandService):
         self._registry.register(command_handler)
 
     async def process_commands(
-        self,
-        messages: list[ChatMessage],
-        session_id: str
+        self, messages: list[ChatMessage], session_id: str
     ) -> ProcessedResult:
         """
         Processes a list of messages to identify and execute commands.
@@ -193,22 +191,24 @@ class CommandService(ICommandService):
                 if isinstance(content, str):
                     if content.startswith("!/"):
                         # Extract command name and args
-                        # Handle format: !/command(args) 
+                        # Handle format: !/command(args)
                         match = re.match(r"!/(\w+)\(([^)]*)\)", content)
                         if match:
                             cmd_name = match.group(1)
                             args_str = match.group(2)
                             # Find the end position after the closing parenthesis
-                            paren_start = content.find('(')
+                            paren_start = content.find("(")
                             if paren_start != -1:
-                                paren_end = content.find(')', paren_start)
+                                paren_end = content.find(")", paren_start)
                                 if paren_end != -1:
                                     match_end = paren_end + 1
                                 else:
                                     match_end = len(content)
                             else:
                                 match_end = len(content)
-                            remaining = content[match_end:]  # Capture remaining content after command
+                            remaining = content[
+                                match_end:
+                            ]  # Capture remaining content after command
                         else:
                             # Handle format: !/command (without parentheses)
                             match = re.match(r"!/(\w+)", content)
@@ -216,7 +216,9 @@ class CommandService(ICommandService):
                                 cmd_name = match.group(1)
                                 args_str = None
                                 match_end = match.end()
-                                remaining = content[match_end:]  # Capture remaining content after command
+                                remaining = content[
+                                    match_end:
+                                ]  # Capture remaining content after command
                             else:
                                 continue
 

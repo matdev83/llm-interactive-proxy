@@ -315,11 +315,8 @@ class RouteAppendHandler(BaseCommandHandler):
             from src.core.services.backend_registry_service import (
                 backend_registry,  # Added this import
             )
-            if (
-                context
-                and backend
-                not in backend_registry.get_registered_backends()
-            ):
+
+            if context and backend not in backend_registry.get_registered_backends():
                 return CommandHandlerResult(
                     success=False,
                     message=f"Backend '{backend}' in element '{element}' is not supported",

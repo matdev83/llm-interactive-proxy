@@ -52,23 +52,24 @@ from src.core.services.backend_registry_service import (
 
 # ... (rest of the file)
 
+
 def parse_cli_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Run the LLM proxy server")
-    
+
     # Dynamically get registered backends
     registered_backends = backend_registry.get_registered_backends()
 
     parser.add_argument(
         "--default-backend",
         dest="default_backend",
-        choices=registered_backends, # Dynamically populated
+        choices=registered_backends,  # Dynamically populated
         default=os.getenv("LLM_BACKEND"),
         help="Default backend when multiple backends are functional",
     )
     parser.add_argument(
         "--backend",
         dest="default_backend",
-        choices=registered_backends, # Dynamically populated
+        choices=registered_backends,  # Dynamically populated
         help=argparse.SUPPRESS,
     )
     parser.add_argument("--openrouter-api-key")
@@ -243,12 +244,12 @@ from typing import cast
 
 from fastapi import FastAPI  # Added this import
 
-from src.core.app.application_factory import build_app  # Moved this import to the top
+from src.core.app.application_builder import (
+    build_app,  # Using new staged initialization
+)
 from src.core.config.app_config import AppConfig
 
 # ... (rest of the file)
-
-
 
 
 def main(
@@ -276,7 +277,7 @@ def main(
     if build_app_fn is not None:
         app = build_app_fn(cfg, args.config_file)
     else:
-        app, _ = build_app(cfg)
+        app = build_app(cfg)
 
     uvicorn.run(app, host=cfg.host, port=cfg.port)
 

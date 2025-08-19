@@ -46,7 +46,7 @@ async def test_loop_detection_with_mocked_backend():
 
     import os
 
-    from src.core.app.application_factory import build_app
+    from src.core.app.test_builder import build_test_app as build_app
     from src.core.config.app_config import (
         AppConfig,
         AuthConfig,
@@ -79,41 +79,11 @@ async def test_loop_detection_with_mocked_backend():
     # Create the app with auth disabled
     app = build_app(test_config)
 
-    # Create and set up a service provider for testing using app registration
-    from src.core.app.application_factory import ApplicationBuilder
-    from src.core.config.app_config import load_config
-    from src.core.di.services import get_service_collection, set_service_provider
-    from src.core.integration.bridge import get_integration_bridge
-
-    services = get_service_collection()
-    # Provide a dummy httpx client into app.state for register_services
-    import httpx as _httpx
-
-    app.state.httpx_client = _httpx.AsyncClient()
-    # Manually initialize services and backends
-    loop_config = load_config()
-    builder = ApplicationBuilder()
-
-    # We need to run this in an async context
-    async def init_services():
-        service_provider = await builder._initialize_services(app, loop_config)
-        app.state.service_provider = service_provider
-        await builder._initialize_backends(app, loop_config)
-        await builder._initialize_loop_detection_middleware(app, loop_config)
-
-    await init_services()
-    service_provider = services.build_service_provider()
-    set_service_provider(service_provider)
-    app.state.service_provider = service_provider
-
-    # Initialize the integration bridge to recognize the new architecture
-    bridge = get_integration_bridge(app)
-    bridge.new_initialized = (
-        True  # Mark as initialized since we manually set up services
-    )
+    # The service provider should already be initialized by the test app
+    # No additional setup needed with the new staged architecture
 
     # Get the backend service from provider (will be used for patching)
-    backend_service = service_provider.get_required_service(IBackendService)  # type: ignore
+    backend_service = app.state.service_provider.get_required_service(IBackendService)  # type: ignore
 
     # Create a response with repeating content
     # Use a pattern that is at least 50 characters long (the default min_pattern_length)
@@ -170,7 +140,7 @@ async def test_loop_detection_in_streaming_response():
     """Test loop detection in a streaming response."""
     import os
 
-    from src.core.app.application_factory import build_app
+    from src.core.app.test_builder import build_test_app as build_app
     from src.core.config.app_config import (
         AppConfig,
         AuthConfig,
@@ -218,7 +188,7 @@ async def test_loop_detection_in_streaming_response():
     app.state.httpx_client = httpx.AsyncClient()
 
     # Manually initialize services and backends
-    from src.core.app.application_factory import ApplicationBuilder
+    from src.core.app.test_builder import TestApplicationBuilder as ApplicationBuilder
     from src.core.config.app_config import load_config
 
     loop_config = load_config()

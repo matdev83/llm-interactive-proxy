@@ -71,7 +71,9 @@ class LoopDetector(ILoopDetector):
             results = []
 
             if len(content) >= min_len * 2:
-                for pattern_length in range(min_len, min(max_len, len(content) // 2) + 1):
+                for pattern_length in range(
+                    min_len, min(max_len, len(content) // 2) + 1
+                ):
                     pattern = content[:pattern_length]
                     if content.count(pattern) >= min_reps:
                         results.append(
@@ -99,8 +101,11 @@ class LoopDetector(ILoopDetector):
                     details={
                         "pattern_length": len(result.pattern) if result.pattern else 0,
                         "total_repeated_chars": (
-                            len(result.pattern) * result.repetitions if result.pattern else 0
+                            len(result.pattern) * result.repetitions
+                            if result.pattern
+                            else 0
                         ),
+                        "repetitions": result.repetitions,
                     },
                 )
 
@@ -120,10 +125,10 @@ class LoopDetector(ILoopDetector):
         self._max_pattern_length = max_pattern_length
         self._min_repetitions = min_repetitions
 
-    async def register_tool_call(self, tool_name: str, arguments: dict[str, Any]) -> None:
+    async def register_tool_call(
+        self, tool_name: str, arguments: dict[str, Any]
+    ) -> None:
         return None
 
     async def clear_history(self) -> None:
         return None
-
-

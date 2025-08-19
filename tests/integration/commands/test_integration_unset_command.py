@@ -1,9 +1,15 @@
 
-import pytest
 from unittest.mock import Mock
-from src.core.domain.session import SessionState, BackendConfiguration, ReasoningConfiguration
-from src.command_parser import CommandParser
+
+import pytest
 from src.command_config import CommandParserConfig
+from src.command_parser import CommandParser
+from src.core.domain.session import (
+    BackendConfiguration,
+    ReasoningConfiguration,
+    SessionState,
+)
+
 
 # Helper function to simulate running a command, adapted for unset command tests
 async def run_command(command_string: str, initial_state: SessionState) -> str:

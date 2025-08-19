@@ -15,13 +15,17 @@ from src.anthropic_converters import (
     openai_to_anthropic_response,
 )
 from src.anthropic_models import AnthropicMessagesRequest
-from src.core.transport.fastapi.exception_adapters import map_domain_exception_to_http_exception
-from src.core.transport.fastapi.request_adapters import fastapi_to_domain_request_context
-from src.core.transport.fastapi.response_adapters import domain_response_to_fastapi
-from src.core.common.exceptions import LoopDetectionError, LLMProxyError
-from src.core.domain.request_context import RequestContext
+from src.core.common.exceptions import LLMProxyError
 from src.core.interfaces.di_interface import IServiceProvider
+from src.core.interfaces.model_bases import DomainModel, InternalDTO
 from src.core.interfaces.request_processor_interface import IRequestProcessor
+from src.core.transport.fastapi.exception_adapters import (
+    map_domain_exception_to_http_exception,
+)
+from src.core.transport.fastapi.request_adapters import (
+    fastapi_to_domain_request_context,
+)
+from src.core.transport.fastapi.response_adapters import domain_response_to_fastapi
 
 logger = logging.getLogger(__name__)
 
@@ -38,7 +42,11 @@ class AnthropicController:
         self._processor = request_processor
 
     async def handle_anthropic_messages(
-        self, request: Request, request_data: AnthropicMessagesRequest
+        self,
+        request: Request,
+        request_data: (
+            AnthropicMessagesRequest | DomainModel | InternalDTO | dict[str, Any]
+        ),
     ) -> Response:
         """Handle Anthropic messages requests.
 
@@ -49,12 +57,40 @@ class AnthropicController:
         Returns:
             An HTTP response
         """
-        logger.info(f"Handling Anthropic messages request: model={request_data.model}")
-
         try:
             # Convert Anthropic request to OpenAI format
+            # Ensure we operate on AnthropicMessagesRequest for converters
+            # Normalize request_data into a concrete AnthropicMessagesRequest
+            import dataclasses
+
+            if isinstance(request_data, AnthropicMessagesRequest):
+                anthropic_request = request_data
+            else:
+                # Convert various shapes (dict, pydantic, dataclass) to a dict
+                if isinstance(request_data, dict):
+                    payload = request_data
+                elif hasattr(request_data, "model_dump"):
+                    payload = request_data.model_dump()
+                elif hasattr(request_data, "dict"):
+                    payload = request_data.dict()
+                elif dataclasses.is_dataclass(request_data):
+                    payload = dataclasses.asdict(request_data)
+                else:
+                    # Fallback: try to coerce to dict via vars() for objects with __dict__
+                    try:
+                        payload = vars(request_data)  # type: ignore[arg-type]
+                    except Exception:
+                        # Last resort: empty payload
+                        payload = {}
+
+                anthropic_request = AnthropicMessagesRequest(**(payload or {}))
+
+            logger.info(
+                f"Handling Anthropic messages request: model={anthropic_request.model}"
+            )
+
             openai_request_data: dict[str, Any] = anthropic_to_openai_request(
-                request_data
+                anthropic_request
             )
 
             # Convert FastAPI Request to RequestContext and process via core processor
@@ -62,7 +98,7 @@ class AnthropicController:
 
             # Process the request using the request processor
             response = await self._processor.process_request(ctx, openai_request_data)
-            
+
             # Convert domain response to FastAPI response
             adapted_response = domain_response_to_fastapi(response)
 
@@ -100,8 +136,8 @@ class AnthropicController:
             # Log and convert other exceptions to HTTP exceptions
             logger.error(f"Error handling Anthropic messages: {e}", exc_info=True)
             raise HTTPException(
-                status_code=500, 
-                detail={"error": {"message": str(e), "type": "server_error"}}
+                status_code=500,
+                detail={"error": {"message": str(e), "type": "server_error"}},
             )
 
 
@@ -113,7 +149,7 @@ def get_anthropic_controller(service_provider: IServiceProvider) -> AnthropicCon
 
     Returns:
         A configured Anthropic controller
-        
+
     Raises:
         Exception: If the request processor could not be found or created
     """
@@ -123,8 +159,9 @@ def get_anthropic_controller(service_provider: IServiceProvider) -> AnthropicCon
         if request_processor is None:
             # Try to get the concrete implementation
             from src.core.services.request_processor_service import RequestProcessor
+
             request_processor = service_provider.get_service(RequestProcessor)
-            
+
         if request_processor is None:
             # If still not found, try to create one on the fly
             from src.core.interfaces.backend_service_interface import IBackendService
@@ -133,28 +170,39 @@ def get_anthropic_controller(service_provider: IServiceProvider) -> AnthropicCon
                 IResponseProcessor,
             )
             from src.core.interfaces.session_service_interface import ISessionService
-            
+
             cmd = service_provider.get_service(ICommandService)  # type: ignore[type-abstract]
             backend = service_provider.get_service(IBackendService)  # type: ignore[type-abstract]
             session = service_provider.get_service(ISessionService)  # type: ignore[type-abstract]
             response_proc = service_provider.get_service(IResponseProcessor)  # type: ignore[type-abstract]
-            
+
             if cmd and backend and session and response_proc:
+                from src.core.services.backend_processor import BackendProcessor
+                from src.core.services.command_processor import CommandProcessor
                 from src.core.services.request_processor_service import RequestProcessor
-                request_processor = RequestProcessor(cmd, backend, session, response_proc)
-                
+
+                command_processor = CommandProcessor(cmd)
+                backend_processor = BackendProcessor(backend, session)
+
+                request_processor = RequestProcessor(
+                    command_processor, backend_processor, session, response_proc
+                )
+
                 # Register it for future use
                 from src.core.di.container import ServiceProvider
+
                 if isinstance(service_provider, ServiceProvider):
                     # Access the _singleton_instances attribute safely
-                    singleton_instances = getattr(service_provider, '_singleton_instances', None)
+                    singleton_instances = getattr(
+                        service_provider, "_singleton_instances", None
+                    )
                     if singleton_instances is not None:
                         singleton_instances[IRequestProcessor] = request_processor
                         singleton_instances[RequestProcessor] = request_processor
-        
+
         if request_processor is None:
             raise Exception("Could not find or create RequestProcessor")
-            
+
         return AnthropicController(request_processor)
     except Exception as e:
         raise Exception(f"Failed to create AnthropicController: {e}")

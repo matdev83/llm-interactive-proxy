@@ -1,11 +1,11 @@
 
-import pytest
-from unittest.mock import Mock, MagicMock
-import asyncio
+from unittest.mock import Mock
 
-from src.core.domain.commands.help_command import HelpCommand
+import pytest
 from src.core.domain.commands.base_command import BaseCommand
+from src.core.domain.commands.help_command import HelpCommand
 from src.core.domain.session import Session
+
 
 class MockCommand(BaseCommand):
     def __init__(self, name, description, format_str, examples):

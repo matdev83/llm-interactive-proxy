@@ -1,9 +1,9 @@
-import pytest
 from unittest.mock import Mock
-import asyncio
 
+import pytest
 from src.core.domain.commands.hello_command import HelloCommand
 from src.core.domain.session import Session, SessionState
+
 
 @pytest.fixture
 def command() -> HelloCommand:

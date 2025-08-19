@@ -367,6 +367,7 @@ class TestGeminiTemperatureHandling:
             '{"candidates": [{"content": {"parts": [{"text": "Streaming response"}]}}]}'
         ]
         mock_response.aclose = AsyncMock()
+        mock_response.headers = {}
 
         # Mock the client.send method instead of client.stream
         gemini_backend.client.build_request = Mock()

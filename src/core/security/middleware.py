@@ -48,7 +48,7 @@ class APIKeyMiddleware(BaseHTTPMiddleware):
         if request.url.path in self.bypass_paths:
             response = await call_next(request)
             return response
-            
+
         # Check if auth is disabled for tests or development
         if (
             hasattr(request.app.state, "disable_auth")
@@ -57,14 +57,15 @@ class APIKeyMiddleware(BaseHTTPMiddleware):
             # Auth is disabled, skip validation
             response = await call_next(request)
             return response
-            
+
         # Check if auth is disabled in the app config
         if (
-            hasattr(request.app.state, "app_config") 
+            hasattr(request.app.state, "app_config")
             and hasattr(request.app.state.app_config, "auth")
             and getattr(request.app.state.app_config.auth, "disable_auth", False)
         ):
             # Auth is disabled in the config, skip validation
+            logger.info("Skipping auth - disabled in app_config")
             response = await call_next(request)
             return response
 
@@ -80,7 +81,9 @@ class APIKeyMiddleware(BaseHTTPMiddleware):
             api_key = request.query_params.get("api_key")
 
         # Validate the API key
-        logger.info(f"API Key authentication is enabled key_count={len(self.valid_keys)}")
+        logger.info(
+            f"API Key authentication is enabled key_count={len(self.valid_keys)}"
+        )
         if not api_key or api_key not in self.valid_keys:
             logger.warning(
                 "Invalid or missing API key for %s %s from client %s",

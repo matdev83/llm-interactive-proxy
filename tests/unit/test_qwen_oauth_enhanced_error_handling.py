@@ -7,6 +7,7 @@ import pytest
 from fastapi import HTTPException
 from src.connectors.qwen_oauth import QwenOAuthConnector
 from src.core.domain.chat import ChatMessage, ChatRequest
+from src.core.domain.responses import ResponseEnvelope
 
 
 class TestQwenOAuthEnhancedErrorHandling:
@@ -87,20 +88,20 @@ class TestQwenOAuthEnhancedErrorHandling:
         ):
 
             # Execute and verify
-            response, headers = await connector.chat_completions(
+            result = await connector.chat_completions(
                 request_data=request,
                 processed_messages=processed_messages,
                 effective_model="qwen3-coder-plus",
             )
 
             # Verify error response format
-            assert isinstance(response, dict)
-            assert response["object"] == "chat.completion"
-            assert "Test error" in response["choices"][0]["message"]["content"]
-            assert headers["content-type"] == "application/json"
-            assert response["usage"]["prompt_tokens"] == 0
-            assert response["usage"]["completion_tokens"] == 0
-            assert response["usage"]["total_tokens"] == 0
+            assert isinstance(result, ResponseEnvelope)
+            assert result.content["object"] == "chat.completion"
+            assert "Test error" in result.content["choices"][0]["message"]["content"]
+            assert result.headers["content-type"] == "application/json"
+            assert result.content["usage"]["prompt_tokens"] == 0
+            assert result.content["usage"]["completion_tokens"] == 0
+            assert result.content["usage"]["total_tokens"] == 0
 
     @pytest.mark.asyncio
     async def test_model_prefix_stripping(self, connector):

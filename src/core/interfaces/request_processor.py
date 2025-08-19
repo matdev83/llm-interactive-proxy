@@ -15,4 +15,5 @@ warnings.warn(
     "Importing from 'src.core.interfaces.request_processor_interface' is deprecated; "
     "use 'src.core.interfaces.request_processor_interface' instead",
     DeprecationWarning,
+    stacklevel=2,
 )

@@ -3,12 +3,13 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import ConfigDict
 
 from src.core.interfaces.domain_entities_interface import IEntity, IValueObject
+from src.core.interfaces.model_bases import DomainModel
 
 
-class Entity(BaseModel, IEntity, ABC):
+class Entity(DomainModel, IEntity, ABC):
     """Base class for domain entities."""
 
     model_config = ConfigDict(
@@ -22,7 +23,7 @@ class Entity(BaseModel, IEntity, ABC):
         """Get the unique identifier for this entity."""
 
 
-class ValueObject(BaseModel, IValueObject, ABC):
+class ValueObject(DomainModel, IValueObject, ABC):
     """Base class for value objects.
 
     Value objects are immutable and compared by their values,

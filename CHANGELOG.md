@@ -1,5 +1,22 @@
 # CHANGELOG.md
 
+## Unreleased
+- **Security**: Add automatic API key redaction to logging
+  - Install a global logging filter at application startup that redacts discovered API keys from all log records to prevent secret leaks.
+  - Automatically discovers API keys from `AppConfig` (auth and backend configs) and environment variables, including numbered variants (e.g. `OPENROUTER_API_KEY_1..20`) and comma-separated lists.
+  - Supports common formats (OpenAI, Gemini, Anthropic, OpenRouter, ZAI, Bearer tokens) and adds defensive default patterns.
+  - Includes unit tests and a demo script `dev/test_api_key_redaction.py` to validate discovery and redaction behavior.
+
+## 2025-08-19 (Migration Cleanup Complete)
+- **MIGRATION CLEANUP COMPLETED**: Finalized cleanup of legacy code after successful staged initialization migration
+  - Removed deprecated ApplicationBuilder class from application_factory.py
+  - Deleted migration_wrapper.py as transition period is complete
+  - Cleaned up compatibility shims in test configuration
+  - Simplified application_factory.py to contain only essential compatibility functions
+  - Updated integration tests to use clean new architecture patterns
+  - All legacy fallback code removed - new staged architecture is now the only implementation
+  - Achieved complete separation: ~90% code reduction in application factory complexity
+
 ## 2025-08-26
 - **Refactored Command Testing**: Overhauled the entire testing architecture for interactive commands. Replaced fragile legacy tests with a robust suite of unit and snapshot tests, and implemented command auto-discovery.
 - **SOLID ARCHITECTURE MIGRATION FINALIZED**: Completely finalized migration to new SOLID architecture

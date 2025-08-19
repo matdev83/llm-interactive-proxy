@@ -3,31 +3,30 @@ Tests for the transport adapters.
 """
 
 import json
-from typing import Any, Dict
 from unittest.mock import MagicMock
 
 import pytest
-from fastapi import Request
 from fastapi.responses import JSONResponse
-from starlette.datastructures import Headers, QueryParams
-from starlette.responses import Response, StreamingResponse
-
 from src.core.common.exceptions import (
-    AuthenticationError, 
+    AuthenticationError,
     BackendError,
     ConfigurationError,
-    LLMProxyError
 )
 from src.core.domain.request_context import RequestContext
-from src.core.domain.response_envelope import ResponseEnvelope
-from src.core.domain.streaming_response_envelope import StreamingResponseEnvelope
-from src.core.transport.fastapi.exception_adapters import map_domain_exception_to_http_exception
-from src.core.transport.fastapi.request_adapters import fastapi_to_domain_request_context
+from src.core.domain.responses import ResponseEnvelope, StreamingResponseEnvelope
+from src.core.transport.fastapi.exception_adapters import (
+    map_domain_exception_to_http_exception,
+)
+from src.core.transport.fastapi.request_adapters import (
+    fastapi_to_domain_request_context,
+)
 from src.core.transport.fastapi.response_adapters import (
     domain_response_to_fastapi,
     to_fastapi_response,
     to_fastapi_streaming_response,
 )
+from starlette.datastructures import Headers, QueryParams
+from starlette.responses import Response, StreamingResponse
 
 
 class MockRequest:
@@ -35,8 +34,8 @@ class MockRequest:
 
     def __init__(
         self,
-        headers: Dict[str, str] = None,
-        cookies: Dict[str, str] = None,
+        headers: dict[str, str] | None = None,
+        cookies: dict[str, str] | None = None,
         client_host: str = "127.0.0.1",
     ):
         self.headers = Headers(headers or {})
@@ -63,7 +62,7 @@ class TestRequestAdapters:
         )
 
         # Convert to domain context
-        context = fastapi_to_domain_request_context(mock_request, attach_original=True)
+        context = fastapi_to_domain_request_context(mock_request, attach_original=True)  # type: ignore
 
         # Verify the context
         assert isinstance(context, RequestContext)
@@ -119,6 +118,7 @@ class TestResponseAdapters:
     @pytest.mark.asyncio
     async def test_to_fastapi_streaming_response(self):
         """Test converting a domain streaming response envelope to a FastAPI streaming response."""
+
         # Create an async generator for streaming content
         async def content_generator():
             yield b"Hello, "
@@ -160,9 +160,13 @@ class TestResponseAdapters:
 
         # Test with a content converter
         def upper_case_content(content):
-            return {k: v.upper() if isinstance(v, str) else v for k, v in content.items()}
+            return {
+                k: v.upper() if isinstance(v, str) else v for k, v in content.items()
+            }
 
-        fastapi_converted = domain_response_to_fastapi(regular_response, upper_case_content)
+        fastapi_converted = domain_response_to_fastapi(
+            regular_response, upper_case_content
+        )
         assert json.loads(fastapi_converted.body) == {"message": "REGULAR RESPONSE"}
 
 
@@ -178,7 +182,9 @@ class TestExceptionAdapters:
         assert "Invalid API key" in str(http_exc.detail)
 
         # Test configuration error
-        config_error = ConfigurationError("Invalid configuration", details={"param": "model"})
+        config_error = ConfigurationError(
+            "Invalid configuration", details={"param": "model"}
+        )
         http_exc = map_domain_exception_to_http_exception(config_error)
         assert http_exc.status_code == 400
         assert isinstance(http_exc.detail, dict)

@@ -68,7 +68,7 @@ build-backend = "setuptools.build_meta"
 
 [tool.pytest.ini_options]
 pythonpath = "."
-addopts = "-v --asyncio-mode=auto -m 'not integration' -k 'not cline and not integration' --ignore-glob='**/*anthropic*.py' --ignore-glob='**/*Anthropic*.py'"
+addopts = "-v --asyncio-mode=auto -m 'not integration' -k 'not cline and not integration'"
 # To run integration tests, use: pytest -m integration
 markers = [
     "integration: marks tests as integration tests (deselect with '-m \"not integration\"')",
@@ -77,6 +77,8 @@ markers = [
     "regression: marks tests as regression tests",
     "backends: marks tests that need specific backends to be initialized",
     "backend: marks tests that need a specific backend to be initialized",
+    "custom_backend_mock: marks tests that use custom backend mocking strategies",
+    "httpx_mock: marks tests that use httpx mocking (provided by pytest-httpx plugin)",
 ]
 filterwarnings = [
     "ignore::pytest.PytestUnraisableExceptionWarning",

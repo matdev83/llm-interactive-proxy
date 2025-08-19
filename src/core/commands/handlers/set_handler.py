@@ -4,6 +4,7 @@ This handler implements a minimal subset of the legacy behaviour required by
 unit tests: handling `temperature` parameter and mutating the provided
 `SessionStateAdapter` (proxy_state) in-place.
 """
+
 from __future__ import annotations
 
 import logging
@@ -26,7 +27,10 @@ class SetCommandHandler(BaseCommandHandler):
         super().__init__("set")
 
     def handle(
-        self, param_value: Any, current_state: ISessionState, context: CommandContext | None = None
+        self,
+        param_value: Any,
+        current_state: ISessionState,
+        context: CommandContext | None = None,
     ) -> CommandHandlerResult:
         """Handle legacy set parameters.
 
@@ -56,7 +60,7 @@ class SetCommandHandler(BaseCommandHandler):
                     key, value = param_str.split("=", 1)
                     key = key.strip().lower()
                     value = value.strip()
-                    
+
                     if key == "temperature":
                         try:
                             temp_value = float(value)
@@ -65,15 +69,24 @@ class SetCommandHandler(BaseCommandHandler):
                                     success=False,
                                     message="Invalid temperature value. Must be between 0.0 and 1.0",
                                 )
-                            
+
                             # Update the temperature in the reasoning config
-                            if hasattr(current_state, 'reasoning_config') and current_state.reasoning_config:
+                            if (
+                                hasattr(current_state, "reasoning_config")
+                                and current_state.reasoning_config
+                            ):
                                 # Create a new reasoning config with updated temperature
-                                new_reasoning_config = current_state.reasoning_config.with_temperature(temp_value)
-                                
+                                new_reasoning_config = (
+                                    current_state.reasoning_config.with_temperature(
+                                        temp_value
+                                    )
+                                )
+
                                 # Update the current state with the new reasoning config
-                                new_state = current_state.with_reasoning_config(new_reasoning_config)
-                                
+                                new_state = current_state.with_reasoning_config(
+                                    new_reasoning_config
+                                )
+
                                 return CommandHandlerResult(
                                     success=True,
                                     message=f"Temperature set to {temp_value}",

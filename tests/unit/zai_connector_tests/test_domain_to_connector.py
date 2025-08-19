@@ -225,10 +225,10 @@ async def test_chat_completions_streaming(
     assert sent_payload["max_tokens"] == 100
     assert sent_payload["stream"] is True
 
-    # Verify the response is a streaming response
-    from fastapi.responses import StreamingResponse
+    # Verify the response is a streaming response envelope
+    from src.core.domain.responses import StreamingResponseEnvelope
 
-    assert isinstance(response, StreamingResponse)
+    assert isinstance(response, StreamingResponseEnvelope)
     assert response.media_type == "text/event-stream"
 
 

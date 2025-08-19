@@ -14,8 +14,7 @@ warnings.warn(
     "Importing from 'src.core.services.backend_factory_service' is deprecated; "
     "use 'src.core.services.backend_factory' instead",
     DeprecationWarning,
+    stacklevel=2,
 )
 
 __all__ = ["BackendFactory"]
-
-

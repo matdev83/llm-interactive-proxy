@@ -13,14 +13,15 @@ from typing import Any, cast
 import httpx
 
 from src.connectors.base import LLMBackend
+from src.core.adapters.api_adapters import legacy_to_domain_chat_request
 from src.core.common.exceptions import (
     AuthenticationError,
     ConfigurationError,
     ServiceUnavailableError,
 )
 from src.core.domain.chat import ChatRequest
-from src.core.domain.response_envelope import ResponseEnvelope
-from src.core.domain.streaming_response_envelope import StreamingResponseEnvelope
+from src.core.domain.responses import ResponseEnvelope, StreamingResponseEnvelope
+from src.core.interfaces.model_bases import DomainModel, InternalDTO
 
 # Legacy ChatCompletionRequest removed from connector signatures; use domain ChatRequest
 
@@ -95,10 +96,10 @@ class AnthropicBackend(LLMBackend):
     # -----------------------------------------------------------
     # Core entry - called by proxy
     # -----------------------------------------------------------
-    async def chat_completions(
+    async def chat_completions(  # type: ignore[override]
         self,
-        request_data: ChatRequest,
-        processed_messages: list[Any],
+        request_data: DomainModel | InternalDTO | dict[str, Any],
+        processed_messages: list,
         effective_model: str,
         openrouter_api_base_url: str | None = None,
         openrouter_headers_provider: Callable[[str, str], dict[str, str]] | None = None,
@@ -119,6 +120,10 @@ class AnthropicBackend(LLMBackend):
 
         base_url = (openrouter_api_base_url or ANTHROPIC_DEFAULT_BASE_URL).rstrip("/")
         url = f"{base_url}/messages"
+
+        # Normalize incoming request to ChatRequest
+        request_data = legacy_to_domain_chat_request(request_data)
+        request_data = cast(ChatRequest, request_data)
 
         # request_data is a domain ChatRequest; connectors can rely on adapter helpers
         anthropic_payload = self._prepare_anthropic_payload(
@@ -146,18 +151,17 @@ class AnthropicBackend(LLMBackend):
             stream_iterator = await self._handle_streaming_response(
                 url, anthropic_payload, headers, effective_model
             )
+            # Return a domain-level streaming envelope
             return StreamingResponseEnvelope(
-                content=stream_iterator,
-                media_type="text/event-stream",
+                content=stream_iterator, media_type="text/event-stream", headers={}
             )
         else:
             response_json, response_headers = await self._handle_non_streaming_response(
                 url, anthropic_payload, headers, effective_model
             )
+            # Return a domain-level ResponseEnvelope
             return ResponseEnvelope(
-                content=response_json,
-                headers=response_headers,
-                status_code=200,
+                content=response_json, headers=response_headers or {}, status_code=200
             )
 
     # -----------------------------------------------------------
@@ -220,6 +224,13 @@ class AnthropicBackend(LLMBackend):
         if project:
             payload["metadata"] = {"project": project}
 
+        # Include tools and tool_choice when provided (tests set these fields)
+        tools = getattr(request_data, "tools", None)
+        if tools is not None:
+            payload["tools"] = [
+                t if isinstance(t, dict) else t.model_dump() for t in tools
+            ]
+
         # Include extra params from domain extra_body directly (allows reasoning, etc.)
         payload.update(request_data.extra_body or {})
         return payload
@@ -246,21 +257,14 @@ class AnthropicBackend(LLMBackend):
             raise ServiceUnavailableError(
                 message=f"Could not connect to Anthropic API: {e}"
             )
-            
-        if response.status_code >= 400:
-            from src.core.common.exceptions import BackendError
-            
-            try:
-                detail = response.json()
-            except json.JSONDecodeError:
-                detail = response.text
-                
-            raise BackendError(
-                message=str(detail),
-                code="anthropic_error",
-                status_code=response.status_code,
-            )
-            
+
+        # Let httpx raise for HTTP errors so callers/tests receive HTTPStatusError
+        try:
+            response.raise_for_status()
+        except Exception:
+            # Re-raise to preserve httpx.HTTPStatusError
+            raise
+
         data = response.json()
         converted = self._convert_full_response(data, model)
         return converted, dict(response.headers)
@@ -292,17 +296,17 @@ class AnthropicBackend(LLMBackend):
             raise ServiceUnavailableError(
                 message=f"Could not connect to Anthropic API: {e}"
             )
-            
+
         if response.status_code >= 400:
             from src.core.common.exceptions import BackendError
-            
+
             try:
                 body_text = (await response.aread()).decode("utf-8")
             except Exception:
                 body_text = ""
             finally:
                 await response.aclose()
-                
+
             raise BackendError(
                 message=body_text,
                 code="anthropic_error",
@@ -420,7 +424,7 @@ class AnthropicBackend(LLMBackend):
                 message="Anthropic list_models missing credentials",
                 code="missing_api_key",
             )
-            
+
         url = f"{base.rstrip('/')}/models"
         headers = {
             "x-api-key": key_api,
@@ -429,29 +433,37 @@ class AnthropicBackend(LLMBackend):
         try:
             response = await self.client.get(url, headers=headers)
         except RuntimeError:
-            import httpx
-
+            # Recreate client and retry
             self.client = httpx.AsyncClient()
             response = await self.client.get(url, headers=headers)
         except httpx.RequestError as e:
             raise ServiceUnavailableError(
                 message=f"Could not connect to Anthropic API: {e}"
             )
-            
+
         if response.status_code >= 400:
             from src.core.common.exceptions import BackendError
-            
+
             try:
                 detail = response.json()
             except json.JSONDecodeError:
                 detail = response.text
-                
+
             raise BackendError(
                 message=str(detail),
                 code="anthropic_error",
                 status_code=response.status_code,
             )
-            
-        return cast(
-            list[dict[str, Any]], response.json().get("models", response.json())
-        )
+
+        result = response.json()
+        models = result.get("models", result)
+        # Cache available_models for later calls
+        try:
+            self.available_models = [
+                m.get("name") or m.get("id") or ""
+                for m in models
+                if isinstance(m, dict)
+            ]
+        except Exception:
+            self.available_models = []
+        return cast(list[dict[str, Any]], models)

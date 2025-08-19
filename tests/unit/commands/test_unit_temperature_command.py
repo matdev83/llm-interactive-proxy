@@ -1,10 +1,10 @@
 
-import pytest
 from unittest.mock import Mock
-import asyncio
 
+import pytest
 from src.core.domain.commands.temperature_command import TemperatureCommand
-from src.core.domain.session import Session, SessionState, ReasoningConfiguration
+from src.core.domain.session import ReasoningConfiguration, Session, SessionState
+
 
 @pytest.fixture
 def command() -> TemperatureCommand:

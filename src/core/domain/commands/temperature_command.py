@@ -10,6 +10,7 @@ from src.core.domain.session import Session
 
 logger = logging.getLogger(__name__)
 
+
 class TemperatureCommand(BaseCommand):
     """Command for setting the temperature value."""
 
@@ -25,7 +26,9 @@ class TemperatureCommand(BaseCommand):
         temp_value = args.get("value")
         if temp_value is None:
             return CommandResult(
-                success=False, message="Temperature value must be specified", name=self.name
+                success=False,
+                message="Temperature value must be specified",
+                name=self.name,
             )
 
         try:
@@ -37,7 +40,9 @@ class TemperatureCommand(BaseCommand):
                     name=self.name,
                 )
 
-            reasoning_config = session.state.reasoning_config.with_temperature(temp_float)
+            reasoning_config = session.state.reasoning_config.with_temperature(
+                temp_float
+            )
             updated_state = session.state.with_reasoning_config(reasoning_config)
 
             return CommandResult(
@@ -49,7 +54,9 @@ class TemperatureCommand(BaseCommand):
             )
         except (ValueError, TypeError):
             return CommandResult(
-                success=False, message="Temperature must be a valid number", name=self.name
+                success=False,
+                message="Temperature must be a valid number",
+                name=self.name,
             )
         except Exception as e:
             logger.error(f"Error setting temperature: {e}")

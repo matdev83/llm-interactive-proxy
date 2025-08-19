@@ -1,9 +1,11 @@
 
-import pytest
 from unittest.mock import Mock
-from src.core.domain.session import SessionState
-from src.command_parser import CommandParser
+
+import pytest
 from src.command_config import CommandParserConfig
+from src.command_parser import CommandParser
+from src.core.domain.session import SessionState
+
 
 async def run_command(command_string: str, initial_state: SessionState) -> str:
     parser_config = Mock(spec=CommandParserConfig)

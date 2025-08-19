@@ -21,6 +21,34 @@ logger = logging.getLogger(__name__)
 router = APIRouter(tags=["models"])
 
 
+class ModelsController:
+    """Controller for model-related endpoints."""
+
+    def __init__(self, backend_service: IBackendService) -> None:
+        """Initialize the models controller.
+
+        Args:
+            backend_service: The backend service to use
+        """
+        self.backend_service = backend_service
+
+    async def list_models(self) -> dict[str, Any]:
+        """List all available models.
+
+        Returns:
+            Dictionary containing list of available models
+        """
+        # Implementation would go here
+        # For now, return a basic response
+        return {
+            "object": "list",
+            "data": [
+                {"id": "gpt-4", "object": "model", "owned_by": "openai"},
+                {"id": "gpt-3.5-turbo", "object": "model", "owned_by": "openai"},
+            ],
+        }
+
+
 async def get_backend_service(request: Request) -> IBackendService:
     """Get the backend service from the service provider.
 

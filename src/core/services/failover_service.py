@@ -14,8 +14,11 @@ from src.core.domain.model_utils import parse_model_backend
 logger = get_logger(__name__)
 
 
+from src.core.interfaces.model_bases import InternalDTO
+
+
 @dataclass
-class FailoverAttempt:
+class FailoverAttempt(InternalDTO):
     """Represents a single failover attempt."""
 
     backend: str

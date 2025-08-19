@@ -3,6 +3,7 @@ from typing import cast
 import pytest
 from src.command_parser import CommandParser
 from src.core.domain.chat import ChatMessage, MessageContentPartText
+
 from tests.unit.core.test_doubles import MockSuccessCommand
 
 # --- Tests for CommandParser.process_messages ---

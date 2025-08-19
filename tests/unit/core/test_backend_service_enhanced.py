@@ -2,7 +2,6 @@
 Enhanced tests for the BackendService implementation.
 """
 
-from collections.abc import AsyncIterator
 from typing import Any
 from unittest.mock import AsyncMock, Mock, patch
 
@@ -14,16 +13,13 @@ from src.core.domain.backend_type import BackendType
 from src.core.domain.chat import (
     ChatMessage,
     ChatRequest,
-    ChatResponse,
-    StreamingChatResponse,
 )
+from src.core.domain.responses import ResponseEnvelope, StreamingResponseEnvelope
 from src.core.interfaces.rate_limiter_interface import RateLimitInfo
 from src.core.services.backend_factory_service import BackendFactory
 from src.core.services.backend_service import BackendService
 
 # Legacy models removed; use domain ChatRequest instead when needed
-from starlette.responses import StreamingResponse
-
 from tests.unit.core.test_doubles import MockRateLimiter
 
 
@@ -52,7 +48,7 @@ class MockBackend(LLMBackend):
         processed_messages: list,
         effective_model: str,
         **kwargs: Any,
-    ) -> StreamingResponse | tuple[dict[str, Any], dict[str, str]]:  # type: ignore
+    ) -> ResponseEnvelope | StreamingResponseEnvelope:  # type: ignore
         self.chat_completions_called = True
         self.chat_completions_args = {
             "request_data": request_data,
@@ -63,20 +59,24 @@ class MockBackend(LLMBackend):
         return await self.chat_completions_mock()
 
 
-class MockStreamingResponse(StreamingResponse):
+class MockStreamingResponse:
     """Mock implementation of StreamingResponse for testing."""
 
     def __init__(self, content):
         self.content = content
-        self.body_iterator = self._iter_content()
 
     def __aiter__(self):
         """Make this class async iterable."""
-        return self._iter_content()
+        return self
 
-    async def _iter_content(self):
-        for chunk in self.content:
-            yield chunk.encode() if isinstance(chunk, str) else chunk
+    async def __anext__(self):
+        if not hasattr(self, '_content_iter'):
+            self._content_iter = iter(self.content)
+        try:
+            chunk = next(self._content_iter)
+            return chunk.encode() if isinstance(chunk, str) else chunk
+        except StopIteration:
+            raise StopAsyncIteration
 
 
 class TestBackendFactory:
@@ -143,7 +143,7 @@ class ConcreteBackendService(BackendService):
 
     async def chat_completions(
         self, request: ChatRequest, **kwargs: Any
-    ) -> ChatResponse | AsyncIterator[StreamingChatResponse]:
+    ) -> ResponseEnvelope | StreamingResponseEnvelope:
         """
         Implement the abstract method for testing purposes.
         This method should not be called directly in tests.
@@ -202,20 +202,15 @@ class TestBackendServiceBasic:
 
         with (
             patch.object(
-                service._factory, "create_backend", return_value=mock_backend
-            ) as mock_create,
-            patch.object(service._factory, "initialize_backend") as mock_initialize,
+                service._factory, "ensure_backend", return_value=mock_backend
+            ) as mock_ensure,
         ):
             # Act
             result = await service._get_or_create_backend(BackendType.OPENAI)
 
             # Assert
             assert result is mock_backend
-            mock_create.assert_called_once_with("openai")  # Used string literal
-
-            # Check that initialize_backend was called, but with potentially different parameters
-            # The actual parameter could be {} or {'api_key': ['test-key-openai']} depending on implementation
-            assert mock_initialize.called
+            mock_ensure.assert_called_once_with("openai", None)  # Used string literal
             assert "openai" in service._backends  # Used string literal
 
     @pytest.mark.asyncio
@@ -223,7 +218,7 @@ class TestBackendServiceBasic:
         """Test error handling when creating a backend fails."""
         # Arrange
         with patch.object(
-            service._factory, "create_backend", side_effect=ValueError("Test error")
+            service._factory, "ensure_backend", side_effect=ValueError("Test error")
         ):
             # Act & Assert
             with pytest.raises(BackendError) as exc_info:
@@ -277,9 +272,9 @@ class TestBackendServiceCompletions:
         # Arrange
         client = httpx.AsyncClient()
         mock_backend = MockBackend(client)
-        mock_backend.chat_completions_mock.return_value = (
-            {"id": "resp-123", "created": 123, "model": "model1", "choices": []},
-            {},
+        mock_backend.chat_completions_mock.return_value = ResponseEnvelope(
+            content={"id": "resp-123", "created": 123, "model": "model1", "choices": []},
+            headers={},
         )
 
         with patch.object(service, "_get_or_create_backend", return_value=mock_backend):
@@ -288,8 +283,8 @@ class TestBackendServiceCompletions:
 
             # Assert
             assert mock_backend.chat_completions_called
-            assert response.id == "resp-123"
-            assert response.model == "model1"
+            assert response.content.content["id"] == "resp-123"
+            assert response.content.content["model"] == "model1"
 
     @pytest.mark.asyncio
     async def test_call_completion_streaming(self, service, chat_request):
@@ -304,18 +299,22 @@ class TestBackendServiceCompletions:
         mock_response = MockStreamingResponse(chunks)
         client = httpx.AsyncClient()
         mock_backend = MockBackend(client)
-        mock_backend.chat_completions_mock.return_value = mock_response
+        mock_backend.chat_completions_mock.return_value = StreamingResponseEnvelope(
+            content=mock_response,
+            media_type="text/event-stream",
+            headers={},
+        )
 
         with patch.object(service, "_get_or_create_backend", return_value=mock_backend):
             # Act
-            stream = await service.call_completion(chat_request, stream=True)
+            response = await service.call_completion(chat_request, stream=True)
 
             # Assert
             assert mock_backend.chat_completions_called
 
             # Collect chunks from the stream
             result_chunks = []
-            async for chunk in stream:
+            async for chunk in response.content:
                 result_chunks.append(chunk)
 
             # Verify chunks
@@ -595,14 +594,14 @@ class TestBackendServiceFailover:
         # Create fallback backend that succeeds
         client2 = httpx.AsyncClient()
         fallback_backend = MockBackend(client2)
-        fallback_backend.chat_completions_mock.return_value = (
-            {
+        fallback_backend.chat_completions_mock.return_value = ResponseEnvelope(
+            content={
                 "id": "fallback-resp",
                 "created": 123,
                 "model": "fallback-model",
                 "choices": [],
             },
-            {},
+            headers={},
         )
 
         # Mock get_or_create_backend to return the appropriate backend
@@ -626,8 +625,8 @@ class TestBackendServiceFailover:
         # Assert
         assert primary_backend.chat_completions_called
         assert fallback_backend.chat_completions_called
-        assert response.id == "fallback-resp"
-        assert response.model == "fallback-model"
+        assert response.content.content["id"] == "fallback-resp"
+        assert response.content.content["model"] == "fallback-model"
 
     @pytest.mark.asyncio
     async def test_complex_failover_first_attempt(
@@ -645,9 +644,9 @@ class TestBackendServiceFailover:
         # First failover attempt succeeds
         client2 = httpx.AsyncClient()
         first_fallback = MockBackend(client2)
-        first_fallback.chat_completions_mock.return_value = (
-            {"id": "claude-resp", "created": 123, "model": "claude-2", "choices": []},
-            {},
+        first_fallback.chat_completions_mock.return_value = ResponseEnvelope(
+            content={"id": "claude-resp", "created": 123, "model": "claude-2", "choices": []},
+            headers={},
         )
 
         # Second failover never called
@@ -704,8 +703,8 @@ class TestBackendServiceFailover:
         # The important part is that we got the expected response from the first fallback
         assert first_fallback.chat_completions_called
         assert not second_fallback.chat_completions_called
-        assert response.id == "claude-resp"
-        assert response.model == "claude-2"
+        assert response.content.content["id"] == "claude-resp"
+        assert response.content.content["model"] == "claude-2"
 
     @pytest.mark.asyncio
     async def test_complex_failover_second_attempt(
@@ -730,14 +729,14 @@ class TestBackendServiceFailover:
         # Second failover succeeds
         client3 = httpx.AsyncClient()
         second_fallback = MockBackend(client3)
-        second_fallback.chat_completions_mock.return_value = (
-            {
+        second_fallback.chat_completions_mock.return_value = ResponseEnvelope(
+            content={
                 "id": "last-resort",
                 "created": 123,
                 "model": "last-resort-model",
                 "choices": [],
             },
-            {},
+            headers={},
         )
 
         # Mock get_or_create_backend
@@ -792,8 +791,8 @@ class TestBackendServiceFailover:
         # without calling the primary backend, depending on implementation details
         assert first_fallback.chat_completions_called
         assert second_fallback.chat_completions_called
-        assert response.id == "last-resort"
-        assert response.model == "last-resort-model"
+        assert response.content.content["id"] == "last-resort"
+        assert response.content.content["model"] == "last-resort-model"
 
     @pytest.mark.asyncio
     async def test_complex_failover_all_fail(

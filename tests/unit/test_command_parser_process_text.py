@@ -2,6 +2,7 @@ from typing import cast
 
 import pytest
 from src.command_parser import CommandParser
+
 from tests.unit.core.test_doubles import MockSuccessCommand
 
 # --- Tests for CommandParser.process_text ---

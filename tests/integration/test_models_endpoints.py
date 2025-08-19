@@ -12,7 +12,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 # from src.constants import BackendType # Removed BackendType import
-from src.core.app.application_factory import build_app
+from src.core.app.test_builder import build_test_app as build_app
 
 
 class TestModelsEndpoints:
@@ -139,7 +139,9 @@ class TestModelsEndpoints:
         # Patch the backend service's internal method to simulate an error
         with TestClient(app) as client:
             # Ensure the service provider is available
-            from src.core.app.application_factory import ApplicationBuilder
+            from src.core.app.test_builder import (
+                TestApplicationBuilder as ApplicationBuilder,
+            )
             from src.core.di.services import set_service_provider
             from src.core.interfaces.backend_service_interface import IBackendService
 

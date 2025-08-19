@@ -6,15 +6,15 @@ This package contains controllers that handle HTTP endpoints in the application.
 
 from __future__ import annotations
 
+import contextlib
 import logging
-from typing import Any
+from typing import Any, cast
 
 from fastapi import Body, Depends, FastAPI, HTTPException, Request
 from starlette.responses import Response  # Added this line
 
 # Legacy models are only used by the compatibility endpoints via the adapter layer
 from src.anthropic_models import AnthropicMessagesRequest
-from src.core.transport.fastapi.api_adapters import dict_to_domain_chat_request
 from src.core.app.controllers.anthropic_controller import (
     AnthropicController,
     get_anthropic_controller,
@@ -30,57 +30,10 @@ from src.core.domain.chat import ChatRequest as DomainChatRequest
 
 # No longer need integration bridge - using SOLID architecture directly
 from src.core.interfaces.di_interface import IServiceProvider
+from src.core.interfaces.request_processor_interface import IRequestProcessor
+from src.core.transport.fastapi.api_adapters import dict_to_domain_chat_request
 
 logger = logging.getLogger(__name__)
-
-
-async def _ensure_service_provider_available(app: FastAPI) -> None:
-    """Ensure service provider is available in app state for tests.
-
-    This is a fallback initialization for cases where the lifespan context
-    manager hasn't been called (e.g., in tests).
-    """
-    try:
-        import httpx
-
-        from src.core.app.application_factory import ServiceConfigurator
-        from src.core.di.services import set_service_provider
-
-        # Set up HTTP client if not present
-        if not hasattr(app.state, "httpx_client"):
-            app.state.httpx_client = httpx.AsyncClient()
-
-        # Use AppConfig instead of app.state.config
-        from src.core.config.app_config import AppConfig
-
-        dummy_config = AppConfig()  # Create a minimal config for tests
-
-        # Set up basic app state attributes
-        if not hasattr(app.state, "backend_configs"):
-            app.state.backend_configs = {}
-        if not hasattr(app.state, "backends"):
-            app.state.backends = {}
-        if not hasattr(app.state, "failover_routes"):
-            app.state.failover_routes = {}
-
-        # Create service provider using the factory
-        from src.core.config.app_config import AppConfig
-
-        dummy_config = AppConfig()  # Create a minimal config for tests
-        builder = (
-            ServiceConfigurator()
-        )  # Use builder instead of configurator for clarity
-        provider = await builder._initialize_services(
-            app, dummy_config
-        )  # Call the async method
-        set_service_provider(provider)
-        app.state.service_provider = provider
-
-        logger.debug("Service provider initialized for tests")
-
-    except Exception as e:
-        logger.warning(f"Failed to initialize service provider: {e}")
-        raise
 
 
 async def get_chat_controller_if_available(request: Request) -> ChatController:
@@ -91,58 +44,22 @@ async def get_chat_controller_if_available(request: Request) -> ChatController:
 
     Returns:
         A configured chat controller
+
+    Raises:
+        HTTPException: If service provider or chat controller is not available.
     """
+    service_provider = getattr(request.app.state, "service_provider", None)
+    if not service_provider:
+        raise HTTPException(status_code=503, detail="Service provider not available")
+
     try:
-        # Ensure the app has a service provider
-        service_provider = None
-
-        # First try getting from app.state
-        if (
-            hasattr(request.app.state, "service_provider")
-            and request.app.state.service_provider
-        ):
-            service_provider = request.app.state.service_provider
-
-        # If not available, try to initialize it for tests
-        if not service_provider:
-            try:
-                await _ensure_service_provider_available(request.app)
-                if (
-                    hasattr(request.app.state, "service_provider")
-                    and request.app.state.service_provider
-                ):
-                    service_provider = request.app.state.service_provider
-            except Exception as init_error:
-                logger.debug(f"Failed to initialize service provider: {init_error}")
-
-        # Final fallback - use global service provider if available
-        if not service_provider:
-            from src.core.di.services import get_service_provider
-
-            service_provider = get_service_provider()
-
-        # If we have a service provider, try to get the controller directly
-        if service_provider:
-            try:
-                # Try to get the controller directly from DI container
-                chat_controller = service_provider.get_service(ChatController)
-                if chat_controller:
-                    return chat_controller
-
-                # If not registered directly, create using the factory function
-                return get_chat_controller(service_provider)
-            except Exception as controller_error:
-                logger.debug(
-                    f"Failed to get ChatController from service provider: {controller_error}"
-                )
-
-        raise Exception("Could not obtain a service provider or chat controller")
+        chat_controller = service_provider.get_service(ChatController)
+        if chat_controller:
+            return cast(ChatController, chat_controller)
+        return cast(ChatController, get_chat_controller(service_provider))
     except Exception as e:
-        logger.debug(f"Chat controller not available: {e}")
-        # Make the error more specific to help troubleshooting
-        if "No service registered for" in str(e):
-            raise Exception(f"Required service not registered in DI container: {e}")
-        raise Exception("Chat controller not available")
+        logger.exception(f"Failed to get ChatController from service provider: {e}")
+        raise HTTPException(status_code=500, detail="Chat controller not available")
 
 
 async def get_anthropic_controller_if_available(
@@ -155,58 +72,26 @@ async def get_anthropic_controller_if_available(
 
     Returns:
         A configured Anthropic controller
+
+    Raises:
+        HTTPException: If service provider or Anthropic controller is not available.
     """
+    service_provider = getattr(request.app.state, "service_provider", None)
+    if not service_provider:
+        raise HTTPException(status_code=503, detail="Service provider not available")
+
     try:
-        # Ensure the app has a service provider
-        service_provider = None
-
-        # First try getting from app.state
-        if (
-            hasattr(request.app.state, "service_provider")
-            and request.app.state.service_provider
-        ):
-            service_provider = request.app.state.service_provider
-
-        # If not available, try to initialize it for tests
-        if not service_provider:
-            try:
-                await _ensure_service_provider_available(request.app)
-                if (
-                    hasattr(request.app.state, "service_provider")
-                    and request.app.state.service_provider
-                ):
-                    service_provider = request.app.state.service_provider
-            except Exception as init_error:
-                logger.debug(f"Failed to initialize service provider: {init_error}")
-
-        # Final fallback - use global service provider if available
-        if not service_provider:
-            from src.core.di.services import get_service_provider
-
-            service_provider = get_service_provider()
-
-        # If we have a service provider, try to get the controller directly
-        if service_provider:
-            try:
-                # Try to get the controller directly from DI container
-                anthropic_controller = service_provider.get_service(AnthropicController)
-                if anthropic_controller:
-                    return anthropic_controller
-
-                # If not registered directly, create using the factory function
-                return get_anthropic_controller(service_provider)
-            except Exception as controller_error:
-                logger.debug(
-                    f"Failed to get AnthropicController from service provider: {controller_error}"
-                )
-
-        raise Exception("Could not obtain a service provider or Anthropic controller")
+        anthropic_controller = service_provider.get_service(AnthropicController)
+        if anthropic_controller:
+            return cast(AnthropicController, anthropic_controller)
+        return cast(AnthropicController, get_anthropic_controller(service_provider))
     except Exception as e:
-        logger.debug(f"Anthropic controller not available: {e}")
-        # Make the error more specific to help troubleshooting
-        if "No service registered for" in str(e):
-            raise Exception(f"Required service not registered in DI container: {e}")
-        raise Exception("Anthropic controller not available")
+        logger.exception(
+            f"Failed to get AnthropicController from service provider: {e}"
+        )
+        raise HTTPException(
+            status_code=500, detail="Anthropic controller not available"
+        )
 
 
 async def get_service_provider_dependency(request: Request) -> IServiceProvider:
@@ -221,22 +106,10 @@ async def get_service_provider_dependency(request: Request) -> IServiceProvider:
     Raises:
         HTTPException: If service provider is not available
     """
-    if (
-        not hasattr(request.app.state, "service_provider")
-        or not request.app.state.service_provider
-    ):
-        # Try to initialize service provider for tests
-        try:
-            await _ensure_service_provider_available(request.app)
-        except Exception as e:
-            logger.error(f"Failed to initialize service provider: {e}")
-            raise HTTPException(
-                status_code=503, detail="Service provider not available"
-            )
-
-    # Cast to the correct type for mypy
-    service_provider: IServiceProvider = request.app.state.service_provider
-    return service_provider
+    service_provider = getattr(request.app.state, "service_provider", None)
+    if not service_provider:
+        raise HTTPException(status_code=503, detail="Service provider not available")
+    return cast(IServiceProvider, service_provider)
 
 
 async def get_chat_controller_dependency(
@@ -270,8 +143,76 @@ def register_routes(app: FastAPI) -> None:
     from src.core.app.controllers.models_controller import router as models_router
 
     app.include_router(models_router)
+    # Register Anthropic compatibility router (kept as separate module)
+    try:
+        from src.anthropic_router import router as anthropic_router
+
+        app.include_router(anthropic_router)
+    except Exception:
+        # If import fails, continue without anthropic routes (tests may mock/patch this)
+        logger.debug("Anthropic router not included: import failed")
 
     logger.info("Routes registered successfully")
+
+    # Internal health endpoint to report DI/controller resolution status
+    @app.get("/internal/health")
+    async def internal_health(request: Request) -> dict[str, Any]:
+        result: dict[str, Any] = {}
+        try:
+            sp = getattr(request.app.state, "service_provider", None)
+            result["service_provider_present"] = sp is not None
+            if sp is not None:
+                try:
+                    rp = sp.get_service(IRequestProcessor)
+                    result["IRequestProcessor_resolvable"] = rp is not None
+                except Exception as e:
+                    result["IRequestProcessor_error"] = str(e)
+                try:
+                    cc = sp.get_service(ChatController)
+                    result["ChatController_resolvable"] = cc is not None
+                except Exception as e:
+                    result["ChatController_error"] = str(e)
+            # Also include registered descriptor names from global service collection
+            try:
+                from src.core.di.services import get_service_collection
+
+                col = get_service_collection()
+                names = [
+                    getattr(k, "__name__", str(k))
+                    for k in getattr(col, "_descriptors", {})
+                ]
+                result["registered_descriptors"] = names
+            except Exception as e:
+                result["descriptor_error"] = str(e)
+            # Debug-only: log resolvability against global provider for easier diagnosis
+            try:
+                import logging
+
+                from src.core.di.services import get_service_provider
+
+                dbg = logging.getLogger("llm.di.debug")
+                with contextlib.suppress(Exception):
+                    gp = get_service_provider()
+                    try:
+                        # Use cast to satisfy mypy when checking interface resolution
+                        dbg.debug(
+                            "global IRequestProcessor resolvable: %s",
+                            gp.get_service(cast(type, IRequestProcessor)) is not None,
+                        )
+                    except Exception as e:
+                        dbg.debug("global IRequestProcessor resolution error: %s", e)
+                    try:
+                        dbg.debug(
+                            "global ChatController resolvable: %s",
+                            gp.get_service(ChatController) is not None,
+                        )
+                    except Exception as e:
+                        dbg.debug("global ChatController resolution error: %s", e)
+            except Exception:
+                pass
+        except Exception as e:
+            result["error"] = str(e)
+        return result
 
 
 def register_versioned_endpoints(app: FastAPI) -> None:

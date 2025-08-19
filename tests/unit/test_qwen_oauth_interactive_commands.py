@@ -2,7 +2,7 @@ import os
 from unittest.mock import patch
 
 import pytest
-from src.core.app.application_factory import build_app_compat as build_app
+from src.core.app.test_builder import build_test_app as build_app
 
 # Removed legacy import
 
@@ -27,28 +27,6 @@ class TestQwenOAuthInteractiveCommands:
     @pytest.mark.skip("Skip due to MagicMock issues with apply_cli_args")
     def test_cli_argument_support(self):
         """Test that Qwen OAuth backend can be selected via CLI argument."""
-
-    def test_interactive_backend_setting(self):
-        """Test that !/set(backend=qwen-oauth) works."""
-        from src.core.commands.set_command import SetCommandRefactored
-
-        # Create a minimal session state for testing
-
-        cmd = SetCommandRefactored()
-        # Note: The new architecture uses async execute method with different signature
-        # For this test, we'll skip the actual execution and just verify the imports work
-        assert cmd is not None
-
-    def test_interactive_model_setting_issue(self):
-        """Test that !/set(model=qwen3-coder-plus) fails without backend."""
-        from src.core.commands.set_command import SetCommandRefactored
-
-        # Create a minimal session state for testing
-
-        cmd = SetCommandRefactored()
-        # Note: The new architecture uses async execute method with different signature
-        # For this test, we'll skip the actual execution and just verify the imports work
-        assert cmd is not None
 
     @pytest.mark.skip("Skipping test that requires Qwen OAuth backend to be enabled")
     def test_backend_attribute_name_conversion(self):
@@ -119,17 +97,6 @@ class TestQwenOAuthInteractiveCommands:
             models = backend_obj.get_available_models()
             assert isinstance(models, list)
             assert "qwen3-coder-plus" in models
-
-    def test_fixed_interactive_model_setting(self):
-        """Test that !/set(model=qwen-oauth:qwen3-coder-plus) works after fix."""
-        from src.core.commands.set_command import SetCommandRefactored
-
-        # Create a minimal session state for testing
-
-        cmd = SetCommandRefactored()
-        # Note: The new architecture uses async execute method with different signature
-        # For this test, we'll skip the actual execution and just verify the imports work
-        assert cmd is not None
 
     @pytest.mark.asyncio
     async def test_functional_backends_includes_qwen_oauth(self):

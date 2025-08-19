@@ -1,5 +1,5 @@
 from fastapi.testclient import TestClient
-from src.core.app.application_factory import build_app_compat
+from src.core.app.test_builder import build_test_app as build_app_compat
 
 
 def test_models_endpoint_lists_all(monkeypatch) -> None:

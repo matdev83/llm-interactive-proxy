@@ -13,8 +13,7 @@ from .redaction_middleware import (
 warnings.warn(
     "Importing from 'src.core.services.redaction_middleware_service' is deprecated; use 'src.core.services.redaction_middleware' instead",
     DeprecationWarning,
+    stacklevel=2,
 )
 
 __all__ = ["APIKeyRedactor", "ProxyCommandFilter", "RedactionMiddleware"]
-
-

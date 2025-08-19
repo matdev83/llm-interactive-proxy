@@ -21,11 +21,14 @@ from src.anthropic_converters import (
     openai_to_anthropic_response,
 )
 from src.core.common.exceptions import LLMProxyError
-from src.core.domain.request_context import RequestContext
 from src.core.interfaces.request_processor_interface import IRequestProcessor
 from src.core.transport.fastapi.api_adapters import dict_to_domain_chat_request
-from src.core.transport.fastapi.exception_adapters import map_domain_exception_to_http_exception
-from src.core.transport.fastapi.request_adapters import fastapi_to_domain_request_context
+from src.core.transport.fastapi.exception_adapters import (
+    map_domain_exception_to_http_exception,
+)
+from src.core.transport.fastapi.request_adapters import (
+    fastapi_to_domain_request_context,
+)
 from src.core.transport.fastapi.response_adapters import domain_response_to_fastapi
 
 # Import will be done locally to avoid circular imports
@@ -62,10 +65,9 @@ async def anthropic_messages(
 
     # --- Step 2: Temporarily switch backend type so chat_completions routes to Anthropic backend
 
-    original_backend_type = getattr(
-        http_request.app.state, "backend_type", "openrouter"
-    )
-    http_request.app.state.backend_type = "anthropic"
+    ctx = fastapi_to_domain_request_context(http_request, attach_original=True)
+    original_backend_type = ctx.state.get("backend_type", "openrouter")
+    ctx.state["backend_type"] = "anthropic"
 
     try:
         # Get the request processor from the service provider
@@ -99,7 +101,7 @@ async def anthropic_messages(
         # --- Step 3: Convert response back to Anthropic format
         # First convert domain response to FastAPI response
         fastapi_response = domain_response_to_fastapi(openai_response)
-        
+
         # Then convert to Anthropic format
         if isinstance(fastapi_response, StreamingResponse):
             return _convert_streaming_response(fastapi_response)
@@ -108,16 +110,18 @@ async def anthropic_messages(
             body_content: bytes | memoryview = fastapi_response.body
             if isinstance(body_content, memoryview):
                 body_content = body_content.tobytes()
-            
+
             # Parse response body
             import json
+
             openai_response_data = json.loads(body_content.decode())
-            
+
             # Convert to Anthropic format
             anthropic_response_data = openai_to_anthropic_response(openai_response_data)
-            
+
             # Return as FastAPI Response
             from fastapi import Response as FastAPIResponse
+
             return FastAPIResponse(
                 content=json.dumps(anthropic_response_data),
                 media_type="application/json",
@@ -125,7 +129,7 @@ async def anthropic_messages(
             )
     finally:
         # Restore original backend type
-        http_request.app.state.backend_type = original_backend_type
+        ctx.state["backend_type"] = original_backend_type
 
 
 @router.get("/v1/models")
@@ -144,8 +148,8 @@ async def anthropic_models() -> dict[str, Any]:
     except Exception as e:
         logger.error(f"Error in anthropic_models: {e}")
         raise HTTPException(
-            status_code=500, 
-            detail={"error": {"message": str(e), "type": "server_error"}}
+            status_code=500,
+            detail={"error": {"message": str(e), "type": "server_error"}},
         )
 
 

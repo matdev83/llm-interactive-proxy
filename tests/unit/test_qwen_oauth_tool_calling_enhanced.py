@@ -1,9 +1,4 @@
-"""
-Enhanced unit tests for Qwen OAuth connector tool calling functionality.
-
-These tests focus on the tool calling capabilities of the Qwen OAuth connector,
-with properly mocked parent class methods to avoid authentication errors.
-"""
+from __future__ import annotations
 
 import json
 import time
@@ -21,6 +16,7 @@ from src.core.domain.chat import (
     ToolCall,
     ToolDefinition,
 )
+from src.core.domain.responses import StreamingResponseEnvelope
 from starlette.responses import StreamingResponse
 
 
@@ -122,8 +118,8 @@ class TestQwenOAuthToolCallingEnhanced:
             )
 
             # Assert
-            assert isinstance(result, tuple)
-            response, headers = result
+            response = result.content
+            # headers = result.headers
 
             # Verify response contains tool calls
             assert "choices" in response
@@ -185,6 +181,9 @@ class TestQwenOAuthToolCallingEnhanced:
             payload_capture["payload"] = kwargs.get("request_data")
             return mock_response_data, mock_headers
 
+        # Create the mock for the parent class's chat_completions method
+        parent_chat_completions_mock = AsyncMock(side_effect=mock_chat_completions)
+
         # Directly mock the parent class's chat_completions method
         with (
             patch.object(
@@ -192,7 +191,7 @@ class TestQwenOAuthToolCallingEnhanced:
             ),
             patch(
                 "src.connectors.openai.OpenAIConnector.chat_completions",
-                AsyncMock(side_effect=mock_chat_completions),
+                parent_chat_completions_mock,
             ),
         ):
             # Act
@@ -202,9 +201,12 @@ class TestQwenOAuthToolCallingEnhanced:
                 effective_model="qwen3-coder-plus",
             )
 
+            # Verify the parent class's chat_completions method was called
+            parent_chat_completions_mock.assert_called_once()
+
             # Assert
-            assert isinstance(result, tuple)
-            response, headers = result
+            response = result.content
+            # headers = result.headers
 
             # Verify request contained the expected tool_choice
             assert payload_capture["payload"] is not None
@@ -311,8 +313,8 @@ class TestQwenOAuthToolCallingEnhanced:
             )
 
             # Assert
-            assert isinstance(result, tuple)
-            response, headers = result
+            response = result.content
+            # headers = result.headers
 
             # Verify request contained the expected tool_choice
             assert payload_capture["request_data"] is not None
@@ -359,8 +361,7 @@ class TestQwenOAuthToolCallingEnhanced:
         # Create streaming chunks
         streaming_chunks = [
             b'data: {"id":"test","choices":[{"delta":{"tool_calls":[{"index":0,"id":"call_789","type":"function","function":{"name":"search_web"}}]}}]}\n\n',
-            b'data: {"id":"test","choices":[{"delta":{"tool_calls":[{"index":0,"function":{"arguments":"{\\"query\\": \\"Python programming\\"}"}}'
-            b"]}}]}\n\n",
+            b'data: {"id":"test","choices":[{"delta":{"tool_calls":[{"index":0,"function":{"arguments":"{\\"query\\": \\"Python programming\\"}"}}]}}]}\n\n',
             b'data: {"id":"test","choices":[{"delta":{},"finish_reason":"tool_calls"}]}\n\n',
             b"data: [DONE]\n\n",
         ]
@@ -389,7 +390,7 @@ class TestQwenOAuthToolCallingEnhanced:
             )
 
             # Assert
-            assert isinstance(result, StreamingResponse)
+            assert isinstance(result, StreamingResponseEnvelope)
             assert result.media_type == "text/event-stream"
 
     @pytest.mark.asyncio
@@ -482,8 +483,8 @@ class TestQwenOAuthToolCallingEnhanced:
             )
 
             # Assert
-            assert isinstance(result, tuple)
-            response, headers = result
+            response = result.content
+            # headers = result.headers
 
             # Verify the conversation context was properly passed
             assert payload_capture["messages"] == messages
@@ -613,8 +614,7 @@ class TestQwenOAuthToolCallingEnhanced:
             assert model_capture["effective_model"] == "qwen3-coder-plus"
 
             # Verify the response was passed through correctly
-            assert isinstance(result, tuple)
-            response, _ = result
+            response = result.content
             assert response["id"] == "test-id"
 
 

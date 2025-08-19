@@ -68,8 +68,9 @@ async def test_chat_completions_model_prefix_handled(
         key_name="GEMINI_API_KEY_1",
         api_key="FAKE_KEY",
     )
-    # Explicitly cast to dict for type checking, as it's a non-streaming test
-    response: dict[str, Any] = response_tuple  # type: ignore
+    # The response is now a ResponseEnvelope
+    assert hasattr(response_tuple, 'content')
+    response: dict[str, Any] = response_tuple.content  # type: ignore
 
     assert isinstance(response, dict)
     request = httpx_mock.get_request()

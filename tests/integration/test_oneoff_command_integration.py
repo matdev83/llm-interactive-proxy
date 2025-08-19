@@ -7,7 +7,7 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 from fastapi.testclient import TestClient
-from src.core.app.application_factory import build_app
+from src.core.app.test_builder import build_test_app as build_app
 from src.core.config.app_config import AppConfig
 from src.core.interfaces.backend_service_interface import IBackendService
 
@@ -21,7 +21,7 @@ async def app():
     app = build_app(config)
 
     # Manually trigger startup to initialize service provider
-    from src.core.app.application_factory import ApplicationBuilder
+    from src.core.app.test_builder import TestApplicationBuilder as ApplicationBuilder
 
     builder = ApplicationBuilder()
     service_provider = await builder._initialize_services(app, config)

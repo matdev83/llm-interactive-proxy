@@ -3,11 +3,11 @@ from __future__ import annotations
 import abc
 from typing import TYPE_CHECKING, Any
 
-from src.core.domain.response_envelope import ResponseEnvelope
-from src.core.domain.streaming_response_envelope import StreamingResponseEnvelope
+from src.core.domain.responses import ResponseEnvelope, StreamingResponseEnvelope
+from src.core.interfaces.model_bases import DomainModel, InternalDTO
 
 if TYPE_CHECKING:
-    from src.core.domain.chat import ChatRequest
+    pass
 
 
 class LLMBackend(abc.ABC):
@@ -21,7 +21,7 @@ class LLMBackend(abc.ABC):
     @abc.abstractmethod
     async def chat_completions(
         self,
-        request_data: ChatRequest,
+        request_data: DomainModel | InternalDTO | dict[str, Any],
         processed_messages: list,  # Messages after command processing (domain objects or dicts)
         effective_model: str,  # Model after considering override
         **kwargs: Any,

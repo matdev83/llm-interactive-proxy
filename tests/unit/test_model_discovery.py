@@ -1,7 +1,7 @@
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from src.connectors import GeminiBackend, OpenRouterBackend
-from src.core.app.application_factory import build_app_compat
+from src.core.app.test_builder import build_test_app as build_app_compat
 
 
 async def test_openrouter_models_cached() -> None:
@@ -85,7 +85,7 @@ def test_auto_default_backend(monkeypatch) -> None:
             app, headers={"Authorization": "Bearer test-proxy-key"}
         ) as client:
             # Should default to openai backend when no other backend is available
-            assert client.app.state.backend_type == "openai"
+            assert client.app.state.app_config.backends.default_backend == "openai"
 
 
 def test_multiple_backends_requires_arg(monkeypatch) -> None:
@@ -117,7 +117,7 @@ def test_multiple_backends_requires_arg(monkeypatch) -> None:
             app, headers={"Authorization": "Bearer test-proxy-key"}
         ) as client:
             # With the updated behavior, it should default to 'openai'
-            assert client.app.state.backend_type == "openai"
+            assert client.app.state.app_config.backends.default_backend == "openai"
 
         # Now try specifying the backend explicitly
         monkeypatch.setenv("LLM_BACKEND", "gemini")
@@ -125,4 +125,4 @@ def test_multiple_backends_requires_arg(monkeypatch) -> None:
         with TestClient(
             app2, headers={"Authorization": "Bearer test-proxy-key"}
         ) as client2:
-            assert client2.app.state.backend_type == "gemini"
+            assert client2.app.state.app_config.backends.default_backend == "gemini"

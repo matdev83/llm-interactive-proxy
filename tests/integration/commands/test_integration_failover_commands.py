@@ -1,8 +1,10 @@
-import pytest
 from unittest.mock import Mock
-from src.core.domain.session import SessionState, BackendConfiguration
-from src.command_parser import CommandParser
+
+import pytest
 from src.command_config import CommandParserConfig
+from src.command_parser import CommandParser
+from src.core.domain.session import BackendConfiguration, SessionState
+
 
 # Helper function to run a command against a given state
 async def run_command(command_string: str, state: SessionState) -> str:
@@ -19,7 +21,7 @@ async def run_command(command_string: str, state: SessionState) -> str:
         RouteAppendCommand,
         RouteClearCommand,
         RouteListCommand,
-        RoutePrependCommand
+        RoutePrependCommand,
     )
     parser = CommandParser(parser_config, command_prefix="!/")
     parser.handlers = {

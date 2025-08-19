@@ -18,7 +18,7 @@ import pytest
 import requests
 import uvicorn
 from fastapi import HTTPException
-from src.core.app.application_factory import build_app
+from src.core.app.test_builder import build_test_app as build_app
 
 from tests.conftest import get_backend_instance
 

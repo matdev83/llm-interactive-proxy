@@ -15,21 +15,20 @@ from contextlib import asynccontextmanager
 from datetime import datetime
 from typing import Any, Protocol
 
+
 # Define a protocol for objects that behave like StreamingResponse
 class StreamingResponseLike(Protocol):
     """Protocol for objects that behave like StreamingResponse."""
-    
+
     @property
-    def body_iterator(self) -> AsyncGenerator[bytes, None]:
-        ...
-        
+    def body_iterator(self) -> AsyncGenerator[bytes, None]: ...
+
     @property
-    def headers(self) -> dict[str, str]:
-        ...
-        
+    def headers(self) -> dict[str, str]: ...
+
     @property
-    def media_type(self) -> str:
-        ...
+    def media_type(self) -> str: ...
+
 
 from src.core.domain.usage_data import UsageData
 from src.core.interfaces.repositories_interface import IUsageRepository

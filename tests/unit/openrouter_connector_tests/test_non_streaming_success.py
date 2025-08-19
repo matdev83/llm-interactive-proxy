@@ -7,9 +7,8 @@ import pytest_asyncio
 # from fastapi import HTTPException # F401: Removed
 from pytest_httpx import HTTPXMock
 from src.connectors.openrouter import OpenRouterBackend
-
-# from starlette.responses import StreamingResponse # F401: Removed
 from src.core.domain.chat import ChatMessage, ChatRequest
+from src.core.domain.responses import ResponseEnvelope
 
 # Default OpenRouter settings for tests
 TEST_OPENROUTER_API_BASE_URL = (
@@ -87,7 +86,7 @@ async def test_chat_completions_non_streaming_success(
         status_code=200,
     )
 
-    response_tuple = await openrouter_backend.chat_completions(
+    response_envelope = await openrouter_backend.chat_completions(
         request_data=sample_chat_request_data,
         processed_messages=sample_processed_messages,
         effective_model=effective_model,
@@ -96,17 +95,10 @@ async def test_chat_completions_non_streaming_success(
         key_name="test_key",
         api_key="FAKE_KEY",
     )
-    # Explicitly cast to Tuple for type checking, as it's a non-streaming test
-    response: dict
-    if isinstance(response_tuple, tuple):
-        response, _ = response_tuple
-    else:
-        # This case should not happen for non-streaming requests, but for type safety
-        raise TypeError("Expected a tuple response for non-streaming request.")
-
-    assert isinstance(response, dict)
-    assert response["id"] == "test_completion_id"
-    assert response["choices"][0]["message"]["content"] == "Hi there!"
+    assert isinstance(response_envelope, ResponseEnvelope)
+    response_content = response_envelope.content
+    assert response_content["id"] == "test_completion_id"
+    assert response_content["choices"][0]["message"]["content"] == "Hi there!"
 
     # Verify request payload
     request = httpx_mock.get_request()

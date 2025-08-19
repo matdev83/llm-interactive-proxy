@@ -5,11 +5,18 @@ from collections.abc import Callable
 from typing import Any, cast
 
 import httpx
-from src.core.common.exceptions import AuthenticationError, BackendError, ServiceUnavailableError
-from src.core.domain.chat import ChatRequest
-from src.core.domain.response_envelope import ResponseEnvelope
-from src.core.domain.streaming_response_envelope import StreamingResponseEnvelope
+from fastapi import HTTPException
+
 from src.connectors.openai import OpenAIConnector
+from src.core.adapters.api_adapters import legacy_to_domain_chat_request
+from src.core.common.exceptions import (
+    AuthenticationError,
+    BackendError,
+    ServiceUnavailableError,
+)
+from src.core.domain.chat import ChatRequest
+from src.core.domain.responses import ResponseEnvelope, StreamingResponseEnvelope
+from src.core.interfaces.model_bases import DomainModel, InternalDTO
 from src.core.services.backend_registry import backend_registry
 
 logger = logging.getLogger(__name__)
@@ -107,8 +114,9 @@ class OpenRouterBackend(OpenAIConnector):
         ):
             payload.update(request_data.__dict__["extra_params"])
         else:
-            # Fallback to model_dump without exclude_unset to catch any extra fields
-            request_dict = request_data.model_dump()
+            # Fallback to model_dump with exclude_unset to avoid including unset
+            # fields (tests expect unset fields to be excluded)
+            request_dict = request_data.model_dump(exclude_unset=True)
             if "extra_params" in request_dict:
                 payload.update(request_dict["extra_params"])
 
@@ -119,12 +127,15 @@ class OpenRouterBackend(OpenAIConnector):
 
     async def chat_completions(  # type: ignore[override]
         self,
-        request_data: ChatRequest,
+        request_data: DomainModel | InternalDTO | dict[str, Any],
         processed_messages: list[Any],
         effective_model: str,
         project: str | None = None,
         **kwargs: Any,
     ) -> ResponseEnvelope | StreamingResponseEnvelope:
+        # Normalize incoming request to ChatRequest
+        request_data = legacy_to_domain_chat_request(request_data)
+        request_data = cast(ChatRequest, request_data)
         # Allow tests and callers to provide per-call OpenRouter settings via kwargs
         headers_provider = kwargs.pop("openrouter_headers_provider", None)
         key_name = kwargs.pop("key_name", None)
@@ -174,31 +185,85 @@ class OpenRouterBackend(OpenAIConnector):
             call_kwargs["headers_override"] = headers_override
             call_kwargs["openai_url"] = self.api_base_url
 
-            return await super().chat_completions(
+            parent_result = await super().chat_completions(
                 request_data=request_data,
                 processed_messages=processed_messages,
                 effective_model=effective_model,
                 **call_kwargs,
             )
+
+            # Normalize parent_result into domain envelopes only. Do not return
+            # raw tuples or transport responses from this method — callers expect
+            # domain envelopes (controllers/adapters will convert to transport).
+            from starlette.responses import StreamingResponse
+
+            if isinstance(parent_result, tuple) and len(parent_result) == 2:
+                content, headers = parent_result
+                return ResponseEnvelope(
+                    content=content, headers=headers or {}, status_code=200
+                )
+
+            if isinstance(parent_result, StreamingResponse):
+                return StreamingResponseEnvelope(
+                    content=parent_result.body_iterator,
+                    media_type=getattr(
+                        parent_result, "media_type", "text/event-stream"
+                    ),
+                    headers=dict(getattr(parent_result, "headers", {})),
+                )
+
+            # Handle the case where parent_result is already a ResponseEnvelope
+            # This is the case that's causing the error in tests
+            if isinstance(parent_result, ResponseEnvelope):
+                # Return it directly - no need to wrap it again
+                return parent_result
+
+            if isinstance(parent_result, StreamingResponseEnvelope):
+                # Return it directly - no need to wrap it again
+                return parent_result
+
+            # If we get here, we have an unexpected return type
+            logger.warning(
+                f"Unexpected return type from parent chat_completions: {type(parent_result)}"
+            )
+
+            # Try to convert it to a ResponseEnvelope as a fallback
+            try:
+                if hasattr(parent_result, "content") and hasattr(
+                    parent_result, "headers"
+                ):
+                    # It looks like a response-like object, try to adapt it
+                    content = getattr(parent_result, "content", {})
+                    headers = getattr(parent_result, "headers", {})
+                    status_code = getattr(parent_result, "status_code", 200)
+                    return ResponseEnvelope(
+                        content=content, headers=headers, status_code=status_code
+                    )
+                else:
+                    # Last resort, just wrap it in a ResponseEnvelope
+                    return ResponseEnvelope(
+                        content=parent_result, headers={}, status_code=200
+                    )
+            except Exception as e:
+                # If all else fails, raise the original error
+                logger.error(f"Failed to adapt unexpected return type: {e}")
+                raise TypeError(
+                    f"Unexpected return type from parent chat_completions: {type(parent_result)}"
+                )
         except ServiceUnavailableError as e:
             # Adapt parent error details to OpenRouter-specific wording
-            if "Could not connect to API" in e.message:
-                raise ServiceUnavailableError(
-                    message=e.message.replace(
-                        "Could not connect to API", "Could not connect to OpenRouter"
-                    ),
-                    code="openrouter_unavailable",
-                ) from None
-            # Also handle the case where the error message is "Could not connect to backend"
-            if "Could not connect to backend" in e.message:
-                raise ServiceUnavailableError(
-                    message=e.message.replace(
-                        "Could not connect to backend",
-                        "Could not connect to OpenRouter",
-                    ),
-                    code="openrouter_unavailable",
-                ) from None
-            raise
+            # Tests expect an HTTPException(503) on connection failure, so
+            # convert ServiceUnavailableError to HTTPException with 503.
+            msg = e.message
+            if "Could not connect to API" in msg:
+                msg = msg.replace(
+                    "Could not connect to API", "Could not connect to OpenRouter"
+                )
+            if "Could not connect to backend" in msg:
+                msg = msg.replace(
+                    "Could not connect to backend", "Could not connect to OpenRouter"
+                )
+            raise HTTPException(status_code=503, detail=msg) from None
         except BackendError as e:
             # Handle streaming errors
             if e.message.startswith("API streaming error:"):

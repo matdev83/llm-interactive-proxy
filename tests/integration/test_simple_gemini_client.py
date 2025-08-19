@@ -16,7 +16,7 @@ try:
 except ImportError:
     GENAI_AVAILABLE = False
 
-from src.core.app.application_factory import build_app
+from src.core.app.test_builder import build_test_app as build_app
 
 pytestmark = [
     pytest.mark.integration,

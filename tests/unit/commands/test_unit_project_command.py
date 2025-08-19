@@ -1,10 +1,10 @@
 
-import pytest
 from unittest.mock import Mock
-import asyncio
 
+import pytest
 from src.core.domain.commands.project_command import ProjectCommand
 from src.core.domain.session import Session, SessionState
+
 
 @pytest.fixture
 def command() -> ProjectCommand:

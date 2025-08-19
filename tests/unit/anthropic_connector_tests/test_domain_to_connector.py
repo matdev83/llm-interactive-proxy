@@ -275,10 +275,10 @@ async def test_chat_completions_streaming(
     # Verify the payload for streaming
     assert sent_payload["stream"] is True
 
-    # Verify the response is a StreamingResponse
-    from starlette.responses import StreamingResponse
+    # Verify the response is a StreamingResponseEnvelope (not StreamingResponse)
+    from src.core.domain.responses import StreamingResponseEnvelope
 
-    assert isinstance(response, StreamingResponse)
+    assert isinstance(response, StreamingResponseEnvelope)
     assert response.media_type == "text/event-stream"
 
 

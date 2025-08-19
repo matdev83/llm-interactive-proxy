@@ -8,7 +8,7 @@ and domain models.
 from __future__ import annotations
 
 import logging
-from typing import Any, Dict, List, Optional, Union, cast
+from typing import Any
 
 from src.core.common.exceptions import InvalidRequestError
 from src.core.domain.chat import (
@@ -18,23 +18,26 @@ from src.core.domain.chat import (
     ToolCall,
     ToolDefinition,
 )
+from src.core.interfaces.model_bases import DomainModel, InternalDTO
 
 logger = logging.getLogger(__name__)
 
 
-def legacy_to_domain_chat_request(request_data: Any) -> ChatRequest:
+def legacy_to_domain_chat_request(
+    request_data: DomainModel | InternalDTO | dict[str, Any],
+) -> ChatRequest:
     """Convert a legacy request data object to a domain ChatRequest.
-    
+
     Args:
         request_data: The legacy request data
-        
+
     Returns:
         A domain ChatRequest object
     """
     # If it's already a ChatRequest, just return it
     if isinstance(request_data, ChatRequest):
         return request_data
-    
+
     # Convert messages (support dicts, objects with attributes, or pydantic models)
     messages: list[ChatMessage] = []
     if isinstance(request_data, dict):
@@ -224,7 +227,7 @@ def dict_to_domain_chat_request(request_dict: dict[str, Any]) -> ChatRequest:
 
     Returns:
         A domain ChatRequest model
-        
+
     Raises:
         InvalidRequestError: If the request is invalid (e.g., no messages)
     """

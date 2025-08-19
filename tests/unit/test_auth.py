@@ -3,7 +3,7 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 from fastapi.testclient import TestClient
-from src.core.app.application_factory import build_app_compat as build_app
+from src.core.app.test_builder import build_test_app as build_app
 
 
 @pytest.fixture(scope="function")
@@ -16,7 +16,18 @@ def app_auth_enabled(monkeypatch):
         "src.connectors.OpenRouterBackend.list_models",
         new=AsyncMock(return_value={"data": [{"id": "some-model"}]}),
     ):
-        app = build_app()
+        from src.core.config.app_config import AppConfig
+        config = AppConfig()
+        config.auth.disable_auth = False  # Explicitly ensure auth is enabled
+        config.auth.api_keys = ["testkey"]  # Set valid keys
+        
+        app = build_app(config=config)
+        
+        # Manually add auth middleware with correct keys
+        from src.core.security import APIKeyMiddleware
+        app.middleware_stack = None  # Reset middleware stack
+        app.add_middleware(APIKeyMiddleware, valid_keys=["testkey"])
+        
         yield app
 
 

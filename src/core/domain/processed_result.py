@@ -1,9 +1,11 @@
 from typing import Any
 
-from pydantic import BaseModel, Field
+from pydantic import Field
+
+from src.core.interfaces.model_bases import DomainModel
 
 
-class ProcessedResult(BaseModel):
+class ProcessedResult(DomainModel):
     """
     Represents the result of processing a list of messages for commands.
     """

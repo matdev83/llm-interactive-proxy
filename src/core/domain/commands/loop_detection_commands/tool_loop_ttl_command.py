@@ -10,6 +10,7 @@ from src.core.domain.session import Session
 
 logger = logging.getLogger(__name__)
 
+
 class ToolLoopTTLCommand(BaseCommand):
     """Command for setting tool loop TTL."""
 
@@ -25,17 +26,29 @@ class ToolLoopTTLCommand(BaseCommand):
         ttl_seconds_arg = args.get("ttl_seconds")
 
         if ttl_seconds_arg is None:
-            return CommandResult(success=False, message="TTL seconds must be specified", name=self.name)
+            return CommandResult(
+                success=False, message="TTL seconds must be specified", name=self.name
+            )
 
         try:
             ttl_seconds_int = int(ttl_seconds_arg)
             if ttl_seconds_int < 1:
-                return CommandResult(success=False, message="TTL seconds must be at least 1", name=self.name)
+                return CommandResult(
+                    success=False,
+                    message="TTL seconds must be at least 1",
+                    name=self.name,
+                )
         except (ValueError, TypeError):
-            return CommandResult(success=False, message="TTL seconds must be a valid integer", name=self.name)
+            return CommandResult(
+                success=False,
+                message="TTL seconds must be a valid integer",
+                name=self.name,
+            )
 
         try:
-            loop_config = session.state.loop_config.with_tool_loop_ttl_seconds(ttl_seconds_int)
+            loop_config = session.state.loop_config.with_tool_loop_ttl_seconds(
+                ttl_seconds_int
+            )
             updated_state = session.state.with_loop_config(loop_config)
 
             return CommandResult(
@@ -48,5 +61,7 @@ class ToolLoopTTLCommand(BaseCommand):
         except Exception as e:
             logger.error(f"Error setting tool loop TTL: {e}")
             return CommandResult(
-                success=False, message=f"Error setting tool loop TTL: {e}", name=self.name
+                success=False,
+                message=f"Error setting tool loop TTL: {e}",
+                name=self.name,
             )

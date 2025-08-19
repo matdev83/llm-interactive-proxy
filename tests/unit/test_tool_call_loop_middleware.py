@@ -1,6 +1,5 @@
 """Unit tests for the tool call loop detection middleware."""
 
-import json
 
 import pytest
 from src.core.common.exceptions import ToolCallLoopError
@@ -14,10 +13,17 @@ from src.core.services.tool_call_loop_middleware_service import (
 from src.tool_call_loop.config import ToolLoopMode
 
 
+class ConcreteToolCallLoopDetectionMiddleware(ToolCallLoopDetectionMiddleware):
+    async def process_response(self, response, context):
+        return response
+
+    async def process_streaming_chunk(self, chunk, context):
+        return chunk
+
 @pytest.fixture
 def middleware() -> ToolCallLoopDetectionMiddleware:
     """Create a ToolCallLoopDetectionMiddleware instance."""
-    return ToolCallLoopDetectionMiddleware()
+    return ConcreteToolCallLoopDetectionMiddleware()
 
 
 @pytest.fixture
@@ -61,13 +67,15 @@ def tool_call_response() -> ProcessedResponse:
         ],
         "usage": {"prompt_tokens": 10, "completion_tokens": 10, "total_tokens": 20},
     }
-    return ProcessedResponse(content=json.dumps(response_dict))
+    return ProcessedResponse(
+        content=response_dict
+    )
 
 
 @pytest.mark.asyncio
 async def test_process_no_context(middleware: ToolCallLoopDetectionMiddleware) -> None:
     """Test that the middleware returns the response unchanged if no context is provided."""
-    response = ProcessedResponse(content="test content")
+    response = ProcessedResponse(content={})
     result = await middleware.process(response, "session123")
     assert result == response
 
@@ -75,7 +83,7 @@ async def test_process_no_context(middleware: ToolCallLoopDetectionMiddleware) -
 @pytest.mark.asyncio
 async def test_process_no_config(middleware: ToolCallLoopDetectionMiddleware) -> None:
     """Test that the middleware returns the response unchanged if no config is provided."""
-    response = ProcessedResponse(content="test content")
+    response = ProcessedResponse(content={})
     result = await middleware.process(response, "session123", context={})
     assert result == response
 
@@ -90,7 +98,7 @@ async def test_process_disabled(middleware: ToolCallLoopDetectionMiddleware) -> 
         tool_loop_ttl_seconds=60,
         tool_loop_mode=ToolLoopMode.BREAK,
     )
-    response = ProcessedResponse(content="test content")
+    response = ProcessedResponse(content={})
     result = await middleware.process(
         response, "session123", context={"config": disabled_config}
     )
@@ -100,7 +108,7 @@ async def test_process_disabled(middleware: ToolCallLoopDetectionMiddleware) -> 
 @pytest.mark.asyncio
 async def test_process_no_tool_calls(middleware: ToolCallLoopDetectionMiddleware, loop_config: LoopDetectionConfiguration) -> None:
     """Test that the middleware returns the response unchanged if no tool calls are present."""
-    response = ProcessedResponse(content="test content")
+    response = ProcessedResponse(content={})
     result = await middleware.process(
         response, "session123", context={"config": loop_config}
     )
@@ -158,45 +166,41 @@ async def test_different_tool_calls(middleware, loop_config) -> None:
     """Test that different tool calls are tracked separately."""
     # Create two different tool call responses
     tool_call_1 = ProcessedResponse(
-        content=json.dumps(
-            {
-                "choices": [
-                    {
-                        "message": {
-                            "tool_calls": [
-                                {
-                                    "function": {
-                                        "name": "get_weather",
-                                        "arguments": '{"location": "New York"}',
-                                    }
+        content={
+            "choices": [
+                {
+                    "message": {
+                        "tool_calls": [
+                            {
+                                "function": {
+                                    "name": "get_weather",
+                                    "arguments": '{"location": "New York"}',
                                 }
-                            ]
-                        }
+                            }
+                        ]
                     }
-                ]
-            }
-        )
+                }
+            ]
+        },
     )
 
     tool_call_2 = ProcessedResponse(
-        content=json.dumps(
-            {
-                "choices": [
-                    {
-                        "message": {
-                            "tool_calls": [
-                                {
-                                    "function": {
-                                        "name": "get_weather",
-                                        "arguments": '{"location": "London"}',
-                                    }
+        content={
+            "choices": [
+                {
+                    "message": {
+                        "tool_calls": [
+                            {
+                                "function": {
+                                    "name": "get_weather",
+                                    "arguments": '{"location": "London"}',
                                 }
-                            ]
-                        }
+                            }
+                        ]
                     }
-                ]
-            }
-        )
+                }
+            ]
+        },
     )
 
     # Use the same tool call repeatedly to trigger the loop detection

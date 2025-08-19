@@ -1,11 +1,10 @@
 from __future__ import annotations
 
-from typing import AsyncIterator, Callable
+from collections.abc import AsyncIterator, Callable
 
 from starlette.responses import JSONResponse, Response, StreamingResponse
 
-from src.core.domain.response_envelope import ResponseEnvelope
-from src.core.domain.streaming_response_envelope import StreamingResponseEnvelope
+from src.core.domain.responses import ResponseEnvelope, StreamingResponseEnvelope
 
 
 def to_fastapi_response(envelope: ResponseEnvelope) -> Response:
@@ -17,7 +16,9 @@ def to_fastapi_response(envelope: ResponseEnvelope) -> Response:
     )
 
 
-def to_fastapi_streaming_response(envelope: StreamingResponseEnvelope) -> StreamingResponse:
+def to_fastapi_streaming_response(
+    envelope: StreamingResponseEnvelope,
+) -> StreamingResponse:
     """Convert a domain StreamingResponseEnvelope to a FastAPI StreamingResponse."""
     return StreamingResponse(
         content=envelope.content,
@@ -30,7 +31,7 @@ def adapt_response(
     response: ResponseEnvelope | StreamingResponseEnvelope | Response,
 ) -> Response:
     """Adapt any response type to a FastAPI Response.
-    
+
     This is useful in controllers that need to handle multiple response types.
     """
     if isinstance(response, ResponseEnvelope):
@@ -44,15 +45,14 @@ def adapt_response(
 
 
 async def wrap_async_iterator(
-    source: AsyncIterator[bytes], 
-    mapper: Callable[[bytes], bytes] | None = None
+    source: AsyncIterator[bytes], mapper: Callable[[bytes], bytes] | None = None
 ) -> AsyncIterator[bytes]:
     """Wrap an async iterator with an optional mapping function.
-    
+
     Args:
         source: Source async iterator
         mapper: Optional function to transform each chunk
-        
+
     Yields:
         Transformed chunks from the source iterator
     """

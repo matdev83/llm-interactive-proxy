@@ -4,23 +4,25 @@ Pydantic models for Anthropic API request/response structures.
 
 from typing import Any
 
-from pydantic import BaseModel, Field
+from pydantic import Field
+
+from src.core.interfaces.model_bases import DomainModel
 
 
-class AnthropicMessage(BaseModel):
+class AnthropicMessage(DomainModel):
     """Represents a message in the Anthropic API."""
 
     role: str
     content: str | list[dict[str, Any]]
 
 
-class AnthropicMessagesRequest(BaseModel):
+class AnthropicMessagesRequest(DomainModel):
     """Represents a request to the Anthropic Messages API."""
 
     model: str
     messages: list[AnthropicMessage]
     system: str | None = None
-    max_tokens: int
+    max_tokens: int | None = None
     metadata: dict[str, Any] | None = None
     stop_sequences: list[str] | None = Field(default=None, alias="stop_sequences")
     stream: bool | None = False
@@ -29,14 +31,14 @@ class AnthropicMessagesRequest(BaseModel):
     top_k: int | None = None
 
 
-class ContentBlock(BaseModel):
+class ContentBlock(DomainModel):
     """Represents a content block in an Anthropic message."""
 
     type: str
     text: str
 
 
-class ToolUseBlock(BaseModel):
+class ToolUseBlock(DomainModel):
     """Represents a tool invocation block in Anthropic messages."""
 
     type: str = "tool_use"
@@ -45,14 +47,14 @@ class ToolUseBlock(BaseModel):
     input: dict[str, Any] | None = None
 
 
-class Usage(BaseModel):
+class Usage(DomainModel):
     """Represents the usage statistics for a request."""
 
     input_tokens: int
     output_tokens: int
 
 
-class AnthropicMessagesResponse(BaseModel):
+class AnthropicMessagesResponse(DomainModel):
     """Represents a response from the Anthropic Messages API."""
 
     id: str

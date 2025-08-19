@@ -8,14 +8,16 @@ from typing import Any, cast
 
 import httpx
 from fastapi import HTTPException
-from starlette.responses import StreamingResponse
 
 from src.connectors.base import LLMBackend
+from src.core.adapters.api_adapters import legacy_to_domain_chat_request
 from src.core.domain.chat import (
     ChatRequest,
     MessageContentPartImage,
     MessageContentPartText,
 )
+from src.core.domain.responses import ResponseEnvelope, StreamingResponseEnvelope
+from src.core.interfaces.model_bases import DomainModel, InternalDTO
 from src.core.services.backend_registry import backend_registry
 
 # Legacy ChatCompletionRequest removed from connector signatures; use domain ChatRequest
@@ -247,7 +249,7 @@ class GeminiBackend(LLMBackend):
         payload: dict,
         headers: dict,
         effective_model: str,
-    ) -> StreamingResponse:
+    ) -> StreamingResponseEnvelope:
         url = f"{base_url}:streamGenerateContent"
         try:
             request = self.client.build_request(
@@ -320,10 +322,10 @@ class GeminiBackend(LLMBackend):
                 finally:
                     await response.aclose()
 
-            from src.connectors.streaming_utils import to_streaming_response
-
-            return to_streaming_response(
-                lambda: stream_generator(), media_type="text/event-stream"
+            return StreamingResponseEnvelope(
+                content=stream_generator(),
+                media_type="text/event-stream",
+                headers=dict(response.headers),
             )
         except httpx.RequestError as e:
             if logger.isEnabledFor(logging.ERROR):
@@ -335,7 +337,7 @@ class GeminiBackend(LLMBackend):
 
     async def chat_completions(  # type: ignore[override]
         self,
-        request_data: ChatRequest,
+        request_data: DomainModel | InternalDTO | dict[str, Any],
         processed_messages: list[Any],
         effective_model: str,
         openrouter_api_base_url: str | None = None,
@@ -345,14 +347,16 @@ class GeminiBackend(LLMBackend):
         project: str | None = None,
         agent: str | None = None,
         gemini_api_base_url: str | None = None,
-        prompt_redactor: Any = None,
-        command_filter: Any = None,
         **kwargs: Any,
-    ) -> dict[str, Any] | StreamingResponse:
+    ) -> ResponseEnvelope | StreamingResponseEnvelope:
         # Resolve base configuration
         base_api_url, headers = self._resolve_gemini_api_config(
             gemini_api_base_url, openrouter_api_base_url, api_key, **kwargs
         )
+
+        # Normalize incoming request to ChatRequest
+        request_data = legacy_to_domain_chat_request(request_data)
+        request_data = cast(ChatRequest, request_data)
 
         # Build payload
         payload: dict[str, Any] = {
@@ -360,7 +364,41 @@ class GeminiBackend(LLMBackend):
         }
         self._apply_generation_config(payload, request_data)
         if request_data.extra_body:
-            payload.update(request_data.extra_body)
+            # Merge extra_body with payload, but be careful with generationConfig.
+            # We support both legacy placement under 'generation_config' and
+            # the external 'generationConfig' key that Gemini expects.
+            # Normalize: prefer explicit generation_config on ChatRequest, then
+            # merge any 'generationConfig' present in extra_body on top.
+            extra_body_copy = dict(request_data.extra_body)
+
+            # If caller placed generation_config on ChatRequest it was already
+            # merged by _apply_generation_config into payload['generationConfig'].
+            # Now merge any generationConfig from extra_body on top of what we
+            # already have (extra body should be able to override specific keys).
+            # Accept either CamelCase 'generationConfig' (as used in tests and
+            # by external callers) or legacy snake_case 'generation_config'
+            extra_gen_cfg = extra_body_copy.pop("generationConfig", None)
+            if extra_gen_cfg is None:
+                extra_gen_cfg = extra_body_copy.pop("generation_config", None)
+            if extra_gen_cfg:
+                # merge by creating a new dict so we don't retain old references
+                existing = payload.get("generationConfig", {})
+                merged = dict(existing)
+                merged.update(extra_gen_cfg)
+                # Ensure extra_body overrides win for temperature specifically
+                if "temperature" in extra_gen_cfg:
+                    merged["temperature"] = extra_gen_cfg["temperature"]
+                payload["generationConfig"] = merged
+
+            # Finally update payload with remaining extra body fields
+            if extra_body_copy:
+                payload.update(extra_body_copy)
+        # Remove generation_config (legacy key) if present; we've migrated it
+        # into 'generationConfig' in _apply_generation_config.
+        payload.pop("generation_config", None)
+        # Debug output
+        if logger.isEnabledFor(logging.DEBUG):
+            logger.debug("Final payload: %s", payload)
 
         # Normalize model id and construct URL
         model_name = self._normalize_model_name(effective_model)
@@ -373,6 +411,7 @@ class GeminiBackend(LLMBackend):
             return await self._handle_gemini_streaming_response(
                 model_url, payload, headers, effective_model
             )
+
         return await self._handle_gemini_non_streaming_response(
             model_url, payload, headers, effective_model
         )
@@ -404,16 +443,21 @@ class GeminiBackend(LLMBackend):
         payload: dict[str, Any],
         request_data: ChatRequest,
     ) -> None:
+        # Initialize generationConfig
+        generation_config = payload.setdefault("generationConfig", {})
+
         # thinking budget
         if getattr(request_data, "thinking_budget", None):
-            payload.setdefault("generationConfig", {}).setdefault("thinkingConfig", {})[
+            generation_config.setdefault("thinkingConfig", {})[
                 "thinkingBudget"
             ] = request_data.thinking_budget  # type: ignore[index]
-        # generation config blob
+
+        # generation config blob - merge with existing config
         if getattr(request_data, "generation_config", None):
-            payload.setdefault("generationConfig", {}).update(
-                request_data.generation_config  # type: ignore[arg-type]
-            )
+            # Deep merge the generation_config into generationConfig
+            for key, value in request_data.generation_config.items():  # type: ignore[union-attr]
+                generation_config[key] = value
+
         # temperature clamped to [0,1]
         temperature = getattr(request_data, "temperature", None)
         if temperature is not None:
@@ -422,7 +466,7 @@ class GeminiBackend(LLMBackend):
                     f"Temperature {temperature} > 1.0 for Gemini, clamping to 1.0"
                 )
                 temperature = 1.0
-            payload.setdefault("generationConfig", {})["temperature"] = temperature
+            generation_config["temperature"] = temperature
 
     def _normalize_model_name(self, effective_model: str) -> str:
         model_name = effective_model
@@ -447,7 +491,7 @@ class GeminiBackend(LLMBackend):
         payload: dict,
         headers: dict,
         effective_model: str,
-    ) -> dict[str, Any]:
+    ) -> ResponseEnvelope:
         url = f"{base_url}:generateContent"
         try:
             response = await self.client.post(url, json=payload, headers=headers)
@@ -462,7 +506,11 @@ class GeminiBackend(LLMBackend):
             data = response.json()
             if logger.isEnabledFor(logging.DEBUG):
                 logger.debug("Gemini response headers: %s", dict(response.headers))
-            return self._convert_full_response(data, effective_model)
+            return ResponseEnvelope(
+                content=self._convert_full_response(data, effective_model),
+                headers=dict(response.headers),
+                status_code=response.status_code,
+            )
         except httpx.RequestError as e:
             if logger.isEnabledFor(logging.ERROR):
                 logger.error("Request error connecting to Gemini: %s", e, exc_info=True)

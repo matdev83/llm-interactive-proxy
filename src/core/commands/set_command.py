@@ -117,7 +117,10 @@ class SetCommand(BaseCommand):
                     # Detect BaseCommand type safely; avoid UnboundLocalError if import fails
                     base_command = None
                     try:
-                        from src.core.domain.commands.base_command import BaseCommand as _BaseCommand
+                        from src.core.domain.commands.base_command import (
+                            BaseCommand as _BaseCommand,
+                        )
+
                         base_command = _BaseCommand
                     except Exception:
                         base_command = None  # type: ignore
@@ -207,7 +210,7 @@ class SetCommand(BaseCommand):
                 backend_type=proxy_state.override_backend,
                 model=proxy_state.override_model,
                 api_url=None,
-                failover_routes=proxy_state.failover_routes,
+                failover_routes_data=proxy_state.failover_routes,
                 oneoff_backend=proxy_state.oneoff_backend,
                 oneoff_model=proxy_state.oneoff_model,
                 invalid_override=proxy_state.invalid_override,

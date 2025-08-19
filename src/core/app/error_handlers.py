@@ -8,7 +8,7 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse, Response
 from starlette.exceptions import HTTPException
 
-from src.core.common.exceptions import ProxyError
+from src.core.common.exceptions import LLMProxyError
 
 logger = logging.getLogger(__name__)
 
@@ -79,15 +79,18 @@ async def http_exception_handler(request: Request, exc: HTTPException) -> Respon
     )
 
 
-async def proxy_exception_handler(request: Request, exc: Exception) -> Response:
-    """Handle custom proxy exceptions.
+async def proxy_exception_handler(request: Request, exc: LLMProxyError) -> Response:
+    """Handle LLMProxyError exceptions.
+
+    This handler provides consistent error responses for domain exceptions
+    that originate within the proxy core.
 
     Args:
         request: The request that caused the exception
-        exc: The proxy exception
+        exc: The LLMProxyError exception
 
     Returns:
-        JSON response with error details
+        A JSON response with error details
     """
     # Be defensive: exc may not be a ProxyError here (we register this
     # handler for Exception as well). Safely extract fields when present.
@@ -99,8 +102,8 @@ async def proxy_exception_handler(request: Request, exc: Exception) -> Response:
     else:
         logger.warning(f"{exc_name}: {exc_message}")
 
-    # If this is a ProxyError, preserve its status_code and details.
-    if isinstance(exc, ProxyError):
+    # If this is a LLMProxyError, preserve its status_code and details.
+    if isinstance(exc, LLMProxyError):
         if exc.details and logger.isEnabledFor(logging.DEBUG):
             logger.debug(f"Error details: {exc.details}")
 
@@ -166,5 +169,5 @@ def configure_exception_handlers(app: FastAPI) -> None:
     """
     app.add_exception_handler(RequestValidationError, validation_exception_handler)  # type: ignore[arg-type]
     app.add_exception_handler(HTTPException, http_exception_handler)  # type: ignore[arg-type]
-    app.add_exception_handler(ProxyError, proxy_exception_handler)  # type: ignore[arg-type]
+    app.add_exception_handler(LLMProxyError, proxy_exception_handler)  # type: ignore[arg-type]
     app.add_exception_handler(Exception, general_exception_handler)

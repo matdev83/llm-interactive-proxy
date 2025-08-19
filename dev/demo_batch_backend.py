@@ -11,7 +11,7 @@ if str(project_root) not in sys.path:
     sys.path.insert(0, str(project_root))
 
 from src.connectors.gemini_cli_direct import GeminiCliDirectConnector
-from src.core.app.application_factory import build_app
+from src.core.app.application_builder import build_app
 
 
 # Stub the actual CLI call so we don't need Gemini installed

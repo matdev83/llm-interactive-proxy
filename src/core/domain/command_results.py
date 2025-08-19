@@ -9,9 +9,11 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
+from src.core.interfaces.model_bases import InternalDTO
+
 
 @dataclass
-class CommandResult:
+class CommandResult(InternalDTO):
     """
     Result of a command execution.
 

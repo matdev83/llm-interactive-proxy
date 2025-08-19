@@ -4,6 +4,7 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from src.connectors.base import LLMBackend
 
+
 class BackendRegistry:
     """A registry for dynamically discovering and managing LLM backend factories."""
 
@@ -45,6 +46,7 @@ class BackendRegistry:
     def get_registered_backends(self) -> list[str]:
         """Returns a list of names of all registered backends."""
         return list(self._factories.keys())
+
 
 # Global instance of the registry
 backend_registry = BackendRegistry()

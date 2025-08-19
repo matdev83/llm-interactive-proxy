@@ -5,7 +5,7 @@ Run with the project's virtualenv python to print whether key attributes
 """
 from __future__ import annotations
 
-from src.core.app.application_factory import build_app
+from src.core.app.application_builder import build_app
 
 
 def main() -> None:

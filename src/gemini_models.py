@@ -6,7 +6,9 @@ These models match the official Gemini API format for compatibility.
 from enum import Enum
 from typing import Any
 
-from pydantic import BaseModel, Field
+from pydantic import Field
+
+from src.core.interfaces.model_bases import DomainModel
 
 
 class HarmCategory(str, Enum):
@@ -59,14 +61,14 @@ class FinishReason(str, Enum):
     OTHER = "OTHER"
 
 
-class SafetySetting(BaseModel):
+class SafetySetting(DomainModel):
     """Safety setting for a specific harm category."""
 
     category: HarmCategory
     threshold: HarmBlockThreshold
 
 
-class SafetyRating(BaseModel):
+class SafetyRating(DomainModel):
     """Safety rating for a specific harm category."""
 
     category: HarmCategory
@@ -74,21 +76,21 @@ class SafetyRating(BaseModel):
     blocked: bool | None = None
 
 
-class Blob(BaseModel):
+class Blob(DomainModel):
     """Raw bytes data with MIME type."""
 
     mime_type: str
     data: str  # Base64 encoded data
 
 
-class FileData(BaseModel):
+class FileData(DomainModel):
     """Reference to a file uploaded via the File API."""
 
     mime_type: str
     file_uri: str
 
 
-class Part(BaseModel):
+class Part(DomainModel):
     """A part of a content message.
 
     Extended to support Gemini function calling protocol via ``functionCall`` and
@@ -122,14 +124,14 @@ class Part(BaseModel):
             )
 
 
-class Content(BaseModel):
+class Content(DomainModel):
     """Content of a conversation turn."""
 
     parts: list[Part]
     role: str | None = None  # "user", "model", or "function"
 
 
-class GenerationConfig(BaseModel):
+class GenerationConfig(DomainModel):
     """Configuration options for model generation."""
 
     model_config = {"populate_by_name": True}
@@ -144,7 +146,7 @@ class GenerationConfig(BaseModel):
     top_k: int | None = Field(None, alias="topK")
 
 
-class GenerateContentRequest(BaseModel):
+class GenerateContentRequest(DomainModel):
     """Request for generating content with Gemini."""
 
     model_config = {"populate_by_name": True}
@@ -158,20 +160,20 @@ class GenerateContentRequest(BaseModel):
     cached_content: str | None = Field(None, alias="cachedContent")
 
 
-class PromptFeedback(BaseModel):
+class PromptFeedback(DomainModel):
     """Feedback about the prompt."""
 
     block_reason: str | None = None
     safety_ratings: list[SafetyRating] | None = None
 
 
-class CitationMetadata(BaseModel):
+class CitationMetadata(DomainModel):
     """Citation metadata for generated content."""
 
     citation_sources: list[dict[str, Any]] | None = None
 
 
-class Candidate(BaseModel):
+class Candidate(DomainModel):
     """A generated candidate response."""
 
     model_config = {"populate_by_name": True}
@@ -185,7 +187,7 @@ class Candidate(BaseModel):
     grounding_attributions: list[dict[str, Any]] | None = None
 
 
-class UsageMetadata(BaseModel):
+class UsageMetadata(DomainModel):
     """Usage metadata for the generation request."""
 
     model_config = {"populate_by_name": True}
@@ -198,7 +200,7 @@ class UsageMetadata(BaseModel):
     )
 
 
-class GenerateContentResponse(BaseModel):
+class GenerateContentResponse(DomainModel):
     """Response from generating content with Gemini."""
 
     model_config = {"populate_by_name": True}
@@ -208,7 +210,7 @@ class GenerateContentResponse(BaseModel):
     usage_metadata: UsageMetadata | None = Field(None, alias="usageMetadata")
 
 
-class Model(BaseModel):
+class Model(DomainModel):
     """Information about a Gemini model."""
 
     name: str
@@ -225,7 +227,7 @@ class Model(BaseModel):
     top_k: int | None = None
 
 
-class ListModelsResponse(BaseModel):
+class ListModelsResponse(DomainModel):
     """Response from listing available models."""
 
     models: list[Model]
@@ -233,7 +235,7 @@ class ListModelsResponse(BaseModel):
 
 
 # Streaming response models
-class GenerateContentStreamResponse(BaseModel):
+class GenerateContentStreamResponse(DomainModel):
     """Streaming response chunk from generating content."""
 
     candidates: list[Candidate] | None = None

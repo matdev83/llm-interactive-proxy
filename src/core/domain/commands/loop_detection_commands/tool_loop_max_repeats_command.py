@@ -10,6 +10,7 @@ from src.core.domain.session import Session
 
 logger = logging.getLogger(__name__)
 
+
 class ToolLoopMaxRepeatsCommand(BaseCommand):
     """Command for setting tool loop max repeats."""
 
@@ -25,17 +26,29 @@ class ToolLoopMaxRepeatsCommand(BaseCommand):
         max_repeats_arg = args.get("max_repeats")
 
         if max_repeats_arg is None:
-            return CommandResult(success=False, message="Max repeats must be specified", name=self.name)
+            return CommandResult(
+                success=False, message="Max repeats must be specified", name=self.name
+            )
 
         try:
             max_repeats_int = int(max_repeats_arg)
             if max_repeats_int < 2:
-                return CommandResult(success=False, message="Max repeats must be at least 2", name=self.name)
+                return CommandResult(
+                    success=False,
+                    message="Max repeats must be at least 2",
+                    name=self.name,
+                )
         except (ValueError, TypeError):
-            return CommandResult(success=False, message="Max repeats must be a valid integer", name=self.name)
+            return CommandResult(
+                success=False,
+                message="Max repeats must be a valid integer",
+                name=self.name,
+            )
 
         try:
-            loop_config = session.state.loop_config.with_tool_loop_max_repeats(max_repeats_int)
+            loop_config = session.state.loop_config.with_tool_loop_max_repeats(
+                max_repeats_int
+            )
             updated_state = session.state.with_loop_config(loop_config)
 
             return CommandResult(

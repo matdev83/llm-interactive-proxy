@@ -11,6 +11,7 @@ from src.tool_call_loop.config import ToolLoopMode
 
 logger = logging.getLogger(__name__)
 
+
 class ToolLoopModeCommand(BaseCommand):
     """Command for setting tool loop mode."""
 
@@ -26,7 +27,9 @@ class ToolLoopModeCommand(BaseCommand):
         mode_str = args.get("mode")
 
         if not mode_str:
-            return CommandResult(success=False, message="Mode must be specified", name=self.name)
+            return CommandResult(
+                success=False, message="Mode must be specified", name=self.name
+            )
 
         try:
             mode = ToolLoopMode(str(mode_str).lower())
@@ -52,5 +55,7 @@ class ToolLoopModeCommand(BaseCommand):
         except Exception as e:
             logger.error(f"Error setting tool loop mode: {e}")
             return CommandResult(
-                success=False, message=f"Error setting tool loop mode: {e}", name=self.name
+                success=False,
+                message=f"Error setting tool loop mode: {e}",
+                name=self.name,
             )

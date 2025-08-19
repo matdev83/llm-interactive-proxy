@@ -4,7 +4,7 @@ import pytest_asyncio
 from pytest_httpx import HTTPXMock
 from src.connectors.openrouter import OpenRouterBackend
 from src.core.domain.chat import ChatMessage, ChatRequest
-from starlette.responses import StreamingResponse
+from src.core.domain.responses import StreamingResponseEnvelope
 
 # Default OpenRouter settings for tests
 TEST_OPENROUTER_API_BASE_URL = (
@@ -95,7 +95,7 @@ async def test_chat_completions_streaming_success(
         api_key="FAKE_KEY",
     )
 
-    assert isinstance(response, StreamingResponse)
+    assert isinstance(response, StreamingResponseEnvelope)
 
     # Collect all chunks from the streaming response
     chunks = []

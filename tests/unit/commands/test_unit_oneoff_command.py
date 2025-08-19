@@ -1,10 +1,10 @@
 
-import pytest
 from unittest.mock import Mock
-import asyncio
 
+import pytest
 from src.core.domain.commands.oneoff_command import OneoffCommand
-from src.core.domain.session import Session, SessionState, BackendConfiguration
+from src.core.domain.session import BackendConfiguration, Session, SessionState
+
 
 @pytest.fixture
 def command() -> OneoffCommand:

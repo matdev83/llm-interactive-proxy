@@ -3,7 +3,7 @@ from unittest.mock import AsyncMock, patch
 import pytest
 from fastapi.testclient import TestClient
 from src.connectors.openai import OpenAIConnector
-from src.core.app.application_factory import build_app
+from src.core.app.test_builder import build_test_app as build_app
 
 
 @pytest.fixture
@@ -52,13 +52,10 @@ def app_with_mock_connector(app_config, mock_openai_connector):
     with patch(
         "src.connectors.openai.OpenAIConnector", return_value=mock_openai_connector
     ):
-        app = build_app(app_config)
-        # Register mock connector in DI-backed BackendService
-        from src.core.interfaces.backend_service_interface import IBackendService
-
-        svc = app.state.service_provider.get_required_service(IBackendService)
-        svc._backends["openai"] = mock_openai_connector
-        app.state.functional_backends = {"openai"}
+        app, _ = build_app(app_config)
+        # The service_provider is already set on app.state by build_app's startup events
+        # We just need to ensure the mock is used by the BackendService
+        # This is handled by patching OpenAIConnector directly.
         yield app
 
 

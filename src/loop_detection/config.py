@@ -13,11 +13,13 @@ import logging
 from dataclasses import dataclass
 from typing import Any
 
+from src.core.interfaces.model_bases import InternalDTO
+
 logger = logging.getLogger(__name__)
 
 
 @dataclass
-class PatternThresholds:
+class PatternThresholds(InternalDTO):
     """Thresholds for different pattern lengths."""
 
     min_repetitions: int
@@ -25,7 +27,7 @@ class PatternThresholds:
 
 
 @dataclass
-class LoopDetectionConfig:
+class LoopDetectionConfig(InternalDTO):
     """Configuration for loop detection functionality."""
 
     # Core settings

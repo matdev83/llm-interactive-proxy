@@ -10,6 +10,8 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import Any
 
+from src.core.interfaces.model_bases import InternalDTO
+
 
 class ToolLoopMode(str, Enum):
     """Mode of operation for tool call loop detection."""
@@ -19,7 +21,7 @@ class ToolLoopMode(str, Enum):
 
 
 @dataclass
-class ToolCallLoopConfig:
+class ToolCallLoopConfig(InternalDTO):
     """Configuration for tool call loop detection."""
 
     # Whether tool call loop detection is enabled

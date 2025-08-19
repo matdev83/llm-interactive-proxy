@@ -1,10 +1,11 @@
 
-import pytest
 from unittest.mock import Mock
-from src.core.domain.session import SessionState
-from src.command_parser import CommandParser
+
+import pytest
 from src.command_config import CommandParserConfig
-from src.core.domain.commands.discovery import discover_commands
+from src.command_parser import CommandParser
+from src.core.domain.session import SessionState
+
 
 # Helper function that uses the real command discovery
 async def run_command(command_string: str) -> str:

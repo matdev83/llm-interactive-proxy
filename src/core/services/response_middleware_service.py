@@ -18,8 +18,7 @@ warnings.warn(
     "Importing from 'src.core.services.response_middleware_service' is deprecated; "
     "use 'src.core.services.response_middleware' instead",
     DeprecationWarning,
+    stacklevel=2,
 )
 
 __all__ = ["ContentFilterMiddleware", "LoggingMiddleware", "LoopDetectionMiddleware"]
-
-

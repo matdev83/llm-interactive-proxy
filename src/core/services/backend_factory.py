@@ -113,8 +113,12 @@ class BackendFactory:
 
         logger.info(f"Factory initializing backend {backend_type} with {init_config}")
 
+        # Step 1: Create the backend instance
         backend = self.create_backend(backend_type)
+
+        # Step 2: Initialize it with the config
         await self.initialize_backend(backend, init_config)
+
         return backend
 
     @staticmethod

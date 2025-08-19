@@ -293,11 +293,13 @@ class RouteAppendCommand(BaseCommand):
             if backend_types is not None:
                 # backend_types may be a Mock in tests; attempt to extract iterable keys
                 try:
-                    if isinstance(backend_types, dict) or (hasattr(backend_types, "keys") and callable(backend_types.keys)):
+                    if isinstance(backend_types, dict) or (
+                        hasattr(backend_types, "keys") and callable(backend_types.keys)
+                    ):
                         keys = list(backend_types.keys())
                     else:
                         # Try to iterate over it
-                        keys = [k for k in backend_types]
+                        keys = list(backend_types)
                 except Exception:
                     keys = []
                 if keys and backend not in keys:
@@ -368,7 +370,7 @@ class RoutePrependCommand(BaseCommand):
         # Validate element format (backend:model or model)
         if ":" in element:
             backend, model = element.split(":", 1)
-            if context and backend not in context.backend_factory._backend_types.keys():
+            if context and backend not in context.backend_factory._backend_types:
                 return CommandResult(
                     name=self.name,
                     success=False,

@@ -1,9 +1,11 @@
 from datetime import datetime
 
-from pydantic import BaseModel, Field
+from pydantic import Field
+
+from src.core.interfaces.model_bases import DomainModel
 
 
-class UsageData(BaseModel):
+class UsageData(DomainModel):
     """Represents usage data for LLM API calls.
 
     This model tracks token usage, costs, and other metrics for API calls.

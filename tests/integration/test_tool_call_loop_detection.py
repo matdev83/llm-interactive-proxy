@@ -4,7 +4,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 from fastapi.testclient import TestClient
-from src.core.app.application_factory import build_app
+from src.core.app.test_builder import build_test_app as build_app
 from src.tool_call_loop.config import ToolCallLoopConfig, ToolLoopMode
 
 
@@ -21,7 +21,7 @@ async def test_client():
     os.environ["OPENROUTER_API_KEY"] = "test-key"
 
     # Build app with tool call loop detection enabled
-    from src.core.app.application_factory import ApplicationBuilder
+    from src.core.app.test_builder import TestApplicationBuilder as ApplicationBuilder
     from src.core.config.app_config import load_config
 
     config = load_config()

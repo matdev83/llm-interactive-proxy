@@ -6,10 +6,9 @@ This module provides test implementations of interfaces for use in unit tests.
 
 from __future__ import annotations
 
-import asyncio
 from collections.abc import AsyncIterator, Mapping
 from datetime import datetime, timezone
-from typing import Any, Dict
+from typing import Any
 
 from fastapi import FastAPI
 from src.core.domain.chat import (
@@ -17,10 +16,7 @@ from src.core.domain.chat import (
     ChatCompletionChoiceMessage,
     ChatRequest,
     ChatResponse,
-    StreamingChatResponse,
 )
-from src.core.domain.response_envelope import ResponseEnvelope
-from src.core.domain.streaming_response_envelope import StreamingResponseEnvelope
 from src.core.domain.command_results import CommandResult
 from src.core.domain.commands.base_command import BaseCommand
 from src.core.domain.configuration import (
@@ -28,8 +24,11 @@ from src.core.domain.configuration import (
     LoopDetectionConfig,
     ReasoningConfig,
 )
+from src.core.domain.request_context import RequestContext
+from src.core.domain.responses import ResponseEnvelope, StreamingResponseEnvelope
 from src.core.domain.session import Session, SessionInteraction, SessionState
 from src.core.interfaces.backend_service_interface import BackendError, IBackendService
+from src.core.interfaces.command_processor_interface import ICommandProcessor
 from src.core.interfaces.command_service_interface import (
     ICommandService,
     ProcessedResult,
@@ -45,11 +44,11 @@ from src.core.interfaces.loop_detector_interface import (
 )
 from src.core.interfaces.rate_limiter_interface import IRateLimiter, RateLimitInfo
 from src.core.interfaces.repositories_interface import ISessionRepository
-from src.core.interfaces.response_processor_interface import IResponseProcessor
 from src.core.interfaces.response_handler_interface import (
     INonStreamingResponseHandler,
     IStreamingResponseHandler,
 )
+from src.core.interfaces.response_processor_interface import IResponseProcessor
 from src.core.interfaces.session_service_interface import ISessionService
 
 
@@ -124,44 +123,81 @@ class MockBackendService(IBackendService):
     """A mock backend service for testing."""
 
     def __init__(self) -> None:
-        self.responses: list[ChatResponse | Exception] = []
-        self.stream_responses: list[list[StreamingChatResponse]] = []
+        self.responses: list[ResponseEnvelope | StreamingResponseEnvelope | Exception] = []
         self.calls: list[ChatRequest] = []
         self.validations: dict[str, dict[str, bool]] = {}
 
-    def add_response(self, response: ChatResponse | Exception) -> None:
+    def add_response(self, response: ResponseEnvelope | StreamingResponseEnvelope | Exception) -> None:
+        # If the response is an async generator, wrap it in a StreamingResponseEnvelope
+        if hasattr(response, '__aiter__'):
+            response = StreamingResponseEnvelope(content=response, media_type="text/event-stream")
         self.responses.append(response)
 
     async def call_completion(
         self, request: ChatRequest, stream: bool = False
-    ) -> ChatResponse | AsyncIterator[StreamingChatResponse]:
+    ) -> ResponseEnvelope | StreamingResponseEnvelope:
         self.calls.append(request)
 
-        if stream:
-            if not self.stream_responses:
-                raise BackendError("No stream responses configured")
-            responses = self.stream_responses.pop(0)
+        if not self.responses:
+            raise BackendError("No responses configured for MockBackendService")
 
-            async def response_iterator() -> AsyncIterator[StreamingChatResponse]:
-                for response in responses:
-                    yield response
-                    await asyncio.sleep(0.01)
+        response = self.responses.pop(0)
+        if isinstance(response, Exception):
+            raise response
 
-            return response_iterator()
-        else:
-            if not self.responses:
-                raise BackendError("No responses configured")
-            response = self.responses.pop(0)
-            if isinstance(response, Exception):
-                raise response
+        # Normalize domain-level ChatResponse into ResponseEnvelope for tests
+        from src.core.domain.chat import ChatResponse
+        from src.core.domain.responses import ResponseEnvelope
+        
+        if hasattr(response, '__aiter__'):
             return response
 
+        if isinstance(response, ChatResponse):
+            # Convert ChatResponse dataclass to legacy dict shape expected by tests
+            choices_list = []
+            for ch in getattr(response, "choices", []) or []:
+                msg = getattr(ch, "message", None)
+                msg_dict = {}
+                if msg is not None:
+                    # msg may be dataclass or dict
+                    role = getattr(msg, "role", None)
+                    content = getattr(msg, "content", None)
+                    if isinstance(role, str):
+                        msg_dict["role"] = role
+                    if content is not None:
+                        msg_dict["content"] = content
+                choices_list.append({
+                    "index": getattr(ch, "index", 0),
+                    "message": msg_dict,
+                    "finish_reason": getattr(ch, "finish_reason", "stop"),
+                })
+
+            content = {
+                "id": getattr(response, "id", ""),
+                "object": "chat.completion",
+                "created": getattr(response, "created", 0),
+                "model": getattr(response, "model", ""),
+                "choices": choices_list,
+                "usage": getattr(response, "usage", None),
+            }
+
+            return ResponseEnvelope(content=content, headers={"content-type": "application/json"}, status_code=200)
+
+        return response
+
     async def chat_completions(
-        self, request: ChatRequest, **kwargs: Any
-    ) -> ChatResponse | AsyncIterator[StreamingChatResponse]:
-        # This method is now implemented to satisfy the IBackendService interface
-        # It can simply call call_completion, or have its own logic if needed for specific tests
+        self,
+        request: ChatRequest,
+        **kwargs: Any,
+    ) -> ResponseEnvelope | StreamingResponseEnvelope:
         return await self.call_completion(request, stream=bool(request.stream))
+
+    # Backwards-compatible helper used by RequestProcessor which expects an
+    # IBackendProcessor-like API in some tests. Delegate to call_completion.
+    async def process_backend_request(
+        self, request: ChatRequest, session_id: str | None = None, context: Any = None
+    ) -> ResponseEnvelope | StreamingResponseEnvelope:
+        return await self.call_completion(request, stream=bool(getattr(request, "stream", False)))
 
     async def validate_backend_and_model(
         self, backend: str, model: str
@@ -200,6 +236,32 @@ class MockSessionService(ISessionService):
             )
         return self.sessions[session_id]
 
+    async def get_session_async(self, session_id: str) -> Session:
+        """Legacy compatibility method, identical to get_session."""
+        return await self.get_session(session_id)
+
+    async def create_session(self, session_id: str) -> Session:
+        if session_id in self.sessions:
+            raise ValueError(f"Session with ID {session_id} already exists.")
+        session = Session(
+            session_id=session_id,
+            state=SessionState(
+                backend_config=BackendConfig(),
+                reasoning_config=ReasoningConfig(),
+                loop_config=LoopDetectionConfig(),
+            ),
+            created_at=datetime.now(timezone.utc),
+            last_active_at=datetime.now(timezone.utc),
+        )
+        self.sessions[session_id] = session
+        return session
+
+    async def get_or_create_session(self, session_id: str | None = None) -> Session:
+        if session_id is None:
+            # Generate a new session ID if not provided
+            session_id = f"test-session-{len(self.sessions) + 1}"
+        return await self.get_session(session_id)
+
     async def update_session(self, session: ISession) -> None:
         self.sessions[session.session_id] = session  # type: ignore
 
@@ -216,8 +278,34 @@ class MockSessionService(ISessionService):
 #
 # Mock Command Service
 #
+class MockCommandProcessor(ICommandProcessor):
+    """A mock command processor for testing."""
+
+    def __init__(self) -> None:
+        self.processed: list[list[Any]] = []
+        self.results: list[ProcessedResult] = []
+
+    async def process_commands(
+        self,
+        messages: list[Any],
+        session_id: str,
+        context: RequestContext | None = None,
+    ) -> ProcessedResult:
+        self.processed.append(messages)
+
+        if not self.results:
+            return ProcessedResult(
+                modified_messages=messages, command_executed=False, command_results=[]
+            )
+
+        return self.results.pop(0)
+
+    def add_result(self, result: ProcessedResult) -> None:
+        self.results.append(result)
+
+
 class MockCommandService(ICommandService):
-    """A mock command service for testing."""
+    """A mock command service for testing (legacy compatibility)."""
 
     def __init__(self) -> None:
         self.commands: dict[str, Any] = {}
@@ -338,7 +426,7 @@ class MockResponseProcessor(IResponseProcessor):
             return await self.process_non_streaming_response(response)
 
     async def process_non_streaming_response(
-        self, response: Dict[str, Any]
+        self, response: dict[str, Any]
     ) -> ResponseEnvelope:
         return await self.non_streaming_handler.process_response(response)
 
@@ -351,7 +439,7 @@ class MockResponseProcessor(IResponseProcessor):
 class MockNonStreamingResponseHandler(INonStreamingResponseHandler):
     """A mock non-streaming response handler for testing."""
 
-    async def process_response(self, response: Dict[str, Any]) -> ResponseEnvelope:
+    async def process_response(self, response: dict[str, Any]) -> ResponseEnvelope:
         return ResponseEnvelope(
             content=response,
             status_code=200,

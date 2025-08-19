@@ -9,8 +9,7 @@ from .tool_call_loop_middleware import ToolCallLoopDetectionMiddleware
 warnings.warn(
     "Importing from 'src.core.services.tool_call_loop_middleware_service' is deprecated; use 'src.core.services.tool_call_loop_middleware' instead",
     DeprecationWarning,
+    stacklevel=2,
 )
 
 __all__ = ["ToolCallLoopDetectionMiddleware"]
-
-

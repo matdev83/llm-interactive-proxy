@@ -11,13 +11,14 @@ import json
 import logging
 from dataclasses import dataclass
 
+from src.core.interfaces.model_bases import InternalDTO
 from src.tool_call_loop.config import ToolCallLoopConfig, ToolLoopMode
 
 logger = logging.getLogger(__name__)
 
 
 @dataclass
-class ToolCallSignature:
+class ToolCallSignature(InternalDTO):
     """Represents a tracked tool call with timestamp and signature."""
 
     timestamp: datetime.datetime

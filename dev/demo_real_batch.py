@@ -16,7 +16,7 @@ root = pathlib.Path(__file__).resolve().parents[1]
 if str(root) not in sys.path:
     sys.path.insert(0, str(root))
 
-from src.core.app.application_factory import build_app
+from src.core.app.application_builder import build_app
 
 # Guarantee GOOGLE_CLOUD_PROJECT is set (fallback demo value)
 os.environ.setdefault("GOOGLE_CLOUD_PROJECT", "project1-465615")

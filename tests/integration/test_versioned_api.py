@@ -5,7 +5,7 @@ import os
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
-from src.core.app.application_factory import build_app
+from src.core.app.test_builder import build_test_app as build_app
 from src.core.domain.chat import ChatResponse
 from src.core.interfaces.backend_service_interface import IBackendService
 
@@ -81,8 +81,8 @@ async def initialized_app(app: FastAPI):
     This fixture exists for compatibility with tests that expect it.
     """
     # Ensure the app has all required services properly initialized
-    from src.core.app.application_factory import ApplicationBuilder
     from src.core.app.controllers.chat_controller import ChatController
+    from src.core.app.test_builder import TestApplicationBuilder as ApplicationBuilder
     from src.core.config.app_config import AppConfig
     from src.core.di.services import set_service_provider
     from src.core.interfaces.request_processor_interface import IRequestProcessor

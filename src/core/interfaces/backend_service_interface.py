@@ -1,12 +1,10 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from collections.abc import AsyncIterator
 from typing import Any
 
 from src.core.domain.chat import ChatRequest
-from src.core.domain.response_envelope import ResponseEnvelope
-from src.core.domain.streaming_response_envelope import StreamingResponseEnvelope
+from src.core.domain.responses import ResponseEnvelope, StreamingResponseEnvelope
 
 
 class BackendError(Exception):
@@ -26,7 +24,7 @@ class IBackendService(ABC):
 
     @abstractmethod
     async def call_completion(
-        self, request: ChatRequest, stream: bool = False
+        self, request: ChatRequest, stream: bool = False, allow_failover: bool = True
     ) -> ResponseEnvelope | StreamingResponseEnvelope:
         """Call the LLM backend for a completion."""
 

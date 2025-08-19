@@ -1,9 +1,10 @@
 
-import pytest
 from unittest.mock import Mock
 
+import pytest
 from src.core.domain.commands.model_command import ModelCommand
-from src.core.domain.session import Session, SessionState, BackendConfiguration
+from src.core.domain.session import BackendConfiguration, Session, SessionState
+
 
 @pytest.fixture
 def command() -> ModelCommand:

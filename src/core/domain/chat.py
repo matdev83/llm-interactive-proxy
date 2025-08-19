@@ -1,22 +1,23 @@
 from typing import Any, TypeVar
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import Field, field_validator
 
 from src.core.domain.base import ValueObject
+from src.core.interfaces.model_bases import DomainModel
 
 # Define a type variable for generic methods
-T = TypeVar("T", bound="BaseModel")
+T = TypeVar("T", bound=DomainModel)
 
 
 # For multimodal content parts
-class MessageContentPartText(BaseModel):
+class MessageContentPartText(DomainModel):
     """Represents a text content part in a multimodal message."""
 
     type: str = "text"
     text: str
 
 
-class ImageURL(BaseModel):
+class ImageURL(DomainModel):
     """Specifies the URL and optional detail for an image in a multimodal message."""
 
     # Should be a data URI (e.g., "data:image/jpeg;base64,...") or public URL
@@ -24,7 +25,7 @@ class ImageURL(BaseModel):
     detail: str | None = Field(None, examples=["auto", "low", "high"])
 
 
-class MessageContentPartImage(BaseModel):
+class MessageContentPartImage(DomainModel):
     """Represents an image content part in a multimodal message."""
 
     type: str = "image_url"
@@ -37,14 +38,14 @@ MessageContentPart = MessageContentPartText | MessageContentPartImage
 """Type alias for possible content parts in a multimodal message."""
 
 
-class FunctionCall(BaseModel):
+class FunctionCall(DomainModel):
     """Represents a function call within a tool call."""
 
     name: str
     arguments: str
 
 
-class ToolCall(BaseModel):
+class ToolCall(DomainModel):
     """Represents a tool call in a chat completion response."""
 
     id: str
@@ -52,7 +53,7 @@ class ToolCall(BaseModel):
     function: FunctionCall
 
 
-class FunctionDefinition(BaseModel):
+class FunctionDefinition(DomainModel):
     """Represents a function definition for tool calling."""
 
     name: str
@@ -60,7 +61,7 @@ class FunctionDefinition(BaseModel):
     parameters: dict[str, Any] | None = None
 
 
-class ToolDefinition(BaseModel):
+class ToolDefinition(DomainModel):
     """Represents a tool definition in a chat completion request."""
 
     type: str = "function"
@@ -85,7 +86,7 @@ class ToolDefinition(BaseModel):
             raise ValueError(f"Cannot convert {type(v)} to dict or FunctionDefinition")
 
 
-class ChatMessage(BaseModel):
+class ChatMessage(DomainModel):
     """
     A chat message in a conversation.
     """
@@ -192,7 +193,7 @@ class ChatRequest(ValueObject):
         return result
 
 
-class ChatCompletionChoiceMessage(BaseModel):
+class ChatCompletionChoiceMessage(DomainModel):
     """Represents the message content within a chat completion choice."""
 
     role: str
@@ -200,7 +201,7 @@ class ChatCompletionChoiceMessage(BaseModel):
     tool_calls: list[ToolCall] | None = None
 
 
-class ChatCompletionChoice(BaseModel):
+class ChatCompletionChoice(DomainModel):
     """Represents a single choice in a chat completion response."""
 
     index: int

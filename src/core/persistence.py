@@ -50,11 +50,17 @@ class ConfigManager:
                             IBackendService,
                         )
 
-                        backend_service = self.app.state.service_provider.get_required_service(
-                            IBackendService
+                        backend_service = (
+                            self.app.state.service_provider.get_required_service(
+                                IBackendService
+                            )
                         )
-                        if backend_service and backend_value in getattr(backend_service, "_backends", {}):
-                            self.app.state.backend = backend_service._backends[backend_value]
+                        if backend_service and backend_value in getattr(
+                            backend_service, "_backends", {}
+                        ):
+                            self.app.state.backend = backend_service._backends[
+                                backend_value
+                            ]
                             return
                     except Exception:
                         # If DI resolution fails, do not fall back to legacy state

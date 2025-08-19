@@ -1,21 +1,12 @@
-"""
-Set command implementation.
-
-This module provides a domain command for setting various session parameters.
-"""
-
 from __future__ import annotations
 
 import logging
 from collections.abc import Mapping
-from typing import Any, cast
+from typing import Any
 
 from src.core.domain.command_results import CommandResult
 from src.core.domain.commands.base_command import BaseCommand
-from src.core.domain.configuration.reasoning_config import ReasoningConfiguration
-from src.core.domain.session import Session, SessionState, SessionStateAdapter
-from src.core.interfaces.backend_service_interface import IBackendService
-from src.core.interfaces.configuration_interface import IReasoningConfig
+from src.core.domain.session import Session
 from src.core.interfaces.domain_entities_interface import ISessionState
 
 logger = logging.getLogger(__name__)
@@ -25,106 +16,92 @@ class SetCommand(BaseCommand):
     """Command for setting various session parameters."""
 
     name = "set"
-    format = "set(parameter=value)"
+    format = "set(parameter=value, ...)"
     description = "Set various parameters for the session"
     examples = [
         "!/set(backend=openrouter)",
-        "!/set(model=openrouter:claude-3-opus-20240229)",
-        "!/set(temperature=0.7)",
+        "!/set(model=openrouter:claude-3-opus-20240229, temperature=0.8)",
     ]
 
     async def execute(
-        self,
-        args: Mapping[str, Any],
-        session: Session,
-        context: Any = None,
+        self, args: Mapping[str, Any], session: Session, context: Any = None
     ) -> CommandResult:
         """Set various session parameters."""
         if not args:
             return CommandResult(
-                success=False,
-                message="Parameter must be specified",
-                name=self.name,
+                success=False, message="Parameter(s) must be specified", name=self.name
             )
 
-        # Dispatch to the appropriate handler based on the argument provided.
-        # The original logic processes parameters with some precedence and exclusivity.
-        # We will maintain that by checking for parameters in order.
-
-        if "backend" in args or "model" in args:
-            return await self._handle_backend_and_model(args, session, context)
-
-        if "temperature" in args:
-            return self._handle_temperature(args, session)
-
-        if "redact-api-keys-in-prompts" in args:
-            return self._handle_redact_api_keys(args, context)
-
-        if "interactive-mode" in args:
-            return self._handle_interactive_mode(args, session)
-
-        if "command-prefix" in args:
-            return self._handle_command_prefix(args, context)
-
-        if "project" in args:
-            return self._handle_project(args, session)
-
-        # If we get here, the parameter is unknown or unhandled
-        param_list = ', '.join(args.keys())
-        return CommandResult(
-            success=False,
-            message=f"set: no valid or recognized parameters provided: {param_list}",
-            name=self.name,
-        )
-
-    def _parse_bool_value(self, value: Any) -> bool:
-        """Parse boolean value from string or other types."""
-        if isinstance(value, bool):
-            return value
-        if isinstance(value, str):
-            return value.lower() in ("true", "yes", "y", "1", "on")
-        return bool(value)
-
-    def _update_session_state_reasoning_config(
-        self,
-        state: ISessionState,
-        reasoning_config: ReasoningConfiguration,
-    ) -> ISessionState:
-        """Update session state with new reasoning config."""
-        if isinstance(state, SessionStateAdapter):
-            old_state = state._state
-            adapter_new_state = old_state.with_reasoning_config(reasoning_config)
-            return SessionStateAdapter(adapter_new_state)
-        if isinstance(state, SessionState):
-            session_new_state = cast(SessionState, state).with_reasoning_config(
-                reasoning_config
-            )
-            return SessionStateAdapter(cast(SessionState, session_new_state))
-        
-        other_new_state = state.with_reasoning_config(
-            cast(IReasoningConfig, reasoning_config)
-        )
-        return other_new_state
-
-    async def _handle_backend_and_model(
-        self,
-        args: Mapping[str, Any],
-        session: Session,
-        context: Any,
-    ) -> CommandResult:
-        """Handles logic for setting backend and/or model."""
         updated_state = session.state
         messages: list[str] = []
         data: dict[str, Any] = {}
-        app = context.get("app") if context else None
+
+        # Create a copy of args to modify while iterating
+        remaining_args = dict(args)
+
+        # Handle backend and model together as they are related
+        if "backend" in remaining_args or "model" in remaining_args:
+            result, updated_state = await self._handle_backend_and_model(
+                remaining_args, updated_state, context
+            )
+            if not result.success:
+                return result  # Fail fast
+            messages.append(result.message)
+            if result.data:
+                data.update(result.data)
+            remaining_args.pop("backend", None)
+            remaining_args.pop("model", None)
+
+        # Handle other parameters iteratively
+        for param, value in remaining_args.items():
+            handler = getattr(self, f"_handle_{param.replace('-', '_')}", None)
+            if handler:
+                handler_result: CommandResult
+                handler_result, updated_state = await handler(
+                    value, updated_state, context
+                )
+                if not handler_result.success:
+                    return handler_result  # Fail fast
+                messages.append(handler_result.message)
+                if handler_result.data:
+                    data.update(handler_result.data)
+            else:
+                return CommandResult(
+                    success=False, message=f"Unknown parameter: {param}", name=self.name
+                )
+
+        if not messages:
+            return CommandResult(
+                success=False, message="No valid parameters provided.", name=self.name
+            )
+
+        return CommandResult(
+            success=True,
+            message="\n".join(m for m in messages if m),  # Filter out empty messages
+            name=self.name,
+            data=data,
+            new_state=updated_state,
+        )
+
+    async def _handle_backend_and_model(
+        self, args: dict[str, Any], state: ISessionState, context: Any
+    ) -> tuple[CommandResult, ISessionState]:
+        messages = []
+        data = {}
+        updated_state = state
 
         if "backend" in args:
             backend_value = args.get("backend")
             if not isinstance(backend_value, str):
-                return CommandResult(success=False, message="Backend name must be a string", name=self.name)
-            
-            # Logic to update backend
-            new_backend_config = updated_state.backend_config.with_backend(backend_value)
+                return (
+                    CommandResult(
+                        success=False, message="Backend name must be a string"
+                    ),
+                    state,
+                )
+            new_backend_config = updated_state.backend_config.with_backend(
+                backend_value
+            )
             updated_state = updated_state.with_backend_config(new_backend_config)
             messages.append(f"Backend changed to {backend_value}")
             data["backend"] = backend_value
@@ -132,195 +109,220 @@ class SetCommand(BaseCommand):
         if "model" in args:
             model_value = args.get("model")
             if not isinstance(model_value, str):
-                return CommandResult(success=False, message="Model name must be a string", name=self.name)
-
-            backend_to_validate = updated_state.backend_config.backend_type
-            model_to_validate = model_value
+                return (
+                    CommandResult(success=False, message="Model name must be a string"),
+                    state,
+                )
 
             if ":" in model_value:
                 backend, model = model_value.split(":", 1)
-                backend_to_validate = backend
-                model_to_validate = model
-                new_backend_config = updated_state.backend_config.with_backend(backend).with_model(model)
+                new_backend_config = updated_state.backend_config.with_backend(
+                    backend
+                ).with_model(model)
                 messages.append(f"Backend changed to {backend}")
                 messages.append(f"Model changed to {model}")
                 data.update({"backend": backend, "model": model})
             else:
-                new_backend_config = updated_state.backend_config.with_model(model_value)
+                new_backend_config = updated_state.backend_config.with_model(
+                    model_value
+                )
                 messages.append(f"Model changed to {model_value}")
                 data.update({"model": model_value})
-            
             updated_state = updated_state.with_backend_config(new_backend_config)
 
-        return CommandResult(
-            success=True,
-            message="\n".join(messages),
-            name=self.name,
-            data=data,
-            new_state=updated_state,
+        return (
+            CommandResult(success=True, message="\n".join(messages), data=data),
+            updated_state,
         )
 
-    def _handle_temperature(
-        self,
-        args: Mapping[str, Any],
-        session: Session,
-    ) -> CommandResult:
-        """Handles logic for setting temperature."""
-        temp_value = args.get("temperature")
-        if temp_value is None:
-            return CommandResult(success=False, message="Temperature value must be specified", name=self.name)
-
-        try:
-            temp_float = float(temp_value)
-            if not (0 <= temp_float <= 1):
-                return CommandResult(success=False, message="Temperature must be between 0.0 and 1.0", name=self.name)
-
-            reasoning_config = session.state.reasoning_config.with_temperature(temp_float)
-            concrete_reasoning_config = cast(ReasoningConfiguration, reasoning_config)
-            updated_state = self._update_session_state_reasoning_config(
-                session.state,
-                concrete_reasoning_config,
+    async def _handle_temperature(
+        self, value: Any, state: ISessionState, context: Any
+    ) -> tuple[CommandResult, ISessionState]:
+        if value is None:
+            return (
+                CommandResult(
+                    success=False, message="Temperature value must be specified"
+                ),
+                state,
             )
-
-            return CommandResult(
-                success=True,
-                message=f"Temperature set to {temp_float}",
-                name=self.name,
-                data={"temperature": temp_float},
-                new_state=updated_state,
+        try:
+            temp_float = float(value)
+            if not (0 <= temp_float <= 1):
+                return (
+                    CommandResult(
+                        success=False, message="Temperature must be between 0.0 and 1.0"
+                    ),
+                    state,
+                )
+            reasoning_config = state.reasoning_config.with_temperature(temp_float)
+            updated_state = state.with_reasoning_config(reasoning_config)
+            return (
+                CommandResult(
+                    success=True,
+                    message=f"Temperature set to {temp_float}",
+                    data={"temperature": temp_float},
+                ),
+                updated_state,
             )
         except (ValueError, TypeError):
-            return CommandResult(success=False, message="Temperature must be a valid number", name=self.name)
+            return (
+                CommandResult(
+                    success=False, message="Temperature must be a valid number"
+                ),
+                state,
+            )
 
-    def _handle_redact_api_keys(
-        self,
-        args: Mapping[str, Any],
-        context: Any,
-    ) -> CommandResult:
-        """Handles logic for redacting API keys."""
-        redact_value = args.get("redact-api-keys-in-prompts")
-        redact_bool = self._parse_bool_value(redact_value)
-        
-        # Try to get the app settings service from the service provider
-        service_provider = context.get("service_provider")
-        if service_provider:
-            try:
-                from src.core.interfaces.app_settings_interface import IAppSettings
-                app_settings = service_provider.get_service(IAppSettings)
-                if app_settings:
-                    app_settings.set_redact_api_keys(redact_bool)
-                    return CommandResult(
-                        success=True,
-                        message=f"API key redaction in prompts {'enabled' if redact_bool else 'disabled'}",
-                        name=self.name,
-                        data={"redact-api-keys-in-prompts": redact_bool},
-                    )
-            except Exception:
-                pass
-                
-        # Legacy fallback for backwards compatibility during transition
-        try:
-            from src.core.services.command_settings_service import get_default_instance
-            get_default_instance().api_key_redaction_enabled = redact_bool
-            
-            # Legacy app.state support during transition
-            app = context.get("app")
-            if app:
-                app.state.api_key_redaction_enabled = redact_bool
-        except Exception:
-            pass
-
-        return CommandResult(
-            success=True,
-            message=f"API key redaction in prompts {'enabled' if redact_bool else 'disabled'}",
-            name=self.name,
-            data={"redact-api-keys-in-prompts": redact_bool},
+    async def _handle_project(
+        self, value: Any, state: ISessionState, context: Any
+    ) -> tuple[CommandResult, ISessionState]:
+        if not isinstance(value, str) or not value:
+            return (
+                CommandResult(
+                    success=False, message="Project name must be a non-empty string"
+                ),
+                state,
+            )
+        updated_state = state.with_project(value)
+        return (
+            CommandResult(
+                success=True,
+                message=f"Project changed to {value}",
+                data={"project": value},
+            ),
+            updated_state,
         )
 
-    def _handle_interactive_mode(
-        self,
-        args: Mapping[str, Any],
-        session: Session,
-    ) -> CommandResult:
-        """Handles logic for setting interactive mode."""
-        interactive_value = args.get("interactive-mode")
-        interactive_bool = self._parse_bool_value(interactive_value)
+    async def _handle_command_prefix(
+        self, value: Any, state: ISessionState, context: Any
+    ) -> tuple[CommandResult, ISessionState]:
+        if not isinstance(value, str):
+            return (
+                CommandResult(success=False, message="Command prefix must be a string"),
+                state,
+            )
 
-        new_backend_config = session.state.backend_config.with_interactive_mode(interactive_bool)
-        updated_state = session.state.with_backend_config(new_backend_config)
-        if interactive_bool:
-            updated_state = updated_state.with_interactive_just_enabled(True)
+        # Strip quotes if present
+        if (value.startswith("'") and value.endswith("'")) or (
+            value.startswith('"') and value.endswith('"')
+        ):
+            value = value[1:-1]
 
-        return CommandResult(
-            success=True,
-            message=f"Interactive mode {'enabled' if interactive_bool else 'disabled'}",
-            name=self.name,
-            data={"interactive-mode": interactive_bool},
-            new_state=updated_state,
+        from src.command_prefix import validate_command_prefix
+
+        error = validate_command_prefix(value)
+        if error:
+            return (
+                CommandResult(
+                    success=False, message=f"Invalid command prefix: {error}"
+                ),
+                state,
+            )
+
+        # Set command prefix in app.state and other relevant places
+        if context and hasattr(context, "app"):
+            app = context.app
+            app.state.command_prefix = value
+
+            # For compatibility with older code that uses app settings service
+            from src.core.services.app_settings_service import get_default_instance
+
+            settings_service = get_default_instance()
+            if settings_service:
+                settings_service.set_command_prefix(value)
+
+        return (
+            CommandResult(
+                success=True,
+                message=f"Command prefix changed to {value}",
+                data={"command-prefix": value},
+            ),
+            state,
         )
 
-    def _handle_command_prefix(
-        self,
-        args: Mapping[str, Any],
-        context: Any,
-    ) -> CommandResult:
-        """Handles logic for setting the command prefix."""
-        prefix_value = args.get("command-prefix")
-        if not isinstance(prefix_value, str) or not prefix_value:
-            return CommandResult(success=False, message="Command prefix must be a non-empty string", name=self.name)
-        
-        # Try to get the app settings service from the service provider
-        service_provider = context.get("service_provider")
-        if service_provider:
-            try:
-                from src.core.interfaces.app_settings_interface import IAppSettings
-                app_settings = service_provider.get_service(IAppSettings)
-                if app_settings:
-                    app_settings.set_command_prefix(prefix_value)
-                    return CommandResult(
-                        success=True,
-                        message=f"Command prefix set to '{prefix_value}'",
-                        name=self.name,
-                        data={"command-prefix": prefix_value},
-                    )
-            except Exception:
-                pass
-                
-        # Legacy fallback for backwards compatibility during transition
-        try:
-            from src.core.services.command_settings_service import get_default_instance
-            get_default_instance().command_prefix = prefix_value
-            
-            # Legacy app.state support during transition
-            app = context.get("app")
-            if app:
-                app.state.command_prefix = prefix_value
-        except Exception:
-            pass
+    async def _handle_interactive_mode(
+        self, value: Any, state: ISessionState, context: Any
+    ) -> tuple[CommandResult, ISessionState]:
+        """Handle setting interactive mode."""
+        if not isinstance(value, str):
+            return (
+                CommandResult(
+                    success=False, message="Interactive mode value must be a string"
+                ),
+                state,
+            )
 
-        return CommandResult(
-            success=True,
-            message=f"Command prefix set to '{prefix_value}'",
-            name=self.name,
-            data={"command-prefix": prefix_value},
+        # Normalize value
+        value_upper = value.upper()
+        if value_upper in ("ON", "TRUE", "YES", "1", "ENABLED", "ENABLE"):
+            enabled = True
+        elif value_upper in ("OFF", "FALSE", "NO", "0", "DISABLED", "DISABLE"):
+            enabled = False
+        else:
+            return (
+                CommandResult(
+                    success=False,
+                    message=f"Invalid interactive mode value: {value}. Use ON/OFF, TRUE/FALSE, etc.",
+                ),
+                state,
+            )
+
+        # Update session state
+        updated_state = state.with_interactive_just_enabled(enabled)
+
+        return (
+            CommandResult(
+                success=True,
+                message=f"Interactive mode {'enabled' if enabled else 'disabled'}",
+                data={"interactive-mode": enabled},
+            ),
+            updated_state,
         )
 
-    def _handle_project(
-        self,
-        args: Mapping[str, Any],
-        session: Session,
-    ) -> CommandResult:
-        """Handles logic for setting the project."""
-        project_value = args.get("project")
-        if not isinstance(project_value, str) or not project_value:
-            return CommandResult(success=False, message="Project name must be a non-empty string", name=self.name)
+    async def _handle_redact_api_keys_in_prompts(
+        self, value: Any, state: ISessionState, context: Any
+    ) -> tuple[CommandResult, ISessionState]:
+        """Handle setting API key redaction."""
+        if not isinstance(value, str):
+            return (
+                CommandResult(
+                    success=False, message="Redaction value must be a string"
+                ),
+                state,
+            )
 
-        updated_state = session.state.with_project(project_value)
-        
-        return CommandResult(
-            success=True,
-            message=f"Project changed to {project_value}",
-            name=self.name,
-            data={"project": project_value},
-            new_state=updated_state,
+        # Normalize value
+        value_lower = value.lower()
+        if value_lower in ("true", "yes", "1", "on", "enabled", "enable"):
+            enabled = True
+        elif value_lower in ("false", "no", "0", "off", "disabled", "disable"):
+            enabled = False
+        else:
+            return (
+                CommandResult(
+                    success=False,
+                    message=f"Invalid redaction value: {value}. Use TRUE/FALSE, YES/NO, etc.",
+                ),
+                state,
+            )
+
+        # Update app state
+        if context and hasattr(context, "app"):
+            app = context.app
+            # Force the value to be a boolean, not a string
+            app.state.api_key_redaction_enabled = bool(enabled)
+
+            # Also update app settings if available
+            from src.core.services.app_settings_service import get_default_instance
+
+            settings_service = get_default_instance()
+            if settings_service:
+                settings_service.set_redact_api_keys(enabled)
+
+        return (
+            CommandResult(
+                success=True,
+                message=f"API key redaction in prompts {'enabled' if enabled else 'disabled'}",
+                data={"redact-api-keys-in-prompts": enabled},
+            ),
+            state,
         )

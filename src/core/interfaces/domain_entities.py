@@ -13,5 +13,5 @@ warnings.warn(
     "Importing from 'src.core.interfaces.domain_entities' is deprecated; "
     "use 'src.core.interfaces.domain_entities_interface' instead",
     DeprecationWarning,
+    stacklevel=2,
 )
-

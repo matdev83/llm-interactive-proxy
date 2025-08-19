@@ -191,14 +191,10 @@ class SessionStateAdapter(ISessionState):
 
     def with_backend_config(self, config: IBackendConfig) -> ISessionState:
         """Create a new session state with updated backend config."""
-        new_state = self._state.with_backend_config(
-            cast(BackendConfiguration, config)
-        )
+        new_state = self._state.with_backend_config(cast(BackendConfiguration, config))
         return SessionStateAdapter(new_state)
 
-    def with_reasoning_config(
-        self, config: IReasoningConfig
-    ) -> ISessionState:
+    def with_reasoning_config(self, config: IReasoningConfig) -> ISessionState:
         """Create a new session state with updated reasoning config."""
         new_state = self._state.with_reasoning_config(
             cast(ReasoningConfiguration, config)

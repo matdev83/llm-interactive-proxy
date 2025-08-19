@@ -15,6 +15,7 @@ warnings.warn(
     "Importing from 'src.core.services.session_service' shim is deprecated; "
     "use 'src.core.services.session_service_impl' instead",
     DeprecationWarning,
+    stacklevel=2,
 )
 
 __all__ = ["SessionService"]

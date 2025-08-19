@@ -6,17 +6,14 @@ These tests validate that the new architecture works end-to-end.
 
 import json
 import logging
-import os
-from typing import Any, Dict, Generator
+from collections.abc import Generator
 
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
-
-from src.core.app.application_factory import ApplicationBuilder
+from src.core.app.application_builder import ApplicationBuilder
 from src.core.config.app_config import AppConfig, AuthConfig
 from src.core.di.services import get_service_collection, register_core_services
-from src.core.domain.chat import ChatMessage, ChatRequest
 from src.core.interfaces.app_settings_interface import IAppSettings
 from src.core.interfaces.backend_processor_interface import IBackendProcessor
 from src.core.interfaces.command_processor_interface import ICommandProcessor
@@ -109,13 +106,11 @@ def test_chat_completion_endpoint(client: TestClient) -> None:
     }
     
     # Mock the backend service to avoid actual API calls
-    import respx
-    import httpx
     from unittest.mock import patch
     
     # Patch the backend service to return a mock response
     with patch("src.core.services.backend_service.BackendService.call_completion") as mock_call_completion:
-        from src.core.domain.response_envelope import ResponseEnvelope
+        from src.core.domain.responses import ResponseEnvelope
         
         # Create a mock response
         mock_response = ResponseEnvelope(
@@ -180,7 +175,7 @@ def test_command_processing(client: TestClient) -> None:
     
     # First patch backend service to avoid API calls
     with patch("src.core.services.backend_service.BackendService.call_completion") as mock_backend_call:
-        from src.core.domain.response_envelope import ResponseEnvelope
+        from src.core.domain.responses import ResponseEnvelope
         
         # Create a mock backend response
         mock_backend_response = ResponseEnvelope(

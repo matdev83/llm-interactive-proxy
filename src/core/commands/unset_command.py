@@ -9,6 +9,7 @@ from src.core.commands.handlers.base_handler import CommandHandlerResult
 from src.core.domain.command_results import CommandResult
 from src.core.domain.commands.base_command import BaseCommand
 from src.core.domain.session import Session, SessionState
+from src.core.interfaces.domain_entities_interface import ISessionState
 
 logger = logging.getLogger(__name__)
 
@@ -142,9 +143,10 @@ class UnsetCommand(BaseCommand):
 
                 # Handle async results
                 import inspect
+
                 if inspect.isawaitable(handler_result):
                     handler_result = await handler_result
-                
+
                 # Get message from result
                 message = getattr(handler_result, "message", str(handler_result))
                 if message.strip():  # Only add non-empty messages
@@ -152,9 +154,10 @@ class UnsetCommand(BaseCommand):
 
                 # Handle async results one more time
                 import inspect
+
                 if inspect.isawaitable(handler_result):
                     handler_result = await handler_result
-                
+
                 # Update the current state for subsequent handlers
                 # Use getattr to safely access attributes
                 new_state_attr = getattr(handler_result, "new_state", None)
@@ -165,11 +168,12 @@ class UnsetCommand(BaseCommand):
                     new_state = handler_result.new_state
                     if isinstance(new_state, SessionState):
                         current_state = SessionStateAdapter(new_state)
-                    else:
+                    elif isinstance(new_state, ISessionState):
                         current_state = new_state
 
                     # Also update the session state immediately
-                    session.state = current_state
+                    if current_state is not None:
+                        session.state = current_state
 
                 # Track overall success
                 if not handler_result.success:
@@ -183,7 +187,9 @@ class UnsetCommand(BaseCommand):
                         new_backend_config = (
                             current_state.backend_config.with_interactive_mode(False)
                         )
-                        new_state = current_state.with_backend_config(new_backend_config)
+                        new_state = current_state.with_backend_config(
+                            new_backend_config
+                        )
                         session.state = new_state
                         results.append("Interactive mode disabled")
                 else:

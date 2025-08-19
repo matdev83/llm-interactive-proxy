@@ -24,16 +24,18 @@ class IServiceProvider(ABC):
     @abstractmethod
     def get_required_service(self, service_type: type[T]) -> T:
         pass
-        
-    def get_required_service_or_default(self, service_type: type[T], default_factory: Callable[[], T]) -> T:
+
+    def get_required_service_or_default(
+        self, service_type: type[T], default_factory: Callable[[], T]
+    ) -> T:
         """Get a service of the given type, using a default factory if not found.
-        
+
         This is a default implementation that can be overridden for more efficient behavior.
-        
+
         Args:
             service_type: The type of service to get
             default_factory: Factory function to create a default instance if not registered
-            
+
         Returns:
             The registered service or a default instance
         """

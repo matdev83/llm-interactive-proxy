@@ -13,13 +13,15 @@ from collections import deque
 from collections.abc import Callable
 from dataclasses import dataclass
 
+from src.core.interfaces.model_bases import InternalDTO
+
 from .config import LoopDetectionConfig
 
 logger = logging.getLogger(__name__)
 
 
 @dataclass
-class LoopDetectionEvent:
+class LoopDetectionEvent(InternalDTO):
     """Event triggered when a loop is detected."""
 
     pattern: str

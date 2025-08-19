@@ -6,16 +6,17 @@ logger = logging.getLogger(__name__)
 
 import asyncio
 from collections.abc import AsyncGenerator, AsyncIterator
-from typing import Any
+from typing import Any, cast
 
 import httpx
 from fastapi import HTTPException
 
 from src.connectors.base import LLMBackend
+from src.core.adapters.api_adapters import legacy_to_domain_chat_request
 from src.core.common.exceptions import AuthenticationError, ServiceUnavailableError
 from src.core.domain.chat import ChatRequest
-from src.core.domain.response_envelope import ResponseEnvelope
-from src.core.domain.streaming_response_envelope import StreamingResponseEnvelope
+from src.core.domain.responses import ResponseEnvelope, StreamingResponseEnvelope
+from src.core.interfaces.model_bases import DomainModel, InternalDTO
 from src.core.services.backend_registry import backend_registry
 
 # Legacy ChatCompletionRequest removed from connector signatures; use domain ChatRequest
@@ -82,11 +83,15 @@ class OpenAIConnector(LLMBackend):
 
     async def chat_completions(
         self,
-        request_data: ChatRequest,
+        request_data: DomainModel | InternalDTO | dict[str, Any],
         processed_messages: list[Any],
         effective_model: str,
         **kwargs: Any,
     ) -> ResponseEnvelope | StreamingResponseEnvelope:
+        # Normalize incoming request to domain ChatRequest
+        request_data = legacy_to_domain_chat_request(request_data)
+        request_data = cast(ChatRequest, request_data)
+
         payload = self._prepare_payload(
             request_data, processed_messages, effective_model
         )
@@ -101,28 +106,29 @@ class OpenAIConnector(LLMBackend):
         url = f"{api_base.rstrip('/')}/chat/completions"
 
         if request_data.stream:
-            # Returns StreamingResponseEnvelope (domain object)
-            content_iterator = await self._handle_streaming_response(url, payload, headers)
+            # Return a domain-level streaming envelope
+            try:
+                content_iterator = await self._handle_streaming_response(
+                    url, payload, headers
+                )
+            except AuthenticationError as e:
+                raise HTTPException(status_code=401, detail=str(e))
             return StreamingResponseEnvelope(
-                content=content_iterator,
-                media_type="text/event-stream",
-                headers={},  # Only include required headers for domain models
+                content=content_iterator, media_type="text/event-stream", headers={}
             )
         else:
-            # Returns ResponseEnvelope (domain object)
-            content, response_headers = await self._handle_non_streaming_response(url, payload, headers)
-            return ResponseEnvelope(
-                content=content,
-                headers=response_headers,
-                status_code=200,
+            # Return a domain ResponseEnvelope for non-streaming
+            content, response_headers = await self._handle_non_streaming_response(
+                url, payload, headers
             )
+            return ResponseEnvelope(content=content, headers=response_headers)
 
     async def _handle_non_streaming_response(
         self, url: str, payload: dict[str, Any], headers: dict[str, str] | None
     ) -> tuple[dict[str, Any], dict[str, str]]:
         if not headers or not headers.get("Authorization"):
             raise AuthenticationError(message="No auth credentials found")
-            
+
         try:
             response = await self.client.post(url, json=payload, headers=headers)
         except RuntimeError:
@@ -131,7 +137,7 @@ class OpenAIConnector(LLMBackend):
             response = await self.client.post(url, json=payload, headers=headers)
         except httpx.RequestError as e:
             raise ServiceUnavailableError(message=f"Could not connect to backend ({e})")
-            
+
         if int(response.status_code) >= 400:
             # For backwards compatibility with existing error handlers, still use HTTPException here.
             # This will be replaced in a future update with domain exceptions.
@@ -140,14 +146,14 @@ class OpenAIConnector(LLMBackend):
             except Exception:
                 err = response.text
             raise HTTPException(status_code=response.status_code, detail=err)
-            
+
         return response.json(), dict(response.headers)
 
     async def _handle_streaming_response(
         self, url: str, payload: dict[str, Any], headers: dict[str, str] | None
     ) -> AsyncIterator[bytes]:
         """Return an AsyncIterator of bytes directly (transport-agnostic)"""
-        
+
         if not headers or not headers.get("Authorization"):
             raise AuthenticationError(message="No auth credentials found")
 
@@ -161,7 +167,7 @@ class OpenAIConnector(LLMBackend):
                 "POST", url, json=payload, headers=headers
             )
             response = await self.client.send(request, stream=True)
-            
+
         status_code = (
             int(response.status_code) if hasattr(response, "status_code") else 200
         )

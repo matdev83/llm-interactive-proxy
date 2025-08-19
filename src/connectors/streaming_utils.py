@@ -10,13 +10,12 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-from collections.abc import AsyncGenerator, AsyncIterator, Callable
-from typing import Any, Optional, Union
+from collections.abc import AsyncGenerator, AsyncIterator
+from typing import Any
 
-from src.core.domain.streaming_response_envelope import StreamingResponseEnvelope
+from src.core.domain.responses import StreamingResponseEnvelope
 from src.core.domain.streaming_response_processor import (
     StreamNormalizer,
-    StreamingContent,
 )
 
 logger = logging.getLogger(__name__)
@@ -24,10 +23,10 @@ logger = logging.getLogger(__name__)
 
 async def _ensure_async_iterator(it: Any) -> AsyncIterator[bytes]:
     """Ensure that a value is an async iterator of bytes.
-    
+
     Args:
         it: The value to convert to an async iterator
-        
+
     Returns:
         An async iterator of bytes
     """
@@ -97,27 +96,30 @@ def normalize_streaming_response(
     iterator: AsyncIterator[Any],
     normalize: bool = True,
     media_type: str = "text/event-stream",
-    headers: Optional[dict[str, str]] = None,
+    headers: dict[str, str] | None = None,
 ) -> StreamingResponseEnvelope:
     """Create a normalized StreamingResponseEnvelope from an async iterator.
-    
+
     This function ensures a consistent streaming response format across
     different backends by normalizing the stream chunks.
-    
+
     Args:
         iterator: The raw streaming iterator from a backend
         normalize: Whether to normalize the stream chunks (default: True)
         media_type: The media type of the stream (default: "text/event-stream")
         headers: Optional headers to include in the response
-        
+
     Returns:
         A StreamingResponseEnvelope containing the normalized stream
     """
+
     async def create_normalized_stream() -> AsyncGenerator[bytes, None]:
         if normalize:
             # Use StreamNormalizer to get a consistent format
             normalizer = StreamNormalizer()
-            processed_stream = normalizer.process_stream(iterator, output_format="bytes")
+            processed_stream = normalizer.process_stream(
+                iterator, output_format="bytes"
+            )
             async for chunk in processed_stream:
                 if isinstance(chunk, bytes):
                     yield chunk
@@ -128,7 +130,7 @@ def normalize_streaming_response(
             # Just ensure we have bytes output
             async for chunk in _ensure_async_iterator(iterator):
                 yield chunk
-    
+
     return StreamingResponseEnvelope(
         content=create_normalized_stream(),
         media_type=media_type,

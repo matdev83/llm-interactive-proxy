@@ -8,11 +8,13 @@ from collections.abc import Generator
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 
+from src.core.interfaces.model_bases import InternalDTO
+
 logger = logging.getLogger(__name__)
 
 
 @dataclass
-class PerformanceMetrics:
+class PerformanceMetrics(InternalDTO):
     """Container for performance metrics during a request."""
 
     request_start: float = field(default_factory=time.time)

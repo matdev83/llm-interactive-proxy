@@ -2,13 +2,8 @@
 Tests for the streaming normalizer and related components.
 """
 
-import asyncio
-import json
-from typing import Any, List
-from unittest.mock import MagicMock, AsyncMock
 
 import pytest
-
 from src.core.domain.streaming_response_processor import (
     IStreamProcessor,
     StreamingContent,

@@ -8,7 +8,9 @@ from __future__ import annotations
 
 from typing import Any
 
-from pydantic import BaseModel, Field
+from pydantic import Field
+
+from src.core.interfaces.model_bases import DomainModel
 
 
 def parse_model_backend(model: str, default_backend: str = "") -> tuple[str, str]:
@@ -55,7 +57,7 @@ def parse_model_backend(model: str, default_backend: str = "") -> tuple[str, str
 
 
 # Model-specific reasoning configuration for config files
-class ModelReasoningConfig(BaseModel):
+class ModelReasoningConfig(DomainModel):
     """Configuration for model-specific reasoning defaults."""
 
     # OpenAI/OpenRouter reasoning parameters
@@ -81,7 +83,7 @@ class ModelReasoningConfig(BaseModel):
     )
 
 
-class ModelDefaults(BaseModel):
+class ModelDefaults(DomainModel):
     """Model-specific default configurations."""
 
     reasoning: ModelReasoningConfig | None = Field(

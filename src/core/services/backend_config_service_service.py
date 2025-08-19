@@ -9,8 +9,7 @@ from .backend_config_service import BackendConfigService
 warnings.warn(
     "Importing from 'src.core.services.backend_config_service_service' is deprecated; use 'src.core.services.backend_config_service' instead",
     DeprecationWarning,
+    stacklevel=2,
 )
 
 __all__ = ["BackendConfigService"]
-
-

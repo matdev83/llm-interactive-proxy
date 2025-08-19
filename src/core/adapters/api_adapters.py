@@ -17,11 +17,14 @@ from src.core.domain.chat import (
     ToolCall,
     ToolDefinition,
 )
+from src.core.interfaces.model_bases import DomainModel, InternalDTO
 
 logger = logging.getLogger(__name__)
 
 
-def legacy_to_domain_chat_request(legacy_request: Any) -> ChatRequest:
+def legacy_to_domain_chat_request(
+    legacy_request: DomainModel | InternalDTO | dict[str, Any],
+) -> ChatRequest:
     """
     Convert a legacy ChatCompletionRequest to a domain ChatRequest.
 
@@ -81,40 +84,46 @@ def legacy_to_domain_chat_request(legacy_request: Any) -> ChatRequest:
     extra_params = _get("extra_params", {}) or {}
     thinking_budget = _get("thinking_budget", None)
     generation_config = _get("generation_config", None)
+    legacy_extra_body = _get("extra_body", None)
 
-    return ChatRequest(
-        model=_get("model"),
-        messages=messages,
-        temperature=_get("temperature"),
-        top_p=_get("top_p"),
-        n=_get("n"),
-        stream=_get("stream"),
-        stop=_get("stop"),
-        max_tokens=_get("max_tokens"),
-        presence_penalty=_get("presence_penalty"),
-        frequency_penalty=_get("frequency_penalty"),
-        logit_bias=_get("logit_bias"),
-        user=_get("user"),
-        tools=tools,
-        tool_choice=_get("tool_choice"),
-        session_id=_get("session_id", None),
-        reasoning_effort=(
-            None if reasoning_effort_val is None else float(reasoning_effort_val)
-        ),
-        extra_body={
-            **(extra_params or {}),
-            **(
-                {"thinking_budget": thinking_budget}
-                if thinking_budget is not None
-                else {}
-            ),
-            **(
-                {"generation_config": generation_config}
-                if generation_config is not None
-                else {}
-            ),
-        },
-    )
+    # Build ChatRequest with only explicitly provided fields so pydantic's
+    # `exclude_unset=True` can be relied on downstream to omit unset fields.
+    rq_kwargs: dict[str, Any] = {"model": _get("model"), "messages": messages}
+
+    def _maybe_set(name: str, val: Any) -> None:
+        if val is not None:
+            rq_kwargs[name] = val
+
+    _maybe_set("temperature", _get("temperature"))
+    _maybe_set("top_p", _get("top_p"))
+    _maybe_set("reasoning", _get("reasoning"))
+    _maybe_set("n", _get("n"))
+    _maybe_set("stream", _get("stream"))
+    _maybe_set("stop", _get("stop"))
+    _maybe_set("max_tokens", _get("max_tokens"))
+    _maybe_set("presence_penalty", _get("presence_penalty"))
+    _maybe_set("frequency_penalty", _get("frequency_penalty"))
+    _maybe_set("logit_bias", _get("logit_bias"))
+    _maybe_set("user", _get("user"))
+    if tools is not None:
+        rq_kwargs["tools"] = tools
+    _maybe_set("tool_choice", _get("tool_choice"))
+    _maybe_set("session_id", _get("session_id", None))
+    if reasoning_effort_val is not None:
+        rq_kwargs["reasoning_effort"] = float(reasoning_effort_val)
+    _maybe_set("thinking_budget", thinking_budget)
+    _maybe_set("generation_config", generation_config)
+
+    # Preserve explicit extra_body from callers; fall back to extra_params only
+    if legacy_extra_body is not None:
+        rq_kwargs["extra_body"] = legacy_extra_body
+    elif extra_params:
+        rq_kwargs["extra_body"] = {**extra_params}
+
+    if tools is not None:
+        rq_kwargs["tools"] = tools
+
+    return ChatRequest(**rq_kwargs)
 
 
 def domain_to_legacy_chat_request(domain_request: ChatRequest) -> dict[str, Any]:
@@ -220,9 +229,10 @@ def _convert_tools(
     return domain_tools
 
 
-from fastapi import HTTPException # Add this import
+from fastapi import HTTPException  # Add this import
 
 # ... (rest of the file)
+
 
 def dict_to_domain_chat_request(request_dict: dict[str, Any]) -> ChatRequest:
     """

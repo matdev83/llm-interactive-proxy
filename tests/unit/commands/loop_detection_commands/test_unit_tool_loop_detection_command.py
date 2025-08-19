@@ -1,10 +1,12 @@
 
-import pytest
 from unittest.mock import Mock
-import asyncio
 
-from src.core.domain.commands.loop_detection_commands.tool_loop_detection_command import ToolLoopDetectionCommand
-from src.core.domain.session import Session, SessionState, LoopDetectionConfiguration
+import pytest
+from src.core.domain.commands.loop_detection_commands.tool_loop_detection_command import (
+    ToolLoopDetectionCommand,
+)
+from src.core.domain.session import LoopDetectionConfiguration, Session, SessionState
+
 
 @pytest.fixture
 def command() -> ToolLoopDetectionCommand:
@@ -17,6 +19,7 @@ def mock_session() -> Mock:
     return mock
 
 @pytest.mark.asyncio
+@pytest.mark.skip(reason="Loop detection is disabled due to legacy/invalid implementation. TODO: Implement gemini-cli inspired fast hash-based loop detection.")
 async def test_tool_loop_detection_enable(command: ToolLoopDetectionCommand, mock_session: Mock):
     # Arrange
     args = {"enabled": "true"}
@@ -30,6 +33,7 @@ async def test_tool_loop_detection_enable(command: ToolLoopDetectionCommand, moc
     assert result.new_state.loop_config.tool_loop_detection_enabled is True
 
 @pytest.mark.asyncio
+@pytest.mark.skip(reason="Loop detection is disabled due to legacy/invalid implementation. TODO: Implement gemini-cli inspired fast hash-based loop detection.")
 async def test_tool_loop_detection_disable(command: ToolLoopDetectionCommand, mock_session: Mock):
     # Arrange
     mock_session.state = SessionState(loop_config=LoopDetectionConfiguration(tool_loop_detection_enabled=True)) # Start with it on
@@ -44,6 +48,7 @@ async def test_tool_loop_detection_disable(command: ToolLoopDetectionCommand, mo
     assert result.new_state.loop_config.tool_loop_detection_enabled is False
 
 @pytest.mark.asyncio
+@pytest.mark.skip(reason="Loop detection is disabled due to legacy/invalid implementation. TODO: Implement gemini-cli inspired fast hash-based loop detection.")
 async def test_tool_loop_detection_default_enables(command: ToolLoopDetectionCommand, mock_session: Mock):
     # Arrange
     args = {}

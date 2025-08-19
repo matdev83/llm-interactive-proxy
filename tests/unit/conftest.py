@@ -3,8 +3,7 @@ Pytest configuration file for unit tests.
 
 This file contains shared fixtures and configuration for the unit tests.
 """
-from collections.abc import AsyncGenerator, Mapping
-from typing import Any
+from collections.abc import AsyncGenerator
 
 import pytest
 from fastapi import FastAPI
@@ -12,9 +11,7 @@ from src.command_config import CommandParserConfig
 from src.command_parser import CommandParser
 from src.constants import DEFAULT_COMMAND_PREFIX
 from src.core.di.container import ServiceCollection
-from src.core.domain.command_results import CommandResult
-from src.core.domain.commands.base_command import BaseCommand
-from src.core.domain.session import Session, SessionStateAdapter
+from src.core.domain.session import SessionStateAdapter
 from src.core.interfaces.backend_service_interface import IBackendService
 from src.core.interfaces.command_service_interface import ICommandService
 from src.core.interfaces.di_interface import IServiceProvider
@@ -23,6 +20,7 @@ from src.core.interfaces.rate_limiter_interface import IRateLimiter
 from src.core.interfaces.repositories_interface import ISessionRepository
 from src.core.interfaces.response_processor_interface import IResponseProcessor
 from src.core.interfaces.session_service_interface import ISessionService
+
 from tests.unit.core.test_doubles import (
     MockBackendService,
     MockCommandService,

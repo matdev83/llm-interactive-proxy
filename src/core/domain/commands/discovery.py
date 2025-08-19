@@ -1,12 +1,13 @@
-
 import importlib
 import inspect
 import pkgutil
-from typing import Dict
 
 from src.core.domain.commands.base_command import BaseCommand
 
-def discover_commands(package_path: str = "src.core.domain.commands") -> Dict[str, BaseCommand]:
+
+def discover_commands(
+    package_path: str = "src.core.domain.commands",
+) -> dict[str, BaseCommand]:
     """
     Auto-discovers and instantiates all command classes in a given package.
 
@@ -23,8 +24,8 @@ def discover_commands(package_path: str = "src.core.domain.commands") -> Dict[st
         A dictionary where keys are the command names (e.g., 'set', 'help')
         and values are the corresponding command instances.
     """
-    handlers: Dict[str, BaseCommand] = {}
-    
+    handlers: dict[str, BaseCommand] = {}
+
     # Find the actual file system path for the package
     try:
         package = importlib.import_module(package_path)
@@ -34,7 +35,7 @@ def discover_commands(package_path: str = "src.core.domain.commands") -> Dict[st
         return handlers
 
     # pkgutil.iter_modules requires a list of paths
-    module_path = getattr(package, '__path__', [])
+    module_path = getattr(package, "__path__", [])
     if not module_path:
         return handlers
 
@@ -47,13 +48,13 @@ def discover_commands(package_path: str = "src.core.domain.commands") -> Dict[st
                     # Instantiate the command
                     command_instance = obj()
                     # The command name should be an attribute on the instance
-                    if hasattr(command_instance, 'name') and command_instance.name:
+                    if hasattr(command_instance, "name") and command_instance.name:
                         if command_instance.name in handlers:
                             # Log a warning or raise an error for duplicate command names
-                            print(f"Warning: Duplicate command name '{command_instance.name}' found in {module_name}. It will be overwritten.")
+                            pass
                         handlers[command_instance.name] = command_instance
         except Exception:
             # Log errors for debugging, e.g., print(f"Could not process {module_name}: {e}")
             pass
-            
+
     return handlers

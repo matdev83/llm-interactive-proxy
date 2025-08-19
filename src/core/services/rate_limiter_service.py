@@ -29,7 +29,13 @@ class InMemoryRateLimiter(IRateLimiter):
         reset_at = None
         if current and is_limited:
             reset_at = current[0] + time_window
-        return RateLimitInfo(is_limited=is_limited, remaining=remaining, reset_at=reset_at, limit=limit, time_window=time_window)
+        return RateLimitInfo(
+            is_limited=is_limited,
+            remaining=remaining,
+            reset_at=reset_at,
+            limit=limit,
+            time_window=time_window,
+        )
 
     async def record_usage(self, key: str, cost: int = 1) -> None:
         now = time.time()
@@ -66,12 +72,18 @@ class ConfigurableRateLimiter(IRateLimiter):
     async def set_limit(self, key: str, limit: int, time_window: int) -> None:
         await self._limiter.set_limit(key, limit, time_window)
 
+
 RateLimiter = InMemoryRateLimiter
 
+
 def create_rate_limiter(config: Any) -> IRateLimiter:
-    default_limit = config.default_rate_limit if hasattr(config, "default_rate_limit") else 60
-    default_time_window = config.default_rate_window if hasattr(config, "default_rate_window") else 60
-    base_limiter = InMemoryRateLimiter(default_limit=default_limit, default_time_window=default_time_window)
+    default_limit = (
+        config.default_rate_limit if hasattr(config, "default_rate_limit") else 60
+    )
+    default_time_window = (
+        config.default_rate_window if hasattr(config, "default_rate_window") else 60
+    )
+    base_limiter = InMemoryRateLimiter(
+        default_limit=default_limit, default_time_window=default_time_window
+    )
     return ConfigurableRateLimiter(base_limiter, config)
-
-

@@ -162,7 +162,7 @@ class ConfigLoader:
 
         # Get backend from environment variable
         backend_type = os.getenv("LLM_BACKEND", "openai")
-        
+
         config_data: dict[str, Any] = {
             "backend": backend_type,  # Add backend key for compatibility with tests
             "openrouter_api_key": next(iter(openrouter_keys.values()), None),

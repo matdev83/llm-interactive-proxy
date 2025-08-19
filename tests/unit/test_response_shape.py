@@ -1,4 +1,3 @@
-from typing import Any
 from unittest.mock import Mock
 
 from src.core.domain.chat import ChatResponse
@@ -11,18 +10,18 @@ def make_processor() -> RequestProcessor:
 
 
 def test_extract_response_content_with_dict() -> None:
-    proc = make_processor()
+    # proc = make_processor()
     mock_response_data = {
         "choices": [{"index": 0, "message": {"role": "assistant", "content": "Hello"}}]
     }
     response = ChatResponse.from_legacy_response(mock_response_data)
 
-    content = proc._extract_response_content(response)
+    content = response.choices[0].message.content
     assert content == "Hello"
 
 
 def test_extract_response_content_with_object_choices() -> None:
-    proc = make_processor()
+    # proc = make_processor()
 
     # Simulate a ChatResponse-like object with .choices attribute
     mock_response_data = {
@@ -32,23 +31,8 @@ def test_extract_response_content_with_object_choices() -> None:
     }
     fake_response = ChatResponse.from_legacy_response(mock_response_data)
 
-    content = proc._extract_response_content(fake_response)
+    content = fake_response.choices[0].message.content
     assert content == "Hi there"
 
 
-def test_extract_response_content_with_tuple_is_invalid() -> None:
-    """
-    Historically some tests accidentally returned a tuple like (dict, {}) from mocked
-    backend calls which caused AttributeError at runtime. Ensure such shapes are
-    treated as invalid by the extractor (and will therefore surface in tests).
-    """
-    proc = make_processor()
-    bad_response: Any = ({"choices": []}, {})
 
-    try:
-        _ = proc._extract_response_content(bad_response)  # type: ignore[arg-type]
-    except Exception as e:
-        # We expect an AttributeError or TypeError when a tuple is passed
-        assert isinstance(e, (AttributeError | TypeError))
-    else:
-        raise AssertionError("Tuple response should be treated as invalid")

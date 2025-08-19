@@ -19,14 +19,20 @@ logger = logging.getLogger(__name__)
 
 
 class ResponseProcessor(IResponseProcessor):
-    def __init__(self, loop_detector: ILoopDetector | None = None, middleware: list[IResponseMiddleware] | None = None) -> None:
+    def __init__(
+        self,
+        loop_detector: ILoopDetector | None = None,
+        middleware: list[IResponseMiddleware] | None = None,
+    ) -> None:
         self._loop_detector = loop_detector
         self._middleware: list[tuple[int, IResponseMiddleware]] = []
         if middleware:
             for mw in middleware:
                 self._middleware.append((0, mw))
 
-    async def register_middleware(self, middleware: IResponseMiddleware, priority: int = 0) -> None:
+    async def register_middleware(
+        self, middleware: IResponseMiddleware, priority: int = 0
+    ) -> None:
         """Register a middleware component to process responses.
 
         Args:
@@ -35,7 +41,9 @@ class ResponseProcessor(IResponseProcessor):
         """
         self._middleware.append((priority, middleware))
 
-    async def process_response(self, response: Any, session_id: str) -> ProcessedResponse:
+    async def process_response(
+        self, response: Any, session_id: str
+    ) -> ProcessedResponse:
         try:
             content, usage, metadata = self._extract_response_data(response)
             if isinstance(content, dict | list):
@@ -47,12 +55,21 @@ class ResponseProcessor(IResponseProcessor):
             if self._loop_detector and content:
                 loop_result = await self._loop_detector.check_for_loops(content)
                 if loop_result.has_loop:
-                    raise LoopDetectionError(message=f"Response loop detected ({loop_result.repetitions} repetitions)", pattern=loop_result.pattern, repetitions=loop_result.repetitions, details=loop_result.details)
+                    raise LoopDetectionError(
+                        message=f"Response loop detected ({loop_result.repetitions} repetitions)",
+                        pattern=loop_result.pattern,
+                        repetitions=loop_result.repetitions,
+                        details=loop_result.details,
+                    )
 
-            processed = ProcessedResponse(content=content, usage=usage, metadata=metadata)
+            processed = ProcessedResponse(
+                content=content, usage=usage, metadata=metadata
+            )
 
             context = {"session_id": session_id, "response_type": "complete"}
-            for _, middleware in sorted(self._middleware, key=lambda m: m[0], reverse=True):
+            for _, middleware in sorted(
+                self._middleware, key=lambda m: m[0], reverse=True
+            ):
                 processed = await middleware.process(processed, session_id, context)
 
             return processed
@@ -61,44 +78,72 @@ class ResponseProcessor(IResponseProcessor):
             raise
         except Exception as e:
             logger.error(f"Error processing response: {e!s}", exc_info=True)
-            raise BackendError(message=f"Error processing response: {e!s}", details={"session_id": session_id})
+            raise BackendError(
+                message=f"Error processing response: {e!s}",
+                details={"session_id": session_id},
+            )
 
-    def process_streaming_response(self, response_iterator: AsyncIterator[Any], session_id: str) -> AsyncIterator[ProcessedResponse]:
+    def process_streaming_response(
+        self, response_iterator: AsyncIterator[Any], session_id: str
+    ) -> AsyncIterator[ProcessedResponse]:
         async def _process_stream() -> AsyncIterator[ProcessedResponse]:
             accumulated_content = ""
             try:
-                sorted_middleware = sorted(self._middleware, key=lambda m: m[0], reverse=True)
+                sorted_middleware = sorted(
+                    self._middleware, key=lambda m: m[0], reverse=True
+                )
                 async for chunk in response_iterator:
                     try:
                         content, usage, metadata = self._extract_chunk_data(chunk)
                         if content:
                             accumulated_content += content
                             if self._loop_detector and len(accumulated_content) > 100:
-                                loop_result = await self._loop_detector.check_for_loops(accumulated_content)
+                                loop_result = await self._loop_detector.check_for_loops(
+                                    accumulated_content
+                                )
                                 if loop_result.has_loop:
-                                    raise LoopDetectionError(message=f"Response loop detected in stream ({loop_result.repetitions} repetitions)", pattern=loop_result.pattern, repetitions=loop_result.repetitions, details=loop_result.details)
+                                    raise LoopDetectionError(
+                                        message=f"Response loop detected in stream ({loop_result.repetitions} repetitions)",
+                                        pattern=loop_result.pattern,
+                                        repetitions=loop_result.repetitions,
+                                        details=loop_result.details,
+                                    )
 
-                        processed = ProcessedResponse(content=content, usage=usage, metadata=metadata)
+                        processed = ProcessedResponse(
+                            content=content, usage=usage, metadata=metadata
+                        )
                         context = {"session_id": session_id, "response_type": "stream"}
                         for _, middleware in sorted_middleware:
-                            processed = await middleware.process(processed, session_id, context)
+                            processed = await middleware.process(
+                                processed, session_id, context
+                            )
                         yield processed
 
                     except LoopDetectionError:
                         raise
                     except Exception as e:
-                        logger.error(f"Error processing stream chunk: {e!s}", exc_info=True)
-                        yield ProcessedResponse(content=f"ERROR: {e!s}", metadata={"error_type": "ChunkProcessingError"})
+                        logger.error(
+                            f"Error processing stream chunk: {e!s}", exc_info=True
+                        )
+                        yield ProcessedResponse(
+                            content=f"ERROR: {e!s}",
+                            metadata={"error_type": "ChunkProcessingError"},
+                        )
 
                     await asyncio.sleep(0.01)
 
             except Exception as e:
                 logger.error(f"Error in stream processing: {e!s}", exc_info=True)
-                yield ProcessedResponse(content=f"ERROR: Stream processing failed: {e!s}", metadata={"error_type": "StreamProcessingError"})
+                yield ProcessedResponse(
+                    content=f"ERROR: Stream processing failed: {e!s}",
+                    metadata={"error_type": "StreamProcessingError"},
+                )
 
         return _process_stream()
 
-    def _extract_response_data(self, response: Any) -> tuple[str, dict[str, Any] | None, dict[str, Any]]:
+    def _extract_response_data(
+        self, response: Any
+    ) -> tuple[str, dict[str, Any] | None, dict[str, Any]]:
         """Extract content, usage, and metadata from a complete response.
 
         Args:
@@ -162,7 +207,9 @@ class ResponseProcessor(IResponseProcessor):
 
         return content, usage, metadata
 
-    def _extract_chunk_data(self, chunk: Any) -> tuple[str, dict[str, Any] | None, dict[str, Any]]:
+    def _extract_chunk_data(
+        self, chunk: Any
+    ) -> tuple[str, dict[str, Any] | None, dict[str, Any]]:
         """Extract content, usage, and metadata from a streaming chunk.
 
         Args:
@@ -253,5 +300,3 @@ class ResponseProcessor(IResponseProcessor):
             content = chunk
 
         return content, usage, metadata
-
-

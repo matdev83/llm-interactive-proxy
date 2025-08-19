@@ -4,21 +4,27 @@ Chat Controller
 Handles all chat completion related API endpoints.
 """
 
+import asyncio
 import logging
 from typing import Any
 
 from fastapi import HTTPException, Request, Response
 
-from src.core.adapters.exception_adapters import create_exception_handler  # Keep for now during transition
-from src.core.transport.fastapi.api_adapters import legacy_to_domain_chat_request
-from src.core.transport.fastapi.exception_adapters import map_domain_exception_to_http_exception
-from src.core.transport.fastapi.request_adapters import fastapi_to_domain_request_context
-from src.core.transport.fastapi.response_adapters import domain_response_to_fastapi
-from src.core.common.exceptions import LoopDetectionError, LLMProxyError
+from src.core.common.exceptions import LLMProxyError
 from src.core.domain.chat import ChatRequest
-from src.core.domain.request_context import RequestContext
 from src.core.interfaces.di_interface import IServiceProvider
+from src.core.interfaces.model_bases import DomainModel, InternalDTO
 from src.core.interfaces.request_processor_interface import IRequestProcessor
+from src.core.services.backend_processor import BackendProcessor
+from src.core.services.command_processor import CommandProcessor
+from src.core.transport.fastapi.api_adapters import legacy_to_domain_chat_request
+from src.core.transport.fastapi.exception_adapters import (
+    map_domain_exception_to_http_exception,
+)
+from src.core.transport.fastapi.request_adapters import (
+    fastapi_to_domain_request_context,
+)
+from src.core.transport.fastapi.response_adapters import domain_response_to_fastapi
 
 logger = logging.getLogger(__name__)
 
@@ -35,7 +41,9 @@ class ChatController:
         self._processor = request_processor
 
     async def handle_chat_completion(
-        self, request: Request, request_data: ChatRequest | Any
+        self,
+        request: Request,
+        request_data: ChatRequest | DomainModel | InternalDTO | dict[str, Any],
     ) -> Response:
         """Handle chat completion requests.
 
@@ -46,23 +54,34 @@ class ChatController:
         Returns:
             An HTTP response
         """
-        logger.info(f"Handling chat completion request: model={request_data.model}")
-
         try:
             # Convert legacy request to domain model if needed
             domain_request = request_data
             if not isinstance(request_data, ChatRequest):
                 domain_request = legacy_to_domain_chat_request(request_data)
 
+            # Narrow type for mypy
+            from typing import cast
+
+            domain_request = cast(ChatRequest, domain_request)
+
+            logger.info(
+                f"Handling chat completion request: model={domain_request.model}"
+            )
+
             # Convert FastAPI Request to RequestContext and process via core processor
             ctx = fastapi_to_domain_request_context(request, attach_original=True)
-            
+
             # Process the request using the request processor
             response = await self._processor.process_request(ctx, domain_request)
-            
+
             # Convert domain response to FastAPI response
+            # Ensure we await the response if it's a coroutine
+            if asyncio.iscoroutine(response):
+                response = await response
+
             return domain_response_to_fastapi(response)
-            
+
         except LLMProxyError as e:
             # Map domain exceptions to HTTP exceptions
             raise map_domain_exception_to_http_exception(e)
@@ -73,8 +92,8 @@ class ChatController:
             # Log and convert other exceptions to HTTP exceptions
             logger.error(f"Error handling chat completion: {e}", exc_info=True)
             raise HTTPException(
-                status_code=500, 
-                detail={"error": {"message": str(e), "type": "server_error"}}
+                status_code=500,
+                detail={"error": {"message": str(e), "type": "server_error"}},
             )
 
 
@@ -124,9 +143,12 @@ def get_chat_controller(service_provider: IServiceProvider) -> ChatController:
                 concrete_backend = cast(IBackendService, backend)
                 concrete_session = cast(ISessionService, session)
                 concrete_response_proc = cast(IResponseProcessor, response_proc)
+                command_processor = CommandProcessor(concrete_cmd)
+                backend_processor = BackendProcessor(concrete_backend, concrete_session)
+
                 request_processor = RequestProcessor(
-                    concrete_cmd,
-                    concrete_backend,
+                    command_processor,
+                    backend_processor,
                     concrete_session,
                     concrete_response_proc,
                 )
@@ -137,13 +159,23 @@ def get_chat_controller(service_provider: IServiceProvider) -> ChatController:
                 from src.core.di.container import ServiceProvider
 
                 if isinstance(service_provider, ServiceProvider):
-                    # Access the _singleton_instances attribute safely
-                    singleton_instances = getattr(
-                        service_provider, "_singleton_instances", None
-                    )
-                    if singleton_instances is not None:
-                        singleton_instances[IRequestProcessor] = request_processor
-                        singleton_instances[RequestProcessor] = request_processor
+                    # Instead of mutating internal provider state, prefer registering
+                    # the instance on the ServiceCollection so a rebuild would include it.
+                    try:
+                        from src.core.di.services import get_service_collection
+
+                        services = get_service_collection()
+                        # Register existing instance explicitly to ensure future resolutions
+                        services.add_instance(IRequestProcessor, request_processor)  # type: ignore[type-abstract]
+                        services.add_instance(RequestProcessor, request_processor)  # type: ignore[type-abstract]
+                    except Exception:
+                        # As a last resort, fall back to internal cache mutation
+                        singleton_instances = getattr(
+                            service_provider, "_singleton_instances", None
+                        )
+                        if singleton_instances is not None:
+                            singleton_instances[IRequestProcessor] = request_processor
+                            singleton_instances[RequestProcessor] = request_processor
 
         if request_processor is None:
             raise Exception("Could not find or create RequestProcessor")

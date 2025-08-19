@@ -10,6 +10,7 @@ from src.core.domain.session import Session
 
 logger = logging.getLogger(__name__)
 
+
 class ToolLoopDetectionCommand(BaseCommand):
     """Command for enabling/disabling tool loop detection."""
 
@@ -26,7 +27,9 @@ class ToolLoopDetectionCommand(BaseCommand):
         enabled = str(enabled_arg).lower() in ("true", "yes", "1", "on")
 
         try:
-            loop_config = session.state.loop_config.with_tool_loop_detection_enabled(enabled)
+            loop_config = session.state.loop_config.with_tool_loop_detection_enabled(
+                enabled
+            )
             updated_state = session.state.with_loop_config(loop_config)
 
             return CommandResult(

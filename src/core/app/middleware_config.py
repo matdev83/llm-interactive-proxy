@@ -86,15 +86,14 @@ def configure_middleware(app: FastAPI, config: Any) -> None:
         # TODO: Reimplement proper logging middleware integration
 
 
-def register_custom_middleware(
-    app: FastAPI, middleware_class: type, **kwargs: Any
-) -> None:
+def register_custom_middleware(app: FastAPI, *args: Any, **kwargs: Any) -> None:
     """Register custom middleware with the FastAPI application.
 
     Args:
         app: The FastAPI application
-        middleware_class: The middleware class to register
+        *args: Positional arguments (middleware_class should be the first)
         **kwargs: Keyword arguments to pass to the middleware constructor
     """
     # For now, we'll skip custom middleware registration
     # TODO: Implement proper custom middleware registration
+    # middleware_class would be args[0] if provided
