@@ -73,9 +73,10 @@ def main():
         sys.exit(0)
 
     found_keys_in_staged_files = False
+    placeholder_keys = ["your-api-key-here"]
     for file_path, content in staged_files_content.items():
         for key in discovered_api_keys:
-            if key and key in content: # Ensure key is not empty
+            if key and key in content and key not in placeholder_keys: # Ensure key is not empty
                 print(f"Error: Discovered API key found in staged file: {file_path}", file=sys.stderr)
                 # Print a masked version of the key for safety, showing only start and end
                 masked_key_snippet = f"'{key[:5]}...{key[-5:]}'" if len(key) > 10 else f"'{key}'"
