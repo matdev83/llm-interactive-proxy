@@ -16,7 +16,7 @@ def test_integration_bridge_initialization():
     app = build_app()
 
     # Verify that both architectures can coexist
-    assert hasattr(app.state, "config")
+    assert hasattr(app.state, "app_config")
 
     # The app should build without errors
     assert app is not None

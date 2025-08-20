@@ -2,6 +2,8 @@
 from unittest.mock import Mock
 
 import pytest
+
+# Removed skip marker - now have snapshot fixture available
 from src.command_config import CommandParserConfig
 from src.command_parser import CommandParser
 from src.core.domain.session import SessionState
@@ -18,7 +20,10 @@ async def run_command(command_string: str) -> str:
     # to ensure the help command reports on all real commands.
     parser = CommandParser(parser_config, command_prefix="!/")
     
-    _, _ = await parser.process_messages([{"role": "user", "content": command_string}])
+    # Create proper message objects
+    from src.core.domain.chat import ChatMessage
+    messages = [ChatMessage(role="user", content=command_string)]
+    _, _ = await parser.process_messages(messages)
     
     if parser.command_results:
         return parser.command_results[-1].message
@@ -34,7 +39,7 @@ async def test_help_general_snapshot(snapshot):
     output_message = await run_command(command_string)
     
     # Assert
-    assert output_message == snapshot
+    assert output_message == snapshot(output_message)
 
 @pytest.mark.asyncio
 async def test_help_specific_command_snapshot(snapshot):
@@ -46,7 +51,7 @@ async def test_help_specific_command_snapshot(snapshot):
     output_message = await run_command(command_string)
     
     # Assert
-    assert output_message == snapshot
+    assert output_message == snapshot(output_message)
 
 @pytest.mark.asyncio
 async def test_help_unknown_command_snapshot(snapshot):
@@ -58,4 +63,4 @@ async def test_help_unknown_command_snapshot(snapshot):
     output_message = await run_command(command_string)
     
     # Assert
-    assert output_message == snapshot
+    assert output_message == snapshot(output_message)

@@ -8,12 +8,12 @@ replacing production services with mocks and test doubles.
 from __future__ import annotations
 
 import logging
-from collections.abc import AsyncGenerator
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock
 
 from src.core.config.app_config import AppConfig
 from src.core.di.container import ServiceCollection
+from src.core.interfaces.di_interface import IServiceProvider
 
 from .base import InitializationStage
 
@@ -42,13 +42,48 @@ class MockBackendStage(InitializationStage):
         """Register mock backend services."""
         logger.info("Initializing mock backend services...")
 
-        # Register mock backend service
-        self._register_mock_backend_service(services)
+        # Register mock backend config provider first
+        self._register_backend_config_provider(services)
 
         # Register mock backend factory
         self._register_mock_backend_factory(services)
 
+        # Register mock backend service
+        self._register_mock_backend_service(services)
+
+        # Register backend service with BackendFactory dependency
+        self._register_backend_service(services)
+
         logger.info("Mock backend services initialized successfully")
+
+    def _register_backend_config_provider(self, services: ServiceCollection) -> None:
+        """Register a mock backend configuration provider."""
+        try:
+            from typing import cast
+
+            from src.core.interfaces.backend_config_provider_interface import (
+                IBackendConfigProvider,
+            )
+            from src.core.services.backend_config_provider import BackendConfigProvider
+
+            # Create a mock backend config provider that returns the configuration
+            # from the app_config
+            def backend_config_provider_factory(
+                provider: IServiceProvider,
+            ) -> BackendConfigProvider:
+                """Factory function for creating BackendConfigProvider."""
+                app_config = provider.get_required_service(AppConfig)
+                return BackendConfigProvider(app_config)
+
+            # Register interface with factory
+            services.add_singleton(
+                cast(type, IBackendConfigProvider),
+                implementation_factory=backend_config_provider_factory,
+            )
+
+            logger.debug("Registered mock backend config provider")
+        except ImportError as e:
+            logger.warning(f"Could not register mock backend config provider: {e}")
 
     def _register_mock_backend_service(self, services: ServiceCollection) -> None:
         """Register a comprehensive mock backend service."""
@@ -84,8 +119,18 @@ class MockBackendStage(InitializationStage):
                             "message": {
                                 "role": "assistant",
                                 "content": "Mock response from test backend",
+                                "tool_calls": [
+                                    {
+                                        "id": "call_mock_123",
+                                        "type": "function",
+                                        "function": {
+                                            "name": "mock_function",
+                                            "arguments": "{}",
+                                        },
+                                    }
+                                ],
                             },
-                            "finish_reason": "stop",
+                            "finish_reason": "tool_calls",
                         }
                     ],
                     "usage": {
@@ -97,30 +142,22 @@ class MockBackendStage(InitializationStage):
 
                 # Handle streaming requests
                 if request and getattr(request, "stream", False):
+                    from src.core.domain.streaming_test_helpers import (
+                        create_streaming_generator,
+                    )
 
-                    async def mock_stream() -> AsyncGenerator[bytes, None]:
-                        import asyncio
-                        import json
+                    # Define what to return from the mock stream
+                    chunks = ["Mock ", "streaming ", "response"]
 
-                        # Yield streaming chunks
-                        for i, word in enumerate(["Mock", "streaming", "response"]):
-                            chunk = {
-                                "id": f"mock-chunk-{i}",
-                                "object": "chat.completion.chunk",
-                                "created": 1234567890,
-                                "model": response_data["model"],
-                                "choices": [
-                                    {"index": 0, "delta": {"content": f"{word} "}}
-                                ],
-                            }
-                            yield f"data: {json.dumps(chunk)}\n\n".encode()
-                            await asyncio.sleep(0.01)  # Small delay for realism
-
-                        # Final chunk
-                        yield b"data: [DONE]\n\n"
+                    # Use the helper function that properly creates a streaming generator
+                    content_generator = create_streaming_generator(
+                        model=str(response_data["model"]),
+                        content=chunks,
+                        chunk_delay_seconds=0.01,
+                    )
 
                     return StreamingResponseEnvelope(
-                        content=mock_stream(),
+                        content=content_generator,
                         media_type="text/event-stream",
                         headers={"content-type": "text/event-stream"},
                     )
@@ -135,8 +172,48 @@ class MockBackendStage(InitializationStage):
             mock_backend_service.process_request = AsyncMock(
                 side_effect=mock_chat_completions
             )
+
+            async def _call_completion_delegate(*args: Any, **kwargs: Any) -> Any:
+                # Try to delegate to a real Anthropic connector if available and
+                # possibly patched by tests (so patching class methods will be
+                # observed). If that fails, fall back to the canned mock behavior.
+                request = (
+                    kwargs.get("request")
+                    or kwargs.get("request_data")
+                    or (args[0] if args else None)
+                )
+
+                try:
+                    # Attempt to import Anthropic connector and call its method.
+                    # If tests patched AnthropicBackend.chat_completions, their
+                    # AsyncMock will be invoked here and awaited.
+                    import httpx
+
+                    from src.connectors.anthropic import AnthropicBackend
+
+                    real_backend = AnthropicBackend(httpx.AsyncClient())
+                    # Call connector using a minimal processed_messages list and
+                    # the request.model as effective_model when available.
+                    processed_messages: list[dict[str, str]] = []
+                    effective_model = (
+                        getattr(request, "model", "mock-model")
+                        if request
+                        else "mock-model"
+                    )
+                    # Ensure request is not None before passing to chat_completions
+                    if request is not None:
+                        return await real_backend.chat_completions(
+                            request, processed_messages, effective_model
+                        )
+                    else:
+                        # Fall back to global mock behavior if request is None
+                        return await mock_chat_completions(*args, **kwargs)
+                except Exception:
+                    # Fall back to global mock behavior
+                    return await mock_chat_completions(*args, **kwargs)
+
             mock_backend_service.call_completion = AsyncMock(
-                side_effect=mock_chat_completions
+                side_effect=_call_completion_delegate
             )
             mock_backend_service.chat_completions = AsyncMock(
                 side_effect=mock_chat_completions
@@ -161,7 +238,7 @@ class MockBackendStage(InitializationStage):
             mock_backend_service._backends = {}
 
             # Add _get_or_create_backend method that respects test-specific mocks
-            async def mock_get_or_create_backend(backend_type: str):
+            async def mock_get_or_create_backend(backend_type: str) -> Any:
                 from src.connectors.base import LLMBackend
 
                 # First check if a test has injected a specific backend implementation
@@ -179,6 +256,26 @@ class MockBackendStage(InitializationStage):
 
                 if backend_type in mock_backend_service._backend_cache:
                     return mock_backend_service._backend_cache[backend_type]
+
+                # Try to create a real backend instance when possible (helps tests
+                # that patch connector implementations, e.g. patching
+                # src.connectors.anthropic.AnthropicBackend.chat_completions).
+                try:
+                    if backend_type == "anthropic":
+                        import httpx
+
+                        from src.connectors.anthropic import AnthropicBackend
+
+                        real_backend = AnthropicBackend(httpx.AsyncClient())
+                        # If the connector was patched in tests, its methods will
+                        # already reflect the patch. Cache and return the real
+                        # backend so tests that patch connector class methods
+                        # observe calls.
+                        mock_backend_service._backend_cache[backend_type] = real_backend
+                        return real_backend
+                except Exception:
+                    # Fall back to mock backend when real instantiation fails
+                    pass
 
                 # Create new mock backend with the global mock behavior
                 mock_backend = MagicMock(spec=LLMBackend)
@@ -222,15 +319,70 @@ class MockBackendStage(InitializationStage):
             mock_backend.get_available_models = AsyncMock(return_value=["mock-model"])
             mock_backend.available_models = ["mock-model"]
 
-            # Configure factory methods
+            # Configure factory methods and properties
             mock_factory.create_backend = MagicMock(return_value=mock_backend)
             mock_factory.ensure_backend = AsyncMock(return_value=mock_backend)
             mock_factory.initialize_backend = AsyncMock()
+
+            # Add _client attribute to match real BackendFactory for tests
+            # that directly access this attribute
+            import httpx
+
+            httpx_client = httpx.AsyncClient()
+            mock_factory._client = httpx_client
 
             # Register the mock factory
             services.add_instance(BackendFactory, mock_factory)
 
             logger.debug("Registered mock backend factory")
+        except ImportError as e:
+            logger.warning(f"Could not register mock backend factory: {e}")
+
+    def _register_backend_service(self, services: ServiceCollection) -> None:
+        """Register BackendService with the proper dependencies."""
+        try:
+            from typing import cast
+
+            from src.core.interfaces.backend_config_provider_interface import (
+                IBackendConfigProvider,
+            )
+            from src.core.interfaces.backend_service_interface import IBackendService
+            from src.core.services.backend_service import BackendService
+            from src.core.services.rate_limiter_service import RateLimiter
+
+            # Create a rate limiter instance directly for the factory
+            # (will be retrieved via service provider)
+
+            # Function to create BackendService instance
+            def backend_service_factory(provider: IServiceProvider) -> BackendService:
+                from src.core.services.backend_factory import BackendFactory
+
+                backend_factory = provider.get_required_service(BackendFactory)
+                app_config = provider.get_required_service(AppConfig)
+                backend_config_provider: IBackendConfigProvider = provider.get_required_service(
+                    cast(type, IBackendConfigProvider)
+                )
+                rate_limiter = provider.get_required_service(RateLimiter)
+
+                return BackendService(
+                    backend_factory,
+                    rate_limiter,
+                    app_config,
+                    backend_config_provider=backend_config_provider,
+                )
+
+            # Register BackendService with factory
+            services.add_singleton(
+                BackendService, implementation_factory=backend_service_factory
+            )
+
+            # Register interface binding
+            services.add_singleton(
+                cast(type, IBackendService),
+                implementation_factory=backend_service_factory,
+            )
+
+            logger.debug("Registered BackendService with all dependencies")
         except ImportError as e:
             logger.warning(f"Could not register mock backend factory: {e}")
 

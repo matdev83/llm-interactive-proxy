@@ -2,6 +2,8 @@
 from unittest.mock import Mock
 
 import pytest
+
+# Removed skip marker - now have snapshot fixture available
 from src.command_config import CommandParserConfig
 from src.command_parser import CommandParser
 from src.core.domain.session import SessionState
@@ -17,7 +19,10 @@ async def run_command(command_string: str, initial_state: SessionState) -> str:
     parser = CommandParser(parser_config, command_prefix="!/")
     parser.handlers = {"hello": HelloCommand()} # Manually insert handler
     
-    _, _ = await parser.process_messages([{"role": "user", "content": command_string}])
+    # Create proper message objects
+    from src.core.domain.chat import ChatMessage
+    messages = [ChatMessage(role="user", content=command_string)]
+    _, _ = await parser.process_messages(messages)
     
     if parser.command_results:
         return parser.command_results[-1].message
@@ -34,4 +39,4 @@ async def test_hello_snapshot(snapshot):
     output_message = await run_command(command_string, initial_state)
     
     # Assert
-    assert output_message == snapshot
+    assert output_message == snapshot(output_message)

@@ -214,6 +214,35 @@ class ApplicationBuilder:
 
         return app
 
+    def build_compat(self, config: AppConfig, service_provider: IServiceProvider | None = None) -> FastAPI:
+        """
+        Backward-compatible build method that accepts an optional service_provider.
+        
+        This method maintains compatibility with older tests that may pass a service_provider
+        as a second argument. The service_provider is ignored in favor of the new staged
+        initialization approach.
+
+        Args:
+            config: The application configuration
+            service_provider: Optional service provider (ignored for compatibility)
+
+        Returns:
+            Configured FastAPI application
+        """
+        import asyncio
+        
+        try:
+            asyncio.get_running_loop()
+            # If we're in an async context, we need to run in a new thread
+            import concurrent.futures
+
+            with concurrent.futures.ThreadPoolExecutor() as executor:
+                future = executor.submit(asyncio.run, self.build(config))
+                return future.result()
+        except RuntimeError:
+            # No running loop, we can use asyncio.run directly
+            return asyncio.run(self.build(config))
+
     def _create_fastapi_app(
         self, config: AppConfig, service_provider: IServiceProvider
     ) -> FastAPI:

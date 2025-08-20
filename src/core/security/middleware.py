@@ -76,6 +76,13 @@ class APIKeyMiddleware(BaseHTTPMiddleware):
         if auth_header and auth_header.startswith("Bearer "):
             api_key = auth_header.replace("Bearer ", "")
 
+        # Debug: log detected API key (masked) for test troubleshooting
+        try:
+            masked = api_key[:4] + "..." if api_key else None
+            logger.debug("Detected API key in request: %s", masked)
+        except Exception:
+            pass
+
         # Check for API key in query parameter
         if not api_key:
             api_key = request.query_params.get("api_key")

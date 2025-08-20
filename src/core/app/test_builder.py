@@ -109,6 +109,66 @@ class ApplicationTestBuilder(ApplicationBuilder):
 
         # Add replacement stage
         return self.add_stage(replacement_stage)  # type: ignore[return-value]
+        
+    async def _initialize_services(self, app: FastAPI, config: AppConfig) -> Any:
+        """
+        Legacy compatibility method for tests that directly call _initialize_services.
+        
+        This method provides backward compatibility for tests that were written
+        against the old API. It builds a new app using the staged approach and
+        then returns the service provider.
+        
+        Args:
+            app: The FastAPI application
+            config: The application configuration
+            
+        Returns:
+            The service provider
+        """
+        logger.warning(
+            "Using deprecated _initialize_services method. "
+            "Please update tests to use the staged initialization approach."
+        )
+        
+        # Use the staged approach to build a new app
+        builder = self.add_test_stages()
+        new_app = await builder.build(config)
+        
+        # Copy the service provider and other state to the original app
+        if hasattr(new_app.state, "service_provider"):
+            app.state.service_provider = new_app.state.service_provider
+            
+        # Copy other important state attributes
+        for attr in ["app_config", "httpx_client", "disable_auth"]:
+            if hasattr(new_app.state, attr):
+                setattr(app.state, attr, getattr(new_app.state, attr))
+                
+        # Return the service provider for backward compatibility
+        return app.state.service_provider
+        
+    async def _initialize_backends(self, app: FastAPI, config: AppConfig) -> None:
+        """
+        Legacy compatibility method for tests that directly call _initialize_backends.
+        
+        This method provides backward compatibility for tests that were written
+        against the old API. It builds a new app using the staged approach and
+        ensures the backends are properly initialized.
+        
+        Args:
+            app: The FastAPI application
+            config: The application configuration
+        """
+        logger.warning(
+            "Using deprecated _initialize_backends method. "
+            "Please update tests to use the staged initialization approach."
+        )
+        
+        # First make sure services are initialized
+        if not hasattr(app.state, "service_provider") or not app.state.service_provider:
+            await self._initialize_services(app, config)
+            
+        # The backends should already be initialized by the MockBackendStage
+        # during the _initialize_services call, so no further action is needed
 
 
 # Convenience functions for common test scenarios
@@ -125,7 +185,17 @@ async def build_test_app_async(config: AppConfig | None = None) -> FastAPI:
         FastAPI application configured for testing
     """
     if config is None:
-        config = create_test_config()
+        # Allow tests to patch/load a custom config via the standard loader.
+        try:
+            from src.core.config.app_config import load_config
+
+            cfg = load_config()  # tests may have patched this to return a custom AppConfig
+            if cfg is not None:
+                config = cfg
+            else:
+                config = create_test_config()
+        except Exception:
+            config = create_test_config()
     builder = ApplicationTestBuilder().add_test_stages()
     app = await builder.build(config)
 
@@ -157,7 +227,16 @@ def build_test_app(config: AppConfig | None = None) -> FastAPI:
         FastAPI application configured for testing
     """
     if config is None:
-        config = create_test_config()
+        try:
+            from src.core.config.app_config import load_config
+
+            cfg = load_config()
+            if cfg is not None:
+                config = cfg
+            else:
+                config = create_test_config()
+        except Exception:
+            config = create_test_config()
 
     try:
         asyncio.get_running_loop()
@@ -352,3 +431,6 @@ app = asyncio.run(builder.build(test_config))
 This approach makes testing much more flexible and maintainable compared
 to the original complex conftest.py approach.
 """
+
+# Export TestApplicationBuilder as an alias for backwards compatibility
+TestApplicationBuilder = ApplicationTestBuilder

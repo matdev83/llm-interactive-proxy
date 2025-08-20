@@ -12,6 +12,8 @@ import requests
 import uvicorn
 from src.core.app.test_builder import build_test_app as build_app
 
+pytestmark = pytest.mark.network
+
 # Optional client libraries - skip related scenarios if missing.
 try:
     import openai
@@ -45,7 +47,9 @@ class _ProxyServer:
             json.dump(cfg, f)
             self.config_file_path = Path(f.name)
 
-        self.app = build_app(config_path=str(self.config_file_path))
+        from src.core.config.app_config import AppConfig
+        app_config = AppConfig.model_validate(cfg)
+        self.app = build_app(config=app_config)
         self.server: uvicorn.Server | None = None
         self._thread: threading.Thread | None = None
 

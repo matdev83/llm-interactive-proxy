@@ -2,14 +2,13 @@
 from unittest.mock import Mock
 
 import pytest
+
+# Removed skip marker - now have snapshot fixture available
 from src.command_config import CommandParserConfig
 from src.command_parser import CommandParser
 from src.core.domain.commands.set_command import SetCommand
-from src.core.domain.session import (
-    BackendConfiguration,
-    ReasoningConfiguration,
-    SessionState,
-)
+from src.core.domain.session import BackendConfiguration, ReasoningConfiguration, SessionState
+from src.core.domain.chat import ChatMessage
 
 
 # Helper function to simulate running a command
@@ -29,7 +28,7 @@ async def run_command(command_string: str, initial_state: SessionState) -> str:
     # We are interested in the content of the processed message.
     # In the case of a pure command, the message list is often empty, 
     # and the result is in parser.command_results
-    _, _ = await parser.process_messages([{"role": "user", "content": command_string}])
+    _, _ = await parser.process_messages([ChatMessage(role="user", content=command_string)])
     
     if parser.command_results:
         return parser.command_results[-1].message
@@ -52,7 +51,7 @@ async def test_set_temperature_integration(snapshot):
     output_message = await run_command(command_string, initial_state)
     
     # Assert
-    assert output_message == snapshot
+    assert output_message == snapshot(output_message)
 
 @pytest.mark.asyncio
 async def test_set_backend_and_model_integration(snapshot):
@@ -70,4 +69,4 @@ async def test_set_backend_and_model_integration(snapshot):
     output_message = await run_command(command_string, initial_state)
     
     # Assert
-    assert output_message == snapshot
+    assert output_message == snapshot(output_message)

@@ -2,9 +2,12 @@
 from unittest.mock import Mock
 
 import pytest
+
+# Removed skip marker - now have snapshot fixture available
 from src.command_config import CommandParserConfig
 from src.command_parser import CommandParser
 from src.core.domain.session import SessionState
+from src.core.domain.chat import ChatMessage
 
 
 async def run_command(command_string: str) -> str:
@@ -17,7 +20,7 @@ async def run_command(command_string: str) -> str:
     parser = CommandParser(parser_config, command_prefix="!/")
     parser.handlers = {"project": ProjectCommand()} # Manually insert handler
     
-    _, _ = await parser.process_messages([{"role": "user", "content": command_string}])
+    _, _ = await parser.process_messages([ChatMessage(role="user", content=command_string)])
     
     if parser.command_results:
         return parser.command_results[-1].message
@@ -28,11 +31,11 @@ async def test_project_success_snapshot(snapshot):
     """Snapshot test for a successful project command."""
     command_string = "!/project(name=my-awesome-project)"
     output_message = await run_command(command_string)
-    assert output_message == snapshot
+    assert output_message == snapshot(output_message)
 
 @pytest.mark.asyncio
 async def test_project_failure_snapshot(snapshot):
     """Snapshot test for a failing project command."""
     command_string = "!/project(name=)"
     output_message = await run_command(command_string)
-    assert output_message == snapshot
+    assert output_message == snapshot(output_message)

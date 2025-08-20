@@ -5,6 +5,8 @@ from typing import Any
 from fastapi import FastAPI
 from starlette.middleware.cors import CORSMiddleware
 
+import os
+
 from src.core.common.logging import get_logger
 from src.core.security import APIKeyMiddleware, AuthMiddleware
 from src.request_middleware import CustomHeaderMiddleware
@@ -39,24 +41,29 @@ def configure_middleware(app: FastAPI, config: Any) -> None:
         disable_auth = config.auth.disable_auth if hasattr(config, "auth") else False
         api_keys = config.auth.api_keys if hasattr(config, "auth") else []
 
+    # Respect environment override for disabling auth (useful for tests)
+    env_disable = os.getenv("DISABLE_AUTH", "").lower() == "true"
+    disable_auth = disable_auth or env_disable
+
     if not disable_auth:
         logger.info("API Key authentication is enabled", key_count=len(api_keys))
         app.add_middleware(APIKeyMiddleware, valid_keys=api_keys)
     else:
         logger.info("API Key authentication is disabled")
 
-    # Auth middleware (for tokens)
+    # Auth middleware (for tokens) - only add if auth not disabled
     auth_token = None
-    if isinstance(config, dict):
-        auth_token = config.get("auth_token")
-    elif hasattr(config, "auth") and hasattr(config.auth, "auth_token"):
-        auth_token = config.auth.auth_token
+    if not disable_auth:
+        if isinstance(config, dict):
+            auth_token = config.get("auth_token")
+        elif hasattr(config, "auth") and hasattr(config.auth, "auth_token"):
+            auth_token = config.auth.auth_token
 
-    if auth_token:
-        logger.info("Auth token validation is enabled")
-        app.add_middleware(
-            AuthMiddleware, valid_token=auth_token, bypass_paths=["/docs"]
-        )
+        if auth_token:
+            logger.info("Auth token validation is enabled")
+            app.add_middleware(
+                AuthMiddleware, valid_token=auth_token, bypass_paths=["/docs"]
+            )
 
     # Custom header middleware
     app.add_middleware(CustomHeaderMiddleware)
