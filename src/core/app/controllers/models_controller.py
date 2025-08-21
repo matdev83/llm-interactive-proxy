@@ -11,6 +11,8 @@ from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 
+# Import HTTP status constants
+from src.core.constants import HTTP_503_SERVICE_UNAVAILABLE_MESSAGE
 from src.core.interfaces.backend_service_interface import IBackendService
 from src.core.services.backend_registry import (
     backend_registry,  # Updated import path
@@ -62,7 +64,7 @@ async def get_backend_service(request: Request) -> IBackendService:
         service_provider = request.app.state.service_provider
         service = service_provider.get_required_service(IBackendService)
         return service  # type: ignore[no-any-return]
-    raise HTTPException(status_code=503, detail="Service provider not available")
+    raise HTTPException(status_code=503, detail=HTTP_503_SERVICE_UNAVAILABLE_MESSAGE)
 
 
 @router.get("/models")

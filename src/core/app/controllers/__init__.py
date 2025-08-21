@@ -26,6 +26,12 @@ from src.core.app.controllers.chat_controller import (
 )
 from src.core.app.controllers.usage_controller import router as usage_router
 
+# Import HTTP status constants
+from src.core.constants import (
+    HTTP_500_INTERNAL_SERVER_ERROR_MESSAGE,
+    HTTP_503_SERVICE_UNAVAILABLE_MESSAGE,
+)
+
 # Import domain models for type annotations
 from src.core.domain.chat import ChatRequest as DomainChatRequest
 
@@ -51,7 +57,7 @@ async def get_chat_controller_if_available(request: Request) -> ChatController:
     """
     service_provider = getattr(request.app.state, "service_provider", None)
     if not service_provider:
-        raise HTTPException(status_code=503, detail="Service provider not available")
+        raise HTTPException(status_code=503, detail=HTTP_503_SERVICE_UNAVAILABLE_MESSAGE)
 
     try:
         chat_controller = service_provider.get_service(ChatController)
@@ -60,7 +66,7 @@ async def get_chat_controller_if_available(request: Request) -> ChatController:
         return cast(ChatController, get_chat_controller(service_provider))
     except Exception as e:
         logger.exception(f"Failed to get ChatController from service provider: {e}")
-        raise HTTPException(status_code=500, detail="Chat controller not available")
+        raise HTTPException(status_code=500, detail=HTTP_500_INTERNAL_SERVER_ERROR_MESSAGE)
 
 
 async def get_anthropic_controller_if_available(
@@ -79,7 +85,7 @@ async def get_anthropic_controller_if_available(
     """
     service_provider = getattr(request.app.state, "service_provider", None)
     if not service_provider:
-        raise HTTPException(status_code=503, detail="Service provider not available")
+        raise HTTPException(status_code=503, detail=HTTP_503_SERVICE_UNAVAILABLE_MESSAGE)
 
     try:
         anthropic_controller = service_provider.get_service(AnthropicController)
@@ -91,7 +97,7 @@ async def get_anthropic_controller_if_available(
             f"Failed to get AnthropicController from service provider: {e}"
         )
         raise HTTPException(
-            status_code=500, detail="Anthropic controller not available"
+            status_code=500, detail=HTTP_500_INTERNAL_SERVER_ERROR_MESSAGE
         )
 
 
@@ -109,7 +115,7 @@ async def get_service_provider_dependency(request: Request) -> IServiceProvider:
     """
     service_provider = getattr(request.app.state, "service_provider", None)
     if not service_provider:
-        raise HTTPException(status_code=503, detail="Service provider not available")
+        raise HTTPException(status_code=503, detail=HTTP_503_SERVICE_UNAVAILABLE_MESSAGE)
     return cast(IServiceProvider, service_provider)
 
 
@@ -266,7 +272,7 @@ def register_versioned_endpoints(app: FastAPI) -> None:
             }
         except Exception as e:
             logger.exception(f"Error getting Gemini models: {e}")
-            raise HTTPException(status_code=500, detail="Failed to retrieve models")
+            raise HTTPException(status_code=500, detail=HTTP_500_INTERNAL_SERVER_ERROR_MESSAGE)
 
     @app.post("/v1beta/models/{model}:generateContent")
     async def gemini_generate_content(
@@ -397,7 +403,7 @@ def register_versioned_endpoints(app: FastAPI) -> None:
         except Exception as e:
             # For other exceptions, return a 500 error
             logger.exception(f"Error in Gemini generate content: {e}")
-            raise HTTPException(status_code=500, detail="Failed to generate content")
+            raise HTTPException(status_code=500, detail=HTTP_500_INTERNAL_SERVER_ERROR_MESSAGE)
 
     @app.post("/v1beta/models/{model}:streamGenerateContent")
     async def gemini_stream_generate_content(
@@ -427,7 +433,7 @@ def register_versioned_endpoints(app: FastAPI) -> None:
             )
         except Exception as e:
             logger.exception(f"Error in Gemini stream generate content: {e}")
-            raise HTTPException(status_code=500, detail="Failed to stream generate content")
+            raise HTTPException(status_code=500, detail=HTTP_500_INTERNAL_SERVER_ERROR_MESSAGE)
 
     # Include usage router
     app.include_router(usage_router)

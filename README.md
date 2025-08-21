@@ -428,3 +428,14 @@ final_config = backend_config.with_backend("anthropic").with_model("claude-3")
 ```
 
 This flexible, type-safe architecture makes the codebase more maintainable, testable, and extensible while preserving all the powerful features of the proxy.
+
+### Additional Architecture Documentation
+
+For more details on the architecture, see:
+
+- [Command DI Architecture](docs/COMMAND_DI_ARCHITECTURE.md): Learn about the Dependency Injection pattern used for commands
+- [DI Command Implementation Fixes](docs/DI_COMMAND_IMPLEMENTATION_FIXES.md): Summary of the DI implementation changes
+- [Test DI Architecture](docs/TEST_DI_ARCHITECTURE.md): Guide to testing with the DI architecture
+- [Command DI Implementation Summary](docs/COMMAND_DI_IMPLEMENTATION_SUMMARY.md): Comprehensive summary of the DI implementation
+- [Application Factory API](docs/APPLICATION_FACTORY_API.md): Documentation on the application factory architecture
+- [DI Container Usage](docs/DI_CONTAINER_USAGE.md): Guide to using the DI container

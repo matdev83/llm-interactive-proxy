@@ -1,9 +1,14 @@
 import asyncio
 import logging
+import unittest.mock
 from collections.abc import AsyncIterator, Generator
 from pathlib import Path
 from typing import Any, cast
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, Mock, patch
+
+# Targeted fix for specific AsyncMock coroutine warning patterns
+# Store original AsyncMock for safe usage
+from unittest.mock import AsyncMock as _OriginalAsyncMock
 
 import httpx
 import pytest
@@ -13,48 +18,44 @@ from fastapi.testclient import TestClient
 
 # Import the testing framework for automatic validation
 from tests.testing_framework import (
-    SafeSessionService,
-    EnforcedMockFactory,
     CoroutineWarningDetector,
-    MockValidationError,
+    EnforcedMockFactory,
+    SafeSessionService,
 )
-
-# Targeted fix for specific AsyncMock coroutine warning patterns
-# Store original AsyncMock for safe usage  
-from unittest.mock import AsyncMock as _OriginalAsyncMock, Mock
-import unittest.mock
 
 # Only patch specific problematic test modules that we know cause issues
 # This preserves legitimate AsyncMock usage while fixing the problematic patterns
 _PROBLEMATIC_TEST_MODULES = {
-    'tests.unit.openai_connector_tests.test_streaming_response',
-    'tests.unit.openrouter_connector_tests.test_headers_plumbing',
-    'tests.unit.core.app.test_application_factory',
+    "tests.unit.openai_connector_tests.test_streaming_response",
+    "tests.unit.openrouter_connector_tests.test_headers_plumbing",
+    "tests.unit.core.app.test_application_factory",
 }
+
 
 class SmartAsyncMock(_OriginalAsyncMock):
     """AsyncMock that converts to regular Mock for problematic patterns."""
-    
+
     def __new__(cls, *args, **kwargs):
         import inspect
-        
+
         # Check the calling context
         frame = inspect.currentframe()
         if frame and frame.f_back:
             try:
-                calling_module = frame.f_back.f_globals.get('__name__', '')
-                
+                calling_module = frame.f_back.f_globals.get("__name__", "")
+
                 # If we're in a known problematic module, use regular Mock
                 if calling_module in _PROBLEMATIC_TEST_MODULES:
                     return Mock(*args, **kwargs)
             except Exception:
                 pass
-        
+
         # Default to real AsyncMock for legitimate async testing
         return super().__new__(cls)
-    
+
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
+
 
 # Store original for explicit usage
 unittest.mock._OriginalAsyncMock = _OriginalAsyncMock
@@ -153,8 +154,12 @@ def _global_mock_backend_init(monkeypatch, request):
         or
         # Tests that explicitly manage their own backend mocks
         ("multimodal_cross_protocol" in test_module)
-        or ("real_cline_response" in test_module)  # These tests have specific mocking needs
-        or ("anthropic_frontend_integration" in test_module)  # These tests have specific mocking needs
+        or (
+            "real_cline_response" in test_module
+        )  # These tests have specific mocking needs
+        or (
+            "anthropic_frontend_integration" in test_module
+        )  # These tests have specific mocking needs
         or
         # Tests with custom backend markers
         (request.node.get_closest_marker("custom_backend_mock") is not None)
@@ -628,6 +633,134 @@ import nest_asyncio
 nest_asyncio.apply()
 
 
+# Helper utilities for command testing with DI
+def setup_test_command_registry():
+    """Set up a test command registry with all necessary commands.
+
+    This helper function creates a properly configured command registry
+    for integration tests, ensuring all commands are available with their
+    required dependencies.
+
+    Returns:
+        CommandRegistry: Configured registry instance
+    """
+    from unittest.mock import Mock
+
+    from src.core.interfaces.state_provider_interface import (
+        ISecureStateAccess,
+        ISecureStateModification,
+    )
+    from src.core.services.command_service import CommandRegistry
+
+    # Clear any existing instance and create a new one
+    CommandRegistry.clear_instance()
+    registry = CommandRegistry()
+    CommandRegistry.set_instance(registry)
+
+    # Create mock dependencies for DI-requiring commands
+    mock_state_reader = Mock(spec=ISecureStateAccess)
+    mock_state_modifier = Mock(spec=ISecureStateModification)
+
+    # Register all commands
+    _register_all_test_commands(registry, mock_state_reader, mock_state_modifier)
+
+    return registry
+
+
+def _register_all_test_commands(registry, mock_state_reader, mock_state_modifier):
+    """Register all commands needed for testing."""
+
+    # Import all command classes
+    from src.core.domain.commands.failover_commands import (
+        CreateFailoverRouteCommand,
+        DeleteFailoverRouteCommand,
+        ListFailoverRoutesCommand,
+        RouteAppendCommand,
+        RouteClearCommand,
+        RoutePrependCommand,
+    )
+    from src.core.domain.commands.hello_command import HelloCommand
+    from src.core.domain.commands.help_command import HelpCommand
+    from src.core.domain.commands.loop_detection_commands.loop_detection_command import (
+        LoopDetectionCommand,
+    )
+    from src.core.domain.commands.loop_detection_commands.tool_loop_detection_command import (
+        ToolLoopDetectionCommand,
+    )
+    from src.core.domain.commands.loop_detection_commands.tool_loop_max_repeats_command import (
+        ToolLoopMaxRepeatsCommand,
+    )
+    from src.core.domain.commands.loop_detection_commands.tool_loop_mode_command import (
+        ToolLoopModeCommand,
+    )
+    from src.core.domain.commands.loop_detection_commands.tool_loop_ttl_command import (
+        ToolLoopTTLCommand,
+    )
+    from src.core.domain.commands.model_command import ModelCommand
+    from src.core.domain.commands.oneoff_command import OneoffCommand
+    from src.core.domain.commands.project_command import ProjectCommand
+    from src.core.domain.commands.pwd_command import PwdCommand
+    from src.core.domain.commands.set_command import SetCommand
+    from src.core.domain.commands.temperature_command import TemperatureCommand
+    from src.core.domain.commands.unset_command import UnsetCommand
+
+    # Register stateless commands (no DI required)
+    registry.register(HelloCommand())
+    registry.register(HelpCommand())
+    registry.register(ModelCommand())
+    registry.register(OneoffCommand())
+    registry.register(ProjectCommand())
+    registry.register(PwdCommand())
+    registry.register(TemperatureCommand())
+    registry.register(LoopDetectionCommand())
+    registry.register(ToolLoopDetectionCommand())
+    registry.register(ToolLoopMaxRepeatsCommand())
+    registry.register(ToolLoopModeCommand())
+    registry.register(ToolLoopTTLCommand())
+
+    # Register DI-requiring commands
+    registry.register(SetCommand(mock_state_reader, mock_state_modifier))
+    registry.register(UnsetCommand(mock_state_reader, mock_state_modifier))
+    registry.register(
+        CreateFailoverRouteCommand(mock_state_reader, mock_state_modifier)
+    )
+    registry.register(
+        DeleteFailoverRouteCommand(mock_state_reader, mock_state_modifier)
+    )
+    registry.register(ListFailoverRoutesCommand(mock_state_reader, mock_state_modifier))
+    registry.register(RouteAppendCommand(mock_state_reader, mock_state_modifier))
+    registry.register(RouteClearCommand(mock_state_reader, mock_state_modifier))
+    registry.register(RoutePrependCommand(mock_state_reader, mock_state_modifier))
+
+    # Add a mock RouteListCommand since it's missing but in the snapshot
+    from src.core.domain.command_results import CommandResult
+    from src.core.domain.commands.base_command import BaseCommand
+
+    class MockRouteListCommand(BaseCommand):
+        def __init__(self):
+            """Initialize with no dependencies."""
+            super().__init__()
+
+        @property
+        def name(self) -> str:
+            return "route-list"
+
+        @property
+        def format(self) -> str:
+            return "route-list(name=routename)"
+
+        @property
+        def description(self) -> str:
+            return "List elements in a failover route"
+
+        async def execute(self, args, session, context=None):
+            return CommandResult(
+                success=True, message="Mock route list command executed", name=self.name
+            )
+
+    registry.register(MockRouteListCommand())
+
+
 # Helper utilities for migrating tests away from direct `app.state` usage
 def get_backend_instance(app: FastAPI, name: str) -> LLMBackend:
     """Resolve a concrete backend instance by name using the DI container only.
@@ -801,35 +934,43 @@ def mock_backend_factory(test_app: FastAPI):
 @pytest.fixture(autouse=True)
 def _validate_session_services(request):
     """Automatically validate and fix session service mocks to prevent coroutine warnings.
-    
+
     This fixture runs for every test and ensures that session services are properly
     mocked to avoid async/sync conflicts that cause coroutine warnings.
     """
     test_name = request.node.name
     test_module = request.module.__name__ if hasattr(request, "module") else ""
-    
+
     # Check if test is using session services (heuristic)
     uses_session = (
-        "session" in test_name.lower() or 
-        "session" in test_module.lower() or
-        hasattr(request, "fixturenames") and 
-        any("session" in fname for fname in request.fixturenames)
+        "session" in test_name.lower()
+        or "session" in test_module.lower()
+        or (
+            hasattr(request, "fixturenames")
+            and any("session" in fname for fname in request.fixturenames)
+        )
     )
-    
+
     if uses_session:
         # Validate test objects after test runs
         def teardown():
             # Check test instance for potential coroutine warnings
             if hasattr(request, "instance") and request.instance:
-                warnings_found = CoroutineWarningDetector.check_for_unawaited_coroutines(request.instance)
+                warnings_found = (
+                    CoroutineWarningDetector.check_for_unawaited_coroutines(
+                        request.instance
+                    )
+                )
                 if warnings_found:
                     print(f"⚠️  COROUTINE WARNINGS DETECTED in {test_name}:")
                     for warning in warnings_found:
                         print(f"   - {warning}")
-                    print("Consider using SafeSessionService from tests.testing_framework")
-        
+                    print(
+                        "Consider using SafeSessionService from tests.testing_framework"
+                    )
+
         request.addfinalizer(teardown)
-    
+
     yield
 
 
@@ -877,14 +1018,12 @@ def isolate_global_state() -> Generator[None, None, None]:
 @pytest.fixture
 def safe_session_service() -> SafeSessionService:
     """Provide a safe session service that prevents coroutine warnings.
-    
+
     This fixture should be used instead of creating session mocks manually.
     """
-    return SafeSessionService({
-        'authenticated': True,
-        'user_id': 'test-user-123',
-        'test_mode': True
-    })
+    return SafeSessionService(
+        {"authenticated": True, "user_id": "test-user-123", "test_mode": True}
+    )
 
 
 @pytest.fixture
@@ -896,7 +1035,7 @@ def enforced_mock_factory() -> EnforcedMockFactory:
 @pytest.fixture
 def session_mock(safe_session_service: SafeSessionService):
     """Provide a session mock that's properly configured to avoid coroutine warnings.
-    
+
     This is the recommended way to create session mocks in tests.
     """
     return safe_session_service

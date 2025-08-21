@@ -10,6 +10,12 @@ from starlette.exceptions import HTTPException
 
 from src.core.common.exceptions import LLMProxyError
 
+# Import HTTP status constants
+from src.core.constants import (
+    HTTP_400_BAD_REQUEST_MESSAGE,
+    HTTP_500_INTERNAL_SERVER_ERROR_MESSAGE,
+)
+
 logger = logging.getLogger(__name__)
 
 
@@ -42,7 +48,7 @@ async def validation_exception_handler(
         content={
             "detail": {
                 "error": {
-                    "message": "Request validation error",
+                    "message": HTTP_400_BAD_REQUEST_MESSAGE,
                     "type": "ValidationError",
                     "status_code": 400,
                     "details": {"errors": error_details},
@@ -152,7 +158,7 @@ async def general_exception_handler(request: Request, exc: Exception) -> Respons
         content={
             "detail": {
                 "error": {
-                    "message": "Internal server error",
+                    "message": HTTP_500_INTERNAL_SERVER_ERROR_MESSAGE,
                     "type": "InternalError",
                     "status_code": 500,
                 }

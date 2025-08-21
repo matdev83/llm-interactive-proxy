@@ -11,6 +11,10 @@ def discover_commands(
     """
     Auto-discovers and instantiates all command classes in a given package.
 
+    ⚠️ DEPRECATED: This function is deprecated and will be removed in a future version.
+    Use dependency injection (DI) to register commands instead. Commands requiring
+    DI will be skipped by this function.
+
     This function scans the specified package for modules, imports them, and searches
     for classes that are subclasses of BaseCommand. It instantiates each found
     command and returns a dictionary mapping the command's registered name to its
@@ -23,7 +27,18 @@ def discover_commands(
     Returns:
         A dictionary where keys are the command names (e.g., 'set', 'help')
         and values are the corresponding command instances.
+
+    Note:
+        Commands requiring dependency injection are skipped. Use DI container
+        registration for those commands.
     """
+    import warnings
+    warnings.warn(
+        "discover_commands() is deprecated. Use dependency injection to register commands instead.",
+        DeprecationWarning,
+        stacklevel=2
+    )
+
     handlers: dict[str, BaseCommand] = {}
 
     # Find the actual file system path for the package

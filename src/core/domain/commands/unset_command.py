@@ -71,6 +71,9 @@ class UnsetCommand(StatefulCommandBase, BaseCommand):
         self, args: Mapping[str, Any], session: Session, context: Any = None
     ) -> CommandResult:
         """Unset various session parameters."""
+        # Validate that this command was created through proper DI
+        self._validate_di_usage()
+
         if not args or all(not v for v in args.values()):
             return CommandResult(
                 success=False,

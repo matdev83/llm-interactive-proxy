@@ -10,6 +10,9 @@ from fastapi import Request, Response
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.responses import JSONResponse
 
+# Import HTTP status constants
+from src.core.constants import HTTP_401_UNAUTHORIZED_MESSAGE
+
 logger = logging.getLogger(__name__)
 
 
@@ -117,7 +120,7 @@ class APIKeyMiddleware(BaseHTTPMiddleware):
                 request.client.host if request.client else "unknown",
             )
             return JSONResponse(
-                status_code=401, content={"detail": "Invalid or missing API key"}
+                status_code=401, content={"detail": HTTP_401_UNAUTHORIZED_MESSAGE}
             )
 
         # API key is valid, continue processing
@@ -170,7 +173,7 @@ class AuthMiddleware(BaseHTTPMiddleware):
                 request.client.host if request.client else "unknown",
             )
             return JSONResponse(
-                status_code=401, content={"detail": "Invalid or missing auth token"}
+                status_code=401, content={"detail": HTTP_401_UNAUTHORIZED_MESSAGE}
             )
 
         # Token is valid, continue processing

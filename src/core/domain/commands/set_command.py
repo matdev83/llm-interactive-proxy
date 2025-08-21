@@ -59,6 +59,9 @@ class SetCommand(StatefulCommandBase, BaseCommand):
         context: Any = None,
     ) -> CommandResult:
         """Set various session parameters."""
+        # Validate that this command was created through proper DI
+        self._validate_di_usage()
+
         if not args:
             return CommandResult(
                 success=False, message="Parameter(s) must be specified", name=self.name

@@ -12,6 +12,9 @@ from src.agents import (
 from src.core.common.exceptions import (
     LoopDetectionError,
 )
+
+# Import HTTP status constants
+from src.core.constants import HTTP_400_BAD_REQUEST_MESSAGE
 from src.core.domain.chat import (
     ChatCompletionChoice,
     ChatRequest,
@@ -164,7 +167,7 @@ class RequestProcessor(IRequestProcessor):
             return ResponseEnvelope(
                 content={
                     "error": {
-                        "message": "At least one message is required.",
+                        "message": HTTP_400_BAD_REQUEST_MESSAGE,
                         "type": "invalid_request_error",
                         "param": "messages",
                         "code": "empty_messages",

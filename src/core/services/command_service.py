@@ -71,6 +71,8 @@ class CommandRegistry:
     def __init__(self) -> None:
         """Initialize the command registry."""
         self._commands: dict[str, BaseCommand] = {}
+        # Static instance for bridging to non-DI code
+        CommandRegistry._instance = self
 
     def register(self, command: BaseCommand) -> None:
         """Register a command handler.
@@ -78,6 +80,9 @@ class CommandRegistry:
         Args:
             command: The command handler to register
         """
+        # Validate that the command was created through proper DI
+        command._validate_di_usage()
+
         self._commands[command.name] = command
         logger.info(f"Registered command: {command.name}")
 
@@ -118,6 +123,54 @@ class CommandRegistry:
             The command handler or None if not found
         """
         return self.get(name)
+    
+    # Static instance for bridging
+    _instance: "CommandRegistry | None" = None
+    
+    @staticmethod
+    def get_instance() -> "CommandRegistry | None":
+        """Get the global instance of the registry.
+
+        This is a bridge for non-DI code to access the DI-registered commands.
+
+        Returns:
+            The global command registry instance or None if not initialized
+        """
+        return CommandRegistry._instance
+
+    @staticmethod
+    def set_instance(registry: "CommandRegistry") -> None:
+        """Set the global instance of the registry.
+
+        This is primarily for testing purposes to inject a specific registry instance.
+
+        Args:
+            registry: The registry instance to set as global
+        """
+        CommandRegistry._instance = registry
+
+    @staticmethod
+    def clear_instance() -> None:
+        """Clear the global instance.
+
+        This is primarily for testing purposes to reset the global state.
+        """
+        CommandRegistry._instance = None
+
+    @staticmethod
+    def ensure_instance() -> "CommandRegistry":
+        """Ensure a global instance exists, creating one if necessary.
+
+        This is useful for test scenarios where no DI container is available
+        but we still need command functionality.
+
+        Returns:
+            The global command registry instance
+        """
+        if CommandRegistry._instance is None:
+            logger.debug("Creating new command registry instance for testing")
+            CommandRegistry._instance = CommandRegistry()
+        return CommandRegistry._instance
 
 
 class CommandService(ICommandService):
