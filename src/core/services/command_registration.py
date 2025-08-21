@@ -5,7 +5,6 @@ from typing import TypeVar
 
 from src.core.di.container import ServiceCollection
 from src.core.domain.commands.base_command import BaseCommand
-from src.core.domain.commands.command_factory import CommandFactory
 from src.core.domain.commands.failover_commands import (
     CreateFailoverRouteCommand,
     DeleteFailoverRouteCommand,
@@ -64,8 +63,6 @@ def register_all_commands(
         services: The service collection to register commands with
         registry: The command registry to register commands with
     """
-    # Register the command factory first
-    CommandFactory.register_factory(services)
     # Register stateless commands (no dependencies)
     _register_stateless_command(services, registry, HelpCommand)
     _register_stateless_command(services, registry, HelloCommand)
@@ -187,12 +184,6 @@ def _register_all_commands_in_registry(
 
     provider = build_service_provider(services)
 
-    # Get the command factory
-    command_factory = provider.get_service(CommandFactory)
-    if command_factory is None:
-        logger.error("CommandFactory not registered in DI container")
-        raise RuntimeError("CommandFactory not registered in DI container")
-
     # Get all registered command types
     command_types: list[type[BaseCommand]] = [
         # Stateless commands
@@ -220,11 +211,16 @@ def _register_all_commands_in_registry(
         OpenAIUrlCommand,
     ]
 
-    # Register each command in the registry using the command factory
+    # Register each command in the registry directly from the service provider
     for command_type in command_types:
         try:
-            # Use the command factory to create the command
-            command = command_factory.create(command_type)
+            # Get the command instance from the DI container
+            command = provider.get_service(command_type)
+            if command is None:
+                logger.error(
+                    f"Command {command_type.__name__} not registered in DI container"
+                )
+                continue
             registry.register(command)
         except Exception as e:
             logger.error(f"Failed to register command {command_type.__name__}: {e}")
