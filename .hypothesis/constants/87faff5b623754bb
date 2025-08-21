@@ -1,0 +1,4 @@
+# file: C:\Users\Mateusz\source\repos\llm-interactive-proxy\src\core\adapters\api_adapters.py
+# hypothesis_version: 6.138.2
+
+[400, 'arguments', 'code', 'content', 'contents', 'dict', 'empty_messages', 'error', 'extra_body', 'extra_params', 'frequency_penalty', 'function', 'generationConfig', 'generation_config', 'id', 'logit_bias', 'maxOutputTokens', 'max_tokens', 'message', 'messages', 'model', 'model_dump', 'n', 'name', 'param', 'parts', 'presence_penalty', 'reasoning', 'reasoning_effort', 'role', 'session_id', 'stop', 'stream', 'system', 'temperature', 'text', 'thinking_budget', 'tool_call_id', 'tool_calls', 'tool_choice', 'tools', 'top_p', 'type', 'user']

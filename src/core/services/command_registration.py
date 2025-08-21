@@ -1,10 +1,11 @@
 """Command registration utilities for the DI container."""
 
 import logging
-from typing import TypeVar, cast
+from typing import TypeVar
 
 from src.core.di.container import ServiceCollection
 from src.core.domain.commands.base_command import BaseCommand
+from src.core.domain.commands.command_factory import CommandFactory
 from src.core.domain.commands.failover_commands import (
     CreateFailoverRouteCommand,
     DeleteFailoverRouteCommand,
@@ -32,6 +33,7 @@ from src.core.domain.commands.loop_detection_commands.tool_loop_ttl_command impo
 )
 from src.core.domain.commands.model_command import ModelCommand
 from src.core.domain.commands.oneoff_command import OneoffCommand
+from src.core.domain.commands.openai_url_command import OpenAIUrlCommand
 from src.core.domain.commands.project_command import ProjectCommand
 from src.core.domain.commands.pwd_command import PwdCommand
 from src.core.domain.commands.set_command import SetCommand
@@ -62,6 +64,8 @@ def register_all_commands(
         services: The service collection to register commands with
         registry: The command registry to register commands with
     """
+    # Register the command factory first
+    CommandFactory.register_factory(services)
     # Register stateless commands (no dependencies)
     _register_stateless_command(services, registry, HelpCommand)
     _register_stateless_command(services, registry, HelloCommand)
@@ -134,6 +138,13 @@ def register_all_commands(
             provider.get_service(ISecureStateModification),
         ),
     )
+    services.add_singleton_factory(
+        OpenAIUrlCommand,
+        lambda provider: OpenAIUrlCommand(
+            provider.get_service(ISecureStateAccess),
+            provider.get_service(ISecureStateModification),
+        ),
+    )
 
     # Register all commands in the registry for lookup by name
     _register_all_commands_in_registry(services, registry)
@@ -176,6 +187,12 @@ def _register_all_commands_in_registry(
 
     provider = build_service_provider(services)
 
+    # Get the command factory
+    command_factory = provider.get_service(CommandFactory)
+    if command_factory is None:
+        logger.error("CommandFactory not registered in DI container")
+        raise RuntimeError("CommandFactory not registered in DI container")
+
     # Get all registered command types
     command_types: list[type[BaseCommand]] = [
         # Stateless commands
@@ -200,12 +217,14 @@ def _register_all_commands_in_registry(
         RouteAppendCommand,
         RouteClearCommand,
         RoutePrependCommand,
+        OpenAIUrlCommand,
     ]
 
-    # Register each command in the registry
+    # Register each command in the registry using the command factory
     for command_type in command_types:
         try:
-            command = provider.get_service(command_type)
-            registry.register(cast(BaseCommand, command))
+            # Use the command factory to create the command
+            command = command_factory.create(command_type)
+            registry.register(command)
         except Exception as e:
             logger.error(f"Failed to register command {command_type.__name__}: {e}")

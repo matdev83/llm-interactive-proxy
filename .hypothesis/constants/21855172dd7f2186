@@ -1,0 +1,4 @@
+# file: C:\Users\Mateusz\source\repos\llm-interactive-proxy\src\anthropic_models.py
+# hypothesis_version: 6.138.2
+
+['stop_reason', 'stop_sequence', 'stop_sequences', 'tool_use']

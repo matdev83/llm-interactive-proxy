@@ -1,0 +1,4 @@
+# file: C:\Users\Mateusz\source\repos\llm-interactive-proxy\src\loop_detection\config.py
+# hypothesis_version: 6.138.2
+
+[100, 200, 1000, 8192, 16384, '---', '...', '1', '===', '```', 'analysis_interval', 'buffer_size', 'content_chunk_size', 'enabled', 'long_pattern', 'long_patterns', 'max_history_length', 'max_pattern_length', 'medium_pattern', 'medium_patterns', 'min_repetitions', 'min_total_length', 'on', 'short_pattern', 'short_patterns', 'thresholds', 'true', 'whitelist', 'yes']

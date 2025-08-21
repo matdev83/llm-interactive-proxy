@@ -1,0 +1,999 @@
+============================= test session starts =============================
+platform win32 -- Python 3.10.11, pytest-8.4.1, pluggy-1.6.0 -- C:\Users\Mateusz\source\repos\llm-interactive-proxy\.venv\Scripts\python.exe
+cachedir: .pytest_cache
+hypothesis profile 'default'
+rootdir: C:\Users\Mateusz\source\repos\llm-interactive-proxy
+configfile: pyproject.toml
+plugins: anyio-4.10.0, hypothesis-6.138.2, asyncio-1.1.0, cov-6.2.1, httpx-0.35.0, mock-3.14.1, snapshot-0.9.0, respx-0.22.0
+asyncio: mode=auto, asyncio_default_fixture_loop_scope=None, asyncio_default_test_loop_scope=function
+collecting ... collected 738 items / 2 skipped
+
+tests/unit/anthropic_connector_tests/test_domain_to_connector.py::test_chat_completions_basic_request PASSED [  0%]
+tests/unit/anthropic_connector_tests/test_domain_to_connector.py::test_chat_completions_with_system_message PASSED [  0%]
+tests/unit/anthropic_connector_tests/test_domain_to_connector.py::test_chat_completions_with_tools PASSED [  0%]
+tests/unit/anthropic_connector_tests/test_domain_to_connector.py::test_chat_completions_streaming PASSED [  0%]
+tests/unit/anthropic_connector_tests/test_domain_to_connector.py::test_list_models PASSED [  0%]
+tests/unit/anthropic_connector_tests/test_domain_to_connector.py::test_anthropic_error_handling PASSED [  0%]
+tests/unit/anthropic_frontend_tests/test_anthropic_accounting.py::TestAnthropicFrontendAccounting::test_extract_billing_info_from_headers_anthropic PASSED [  0%]
+tests/unit/anthropic_frontend_tests/test_anthropic_accounting.py::TestAnthropicFrontendAccounting::test_extract_billing_info_from_response_anthropic_dict PASSED [  1%]
+tests/unit/anthropic_frontend_tests/test_anthropic_accounting.py::TestAnthropicFrontendAccounting::test_extract_billing_info_from_response_anthropic_object PASSED [  1%]
+tests/unit/anthropic_frontend_tests/test_anthropic_accounting.py::TestAnthropicFrontendAccounting::test_extract_billing_info_from_response_anthropic_no_usage PASSED [  1%]
+tests/unit/anthropic_frontend_tests/test_anthropic_accounting.py::TestAnthropicFrontendAccounting::test_extract_anthropic_usage_from_dict PASSED [  1%]
+tests/unit/anthropic_frontend_tests/test_anthropic_accounting.py::TestAnthropicFrontendAccounting::test_extract_anthropic_usage_from_object PASSED [  1%]
+tests/unit/anthropic_frontend_tests/test_anthropic_accounting.py::TestAnthropicFrontendAccounting::test_extract_anthropic_usage_empty_response PASSED [  1%]
+tests/unit/anthropic_frontend_tests/test_anthropic_accounting.py::TestAnthropicFrontendAccounting::test_extract_anthropic_usage_invalid_response PASSED [  1%]
+tests/unit/anthropic_frontend_tests/test_anthropic_accounting.py::TestAnthropicFrontendAccounting::test_extract_anthropic_usage_partial_data PASSED [  2%]
+tests/unit/anthropic_frontend_tests/test_anthropic_accounting.py::TestAnthropicFrontendAccounting::test_billing_info_calls_extract_usage PASSED [  2%]
+tests/unit/anthropic_frontend_tests/test_anthropic_accounting.py::TestAnthropicFrontendAccounting::test_billing_info_structure_anthropic PASSED [  2%]
+tests/unit/anthropic_frontend_tests/test_anthropic_accounting.py::TestAnthropicFrontendAccounting::test_anthropic_vs_other_backends PASSED [  2%]
+tests/unit/anthropic_frontend_tests/test_anthropic_accounting.py::TestAnthropicFrontendAccounting::test_streaming_response_billing PASSED [  2%]
+tests/unit/anthropic_frontend_tests/test_anthropic_accounting.py::TestAnthropicFrontendAccounting::test_cost_calculation_placeholder PASSED [  2%]
+tests/unit/anthropic_frontend_tests/test_anthropic_converters.py::TestAnthropicConverters::test_anthropic_message_model PASSED [  2%]
+tests/unit/anthropic_frontend_tests/test_anthropic_converters.py::TestAnthropicConverters::test_anthropic_messages_request_model PASSED [  2%]
+tests/unit/anthropic_frontend_tests/test_anthropic_converters.py::TestAnthropicConverters::test_anthropic_to_openai_request_basic PASSED [  3%]
+tests/unit/anthropic_frontend_tests/test_anthropic_converters.py::TestAnthropicConverters::test_anthropic_to_openai_request_with_system PASSED [  3%]
+tests/unit/anthropic_frontend_tests/test_anthropic_converters.py::TestAnthropicConverters::test_anthropic_to_openai_request_with_parameters PASSED [  3%]
+tests/unit/anthropic_frontend_tests/test_anthropic_converters.py::TestAnthropicConverters::test_openai_to_anthropic_response_basic PASSED [  3%]
+tests/unit/anthropic_frontend_tests/test_anthropic_converters.py::TestAnthropicConverters::test_openai_stream_to_anthropic_stream_start PASSED [  3%]
+tests/unit/anthropic_frontend_tests/test_anthropic_converters.py::TestAnthropicConverters::test_openai_stream_to_anthropic_stream_content PASSED [  3%]
+tests/unit/anthropic_frontend_tests/test_anthropic_converters.py::TestAnthropicConverters::test_openai_stream_to_anthropic_stream_finish PASSED [  3%]
+tests/unit/anthropic_frontend_tests/test_anthropic_converters.py::TestAnthropicConverters::test_openai_stream_to_anthropic_stream_invalid PASSED [  4%]
+tests/unit/anthropic_frontend_tests/test_anthropic_converters.py::TestAnthropicConverters::test_map_finish_reason PASSED [  4%]
+tests/unit/anthropic_frontend_tests/test_anthropic_converters.py::TestAnthropicConverters::test_get_anthropic_models PASSED [  4%]
+tests/unit/anthropic_frontend_tests/test_anthropic_converters.py::TestAnthropicConverters::test_extract_anthropic_usage_dict PASSED [  4%]
+tests/unit/anthropic_frontend_tests/test_anthropic_converters.py::TestAnthropicConverters::test_extract_anthropic_usage_object PASSED [  4%]
+tests/unit/anthropic_frontend_tests/test_anthropic_converters.py::TestAnthropicConverters::test_extract_anthropic_usage_empty PASSED [  4%]
+tests/unit/anthropic_frontend_tests/test_anthropic_converters.py::TestAnthropicConverters::test_conversation_flow PASSED [  4%]
+tests/unit/anthropic_frontend_tests/test_anthropic_router.py::TestAnthropicRouter::test_router_prefix PASSED [  5%]
+tests/unit/anthropic_frontend_tests/test_anthropic_router.py::TestAnthropicRouter::test_health_endpoint PASSED [  5%]
+tests/unit/anthropic_frontend_tests/test_anthropic_router.py::TestAnthropicRouter::test_info_endpoint PASSED [  5%]
+tests/unit/anthropic_frontend_tests/test_anthropic_router.py::TestAnthropicRouter::test_models_endpoint PASSED [  5%]
+tests/unit/anthropic_frontend_tests/test_anthropic_router.py::TestAnthropicRouter::test_anthropic_models_function PASSED [  5%]
+tests/unit/anthropic_frontend_tests/test_anthropic_router.py::TestAnthropicRouter::test_messages_endpoint_not_implemented PASSED [  5%]
+tests/unit/anthropic_frontend_tests/test_anthropic_router.py::TestAnthropicRouter::test_anthropic_messages_function_validation PASSED [  5%]
+tests/unit/anthropic_frontend_tests/test_anthropic_router.py::TestAnthropicRouter::test_messages_endpoint_validation_errors PASSED [  5%]
+tests/unit/anthropic_frontend_tests/test_anthropic_router.py::TestAnthropicRouter::test_messages_endpoint_optional_parameters PASSED [  6%]
+tests/unit/anthropic_frontend_tests/test_anthropic_router.py::TestAnthropicRouter::test_messages_endpoint_streaming_request PASSED [  6%]
+tests/unit/anthropic_frontend_tests/test_anthropic_router.py::TestAnthropicRouter::test_invalid_endpoints PASSED [  6%]
+tests/unit/anthropic_frontend_tests/test_anthropic_router.py::TestAnthropicRouter::test_wrong_http_methods PASSED [  6%]
+tests/unit/anthropic_frontend_tests/test_anthropic_router.py::TestAnthropicRouter::test_large_request_handling PASSED [  6%]
+tests/unit/anthropic_frontend_tests/test_anthropic_router.py::TestAnthropicRouter::test_unicode_content_handling PASSED [  6%]
+tests/unit/anthropic_frontend_tests/test_anthropic_router.py::TestAnthropicRouter::test_edge_case_parameters PASSED [  6%]
+tests/unit/anthropic_frontend_tests/test_anthropic_router.py::TestAnthropicRouter::test_models_endpoint_error_handling PASSED [  7%]
+tests/unit/anthropic_frontend_tests/test_anthropic_router.py::TestAnthropicRouter::test_cors_headers PASSED [  7%]
+tests/unit/anthropic_frontend_tests/test_anthropic_router.py::TestAnthropicRouter::test_content_type_headers PASSED [  7%]
+tests/unit/anthropic_frontend_tests/test_anthropic_router.py::TestAnthropicRouter::test_router_tags_and_metadata PASSED [  7%]
+tests/unit/chat_completions_tests/test_basic_proxying.py::test_basic_request_proxying_non_streaming PASSED [  7%]
+tests/unit/chat_completions_tests/test_basic_proxying.py::test_basic_request_proxying_streaming PASSED [  7%]
+tests/unit/chat_completions_tests/test_commands_disabled.py::test_commands_ignored PASSED [  7%]
+tests/unit/chat_completions_tests/test_error_handling.py::test_empty_messages_after_processing_no_commands_bad_request PASSED [  7%]
+tests/unit/chat_completions_tests/test_error_handling.py::test_get_openrouter_headers_no_api_key PASSED [  8%]
+tests/unit/chat_completions_tests/test_error_handling.py::test_invalid_model_noninteractive PASSED [  8%]
+tests/unit/chat_completions_tests/test_gemini_api_compatibility.py::TestGeminiModelsEndpoint::test_list_models_gemini_format PASSED [  8%]
+tests/unit/chat_completions_tests/test_gemini_api_compatibility.py::TestGeminiModelsEndpoint::test_models_endpoint_auth_disabled PASSED [  8%]
+tests/unit/chat_completions_tests/test_gemini_api_compatibility.py::TestGeminiGenerateContent::test_generate_content_basic PASSED [  8%]
+tests/unit/chat_completions_tests/test_gemini_api_compatibility.py::TestGeminiGenerateContent::test_generate_content_with_system_instruction PASSED [  8%]
+tests/unit/chat_completions_tests/test_gemini_api_compatibility.py::TestGeminiGenerateContent::test_generate_content_error_handling PASSED [  8%]
+tests/unit/chat_completions_tests/test_gemini_api_compatibility.py::TestGeminiStreamGenerateContent::test_stream_generate_content PASSED [  9%]
+tests/unit/chat_completions_tests/test_gemini_api_compatibility.py::TestGeminiAuthentication::test_gemini_auth_with_api_key_header PASSED [  9%]
+tests/unit/chat_completions_tests/test_gemini_api_compatibility.py::TestGeminiAuthentication::test_gemini_auth_fallback_to_bearer PASSED [  9%]
+tests/unit/chat_completions_tests/test_gemini_api_compatibility.py::TestGeminiRequestConversion::test_complex_content_conversion PASSED [  9%]
+tests/unit/chat_completions_tests/test_multimodal_cross_protocol.py::test_openai_frontend_to_gemini_backend_multimodal PASSED [  9%]
+tests/unit/chat_completions_tests/test_multimodal_cross_protocol.py::test_gemini_frontend_to_openai_backend_multimodal SKIPPED [  9%]
+tests/unit/chat_completions_tests/test_rate_limit_wait.py::test_wait_for_rate_limited_backends SKIPPED [  9%]
+tests/unit/chat_completions_tests/test_rate_limiting.py::test_rate_limit_memory PASSED [ 10%]
+tests/unit/chat_completions_tests/test_real_cline_response.py::test_real_cline_hello_response SKIPPED [ 10%]
+tests/unit/chat_completions_tests/test_real_cline_response.py::test_cline_pure_hello_command SKIPPED [ 10%]
+tests/unit/chat_completions_tests/test_real_cline_response.py::test_cline_no_session_id SKIPPED [ 10%]
+tests/unit/chat_completions_tests/test_real_cline_response.py::test_cline_non_command_message SKIPPED [ 10%]
+tests/unit/chat_completions_tests/test_real_cline_response.py::test_cline_first_message_hello SKIPPED [ 10%]
+tests/unit/chat_completions_tests/test_real_cline_response.py::test_cline_first_message_with_detection SKIPPED [ 10%]
+tests/unit/chat_completions_tests/test_real_cline_response.py::test_realistic_cline_hello_request SKIPPED [ 10%]
+tests/unit/chat_completions_tests/test_session_history.py::test_session_records_proxy_and_backend_interactions SKIPPED [ 11%]
+tests/unit/chat_completions_tests/test_session_history.py::test_session_records_streaming_placeholder SKIPPED [ 11%]
+tests/unit/commands/loop_detection_commands/test_unit_loop_detection_command.py::test_loop_detection_enable SKIPPED [ 11%]
+tests/unit/commands/loop_detection_commands/test_unit_loop_detection_command.py::test_loop_detection_disable SKIPPED [ 11%]
+tests/unit/commands/loop_detection_commands/test_unit_loop_detection_command.py::test_loop_detection_default_enables SKIPPED [ 11%]
+tests/unit/commands/loop_detection_commands/test_unit_tool_loop_detection_command.py::test_tool_loop_detection_enable SKIPPED [ 11%]
+tests/unit/commands/loop_detection_commands/test_unit_tool_loop_detection_command.py::test_tool_loop_detection_disable SKIPPED [ 11%]
+tests/unit/commands/loop_detection_commands/test_unit_tool_loop_detection_command.py::test_tool_loop_detection_default_enables SKIPPED [ 12%]
+tests/unit/commands/loop_detection_commands/test_unit_tool_loop_max_repeats_command.py::test_max_repeats_success SKIPPED [ 12%]
+tests/unit/commands/loop_detection_commands/test_unit_tool_loop_max_repeats_command.py::test_max_repeats_failure_invalid_int SKIPPED [ 12%]
+tests/unit/commands/loop_detection_commands/test_unit_tool_loop_max_repeats_command.py::test_max_repeats_failure_too_low SKIPPED [ 12%]
+tests/unit/commands/loop_detection_commands/test_unit_tool_loop_max_repeats_command.py::test_max_repeats_failure_no_value SKIPPED [ 12%]
+tests/unit/commands/loop_detection_commands/test_unit_tool_loop_mode_command.py::test_tool_loop_mode_success[break] SKIPPED [ 12%]
+tests/unit/commands/loop_detection_commands/test_unit_tool_loop_mode_command.py::test_tool_loop_mode_success[chance_then_break] SKIPPED [ 12%]
+tests/unit/commands/loop_detection_commands/test_unit_tool_loop_mode_command.py::test_tool_loop_mode_failure_invalid SKIPPED [ 13%]
+tests/unit/commands/loop_detection_commands/test_unit_tool_loop_mode_command.py::test_tool_loop_mode_failure_no_mode SKIPPED [ 13%]
+tests/unit/commands/loop_detection_commands/test_unit_tool_loop_ttl_command.py::test_ttl_success SKIPPED [ 13%]
+tests/unit/commands/loop_detection_commands/test_unit_tool_loop_ttl_command.py::test_ttl_failure_invalid_int SKIPPED [ 13%]
+tests/unit/commands/loop_detection_commands/test_unit_tool_loop_ttl_command.py::test_ttl_failure_too_low SKIPPED [ 13%]
+tests/unit/commands/loop_detection_commands/test_unit_tool_loop_ttl_command.py::test_ttl_failure_no_value SKIPPED [ 13%]
+tests/unit/commands/test_set_command.py::test_handle_temperature_success PASSED [ 13%]
+tests/unit/commands/test_set_command.py::test_handle_temperature_invalid_value PASSED [ 13%]
+tests/unit/commands/test_set_command.py::test_handle_temperature_out_of_range PASSED [ 14%]
+tests/unit/commands/test_set_command.py::test_handle_backend_and_model_set_backend PASSED [ 14%]
+tests/unit/commands/test_set_command.py::test_handle_backend_and_model_set_model PASSED [ 14%]
+tests/unit/commands/test_set_command.py::test_handle_backend_and_model_set_both PASSED [ 14%]
+tests/unit/commands/test_set_command.py::test_handle_project_success PASSED [ 14%]
+tests/unit/commands/test_unit_failover_commands.py::test_create_failover_route PASSED [ 14%]
+tests/unit/commands/test_unit_failover_commands.py::test_delete_failover_route PASSED [ 14%]
+tests/unit/commands/test_unit_failover_commands.py::test_list_failover_routes PASSED [ 15%]
+tests/unit/commands/test_unit_help_command.py::test_help_general PASSED  [ 15%]
+tests/unit/commands/test_unit_help_command.py::test_help_specific_command PASSED [ 15%]
+tests/unit/commands/test_unit_help_command.py::test_help_unknown_command PASSED [ 15%]
+tests/unit/commands/test_unit_loop_detection_handlers.py::test_loop_detection_handler_enable PASSED [ 15%]
+tests/unit/commands/test_unit_loop_detection_handlers.py::test_loop_detection_handler_disable PASSED [ 15%]
+tests/unit/commands/test_unit_loop_detection_handlers.py::test_loop_detection_handler_no_value PASSED [ 15%]
+tests/unit/commands/test_unit_loop_detection_handlers.py::test_loop_detection_handler_invalid_value PASSED [ 15%]
+tests/unit/commands/test_unit_loop_detection_handlers.py::test_tool_loop_detection_handler_enable PASSED [ 16%]
+tests/unit/commands/test_unit_loop_detection_handlers.py::test_tool_loop_detection_handler_disable PASSED [ 16%]
+tests/unit/commands/test_unit_loop_detection_handlers.py::test_tool_loop_detection_handler_no_value PASSED [ 16%]
+tests/unit/commands/test_unit_loop_detection_handlers.py::test_tool_loop_detection_handler_invalid_value PASSED [ 16%]
+tests/unit/commands/test_unit_loop_detection_handlers.py::test_tool_loop_max_repeats_handler_success PASSED [ 16%]
+tests/unit/commands/test_unit_loop_detection_handlers.py::test_tool_loop_max_repeats_handler_no_value PASSED [ 16%]
+tests/unit/commands/test_unit_loop_detection_handlers.py::test_tool_loop_max_repeats_handler_invalid_value PASSED [ 16%]
+tests/unit/commands/test_unit_loop_detection_handlers.py::test_tool_loop_max_repeats_handler_too_low PASSED [ 17%]
+tests/unit/commands/test_unit_loop_detection_handlers.py::test_tool_loop_ttl_handler_success PASSED [ 17%]
+tests/unit/commands/test_unit_loop_detection_handlers.py::test_tool_loop_ttl_handler_no_value PASSED [ 17%]
+tests/unit/commands/test_unit_loop_detection_handlers.py::test_tool_loop_ttl_handler_invalid_value PASSED [ 17%]
+tests/unit/commands/test_unit_loop_detection_handlers.py::test_tool_loop_ttl_handler_too_low PASSED [ 17%]
+tests/unit/commands/test_unit_loop_detection_handlers.py::test_tool_loop_mode_handler_success_break PASSED [ 17%]
+tests/unit/commands/test_unit_loop_detection_handlers.py::test_tool_loop_mode_handler_success_chance_then_break PASSED [ 17%]
+tests/unit/commands/test_unit_loop_detection_handlers.py::test_tool_loop_mode_handler_no_value PASSED [ 18%]
+tests/unit/commands/test_unit_loop_detection_handlers.py::test_tool_loop_mode_handler_invalid_value PASSED [ 18%]
+tests/unit/commands/test_unit_model_command.py::test_set_model_simple PASSED [ 18%]
+tests/unit/commands/test_unit_model_command.py::test_set_model_with_backend PASSED [ 18%]
+tests/unit/commands/test_unit_model_command.py::test_unset_model PASSED  [ 18%]
+tests/unit/commands/test_unit_oneoff_command.py::test_oneoff_success_slash_format PASSED [ 18%]
+tests/unit/commands/test_unit_oneoff_command.py::test_oneoff_success_colon_format PASSED [ 18%]
+tests/unit/commands/test_unit_oneoff_command.py::test_oneoff_failure_no_args PASSED [ 18%]
+tests/unit/commands/test_unit_oneoff_command.py::test_oneoff_failure_invalid_format PASSED [ 19%]
+tests/unit/commands/test_unit_pwd_command.py::test_pwd_with_project_dir_set PASSED [ 19%]
+tests/unit/commands/test_unit_pwd_command.py::test_pwd_with_project_dir_not_set PASSED [ 19%]
+tests/unit/commands/test_unit_set_command.py::test_handle_temperature_success PASSED [ 19%]
+tests/unit/commands/test_unit_set_command.py::test_handle_temperature_invalid_value PASSED [ 19%]
+tests/unit/commands/test_unit_set_command.py::test_handle_temperature_out_of_range PASSED [ 19%]
+tests/unit/commands/test_unit_set_command.py::test_handle_backend_and_model_set_backend PASSED [ 19%]
+tests/unit/commands/test_unit_set_command.py::test_handle_backend_and_model_set_model PASSED [ 20%]
+tests/unit/commands/test_unit_set_command.py::test_handle_backend_and_model_set_both PASSED [ 20%]
+tests/unit/commands/test_unit_set_command.py::test_handle_project_success PASSED [ 20%]
+tests/unit/commands/test_unit_set_command.py::test_handle_temperature_with_safe_session PASSED [ 20%]
+tests/unit/commands/test_unit_temperature_command.py::test_temperature_success PASSED [ 20%]
+tests/unit/commands/test_unit_temperature_command.py::test_temperature_failure_invalid_number PASSED [ 20%]
+tests/unit/commands/test_unit_temperature_command.py::test_temperature_failure_out_of_range PASSED [ 20%]
+tests/unit/commands/test_unit_temperature_command.py::test_temperature_failure_no_value PASSED [ 21%]
+tests/unit/commands/test_unit_unset_command.py::test_unset_backend PASSED [ 21%]
+tests/unit/commands/test_unit_unset_command.py::test_unset_model PASSED  [ 21%]
+tests/unit/commands/test_unit_unset_command.py::test_unset_temperature PASSED [ 21%]
+tests/unit/commands/test_unit_unset_command.py::test_unset_project PASSED [ 21%]
+tests/unit/connectors/test_streaming_utils.py::TestEnsureAsyncIterator::test_ensure_async_iterator_with_async_generator PASSED [ 21%]
+tests/unit/connectors/test_streaming_utils.py::TestEnsureAsyncIterator::test_ensure_async_iterator_with_sync_generator PASSED [ 21%]
+tests/unit/connectors/test_streaming_utils.py::TestEnsureAsyncIterator::test_ensure_async_iterator_with_coroutine PASSED [ 21%]
+tests/unit/connectors/test_streaming_utils.py::TestEnsureAsyncIterator::test_ensure_async_iterator_with_various_data_types PASSED [ 22%]
+tests/unit/connectors/test_streaming_utils.py::TestNormalizeStreamingResponse::test_normalize_streaming_response_basic PASSED [ 22%]
+tests/unit/connectors/test_streaming_utils.py::TestNormalizeStreamingResponse::test_normalize_streaming_response_with_headers PASSED [ 22%]
+tests/unit/connectors/test_streaming_utils.py::TestNormalizeStreamingResponse::test_normalize_streaming_response_with_media_type PASSED [ 22%]
+tests/unit/connectors/test_streaming_utils.py::TestNormalizeStreamingResponse::test_normalize_streaming_response_without_normalization PASSED [ 22%]
+tests/unit/connectors/test_streaming_utils.py::TestNormalizeStreamingResponse::test_normalize_streaming_response_property_based PASSED [ 22%]
+tests/unit/core/app/test_application_factory.py::TestApplicationBuilderServices::test_initialize_services_registers_all_required_services PASSED [ 22%]
+tests/unit/core/app/test_application_factory.py::TestApplicationBuilderServices::test_initialize_services_handles_backend_registration PASSED [ 23%]
+tests/unit/core/app/test_application_factory.py::TestBuildApp::test_build_app_loads_config PASSED [ 23%]
+tests/unit/core/app/test_application_factory.py::TestBuildApp::test_build_app_creates_fastapi_app PASSED [ 23%]
+tests/unit/core/app/test_application_factory.py::TestBuildApp::test_build_app_sets_up_app_state PASSED [ 23%]
+tests/unit/core/app/test_application_factory.py::TestIntegration::test_app_handles_models_endpoint PASSED [ 23%]
+tests/unit/core/app/test_application_factory.py::TestIntegration::test_app_dependency_injection_works PASSED [ 23%]
+tests/unit/core/common/test_logging_utils.py::TestApiKeyRedactionFilter::test_init_with_keys PASSED [ 23%]
+tests/unit/core/common/test_logging_utils.py::TestApiKeyRedactionFilter::test_init_without_keys PASSED [ 23%]
+tests/unit/core/common/test_logging_utils.py::TestApiKeyRedactionFilter::test_sanitize_string PASSED [ 24%]
+tests/unit/core/common/test_logging_utils.py::TestApiKeyRedactionFilter::test_sanitize_dict PASSED [ 24%]
+tests/unit/core/common/test_logging_utils.py::TestApiKeyRedactionFilter::test_sanitize_list PASSED [ 24%]
+tests/unit/core/common/test_logging_utils.py::TestApiKeyRedactionFilter::test_filter_log_record PASSED [ 24%]
+tests/unit/core/common/test_logging_utils.py::TestDiscoverApiKeysFromConfigAndEnv::test_discover_from_env PASSED [ 24%]
+tests/unit/core/common/test_logging_utils.py::TestDiscoverApiKeysFromConfigAndEnv::test_discover_from_config PASSED [ 24%]
+tests/unit/core/common/test_logging_utils.py::TestInstallApiKeyRedactionFilter::test_install_filter PASSED [ 24%]
+tests/unit/core/common/test_logging_utils.py::TestRedactText::test_redact_text PASSED [ 25%]
+tests/unit/core/domain/commands/test_base_command_di_enforcement.py::TestBaseCommandDIEnforcement::test_stateless_command_instantiation PASSED [ 25%]
+tests/unit/core/domain/commands/test_base_command_di_enforcement.py::TestBaseCommandDIEnforcement::test_stateful_command_instantiation_with_dependencies PASSED [ 25%]
+tests/unit/core/domain/commands/test_command_factory.py::TestCommandFactory::test_create_success PASSED [ 25%]
+tests/unit/core/domain/commands/test_command_factory.py::TestCommandFactory::test_create_error PASSED [ 25%]
+tests/unit/core/domain/commands/test_command_factory.py::TestCommandFactory::test_register_factory PASSED [ 25%]
+tests/unit/core/services/test_backend_service_hypothesis.py::TestBackendServiceHypothesis::test_call_completion_with_various_models_and_messages PASSED [ 25%]
+tests/unit/core/services/test_backend_service_hypothesis.py::TestBackendServiceHypothesis::test_validate_backend_and_model_with_various_backends PASSED [ 26%]
+tests/unit/core/services/test_backend_service_hypothesis.py::TestBackendServiceHypothesis::test_call_completion_rate_limited_with_hypothesis PASSED [ 26%]
+tests/unit/core/services/test_backend_service_hypothesis.py::TestBackendServiceHypothesis::test_call_completion_backend_error_with_hypothesis SKIPPED [ 26%]
+tests/unit/core/services/test_backend_service_targeted.py::TestBackendServiceTargeted::test_call_completion_with_default_backend_parsing PASSED [ 26%]
+tests/unit/core/services/test_backend_service_targeted.py::TestBackendServiceTargeted::test_get_or_create_backend_error_handling PASSED [ 26%]
+tests/unit/core/services/test_backend_service_targeted.py::TestBackendServiceTargeted::test_call_completion_with_session_backend PASSED [ 26%]
+tests/unit/core/services/test_response_processor_service.py::TestResponseProcessor::test_process_response_with_chat_response PASSED [ 26%]
+tests/unit/core/services/test_response_processor_service.py::TestResponseProcessor::test_process_response_with_dict PASSED [ 26%]
+tests/unit/core/services/test_response_processor_service.py::TestResponseProcessor::test_process_response_with_string PASSED [ 27%]
+tests/unit/core/services/test_response_processor_service.py::TestResponseProcessor::test_process_response_with_loop_detection PASSED [ 27%]
+tests/unit/core/services/test_response_processor_service.py::TestResponseProcessor::test_process_response_with_middleware PASSED [ 27%]
+tests/unit/core/services/test_response_processor_service.py::TestResponseProcessor::test_process_streaming_response_basic PASSED [ 27%]
+tests/unit/core/services/test_response_processor_service.py::TestResponseProcessor::test_process_streaming_response_with_streaming_chat_response PASSED [ 27%]
+tests/unit/core/services/test_response_processor_service.py::TestResponseProcessor::test_process_streaming_response_with_bytes PASSED [ 27%]
+tests/unit/core/services/test_response_processor_service.py::TestResponseProcessor::test_process_response_with_various_string_content PASSED [ 27%]
+tests/unit/core/services/test_response_processor_service.py::TestResponseProcessor::test_process_response_with_various_chat_responses PASSED [ 28%]
+tests/unit/core/test_authentication.py::TestAPIKeyMiddleware::test_valid_bearer_key PASSED [ 28%]
+tests/unit/core/test_authentication.py::TestAPIKeyMiddleware::test_valid_query_key PASSED [ 28%]
+tests/unit/core/test_authentication.py::TestAPIKeyMiddleware::test_invalid_key PASSED [ 28%]
+tests/unit/core/test_authentication.py::TestAPIKeyMiddleware::test_missing_key PASSED [ 28%]
+tests/unit/core/test_authentication.py::TestAPIKeyMiddleware::test_bypass_path PASSED [ 28%]
+tests/unit/core/test_authentication.py::TestAuthMiddleware::test_valid_token PASSED [ 28%]
+tests/unit/core/test_authentication.py::TestAuthMiddleware::test_invalid_token PASSED [ 28%]
+tests/unit/core/test_authentication.py::TestAuthMiddleware::test_missing_token PASSED [ 29%]
+tests/unit/core/test_authentication.py::TestAuthMiddleware::test_bypass_path PASSED [ 29%]
+tests/unit/core/test_authentication.py::TestIntegratedAuthentication::test_api_key_auth_valid PASSED [ 29%]
+tests/unit/core/test_authentication.py::TestIntegratedAuthentication::test_api_key_auth_invalid SKIPPED [ 29%]
+tests/unit/core/test_authentication.py::TestIntegratedAuthentication::test_api_key_auth_missing SKIPPED [ 29%]
+tests/unit/core/test_authentication.py::TestIntegratedAuthentication::test_api_key_auth_query_param PASSED [ 29%]
+tests/unit/core/test_authentication.py::TestIntegratedAuthentication::test_api_key_auth_bypass_path PASSED [ 29%]
+tests/unit/core/test_authentication.py::TestIntegratedAuthentication::test_token_auth_valid PASSED [ 30%]
+tests/unit/core/test_authentication.py::TestIntegratedAuthentication::test_token_auth_invalid PASSED [ 30%]
+tests/unit/core/test_authentication.py::TestIntegratedAuthentication::test_token_auth_missing PASSED [ 30%]
+tests/unit/core/test_authentication.py::TestIntegratedAuthentication::test_token_auth_bypass_path PASSED [ 30%]
+tests/unit/core/test_authentication.py::TestIntegratedAuthentication::test_no_auth PASSED [ 30%]
+tests/unit/core/test_authentication.py::TestAppIntegration::test_app_with_auth_disabled PASSED [ 30%]
+tests/unit/core/test_authentication.py::TestAppIntegration::test_app_with_auth_enabled PASSED [ 30%]
+tests/unit/core/test_authentication.py::TestAppIntegration::test_app_with_auth_token PASSED [ 31%]
+tests/unit/core/test_backend_config_provider.py::TestBackendConfigProvider::test_get_backend_config_with_attribute_access PASSED [ 31%]
+tests/unit/core/test_backend_config_provider.py::TestBackendConfigProvider::test_get_backend_config_with_dict_access PASSED [ 31%]
+tests/unit/core/test_backend_config_provider.py::TestBackendConfigProvider::test_get_backend_config_with_nonexistent_backend PASSED [ 31%]
+tests/unit/core/test_backend_config_provider.py::TestBackendConfigProvider::test_get_backend_config_with_empty_backend PASSED [ 31%]
+tests/unit/core/test_backend_config_provider.py::TestBackendConfigProvider::test_iter_backend_names PASSED [ 31%]
+tests/unit/core/test_backend_config_provider.py::TestBackendConfigProvider::test_get_default_backend PASSED [ 31%]
+tests/unit/core/test_backend_config_provider.py::TestBackendConfigProvider::test_get_default_backend_fallback PASSED [ 31%]
+tests/unit/core/test_backend_config_provider.py::TestBackendConfigProvider::test_functional_backends PASSED [ 32%]
+tests/unit/core/test_backend_config_provider.py::TestBackendConfigProvider::test_implements_interface PASSED [ 32%]
+tests/unit/core/test_backend_factory_ensure_backend.py::test_ensure_backend_with_none_config PASSED [ 32%]
+tests/unit/core/test_backend_factory_ensure_backend.py::test_ensure_backend_with_backend_config PASSED [ 32%]
+tests/unit/core/test_backend_factory_ensure_backend.py::test_ensure_backend_test_env_injection PASSED [ 32%]
+tests/unit/core/test_backend_factory_ensure_backend.py::test_ensure_backend_anthropic_specific PASSED [ 32%]
+tests/unit/core/test_backend_factory_ensure_backend.py::test_ensure_backend_openrouter_specific PASSED [ 32%]
+tests/unit/core/test_backend_factory_ensure_backend.py::test_ensure_backend_gemini_specific PASSED [ 33%]
+tests/unit/core/test_backend_factory_ensure_backend.py::test_ensure_backend_custom_api_url_not_overridden PASSED [ 33%]
+tests/unit/core/test_backend_service_enhanced.py::TestBackendFactory::test_create_backend PASSED [ 33%]
+tests/unit/core/test_backend_service_enhanced.py::TestBackendFactory::test_initialize_backend PASSED [ 33%]
+tests/unit/core/test_backend_service_enhanced.py::TestBackendFactory::test_create_backend_invalid_type PASSED [ 33%]
+tests/unit/core/test_backend_service_enhanced.py::TestBackendServiceBasic::test_get_or_create_backend_cached PASSED [ 33%]
+tests/unit/core/test_backend_service_enhanced.py::TestBackendServiceBasic::test_get_or_create_backend_new PASSED [ 33%]
+tests/unit/core/test_backend_service_enhanced.py::TestBackendServiceBasic::test_get_or_create_backend_error PASSED [ 34%]
+tests/unit/core/test_backend_service_enhanced.py::TestBackendServiceBasic::test_prepare_messages SKIPPED [ 34%]
+tests/unit/core/test_backend_service_enhanced.py::TestBackendServiceCompletions::test_call_completion_basic PASSED [ 34%]
+tests/unit/core/test_backend_service_enhanced.py::TestBackendServiceCompletions::test_call_completion_streaming PASSED [ 34%]
+tests/unit/core/test_backend_service_enhanced.py::TestBackendServiceCompletions::test_call_completion_streaming_error SKIPPED [ 34%]
+tests/unit/core/test_backend_service_enhanced.py::TestBackendServiceCompletions::test_call_completion_rate_limited PASSED [ 34%]
+tests/unit/core/test_backend_service_enhanced.py::TestBackendServiceCompletions::test_call_completion_backend_error SKIPPED [ 34%]
+tests/unit/core/test_backend_service_enhanced.py::TestBackendServiceCompletions::test_call_completion_invalid_response SKIPPED [ 34%]
+tests/unit/core/test_backend_service_enhanced.py::TestBackendServiceCompletions::test_call_completion_invalid_streaming_response SKIPPED [ 35%]
+tests/unit/core/test_backend_service_enhanced.py::TestBackendServiceValidation::test_validate_backend_and_model_valid PASSED [ 35%]
+tests/unit/core/test_backend_service_enhanced.py::TestBackendServiceValidation::test_validate_backend_and_model_invalid_model PASSED [ 35%]
+tests/unit/core/test_backend_service_enhanced.py::TestBackendServiceValidation::test_validate_backend_and_model_backend_error PASSED [ 35%]
+tests/unit/core/test_backend_service_enhanced.py::TestBackendServiceFailover::test_simple_failover SKIPPED [ 35%]
+tests/unit/core/test_backend_service_enhanced.py::TestBackendServiceFailover::test_complex_failover_first_attempt PASSED [ 35%]
+tests/unit/core/test_backend_service_enhanced.py::TestBackendServiceFailover::test_complex_failover_second_attempt PASSED [ 35%]
+tests/unit/core/test_backend_service_enhanced.py::TestBackendServiceFailover::test_complex_failover_all_fail PASSED [ 36%]
+tests/unit/core/test_config.py::test_app_config_defaults PASSED          [ 36%]
+tests/unit/core/test_config.py::test_app_config_validation PASSED        [ 36%]
+tests/unit/core/test_config.py::test_app_config_to_legacy_config PASSED  [ 36%]
+tests/unit/core/test_config.py::test_app_config_from_legacy_config PASSED [ 36%]
+tests/unit/core/test_config.py::test_app_config_from_env PASSED          [ 36%]
+tests/unit/core/test_config.py::test_load_config PASSED                  [ 36%]
+tests/unit/core/test_config.py::test_load_config_debug PASSED            [ 36%]
+tests/unit/core/test_configuration_interfaces.py::TestBackendConfigInterface::test_backend_config_implements_interface PASSED [ 37%]
+tests/unit/core/test_configuration_interfaces.py::TestBackendConfigInterface::test_backend_config_with_methods PASSED [ 37%]
+tests/unit/core/test_configuration_interfaces.py::TestBackendConfigInterface::test_backend_config_chaining PASSED [ 37%]
+tests/unit/core/test_configuration_interfaces.py::TestReasoningConfigInterface::test_reasoning_config_implements_interface PASSED [ 37%]
+tests/unit/core/test_configuration_interfaces.py::TestReasoningConfigInterface::test_reasoning_config_with_methods PASSED [ 37%]
+tests/unit/core/test_configuration_interfaces.py::TestReasoningConfigInterface::test_reasoning_config_chaining PASSED [ 37%]
+tests/unit/core/test_configuration_interfaces.py::TestLoopDetectionConfigInterface::test_loop_detection_config_implements_interface PASSED [ 37%]
+tests/unit/core/test_configuration_interfaces.py::TestLoopDetectionConfigInterface::test_loop_detection_config_with_methods PASSED [ 38%]
+tests/unit/core/test_configuration_interfaces.py::TestLoopDetectionConfigInterface::test_loop_detection_config_chaining PASSED [ 38%]
+tests/unit/core/test_configuration_interfaces.py::TestConfigurationDefaults::test_backend_config_defaults PASSED [ 38%]
+tests/unit/core/test_configuration_interfaces.py::TestConfigurationDefaults::test_reasoning_config_defaults PASSED [ 38%]
+tests/unit/core/test_configuration_interfaces.py::TestConfigurationDefaults::test_loop_detection_config_defaults PASSED [ 38%]
+tests/unit/core/test_configuration_interfaces.py::TestConfigurationImmutability::test_backend_config_immutability PASSED [ 38%]
+tests/unit/core/test_configuration_interfaces.py::TestConfigurationImmutability::test_reasoning_config_immutability PASSED [ 38%]
+tests/unit/core/test_configuration_interfaces.py::TestConfigurationImmutability::test_loop_detection_config_immutability PASSED [ 39%]
+tests/unit/core/test_constants.py::test_api_response_constants PASSED    [ 39%]
+tests/unit/core/test_constants.py::test_backend_constants PASSED         [ 39%]
+tests/unit/core/test_constants.py::test_model_constants PASSED           [ 39%]
+tests/unit/core/test_constants.py::test_command_output_constants PASSED  [ 39%]
+tests/unit/core/test_di_container.py::test_service_collection_singleton PASSED [ 39%]
+tests/unit/core/test_di_container.py::test_service_collection_transient PASSED [ 39%]
+tests/unit/core/test_di_container.py::test_service_collection_scoped PASSED [ 39%]
+tests/unit/core/test_di_container.py::test_service_provider_get_required_service PASSED [ 40%]
+tests/unit/core/test_di_container.py::test_service_factory PASSED        [ 40%]
+tests/unit/core/test_di_container.py::test_service_with_dependency PASSED [ 40%]
+tests/unit/core/test_domain_models.py::test_backend_config_immutability PASSED [ 40%]
+tests/unit/core/test_domain_models.py::test_reasoning_config_immutability PASSED [ 40%]
+tests/unit/core/test_domain_models.py::test_loop_detection_config_immutability PASSED [ 40%]
+tests/unit/core/test_domain_models.py::test_session_state_immutability PASSED [ 40%]
+tests/unit/core/test_domain_models.py::test_session_interaction_immutability PASSED [ 41%]
+tests/unit/core/test_domain_models.py::test_session_mutability PASSED    [ 41%]
+tests/unit/core/test_error_constants.py::test_authentication_error_constants PASSED [ 41%]
+tests/unit/core/test_error_constants.py::test_backend_error_constants PASSED [ 41%]
+tests/unit/core/test_error_constants.py::test_command_error_constants PASSED [ 41%]
+tests/unit/core/test_error_constants.py::test_configuration_error_constants PASSED [ 41%]
+tests/unit/core/test_error_constants.py::test_session_error_constants PASSED [ 41%]
+tests/unit/core/test_error_constants.py::test_model_error_constants PASSED [ 42%]
+tests/unit/core/test_error_constants.py::test_loop_detection_error_constants PASSED [ 42%]
+tests/unit/core/test_error_constants.py::test_tool_call_error_constants PASSED [ 42%]
+tests/unit/core/test_error_constants.py::test_streaming_error_constants PASSED [ 42%]
+tests/unit/core/test_error_constants.py::test_network_error_constants PASSED [ 42%]
+tests/unit/core/test_error_constants.py::test_file_system_error_constants PASSED [ 42%]
+tests/unit/core/test_error_constants.py::test_json_error_constants PASSED [ 42%]
+tests/unit/core/test_error_constants.py::test_validation_error_constants PASSED [ 42%]
+tests/unit/core/test_error_constants.py::test_rate_limiting_error_constants PASSED [ 43%]
+tests/unit/core/test_error_constants.py::test_security_error_constants PASSED [ 43%]
+tests/unit/core/test_error_constants.py::test_generic_error_constants PASSED [ 43%]
+tests/unit/core/test_failover_service.py::test_get_failover_attempts PASSED [ 43%]
+tests/unit/core/test_failover_service.py::test_get_failover_attempts_empty_route PASSED [ 43%]
+tests/unit/core/test_failover_service.py::test_get_failover_attempts_invalid_element PASSED [ 43%]
+tests/unit/core/test_hello_command.py::test_hello_command_execution PASSED [ 43%]
+tests/unit/core/test_logging_utils.py::TestRedaction::test_redact PASSED [ 44%]
+tests/unit/core/test_logging_utils.py::TestRedaction::test_redact_dict PASSED [ 44%]
+tests/unit/core/test_logging_utils.py::TestRedaction::test_redact_text_with_secrets PASSED [ 44%]
+tests/unit/core/test_logging_utils.py::TestLogging::test_get_logger PASSED [ 44%]
+tests/unit/core/test_logging_utils.py::TestLogging::test_log_call PASSED [ 44%]
+tests/unit/core/test_logging_utils.py::TestLogging::test_log_async_call PASSED [ 44%]
+tests/unit/core/test_logging_utils.py::TestLogging::test_log_context PASSED [ 44%]
+tests/unit/core/test_multimodal.py::TestContentPart::test_text_content_part PASSED [ 44%]
+tests/unit/core/test_multimodal.py::TestContentPart::test_image_url_content_part PASSED [ 45%]
+tests/unit/core/test_multimodal.py::TestContentPart::test_image_base64_content_part PASSED [ 45%]
+tests/unit/core/test_multimodal.py::TestContentPart::test_to_dict PASSED [ 45%]
+tests/unit/core/test_multimodal.py::TestContentPart::test_to_openai_format_text PASSED [ 45%]
+tests/unit/core/test_multimodal.py::TestContentPart::test_to_openai_format_image_url PASSED [ 45%]
+tests/unit/core/test_multimodal.py::TestContentPart::test_to_openai_format_image_base64 PASSED [ 45%]
+tests/unit/core/test_multimodal.py::TestContentPart::test_to_anthropic_format_text PASSED [ 45%]
+tests/unit/core/test_multimodal.py::TestContentPart::test_to_anthropic_format_image_url PASSED [ 46%]
+tests/unit/core/test_multimodal.py::TestContentPart::test_to_anthropic_format_image_base64 PASSED [ 46%]
+tests/unit/core/test_multimodal.py::TestContentPart::test_to_gemini_format_text PASSED [ 46%]
+tests/unit/core/test_multimodal.py::TestContentPart::test_to_gemini_format_image_base64 PASSED [ 46%]
+tests/unit/core/test_multimodal.py::TestMultimodalMessage::test_text_message PASSED [ 46%]
+tests/unit/core/test_multimodal.py::TestMultimodalMessage::test_with_image_message PASSED [ 46%]
+tests/unit/core/test_multimodal.py::TestMultimodalMessage::test_is_multimodal PASSED [ 46%]
+tests/unit/core/test_multimodal.py::TestMultimodalMessage::test_get_text_content PASSED [ 47%]
+tests/unit/core/test_multimodal.py::TestMultimodalMessage::test_to_dict PASSED [ 47%]
+tests/unit/core/test_multimodal.py::TestMultimodalMessage::test_to_legacy_format PASSED [ 47%]
+tests/unit/core/test_multimodal.py::TestMultimodalMessage::test_to_legacy_format_no_text PASSED [ 47%]
+tests/unit/core/test_multimodal.py::TestMultimodalMessage::test_to_openai_format PASSED [ 47%]
+tests/unit/core/test_multimodal.py::TestMultimodalMessage::test_to_anthropic_format PASSED [ 47%]
+tests/unit/core/test_multimodal.py::TestMultimodalMessage::test_to_gemini_format PASSED [ 47%]
+tests/unit/core/test_multimodal.py::TestMultimodalMessage::test_from_legacy_message PASSED [ 47%]
+tests/unit/core/test_multimodal.py::TestMultimodalMessage::test_backend_format_selection PASSED [ 48%]
+tests/unit/core/test_request_processor.py::test_process_request_basic PASSED [ 48%]
+tests/unit/core/test_request_processor.py::test_process_request_with_commands PASSED [ 48%]
+tests/unit/core/test_request_processor.py::test_process_command_only_request PASSED [ 48%]
+tests/unit/core/test_request_processor.py::test_process_streaming_request PASSED [ 48%]
+tests/unit/core/test_request_processor.py::test_backend_error_handling PASSED [ 48%]
+tests/unit/core/test_session_service.py::test_session_creation PASSED    [ 48%]
+tests/unit/core/test_session_service.py::test_session_retrieval PASSED   [ 49%]
+tests/unit/core/test_session_service.py::test_session_update PASSED      [ 49%]
+tests/unit/core/test_session_service.py::test_session_deletion PASSED    [ 49%]
+tests/unit/core/test_session_service.py::test_get_all_sessions PASSED    [ 49%]
+tests/unit/core/test_validation_constants.py::test_generic_validation_constants PASSED [ 49%]
+tests/unit/core/test_validation_constants.py::test_specific_validation_constants PASSED [ 49%]
+tests/unit/core/test_validation_constants.py::test_validation_constant_formatting PASSED [ 49%]
+tests/unit/gemini_connector_tests/test_http_error_streaming.py::test_chat_completions_http_error_streaming SKIPPED [ 50%]
+tests/unit/gemini_connector_tests/test_model_prefix_handling.py::test_chat_completions_model_prefix_handled PASSED [ 50%]
+tests/unit/gemini_connector_tests/test_multimodal_payload.py::test_multimodal_data_url_converts_to_inline_data PASSED [ 50%]
+tests/unit/gemini_connector_tests/test_multimodal_payload.py::test_multimodal_http_url_converts_to_file_data PASSED [ 50%]
+tests/unit/gemini_connector_tests/test_part_conversion.py::test_text_part_type_removed PASSED [ 50%]
+tests/unit/gemini_connector_tests/test_part_conversion.py::test_system_message_filtered PASSED [ 50%]
+tests/unit/gemini_connector_tests/test_streaming_success.py::test_chat_completions_streaming_success PASSED [ 50%]
+tests/unit/gemini_connector_tests/test_temperature_handling.py::TestGeminiTemperatureHandling::test_temperature_added_to_generation_config PASSED [ 50%]
+tests/unit/gemini_connector_tests/test_temperature_handling.py::TestGeminiTemperatureHandling::test_temperature_clamping_above_one PASSED [ 51%]
+tests/unit/gemini_connector_tests/test_temperature_handling.py::TestGeminiTemperatureHandling::test_temperature_zero_value PASSED [ 51%]
+tests/unit/gemini_connector_tests/test_temperature_handling.py::TestGeminiTemperatureHandling::test_temperature_with_existing_generation_config PASSED [ 51%]
+tests/unit/gemini_connector_tests/test_temperature_handling.py::TestGeminiTemperatureHandling::test_temperature_with_thinking_budget PASSED [ 51%]
+tests/unit/gemini_connector_tests/test_temperature_handling.py::TestGeminiTemperatureHandling::test_no_temperature_no_generation_config PASSED [ 51%]
+tests/unit/gemini_connector_tests/test_temperature_handling.py::TestGeminiTemperatureHandling::test_temperature_with_extra_params_override PASSED [ 51%]
+tests/unit/gemini_connector_tests/test_temperature_handling.py::TestGeminiTemperatureHandling::test_temperature_streaming_request PASSED [ 51%]
+tests/unit/loop_detection/test_detector.py::TestLoopDetector::test_detector_initialization PASSED [ 52%]
+tests/unit/loop_detection/test_detector.py::TestLoopDetector::test_detector_disabled PASSED [ 52%]
+tests/unit/loop_detection/test_detector.py::TestLoopDetector::test_simple_loop_detection PASSED [ 52%]
+tests/unit/loop_detection/test_detector.py::TestLoopDetector::test_no_false_positive_normal_text PASSED [ 52%]
+tests/unit/loop_detection/test_detector.py::TestLoopDetector::test_detector_reset PASSED [ 52%]
+tests/unit/loop_detection/test_detector.py::TestLoopDetector::test_detector_enable_disable PASSED [ 52%]
+tests/unit/loop_detection/test_detector.py::TestLoopDetector::test_detector_stats PASSED [ 52%]
+tests/unit/loop_detection/test_detector.py::TestLoopDetector::test_minimum_content_threshold PASSED [ 52%]
+tests/unit/loop_detection/test_detector.py::TestLoopDetector::test_config_validation PASSED [ 53%]
+tests/unit/loop_detection/test_detector.py::TestLoopDetectionEvent::test_event_creation PASSED [ 53%]
+tests/unit/loop_detection/test_streaming_wrapper.py::test_stream_cancellation_on_loop PASSED [ 53%]
+tests/unit/loop_detection/test_tool_call_tracker.py::TestToolCallSignature::test_from_tool_call_valid_json PASSED [ 53%]
+tests/unit/loop_detection/test_tool_call_tracker.py::TestToolCallSignature::test_from_tool_call_invalid_json PASSED [ 53%]
+tests/unit/loop_detection/test_tool_call_tracker.py::TestToolCallSignature::test_get_full_signature PASSED [ 53%]
+tests/unit/loop_detection/test_tool_call_tracker.py::TestToolCallSignature::test_is_expired PASSED [ 53%]
+tests/unit/loop_detection/test_tool_call_tracker.py::TestToolCallTracker::test_init PASSED [ 54%]
+tests/unit/loop_detection/test_tool_call_tracker.py::TestToolCallTracker::test_prune_expired_no_signatures PASSED [ 54%]
+tests/unit/loop_detection/test_tool_call_tracker.py::TestToolCallTracker::test_prune_expired_with_expired PASSED [ 54%]
+tests/unit/loop_detection/test_tool_call_tracker.py::TestToolCallTracker::test_track_tool_call_disabled PASSED [ 54%]
+tests/unit/loop_detection/test_tool_call_tracker.py::TestToolCallTracker::test_track_tool_call_first_call PASSED [ 54%]
+tests/unit/loop_detection/test_tool_call_tracker.py::TestToolCallTracker::test_track_tool_call_different_calls PASSED [ 54%]
+tests/unit/loop_detection/test_tool_call_tracker.py::TestToolCallTracker::test_track_tool_call_repeated_below_threshold PASSED [ 54%]
+tests/unit/loop_detection/test_tool_call_tracker.py::TestToolCallTracker::test_track_tool_call_repeated_at_threshold_break_mode PASSED [ 55%]
+tests/unit/loop_detection/test_tool_call_tracker.py::TestToolCallTracker::test_track_tool_call_repeated_at_threshold_chance_mode PASSED [ 55%]
+tests/unit/loop_detection/test_tool_call_tracker.py::TestToolCallTracker::test_track_tool_call_after_chance_different_call PASSED [ 55%]
+tests/unit/loop_detection/test_tool_call_tracker.py::TestToolCallTracker::test_track_tool_call_after_chance_same_call PASSED [ 55%]
+tests/unit/loop_detection/test_tool_call_tracker.py::TestToolCallTracker::test_track_tool_call_reset_after_different PASSED [ 55%]
+tests/unit/loop_detection/test_tool_call_tracker.py::TestToolCallTracker::test_track_tool_call_with_ttl_expiry PASSED [ 55%]
+tests/unit/openai_connector_tests/test_integration.py::test_set_openai_url_command SKIPPED [ 55%]
+tests/unit/openai_connector_tests/test_streaming_response.py::test_streaming_response_async_iterator PASSED [ 55%]
+tests/unit/openai_connector_tests/test_streaming_response.py::test_streaming_response_sync_iterator PASSED [ 56%]
+tests/unit/openai_connector_tests/test_streaming_response.py::test_streaming_response_coroutine PASSED [ 56%]
+tests/unit/openai_connector_tests/test_streaming_response.py::test_streaming_response_error PASSED [ 56%]
+tests/unit/openai_connector_tests/test_streaming_response.py::test_streaming_response_no_auth PASSED [ 56%]
+tests/unit/openai_connector_tests/test_url_override.py::test_chat_completions_uses_default_url PASSED [ 56%]
+tests/unit/openai_connector_tests/test_url_override.py::test_chat_completions_uses_custom_url PASSED [ 56%]
+tests/unit/openai_connector_tests/test_url_override.py::test_initialize_with_custom_url PASSED [ 56%]
+tests/unit/openrouter_connector_tests/test_headers_plumbing.py::test_headers_plumbing PASSED [ 57%]
+tests/unit/openrouter_connector_tests/test_http_error_non_streaming.py::test_chat_completions_http_error_non_streaming PASSED [ 57%]
+tests/unit/openrouter_connector_tests/test_http_error_streaming.py::test_chat_completions_http_error_streaming PASSED [ 57%]
+tests/unit/openrouter_connector_tests/test_non_streaming_success.py::test_chat_completions_non_streaming_success PASSED [ 57%]
+tests/unit/openrouter_connector_tests/test_payload_construction_and_headers.py::test_openrouter_headers_are_correct PASSED [ 57%]
+tests/unit/openrouter_connector_tests/test_payload_construction_and_headers.py::test_openrouter_payload_basic_fields_and_model PASSED [ 57%]
+tests/unit/openrouter_connector_tests/test_payload_construction_and_headers.py::test_openrouter_payload_message_count PASSED [ 57%]
+tests/unit/openrouter_connector_tests/test_payload_construction_and_headers.py::test_openrouter_payload_first_message_structure PASSED [ 57%]
+tests/unit/openrouter_connector_tests/test_payload_construction_and_headers.py::test_openrouter_payload_second_message_structure PASSED [ 58%]
+tests/unit/openrouter_connector_tests/test_payload_construction_and_headers.py::test_openrouter_payload_third_message_multipart_structure PASSED [ 58%]
+tests/unit/openrouter_connector_tests/test_payload_construction_and_headers.py::test_openrouter_payload_unset_fields_are_excluded PASSED [ 58%]
+tests/unit/openrouter_connector_tests/test_payload_construction_and_headers.py::test_openrouter_original_request_data_unmodified PASSED [ 58%]
+tests/unit/openrouter_connector_tests/test_payload_construction_and_headers.py::test_openrouter_processed_messages_remain_pydantic PASSED [ 58%]
+tests/unit/openrouter_connector_tests/test_request_error.py::test_chat_completions_request_error SKIPPED [ 58%]
+tests/unit/openrouter_connector_tests/test_streaming_success.py::test_chat_completions_streaming_success PASSED [ 58%]
+tests/unit/openrouter_connector_tests/test_temperature_handling.py::TestOpenRouterTemperatureHandling::test_temperature_added_to_payload PASSED [ 59%]
+tests/unit/openrouter_connector_tests/test_temperature_handling.py::TestOpenRouterTemperatureHandling::test_temperature_zero_value PASSED [ 59%]
+tests/unit/openrouter_connector_tests/test_temperature_handling.py::TestOpenRouterTemperatureHandling::test_temperature_max_value PASSED [ 59%]
+tests/unit/openrouter_connector_tests/test_temperature_handling.py::TestOpenRouterTemperatureHandling::test_temperature_with_extra_params PASSED [ 59%]
+tests/unit/openrouter_connector_tests/test_temperature_handling.py::TestOpenRouterTemperatureHandling::test_temperature_with_reasoning_effort PASSED [ 59%]
+tests/unit/openrouter_connector_tests/test_temperature_handling.py::TestOpenRouterTemperatureHandling::test_temperature_with_reasoning_config PASSED [ 59%]
+tests/unit/openrouter_connector_tests/test_temperature_handling.py::TestOpenRouterTemperatureHandling::test_no_temperature_not_in_payload PASSED [ 59%]
+tests/unit/openrouter_connector_tests/test_temperature_handling.py::TestOpenRouterTemperatureHandling::test_temperature_with_extra_params_override PASSED [ 60%]
+tests/unit/openrouter_connector_tests/test_temperature_handling.py::TestOpenRouterTemperatureHandling::test_temperature_streaming_request PASSED [ 60%]
+tests/unit/openrouter_connector_tests/test_temperature_handling.py::TestOpenRouterTemperatureHandling::test_temperature_with_all_standard_params PASSED [ 60%]
+tests/unit/proxy_logic_tests/test_parse_arguments.py::TestParseArguments::test_parse_valid_arguments PASSED [ 60%]
+tests/unit/proxy_logic_tests/test_parse_arguments.py::TestParseArguments::test_parse_empty_arguments PASSED [ 60%]
+tests/unit/proxy_logic_tests/test_parse_arguments.py::TestParseArguments::test_parse_arguments_with_slashes_in_model_name PASSED [ 60%]
+tests/unit/proxy_logic_tests/test_parse_arguments.py::TestParseArguments::test_parse_arguments_single_argument PASSED [ 60%]
+tests/unit/proxy_logic_tests/test_parse_arguments.py::TestParseArguments::test_parse_arguments_with_spaces PASSED [ 60%]
+tests/unit/proxy_logic_tests/test_parse_arguments.py::TestParseArguments::test_parse_flag_argument PASSED [ 61%]
+tests/unit/proxy_logic_tests/test_parse_arguments.py::TestParseArguments::test_parse_mixed_arguments PASSED [ 61%]
+tests/unit/proxy_logic_tests/test_parse_arguments.py::TestParseArguments::test_parse_project_with_spaces_and_quotes PASSED [ 61%]
+tests/unit/proxy_logic_tests/test_parse_arguments.py::TestParseArguments::test_parse_project_with_double_quotes PASSED [ 61%]
+tests/unit/proxy_logic_tests/test_parse_arguments.py::TestParseArguments::test_parse_project_without_quotes PASSED [ 61%]
+tests/unit/proxy_logic_tests/test_parse_arguments.py::TestParseArguments::test_parse_project_name_alias_quotes PASSED [ 61%]
+tests/unit/proxy_logic_tests/test_parse_arguments.py::TestParseArguments::test_parse_project_name_alias_no_quotes PASSED [ 61%]
+tests/unit/proxy_logic_tests/test_process_commands_in_messages.py::TestProcessCommandsInMessages::test_string_content_with_set_command SKIPPED [ 62%]
+tests/unit/proxy_logic_tests/test_process_commands_in_messages.py::TestProcessCommandsInMessages::test_multimodal_content_with_command PASSED [ 62%]
+tests/unit/proxy_logic_tests/test_process_commands_in_messages.py::TestProcessCommandsInMessages::test_command_strips_text_part_empty_in_multimodal SKIPPED [ 62%]
+tests/unit/proxy_logic_tests/test_process_commands_in_messages.py::TestProcessCommandsInMessages::test_command_strips_message_to_empty_multimodal SKIPPED [ 62%]
+tests/unit/proxy_logic_tests/test_process_commands_in_messages.py::TestProcessCommandsInMessages::test_command_in_earlier_message_not_processed_if_later_has_command SKIPPED [ 62%]
+tests/unit/proxy_logic_tests/test_process_commands_in_messages.py::TestProcessCommandsInMessages::test_command_in_earlier_message_processed_if_later_has_no_command SKIPPED [ 62%]
+tests/unit/proxy_logic_tests/test_process_commands_in_messages.py::TestProcessCommandsInMessages::test_no_commands_in_any_message PASSED [ 62%]
+tests/unit/proxy_logic_tests/test_process_commands_in_messages.py::TestProcessCommandsInMessages::test_process_empty_messages_list PASSED [ 63%]
+tests/unit/proxy_logic_tests/test_process_commands_in_messages.py::TestProcessCommandsInMessages::test_message_with_only_command_string_content SKIPPED [ 63%]
+tests/unit/proxy_logic_tests/test_process_commands_in_messages.py::TestProcessCommandsInMessages::test_multimodal_text_part_preserved_if_empty_but_no_command_found PASSED [ 63%]
+tests/unit/proxy_logic_tests/test_process_commands_in_messages.py::TestProcessCommandsInMessages::test_unknown_command_in_last_message PASSED [ 63%]
+tests/unit/proxy_logic_tests/test_process_commands_in_messages.py::TestProcessCommandsInMessages::test_custom_command_prefix SKIPPED [ 63%]
+tests/unit/proxy_logic_tests/test_process_commands_in_messages.py::TestProcessCommandsInMessages::test_multiline_command_detection SKIPPED [ 63%]
+tests/unit/proxy_logic_tests/test_process_commands_in_messages.py::TestProcessCommandsInMessages::test_set_project_in_messages SKIPPED [ 63%]
+tests/unit/proxy_logic_tests/test_process_commands_in_messages.py::TestProcessCommandsInMessages::test_unset_model_and_project_in_message SKIPPED [ 63%]
+tests/unit/proxy_logic_tests/test_process_commands_in_messages.py::TestProcessCommandsInMessages::test_set_command_prefix_variants[$/] PASSED [ 64%]
+tests/unit/proxy_logic_tests/test_process_commands_in_messages.py::TestProcessCommandsInMessages::test_set_command_prefix_variants['$/'] PASSED [ 64%]
+tests/unit/proxy_logic_tests/test_process_commands_in_messages.py::TestProcessCommandsInMessages::test_set_command_prefix_variants["$/"] PASSED [ 64%]
+tests/unit/proxy_logic_tests/test_process_commands_in_messages.py::TestProcessCommandsInMessages::test_unset_command_prefix SKIPPED [ 64%]
+tests/unit/proxy_logic_tests/test_process_commands_in_messages.py::TestProcessCommandsInMessages::test_command_with_agent_environment_details SKIPPED [ 64%]
+tests/unit/proxy_logic_tests/test_process_commands_in_messages.py::TestProcessCommandsInMessages::test_set_command_with_multiple_parameters_and_prefix SKIPPED [ 64%]
+tests/unit/proxy_logic_tests/test_process_text_for_commands.py::TestProcessTextForCommands::test_no_commands PASSED [ 64%]
+tests/unit/proxy_logic_tests/test_process_text_for_commands.py::TestProcessTextForCommands::test_set_model_command SKIPPED [ 65%]
+tests/unit/proxy_logic_tests/test_process_text_for_commands.py::TestProcessTextForCommands::test_set_model_command_with_slash SKIPPED [ 65%]
+tests/unit/proxy_logic_tests/test_process_text_for_commands.py::TestProcessTextForCommands::test_unset_model_command SKIPPED [ 65%]
+tests/unit/proxy_logic_tests/test_process_text_for_commands.py::TestProcessTextForCommands::test_multiple_commands_in_one_string SKIPPED [ 65%]
+tests/unit/proxy_logic_tests/test_process_text_for_commands.py::TestProcessTextForCommands::test_unknown_commands_are_preserved PASSED [ 65%]
+tests/unit/proxy_logic_tests/test_process_text_for_commands.py::TestProcessTextForCommands::test_command_at_start_of_string SKIPPED [ 65%]
+tests/unit/proxy_logic_tests/test_process_text_for_commands.py::TestProcessTextForCommands::test_command_at_end_of_string SKIPPED [ 65%]
+tests/unit/proxy_logic_tests/test_process_text_for_commands.py::TestProcessTextForCommands::test_command_only_string SKIPPED [ 65%]
+tests/unit/proxy_logic_tests/test_process_text_for_commands.py::TestProcessTextForCommands::test_malformed_set_command SKIPPED [ 66%]
+tests/unit/proxy_logic_tests/test_process_text_for_commands.py::TestProcessTextForCommands::test_malformed_unset_command SKIPPED [ 66%]
+tests/unit/proxy_logic_tests/test_process_text_for_commands.py::TestProcessTextForCommands::test_set_and_unset_project SKIPPED [ 66%]
+tests/unit/proxy_logic_tests/test_process_text_for_commands.py::TestProcessTextForCommands::test_unset_model_and_project_together SKIPPED [ 66%]
+tests/unit/proxy_logic_tests/test_process_text_for_commands.py::TestProcessTextForCommands::test_set_interactive_mode SKIPPED [ 66%]
+tests/unit/proxy_logic_tests/test_process_text_for_commands.py::TestProcessTextForCommands::test_unset_interactive_mode SKIPPED [ 66%]
+tests/unit/proxy_logic_tests/test_process_text_for_commands.py::TestProcessTextForCommands::test_hello_command SKIPPED [ 66%]
+tests/unit/proxy_logic_tests/test_process_text_for_commands.py::TestProcessTextForCommands::test_hello_command_with_text SKIPPED [ 67%]
+tests/unit/proxy_logic_tests/test_process_text_for_commands.py::TestProcessTextForCommands::test_unknown_command_removed_interactive SKIPPED [ 67%]
+tests/unit/proxy_logic_tests/test_process_text_for_commands.py::TestProcessTextForCommands::test_set_invalid_model_interactive SKIPPED [ 67%]
+tests/unit/proxy_logic_tests/test_process_text_for_commands.py::TestProcessTextForCommands::test_set_invalid_model_noninteractive SKIPPED [ 67%]
+tests/unit/proxy_logic_tests/test_process_text_for_commands.py::TestProcessTextForCommands::test_set_backend SKIPPED [ 67%]
+tests/unit/proxy_logic_tests/test_process_text_for_commands.py::TestProcessTextForCommands::test_unset_backend SKIPPED [ 67%]
+tests/unit/proxy_logic_tests/test_process_text_for_commands.py::TestProcessTextForCommands::test_set_redact_api_keys_flag PASSED [ 67%]
+tests/unit/proxy_logic_tests/test_process_text_for_commands.py::TestProcessTextForCommands::test_unset_redact_api_keys_flag SKIPPED [ 68%]
+tests/unit/test_agent_utils.py::test_detect_agent_cline PASSED           [ 68%]
+tests/unit/test_agent_utils.py::test_detect_agent_roocode PASSED         [ 68%]
+tests/unit/test_agent_utils.py::test_detect_agent_aider PASSED           [ 68%]
+tests/unit/test_agent_utils.py::test_wrap_proxy_message_cline PASSED     [ 68%]
+tests/unit/test_agent_utils.py::test_wrap_proxy_message_aider PASSED     [ 68%]
+tests/unit/test_auth.py::test_auth_required PASSED                       [ 68%]
+tests/unit/test_auth.py::test_auth_wrong_key PASSED                      [ 68%]
+tests/unit/test_auth.py::test_disable_auth PASSED                        [ 69%]
+tests/unit/test_auth.py::test_disable_auth_no_key_generated PASSED       [ 69%]
+tests/unit/test_cli.py::test_apply_cli_args_sets_env PASSED              [ 69%]
+tests/unit/test_cli.py::test_cli_interactive_mode PASSED                 [ 69%]
+tests/unit/test_cli.py::test_cli_redaction_flag PASSED                   [ 69%]
+tests/unit/test_cli.py::test_cli_force_set_project PASSED                [ 69%]
+tests/unit/test_cli.py::test_cli_disable_interactive_commands PASSED     [ 69%]
+tests/unit/test_cli.py::test_cli_log_argument PASSED                     [ 70%]
+tests/unit/test_cli.py::test_main_log_file PASSED                        [ 70%]
+tests/unit/test_cli.py::test_build_app_uses_env PASSED                   [ 70%]
+tests/unit/test_cli.py::test_build_app_uses_interactive_env PASSED       [ 70%]
+tests/unit/test_cli.py::test_default_command_prefix_from_env PASSED      [ 70%]
+tests/unit/test_cli.py::test_invalid_command_prefix_cli[!] PASSED        [ 70%]
+tests/unit/test_cli.py::test_invalid_command_prefix_cli[!!] PASSED       [ 70%]
+tests/unit/test_cli.py::test_invalid_command_prefix_cli[prefix with space] PASSED [ 71%]
+tests/unit/test_cli.py::test_invalid_command_prefix_cli[12345678901] PASSED [ 71%]
+tests/unit/test_cli.py::test_check_privileges_root SKIPPED (Test for...) [ 71%]
+tests/unit/test_cli.py::test_check_privileges_non_root SKIPPED (Test...) [ 71%]
+tests/unit/test_cli.py::test_check_privileges_admin_windows PASSED       [ 71%]
+tests/unit/test_cli.py::test_check_privileges_non_admin_windows PASSED   [ 71%]
+tests/unit/test_cli.py::test_parse_cli_args_basic PASSED                 [ 71%]
+tests/unit/test_cli.py::test_parse_cli_args_disable_auth PASSED          [ 71%]
+tests/unit/test_cli.py::test_apply_cli_args_basic PASSED                 [ 72%]
+tests/unit/test_cli.py::test_apply_cli_args_disable_auth_forces_localhost PASSED [ 72%]
+tests/unit/test_cli.py::test_apply_cli_args_disable_auth_with_localhost_no_warning PASSED [ 72%]
+tests/unit/test_cli.py::test_main_disable_auth_forces_localhost PASSED   [ 72%]
+tests/unit/test_cli.py::test_main_disable_auth_with_localhost_no_force PASSED [ 72%]
+tests/unit/test_cli.py::test_main_auth_enabled_allows_custom_host PASSED [ 72%]
+tests/unit/test_command_parser_process_messages.py::test_process_messages_single_message_with_command[preserve_unknown_True] SKIPPED [ 72%]
+tests/unit/test_command_parser_process_messages.py::test_process_messages_single_message_with_command[preserve_unknown_False] SKIPPED [ 73%]
+tests/unit/test_command_parser_process_messages.py::test_process_messages_stops_after_first_command_in_message_content_list[preserve_unknown_True] PASSED [ 73%]
+tests/unit/test_command_parser_process_messages.py::test_process_messages_stops_after_first_command_in_message_content_list[preserve_unknown_False] PASSED [ 73%]
+tests/unit/test_command_parser_process_messages.py::test_process_messages_processes_command_in_last_message_and_stops[preserve_unknown_True] SKIPPED [ 73%]
+tests/unit/test_command_parser_process_messages.py::test_process_messages_processes_command_in_last_message_and_stops[preserve_unknown_False] SKIPPED [ 73%]
+tests/unit/test_command_parser_process_text.py::test_process_text_single_command[preserve_unknown_True] PASSED [ 73%]
+tests/unit/test_command_parser_process_text.py::test_process_text_single_command[preserve_unknown_False] PASSED [ 73%]
+tests/unit/test_command_parser_process_text.py::test_process_text_command_with_prefix_text[preserve_unknown_True] PASSED [ 73%]
+tests/unit/test_command_parser_process_text.py::test_process_text_command_with_prefix_text[preserve_unknown_False] PASSED [ 74%]
+tests/unit/test_command_parser_process_text.py::test_process_text_command_with_suffix_text[preserve_unknown_True] PASSED [ 74%]
+tests/unit/test_command_parser_process_text.py::test_process_text_command_with_suffix_text[preserve_unknown_False] PASSED [ 74%]
+tests/unit/test_command_parser_process_text.py::test_process_text_command_with_prefix_and_suffix_text[preserve_unknown_True] PASSED [ 74%]
+tests/unit/test_command_parser_process_text.py::test_process_text_command_with_prefix_and_suffix_text[preserve_unknown_False] PASSED [ 74%]
+tests/unit/test_command_parser_process_text.py::test_process_text_multiple_commands_only_first_processed[preserve_unknown_True] PASSED [ 74%]
+tests/unit/test_command_parser_process_text.py::test_process_text_multiple_commands_only_first_processed[preserve_unknown_False] PASSED [ 74%]
+tests/unit/test_command_parser_process_text.py::test_process_text_no_command[preserve_unknown_True] PASSED [ 75%]
+tests/unit/test_command_parser_process_text.py::test_process_text_no_command[preserve_unknown_False] PASSED [ 75%]
+tests/unit/test_command_parser_process_text.py::test_process_text_unknown_command[preserve_unknown_True] PASSED [ 75%]
+tests/unit/test_command_parser_process_text.py::test_process_text_unknown_command[preserve_unknown_False] PASSED [ 75%]
+tests/unit/test_config.py::test_collect_api_keys_single PASSED           [ 75%]
+tests/unit/test_config.py::test_collect_api_keys_numbered PASSED         [ 75%]
+tests/unit/test_config.py::test_collect_api_keys_prioritizes_numbered PASSED [ 75%]
+tests/unit/test_config.py::test_load_config_basic PASSED                 [ 76%]
+tests/unit/test_config.py::test_load_config_custom_values PASSED         [ 76%]
+tests/unit/test_config.py::test_load_config_disable_auth_forces_localhost PASSED [ 76%]
+tests/unit/test_config.py::test_load_config_disable_auth_with_localhost_no_warning PASSED [ 76%]
+tests/unit/test_config.py::test_load_config_auth_enabled_allows_custom_host PASSED [ 76%]
+tests/unit/test_config.py::test_load_config_str_to_bool_variations PASSED [ 76%]
+tests/unit/test_config_persistence.py::test_save_and_load_persistent_config PASSED [ 76%]
+tests/unit/test_config_persistence.py::test_invalid_persisted_backend PASSED [ 76%]
+tests/unit/test_emergency_command_filter.py::TestProxyCommandFilter::test_filter_initialization PASSED [ 77%]
+tests/unit/test_emergency_command_filter.py::TestProxyCommandFilter::test_basic_command_detection_and_removal PASSED [ 77%]
+tests/unit/test_emergency_command_filter.py::TestProxyCommandFilter::test_command_only_text PASSED [ 77%]
+tests/unit/test_emergency_command_filter.py::TestProxyCommandFilter::test_no_commands_present PASSED [ 77%]
+tests/unit/test_emergency_command_filter.py::TestProxyCommandFilter::test_different_command_prefixes PASSED [ 77%]
+tests/unit/test_emergency_command_filter.py::TestProxyCommandFilter::test_prefix_update PASSED [ 77%]
+tests/unit/test_emergency_command_filter.py::TestProxyCommandFilter::test_edge_cases PASSED [ 77%]
+tests/unit/test_emergency_command_filter.py::TestProxyCommandFilter::test_complex_command_patterns PASSED [ 78%]
+tests/unit/test_failover_routes.py::TestFailoverRoutes::test_create_route_enables_interactive PASSED [ 78%]
+tests/unit/test_failover_routes.py::TestFailoverRoutes::test_route_append_and_list PASSED [ 78%]
+tests/unit/test_failover_routes.py::TestFailoverRoutes::test_routes_are_server_wide PASSED [ 78%]
+tests/unit/test_gemini_converters.py::TestMessageConversion::test_gemini_to_openai_simple_message PASSED [ 78%]
+tests/unit/test_gemini_converters.py::TestMessageConversion::test_gemini_to_openai_model_role PASSED [ 78%]
+tests/unit/test_gemini_converters.py::TestMessageConversion::test_gemini_to_openai_multiple_parts PASSED [ 78%]
+tests/unit/test_gemini_converters.py::TestMessageConversion::test_openai_to_gemini_simple_message PASSED [ 78%]
+tests/unit/test_gemini_converters.py::TestMessageConversion::test_openai_to_gemini_assistant_role PASSED [ 79%]
+tests/unit/test_gemini_converters.py::TestMessageConversion::test_openai_to_gemini_system_role PASSED [ 79%]
+tests/unit/test_get_command_pattern.py::test_get_command_pattern_default_prefix PASSED [ 79%]
+tests/unit/test_get_command_pattern.py::test_get_command_pattern_custom_prefix PASSED [ 79%]
+tests/unit/test_http_status_constants.py::TestHttpStatusConstants::test_client_error_status_messages PASSED [ 79%]
+tests/unit/test_http_status_constants.py::TestHttpStatusConstants::test_server_error_status_messages PASSED [ 79%]
+tests/unit/test_http_status_constants.py::TestHttpStatusConstants::test_success_status_messages PASSED [ 79%]
+tests/unit/test_http_status_constants_usage.py::TestHttpStatusConstantsUsage::test_example_controller_function_service_unavailable PASSED [ 80%]
+tests/unit/test_http_status_constants_usage.py::TestHttpStatusConstantsUsage::test_handle_internal_server_error PASSED [ 80%]
+tests/unit/test_http_status_constants_usage.py::TestHttpStatusConstantsUsage::test_handle_service_unavailable_error PASSED [ 80%]
+tests/unit/test_mock_backends.py::test_mock_backends_initialization PASSED [ 80%]
+tests/unit/test_mock_backends.py::test_mock_backend_chat_completions PASSED [ 80%]
+tests/unit/test_mock_backends.py::test_configure_mock_response PASSED    [ 80%]
+tests/unit/test_mock_backends.py::test_configure_streaming_response PASSED [ 80%]
+tests/unit/test_mock_backends.py::test_configure_error_response PASSED   [ 81%]
+tests/unit/test_mock_backends.py::test_chat_completion_api_with_mock SKIPPED [ 81%]
+tests/unit/test_mock_backends.py::test_mock_factory_fixture SKIPPED      [ 81%]
+tests/unit/test_mock_backends.py::test_real_backend_fixture SKIPPED      [ 81%]
+tests/unit/test_model_discovery.py::test_openrouter_models_cached PASSED [ 81%]
+tests/unit/test_model_discovery.py::test_gemini_models_cached PASSED     [ 81%]
+tests/unit/test_model_discovery.py::test_auto_default_backend PASSED     [ 81%]
+tests/unit/test_model_discovery.py::test_multiple_backends_requires_arg PASSED [ 81%]
+tests/unit/test_models_endpoint.py::test_models_endpoint_lists_all PASSED [ 82%]
+tests/unit/test_models_endpoint.py::test_v1_models_endpoint_lists_all PASSED [ 82%]
+tests/unit/test_no_prints.py::test_no_print_statements PASSED            [ 82%]
+tests/unit/test_parse_arguments.py::test_parse_arguments_empty PASSED    [ 82%]
+tests/unit/test_parse_arguments.py::test_parse_arguments_simple_key_value PASSED [ 82%]
+tests/unit/test_parse_arguments.py::test_parse_arguments_multiple_key_values PASSED [ 82%]
+tests/unit/test_parse_arguments.py::test_parse_arguments_boolean_true PASSED [ 82%]
+tests/unit/test_parse_arguments.py::test_parse_arguments_mixed_values PASSED [ 83%]
+tests/unit/test_parse_arguments.py::test_parse_arguments_quotes_stripping PASSED [ 83%]
+tests/unit/test_prompt_redaction.py::test_redactor_replaces_keys_and_logs PASSED [ 83%]
+tests/unit/test_proxy_logic.py::TestParseArguments::test_parse_valid_arguments PASSED [ 83%]
+tests/unit/test_proxy_logic.py::TestParseArguments::test_parse_empty_arguments PASSED [ 83%]
+tests/unit/test_proxy_logic.py::TestParseArguments::test_parse_arguments_with_slashes_in_model_name PASSED [ 83%]
+tests/unit/test_proxy_logic.py::TestParseArguments::test_parse_arguments_single_argument PASSED [ 83%]
+tests/unit/test_proxy_logic.py::TestParseArguments::test_parse_arguments_with_spaces PASSED [ 84%]
+tests/unit/test_proxy_logic.py::TestParseArguments::test_parse_flag_argument PASSED [ 84%]
+tests/unit/test_proxy_logic.py::TestParseArguments::test_parse_mixed_arguments PASSED [ 84%]
+tests/unit/test_qwen_oauth_authentication.py::TestQwenOAuthAuthentication::test_token_refresh_exact_expiry PASSED [ 84%]
+tests/unit/test_qwen_oauth_authentication.py::TestQwenOAuthAuthentication::test_token_refresh_before_expiry PASSED [ 84%]
+tests/unit/test_qwen_oauth_authentication.py::TestQwenOAuthAuthentication::test_token_refresh_flow_success PASSED [ 84%]
+tests/unit/test_qwen_oauth_authentication.py::TestQwenOAuthAuthentication::test_token_refresh_no_refresh_token PASSED [ 84%]
+tests/unit/test_qwen_oauth_authentication.py::TestQwenOAuthAuthentication::test_token_refresh_http_error PASSED [ 84%]
+tests/unit/test_qwen_oauth_authentication.py::TestQwenOAuthAuthentication::test_token_refresh_network_error PASSED [ 85%]
+tests/unit/test_qwen_oauth_authentication.py::TestQwenOAuthAuthentication::test_token_refresh_malformed_response PASSED [ 85%]
+tests/unit/test_qwen_oauth_authentication.py::TestQwenOAuthAuthentication::test_chat_completion_token_refresh_check PASSED [ 85%]
+tests/unit/test_qwen_oauth_authentication.py::TestQwenOAuthAuthentication::test_chat_completion_token_refresh_failure PASSED [ 85%]
+tests/unit/test_qwen_oauth_authentication.py::TestQwenOAuthAuthentication::test_credential_persistence PASSED [ 85%]
+tests/unit/test_qwen_oauth_authentication.py::TestQwenOAuthAuthentication::test_credential_persistence_error PASSED [ 85%]
+tests/unit/test_qwen_oauth_authentication.py::TestQwenOAuthAuthentication::test_credential_loading_success PASSED [ 85%]
+tests/unit/test_qwen_oauth_authentication.py::TestQwenOAuthAuthentication::test_credential_loading_file_not_found PASSED [ 86%]
+tests/unit/test_qwen_oauth_authentication.py::TestQwenOAuthAuthentication::test_credential_loading_permission_error PASSED [ 86%]
+tests/unit/test_qwen_oauth_authentication.py::TestQwenOAuthAuthentication::test_credential_loading_malformed_json PASSED [ 86%]
+tests/unit/test_qwen_oauth_authentication.py::TestQwenOAuthAuthentication::test_credential_loading_missing_access_token PASSED [ 86%]
+tests/unit/test_qwen_oauth_authentication.py::TestQwenOAuthAuthentication::test_get_headers_valid_token PASSED [ 86%]
+tests/unit/test_qwen_oauth_authentication.py::TestQwenOAuthAuthentication::test_get_headers_no_token PASSED [ 86%]
+tests/unit/test_qwen_oauth_connector.py::TestQwenOAuthConnectorUnit::test_connector_initialization PASSED [ 86%]
+tests/unit/test_qwen_oauth_connector.py::TestQwenOAuthConnectorUnit::test_initialize_with_valid_credentials PASSED [ 86%]
+tests/unit/test_qwen_oauth_connector.py::TestQwenOAuthConnectorUnit::test_initialize_without_credentials PASSED [ 87%]
+tests/unit/test_qwen_oauth_connector.py::TestQwenOAuthConnectorUnit::test_initialize_with_invalid_credentials PASSED [ 87%]
+tests/unit/test_qwen_oauth_connector.py::TestQwenOAuthConnectorUnit::test_get_access_token PASSED [ 87%]
+tests/unit/test_qwen_oauth_connector.py::TestQwenOAuthConnectorUnit::test_get_access_token_no_credentials PASSED [ 87%]
+tests/unit/test_qwen_oauth_connector.py::TestQwenOAuthConnectorUnit::test_get_endpoint_url_with_resource_url PASSED [ 87%]
+tests/unit/test_qwen_oauth_connector.py::TestQwenOAuthConnectorUnit::test_get_endpoint_url_without_protocol PASSED [ 87%]
+tests/unit/test_qwen_oauth_connector.py::TestQwenOAuthConnectorUnit::test_get_endpoint_url_default PASSED [ 87%]
+tests/unit/test_qwen_oauth_connector.py::TestQwenOAuthConnectorUnit::test_is_token_expired_valid_token PASSED [ 88%]
+tests/unit/test_qwen_oauth_connector.py::TestQwenOAuthConnectorUnit::test_is_token_expired_expired_token PASSED [ 88%]
+tests/unit/test_qwen_oauth_connector.py::TestQwenOAuthConnectorUnit::test_is_token_expired_no_expiry PASSED [ 88%]
+tests/unit/test_qwen_oauth_connector.py::TestQwenOAuthConnectorUnit::test_get_headers PASSED [ 88%]
+tests/unit/test_qwen_oauth_connector.py::TestQwenOAuthConnectorUnit::test_get_headers_no_token PASSED [ 88%]
+tests/unit/test_qwen_oauth_connector.py::TestQwenOAuthConnectorUnit::test_refresh_token_success PASSED [ 88%]
+tests/unit/test_qwen_oauth_connector.py::TestQwenOAuthConnectorUnit::test_refresh_token_no_refresh_token PASSED [ 88%]
+tests/unit/test_qwen_oauth_connector.py::TestQwenOAuthConnectorUnit::test_refresh_token_http_error PASSED [ 89%]
+tests/unit/test_qwen_oauth_connector.py::TestQwenOAuthConnectorUnit::test_get_available_models_functional PASSED [ 89%]
+tests/unit/test_qwen_oauth_connector.py::TestQwenOAuthConnectorUnit::test_get_available_models_not_functional PASSED [ 89%]
+tests/unit/test_qwen_oauth_connector.py::TestQwenOAuthConnectorUnit::test_chat_completions_success PASSED [ 89%]
+tests/unit/test_qwen_oauth_connector.py::TestQwenOAuthConnectorUnit::test_chat_completions_with_prefix PASSED [ 89%]
+tests/unit/test_qwen_oauth_connector.py::TestQwenOAuthConnectorUnit::test_chat_completions_streaming PASSED [ 89%]
+tests/unit/test_qwen_oauth_connector.py::TestQwenOAuthConnectorUnit::test_chat_completions_token_refresh_failure PASSED [ 89%]
+tests/unit/test_qwen_oauth_connector.py::TestQwenOAuthConnectorUnit::test_chat_completions_exception_handling SKIPPED [ 89%]
+tests/unit/test_qwen_oauth_connector.py::TestQwenOAuthConnectorUnit::test_save_oauth_credentials PASSED [ 90%]
+tests/unit/test_qwen_oauth_connector.py::TestQwenOAuthConnectorEdgeCases::test_malformed_credentials_file PASSED [ 90%]
+tests/unit/test_qwen_oauth_connector.py::TestQwenOAuthConnectorEdgeCases::test_credentials_file_permission_error PASSED [ 90%]
+tests/unit/test_qwen_oauth_connector.py::TestQwenOAuthConnectorEdgeCases::test_network_error_during_refresh PASSED [ 90%]
+tests/unit/test_qwen_oauth_enhanced_error_handling.py::TestQwenOAuthEnhancedErrorHandling::test_initialize_success PASSED [ 90%]
+tests/unit/test_qwen_oauth_enhanced_error_handling.py::TestQwenOAuthEnhancedErrorHandling::test_initialize_failure PASSED [ 90%]
+tests/unit/test_qwen_oauth_enhanced_error_handling.py::TestQwenOAuthEnhancedErrorHandling::test_get_endpoint_url_no_credentials PASSED [ 90%]
+tests/unit/test_qwen_oauth_enhanced_error_handling.py::TestQwenOAuthEnhancedErrorHandling::test_is_token_expired_no_credentials PASSED [ 91%]
+tests/unit/test_qwen_oauth_enhanced_error_handling.py::TestQwenOAuthEnhancedErrorHandling::test_is_token_expired_no_expiry_date PASSED [ 91%]
+tests/unit/test_qwen_oauth_enhanced_error_handling.py::TestQwenOAuthEnhancedErrorHandling::test_token_refresh_check_not_expired PASSED [ 91%]
+tests/unit/test_qwen_oauth_enhanced_error_handling.py::TestQwenOAuthEnhancedErrorHandling::test_chat_completions_generic_error_handling SKIPPED [ 91%]
+tests/unit/test_qwen_oauth_enhanced_error_handling.py::TestQwenOAuthEnhancedErrorHandling::test_model_prefix_stripping PASSED [ 91%]
+tests/unit/test_qwen_oauth_enhanced_error_handling.py::TestQwenOAuthEnhancedErrorHandling::test_http_exception_passthrough PASSED [ 91%]
+tests/unit/test_qwen_oauth_enhanced_error_handling.py::TestQwenOAuthEnhancedErrorHandling::test_chat_completions_refresh_token_failure PASSED [ 91%]
+tests/unit/test_qwen_oauth_interactive_commands.py::TestQwenOAuthInteractiveCommands::test_environment_variable_support PASSED [ 92%]
+tests/unit/test_qwen_oauth_interactive_commands.py::TestQwenOAuthInteractiveCommands::test_cli_argument_support SKIPPED [ 92%]
+tests/unit/test_qwen_oauth_interactive_commands.py::TestQwenOAuthInteractiveCommands::test_backend_attribute_name_conversion SKIPPED [ 92%]
+tests/unit/test_qwen_oauth_interactive_commands.py::TestQwenOAuthInteractiveCommands::test_backend_object_accessibility SKIPPED [ 92%]
+tests/unit/test_qwen_oauth_interactive_commands.py::TestQwenOAuthInteractiveCommands::test_functional_backends_includes_qwen_oauth PASSED [ 92%]
+tests/unit/test_qwen_oauth_interactive_commands.py::TestQwenOAuthInteractiveCommands::test_backend_routing_with_qwen_oauth PASSED [ 92%]
+tests/unit/test_qwen_oauth_interactive_commands.py::TestQwenOAuthConfigurationMethods::test_dotenv_file_support PASSED [ 92%]
+tests/unit/test_qwen_oauth_interactive_commands.py::TestQwenOAuthConfigurationMethods::test_config_file_backend_persistence PASSED [ 92%]
+tests/unit/test_qwen_oauth_interactive_commands.py::TestQwenOAuthConfigurationMethods::test_all_backend_access_methods SKIPPED [ 93%]
+tests/unit/test_qwen_oauth_tool_calling.py::TestQwenOAuthToolCallingUnit::test_chat_completions_with_tools PASSED [ 93%]
+tests/unit/test_qwen_oauth_tool_calling.py::TestQwenOAuthToolCallingUnit::test_chat_completions_tool_choice_none PASSED [ 93%]
+tests/unit/test_qwen_oauth_tool_calling.py::TestQwenOAuthToolCallingUnit::test_chat_completions_specific_tool_choice PASSED [ 93%]
+tests/unit/test_qwen_oauth_tool_calling.py::TestQwenOAuthToolCallingUnit::test_streaming_with_tool_calls PASSED [ 93%]
+tests/unit/test_qwen_oauth_tool_calling.py::TestQwenOAuthToolCallingUnit::test_multi_turn_tool_conversation PASSED [ 93%]
+tests/unit/test_qwen_oauth_tool_calling.py::TestQwenOAuthToolCallingUnit::test_tool_calling_error_handling PASSED [ 93%]
+tests/unit/test_qwen_oauth_tool_calling.py::TestQwenOAuthToolCallingUnit::test_tool_call_serialization PASSED [ 94%]
+tests/unit/test_qwen_oauth_tool_calling_enhanced.py::TestQwenOAuthToolCallingEnhanced::test_chat_completions_with_tools PASSED [ 94%]
+tests/unit/test_qwen_oauth_tool_calling_enhanced.py::TestQwenOAuthToolCallingEnhanced::test_chat_completions_tool_choice_none PASSED [ 94%]
+tests/unit/test_qwen_oauth_tool_calling_enhanced.py::TestQwenOAuthToolCallingEnhanced::test_chat_completions_specific_tool_choice PASSED [ 94%]
+tests/unit/test_qwen_oauth_tool_calling_enhanced.py::TestQwenOAuthToolCallingEnhanced::test_streaming_with_tool_calls PASSED [ 94%]
+tests/unit/test_qwen_oauth_tool_calling_enhanced.py::TestQwenOAuthToolCallingEnhanced::test_multi_turn_tool_conversation PASSED [ 94%]
+tests/unit/test_qwen_oauth_tool_calling_enhanced.py::TestQwenOAuthToolCallingEnhanced::test_tool_calling_error_handling PASSED [ 94%]
+tests/unit/test_qwen_oauth_tool_calling_enhanced.py::TestQwenOAuthToolCallingEnhanced::test_model_prefix_stripping PASSED [ 94%]
+tests/unit/test_rate_limit.py::test_parse_retry_delay_with_prefixed_string PASSED [ 95%]
+tests/unit/test_rate_limit.py::test_rate_limit_registry_earliest PASSED  [ 95%]
+tests/unit/test_response_shape.py::test_extract_response_content_with_dict PASSED [ 95%]
+tests/unit/test_response_shape.py::test_extract_response_content_with_object_choices PASSED [ 95%]
+tests/unit/test_security.py::test_cli_disable_auth_forces_localhost PASSED [ 95%]
+tests/unit/test_security.py::test_env_disable_auth_forces_localhost PASSED [ 95%]
+tests/unit/test_security.py::test_auth_enabled_allows_custom_host PASSED [ 95%]
+tests/unit/test_security.py::test_config_disable_auth_forces_localhost PASSED [ 96%]
+tests/unit/test_security.py::test_security_documentation PASSED          [ 96%]
+tests/unit/test_session_manager.py::test_session_service_can_create_sessions PASSED [ 96%]
+tests/unit/test_session_manager.py::test_session_creation_and_retrieval PASSED [ 96%]
+tests/unit/test_session_manager.py::test_session_update_and_persistence PASSED [ 96%]
+tests/unit/test_streaming_normalizer.py::TestStreamingContent::test_from_raw_bytes PASSED [ 96%]
+tests/unit/test_streaming_normalizer.py::TestStreamingContent::test_from_raw_dict PASSED [ 96%]
+tests/unit/test_streaming_normalizer.py::TestStreamingContent::test_from_raw_str PASSED [ 97%]
+tests/unit/test_streaming_normalizer.py::TestStreamingContent::test_to_bytes PASSED [ 97%]
+tests/unit/test_streaming_normalizer.py::TestStreamNormalizer::test_normalize_stream PASSED [ 97%]
+tests/unit/test_streaming_normalizer.py::TestStreamNormalizer::test_process_stream_bytes_output PASSED [ 97%]
+tests/unit/test_streaming_normalizer.py::TestStreamNormalizer::test_processor_transforms_content PASSED [ 97%]
+tests/unit/test_tool_call_loop_middleware.py::test_process_no_context PASSED [ 97%]
+tests/unit/test_tool_call_loop_middleware.py::test_process_no_config PASSED [ 97%]
+tests/unit/test_tool_call_loop_middleware.py::test_process_disabled PASSED [ 97%]
+tests/unit/test_tool_call_loop_middleware.py::test_process_no_tool_calls PASSED [ 98%]
+tests/unit/test_tool_call_loop_middleware.py::test_process_with_tool_calls PASSED [ 98%]
+tests/unit/test_tool_call_loop_middleware.py::test_reset_session PASSED  [ 98%]
+tests/unit/test_tool_call_loop_middleware.py::test_different_tool_calls PASSED [ 98%]
+tests/unit/test_transport_adapters.py::TestRequestAdapters::test_fastapi_to_domain_request_context PASSED [ 98%]
+tests/unit/test_transport_adapters.py::TestResponseAdapters::test_to_fastapi_response_json PASSED [ 98%]
+tests/unit/test_transport_adapters.py::TestResponseAdapters::test_to_fastapi_response_text PASSED [ 98%]
+tests/unit/test_transport_adapters.py::TestResponseAdapters::test_to_fastapi_streaming_response PASSED [ 99%]
+tests/unit/test_transport_adapters.py::TestResponseAdapters::test_domain_response_to_fastapi PASSED [ 99%]
+tests/unit/test_transport_adapters.py::TestExceptionAdapters::test_map_domain_exception_to_http_exception PASSED [ 99%]
+tests/unit/zai_connector_tests/test_domain_to_connector.py::test_chat_completions_basic_request PASSED [ 99%]
+tests/unit/zai_connector_tests/test_domain_to_connector.py::test_chat_completions_with_tools PASSED [ 99%]
+tests/unit/zai_connector_tests/test_domain_to_connector.py::test_chat_completions_streaming PASSED [ 99%]
+tests/unit/zai_connector_tests/test_domain_to_connector.py::test_list_models PASSED [ 99%]
+tests/unit/zai_connector_tests/test_domain_to_connector.py::test_default_models_fallback PASSED [100%]
+
+=============================== tests coverage ================================
+______________ coverage: platform win32, python 3.10.11-final-0 _______________
+
+Name                                                                                Stmts   Miss  Cover   Missing
+-----------------------------------------------------------------------------------------------------------------
+src\__init__.py                                                                         0      0   100%
+src\agents.py                                                                          58     33    43%   26-32, 51, 56, 78-87, 95-108, 123-143, 151-170, 192-197
+src\anthropic_converters.py                                                           120     44    63%   71-85, 109-125, 135, 137, 143-182, 258
+src\anthropic_models.py                                                                37      0   100%
+src\anthropic_router.py                                                                79     18    77%   90-92, 112-119, 129-130, 152, 172-196
+src\command_config.py                                                                  21      1    95%   10
+src\command_parser.py                                                                 155     44    72%   54-59, 81-87, 117, 121, 125, 137, 145-152, 176, 189-194, 218-219, 236-255, 264-265, 294, 318-339, 362
+src\command_prefix.py                                                                   9      1    89%   28
+src\command_processor.py                                                              206    103    50%   91, 109-120, 128-136, 176-311, 322-355, 363, 374-385, 402, 437-438
+src\command_utils.py                                                                   58     20    66%   21, 26, 29-30, 47, 67-68, 78-84, 100-107
+src\connectors\__init__.py                                                              8      0   100%
+src\connectors\anthropic.py                                                           196     74    62%   56, 72-85, 93-94, 116, 140, 146, 190, 199-211, 219, 221, 223, 254-255, 295-296, 301-310, 317-338, 349-355, 423, 439-440, 445-452, 467-468
+src\connectors\base.py                                                                 15      2    87%   10, 59
+src\connectors\gemini.py                                                              262     84    68%   49, 58-77, 85-86, 130-135, 151-153, 189-191, 197-201, 217-221, 238-242, 261-272, 290-291, 301-312, 318, 328-331, 379, 392, 432, 475, 477-482, 496-500, 513-516, 527-545
+src\connectors\openai.py                                                              137     12    91%   62-63, 102-103, 129, 137-138, 145-146, 177, 187-188
+src\connectors\openrouter.py                                                          101     16    84%   37-42, 48, 61, 64, 73, 102, 114, 120, 170-171, 175, 178, 194, 196
+src\connectors\qwen_oauth.py                                                          152     10    93%   32, 155, 228, 316-318, 342-348
+src\connectors\streaming_utils.py                                                      69     21    70%   44-45, 58-59, 65-76, 81, 85-88, 92, 128
+src\connectors\zai.py                                                                  63     10    84%   18, 49-52, 58, 64, 73, 77, 101, 118
+src\constants.py                                                                       20      0   100%
+src\core\__init__.py                                                                    2      0   100%
+src\core\adapters\__init__.py                                                           1      0   100%
+src\core\adapters\api_adapters.py                                                     159     71    55%   40, 46-50, 80, 138-151, 182-198, 216, 222-223, 248-287, 300, 315-323, 338-348, 363-371, 386-406, 420-424, 438-442
+src\core\adapters\exception_adapters.py                                                36     36     0%   1-90
+src\core\adapters\response_adapters.py                                                 21     21     0%   1-63
+src\core\app\__init__.py                                                                0      0   100%
+src\core\app\application_builder.py                                                   160     36    78%   61, 99, 126, 148-149, 170-172, 204-206, 235-247, 287-289, 308-309, 317-318, 328-329, 352-353, 371, 393, 413-417
+src\core\app\application_factory.py                                                    34     16    53%   38-40, 51-53, 57, 74-88, 97
+src\core\app\controllers\__init__.py                                                  186     80    57%   60, 66-69, 86-99, 118, 133-134, 158-160, 167-222, 239, 273-275, 334-358, 403-406, 434-436, 468
+src\core\app\controllers\anthropic_controller.py                                       97     80    18%   41, 57-153, 171-223
+src\core\app\controllers\chat_controller.py                                            81     48    41%   61, 81, 88-94, 112-185
+src\core\app\controllers\models_controller.py                                          66     20    70%   35, 45, 67, 97-98, 117-146, 175-177
+src\core\app\controllers\usage_controller.py                                           32     15    53%   30, 44-48, 62-68, 87-89, 108-110
+src\core\app\error_handlers.py                                                         41     41     0%   1-179
+src\core\app\lifecycle.py                                                              58     58     0%   1-127
+src\core\app\middleware_config.py                                                      42      1    98%   87
+src\core\app\stages\__init__.py                                                         8      0   100%
+src\core\app\stages\backend.py                                                         91     15    84%   49, 59-60, 80-81, 107-108, 131-132, 181-182, 188, 191-193
+src\core\app\stages\base.py                                                            24      4    83%   76, 100-102
+src\core\app\stages\command.py                                                         82     22    73%   41, 70-71, 98-99, 134-135, 145-164, 178-179, 188, 191-193
+src\core\app\stages\controller.py                                                      83     23    72%   43, 86-87, 103-108, 116-117, 129-134, 142-143, 155-161, 169-170, 185-186, 189-191
+src\core\app\stages\core_services.py                                                   66     12    82%   40, 80-81, 113-114, 136-137, 146-147, 150-152
+src\core\app\stages\infrastructure.py                                                  54     12    78%   43, 72-73, 84-85, 102-106, 114-116
+src\core\app\stages\processor.py                                                      103     14    86%   45, 99-100, 138-139, 168-169, 188-189, 254-255, 263-265
+src\core\app\stages\test_stages.py                                                    239    117    51%   39, 78-79, 88-89, 108-173, 188-221, 250-301, 311-312, 346-347, 351-395, 428-429, 442, 445, 448, 452-460, 464-475, 479-500, 519, 568-569, 594-596, 600, 603, 606, 610-616
+src\core\app\test_builder.py                                                          144     75    48%   74-76, 89-91, 110-115, 132-162, 176-190, 211-222, 238-240, 263-265, 290-308, 321-332, 366, 426-440, 456-463
+src\core\cli.py                                                                       167     36    78%   19-20, 28, 33-46, 160, 174, 176, 181, 183, 205, 217, 267, 289-303, 322-326, 330
+src\core\cli_v2.py                                                                    103    103     0%   9-262
+src\core\commands\__init__.py                                                           0      0   100%
+src\core\commands\handler_factory.py                                                    9      9     0%   1-39
+src\core\commands\handlers\__init__.py                                                  0      0   100%
+src\core\commands\handlers\base_handler.py                                             48     10    79%   53, 58, 63, 106-112, 134, 139, 150-151
+src\core\commands\handlers\command_handler.py                                         182    182     0%   8-477
+src\core\commands\handlers\loop_detection_handlers.py                                 145     25    83%   54, 59, 64, 78-79, 148, 153, 158, 172-173, 242, 247, 252, 266-267, 326, 331, 336, 350-351, 410, 415, 420, 434-435
+src\core\commands\handlers\project_dir_handler.py                                      32     32     0%   7-102
+src\core\commands\handlers\reasoning_handlers.py                                       85     85     0%   7-269
+src\core\common\__init__.py                                                             0      0   100%
+src\core\common\architectural_guards.py                                                87     55    37%   48-82, 96-106, 118-143, 161-172, 176, 180, 215-223
+src\core\common\exceptions.py                                                          85     17    80%   58, 108-115, 126, 180, 216-224
+src\core\common\logging.py                                                             74     53    28%   51-132, 167-169, 181-228
+src\core\common\logging_utils.py                                                      226     47    79%   97, 126, 161-167, 178, 188-189, 201, 210, 213-214, 222-224, 247-252, 272-273, 284-285, 298-303, 314, 324-327, 330-331, 341-342, 346-349, 427, 478-482
+src\core\config.py                                                                      3      3     0%   8-18
+src\core\config\__init__.py                                                             3      0   100%
+src\core\config\app_config.py                                                         282     55    80%   23-29, 39, 51, 153, 166, 170, 184, 197-200, 204, 213-220, 487-488, 500-501, 507-514, 520-525, 553-564, 570, 613-616, 624-625
+src\core\config\config_loader.py                                                      100     36    64%   45-47, 56-67, 124-128, 246-267, 271
+src\core\constants\__init__.py                                                          7      0   100%
+src\core\constants\api_response_constants.py                                           44      0   100%
+src\core\constants\backend_constants.py                                                16      0   100%
+src\core\constants\command_output_constants.py                                         55      0   100%
+src\core\constants\error_constants.py                                                  58      0   100%
+src\core\constants\http_status_constants.py                                            15      0   100%
+src\core\constants\model_constants.py                                                  18      0   100%
+src\core\constants\validation_constants.py                                             35      0   100%
+src\core\di\__init__.py                                                                 0      0   100%
+src\core\di\container.py                                                              134     27    80%   45, 71, 76-88, 110-115, 119, 177-178, 206, 216-217, 220-221, 327, 338, 349
+src\core\di\services.py                                                               196    153    22%   67-78, 88-90, 100, 109, 122-434, 449-450, 465-466
+src\core\domain\__init__.py                                                             0      0   100%
+src\core\domain\backend_type.py                                                        10      0   100%
+src\core\domain\base.py                                                                22      5    77%   39-42, 46, 51
+src\core\domain\chat.py                                                               170     55    68%   78-86, 102-111, 149, 166-170, 180-193, 283-325
+src\core\domain\command_context.py                                                     79     25    68%   20, 25, 30, 35, 40, 45, 50, 55, 60, 65, 70, 75, 80, 85, 90, 95, 100, 105, 110, 115, 120, 125, 130, 135, 140
+src\core\domain\command_results.py                                                     16      0   100%
+src\core\domain\commands\__init__.py                                                    3      0   100%
+src\core\domain\commands\base_command.py                                               46     16    65%   71, 91, 121-158
+src\core\domain\commands\command_factory.py                                            23      1    96%   59
+src\core\domain\commands\discovery.py                                                  94     89     5%   35-167
+src\core\domain\commands\failover_commands.py                                         205     92    55%   42, 46, 50, 73, 114, 118, 122, 144, 154, 190, 194, 198, 222, 245, 249, 253, 257, 261, 280-316, 328, 332, 336, 340, 344, 363-418, 434, 438, 442, 446, 450, 469-507, 523, 527, 531, 535, 539, 558-585
+src\core\domain\commands\hello_command.py                                              28      3    89%   31, 35, 39
+src\core\domain\commands\help_command.py                                               42      5    88%   28, 32, 36, 61, 87
+src\core\domain\commands\loop_detection_commands\__init__.py                            6      0   100%
+src\core\domain\commands\loop_detection_commands\loop_detection_command.py             34     14    59%   20, 24, 28, 32, 36, 43-59
+src\core\domain\commands\loop_detection_commands\tool_loop_detection_command.py        34     14    59%   20, 24, 28, 32, 36, 42-60
+src\core\domain\commands\loop_detection_commands\tool_loop_max_repeats_command.py      41     21    49%   20, 24, 28, 32, 36, 42-79
+src\core\domain\commands\loop_detection_commands\tool_loop_mode_command.py             41     20    51%   21, 25, 29, 33, 37, 43-73
+src\core\domain\commands\loop_detection_commands\tool_loop_ttl_command.py              41     21    49%   20, 24, 28, 32, 36, 42-79
+src\core\domain\commands\model_command.py                                              58     15    74%   31, 35, 39, 45-52, 65-68, 99-102
+src\core\domain\commands\oneoff_command.py                                             39      4    90%   35, 39, 45, 86
+src\core\domain\commands\openai_url_command.py                                         44     44     0%   7-112
+src\core\domain\commands\project_command.py                                            36     36     0%   7-85
+src\core\domain\commands\pwd_command.py                                                29      3    90%   34, 38, 42
+src\core\domain\commands\secure_base_command.py                                        78     31    60%   59, 92-113, 126-147, 159-164, 172, 177, 190, 198, 219, 247-260
+src\core\domain\commands\set_command.py                                               133     66    50%   42, 46, 50, 63-110, 131, 147, 180, 220, 242-267, 283-307, 323-348
+src\core\domain\commands\temperature_command.py                                        42      7    83%   31, 35, 39, 80-83
+src\core\domain\commands\unset_command.py                                              89     36    60%   47, 51, 55, 75-114, 158-167, 173-180, 186-193
+src\core\domain\configuration.py                                                       78     78     0%   1-138
+src\core\domain\configuration\__init__.py                                               7      0   100%
+src\core\domain\configuration\backend_config.py                                        81     18    78%   51-53, 75, 85, 101, 131-134, 147-152, 159, 164
+src\core\domain\configuration\config_exports.py                                         5      5     0%   5-12
+src\core\domain\configuration\gemini_config.py                                         74     40    46%   52-54, 60-62, 68-70, 76-78, 82-84, 88, 101-136, 144-166
+src\core\domain\configuration\loop_detection_config.py                                 40      6    85%   39-41, 47-49
+src\core\domain\configuration\project_config.py                                        11     11     0%   1-25
+src\core\domain\configuration\reasoning_config.py                                      34      8    76%   30-32, 38-43, 61, 67
+src\core\domain\configuration\session_state_builder.py                                 82     82     0%   1-282
+src\core\domain\domain_commands.py                                                     11     11     0%   1-26
+src\core\domain\model_capabilities.py                                                 101    101     0%   7-271
+src\core\domain\model_utils.py                                                         35      0   100%
+src\core\domain\multimodal.py                                                         201     18    91%   172, 192, 215, 234, 254, 262, 264, 275, 282, 288, 290, 316, 322, 326, 345, 351, 370, 374
+src\core\domain\processed_result.py                                                     7      0   100%
+src\core\domain\request_context.py                                                     13      0   100%
+src\core\domain\responses.py                                                           24      2    92%   51-52
+src\core\domain\session.py                                                            253     94    63%   79, 104, 109, 125, 130-131, 138-139, 155, 160-161, 166, 176, 180, 184, 189-190, 199-202, 206-209, 213-214, 218-219, 228-229, 234, 238, 242, 246, 252-255, 261-262, 318-340, 350, 355, 360, 365, 370-390, 395, 410-420, 425-427, 431, 446-475
+src\core\domain\streaming_response_processor.py                                       123     31    75%   100, 106-108, 113, 142-145, 159-160, 167-189, 213, 257, 266-274, 295-296, 329
+src\core\domain\streaming_test_helpers.py                                              10     10     0%   8-43
+src\core\domain\usage_data.py                                                          13      0   100%
+src\core\integration\__init__.py                                                        2      0   100%
+src\core\integration\bridge.py                                                         25     13    48%   31, 42-44, 59-61, 66-67, 70, 75, 78-79
+src\core\interfaces\__init__.py                                                         0      0   100%
+src\core\interfaces\app_settings_interface.py                                          28      0   100%
+src\core\interfaces\application_state_interface.py                                     28      0   100%
+src\core\interfaces\backend_config_provider_interface.py                               10      0   100%
+src\core\interfaces\backend_processor_interface.py                                      8      0   100%
+src\core\interfaces\backend_service.py                                                 14     14     0%   1-57
+src\core\interfaces\backend_service_interface.py                                       14      0   100%
+src\core\interfaces\command_processor_interface.py                                      8      0   100%
+src\core\interfaces\command_service.py                                                  8      8     0%   1-32
+src\core\interfaces\command_service_interface.py                                       10      2    80%   12, 16
+src\core\interfaces\command_settings_interface.py                                      17      0   100%
+src\core\interfaces\configuration.py                                                   94     94     0%   7-206
+src\core\interfaces\configuration_interface.py                                         84      0   100%
+src\core\interfaces\di.py                                                              36     36     0%   1-163
+src\core\interfaces\di_interface.py                                                    52     15    71%   22, 26, 42-45, 49, 56, 60, 71, 79, 88, 97, 101, 105
+src\core\interfaces\domain_entities\__init__.py                                         2      2     0%   6-13
+src\core\interfaces\domain_entities_interface.py                                       83      0   100%
+src\core\interfaces\factory_interface.py                                                7      0   100%
+src\core\interfaces\failover_interface.py                                               6      0   100%
+src\core\interfaces\loop_detector.py                                                   19     19     0%   1-65
+src\core\interfaces\loop_detector_interface.py                                         21      9    57%   16-20, 26, 31, 34, 43
+src\core\interfaces\model_bases.py                                                      4      0   100%
+src\core\interfaces\rate_limiter.py                                                    23     23     0%   1-66
+src\core\interfaces\rate_limiter_interface.py                                          27      4    85%   31, 35, 39, 43
+src\core\interfaces\repositories.py                                                    34     34     0%   1-158
+src\core\interfaces\repositories_interface.py                                          46     12    74%   15, 19, 23, 27, 31, 37, 41, 47, 51, 55, 61, 65
+src\core\interfaces\request_processor_interface.py                                     13      0   100%
+src\core\interfaces\response_handler_interface.py                                      14      0   100%
+src\core\interfaces\response_processor_interface.py                                    22      0   100%
+src\core\interfaces\session_resolver_interface.py                                       6      0   100%
+src\core\interfaces\session_service.py                                                 16     16     0%   1-68
+src\core\interfaces\session_service_interface.py                                       24      6    75%   11, 19, 23, 27, 31, 35
+src\core\interfaces\state_provider_interface.py                                        31      4    87%   20, 24, 71-72
+src\core\interfaces\usage_tracking.py                                                  17     17     0%   5-97
+src\core\interfaces\usage_tracking_interface.py                                        20      4    80%   30, 44, 50, 56
+src\core\metadata.py                                                                   10     10     0%   1-13
+src\core\persistence.py                                                               141    112    21%   23-30, 43-70, 75-87, 90-92, 95-100, 104-128, 137-172, 175-208, 211-225, 229-263, 266-269
+src\core\repositories\__init__.py                                                       0      0   100%
+src\core\repositories\in_memory_config_repository.py                                   17     17     0%   1-54
+src\core\repositories\in_memory_session_repository.py                                  57     27    53%   34, 43-45, 52, 60-78, 82-83, 94-109
+src\core\repositories\in_memory_usage_repository.py                                    52     52     0%   1-93
+src\core\repositories\session_repository.py                                            73     35    52%   37-40, 46, 56-57, 62, 66-67, 71-85, 101-102, 108-118, 123, 128-133, 138-143, 148-154, 159, 164
+src\core\security\__init__.py                                                           2      0   100%
+src\core\security\middleware.py                                                        68      5    93%   76-78, 91-92
+src\core\services\__init__.py                                                           0      0   100%
+src\core\services\app_settings_service.py                                              96     74    23%   26-31, 40-59, 72-84, 94-101, 113-123, 132-148, 156-162, 170, 178-182, 190, 198-202, 210, 218-222, 230, 248-250
+src\core\services\application_state_service.py                                         66     30    55%   40-42, 46-48, 52-54, 58-60, 65, 70-72, 76-78, 82-84, 89, 94-96, 106-108, 134
+src\core\services\backend_config_provider.py                                           70     16    77%   29-32, 40, 43-44, 61-62, 72-73, 83-85, 111, 118
+src\core\services\backend_config_service.py                                            33     17    48%   36, 52-88
+src\core\services\backend_config_service_service.py                                     5      5     0%   3-15
+src\core\services\backend_factory.py                                                   54      3    94%   137-142
+src\core\services\backend_factory_service.py                                            5      0   100%
+src\core\services\backend_imports.py                                                    1      0   100%
+src\core\services\backend_processor.py                                                 65     22    66%   67-71, 87-88, 91, 150, 167-179, 183-191
+src\core\services\backend_registry.py                                                  23      5    78%   5, 22, 24, 26, 44
+src\core\services\backend_registry_service.py                                           5      0   100%
+src\core\services\backend_service.py                                                  157     50    68%   127, 161, 167-169, 175-176, 210-311, 355-356
+src\core\services\command_processor.py                                                 21      2    90%   61-63
+src\core\services\command_registration.py                                              65     65     0%   3-230
+src\core\services\command_service.py                                                  157     77    51%   26, 30, 34, 38, 42, 47, 63-65, 84-87, 114, 125, 150, 158, 170-173, 206, 222, 253-255, 260-269, 274-354
+src\core\services\command_service_service.py                                            5      5     0%   3-15
+src\core\services\command_settings_service.py                                          36     15    58%   43, 52-57, 62, 71-72, 76-78, 96-98
+src\core\services\failover_coordinator.py                                              15      1    93%   37
+src\core\services\failover_service.py                                                  52     19    63%   52-64, 101-107, 118-119, 134-145, 153, 157-158
+src\core\services\failover_service_service.py                                           5      5     0%   3-15
+src\core\services\loop_detector.py                                                     63     63     0%   7-211
+src\core\services\loop_detector_service.py                                             62     44    29%   31-116, 124-126, 131, 134
+src\core\services\rate_limiter.py                                                      73     73     0%   7-251
+src\core\services\rate_limiter_service.py                                              57     14    75%   31, 48-49, 52, 60-61, 64, 67, 70, 73, 80-89
+src\core\services\redaction_middleware.py                                              85     85     0%   8-229
+src\core\services\redaction_middleware_service.py                                       5      5     0%   3-19
+src\core\services\request_processor.py                                                192    192     0%   1-591
+src\core\services\request_processor_service.py                                         98     11    89%   109-110, 161, 168, 171, 196-206, 239-240
+src\core\services\response_handlers.py                                                 21      8    62%   36, 58, 74-86
+src\core\services\response_middleware.py                                               42     25    40%   26-38, 51-60, 79-95, 99-100
+src\core\services\response_middleware_service.py                                        5      5     0%   7-24
+src\core\services\response_processor_service.py                                       178     61    66%   42, 50-53, 79-81, 101-105, 117, 122-128, 135-137, 169-171, 175, 181, 185-186, 235-241, 263-275, 281, 285-300
+src\core\services\secure_command_factory.py                                            63     44    30%   43-45, 59-99, 106, 110, 129-131, 135, 149-153, 157-159, 169-180, 187-198
+src\core\services\secure_state_service.py                                              85     61    28%   38-39, 43-44, 48-49, 53-54, 59-72, 76-83, 87-94, 98-119, 123-130, 134, 147-148, 153-167, 175-194
+src\core\services\session_migration_service.py                                         21     21     0%   8-100
+src\core\services\session_resolver_service.py                                          38     15    61%   44-48, 61-67, 72, 77, 96, 107
+src\core\services\session_service.py                                                    5      0   100%
+src\core\services\session_service_impl.py                                              30      6    80%   23, 27-29, 33-35
+src\core\services\sync_session_manager.py                                              66     54    18%   13-14, 38-71, 82, 93-108, 119-134, 142-153
+src\core\services\sync_session_manager_service.py                                       5      5     0%   3-15
+src\core\services\tool_call_loop_middleware.py                                         61     10    84%   64, 68, 73, 149-153, 174-179
+src\core\services\tool_call_loop_middleware_service.py                                  5      0   100%
+src\core\services\usage_tracking_service.py                                            86     86     0%   8-293
+src\core\testing\__init__.py                                                            7      7     0%   18-63
+src\core\testing\base_stage.py                                                         87     87     0%   8-283
+src\core\testing\example_usage.py                                                     106    106     0%   2-225
+src\core\testing\interfaces.py                                                        105    105     0%   8-310
+src\core\testing\type_checker.py                                                      122    122     0%   8-315
+src\core\transport\__init__.py                                                          1      0   100%
+src\core\transport\fastapi\__init__.py                                                  1      0   100%
+src\core\transport\fastapi\api_adapters.py                                            131     76    42%   39, 44, 56-60, 79, 84, 135-148, 165-191, 205-219, 250-260, 279, 292-300, 312-322, 335-343, 355-375, 388-392, 405-409
+src\core\transport\fastapi\exception_adapters.py                                       48     14    71%   50, 53-56, 66-70, 109-116
+src\core\transport\fastapi\request_adapters.py                                         23      5    78%   74-94
+src\core\transport\fastapi\response_adapters.py                                       101     35    65%   29, 50, 59, 77, 79, 90-93, 97, 103, 107-109, 113-116, 121-122, 134-137, 166, 170-179, 217-222
+src\gemini_converters.py                                                              181    125    31%   43, 51-56, 58, 83, 92-97, 109-131, 156-199, 206-249, 256-278, 284-289, 294, 304-305, 312-324, 328-337, 341-347
+src\gemini_models.py                                                                  130      1    99%   122
+src\llm_accounting_utils.py                                                           294    173    41%   62, 68-73, 78-85, 101-119, 133-139, 152-183, 196-203, 229, 240, 244, 248, 252, 256, 258, 264-273, 321, 346, 354, 358, 362, 368-373, 426-457, 475-505, 529-629, 650-666, 678-707
+src\loop_detection\__init__.py                                                          4      0   100%
+src\loop_detection\config.py                                                          110     61    45%   86-135, 140-200, 206-214, 238, 241, 244
+src\loop_detection\detector.py                                                        185     44    76%   52, 59-64, 77-78, 128, 156-158, 174, 177, 179, 215-225, 246, 283, 289, 304, 337-366
+src\loop_detection\streaming.py                                                       147    102    31%   32-40, 47-106, 110-120, 124-129, 140-145, 149, 166-168, 178, 202-205, 211, 216-218, 227-263, 266-267, 269-272, 288-295
+src\performance_tracker.py                                                             87     87     0%   5-151
+src\rate_limit.py                                                                      69     18    74%   24, 28, 44, 53, 57, 60, 64, 68-71, 78, 81, 84, 91, 95, 103-105
+src\request_middleware.py                                                              14      2    86%   40-41
+src\response_middleware.py                                                             10      0   100%
+src\security.py                                                                        61      4    93%   27, 36, 42, 122
+src\services\__init__.py                                                                0      0   100%
+src\services\chat_service.py                                                           44     44     0%   7-147
+src\tool_call_loop\__init__.py                                                          0      0   100%
+src\tool_call_loop\config.py                                                           73     51    30%   41-49, 61-83, 95-120, 128, 144-153
+src\tool_call_loop\tracker.py                                                          96     15    84%   112, 119, 149-152, 169, 203-219
+-----------------------------------------------------------------------------------------------------------------
+TOTAL                                                                               14383   6549    54%
+====================== 648 passed, 92 skipped in 15.66s =======================

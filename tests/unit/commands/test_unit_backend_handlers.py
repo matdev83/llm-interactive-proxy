@@ -1,6 +1,7 @@
 from unittest.mock import Mock, patch
 
 import pytest
+pytest.skip("Skipping tests for removed legacy handlers", allow_module_level=True)
 from src.core.constants import (
     BACKEND_MUST_BE_STRING_MESSAGE,
     BACKEND_NOT_FUNCTIONAL_MESSAGE,

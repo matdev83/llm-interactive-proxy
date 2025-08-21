@@ -1,0 +1,4 @@
+# file: C:\Users\Mateusz\source\repos\llm-interactive-proxy\src\core\app\controllers\usage_controller.py
+# hypothesis_version: 6.138.2
+
+[100, '/recent', '/stats', '/usage', 'Filter by session ID', 'error', 'usage']

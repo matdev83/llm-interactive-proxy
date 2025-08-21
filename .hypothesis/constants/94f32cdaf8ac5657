@@ -1,0 +1,4 @@
+# file: C:\Users\Mateusz\source\repos\llm-interactive-proxy\src\anthropic_router.py
+# hypothesis_version: 6.138.2
+
+[422, 500, 501, '/anthropic', '/health', '/v1/info', '/v1/messages', '/v1/models', '1.0.0', 'Cache-Control', 'Connection', 'Content-Type', '__aiter__', 'anthropic', 'anthropic-proxy', 'assistant', 'backend_type', 'content-type', 'error', 'healthy', 'keep-alive', 'message', 'no-cache', 'openrouter', 'server_error', 'service', 'service_provider', 'status', 'supported_endpoints', 'supported_models', 'system', 'text/event-stream', 'text/plain', 'type', 'user', 'utf-8', 'version']

@@ -1,0 +1,4 @@
+# file: C:\Users\Mateusz\source\repos\llm-interactive-proxy\src\core\common\exceptions.py
+# hypothesis_version: 6.138.2
+
+[400, 401, 429, 500, 503, 'Configuration error', 'Loop detected', 'Rate limit exceeded', 'Service unavailable', 'auth_error', 'backend', 'backend_error', 'code', 'config_error', 'details', 'error', 'invalid_request', 'limit', 'loop_detected', 'message', 'param', 'pattern', 'rate_limit_exceeded', 'remaining', 'reset_at', 'service_unavailable', 'tool_call_loop', 'tool_name', 'type']

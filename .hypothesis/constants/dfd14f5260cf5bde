@@ -1,0 +1,4 @@
+# file: C:\Users\Mateusz\source\repos\llm-interactive-proxy\src\anthropic_converters.py
+# hypothesis_version: 6.138.2
+
+[1709000000, 1725000000, 'AnthropicMessage', '[DONE]', '_raw', 'anthropic', 'arguments', 'assistant', 'choices', 'completion_tokens', 'content', 'content_block_delta', 'content_filter', 'created', 'data', 'data: ', 'delta', 'end_turn', 'finish_reason', 'function', 'function_call', 'id', 'index', 'input', 'input_tokens', 'length', 'list', 'max_tokens', 'message', 'message_delta', 'message_start', 'messages', 'model', 'name', 'object', 'output_tokens', 'owned_by', 'prompt_tokens', 'role', 'stop', 'stop_reason', 'stop_sequence', 'stream', 'system', 'temperature', 'text', 'text_delta', 'tool', 'tool_calls', 'tool_use', 'toolu_0', 'top_p', 'total_tokens', 'type', 'usage', '{}']

@@ -1,0 +1,4 @@
+# file: C:\Users\Mateusz\source\repos\llm-interactive-proxy\src\core\constants\backend_constants.py
+# hypothesis_version: 6.138.2
+
+['anthropic', 'anthropic/', 'gemini', 'gemini/', 'openai', 'openai/', 'openrouter', 'openrouter:', 'qwen', 'qwen-oauth', 'zai']

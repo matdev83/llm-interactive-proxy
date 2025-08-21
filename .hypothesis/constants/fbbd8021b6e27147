@@ -1,0 +1,4 @@
+# file: C:\Users\Mateusz\source\repos\llm-interactive-proxy\src\core\domain\commands\set_command.py
+# hypothesis_version: 6.138.2
+
+['"', "'", '0', '1', ':', 'DISABLE', 'DISABLED', 'ENABLE', 'ENABLED', 'FALSE', 'NO', 'OFF', 'ON', 'TRUE', 'YES', 'backend', 'command-prefix', 'command_prefix', 'disable', 'disabled', 'enable', 'enabled', 'false', 'interactive-mode', 'model', 'no', 'off', 'on', 'project', 'set', 'temperature', 'true', 'yes']

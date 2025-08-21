@@ -1,0 +1,4 @@
+# file: C:\Users\Mateusz\source\repos\llm-interactive-proxy\src\core\domain\commands\loop_detection_commands\tool_loop_detection_command.py
+# hypothesis_version: 6.138.2
+
+['1', 'enabled', 'on', 'tool-loop-detection', 'true', 'yes']

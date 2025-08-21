@@ -1,0 +1,4 @@
+# file: C:\Users\Mateusz\source\repos\llm-interactive-proxy\src\agents.py
+# hypothesis_version: 6.138.2
+
+['*** Begin Patch', '*** End Patch', '*** begin patch', '/anthropic/', '/v1beta/', 'aider', 'anthropic', 'args', 'arguments', 'attempt_completion', 'cline', 'detect_agent', 'detect_frontend_api', 'function', 'function_call', 'gemini', 'id', 'input', 'name', 'openai', 'result', 'roocode', 'tool use', 'tool_use', 'type', 'v4a diff', 'wrap_proxy_message', 'xml-style', 'you are\\s+roo']

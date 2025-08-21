@@ -1,0 +1,4 @@
+# file: C:\Users\Mateusz\source\repos\llm-interactive-proxy\src\core\services\backend_config_provider.py
+# hypothesis_version: 6.138.2
+
+['_', '__dict__', 'default_backend', 'functional_backends', 'openai']

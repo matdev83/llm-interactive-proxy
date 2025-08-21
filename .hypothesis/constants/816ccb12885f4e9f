@@ -1,0 +1,4 @@
+# file: C:\Users\Mateusz\source\repos\llm-interactive-proxy\src\core\commands\handlers\loop_detection_handlers.py
+# hypothesis_version: 6.138.2
+
+['-', '0', '1', '_', 'break', 'chance_then_break', 'false', 'loop-detection', 'loop_detection', 'loop_mode', 'max_repeats', 'no', 'none', 'off', 'on', 'tool-loop-detection', 'tool-loop-mode', 'tool-loop-ttl', 'tool_loop_detection', 'tool_loop_mode', 'tool_loop_ttl', 'true', 'ttl', 'yes']

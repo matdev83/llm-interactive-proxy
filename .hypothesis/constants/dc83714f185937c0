@@ -1,0 +1,4 @@
+# file: C:\Users\Mateusz\source\repos\llm-interactive-proxy\examples\http_status_constants_usage.py
+# hypothesis_version: 6.138.2
+
+[500, 503, 'Database service']

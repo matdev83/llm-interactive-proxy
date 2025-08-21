@@ -437,5 +437,37 @@ For more details on the architecture, see:
 - [DI Command Implementation Fixes](docs/DI_COMMAND_IMPLEMENTATION_FIXES.md): Summary of the DI implementation changes
 - [Test DI Architecture](docs/TEST_DI_ARCHITECTURE.md): Guide to testing with the DI architecture
 - [Command DI Implementation Summary](docs/COMMAND_DI_IMPLEMENTATION_SUMMARY.md): Comprehensive summary of the DI implementation
+- [DI Enforcement Patterns](docs/DI_ENFORCEMENT_PATTERNS.md): Architectural safeguards to enforce proper DI usage
 - [Application Factory API](docs/APPLICATION_FACTORY_API.md): Documentation on the application factory architecture
 - [DI Container Usage](docs/DI_CONTAINER_USAGE.md): Guide to using the DI container
+
+### DI Guidelines for Future Development
+
+The project now enforces strict dependency injection patterns through architectural safeguards. When developing new features or modifying existing code, follow these guidelines:
+
+1. **Never directly instantiate command classes**
+   - Always use the `CommandFactory` to create command instances:
+   ```python
+   command_factory = service_provider.get_service(CommandFactory)
+   command = command_factory.create(MyCommand)
+   ```
+
+2. **Register all commands in the DI container**
+   - Add new commands to `src/core/services/command_registration.py`
+   - Stateless commands: Use `_register_stateless_command(services, registry, MyCommand)`
+   - Stateful commands: Add a singleton factory with explicit dependencies
+
+3. **Implement proper dependency injection**
+   - Define clear interfaces for dependencies in `src/core/interfaces/`
+   - Accept dependencies through constructors, not through service locators
+   - Store dependencies as protected attributes (e.g., `self._state_reader`)
+
+4. **Use the `BaseCommand` validation**
+   - Call `self._validate_di_usage()` in your command's `execute` method
+   - This ensures the command was properly instantiated through DI
+
+5. **Follow the test patterns in `tests/conftest.py`**
+   - Use `setup_test_command_registry()` for integration tests
+   - Provide mock dependencies for stateful commands
+
+These guidelines are enforced by runtime checks that will prevent direct instantiation of command classes outside of the DI container or test environments.

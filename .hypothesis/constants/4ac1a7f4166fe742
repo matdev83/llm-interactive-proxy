@@ -1,0 +1,4 @@
+# file: C:\Users\Mateusz\source\repos\llm-interactive-proxy\src\connectors\qwen_oauth.py
+# hypothesis_version: 6.138.2
+
+[200, 401, 1000, 3600, 30000, '&', '.qwen', '/', '/v1', 'Accept', 'Authorization', 'Bearer', 'Content-Type', 'access_token', 'application/json', 'client_id', 'expires_in', 'expiry_date', 'extra_body', 'grant_type', 'http://', 'https://', 'max_tokens', 'model', 'oauth_creds.json', 'qwen-max', 'qwen-oauth', 'qwen-oauth:', 'qwen-plus', 'qwen-turbo', 'qwen2.5-14b-instruct', 'qwen2.5-32b-instruct', 'qwen2.5-3b-instruct', 'qwen2.5-72b-instruct', 'qwen2.5-7b-instruct', 'qwen3-coder-flash', 'qwen3-coder-plus', 'refresh_token', 'resource_url', 'session_id', 'stream', 'temperature', 'token_type', 'tool_choice', 'tools', 'top_p', 'utf-8', 'w']

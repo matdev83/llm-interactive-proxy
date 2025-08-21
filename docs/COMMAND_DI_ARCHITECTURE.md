@@ -2,167 +2,269 @@
 
 ## Overview
 
-This document describes the Dependency Injection (DI) architecture for commands in the LLM Interactive Proxy. All commands now follow a standardized DI-based pattern, ensuring proper separation of concerns and adherence to SOLID principles.
+This document describes the Dependency Injection (DI) architecture for commands in the proxy. The architecture ensures that:
 
-## Command Registration
+1. Commands are properly instantiated through the DI container
+2. Commands have access to the dependencies they need
+3. Direct instantiation of commands that require dependencies is prevented
+4. The command system is consistently using DI throughout the codebase
 
-Commands are registered in the DI container and the command registry during application startup. The `CommandStage` handles this registration process, using the centralized `register_all_commands` utility function.
+## Architecture Components
 
-### Registration Process
+### CommandRegistry
 
-1. The `CommandStage` initializes services during application startup
-2. It creates a new `CommandRegistry` instance and sets it as the global instance
-3. It registers the command registry and command service in the DI container
-4. It calls the `register_all_commands` utility to register all commands
+The `CommandRegistry` is a central registry for all commands. It is responsible for:
 
-### Command Types
+- Storing command instances by name
+- Providing access to commands by name
+- Ensuring that commands are properly instantiated through DI
 
-Commands are divided into two types based on their dependency requirements:
-
-1. **Stateless Commands**: Commands that don't require any dependencies and can be instantiated directly.
-2. **Stateful Commands**: Commands that require dependencies, such as state access services, which are injected through their constructors.
-
-## Command Implementation
-
-### Base Command Interface
-
-All commands inherit from the `BaseCommand` abstract base class, which defines the core command interface:
+The registry is a singleton that is accessible globally through static methods:
 
 ```python
-class BaseCommand(ABC):
-    @abstractproperty
-    def name(self) -> str:
-        """The command name, used to invoke the command."""
-        pass
+from src.core.services.command_service import CommandRegistry
 
-    @abstractproperty
-    def description(self) -> str:
-        """A description of what the command does."""
-        pass
+# Get the global registry instance
+registry = CommandRegistry.get_instance()
 
-    @abstractproperty
-    def format(self) -> str:
-        """The command format, showing how to use it."""
-        pass
+# Get a command by name
+command = registry.get("set")
 
-    @abstractmethod
-    async def execute(
-        self, args: Mapping[str, Any], session: Session, context: Any = None
-    ) -> CommandResult:
-        """Execute the command."""
-        pass
+# Get all commands
+commands = registry.get_all()
 ```
 
-### Dependency Injection Validation
+### BaseCommand
 
-Each command's constructor is validated to ensure it has been properly instantiated through DI. The `_validate_di_usage()` method checks that all required dependencies are set.
+The `BaseCommand` class is the base class for all commands. It provides:
+
+- Common functionality for all commands
+- DI validation through the `_validate_di_usage()` method
+- A consistent interface for command execution
+
+### StatelessCommandBase and StatefulCommandBase
+
+These base classes extend `BaseCommand` to provide:
+
+- `StatelessCommandBase`: For commands that don't require state access
+- `StatefulCommandBase`: For commands that require state access (via `ISecureStateAccess` and `ISecureStateModification`)
+
+### CommandParser
+
+The `CommandParser` is responsible for parsing commands from messages. It:
+
+- Gets commands from the `CommandRegistry` (DI container)
+- Falls back to auto-discovery only if the registry is not available
+- Processes commands in messages
+
+### Command Registration
+
+Commands are registered in the DI container in `src/core/services/command_registration.py`. This file:
+
+- Registers all stateless commands
+- Registers all stateful commands with their dependencies
+- Ensures that all commands are available through the DI container
+
+## Command Types
 
 ### Stateless Commands
 
-Stateless commands have a simple implementation with no constructor parameters:
+Stateless commands don't require any dependencies. They are registered in the DI container as:
 
 ```python
-class HelloCommand(BaseCommand):
-    @property
-    def name(self) -> str:
-        return "hello"
-
-    @property
-    def description(self) -> str:
-        return "A simple hello world command"
-
-    @property
-    def format(self) -> str:
-        return "hello"
-
-    async def execute(self, args, session, context=None):
-        return CommandResult(
-            success=True,
-            message="Hello, world!",
-            name=self.name
-        )
+services.add_singleton_factory(
+    HelpCommand,
+    lambda _: HelpCommand(),
+)
 ```
+
+Examples of stateless commands:
+- `HelpCommand`
+- `HelloCommand`
+- `ModelCommand`
+- `OneoffCommand`
+- `ProjectCommand`
+- `PwdCommand`
+- `TemperatureCommand`
+- `LoopDetectionCommand`
 
 ### Stateful Commands
 
-Stateful commands declare their dependencies in their constructor:
+Stateful commands require dependencies, such as state access or modification. They are registered in the DI container as:
 
 ```python
-class SetCommand(BaseCommand):
-    def __init__(
-        self, state_reader: ISecureStateAccess, state_modifier: ISecureStateModification
-    ):
-        self._state_reader = state_reader
-        self._state_modifier = state_modifier
+services.add_singleton_factory(
+    SetCommand,
+    lambda provider: SetCommand(
+        provider.get_service(ISecureStateAccess),
+        provider.get_service(ISecureStateModification),
+    ),
+)
+```
+
+Examples of stateful commands:
+- `SetCommand`
+- `UnsetCommand`
+- `CreateFailoverRouteCommand`
+- `DeleteFailoverRouteCommand`
+- `ListFailoverRoutesCommand`
+- `OpenAIUrlCommand`
+
+## DI Validation
+
+The `_validate_di_usage()` method in `BaseCommand` ensures that commands are properly instantiated through the DI container. It:
+
+1. Examines the command's constructor to determine if it requires dependencies
+2. Checks if the required dependencies are set
+3. Raises a `RuntimeError` if the command was not instantiated properly
+
+This validation is called:
+- When a command is registered in the `CommandRegistry`
+- When a command is executed (in the `execute()` method)
+
+## Creating a New Command
+
+### Stateless Command
+
+To create a new stateless command:
+
+1. Create a new file in `src/core/domain/commands/`
+2. Extend `StatelessCommandBase` and `BaseCommand`
+3. Implement the required properties and methods
+4. Register the command in `src/core/services/command_registration.py`
+
+Example:
+
+```python
+from src.core.domain.commands.base_command import BaseCommand
+from src.core.domain.commands.secure_base_command import StatelessCommandBase
+
+class MyCommand(StatelessCommandBase, BaseCommand):
+    def __init__(self):
+        """Initialize without state services."""
+        StatelessCommandBase.__init__(self)
 
     @property
     def name(self) -> str:
-        return "set"
-
-    @property
-    def description(self) -> str:
-        return "Set session parameters"
+        return "my-command"
 
     @property
     def format(self) -> str:
-        return "set(param=value)"
+        return "my-command(param=value)"
 
-    async def execute(self, args, session, context=None):
+    @property
+    def description(self) -> str:
+        return "My command description"
+
+    @property
+    def examples(self) -> list[str]:
+        return ["!/my-command(param=value)"]
+
+    async def execute(self, args: Mapping[str, Any], session: Session, context: Any = None) -> CommandResult:
+        # Command implementation
+        return CommandResult(
+            name=self.name,
+            success=True,
+            message="Command executed successfully",
+        )
+```
+
+### Stateful Command
+
+To create a new stateful command:
+
+1. Create a new file in `src/core/domain/commands/`
+2. Extend `StatefulCommandBase` and `BaseCommand`
+3. Implement the required properties and methods
+4. Register the command in `src/core/services/command_registration.py`
+
+Example:
+
+```python
+from src.core.domain.commands.base_command import BaseCommand
+from src.core.domain.commands.secure_base_command import StatefulCommandBase
+from src.core.interfaces.state_provider_interface import ISecureStateAccess, ISecureStateModification
+
+class MyStatefulCommand(StatefulCommandBase, BaseCommand):
+    def __init__(
+        self,
+        state_reader: ISecureStateAccess,
+        state_modifier: ISecureStateModification | None = None,
+    ):
+        """Initialize with required state services."""
+        StatefulCommandBase.__init__(self, state_reader, state_modifier)
+
+    @property
+    def name(self) -> str:
+        return "my-stateful-command"
+
+    @property
+    def format(self) -> str:
+        return "my-stateful-command(param=value)"
+
+    @property
+    def description(self) -> str:
+        return "My stateful command description"
+
+    @property
+    def examples(self) -> list[str]:
+        return ["!/my-stateful-command(param=value)"]
+
+    async def execute(self, args: Mapping[str, Any], session: Session, context: Any = None) -> CommandResult:
         # Validate that this command was created through proper DI
         self._validate_di_usage()
         
-        # Implementation using injected dependencies
-        # ...
+        # Command implementation using state_reader and state_modifier
+        return CommandResult(
+            name=self.name,
+            success=True,
+            message="Command executed successfully",
+        )
 ```
-
-## Command Discovery and Execution
-
-### Command Registry
-
-The `CommandRegistry` serves as a central repository for all registered commands. It provides methods to:
-
-1. Register a command: `registry.register(command)`
-2. Get a command by name: `registry.get("command-name")`
-3. Get all registered commands: `registry.get_all()`
-
-### CommandParser Integration
-
-The `CommandParser` uses the global `CommandRegistry` instance to get all available commands:
-
-```python
-# Get commands from the DI registry
-registry = CommandRegistry.get_instance()
-if registry:
-    self.handlers = registry.get_all()
-else:
-    # Fall back to auto-discovery (deprecated)
-    self.handlers = discover_commands()
-```
-
-### Auto-Discovery (Deprecated)
-
-The legacy `discover_commands()` function is now deprecated and will be removed in a future version. It cannot discover commands that require DI, and its use is discouraged.
 
 ## Testing Commands
 
-For testing, a `setup_test_command_registry()` utility function is provided to create a properly configured command registry with all commands registered:
+### Unit Tests
+
+For unit tests, you can create mock dependencies and instantiate commands directly:
 
 ```python
+from unittest.mock import Mock
+from src.core.domain.commands.my_command import MyStatefulCommand
+from src.core.interfaces.state_provider_interface import ISecureStateAccess, ISecureStateModification
+
 def test_my_command():
-    # Setup the registry with all commands
-    setup_test_command_registry()
+    # Create mock dependencies
+    mock_state_reader = Mock(spec=ISecureStateAccess)
+    mock_state_modifier = Mock(spec=ISecureStateModification)
     
-    # Now CommandParser will use the registry we just set up
-    parser = CommandParser(config, prefix="!/")
+    # Create command with mock dependencies
+    command = MyStatefulCommand(mock_state_reader, mock_state_modifier)
     
-    # Test the command
+    # Test command
     # ...
 ```
 
-## Best Practices
+### Integration Tests
 
-1. **All commands should use DI**: Even if a command doesn't have dependencies now, implement it following the DI pattern for consistency.
-2. **Register commands in the central utility**: Add new commands to the `register_all_commands` function in `src/core/services/command_registration.py`.
-3. **Use interface dependencies**: Depend on interfaces (like `ISecureStateAccess`) rather than concrete implementations.
-4. **Validate DI usage**: Call `self._validate_di_usage()` in your `execute()` method to ensure proper instantiation.
-5. **Testing**: Use the `setup_test_command_registry()` helper to ensure tests have access to all commands.
+For integration tests, use the `setup_test_command_registry()` helper in `tests/conftest.py`:
+
+```python
+from tests.conftest import setup_test_command_registry
+
+def test_my_command_integration():
+    # Set up the command registry with mock dependencies
+    registry = setup_test_command_registry()
+    
+    # Get the command from the registry
+    command = registry.get("my-stateful-command")
+    
+    # Test command
+    # ...
+```
+
+## Conclusion
+
+The DI-based command architecture ensures that commands are properly instantiated and have access to the dependencies they need. It also prevents direct instantiation of commands that require dependencies, ensuring that the command system is consistently using DI throughout the codebase.
+
+By following this architecture, you can create new commands that are properly integrated with the DI system and have access to the dependencies they need.

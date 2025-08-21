@@ -24,92 +24,192 @@ def test_my_command_functionality():
     # Set up the DI command registry with mock dependencies
     registry = setup_test_command_registry()
     
-    # The registry now contains all commands with appropriate mock dependencies
-    # Use it to test command functionality
-    command = registry.get_command("my-command")
-    result = await command.execute(args, session, context)
+    # Get the command from the registry
+    command = registry.get("set")
+    
+    # Test the command
+    # ...
 ```
 
-### Unit Tests for `CommandParser`
+This helper:
+- Creates a new `CommandRegistry` instance
+- Sets it as the global instance
+- Creates mock dependencies for stateful commands
+- Registers all commands with the registry
+- Returns the registry for use in tests
 
-When unit testing the `CommandParser` directly, be aware that:
+### Unit Tests
 
-1. The `CommandParser` will attempt to get commands from the DI container
-2. If running in a test environment without a full DI setup, it will fall back to mock commands
-3. These mock commands do not fully replicate all real command behaviors
-
-For command parsing tests, use the mock commands from `tests/unit/mock_commands.py`:
+For unit tests, you can create mock dependencies and instantiate commands directly:
 
 ```python
-from src.command_parser import CommandParser
+from unittest.mock import Mock
+from src.core.domain.commands.set_command import SetCommand
+from src.core.interfaces.state_provider_interface import ISecureStateAccess, ISecureStateModification
+
+def test_set_command():
+    # Create mock dependencies
+    mock_state_reader = Mock(spec=ISecureStateAccess)
+    mock_state_modifier = Mock(spec=ISecureStateModification)
+    
+    # Create command with mock dependencies
+    command = SetCommand(mock_state_reader, mock_state_modifier)
+    
+    # Test the command
+    # ...
+```
+
+For tests that need to use `CommandParser` but don't want to set up the full DI container, you can use the mock commands in `tests/unit/mock_commands.py`:
+
+```python
+from src.command_parser import CommandParser, CommandParserConfig
 from tests.unit.mock_commands import get_mock_commands
 
-def test_parsing_behavior():
-    mock_commands = get_mock_commands()
-    # Create command parser with mock commands
+def test_command_parser():
+    # Create a command parser with mock commands
+    handlers = get_mock_commands()
+    config = CommandParserConfig(handlers=handlers, preserve_unknown=True)
+    parser = CommandParser(config, "!/")
+    
+    # Test the parser
+    # ...
 ```
 
-### Snapshot Testing
+### Command Processor Tests
 
-When updating snapshot tests for commands:
+For tests that use the `CommandProcessor`, you need to ensure that the commands are properly registered in the `CommandRegistry`. You can use the `setup_test_command_registry()` helper:
 
-1. Run tests with `UPDATE_SNAPSHOTS=true` environment variable
-2. Verify the new snapshots match the expected behavior of the DI-based commands
-3. Be aware that command output format may have changed with the DI implementation
+```python
+from tests.conftest import setup_test_command_registry
+from src.core.domain.command_processor import CommandProcessor
+
+def test_command_processor():
+    # Set up the command registry
+    registry = setup_test_command_registry()
+    
+    # Create a command processor that uses the registry
+    processor = CommandProcessor(registry)
+    
+    # Test the processor
+    # ...
+```
+
+## Handling Skipped Tests
+
+Many tests have been skipped because they were testing legacy command implementations or were not compatible with the new DI architecture. To update these tests:
+
+1. Remove the `@pytest.mark.skip` decorator
+2. Update the test to use the DI-based commands
+3. Run the test to verify it passes
+
+Example of updating a skipped test:
+
+```python
+# Before
+@pytest.mark.skip("Skipping until command handling in tests is fixed")
+def test_set_command():
+    # Old test code using legacy commands
+    # ...
+
+# After
+def test_set_command():
+    # Set up the command registry
+    registry = setup_test_command_registry()
+    
+    # Get the command from the registry
+    command = registry.get("set")
+    
+    # Test the command
+    # ...
+```
+
+## Testing Stateful Commands
+
+Stateful commands require dependencies to be injected. When testing these commands:
+
+1. Create mock dependencies
+2. Instantiate the command with the mock dependencies
+3. Configure the mock dependencies to return the expected values
+4. Test the command's behavior
+
+Example:
+
+```python
+def test_set_command_with_dependencies():
+    # Create mock dependencies
+    mock_state_reader = Mock(spec=ISecureStateAccess)
+    mock_state_modifier = Mock(spec=ISecureStateModification)
+    
+    # Configure the mocks
+    mock_state_reader.get_backend_config.return_value = {"backend": "test"}
+    
+    # Create command with mock dependencies
+    command = SetCommand(mock_state_reader, mock_state_modifier)
+    
+    # Create a mock session
+    mock_session = Mock()
+    mock_session.state = Mock()
+    
+    # Execute the command
+    result = await command.execute({"param": "value"}, mock_session)
+    
+    # Verify the result
+    assert result.success is True
+    assert result.message == "Parameter set successfully"
+    
+    # Verify the mock was called
+    mock_state_modifier.set_parameter.assert_called_once_with("param", "value")
+```
+
+## Testing CommandParser with DI
+
+When testing the `CommandParser`, you need to ensure that the `CommandRegistry` is properly set up:
+
+```python
+def test_command_parser_with_di():
+    # Set up the command registry
+    registry = setup_test_command_registry()
+    
+    # Create a command parser config
+    config = CommandParserConfig(preserve_unknown=True)
+    
+    # Create a command parser
+    parser = CommandParser(config, "!/")
+    
+    # Verify that the parser is using the registry's commands
+    assert "set" in parser.handlers
+    assert "unset" in parser.handlers
+    
+    # Test the parser
+    # ...
+```
+
+## Testing Snapshot Tests
+
+For snapshot tests that depend on command output, you may need to update the snapshots to match the new command behavior:
+
+```python
+def test_help_command_snapshot(snapshot):
+    # Set up the command registry
+    registry = setup_test_command_registry()
+    
+    # Get the help command
+    help_command = registry.get("help")
+    
+    # Execute the command
+    mock_session = Mock()
+    result = await help_command.execute({}, mock_session)
+    
+    # Verify the result matches the snapshot
+    assert result.message == snapshot
+```
+
+To update snapshots, run pytest with the `UPDATE_SNAPSHOTS=true` environment variable:
 
 ```bash
-set UPDATE_SNAPSHOTS=true && python -m pytest tests/integration/commands/
+UPDATE_SNAPSHOTS=true ./.venv/Scripts/python.exe -m pytest tests/integration/commands/test_integration_help_command.py
 ```
 
-### Skipped Tests
+## Conclusion
 
-Several tests have been temporarily skipped with:
-
-```python
-@pytest.mark.skip("Skipping until command handling in tests is fixed")
-```
-
-These tests expect specific behavior from the legacy command system and need to be updated to:
-
-1. Work with the new DI command architecture
-2. Handle the bridge between `CommandParser` and `CommandRegistry`
-3. Properly set up commands with mock dependencies
-
-## Updating Skipped Tests
-
-To update the skipped tests:
-
-1. Set up proper mocking for the `CommandRegistry` 
-2. Create a test helper to properly set up DI for command tests
-3. Update assertions to match the behavior of DI-based commands
-
-Example approach:
-
-```python
-def setup_command_test_environment():
-    """Set up DI environment for command unit tests."""
-    # Create and register commands with mock dependencies
-    registry = CommandRegistry()
-    state_reader_mock = Mock(spec=ISecureStateAccess)
-    state_modifier_mock = Mock(spec=ISecureStateModification)
-    
-    # Register commands that will be tested
-    registry.register(SetCommand(state_reader_mock, state_modifier_mock))
-    
-    # Set as global instance so CommandParser can find it
-    CommandRegistry.set_instance(registry)
-    return registry, state_reader_mock, state_modifier_mock
-```
-
-## Known Issues
-
-1. The mock command implementations used for unit tests do not currently strip command text from messages
-2. Some authentication tests are failing due to changes in error message format
-3. The Qwen OAuth connector tests have errors unrelated to DI changes
-
-## Future Improvements
-
-1. Implement proper command stripping behavior in mock commands
-2. Refactor remaining test failures to align with DI pattern
-3. Create more comprehensive test helpers for command testing
-4. Remove the skipped tests that can't be fixed
+The new DI architecture for commands makes testing more consistent and reliable. By following the strategies outlined in this guide, you can write tests that work with the new architecture and ensure that your commands are properly instantiated and have access to the dependencies they need.

@@ -1,0 +1,4 @@
+# file: C:\Users\Mateusz\source\repos\llm-interactive-proxy\src\core\common\logging_utils.py
+# hypothesis_version: 6.138.2
+
+[400, '***', '.*API_KEY(?:_\\d+)?$', '.*API_KEYS?$', 'Bearer ', 'T', '[,;\\n]', 'access_token', 'api_key', 'api_keys', 'auth', 'authorization', 'backends', 'credentials', 'exc_text', 'message', 'password', 'refresh_token', 'secret', 'sk_', 'stack_info', '|']

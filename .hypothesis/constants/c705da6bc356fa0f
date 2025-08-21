@@ -1,0 +1,4 @@
+# file: C:\Users\Mateusz\source\repos\llm-interactive-proxy\src\core\services\secure_command_factory.py
+# hypothesis_version: 6.138.2
+
+[', ', 'T', 'Use one of: ', '__name__', 'app', 'command_prefix', 'failover_routes', 'state']

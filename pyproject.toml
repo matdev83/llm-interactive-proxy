@@ -61,6 +61,7 @@ dev = [
     "vulture",
     "pytest-snapshot",
     "mypy",
+    "hypothesis",
 ]
 
 [build-system]

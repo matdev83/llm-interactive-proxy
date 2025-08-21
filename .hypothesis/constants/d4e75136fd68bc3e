@@ -1,0 +1,4 @@
+# file: C:\Users\Mateusz\source\repos\llm-interactive-proxy\src\core\constants\api_response_constants.py
+# hypothesis_version: 6.138.2
+
+['anthropic/', 'application/json', 'assistant', 'chat.completion', 'choices', 'content', 'data', 'delta', 'end_turn', 'error', 'finish_reason', 'function', 'gemini/', 'id', 'inline_data', 'length', 'list', 'max_tokens', 'message', 'mime_type', 'model', 'name', 'object', 'openai/', 'openrouter:', 'parts', 'role', 'source', 'stop', 'stop_reason', 'stop_sequence', 'system', 'text', 'text/event-stream', 'tool_calls', 'type', 'usage', 'user']

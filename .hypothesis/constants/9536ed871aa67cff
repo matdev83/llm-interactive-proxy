@@ -1,0 +1,4 @@
+# file: C:\Users\Mateusz\source\repos\llm-interactive-proxy\src\gemini_models.py
+# hypothesis_version: 6.138.2
+
+['BLOCK_LOW_AND_ABOVE', 'BLOCK_NONE', 'BLOCK_ONLY_HIGH', 'FUNCTION_CALL', 'HARM_CATEGORY_SEXUAL', 'HIGH', 'LOW', 'MAX_TOKENS', 'MEDIUM', 'NEGLIGIBLE', 'OTHER', 'RECITATION', 'SAFETY', 'STOP', 'TOOL_CALLS', 'cachedContent', 'candidateCount', 'candidatesTokenCount', 'finishReason', 'functionCall', 'functionResponse', 'generationConfig', 'maxOutputTokens', 'populate_by_name', 'promptFeedback', 'promptTokenCount', 'responseMimeType', 'responseSchema', 'safetySettings', 'stopSequences', 'systemInstruction', 'toolConfig', 'topK', 'topP', 'totalTokenCount', 'usageMetadata']
