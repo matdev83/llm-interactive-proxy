@@ -70,3 +70,7 @@ venv
 data/
 data/accounting.sqlite3
 build/
+uv.lock
+*.txt
+WARP.md
+.hypothesis
