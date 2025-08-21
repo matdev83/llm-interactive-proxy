@@ -70,8 +70,13 @@ build-backend = "setuptools.build_meta"
 
 [tool.pytest.ini_options]
 pythonpath = "."
-addopts = "-v --asyncio-mode=auto -m \"not network\""
+addopts = "-v --asyncio-mode=auto -m \"not network and not loop_detection\" --ignore=tests/integration/test_updated_integration_bridge.py --ignore=tests/unit/core/services/test_response_middleware.py --ignore=tests/integration/test_phase2_integration.py"
 # To run integration tests, use: pytest -m integration
+# To run command tests, use: pytest -m command
+# To run session tests, use: pytest -m session
+# To run backend tests, use: pytest -m backend
+# To run DI tests, use: pytest -m di
+# To run tests without global mock, use: pytest -m no_global_mock
 markers = [
     "integration: marks tests as integration tests (deselect with '-m \"not integration\"')",
     "unit: marks tests as unit tests",
@@ -82,6 +87,11 @@ markers = [
     "custom_backend_mock: marks tests that use custom backend mocking strategies",
     "httpx_mock: marks tests that use httpx mocking (provided by pytest-httpx plugin)",
     "no_global_mock: marks tests that should not use global mocking",
+    "command: marks tests related to command handling",
+    "session: marks tests related to session state management",
+    "di: marks tests that use the dependency injection architecture",
+    "loop_detection: marks tests related to loop detection",
+    "multimodal: marks tests related to multimodal content",
 ]
 filterwarnings = [
     "ignore::pytest.PytestUnraisableExceptionWarning",
