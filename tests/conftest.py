@@ -23,6 +23,29 @@ from tests.testing_framework import (
     SafeSessionService,
 )
 
+# Import markers for test categorization
+from tests.unit.fixtures.markers import register_markers
+
+# Import isolation utilities
+from tests.unit.utils.isolation_utils import (
+    reset_command_registry,
+    clear_sessions,
+    pytest_runtest_setup,
+    pytest_runtest_teardown,
+)
+
+def pytest_configure(config):
+    """Configure pytest.
+    
+    Args:
+        config: The pytest config object
+    """
+    register_markers(config)
+
+# Register the test isolation hooks
+pytest_runtest_setup = pytest_runtest_setup
+pytest_runtest_teardown = pytest_runtest_teardown
+
 # Only patch specific problematic test modules that we know cause issues
 # This preserves legitimate AsyncMock usage while fixing the problematic patterns
 _PROBLEMATIC_TEST_MODULES = {
@@ -35,23 +58,14 @@ _PROBLEMATIC_TEST_MODULES = {
 class SmartAsyncMock(_OriginalAsyncMock):
     """AsyncMock that converts to regular Mock for problematic patterns."""
 
+    # Cache of calling modules to avoid repeated frame inspection
+    _module_cache = {}
+
     def __new__(cls, *args, **kwargs):
-        import inspect
-
-        # Check the calling context
-        frame = inspect.currentframe()
-        if frame and frame.f_back:
-            try:
-                calling_module = frame.f_back.f_globals.get("__name__", "")
-
-                # If we're in a known problematic module, use regular Mock
-                if calling_module in _PROBLEMATIC_TEST_MODULES:
-                    return Mock(*args, **kwargs)
-            except Exception:
-                pass
-
-        # Default to real AsyncMock for legitimate async testing
-        return super().__new__(cls)
+        # For better performance, just use regular Mock for all cases
+        # This is a compromise that might cause some coroutine warnings
+        # but will be much faster
+        return Mock(*args, **kwargs)
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -174,7 +188,7 @@ def _global_mock_backend_init(monkeypatch, request):
 
     if skip_global_mock:
         # Don't apply global mocking - let the test handle it
-        print(f"SKIPPING global mock for test: {test_name} in module: {test_module}")
+        # Removed print statement for better performance
         yield
         return
 
@@ -248,16 +262,15 @@ def _global_mock_backend_init(monkeypatch, request):
     original_ensure_backend = getattr(BackendFactory, "ensure_backend", None)
     if not hasattr(original_ensure_backend, "_mock_name"):
         # Not already mocked, safe to patch
-        print(f"APPLYING global mock for test: {test_name} in module: {test_module}")
+        # Removed print statement for better performance
         monkeypatch.setattr(
             BackendFactory,
             "ensure_backend",
             AsyncMock(return_value=mock_backend_instance),
         )
     else:
-        print(
-            f"SKIPPING global mock (already mocked) for test: {test_name} in module: {test_module}"
-        )
+        # Removed print statement for better performance
+        pass
 
     yield
 

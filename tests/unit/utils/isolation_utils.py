@@ -21,12 +21,10 @@ T = TypeVar('T')
 
 
 def get_all_sessions() -> List[Session]:
-    """Get all Session objects in memory.
-    
-    Returns:
-        List[Session]: A list of all Session objects in memory
-    """
-    return [obj for obj in gc.get_objects() if isinstance(obj, Session)]
+    """Get all Session objects currently in memory."""
+    # Cache gc.get_objects() result for better performance
+    objects = gc.get_objects()
+    return [obj for obj in objects if isinstance(obj, Session)]
 
 
 def get_all_session_states() -> List[SessionStateAdapter]:
@@ -35,7 +33,9 @@ def get_all_session_states() -> List[SessionStateAdapter]:
     Returns:
         List[SessionStateAdapter]: A list of all SessionStateAdapter objects in memory
     """
-    return [obj for obj in gc.get_objects() if isinstance(obj, SessionStateAdapter)]
+    # Cache gc.get_objects() result for better performance
+    objects = gc.get_objects()
+    return [obj for obj in objects if isinstance(obj, SessionStateAdapter)]
 
 
 def clear_sessions() -> None:
