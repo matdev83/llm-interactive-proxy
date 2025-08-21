@@ -1,7 +1,7 @@
 from typing import Any
 from unittest.mock import AsyncMock, patch
-
 import pytest
+
 from src.core.domain.responses import ResponseEnvelope
 
 # from httpx import Response # F401: Removed
@@ -44,41 +44,50 @@ def test_empty_messages_after_processing_no_commands_bad_request(
     mock_gemini.assert_not_called()
 
 
-@pytest.mark.skip(reason="Test needs to be rewritten to work with global mock")
-@patch("src.core.services.backend_service.BackendService.call_completion", new_callable=AsyncMock)
-def test_get_openrouter_headers_no_api_key(
-    mock_call_completion: Any, client: Any
-) -> None:
-    # Simulate a backend error due to missing API key
+def test_get_openrouter_headers_no_api_key(client: Any) -> None:
+    # Simulate a backend error by mocking the backend processor
     from src.core.common.exceptions import BackendError
-    mock_call_completion.side_effect = BackendError(
-        message="Simulated backend error due to bad headers", 
-        backend_name="openai"
+    from unittest.mock import patch
+
+    mock_error = BackendError(
+        message="Simulated backend error due to bad headers", backend_name="openai"
     )
 
-    payload = {
-        "model": "gpt-3.5-turbo",
-        "messages": [{"role": "user", "content": "Hello"}],
-    }
-    response = client.post("/v1/chat/completions", json=payload)
+    with patch(
+        "src.core.services.backend_processor.BackendProcessor.process_backend_request",
+        new_callable=AsyncMock,
+    ) as mock_process_backend:
+        mock_process_backend.side_effect = mock_error
 
-    assert response.status_code == 500
-    response_json = response.json()
-    # The error format has changed in the new architecture
-    assert "error" in response_json or "detail" in response_json
-    error_msg = str(response_json)
-    assert "backend" in error_msg.lower() or "error" in error_msg.lower()
+        payload = {
+            "model": "gpt-3.5-turbo",
+            "messages": [{"role": "user", "content": "Hello"}],
+        }
+        response = client.post("/v1/chat/completions", json=payload)
+
+        assert response.status_code == 502  # BackendError maps to 502 Bad Gateway
+
+        response_json = response.json()
+        # The error format has changed in the new architecture
+        assert "error" in response_json or "detail" in response_json
+        error_msg = str(response_json)
+        assert "backend" in error_msg.lower() or "error" in error_msg.lower()
 
 
-@pytest.mark.skip(reason="Test needs to be rewritten to work with global mock")
-@patch("src.core.services.backend_service.BackendService.call_completion", new_callable=AsyncMock)
-def test_invalid_model_noninteractive(
-    mock_call_completion: Any, client: Any
-) -> None:
+@pytest.mark.no_global_mock
+def test_invalid_model_noninteractive(client: Any) -> None:
     from src.core.common.exceptions import InvalidRequestError
     
-    # For the first call (command processing), return a normal response
-    mock_call_completion.side_effect = [
+    # Get the backend service from the app's service provider
+    from src.core.interfaces.backend_service_interface import IBackendService
+    backend_service = client.app.state.service_provider.get_required_service(IBackendService)
+    
+    # Mock the call_completion method directly
+    from unittest.mock import AsyncMock
+    original_call_completion = backend_service.call_completion
+    
+    # Create a mock that returns the expected responses
+    mock_responses = [
         ResponseEnvelope(
             content={
                 "id": "cmd-1",
@@ -88,15 +97,30 @@ def test_invalid_model_noninteractive(
                             "content": "Model 'bad' not found for backend 'openrouter'"
                         }
                     }
-                ]
+                ],
             },
             headers={"Content-Type": "application/json"},
             status_code=200,
         ),
         # For the second call, raise an error
-        InvalidRequestError(message="Model 'bad' not found for backend 'openrouter'")
+        InvalidRequestError(message="Model 'bad' not found for backend 'openrouter'"),
     ]
     
+    call_count = 0
+    async def mock_call_completion(*args, **kwargs):
+        nonlocal call_count
+        if call_count < len(mock_responses):
+            response = mock_responses[call_count]
+            call_count += 1
+            if isinstance(response, Exception):
+                raise response
+            return response
+        else:
+            # Fall back to original for any additional calls
+            return await original_call_completion(*args, **kwargs)
+    
+    backend_service.call_completion = AsyncMock(side_effect=mock_call_completion)
+
     # First request: set an invalid model
     payload = {
         "model": "m",

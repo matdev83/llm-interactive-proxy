@@ -8,7 +8,12 @@ from src.core.app.test_builder import build_test_app as build_app
 
 @pytest.fixture
 def app_config():
-    from src.core.config.app_config import AppConfig, AuthConfig, BackendConfig, BackendSettings
+    from src.core.config.app_config import (
+        AppConfig,
+        AuthConfig,
+        BackendConfig,
+        BackendSettings,
+    )
 
     config = AppConfig()
     config.command_prefix = "!/"
@@ -29,6 +34,7 @@ def mock_openai_connector():
     connector.api_base_url = "https://api.openai.com/v1"
 
     from src.core.domain.responses import ResponseEnvelope
+
     mock_response = ResponseEnvelope(
         content={
             "id": "test-id",
@@ -42,7 +48,7 @@ def mock_openai_connector():
             ],
         },
         headers={},
-        status_code=200
+        status_code=200,
     )
 
     # Set the return value directly to avoid coroutine issues
@@ -67,7 +73,9 @@ def client(app_with_mock_connector):
     return TestClient(app_with_mock_connector)
 
 
-@pytest.mark.skip(reason="Complex coroutine serialization issue in command/response pipeline - requires deeper debugging")
+@pytest.mark.skip(
+    reason="Complex coroutine serialization issue in command/response pipeline - requires deeper debugging"
+)
 def test_set_openai_url_command(client):
     """Test that the !set(openai_url=...) command works correctly."""
     # Set the OpenAI URL

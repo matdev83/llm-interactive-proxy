@@ -182,12 +182,9 @@ async def test_configure_error_response():
     assert excinfo.value.detail == {"error": "Invalid API key"}
 
 
-@pytest.mark.skip(reason="Requires proper app setup with service provider")
+@pytest.mark.skip(reason="Global mock overrides custom backend configuration")
 def test_chat_completion_api_with_mock(test_app: FastAPI, test_client: TestClient):
     """Test that the chat completion API works with mock backends."""
-    # Setup service provider
-    services = ServiceCollection()
-
     # Create mock backend
     backend = MockOpenAI()
     backend.configure_response(
@@ -197,17 +194,9 @@ def test_chat_completion_api_with_mock(test_app: FastAPI, test_client: TestClien
         }
     )
 
-    # Create mock backend service
-    backend_service = MagicMock(spec=IBackendService)
+    # Set up the backend in the existing service provider
+    backend_service = test_app.state.service_provider.get_required_service(IBackendService)
     backend_service._backends = {"openai": backend}
-    backend_service.get_backend.return_value = backend
-
-    # Register the service
-    services.add_instance(IBackendService, backend_service)
-
-    # Build the provider and attach to app
-    provider = services.build_provider()
-    test_app.state.service_provider = provider
 
     # Make a request to the API
     response = test_client.post(

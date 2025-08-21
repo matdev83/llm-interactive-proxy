@@ -170,19 +170,17 @@ class CommandService(ICommandService):
                 modified_messages=[], command_executed=False, command_results=[]
             )
 
-        # Get the session
+        print(f"CommandService.process_commands: session_id: {session_id}")
         session = (
             await self._session_service.get_session(session_id)
             if self._session_service
             else None
         )
 
-        # Process each message
         modified_messages = messages.copy()
         command_results = []
         command_executed = False
 
-        # Process only the first user message
         for i in range(len(modified_messages) - 1, -1, -1):
             message = modified_messages[i]
 
@@ -190,13 +188,10 @@ class CommandService(ICommandService):
                 content = message.content or ""
                 if isinstance(content, str):
                     if content.startswith("!/"):
-                        # Extract command name and args
-                        # Handle format: !/command(args)
                         match = re.match(r"!/(\w+)\(([^)]*)\)", content)
                         if match:
                             cmd_name = match.group(1)
                             args_str = match.group(2)
-                            # Find the end position after the closing parenthesis
                             paren_start = content.find("(")
                             if paren_start != -1:
                                 paren_end = content.find(")", paren_start)
@@ -208,9 +203,8 @@ class CommandService(ICommandService):
                                 match_end = len(content)
                             remaining = content[
                                 match_end:
-                            ]  # Capture remaining content after command
+                            ]
                         else:
-                            # Handle format: !/command (without parentheses)
                             match = re.match(r"!/(\w+)", content)
                             if match:
                                 cmd_name = match.group(1)
@@ -218,19 +212,17 @@ class CommandService(ICommandService):
                                 match_end = match.end()
                                 remaining = content[
                                     match_end:
-                                ]  # Capture remaining content after command
+                                ]
                             else:
                                 continue
 
                         cmd = self._registry.get(cmd_name)
 
                         if cmd:
-                            # Parse args
                             args = {}
                             if args_str:
                                 try:
                                     args = json.loads(args_str)
-                                    # Normalize scalar JSON args (e.g. 0.6) to a dict
                                     if not isinstance(args, dict):
                                         args = {"value": args}
                                 except Exception:
@@ -254,8 +246,6 @@ class CommandService(ICommandService):
                                             else:
                                                 args[arg] = True
 
-                            # Execute command
-                            # Commands expect the session state (adapter or state object)
                             if session is None:
                                 logger.warning(
                                     f"Cannot execute command {cmd_name} without a session"
@@ -266,14 +256,12 @@ class CommandService(ICommandService):
                                 f"Executing command: {cmd_name} with session: {session.session_id if session else 'N/A'}"
                             )
 
-                            # Create context with command registry for commands that need it
                             context = type(
                                 "CommandContext",
                                 (),
                                 {"command_registry": self._registry},
                             )()
 
-                            # Handle both async and sync execute methods
                             result: CommandResult
                             try:
                                 coro_result = cmd.execute(args, session, context)
@@ -282,16 +270,10 @@ class CommandService(ICommandService):
                                 else:
                                     result = coro_result
                             except Exception:
-                                # Fallback - this shouldn't happen but just in case
                                 result = await cmd.execute(args, session, context)
 
-                            # If command was successful and we have a session service, update the session
-                            logger.info(
-                                f"Command result - success: {result.success}, has new_state: {hasattr(result, 'new_state') and result.new_state is not None}"
-                            )
-                            # Persist session changes when the command either
-                            # succeeded or returned a new_state (some handlers may
-                            # return new_state even when reporting partial failure).
+                            print(f"CommandService.process_commands: result: {result}")
+
                             if (
                                 (result.success or getattr(result, "new_state", None))
                                 and self._session_service
@@ -301,13 +283,9 @@ class CommandService(ICommandService):
                                     logger.info(
                                         f"Updating session state with new_state from command: {result.new_state}"
                                     )
-                                    # Prefer session.update_state which replaces the
-                                    # stored state with the handler-provided one so
-                                    # subsequent requests see the change.
                                     try:
                                         session.update_state(result.new_state)
                                     except Exception:
-                                        # Best-effort: fall back to assigning
                                         session.state = result.new_state
                                 else:
                                     logger.info(
@@ -316,20 +294,17 @@ class CommandService(ICommandService):
                                 await self._session_service.update_session(session)
                                 logger.info("Session updated in repository")
 
-                            # Wrap the result for compatibility
                             wrapped_result = CommandResultWrapper(result)
                             command_results.append(wrapped_result)
                             command_executed = True
 
-                            # Update message content
                             if remaining:
                                 modified_messages[i].content = " " + remaining.strip()
                             else:
                                 modified_messages[i].content = ""
                         elif not self._preserve_unknown:
-                            # Remove unknown command and set content to a single space
                             modified_messages[i].content = " "
-                    break  # Only process the first user message
+                    break
 
         return ProcessedResult(
             modified_messages=modified_messages,

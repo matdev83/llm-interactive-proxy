@@ -19,15 +19,21 @@ async def test_top_p_fix_with_actual_request() -> None:
     mock_backend_processor = MagicMock(spec=IBackendProcessor)
     mock_session_service = MagicMock(spec=ISessionService)
     mock_response_processor = MagicMock(spec=IResponseProcessor)
+    
+    # Configure session service to return a real session object instead of AsyncMock
+    from src.core.domain.session import Session
+    test_session = Session(session_id="test_session")
+    mock_session_service.get_session = AsyncMock(return_value=test_session)
+    mock_session_service.update_session = AsyncMock(return_value=None)
 
-    # Configure mock_command_processor to return messages unchanged and no command executed
-    mock_command_processor.process_commands.return_value = AsyncMock(
+    # Configure mock_command_processor.process_commands as an AsyncMock
+    mock_command_processor.process_commands = AsyncMock(
         return_value=MagicMock(
             modified_messages=[ChatMessage(role="user", content="Hello")],
             command_executed=False,
             command_results=[],
         )
-    ).return_value
+    )
 
     # Configure mock_backend_processor to capture the request it receives
     captured_request = None
@@ -36,7 +42,9 @@ async def test_top_p_fix_with_actual_request() -> None:
         nonlocal captured_request
         captured_request = kwargs.get("request")
         # Return a dummy response envelope
-        return ResponseEnvelope(content={}, headers={}, status_code=200, media_type="application/json")
+        return ResponseEnvelope(
+            content={}, headers={}, status_code=200, media_type="application/json"
+        )
 
     mock_backend_processor.process_backend_request.side_effect = capture_request
 

@@ -26,7 +26,9 @@ def app():
     yield app
 
 
-@pytest.mark.skip(reason="Complex failover command integration requires specialized service setup - skipping for now")
+@pytest.mark.skip(
+    reason="Complex failover command integration requires specialized service setup - skipping for now"
+)
 def test_failover_route_commands(app, monkeypatch):
     """Test failover route commands in the new architecture."""
     # Mock the APIKeyMiddleware's dispatch method to always return the next response
@@ -264,7 +266,11 @@ async def test_backend_service_failover(monkeypatch):
     async def mock_call_completion(request: ChatRequest, stream: bool = False):
         if request.model == "test-model":
             # Simulate failover
-            from src.core.domain.chat import ChatCompletionChoice, ChatCompletionChoiceMessage
+            from src.core.domain.chat import (
+                ChatCompletionChoice,
+                ChatCompletionChoiceMessage,
+            )
+
             return ChatResponse(
                 id="test",
                 created=123,
@@ -272,8 +278,10 @@ async def test_backend_service_failover(monkeypatch):
                 choices=[
                     ChatCompletionChoice(
                         index=0,
-                        message=ChatCompletionChoiceMessage(role="assistant", content="Success"),
-                        finish_reason="stop"
+                        message=ChatCompletionChoiceMessage(
+                            role="assistant", content="Success"
+                        ),
+                        finish_reason="stop",
                     )
                 ],
                 usage={"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},

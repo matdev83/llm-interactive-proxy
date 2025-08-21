@@ -4,6 +4,7 @@ Tests for BackendFactory.ensure_backend method.
 These tests verify the behavior of the BackendFactory.ensure_backend method
 with different types of backend configurations.
 """
+
 # Tests for BackendFactory.ensure_backend method - now fixed with selective global mocking
 import os
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -48,13 +49,17 @@ async def test_ensure_backend_with_none_config(factory: BackendFactory) -> None:
     # Arrange
     backend_type = "openai"
     mock_backend = MagicMock()
-    
+
     # We need to patch the actual method, not the instance method
     with (
-        patch("src.core.services.backend_factory.BackendFactory.create_backend", 
-              return_value=mock_backend) as mock_create,
-        patch("src.core.services.backend_factory.BackendFactory.initialize_backend", 
-              new_callable=AsyncMock) as mock_init,
+        patch(
+            "src.core.services.backend_factory.BackendFactory.create_backend",
+            return_value=mock_backend,
+        ) as mock_create,
+        patch(
+            "src.core.services.backend_factory.BackendFactory.initialize_backend",
+            new_callable=AsyncMock,
+        ) as mock_init,
     ):
         result = await factory.ensure_backend(backend_type, None)
 
@@ -78,10 +83,14 @@ async def test_ensure_backend_with_backend_config(factory: BackendFactory) -> No
 
     # Act
     with (
-        patch("src.core.services.backend_factory.BackendFactory.create_backend", 
-              return_value=mock_backend) as mock_create,
-        patch("src.core.services.backend_factory.BackendFactory.initialize_backend", 
-              new_callable=AsyncMock) as mock_init,
+        patch(
+            "src.core.services.backend_factory.BackendFactory.create_backend",
+            return_value=mock_backend,
+        ) as mock_create,
+        patch(
+            "src.core.services.backend_factory.BackendFactory.initialize_backend",
+            new_callable=AsyncMock,
+        ) as mock_init,
     ):
         result = await factory.ensure_backend(backend_type, backend_config)
 
@@ -105,10 +114,14 @@ async def test_ensure_backend_test_env_injection(factory: BackendFactory) -> Non
 
     # Act
     with (
-        patch("src.core.services.backend_factory.BackendFactory.create_backend", 
-              return_value=mock_backend) as mock_create,
-        patch("src.core.services.backend_factory.BackendFactory.initialize_backend", 
-              new_callable=AsyncMock) as mock_init,
+        patch(
+            "src.core.services.backend_factory.BackendFactory.create_backend",
+            return_value=mock_backend,
+        ) as mock_create,
+        patch(
+            "src.core.services.backend_factory.BackendFactory.initialize_backend",
+            new_callable=AsyncMock,
+        ) as mock_init,
         patch.dict(os.environ, {"PYTEST_CURRENT_TEST": "test_something"}),
     ):
         result = await factory.ensure_backend(backend_type, backend_config)
@@ -131,10 +144,14 @@ async def test_ensure_backend_anthropic_specific(factory: BackendFactory) -> Non
 
     # Act
     with (
-        patch("src.core.services.backend_factory.BackendFactory.create_backend", 
-              return_value=mock_backend) as mock_create,
-        patch("src.core.services.backend_factory.BackendFactory.initialize_backend", 
-              new_callable=AsyncMock) as mock_init,
+        patch(
+            "src.core.services.backend_factory.BackendFactory.create_backend",
+            return_value=mock_backend,
+        ) as mock_create,
+        patch(
+            "src.core.services.backend_factory.BackendFactory.initialize_backend",
+            new_callable=AsyncMock,
+        ) as mock_init,
     ):
         result = await factory.ensure_backend(backend_type, backend_config)
 
@@ -157,10 +174,14 @@ async def test_ensure_backend_openrouter_specific(factory: BackendFactory) -> No
 
     # Act
     with (
-        patch("src.core.services.backend_factory.BackendFactory.create_backend", 
-              return_value=mock_backend) as mock_create,
-        patch("src.core.services.backend_factory.BackendFactory.initialize_backend", 
-              new_callable=AsyncMock) as mock_init,
+        patch(
+            "src.core.services.backend_factory.BackendFactory.create_backend",
+            return_value=mock_backend,
+        ) as mock_create,
+        patch(
+            "src.core.services.backend_factory.BackendFactory.initialize_backend",
+            new_callable=AsyncMock,
+        ) as mock_init,
     ):
         result = await factory.ensure_backend(backend_type, backend_config)
 
@@ -185,10 +206,14 @@ async def test_ensure_backend_gemini_specific(factory: BackendFactory) -> None:
 
     # Act
     with (
-        patch("src.core.services.backend_factory.BackendFactory.create_backend", 
-              return_value=mock_backend) as mock_create,
-        patch("src.core.services.backend_factory.BackendFactory.initialize_backend", 
-              new_callable=AsyncMock) as mock_init,
+        patch(
+            "src.core.services.backend_factory.BackendFactory.create_backend",
+            return_value=mock_backend,
+        ) as mock_create,
+        patch(
+            "src.core.services.backend_factory.BackendFactory.initialize_backend",
+            new_callable=AsyncMock,
+        ) as mock_init,
     ):
         result = await factory.ensure_backend(backend_type, backend_config)
 
@@ -218,10 +243,14 @@ async def test_ensure_backend_custom_api_url_not_overridden(
 
     # Act
     with (
-        patch("src.core.services.backend_factory.BackendFactory.create_backend", 
-              return_value=mock_backend) as mock_create,
-        patch("src.core.services.backend_factory.BackendFactory.initialize_backend", 
-              new_callable=AsyncMock) as mock_init,
+        patch(
+            "src.core.services.backend_factory.BackendFactory.create_backend",
+            return_value=mock_backend,
+        ) as mock_create,
+        patch(
+            "src.core.services.backend_factory.BackendFactory.initialize_backend",
+            new_callable=AsyncMock,
+        ) as mock_init,
     ):
         result = await factory.ensure_backend(backend_type, backend_config)
 

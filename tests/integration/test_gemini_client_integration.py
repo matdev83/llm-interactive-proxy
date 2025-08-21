@@ -22,6 +22,9 @@ from fastapi import HTTPException
 pytestmark = pytest.mark.network
 from src.core.app.test_builder import build_test_app as build_app
 
+# Import get_backend_instance from conftest
+from tests.conftest import get_backend_instance
+
 # Skip all tests in this file due to missing google.genai dependency
 pytestmark = pytest.mark.skip("Google Gemini API client not available or incompatible")
 
@@ -53,6 +56,7 @@ class ProxyServer:
             self.config_file_path = Path(f.name)
 
         from src.core.config.app_config import AppConfig
+
         app_config = AppConfig.model_validate(config)
         self.app = build_app(config=app_config)
         self.server: uvicorn.Server | None = None
@@ -62,9 +66,10 @@ class ProxyServer:
     def _is_port_in_use(port: int) -> bool:
         """Check if a port is in use."""
         import socket
+
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
             try:
-                s.bind(('127.0.0.1', port))
+                s.bind(("127.0.0.1", port))
                 return False
             except OSError:
                 return True
@@ -73,11 +78,12 @@ class ProxyServer:
     def _find_available_port() -> int:
         """Find an available port starting from a high number."""
         import socket
+
         port = 9000  # Start from 9000 to avoid common ports
         while port < 10000:  # Try up to 10000
             with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
                 try:
-                    s.bind(('127.0.0.1', port))
+                    s.bind(("127.0.0.1", port))
                     return port
                 except OSError:
                     port += 1

@@ -1,4 +1,3 @@
-
 from unittest.mock import Mock
 
 import pytest
@@ -10,11 +9,13 @@ from src.core.domain.session import BackendConfiguration, Session, SessionState
 def command() -> OneoffCommand:
     return OneoffCommand()
 
+
 @pytest.fixture
 def mock_session() -> Mock:
     mock = Mock(spec=Session)
     mock.state = SessionState(backend_config=BackendConfiguration())
     return mock
+
 
 @pytest.mark.asyncio
 async def test_oneoff_success_slash_format(command: OneoffCommand, mock_session: Mock):
@@ -31,6 +32,7 @@ async def test_oneoff_success_slash_format(command: OneoffCommand, mock_session:
     assert mock_session.state.backend_config.oneoff_backend == "openrouter"
     assert mock_session.state.backend_config.oneoff_model == "gpt-4"
 
+
 @pytest.mark.asyncio
 async def test_oneoff_success_colon_format(command: OneoffCommand, mock_session: Mock):
     # Arrange
@@ -45,6 +47,7 @@ async def test_oneoff_success_colon_format(command: OneoffCommand, mock_session:
     assert mock_session.state.backend_config.oneoff_backend == "gemini"
     assert mock_session.state.backend_config.oneoff_model == "gemini-pro"
 
+
 @pytest.mark.asyncio
 async def test_oneoff_failure_no_args(command: OneoffCommand, mock_session: Mock):
     # Arrange
@@ -57,8 +60,11 @@ async def test_oneoff_failure_no_args(command: OneoffCommand, mock_session: Mock
     assert result.success is False
     assert "requires a backend/model argument" in result.message
 
+
 @pytest.mark.asyncio
-async def test_oneoff_failure_invalid_format(command: OneoffCommand, mock_session: Mock):
+async def test_oneoff_failure_invalid_format(
+    command: OneoffCommand, mock_session: Mock
+):
     # Arrange
     args = {"invalid-format": True}
 

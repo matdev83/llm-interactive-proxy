@@ -36,23 +36,20 @@ class SetCommand(BaseCommand):
         messages: list[str] = []
         data: dict[str, Any] = {}
 
-        # Create a copy of args to modify while iterating
         remaining_args = dict(args)
 
-        # Handle backend and model together as they are related
         if "backend" in remaining_args or "model" in remaining_args:
             result, updated_state = await self._handle_backend_and_model(
                 remaining_args, updated_state, context
             )
             if not result.success:
-                return result  # Fail fast
+                return result
             messages.append(result.message)
             if result.data:
                 data.update(result.data)
             remaining_args.pop("backend", None)
             remaining_args.pop("model", None)
 
-        # Handle other parameters iteratively
         for param, value in remaining_args.items():
             handler = getattr(self, f"_handle_{param.replace('-', '_')}", None)
             if handler:
@@ -61,7 +58,7 @@ class SetCommand(BaseCommand):
                     value, updated_state, context
                 )
                 if not handler_result.success:
-                    return handler_result  # Fail fast
+                    return handler_result
                 messages.append(handler_result.message)
                 if handler_result.data:
                     data.update(handler_result.data)
@@ -74,10 +71,12 @@ class SetCommand(BaseCommand):
             return CommandResult(
                 success=False, message="No valid parameters provided.", name=self.name
             )
+        
+        print(f"SetCommand.execute: updated_state: {updated_state}")
 
         return CommandResult(
             success=True,
-            message="\n".join(m for m in messages if m),  # Filter out empty messages
+            message="\n".join(m for m in messages if m),
             name=self.name,
             data=data,
             new_state=updated_state,
@@ -201,8 +200,7 @@ class SetCommand(BaseCommand):
                 state,
             )
 
-        # Strip quotes if present
-        if (value.startswith("'") and value.endswith("'")) or (
+        if (value.startswith("'"') and value.endswith("'"')) or (
             value.startswith('"') and value.endswith('"')
         ):
             value = value[1:-1]
@@ -218,12 +216,10 @@ class SetCommand(BaseCommand):
                 state,
             )
 
-        # Set command prefix in app.state and other relevant places
         if context and hasattr(context, "app"):
             app = context.app
             app.state.command_prefix = value
 
-            # For compatibility with older code that uses app settings service
             from src.core.services.app_settings_service import get_default_instance
 
             settings_service = get_default_instance()
@@ -251,7 +247,6 @@ class SetCommand(BaseCommand):
                 state,
             )
 
-        # Normalize value
         value_upper = value.upper()
         if value_upper in ("ON", "TRUE", "YES", "1", "ENABLED", "ENABLE"):
             enabled = True
@@ -266,7 +261,6 @@ class SetCommand(BaseCommand):
                 state,
             )
 
-        # Update session state
         updated_state = state.with_interactive_just_enabled(enabled)
 
         return (
@@ -290,7 +284,6 @@ class SetCommand(BaseCommand):
                 state,
             )
 
-        # Normalize value
         value_lower = value.lower()
         if value_lower in ("true", "yes", "1", "on", "enabled", "enable"):
             enabled = True
@@ -305,13 +298,10 @@ class SetCommand(BaseCommand):
                 state,
             )
 
-        # Update app state
         if context and hasattr(context, "app"):
             app = context.app
-            # Force the value to be a boolean, not a string
             app.state.api_key_redaction_enabled = bool(enabled)
 
-            # Also update app settings if available
             from src.core.services.app_settings_service import get_default_instance
 
             settings_service = get_default_instance()

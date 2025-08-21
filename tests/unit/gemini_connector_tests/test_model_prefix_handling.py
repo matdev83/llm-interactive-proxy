@@ -69,7 +69,7 @@ async def test_chat_completions_model_prefix_handled(
         api_key="FAKE_KEY",
     )
     # The response is now a ResponseEnvelope
-    assert hasattr(response_tuple, 'content')
+    assert hasattr(response_tuple, "content")
     response: dict[str, Any] = response_tuple.content  # type: ignore
 
     assert isinstance(response, dict)

@@ -9,15 +9,17 @@ from src.core.interfaces.session_service_interface import ISessionService
 async def test_commands_ignored(commands_disabled_client):
     # Configure the mock response using the backend service pattern (like the working tests)
     from src.core.domain.responses import ResponseEnvelope
-    
+
     mock_response_content = {
         "choices": [{"index": 0, "message": {"role": "assistant", "content": "ok"}}]
     }
     mock_response_envelope = ResponseEnvelope(content=mock_response_content)
-    
+
     # Get the backend service from the DI container (same pattern as working tests)
-    backend_service = commands_disabled_client.app.state.service_provider.get_required_service(
-        IBackendService
+    backend_service = (
+        commands_disabled_client.app.state.service_provider.get_required_service(
+            IBackendService
+        )
     )
 
     # Mock the backend service using the working pattern
@@ -39,11 +41,11 @@ async def test_commands_ignored(commands_disabled_client):
 
         # Verify that backend service was called (since commands are disabled)
         mock_method.assert_called_once()
-        
+
         # Check the call arguments to verify the command was not processed
         call_args = mock_method.call_args
         request = call_args[0][0] if call_args[0] else call_args[1].get("request")
-        
+
         # The message content should still contain the command since commands are disabled
         assert len(request.messages) == 1
         assert request.messages[0].content == "hi !/set(model=openrouter:foo)"

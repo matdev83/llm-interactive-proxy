@@ -1,6 +1,5 @@
 """Unit tests for the tool call loop detection middleware."""
 
-
 import pytest
 from src.core.common.exceptions import ToolCallLoopError
 from src.core.domain.configuration.loop_detection_config import (
@@ -19,6 +18,7 @@ class ConcreteToolCallLoopDetectionMiddleware(ToolCallLoopDetectionMiddleware):
 
     async def process_streaming_chunk(self, chunk, context):
         return chunk
+
 
 @pytest.fixture
 def middleware() -> ToolCallLoopDetectionMiddleware:
@@ -67,9 +67,7 @@ def tool_call_response() -> ProcessedResponse:
         ],
         "usage": {"prompt_tokens": 10, "completion_tokens": 10, "total_tokens": 20},
     }
-    return ProcessedResponse(
-        content=response_dict
-    )
+    return ProcessedResponse(content=response_dict)
 
 
 @pytest.mark.asyncio
@@ -106,7 +104,9 @@ async def test_process_disabled(middleware: ToolCallLoopDetectionMiddleware) -> 
 
 
 @pytest.mark.asyncio
-async def test_process_no_tool_calls(middleware: ToolCallLoopDetectionMiddleware, loop_config: LoopDetectionConfiguration) -> None:
+async def test_process_no_tool_calls(
+    middleware: ToolCallLoopDetectionMiddleware, loop_config: LoopDetectionConfiguration
+) -> None:
     """Test that the middleware returns the response unchanged if no tool calls are present."""
     response = ProcessedResponse(content={})
     result = await middleware.process(
@@ -116,7 +116,9 @@ async def test_process_no_tool_calls(middleware: ToolCallLoopDetectionMiddleware
 
 
 @pytest.mark.asyncio
-async def test_process_with_tool_calls(middleware, loop_config, tool_call_response) -> None:
+async def test_process_with_tool_calls(
+    middleware, loop_config, tool_call_response
+) -> None:
     """Test that the middleware processes responses with tool calls."""
     # First call should pass through
     result = await middleware.process(

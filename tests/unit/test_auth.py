@@ -17,17 +17,19 @@ def app_auth_enabled(monkeypatch):
         new=AsyncMock(return_value={"data": [{"id": "some-model"}]}),
     ):
         from src.core.config.app_config import AppConfig
+
         config = AppConfig()
         config.auth.disable_auth = False  # Explicitly ensure auth is enabled
         config.auth.api_keys = ["testkey"]  # Set valid keys
-        
+
         app = build_app(config=config)
-        
+
         # Manually add auth middleware with correct keys
         from src.core.security import APIKeyMiddleware
+
         app.middleware_stack = None  # Reset middleware stack
         app.add_middleware(APIKeyMiddleware, valid_keys=["testkey"])
-        
+
         yield app
 
 

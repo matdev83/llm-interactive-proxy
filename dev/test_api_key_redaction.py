@@ -50,6 +50,8 @@ def setup_test_env() -> dict[str, str]:
 
 class TestLogHandler(logging.Handler):
     """Custom log handler that captures log records for testing."""
+    # Prevent pytest from collecting this as a test class
+    __test__ = False
 
     def __init__(self) -> None:
         super().__init__()

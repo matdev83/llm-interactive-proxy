@@ -60,6 +60,7 @@ dev = [
     "dependency-injector",
     "vulture",
     "pytest-snapshot",
+    "mypy",
 ]
 
 [build-system]
@@ -79,6 +80,7 @@ markers = [
     "backend: marks tests that need a specific backend to be initialized",
     "custom_backend_mock: marks tests that use custom backend mocking strategies",
     "httpx_mock: marks tests that use httpx mocking (provided by pytest-httpx plugin)",
+    "no_global_mock: marks tests that should not use global mocking",
 ]
 filterwarnings = [
     "ignore::pytest.PytestUnraisableExceptionWarning",

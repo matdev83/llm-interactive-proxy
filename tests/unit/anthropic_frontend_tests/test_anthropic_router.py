@@ -3,7 +3,7 @@ Unit tests for Anthropic front-end router.
 Tests the FastAPI endpoints for /anthropic/v1/messages and /anthropic/v1/models.
 """
 
-from unittest.mock import AsyncMock, Mock, patch
+from unittest.mock import AsyncMock, patch
 
 import pytest
 from fastapi import FastAPI
@@ -95,14 +95,15 @@ class TestAnthropicRouter:
     async def test_anthropic_messages_function_validation(self):
         """Test the anthropic_messages function with valid input."""
         # Create a proper mock request that behaves like a FastAPI Request
-        from fastapi import Request
         from unittest.mock import MagicMock
-        
+
+        from fastapi import Request
+
         mock_request = MagicMock(spec=Request)
         mock_request.app = MagicMock()
         mock_request.headers = {}  # Add headers to make it iterable
         mock_request.cookies = {}  # Add cookies to make it iterable
-        
+
         # Mock the state object
         mock_state = MagicMock()
         mock_state.get.return_value = "openrouter"
@@ -121,8 +122,10 @@ class TestAnthropicRouter:
         mock_request_processor.process_request.return_value = {
             "id": "mock-response-1",
             "model": "mock-model",
-            "choices": [{"message": {"content": "mocked response"}, "finish_reason": "stop"}],
-            "usage": {"prompt_tokens": 10, "completion_tokens": 15}
+            "choices": [
+                {"message": {"content": "mocked response"}, "finish_reason": "stop"}
+            ],
+            "usage": {"prompt_tokens": 10, "completion_tokens": 15},
         }
 
         request_body = AnthropicMessagesRequest(
@@ -132,7 +135,6 @@ class TestAnthropicRouter:
         )
 
         # Import the function to test
-        from src.anthropic_router import anthropic_messages
 
         # Call the function with proper arguments
         response = await anthropic_messages(request_body, mock_request)
@@ -142,6 +144,7 @@ class TestAnthropicRouter:
 
         # Assert the response is a Response object
         from fastapi import Response
+
         assert isinstance(response, Response)
 
     def test_messages_endpoint_validation_errors(self):

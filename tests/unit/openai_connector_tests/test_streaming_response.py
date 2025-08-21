@@ -91,21 +91,21 @@ async def test_streaming_response_async_iterator(connector):
 
     # Create a mock ChatRequest with streaming enabled
     from src.core.domain.chat import ChatMessage, ChatRequest
+
     request_data = ChatRequest(
         model="test-model",
         messages=[ChatMessage(role="user", content="test")],
-        stream=True
+        stream=True,
     )
 
     # Call the method
     result = await connector.chat_completions(
-        request_data,
-        [{"role": "user", "content": "test"}],
-        "test-model"
+        request_data, [{"role": "user", "content": "test"}], "test-model"
     )
 
     # Check the result
     from src.core.domain.responses import StreamingResponseEnvelope
+
     assert isinstance(result, StreamingResponseEnvelope)
     assert result.media_type == "text/event-stream"
 
@@ -132,21 +132,21 @@ async def test_streaming_response_sync_iterator(connector):
 
     # Create a mock ChatRequest with streaming enabled
     from src.core.domain.chat import ChatMessage, ChatRequest
+
     request_data = ChatRequest(
         model="test-model",
         messages=[ChatMessage(role="user", content="test")],
-        stream=True
+        stream=True,
     )
 
     # Call the method
     result = await connector.chat_completions(
-        request_data,
-        [{"role": "user", "content": "test"}],
-        "test-model"
+        request_data, [{"role": "user", "content": "test"}], "test-model"
     )
 
     # Check the result
     from src.core.domain.responses import StreamingResponseEnvelope
+
     assert isinstance(result, StreamingResponseEnvelope)
     assert result.media_type == "text/event-stream"
 
@@ -177,21 +177,21 @@ async def test_streaming_response_coroutine(connector):
 
     # Create a mock ChatRequest with streaming enabled
     from src.core.domain.chat import ChatMessage, ChatRequest
+
     request_data = ChatRequest(
         model="test-model",
         messages=[ChatMessage(role="user", content="test")],
-        stream=True
+        stream=True,
     )
 
     # Call the method
     result = await connector.chat_completions(
-        request_data,
-        [{"role": "user", "content": "test"}],
-        "test-model"
+        request_data, [{"role": "user", "content": "test"}], "test-model"
     )
 
     # Check the result
     from src.core.domain.responses import StreamingResponseEnvelope
+
     assert isinstance(result, StreamingResponseEnvelope)
     assert result.media_type == "text/event-stream"
 
@@ -218,18 +218,17 @@ async def test_streaming_response_error(connector):
 
     # Create a mock ChatRequest with streaming enabled
     from src.core.domain.chat import ChatMessage, ChatRequest
+
     request_data = ChatRequest(
         model="test-model",
         messages=[ChatMessage(role="user", content="test")],
-        stream=True
+        stream=True,
     )
 
     # Call the method and expect an exception
     with pytest.raises(HTTPException) as excinfo:
         await connector.chat_completions(
-            request_data,
-            [{"role": "user", "content": "test"}],
-            "test-model"
+            request_data, [{"role": "user", "content": "test"}], "test-model"
         )
 
     # Verify the exception
@@ -242,10 +241,11 @@ async def test_streaming_response_no_auth(connector):
     """Test handling a streaming response with no auth."""
     # Create a mock ChatRequest with streaming enabled
     from src.core.domain.chat import ChatMessage, ChatRequest
+
     request_data = ChatRequest(
         model="test-model",
         messages=[ChatMessage(role="user", content="test")],
-        stream=True
+        stream=True,
     )
 
     # Remove the api key to trigger the auth error
@@ -254,9 +254,7 @@ async def test_streaming_response_no_auth(connector):
     # Call the method with no auth and expect an exception
     with pytest.raises(HTTPException) as excinfo:
         await connector.chat_completions(
-            request_data,
-            [{"role": "user", "content": "test"}],
-            "test-model"
+            request_data, [{"role": "user", "content": "test"}], "test-model"
         )
 
     # Verify the exception

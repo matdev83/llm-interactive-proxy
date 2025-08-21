@@ -2,7 +2,9 @@ from unittest.mock import Mock
 
 import pytest
 
-pytestmark = pytest.mark.skip(reason="Snapshot fixture not available - requires significant test infrastructure setup")
+pytestmark = pytest.mark.skip(
+    reason="Snapshot fixture not available - requires significant test infrastructure setup"
+)
 from src.command_config import CommandParserConfig
 from src.command_parser import CommandParser
 from src.core.domain.session import BackendConfiguration, SessionState
@@ -25,6 +27,7 @@ async def run_command(command_string: str, state: SessionState) -> str:
         RouteListCommand,
         RoutePrependCommand,
     )
+
     parser = CommandParser(parser_config, command_prefix="!/")
     parser.handlers = {
         "create-failover-route": CreateFailoverRouteCommand(),
@@ -35,25 +38,30 @@ async def run_command(command_string: str, state: SessionState) -> str:
         "route-list": RouteListCommand(),
         "route-prepend": RoutePrependCommand(),
     }
-    
+
     _, _ = await parser.process_messages([{"role": "user", "content": command_string}])
-    
+
     if parser.command_results:
         return parser.command_results[-1].message
     return ""
 
+
 @pytest.mark.asyncio
 async def test_failover_commands_lifecycle(snapshot):
     """Snapshot test for the full lifecycle of failover route commands."""
-    
+
     state = SessionState(backend_config=BackendConfiguration())
     results = []
 
     # 1. Create a route
-    results.append(await run_command("!/create-failover-route(name=myroute,policy=k)", state))
-    
+    results.append(
+        await run_command("!/create-failover-route(name=myroute,policy=k)", state)
+    )
+
     # 2. Append an element
-    results.append(await run_command("!/route-append(name=myroute,element=openai:gpt-4)", state))
+    results.append(
+        await run_command("!/route-append(name=myroute,element=openai:gpt-4)", state)
+    )
 
     # 3. List the route
     results.append(await run_command("!/route-list(name=myroute)", state))
@@ -68,7 +76,9 @@ async def test_failover_commands_lifecycle(snapshot):
     results.append(await run_command("!/delete-failover-route(name=myroute)", state))
 
     # 7. Try to delete a non-existent route
-    results.append(await run_command("!/delete-failover-route(name=nonexistent)", state))
+    results.append(
+        await run_command("!/delete-failover-route(name=nonexistent)", state)
+    )
 
     # Assert all results against a single snapshot
     assert "\n---\n".join(results) == snapshot

@@ -46,18 +46,18 @@ class ChatService:
             The response
         """
         # Get service provider
-        provider = get_service_provider()
+        provider: Any = get_service_provider()
         if not provider:
             raise ValueError("Service provider not available")
 
         # Get services
         from src.core.services.backend_service import BackendService
         from src.core.services.command_service import CommandService
-        from src.core.services.session_service import SessionService
+        from src.core.services.session_service_impl import SessionService
 
-        session_service = provider.get_service(SessionService)
-        command_service = provider.get_service(CommandService)
-        backend_service = provider.get_service(BackendService)
+        session_service: SessionService = provider.get_service(SessionService)
+        command_service: CommandService = provider.get_service(CommandService)
+        backend_service: BackendService = provider.get_service(BackendService)
 
         if not session_service:
             raise ValueError("Session service not available")
@@ -72,15 +72,16 @@ class ChatService:
         assert isinstance(backend_service, BackendService)
 
         # Get session ID
-        session_id = http_request.headers.get("x-session-id", "default")
+        session_id: str = http_request.headers.get("x-session-id", "default")
 
         # Convert incoming request to domain ChatRequest (handles dicts/legacy models)
+        from src.core.domain.chat import ChatRequest
         from src.core.domain.processed_result import ProcessedResult
         from src.core.transport.fastapi.api_adapters import (
             legacy_to_domain_chat_request,
         )
 
-        domain_request = legacy_to_domain_chat_request(request_data)
+        domain_request: ChatRequest = legacy_to_domain_chat_request(request_data)
 
         # Get session (needed for command processing)
         await session_service.get_session(session_id)
@@ -115,10 +116,10 @@ class ChatService:
             }
 
         # Call the backend service
-        from src.core.domain.chat import ChatMessage, ChatRequest
+        from src.core.domain.chat import ChatMessage
 
         # Convert to domain request
-        chat_messages = [
+        chat_messages: list[ChatMessage] = [
             ChatMessage(
                 role=msg.role,
                 content=msg.content,
@@ -129,7 +130,7 @@ class ChatService:
             for msg in processed_result.modified_messages
         ]
 
-        chat_request = ChatRequest(
+        chat_request: ChatRequest = ChatRequest(
             messages=chat_messages,
             model=domain_request.model,
             stream=domain_request.stream,

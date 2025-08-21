@@ -42,8 +42,8 @@ def get_openrouter_headers(cfg: dict[str, Any], api_key: str) -> dict[str, str]:
     Be tolerant of minimal cfg dicts provided by tests by falling back to
     sensible defaults when optional keys are absent.
     """
-    referer = cfg.get("app_site_url", "http://localhost:8000")
-    x_title = cfg.get("app_x_title", "InterceptorProxy")
+    referer: str = cfg.get("app_site_url", "http://localhost:8000")
+    x_title: str = cfg.get("app_x_title", "InterceptorProxy")
     return {
         "Authorization": f"Bearer {api_key}",
         "Content-Type": "application/json",
@@ -90,7 +90,7 @@ def _load_config(config_file: str | None = None) -> dict[str, Any]:
     Returns:
         Dictionary containing all configuration values
     """
-    loader = ConfigLoader()
+    loader: ConfigLoader = ConfigLoader()
     return loader.load_config(config_file)
 
 
@@ -117,14 +117,14 @@ class ConfigLoader:
         if self._config_cache is None:
             self._config_cache = self._load_base_config()
 
-        config = dict(self._config_cache)
+        config: dict[str, Any] = dict(self._config_cache)
 
         # Override with config file if provided
         if config_file:
             try:
-                file_config = self._load_config_file(config_file)
+                file_config: dict[str, Any] = self._load_config_file(config_file)
                 config.update(file_config)
-            except Exception as exc:
+            except Exception as exc: # type: ignore[misc]
                 logger.warning("Failed to load config file %s: %s", config_file, exc)
 
         return config
@@ -137,20 +137,20 @@ class ConfigLoader:
         """
         load_dotenv()
 
-        openrouter_keys = _collect_api_keys("OPENROUTER_API_KEY")
-        gemini_keys = _collect_api_keys("GEMINI_API_KEY")
-        anthropic_keys = _collect_api_keys("ANTHROPIC_API_KEY")
-        zai_keys = _collect_api_keys("ZAI_API_KEY")
+        openrouter_keys: dict[str, str] = _collect_api_keys("OPENROUTER_API_KEY")
+        gemini_keys: dict[str, str] = _collect_api_keys("GEMINI_API_KEY")
+        anthropic_keys: dict[str, str] = _collect_api_keys("ANTHROPIC_API_KEY")
+        zai_keys: dict[str, str] = _collect_api_keys("ZAI_API_KEY")
 
-        prefix = os.getenv("COMMAND_PREFIX", DEFAULT_COMMAND_PREFIX)
-        err = validate_command_prefix(prefix)
+        prefix: str = os.getenv("COMMAND_PREFIX", DEFAULT_COMMAND_PREFIX)
+        err: str | None = validate_command_prefix(prefix)
         if err:
             logger.warning("Invalid command prefix %s: %s, using default", prefix, err)
             prefix = DEFAULT_COMMAND_PREFIX
 
         # Security: Check if authentication is disabled
-        disable_auth = _str_to_bool(os.getenv("DISABLE_AUTH"), False)
-        proxy_host = os.getenv("PROXY_HOST", "127.0.0.1")
+        disable_auth: bool = _str_to_bool(os.getenv("DISABLE_AUTH"), False)
+        proxy_host: str = os.getenv("PROXY_HOST", "127.0.0.1")
 
         # Force localhost when authentication is disabled
         if disable_auth and proxy_host != "127.0.0.1":
@@ -161,7 +161,7 @@ class ConfigLoader:
             proxy_host = "127.0.0.1"
 
         # Get backend from environment variable
-        backend_type = os.getenv("LLM_BACKEND", "openai")
+        backend_type: str = os.getenv("LLM_BACKEND", "openai")
 
         config_data: dict[str, Any] = {
             "backend": backend_type,  # Add backend key for compatibility with tests
@@ -248,22 +248,22 @@ class ConfigLoader:
 
         import yaml
 
-        path = Path(config_file)
+        path: Path = Path(config_file)
         if not path.exists():
             raise FileNotFoundError(f"Configuration file not found: {config_file}")
 
         try:
-            content = path.read_text(encoding="utf-8")
+            content: str = path.read_text(encoding="utf-8")
 
             # Try YAML first, then JSON
             try:
-                result = yaml.safe_load(content)
+                result: Any = yaml.safe_load(content)
                 return result if isinstance(result, dict) else {}
             except yaml.YAMLError:
                 result = json.loads(content)
                 return result if isinstance(result, dict) else {}
 
-        except (json.JSONDecodeError, yaml.YAMLError) as exc:
+        except (json.JSONDecodeError, yaml.YAMLError) as exc: # type: ignore[misc]
             raise ValueError(f"Invalid configuration file format: {exc}") from exc
 
     def reload_config(self) -> None:

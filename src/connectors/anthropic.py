@@ -156,13 +156,11 @@ class AnthropicBackend(LLMBackend):
                 content=stream_iterator, media_type="text/event-stream", headers={}
             )
         else:
-            response_json, response_headers = await self._handle_non_streaming_response(
+            response_envelope = await self._handle_non_streaming_response(
                 url, anthropic_payload, headers, effective_model
             )
             # Return a domain-level ResponseEnvelope
-            return ResponseEnvelope(
-                content=response_json, headers=response_headers or {}, status_code=200
-            )
+            return response_envelope
 
     # -----------------------------------------------------------
     # Payload helpers
@@ -244,7 +242,7 @@ class AnthropicBackend(LLMBackend):
         payload: dict,
         headers: dict,
         model: str,
-    ) -> tuple[dict[str, Any], dict[str, str]]:
+    ) -> ResponseEnvelope:
         try:
             response = await self.client.post(url, json=payload, headers=headers)
         except RuntimeError:
@@ -267,7 +265,9 @@ class AnthropicBackend(LLMBackend):
 
         data = response.json()
         converted = self._convert_full_response(data, model)
-        return converted, dict(response.headers)
+        return ResponseEnvelope(
+            content=converted, headers=dict(response.headers), status_code=response.status_code
+        )
 
     # -----------------------------------------------------------
     # Streaming handling

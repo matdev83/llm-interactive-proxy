@@ -1,4 +1,3 @@
-
 from unittest.mock import Mock
 
 import pytest
@@ -10,13 +9,13 @@ from src.core.domain.session import BackendConfiguration, Session, SessionState
 def command() -> ModelCommand:
     return ModelCommand()
 
+
 @pytest.fixture
 def mock_session() -> Mock:
     mock = Mock(spec=Session)
-    mock.state = SessionState(
-        backend_config=BackendConfiguration(model="old_model")
-    )
+    mock.state = SessionState(backend_config=BackendConfiguration(model="old_model"))
     return mock
+
 
 def test_set_model_simple(command: ModelCommand, mock_session: Mock):
     # Act
@@ -26,7 +25,8 @@ def test_set_model_simple(command: ModelCommand, mock_session: Mock):
     assert result.success is True
     assert result.message == "Model changed to new_model"
     assert result.new_state.backend_config.model == "new_model"
-    assert result.new_state.backend_config.backend_type is None # Should not change
+    assert result.new_state.backend_config.backend_type is None  # Should not change
+
 
 def test_set_model_with_backend(command: ModelCommand, mock_session: Mock):
     # Act
@@ -34,9 +34,12 @@ def test_set_model_with_backend(command: ModelCommand, mock_session: Mock):
 
     # Assert
     assert result.success is True
-    assert result.message == "Backend changed to new_backend; Model changed to new_model"
+    assert (
+        result.message == "Backend changed to new_backend; Model changed to new_model"
+    )
     assert result.new_state.backend_config.model == "new_model"
     assert result.new_state.backend_config.backend_type == "new_backend"
+
 
 def test_unset_model(command: ModelCommand, mock_session: Mock):
     # Act

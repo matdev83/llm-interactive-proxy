@@ -101,13 +101,15 @@ class TestQwenOAuthToolCallingEnhanced:
         mock_headers = {"content-type": "application/json"}
 
         # Directly mock the parent class's chat_completions method
+        from src.core.domain.responses import ResponseEnvelope
+
         with (
             patch.object(
                 connector, "_refresh_token_if_needed", AsyncMock(return_value=True)
             ),
             patch(
                 "src.connectors.openai.OpenAIConnector.chat_completions",
-                AsyncMock(return_value=(mock_response_data, mock_headers)),
+                AsyncMock(return_value=ResponseEnvelope(content=mock_response_data, headers=mock_headers)),
             ),
         ):
             # Act
@@ -118,12 +120,12 @@ class TestQwenOAuthToolCallingEnhanced:
             )
 
             # Assert
-            response = result.content
+            response_data = result.content
             # headers = result.headers
 
             # Verify response contains tool calls
-            assert "choices" in response
-            choice = response["choices"][0]
+            assert "choices" in response_data
+            choice = response_data["choices"][0]
             assert choice["finish_reason"] == "tool_calls"
             assert choice["message"]["tool_calls"] is not None
             assert len(choice["message"]["tool_calls"]) == 1
@@ -179,7 +181,7 @@ class TestQwenOAuthToolCallingEnhanced:
         async def mock_chat_completions(*args, **kwargs):
             # Capture the payload for verification
             payload_capture["payload"] = kwargs.get("request_data")
-            return mock_response_data, mock_headers
+            return ResponseEnvelope(content=mock_response_data, headers=mock_headers)
 
         # Create the mock for the parent class's chat_completions method
         parent_chat_completions_mock = AsyncMock(side_effect=mock_chat_completions)
@@ -205,7 +207,7 @@ class TestQwenOAuthToolCallingEnhanced:
             parent_chat_completions_mock.assert_called_once()
 
             # Assert
-            response = result.content
+            response_data = result.content
             # headers = result.headers
 
             # Verify request contained the expected tool_choice
@@ -213,8 +215,8 @@ class TestQwenOAuthToolCallingEnhanced:
             assert payload_capture["payload"].tool_choice == "none"
 
             # Verify response doesn't contain tool calls
-            assert "choices" in response
-            choice = response["choices"][0]
+            assert "choices" in response_data
+            choice = response_data["choices"][0]
             assert choice["finish_reason"] == "stop"
             assert choice["message"]["content"] is not None
             assert (
@@ -293,7 +295,7 @@ class TestQwenOAuthToolCallingEnhanced:
         async def mock_chat_completions(*args, **kwargs):
             # Capture the payload for verification
             payload_capture["request_data"] = kwargs.get("request_data")
-            return mock_response_data, mock_headers
+            return ResponseEnvelope(content=mock_response_data, headers=mock_headers)
 
         # Directly mock the parent class's chat_completions method
         with (
@@ -313,7 +315,7 @@ class TestQwenOAuthToolCallingEnhanced:
             )
 
             # Assert
-            response = result.content
+            response_data = result.content
             # headers = result.headers
 
             # Verify request contained the expected tool_choice
@@ -325,8 +327,8 @@ class TestQwenOAuthToolCallingEnhanced:
             )
 
             # Verify response contains the expected tool call
-            assert "choices" in response
-            choice = response["choices"][0]
+            assert "choices" in response_data
+            choice = response_data["choices"][0]
             assert choice["finish_reason"] == "tool_calls"
             tool_call = choice["message"]["tool_calls"][0]
             assert tool_call["function"]["name"] == "get_weather"
@@ -372,6 +374,15 @@ class TestQwenOAuthToolCallingEnhanced:
             media_type="text/event-stream",
         )
 
+        # Create a StreamingResponseEnvelope to match what the Qwen connector expects
+        from src.core.domain.responses import StreamingResponseEnvelope
+
+        mock_stream_envelope = StreamingResponseEnvelope(
+            content=mock_stream_response.body_iterator,
+            media_type="text/event-stream",
+            headers=mock_stream_response.headers,
+        )
+
         # Directly mock the parent class's chat_completions method for streaming
         with (
             patch.object(
@@ -379,7 +390,7 @@ class TestQwenOAuthToolCallingEnhanced:
             ),
             patch(
                 "src.connectors.openai.OpenAIConnector.chat_completions",
-                AsyncMock(return_value=mock_stream_response),
+                AsyncMock(return_value=mock_stream_envelope),
             ),
         ):
             # Act
@@ -463,7 +474,7 @@ class TestQwenOAuthToolCallingEnhanced:
             # Capture the payload for verification
             payload_capture["request_data"] = kwargs.get("request_data")
             payload_capture["messages"] = kwargs.get("processed_messages")
-            return mock_response_data, mock_headers
+            return ResponseEnvelope(content=mock_response_data, headers=mock_headers)
 
         # Directly mock the parent class's chat_completions method
         with (
@@ -483,7 +494,7 @@ class TestQwenOAuthToolCallingEnhanced:
             )
 
             # Assert
-            response = result.content
+            response_data = result.content
             # headers = result.headers
 
             # Verify the conversation context was properly passed
@@ -499,8 +510,8 @@ class TestQwenOAuthToolCallingEnhanced:
             assert messages_data[2]["tool_call_id"] == "call_calc_123"
 
             # Verify response contains expected content
-            assert "choices" in response
-            choice = response["choices"][0]
+            assert "choices" in response_data
+            choice = response_data["choices"][0]
             assert choice["finish_reason"] == "stop"
             assert "15" in choice["message"]["content"]
 
@@ -591,7 +602,7 @@ class TestQwenOAuthToolCallingEnhanced:
         async def mock_chat_completions(*args, **kwargs):
             # Capture the effective model for verification
             model_capture["effective_model"] = kwargs.get("effective_model")
-            return mock_response_data, mock_headers
+            return ResponseEnvelope(content=mock_response_data, headers=mock_headers)
 
         # Directly mock the parent class's chat_completions method
         with (
@@ -614,8 +625,8 @@ class TestQwenOAuthToolCallingEnhanced:
             assert model_capture["effective_model"] == "qwen3-coder-plus"
 
             # Verify the response was passed through correctly
-            response = result.content
-            assert response["id"] == "test-id"
+            response_data = result.content
+            assert response_data["id"] == "test-id"
 
 
 if __name__ == "__main__":

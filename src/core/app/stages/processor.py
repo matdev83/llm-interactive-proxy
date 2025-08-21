@@ -96,7 +96,7 @@ class ProcessorStage(InitializationStage):
             )
 
             logger.debug("Registered command processor")
-        except ImportError as e:
+        except ImportError as e: # type: ignore[misc]
             logger.warning(f"Could not register command processor: {e}")
 
     def _register_backend_processor(self, services: ServiceCollection) -> None:
@@ -135,7 +135,7 @@ class ProcessorStage(InitializationStage):
             )
 
             logger.debug("Registered backend processor")
-        except ImportError as e:
+        except ImportError as e: # type: ignore[misc]
             logger.warning(f"Could not register backend processor: {e}")
 
     def _register_response_processor(self, services: ServiceCollection) -> None:
@@ -153,13 +153,13 @@ class ProcessorStage(InitializationStage):
             ) -> ResponseProcessor:
                 """Factory function for creating ResponseProcessor with middleware."""
                 # Get loop detector if available
-                loop_detector = provider.get_service(LoopDetector)
+                loop_detector: LoopDetector | None = provider.get_service(LoopDetector)
 
                 # Create middleware list
-                middleware = []
+                middleware: list[IResponseMiddleware] = []
                 if loop_detector:
                     try:
-                        from src.core.services.response_middleware_service import (
+                        from src.core.services.response_middleware import (
                             LoopDetectionMiddleware,
                         )
 
@@ -185,7 +185,7 @@ class ProcessorStage(InitializationStage):
             )
 
             logger.debug("Registered response processor with middleware")
-        except ImportError as e:
+        except ImportError as e: # type: ignore[misc]
             logger.warning(f"Could not register response processor: {e}")
 
     def _register_request_processor(self, services: ServiceCollection) -> None:
@@ -251,7 +251,7 @@ class ProcessorStage(InitializationStage):
             )
 
             logger.debug("Registered request processor with all dependencies")
-        except ImportError as e:
+        except ImportError as e: # type: ignore[misc]
             logger.warning(f"Could not register request processor: {e}")
 
     async def validate(self, services: ServiceCollection, config: AppConfig) -> bool:
@@ -260,6 +260,6 @@ class ProcessorStage(InitializationStage):
             # Check that required modules are available
 
             return True
-        except ImportError as e:
+        except ImportError as e: # type: ignore[misc]
             logger.error(f"Processor services validation failed: {e}")
             return False

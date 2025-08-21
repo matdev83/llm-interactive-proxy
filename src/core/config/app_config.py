@@ -34,19 +34,19 @@ def _get_api_keys_from_env() -> list[str]:
     result: list[str] = []
 
     # Try modern API_KEYS first
-    api_keys_raw = os.environ.get("API_KEYS")
+    api_keys_raw: str | None = os.environ.get("API_KEYS")
     if api_keys_raw and isinstance(api_keys_raw, str):
         result.extend(_process_api_keys(api_keys_raw))
 
     # Try legacy LLM_INTERACTIVE_PROXY_API_KEY if no API_KEYS found
     if not result:
-        legacy_key = os.environ.get("LLM_INTERACTIVE_PROXY_API_KEY")
+        legacy_key: str | None = os.environ.get("LLM_INTERACTIVE_PROXY_API_KEY")
         if legacy_key and isinstance(legacy_key, str):
             result.append(legacy_key)
 
     # Also check other legacy variants if still no keys found
     if not result:
-        proxy_api_keys = os.environ.get("PROXY_API_KEYS")
+        proxy_api_keys: str | None = os.environ.get("PROXY_API_KEYS")
         if proxy_api_keys and isinstance(proxy_api_keys, str):
             result.extend(_process_api_keys(proxy_api_keys))
 
@@ -118,8 +118,8 @@ class SessionConfig(DomainModel):
     disable_interactive_commands: bool = False
 
 
-from src.core.services.backend_registry_service import (
-    backend_registry,  # Added this import
+from src.core.services.backend_registry import (
+    backend_registry,  # Updated import path
 )
 
 
@@ -132,8 +132,8 @@ class BackendSettings(DomainModel):
 
     def __init__(self, **data: Any) -> None:
         # Extract backend configs from data before calling super().__init__
-        backend_configs = {}
-        registered_backends = backend_registry.get_registered_backends()
+        backend_configs: dict[str, Any] = {}
+        registered_backends: list[str] = backend_registry.get_registered_backends()
 
         # Extract backend configs from data
         for backend_name in registered_backends:
@@ -146,7 +146,7 @@ class BackendSettings(DomainModel):
         # Set backend configs using __dict__ to bypass Pydantic's field system
         for backend_name, config_data in backend_configs.items():
             if isinstance(config_data, dict):
-                config = BackendConfig(**config_data)
+                config: BackendConfig = BackendConfig(**config_data)
             elif isinstance(config_data, BackendConfig):
                 config = config_data
             else:
@@ -176,10 +176,10 @@ class BackendSettings(DomainModel):
     @property
     def functional_backends(self) -> set[str]:
         """Get the set of functional backends (those with API keys)."""
-        functional = set()
+        functional: set[str] = set()
         for backend_name in backend_registry.get_registered_backends():
             if backend_name in self.__dict__:
-                config = self.__dict__[backend_name]
+                config: Any = self.__dict__[backend_name]
                 if isinstance(config, BackendConfig) and config.api_key:
                     functional.add(backend_name)
         return functional
@@ -210,11 +210,11 @@ class BackendSettings(DomainModel):
 
     def model_dump(self, **kwargs: Any) -> dict[str, Any]:
         """Override model_dump to include default_backend and dynamic backends."""
-        dumped = super().model_dump(**kwargs)
+        dumped: dict[str, Any] = super().model_dump(**kwargs)
         # Add dynamic backends to the dumped dictionary
         for backend_name in backend_registry.get_registered_backends():
             if backend_name in self.__dict__:
-                config = self.__dict__[backend_name]
+                config: Any = self.__dict__[backend_name]
                 if isinstance(config, BackendConfig):
                     dumped[backend_name] = config.model_dump()
         return dumped
@@ -263,7 +263,7 @@ class AppConfig(DomainModel, IConfig):
         Returns:
             Dictionary in the legacy configuration format
         """
-        config = {
+        config: dict[str, Any] = {
             "host": self.host,
             "port": self.port,
             "proxy_timeout": self.proxy_timeout,
@@ -290,12 +290,17 @@ class AppConfig(DomainModel, IConfig):
             "force_set_project": (
                 self.session.force_set_project if self.session is not None else False
             ),
+            "disable_interactive_commands": (
+                self.session.disable_interactive_commands
+                if self.session is not None
+                else False
+            ),
             # Logging settings
             "log_level": (
                 self.logging.level.value if self.logging is not None else "INFO"
             ),
             "request_logging": (
-                self.logging.request_logging if self.logging is not None else True
+                self.logging.request_logging if self.logging is not None else False
             ),
             "response_logging": (
                 self.logging.response_logging if self.logging is not None else False
@@ -312,9 +317,9 @@ class AppConfig(DomainModel, IConfig):
         # Add backend-specific configurations
         if self.backends is not None:
             for backend_name in backend_registry.get_registered_backends():
-                backend_config = getattr(self.backends, backend_name)
+                backend_config: BackendConfig = getattr(self.backends, backend_name)
                 if isinstance(backend_config, BackendConfig):
-                    api_keys = backend_config.api_key
+                    api_keys: list[str] = backend_config.api_key
                     config[f"{backend_name}_api_key"] = api_keys[0] if api_keys else ""
                     config[f"{backend_name}_api_url"] = backend_config.api_url
                     config[f"{backend_name}_timeout"] = backend_config.timeout
@@ -328,7 +333,7 @@ class AppConfig(DomainModel, IConfig):
     @classmethod
     def from_legacy_config(cls, legacy_config: dict[str, Any]) -> AppConfig:
         """Create AppConfig from the legacy configuration format.
-
+        
         Args:
             legacy_config: Dictionary in the legacy configuration format
 
@@ -336,7 +341,7 @@ class AppConfig(DomainModel, IConfig):
             AppConfig instance
         """
         # Create basic config structure
-        config = {
+        config: dict[str, Any] = {
             "host": legacy_config.get("host", "0.0.0.0"),
             "port": legacy_config.get("port", 8000),
             "proxy_timeout": legacy_config.get("proxy_timeout", 120),
@@ -370,25 +375,25 @@ class AppConfig(DomainModel, IConfig):
 
         # Extract backend configurations
         # Dynamically get registered backends
-        registered_backends = backend_registry.get_registered_backends()
+        registered_backends: list[str] = backend_registry.get_registered_backends()
         for backend in registered_backends:
             backend_config: dict[str, Any] = {}
 
             # Extract common backend settings
-            api_key = legacy_config.get(f"{backend}_api_key", "")
+            api_key: str = legacy_config.get(f"{backend}_api_key", "")
             if api_key:
                 backend_config["api_key"] = [api_key]
 
-            api_url = legacy_config.get(f"{backend}_api_url")
+            api_url: str | None = legacy_config.get(f"{backend}_api_url")
             if api_url:
                 backend_config["api_url"] = api_url
 
-            timeout = legacy_config.get(f"{backend}_timeout")
+            timeout: int | None = legacy_config.get(f"{backend}_timeout")
             if timeout:
                 backend_config["timeout"] = timeout
 
             # Extract extra backend settings
-            extra = {}
+            extra: dict[str, Any] = {}
             for key, value in legacy_config.items():
                 if key.startswith(f"{backend}_") and key not in [
                     f"{backend}_api_key",
@@ -396,14 +401,14 @@ class AppConfig(DomainModel, IConfig):
                     f"{backend}_timeout",
                 ]:
                     # Extract the part after {backend}_
-                    extra_key = key[len(f"{backend}_") :]
+                    extra_key: str = key[len(f"{backend}_") :]
                     extra[extra_key] = value
 
             if extra:
                 backend_config["extra"] = extra
 
             if backend_config:
-                backends_dict = config["backends"]
+                backends_dict: dict[str, Any] = config["backends"]
                 if isinstance(backends_dict, dict):
                     backends_dict[backend] = backend_config
 
@@ -412,7 +417,7 @@ class AppConfig(DomainModel, IConfig):
     @classmethod
     def from_env(cls) -> AppConfig:
         """Create AppConfig from environment variables.
-
+        
         Returns:
             AppConfig instance
         """
@@ -431,7 +436,7 @@ class AppConfig(DomainModel, IConfig):
         }
 
         # After populating auth config, if disable_auth is true, clear api_keys
-        auth_config = config["auth"]
+        auth_config: dict[str, Any] = config["auth"]
         if isinstance(auth_config, dict) and auth_config.get("disable_auth"):
             auth_config["api_keys"] = []
 
@@ -467,11 +472,11 @@ class AppConfig(DomainModel, IConfig):
         )
 
         # Extract backend configurations from environment
-        config_backends = config["backends"]
+        config_backends: dict[str, Any] = config["backends"]
         assert isinstance(config_backends, dict)
 
         # Collect and assign API keys for specific backends
-        openrouter_keys = _collect_api_keys("OPENROUTER_API_KEY")
+        openrouter_keys: dict[str, str] = _collect_api_keys("OPENROUTER_API_KEY")
         if openrouter_keys:
             config_backends["openrouter"] = config_backends.get("openrouter", {})
             config_backends["openrouter"]["api_key"] = list(openrouter_keys.values())
@@ -484,7 +489,7 @@ class AppConfig(DomainModel, IConfig):
                         os.environ.get("OPENROUTER_TIMEOUT", "0")
                     )
 
-        gemini_keys = _collect_api_keys("GEMINI_API_KEY")
+        gemini_keys: dict[str, str] = _collect_api_keys("GEMINI_API_KEY")
         if gemini_keys:
             config_backends["gemini"] = config_backends.get("gemini", {})
             config_backends["gemini"]["api_key"] = list(gemini_keys.values())
@@ -497,7 +502,7 @@ class AppConfig(DomainModel, IConfig):
                         os.environ.get("GEMINI_TIMEOUT", "0")
                     )
 
-        anthropic_keys = _collect_api_keys("ANTHROPIC_API_KEY")
+        anthropic_keys: dict[str, str] = _collect_api_keys("ANTHROPIC_API_KEY")
         if anthropic_keys:
             config_backends["anthropic"] = config_backends.get("anthropic", {})
             config_backends["anthropic"]["api_key"] = list(anthropic_keys.values())
@@ -510,7 +515,7 @@ class AppConfig(DomainModel, IConfig):
                         os.environ.get("ANTHROPIC_TIMEOUT", "0")
                     )
 
-        zai_keys = _collect_api_keys("ZAI_API_KEY")
+        zai_keys: dict[str, str] = _collect_api_keys("ZAI_API_KEY")
         if zai_keys:
             config_backends["zai"] = config_backends.get("zai", {})
             config_backends["zai"]["api_key"] = list(zai_keys.values())
@@ -522,7 +527,7 @@ class AppConfig(DomainModel, IConfig):
                     )
 
         # Handle default backend if it's not explicitly configured above
-        default_backend_type = os.environ.get("LLM_BACKEND", "openai")
+        default_backend_type: str = os.environ.get("LLM_BACKEND", "openai")
         if default_backend_type not in config_backends:
             # If the default backend is not explicitly configured, ensure it has a basic config
             config_backends[default_backend_type] = config_backends.get(
@@ -575,7 +580,8 @@ def _merge_dicts(d1: dict[str, Any], d2: dict[str, Any]) -> dict[str, Any]:
 
 
 def load_config(config_path: str | Path | None = None) -> AppConfig:
-    """Load configuration from file and environment.
+    """
+    Load configuration from file and environment.
 
     Args:
         config_path: Optional path to configuration file
@@ -584,7 +590,7 @@ def load_config(config_path: str | Path | None = None) -> AppConfig:
         AppConfig instance
     """
     # Start with environment configuration
-    config = AppConfig.from_env()
+    config: AppConfig = AppConfig.from_env()
 
     # Override with file configuration if provided
     if config_path:
@@ -593,14 +599,14 @@ def load_config(config_path: str | Path | None = None) -> AppConfig:
 
             import yaml
 
-            path = Path(config_path)
+            path: Path = Path(config_path)
             if not path.exists():
                 logger.warning(f"Configuration file not found: {config_path}")
                 return config
 
             with open(path) as f:
                 if path.suffix.lower() == ".json":
-                    file_config = json.load(f)
+                    file_config: dict[str, Any] = json.load(f)
                 elif path.suffix.lower() in [".yaml", ".yml"]:
                     file_config = yaml.safe_load(f)
                 else:
@@ -611,11 +617,11 @@ def load_config(config_path: str | Path | None = None) -> AppConfig:
 
                 # Merge file config with environment config
                 if isinstance(file_config, dict):
-                    env_dict = config.model_dump()
-                    merged_config_dict = _merge_dicts(env_dict, file_config)
+                    env_dict: dict[str, Any] = config.model_dump()
+                    merged_config_dict: dict[str, Any] = _merge_dicts(env_dict, file_config)
                     config = AppConfig.model_validate(merged_config_dict)
 
-        except Exception as e:
+        except Exception as e: # type: ignore[misc]
             logger.error(f"Error loading configuration file: {e!s}")
 
     return config

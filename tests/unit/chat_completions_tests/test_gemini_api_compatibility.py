@@ -18,6 +18,7 @@ class TestGeminiModelsEndpoint:
         # Mock the backend models
         # Register mock backends via DI-backed BackendService
         from unittest.mock import Mock
+
         from src.core.interfaces.backend_service_interface import IBackendService
 
         svc = client.app.state.service_provider.get_required_service(IBackendService)
@@ -25,16 +26,22 @@ class TestGeminiModelsEndpoint:
         mock_gemini = Mock()
         mock_cli = Mock()
         mock_or.get_available_models.return_value = ["gpt-4", "gpt-3.5-turbo"]
-        mock_gemini.get_available_models.return_value = ["gemini-pro", "gemini-pro-vision"]
+        mock_gemini.get_available_models.return_value = [
+            "gemini-pro",
+            "gemini-pro-vision",
+        ]
         mock_cli.get_available_models.return_value = ["gemini-1.5-pro"]
         svc._backends["openrouter"] = mock_or
         svc._backends["gemini"] = mock_gemini
         svc._backends["gemini-cli-direct"] = mock_cli
 
-        with (
-            patch.object(svc._backends["openrouter"]) as mock_or,
-            patch.object(svc._backends["gemini"]) as mock_gemini,
-            patch.object(svc._backends["gemini-cli-direct"]) as mock_cli,
+        with patch.dict(
+            svc._backends,
+            {
+                "openrouter": mock_or,
+                "gemini": mock_gemini,
+                "gemini-cli-direct": mock_cli,
+            },
         ):
 
             mock_or.get_available_models.return_value = ["gpt-4", "gpt-3.5-turbo"]
@@ -90,9 +97,13 @@ class TestGeminiGenerateContent:
 
         client.app.state.rate_limits = RateLimitRegistry()
         if not hasattr(client.app.state, "session_manager"):
-            from src.session import SessionManager
+            from src.core.services.sync_session_manager import SyncSessionManager
+            from unittest.mock import Mock
+            from src.core.interfaces.session_service_interface import ISessionService
 
-            client.app.state.session_manager = SessionManager()
+            # Create a mock session service for testing
+            mock_session_service = Mock(spec=ISessionService)
+            client.app.state.session_manager = SyncSessionManager(mock_session_service)
         if not hasattr(client.app.state, "openrouter_backend"):
             from unittest.mock import Mock
 

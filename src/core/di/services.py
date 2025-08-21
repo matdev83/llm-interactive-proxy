@@ -40,7 +40,7 @@ from src.core.services.response_handlers import (
 )
 from src.core.services.response_processor_service import ResponseProcessor
 from src.core.services.session_resolver_service import DefaultSessionResolver
-from src.core.services.session_service import SessionService
+from src.core.services.session_service_impl import SessionService
 
 T = TypeVar("T")
 
@@ -115,7 +115,7 @@ def register_core_services(
         services.add_instance(AppConfig, app_config)
 
     # Helper wrappers to make registration idempotent and provide debug logging
-    logger = logging.getLogger(__name__)
+    logger: logging.Logger = logging.getLogger(__name__)
 
     def _registered(service_type: type) -> bool:
         desc = getattr(services, "_descriptors", None)
@@ -157,8 +157,8 @@ def register_core_services(
 
     # Register CommandService with factory
     def _command_service_factory(provider: IServiceProvider) -> CommandService:
-        registry = provider.get_required_service(CommandRegistry)
-        session_svc = provider.get_required_service(SessionService)
+        registry: CommandRegistry = provider.get_required_service(CommandRegistry)
+        session_svc: SessionService = provider.get_required_service(SessionService)
         return CommandService(registry, session_svc)
 
     # Register CommandService and bind to interface
@@ -178,7 +178,7 @@ def register_core_services(
         )
 
         # Create repository
-        repository = InMemorySessionRepository()
+        repository: InMemorySessionRepository = InMemorySessionRepository()
 
         # Return session service
         return SessionService(repository)
@@ -195,7 +195,7 @@ def register_core_services(
     # Register command processor
     def _command_processor_factory(provider: IServiceProvider) -> CommandProcessor:
         # Get command service
-        command_service = provider.get_required_service(ICommandService)  # type: ignore[type-abstract]
+        command_service: ICommandService = provider.get_required_service(ICommandService)  # type: ignore[type-abstract]
 
         # Return command processor
         return CommandProcessor(command_service)
@@ -212,8 +212,8 @@ def register_core_services(
     # Register backend processor
     def _backend_processor_factory(provider: IServiceProvider) -> BackendProcessor:
         # Get backend service and session service
-        backend_service = provider.get_required_service(IBackendService)  # type: ignore[type-abstract]
-        session_service = provider.get_required_service(ISessionService)  # type: ignore[type-abstract]
+        backend_service: IBackendService = provider.get_required_service(IBackendService)  # type: ignore[type-abstract]
+        session_service: ISessionService = provider.get_required_service(ISessionService)  # type: ignore[type-abstract]
 
         # Return backend processor
         return BackendProcessor(backend_service, session_service)
@@ -244,7 +244,7 @@ def register_core_services(
     # Register response processor
     def _response_processor_factory(provider: IServiceProvider) -> ResponseProcessor:
         # Get loop detector if available
-        detector = None
+        detector: Any | None = None
         try:
             from src.core.interfaces.loop_detector_interface import ILoopDetector
 
@@ -259,7 +259,7 @@ def register_core_services(
             from src.core.interfaces.response_processor_interface import (
                 IResponseMiddleware,
             )
-            from src.core.services.response_middleware_service import (
+            from src.core.services.response_middleware import (
                 LoopDetectionMiddleware,
             )
 
@@ -268,7 +268,7 @@ def register_core_services(
                 middleware.append(LoopDetectionMiddleware(detector))
 
             return ResponseProcessor(loop_detector=detector, middleware=middleware)
-        except Exception as e:
+        except Exception as e: # type: ignore[misc]
             import logging
 
             logger = logging.getLogger(__name__)
@@ -289,13 +289,13 @@ def register_core_services(
     # Register app settings
     def _app_settings_factory(provider: IServiceProvider) -> AppSettings:
         # Get app_state from FastAPI app if available
-        app_state = None
+        app_state: Any | None = None
         try:
             # Import here to avoid circular imports
             from fastapi import FastAPI
 
             # Get FastAPI app from app_config if available
-            app_config = provider.get_service(AppConfig)
+            app_config: AppConfig | None = provider.get_service(AppConfig)
             if (
                 app_config
                 and hasattr(app_config, "app")
@@ -331,18 +331,18 @@ def register_core_services(
         from src.core.services.rate_limiter_service import RateLimiter
 
         # Get or create dependencies
-        httpx_client = provider.get_service(httpx.AsyncClient)
+        httpx_client: httpx.AsyncClient | None = provider.get_service(httpx.AsyncClient)
         if httpx_client is None:
             httpx_client = httpx.AsyncClient()
 
         # Get app config
-        app_config = provider.get_required_service(AppConfig)
+        app_config: AppConfig = provider.get_required_service(AppConfig)
 
         # Create backend factory
-        backend_factory = BackendFactory(httpx_client, backend_registry)
+        backend_factory: BackendFactory = BackendFactory(httpx_client, backend_registry)
 
         # Create rate limiter
-        rate_limiter = RateLimiter()
+        rate_limiter: RateLimiter = RateLimiter()
 
         # Return backend service
         return BackendService(backend_factory, rate_limiter, app_config)
@@ -367,13 +367,13 @@ def register_core_services(
         from src.core.interfaces.session_service_interface import ISessionService
 
         # Get required services
-        command_proc = provider.get_required_service(ICommandProcessor)  # type: ignore[type-abstract]
-        backend_proc = provider.get_required_service(IBackendProcessor)  # type: ignore[type-abstract]
-        session_svc = provider.get_required_service(ISessionService)  # type: ignore[type-abstract]
-        response_proc = provider.get_required_service(IResponseProcessor)  # type: ignore[type-abstract]
+        command_proc: ICommandProcessor = provider.get_required_service(ICommandProcessor)  # type: ignore[type-abstract]
+        backend_proc: IBackendProcessor = provider.get_required_service(IBackendProcessor)  # type: ignore[type-abstract]
+        session_svc: ISessionService = provider.get_required_service(ISessionService)  # type: ignore[type-abstract]
+        response_proc: IResponseProcessor = provider.get_required_service(IResponseProcessor)  # type: ignore[type-abstract]
 
         # Get session resolver if available
-        session_resolver = None
+        session_resolver: ISessionResolver | None = None
         with contextlib.suppress(Exception):
             session_resolver = provider.get_service(ISessionResolver)  # type: ignore[type-abstract]
 

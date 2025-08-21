@@ -18,6 +18,7 @@ import httpx
 from src.core.config.app_config import AppConfig
 from src.core.di.container import ServiceCollection
 from src.core.interfaces.di_interface import IServiceProvider
+from src.core.interfaces.session_service_interface import ISessionService
 from src.core.services.backend_factory import BackendFactory
 from src.core.services.backend_registry import backend_registry
 
@@ -51,25 +52,16 @@ class BackendStage(InitializationStage):
         """Register backend services."""
         logger.info("Initializing backend services...")
 
-        # Import connectors to trigger their registration
         try:
-            # This will import all connectors and register them
             logger.debug(
                 f"Imported connectors, registered backends: {backend_registry.get_registered_backends()}"
             )
         except ImportError as e:
             logger.warning(f"Failed to import connectors: {e}")
 
-        # Register backend registry
         self._register_backend_registry(services)
-
-        # Register backend factory
         self._register_backend_factory(services)
-
-        # Register backend config provider
         self._register_backend_config_provider(services)
-
-        # Register backend service
         self._register_backend_service(services)
 
         logger.info("Backend services initialized successfully")
@@ -82,7 +74,6 @@ class BackendStage(InitializationStage):
                 backend_registry,
             )
 
-            # Register the global backend registry instance
             services.add_instance(BackendRegistry, backend_registry)
 
             logger.debug("Registered backend registry instance")
@@ -108,7 +99,6 @@ class BackendStage(InitializationStage):
                 )
                 return BackendFactory(httpx_client, backend_registry_instance)
 
-            # Register with factory function
             services.add_singleton(
                 BackendFactory, implementation_factory=backend_factory_factory
             )
@@ -132,7 +122,6 @@ class BackendStage(InitializationStage):
                 app_config = provider.get_required_service(AppConfig)
                 return BackendConfigProvider(app_config)
 
-            # Register interface with factory
             services.add_singleton(
                 cast(type, IBackendConfigProvider),
                 implementation_factory=backend_config_provider_factory,
@@ -167,20 +156,22 @@ class BackendStage(InitializationStage):
                 backend_config_provider: IBackendConfigProvider = (
                     provider.get_required_service(cast(type, IBackendConfigProvider))
                 )
+                session_service: ISessionService = provider.get_required_service(
+                    cast(type, ISessionService)
+                )
 
                 return BackendService(
                     backend_factory,
                     rate_limiter,
                     app_config,
+                    session_service,
                     backend_config_provider=backend_config_provider,
                 )
 
-            # Register concrete implementation
             services.add_singleton(
                 BackendService, implementation_factory=backend_service_factory
             )
 
-            # Register interface binding
             services.add_singleton(
                 cast(type, IBackendService),
                 implementation_factory=backend_service_factory,
@@ -193,9 +184,6 @@ class BackendStage(InitializationStage):
     async def validate(self, services: ServiceCollection, config: AppConfig) -> bool:
         """Validate that backend services can be registered."""
         try:
-            # Check that required modules are available
-
-            # Validate that backend registry has backends
             if not backend_registry.get_registered_backends():
                 logger.warning("No backends registered in backend registry")
 

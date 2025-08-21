@@ -25,6 +25,7 @@ from src.core.app.stages.test_stages import (
     CustomTestStage,
     MinimalTestStage,
     MockBackendStage,
+    RealBackendTestStage,
 )
 from src.core.config.app_config import AppConfig
 
@@ -38,6 +39,8 @@ class ApplicationTestBuilder(ApplicationBuilder):
     This builder provides convenient methods for creating test applications
     with different levels of mocking and service replacement.
     """
+    # Prevent pytest from collecting this as a test class
+    __test__ = False
 
     def add_test_stages(self) -> ApplicationTestBuilder:
         """
@@ -49,14 +52,13 @@ class ApplicationTestBuilder(ApplicationBuilder):
         Returns:
             Self for method chaining
         """
-        return (
-            self.add_stage(CoreServicesStage())
-            .add_stage(InfrastructureStage())
-            .add_stage(MockBackendStage())  # Mock backends instead of real ones
-            .add_stage(CommandStage())
-            .add_stage(ProcessorStage())
-            .add_stage(ControllerStage())
-        )  # type: ignore[return-value]
+        self.add_stage(CoreServicesStage())
+        self.add_stage(InfrastructureStage())
+        self.add_stage(MockBackendStage())  # Mock backends instead of real ones
+        self.add_stage(CommandStage())
+        self.add_stage(ProcessorStage())
+        self.add_stage(ControllerStage())
+        return self
 
     def add_minimal_stages(self) -> ApplicationTestBuilder:
         """
@@ -69,9 +71,9 @@ class ApplicationTestBuilder(ApplicationBuilder):
         Returns:
             Self for method chaining
         """
-        return self.add_stage(CoreServicesStage()).add_stage(
-            MinimalTestStage()
-        )  # type: ignore[return-value]
+        self.add_stage(CoreServicesStage())
+        self.add_stage(MinimalTestStage())
+        return self
 
     def add_custom_stage(
         self,
@@ -85,7 +87,8 @@ class ApplicationTestBuilder(ApplicationBuilder):
             Self for method chaining
         """
         custom_stage = CustomTestStage(name, services, dependencies)
-        return self.add_stage(custom_stage)  # type: ignore[return-value]
+        self.add_stage(custom_stage)
+        return self
 
     def replace_stage(
         self, stage_name: str, replacement_stage: Any
@@ -108,20 +111,21 @@ class ApplicationTestBuilder(ApplicationBuilder):
             del self._stages[stage_name]
 
         # Add replacement stage
-        return self.add_stage(replacement_stage)  # type: ignore[return-value]
-        
+        self.add_stage(replacement_stage)
+        return self
+
     async def _initialize_services(self, app: FastAPI, config: AppConfig) -> Any:
         """
         Legacy compatibility method for tests that directly call _initialize_services.
-        
+
         This method provides backward compatibility for tests that were written
         against the old API. It builds a new app using the staged approach and
         then returns the service provider.
-        
+
         Args:
             app: The FastAPI application
             config: The application configuration
-            
+
         Returns:
             The service provider
         """
@@ -129,31 +133,31 @@ class ApplicationTestBuilder(ApplicationBuilder):
             "Using deprecated _initialize_services method. "
             "Please update tests to use the staged initialization approach."
         )
-        
+
         # Use the staged approach to build a new app
         builder = self.add_test_stages()
         new_app = await builder.build(config)
-        
+
         # Copy the service provider and other state to the original app
         if hasattr(new_app.state, "service_provider"):
             app.state.service_provider = new_app.state.service_provider
-            
+
         # Copy other important state attributes
         for attr in ["app_config", "httpx_client", "disable_auth"]:
             if hasattr(new_app.state, attr):
                 setattr(app.state, attr, getattr(new_app.state, attr))
-                
+
         # Return the service provider for backward compatibility
         return app.state.service_provider
-        
+
     async def _initialize_backends(self, app: FastAPI, config: AppConfig) -> None:
         """
         Legacy compatibility method for tests that directly call _initialize_backends.
-        
+
         This method provides backward compatibility for tests that were written
         against the old API. It builds a new app using the staged approach and
         ensures the backends are properly initialized.
-        
+
         Args:
             app: The FastAPI application
             config: The application configuration
@@ -162,11 +166,11 @@ class ApplicationTestBuilder(ApplicationBuilder):
             "Using deprecated _initialize_backends method. "
             "Please update tests to use the staged initialization approach."
         )
-        
+
         # First make sure services are initialized
         if not hasattr(app.state, "service_provider") or not app.state.service_provider:
             await self._initialize_services(app, config)
-            
+
         # The backends should already be initialized by the MockBackendStage
         # during the _initialize_services call, so no further action is needed
 
@@ -189,7 +193,9 @@ async def build_test_app_async(config: AppConfig | None = None) -> FastAPI:
         try:
             from src.core.config.app_config import load_config
 
-            cfg = load_config()  # tests may have patched this to return a custom AppConfig
+            cfg = (
+                load_config()
+            )  # tests may have patched this to return a custom AppConfig
             if cfg is not None:
                 config = cfg
             else:
@@ -207,7 +213,9 @@ async def build_test_app_async(config: AppConfig | None = None) -> FastAPI:
             install_api_key_redaction_filter,
         )
 
-        api_keys = discover_api_keys_from_config_and_env(getattr(app, "state", None) and app.state.app_config)
+        api_keys = discover_api_keys_from_config_and_env(
+            getattr(app, "state", None) and app.state.app_config
+        )
         install_api_key_redaction_filter(api_keys)
     except Exception:
         # Don't fail test app creation if redaction installation fails
@@ -272,7 +280,9 @@ async def build_minimal_test_app_async(config: AppConfig | None = None) -> FastA
             install_api_key_redaction_filter,
         )
 
-        api_keys = discover_api_keys_from_config_and_env(getattr(app, "state", None) and app.state.app_config)
+        api_keys = discover_api_keys_from_config_and_env(
+            getattr(app, "state", None) and app.state.app_config
+        )
         install_api_key_redaction_filter(api_keys)
     except Exception:
         pass
@@ -355,6 +365,37 @@ def create_test_config() -> AppConfig:
 
 
 # Example usage patterns for different test scenarios
+
+
+def build_httpx_mock_test_app(config: AppConfig | None = None) -> FastAPI:
+    """
+    Build a test app with real backends for HTTP mocking tests.
+    
+    This uses real backend services that make HTTP calls, which can then
+    be mocked using HTTPXMock or similar tools. This is useful for tests
+    that need to mock HTTP responses but want to test the full request flow.
+    
+    Args:
+        config: Test configuration, defaults to basic test config
+    
+    Returns:
+        FastAPI application with real backends for HTTP mocking
+    """
+    if config is None:
+        config = create_test_config()
+    
+    # Use real backend services for HTTP mocking
+    builder = (
+        ApplicationTestBuilder()
+        .add_stage(CoreServicesStage())
+        .add_stage(InfrastructureStage())
+        .add_stage(RealBackendTestStage())  # Real backends for HTTP mocking
+        .add_stage(CommandStage())
+        .add_stage(ProcessorStage())
+        .add_stage(ControllerStage())
+    )
+    
+    return cast(FastAPI, asyncio.run(builder.build(config)))
 
 
 def build_integration_test_app(config: AppConfig | None = None) -> FastAPI:

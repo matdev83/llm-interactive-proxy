@@ -124,9 +124,9 @@ async def test_anthropic_messages_non_streaming(test_client: TestClient):
         # Print debug info to see what arguments were actually passed
         # print(f"Args: {args}")
         # print(f"Kwargs: {kwargs}")
-        
+
         # The request should be in kwargs with key 'request'
-        openai_request = kwargs.get('request')
+        openai_request = kwargs.get("request")
         if openai_request is None and len(args) > 1:
             # If not in kwargs, it might be the second positional argument (first is self)
             openai_request = args[1]

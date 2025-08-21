@@ -1,4 +1,3 @@
-
 from unittest.mock import Mock
 
 import pytest
@@ -16,15 +15,19 @@ def command() -> SetCommand:
     """Returns a new instance of the SetCommand for each test."""
     return SetCommand()
 
+
 @pytest.fixture
 def mock_session() -> Mock:
     """Creates a mock session object with a default state."""
     mock = Mock(spec=Session)
     mock.state = SessionState(
-        backend_config=BackendConfiguration(backend_type="test_backend", model="test_model"),
-        reasoning_config=ReasoningConfiguration(temperature=0.5)
+        backend_config=BackendConfiguration(
+            backend_type="test_backend", model="test_model"
+        ),
+        reasoning_config=ReasoningConfiguration(temperature=0.5),
     )
     return mock
+
 
 @pytest.mark.asyncio
 async def test_handle_temperature_success(command: SetCommand, mock_session: Mock):
@@ -32,7 +35,9 @@ async def test_handle_temperature_success(command: SetCommand, mock_session: Moc
     args = {"temperature": "0.8"}
 
     # Act
-    result, new_state = await command._handle_temperature(args["temperature"], mock_session.state, {})
+    result, new_state = await command._handle_temperature(
+        args["temperature"], mock_session.state, {}
+    )
 
     # Assert
     assert result.success is True
@@ -40,17 +45,23 @@ async def test_handle_temperature_success(command: SetCommand, mock_session: Moc
     assert new_state is not None
     assert new_state.reasoning_config.temperature == pytest.approx(0.8)
 
+
 @pytest.mark.asyncio
-async def test_handle_temperature_invalid_value(command: SetCommand, mock_session: Mock):
+async def test_handle_temperature_invalid_value(
+    command: SetCommand, mock_session: Mock
+):
     # Arrange
     args = {"temperature": "invalid"}
 
     # Act
-    result, new_state = await command._handle_temperature(args["temperature"], mock_session.state, {})
+    result, new_state = await command._handle_temperature(
+        args["temperature"], mock_session.state, {}
+    )
 
     # Assert
     assert result.success is False
     assert result.message == "Temperature must be a valid number"
+
 
 @pytest.mark.asyncio
 async def test_handle_temperature_out_of_range(command: SetCommand, mock_session: Mock):
@@ -58,45 +69,62 @@ async def test_handle_temperature_out_of_range(command: SetCommand, mock_session
     args = {"temperature": "2.0"}
 
     # Act
-    result, new_state = await command._handle_temperature(args["temperature"], mock_session.state, {})
+    result, new_state = await command._handle_temperature(
+        args["temperature"], mock_session.state, {}
+    )
 
     # Assert
     assert result.success is False
     assert result.message == "Temperature must be between 0.0 and 1.0"
 
+
 @pytest.mark.asyncio
-async def test_handle_backend_and_model_set_backend(command: SetCommand, mock_session: Mock):
+async def test_handle_backend_and_model_set_backend(
+    command: SetCommand, mock_session: Mock
+):
     # Arrange
     args = {"backend": "new_backend"}
 
     # Act
-    result, new_state = await command._handle_backend_and_model(args, mock_session.state, context={})
+    result, new_state = await command._handle_backend_and_model(
+        args, mock_session.state, context={}
+    )
 
     # Assert
     assert result.success is True
     assert result.message == "Backend changed to new_backend"
     assert new_state.backend_config.backend_type == "new_backend"
 
+
 @pytest.mark.asyncio
-async def test_handle_backend_and_model_set_model(command: SetCommand, mock_session: Mock):
+async def test_handle_backend_and_model_set_model(
+    command: SetCommand, mock_session: Mock
+):
     # Arrange
     args = {"model": "new_model"}
 
     # Act
-    result, new_state = await command._handle_backend_and_model(args, mock_session.state, context={})
+    result, new_state = await command._handle_backend_and_model(
+        args, mock_session.state, context={}
+    )
 
     # Assert
     assert result.success is True
     assert result.message == "Model changed to new_model"
     assert new_state.backend_config.model == "new_model"
 
+
 @pytest.mark.asyncio
-async def test_handle_backend_and_model_set_both(command: SetCommand, mock_session: Mock):
+async def test_handle_backend_and_model_set_both(
+    command: SetCommand, mock_session: Mock
+):
     # Arrange
     args = {"model": "another_backend:another_model"}
 
     # Act
-    result, new_state = await command._handle_backend_and_model(args, mock_session.state, context={})
+    result, new_state = await command._handle_backend_and_model(
+        args, mock_session.state, context={}
+    )
 
     # Assert
     assert result.success is True
@@ -105,13 +133,16 @@ async def test_handle_backend_and_model_set_both(command: SetCommand, mock_sessi
     assert new_state.backend_config.backend_type == "another_backend"
     assert new_state.backend_config.model == "another_model"
 
+
 @pytest.mark.asyncio
 async def test_handle_project_success(command: SetCommand, mock_session: Mock):
     # Arrange
     args = {"project": "test_project"}
 
     # Act
-    result, new_state = await command._handle_project(args.get("project"), mock_session.state, {})
+    result, new_state = await command._handle_project(
+        args.get("project"), mock_session.state, {}
+    )
 
     # Assert
     assert result.success is True

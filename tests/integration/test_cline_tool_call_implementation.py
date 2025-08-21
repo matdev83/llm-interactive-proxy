@@ -17,14 +17,16 @@ from fastapi.testclient import TestClient
 from src.core.app.test_builder import build_test_app as build_app
 
 # Skip all tests in this file until we can properly refactor them to work with the new command API
-pytestmark = pytest.mark.skip("Needs deeper refactoring to handle Cline command responses correctly")
+pytestmark = pytest.mark.skip(
+    "Needs deeper refactoring to handle Cline command responses correctly"
+)
 
 
 @pytest.fixture
 def app():
     """Create the application for testing."""
     from src.core.config.app_config import AppConfig, AuthConfig
-    
+
     # Create a proper AppConfig object
     config = AppConfig(
         host="127.0.0.1",
@@ -32,7 +34,7 @@ def app():
         command_prefix="!/",  # Important for command tests
         auth=AuthConfig(disable_auth=True),
     )
-    
+
     test_app = build_app(config)
 
     # Set up mock backends

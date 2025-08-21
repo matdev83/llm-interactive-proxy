@@ -167,7 +167,11 @@ class RequestProcessor(IRequestProcessor):
                         "top_p": getattr(backend_request, "top_p", None),
                         "max_tokens": getattr(backend_request, "max_tokens", None),
                     },
-                    response="<streaming>" if backend_request.stream else str(backend_response.content),
+                    response=(
+                        "<streaming>"
+                        if backend_request.stream
+                        else str(backend_response.content)
+                    ),
                 )
             )
         await self._session_service.update_session(session)

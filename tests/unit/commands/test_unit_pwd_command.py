@@ -1,4 +1,3 @@
-
 from unittest.mock import Mock
 
 import pytest
@@ -10,11 +9,13 @@ from src.core.domain.session import Session, SessionState
 def command() -> PwdCommand:
     return PwdCommand()
 
+
 @pytest.fixture
 def mock_session() -> Mock:
     mock = Mock(spec=Session)
     mock.state = SessionState()
     return mock
+
 
 @pytest.mark.asyncio
 async def test_pwd_with_project_dir_set(command: PwdCommand, mock_session: Mock):
@@ -28,6 +29,7 @@ async def test_pwd_with_project_dir_set(command: PwdCommand, mock_session: Mock)
     # Assert
     assert result.success is True
     assert result.message == test_dir
+
 
 @pytest.mark.asyncio
 async def test_pwd_with_project_dir_not_set(command: PwdCommand, mock_session: Mock):

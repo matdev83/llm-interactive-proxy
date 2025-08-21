@@ -33,6 +33,3 @@ def test_extract_response_content_with_object_choices() -> None:
 
     content = fake_response.choices[0].message.content
     assert content == "Hi there"
-
-
-

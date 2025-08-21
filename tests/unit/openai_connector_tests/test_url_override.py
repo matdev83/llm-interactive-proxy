@@ -10,6 +10,7 @@ from src.core.domain.chat import ChatMessage, ChatRequest
 
 @pytest.fixture
 def mock_client():
+    # Provide an AsyncMock AsyncClient; tests will set .post/.get return_value
     client = AsyncMock(spec=httpx.AsyncClient)
     return client
 
@@ -46,7 +47,9 @@ async def test_chat_completions_uses_default_url(openai_connector, mock_client):
         ],
     }
     mock_response.headers = {"X-Request-ID": "test-request-id"}
-    mock_client.post.return_value = mock_response
+
+    # Configure mock_client.post to return the mock response
+    mock_client.post = AsyncMock(return_value=mock_response)
 
     # Execute
     await openai_connector.chat_completions(
@@ -87,7 +90,9 @@ async def test_chat_completions_uses_custom_url(openai_connector, mock_client):
         ],
     }
     mock_response.headers = {"X-Request-ID": "test-request-id"}
-    mock_client.post.return_value = mock_response
+
+    # Configure mock_client.post to return the mock response
+    mock_client.post = AsyncMock(return_value=mock_response)
 
     # Execute
     await openai_connector.chat_completions(
@@ -117,7 +122,9 @@ async def test_initialize_with_custom_url(mock_client):
             {"id": "gpt-4"},
         ]
     }
-    mock_client.get.return_value = mock_response
+
+    # Configure mock_client.get to return the mock response
+    mock_client.get = AsyncMock(return_value=mock_response)
 
     # Execute
     await connector.initialize(api_key="test-api-key", api_base_url=custom_url)

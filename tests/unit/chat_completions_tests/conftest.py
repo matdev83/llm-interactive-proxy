@@ -115,16 +115,28 @@ def client(
     )
     app = build_app(config)
 
-    with TestClient(app) as client, \
-         patch('src.core.services.backend_factory_service.BackendFactory.create_backend') as mock_create_backend:
+    with (
+        TestClient(app) as client,
+        patch(
+            "src.core.services.backend_factory_service.BackendFactory.create_backend"
+        ) as mock_create_backend,
+    ):
+
         def side_effect(self, name, *args, **kwargs):
-            if name == "openai": return mock_openai_backend
-            if name == "openrouter": return mock_openrouter_backend
-            if name == "gemini": return mock_gemini_backend
-            if name == "anthropic": return mock_anthropic_backend
-            if name == "qwen-oauth": return mock_qwen_oauth_backend
-            if name == "zai": return mock_zai_backend
+            if name == "openai":
+                return mock_openai_backend
+            if name == "openrouter":
+                return mock_openrouter_backend
+            if name == "gemini":
+                return mock_gemini_backend
+            if name == "anthropic":
+                return mock_anthropic_backend
+            if name == "qwen-oauth":
+                return mock_qwen_oauth_backend
+            if name == "zai":
+                return mock_zai_backend
             return MagicMock()
+
         mock_create_backend.side_effect = side_effect
 
         yield client
@@ -156,16 +168,28 @@ def interactive_client(
     )
     app = build_app(config)
 
-    with TestClient(app) as client, \
-         patch('src.core.services.backend_factory_service.BackendFactory.create_backend') as mock_create_backend:
+    with (
+        TestClient(app) as client,
+        patch(
+            "src.core.services.backend_factory_service.BackendFactory.create_backend"
+        ) as mock_create_backend,
+    ):
+
         def side_effect(self, name, *args, **kwargs):
-            if name == "openai": return mock_openai_backend
-            if name == "openrouter": return mock_openrouter_backend
-            if name == "gemini": return mock_gemini_backend
-            if name == "anthropic": return mock_anthropic_backend
-            if name == "qwen-oauth": return mock_qwen_oauth_backend
-            if name == "zai": return mock_zai_backend
+            if name == "openai":
+                return mock_openai_backend
+            if name == "openrouter":
+                return mock_openrouter_backend
+            if name == "gemini":
+                return mock_gemini_backend
+            if name == "anthropic":
+                return mock_anthropic_backend
+            if name == "qwen-oauth":
+                return mock_qwen_oauth_backend
+            if name == "zai":
+                return mock_zai_backend
             return MagicMock()
+
         mock_create_backend.side_effect = side_effect
 
         yield client
@@ -197,16 +221,28 @@ def commands_disabled_client(
     )
     app = build_app(config)
 
-    with TestClient(app) as client, \
-         patch('src.core.services.backend_factory_service.BackendFactory.create_backend') as mock_create_backend:
+    with (
+        TestClient(app) as client,
+        patch(
+            "src.core.services.backend_factory_service.BackendFactory.create_backend"
+        ) as mock_create_backend,
+    ):
+
         def side_effect(self, name, *args, **kwargs):
-            if name == "openai": return mock_openai_backend
-            if name == "openrouter": return mock_openrouter_backend
-            if name == "gemini": return mock_gemini_backend
-            if name == "anthropic": return mock_anthropic_backend
-            if name == "qwen-oauth": return mock_qwen_oauth_backend
-            if name == "zai": return mock_zai_backend
+            if name == "openai":
+                return mock_openai_backend
+            if name == "openrouter":
+                return mock_openrouter_backend
+            if name == "gemini":
+                return mock_gemini_backend
+            if name == "anthropic":
+                return mock_anthropic_backend
+            if name == "qwen-oauth":
+                return mock_qwen_oauth_backend
+            if name == "zai":
+                return mock_zai_backend
             return MagicMock()
+
         mock_create_backend.side_effect = side_effect
 
         yield client

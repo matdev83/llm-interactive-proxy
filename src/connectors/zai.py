@@ -124,26 +124,12 @@ class ZAIConnector(OpenAIConnector):
         effective_model: str,
         **kwargs: Any,
     ) -> ResponseEnvelope | StreamingResponseEnvelope:
-        result = await super().chat_completions(
+        return await super().chat_completions(
             request_data=request_data,
             processed_messages=processed_messages,
             effective_model=effective_model,
             **kwargs,
         )
-
-        # Handle different return types from parent
-        if isinstance(result, ResponseEnvelope | StreamingResponseEnvelope):
-            # Parent returned domain envelope -> return it directly
-            return result
-        elif isinstance(result, tuple) and len(result) == 2:
-            # Parent returned (content, headers) tuple -> wrap into domain envelope
-            content, headers = result
-            return ResponseEnvelope(content=content, headers=headers or {})
-        else:
-            # Unknown type -> error
-            raise TypeError(
-                f"Unexpected return type from parent chat_completions: {type(result)}"
-            )
 
 
 backend_registry.register_backend("zai", ZAIConnector)

@@ -77,7 +77,7 @@ class CoreServicesStage(InitializationStage):
             )
 
             logger.debug("Registered session repository services")
-        except ImportError as e:
+        except ImportError as e: # type: ignore[misc]
             logger.warning(f"Could not register session repository: {e}")
 
     def _register_session_service(self, services: ServiceCollection) -> None:
@@ -85,7 +85,7 @@ class CoreServicesStage(InitializationStage):
         try:
             from src.core.interfaces.repositories_interface import ISessionRepository
             from src.core.interfaces.session_service_interface import ISessionService
-            from src.core.services.session_service import SessionService
+            from src.core.services.session_service_impl import SessionService
 
             def session_service_factory(provider: IServiceProvider) -> SessionService:
                 """Factory function for creating SessionService with dependencies."""
@@ -110,7 +110,7 @@ class CoreServicesStage(InitializationStage):
             )
 
             logger.debug("Registered session service with factory")
-        except ImportError as e:
+        except ImportError as e: # type: ignore[misc]
             logger.warning(f"Could not register session service: {e}")
 
     def _register_session_resolver(
@@ -124,7 +124,7 @@ class CoreServicesStage(InitializationStage):
             )
 
             # Create instance with config
-            session_resolver = DefaultSessionResolver(config)
+            session_resolver: DefaultSessionResolver = DefaultSessionResolver(config)
 
             # Register as singleton instance
             services.add_instance(DefaultSessionResolver, session_resolver)
@@ -133,7 +133,7 @@ class CoreServicesStage(InitializationStage):
             services.add_instance(cast(type, ISessionResolver), session_resolver)
 
             logger.debug("Registered session resolver instance")
-        except ImportError as e:
+        except ImportError as e: # type: ignore[misc]
             logger.warning(f"Could not register session resolver: {e}")
 
     async def validate(self, services: ServiceCollection, config: AppConfig) -> bool:
@@ -147,6 +147,6 @@ class CoreServicesStage(InitializationStage):
                 return False
 
             return True
-        except ImportError as e:
+        except ImportError as e: # type: ignore[misc]
             logger.error(f"Core services validation failed: {e}")
             return False

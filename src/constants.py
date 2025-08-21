@@ -1,6 +1,6 @@
 from enum import Enum
 
-DEFAULT_COMMAND_PREFIX = "!/"
+DEFAULT_COMMAND_PREFIX: str = "!/"
 
 
 class AgentType(str, Enum):

@@ -11,6 +11,7 @@ from tests.conftest import get_backend_instance, get_session_service_from_app
 @pytest.mark.asyncio
 async def test_session_records_proxy_and_backend_interactions(client):
     from src.core.services.backend_service import BackendService
+
     with patch.object(
         BackendService, "call_completion", new_callable=AsyncMock
     ) as mock_call_completion:
@@ -19,10 +20,8 @@ async def test_session_records_proxy_and_backend_interactions(client):
                 content={
                     "id": "cmd-1",
                     "choices": [
-                        {
-                            "message": {"content": "Command processed successfully"}
-                        }
-                    ]
+                        {"message": {"content": "Command processed successfully"}}
+                    ],
                 },
                 headers={"Content-Type": "application/json"},
                 status_code=200,
@@ -30,7 +29,11 @@ async def test_session_records_proxy_and_backend_interactions(client):
             ResponseEnvelope(
                 content={
                     "choices": [{"message": {"content": "backend reply"}}],
-                    "usage": {"prompt_tokens": 1, "completion_tokens": 2, "total_tokens": 3},
+                    "usage": {
+                        "prompt_tokens": 1,
+                        "completion_tokens": 2,
+                        "total_tokens": 3,
+                    },
                 },
                 headers={"Content-Type": "application/json"},
                 status_code=200,

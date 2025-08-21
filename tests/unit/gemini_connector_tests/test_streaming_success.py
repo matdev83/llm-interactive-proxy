@@ -67,7 +67,7 @@ async def test_chat_completions_streaming_success(
     )
 
     # The response is now a StreamingResponseEnvelope
-    assert hasattr(response, 'content')
+    assert hasattr(response, "content")
     # Extract the content generator from the envelope
     content_generator = response.content
 

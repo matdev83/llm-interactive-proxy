@@ -70,7 +70,7 @@ class MockStreamingResponse:
         return self
 
     async def __anext__(self):
-        if not hasattr(self, '_content_iter'):
+        if not hasattr(self, "_content_iter"):
             self._content_iter = iter(self.content)
         try:
             chunk = next(self._content_iter)
@@ -273,7 +273,12 @@ class TestBackendServiceCompletions:
         client = httpx.AsyncClient()
         mock_backend = MockBackend(client)
         mock_backend.chat_completions_mock.return_value = ResponseEnvelope(
-            content={"id": "resp-123", "created": 123, "model": "model1", "choices": []},
+            content={
+                "id": "resp-123",
+                "created": 123,
+                "model": "model1",
+                "choices": [],
+            },
             headers={},
         )
 
@@ -283,8 +288,8 @@ class TestBackendServiceCompletions:
 
             # Assert
             assert mock_backend.chat_completions_called
-            assert response.content.content["id"] == "resp-123"
-            assert response.content.content["model"] == "model1"
+            assert response.content["id"] == "resp-123"
+            assert response.content["model"] == "model1"
 
     @pytest.mark.asyncio
     async def test_call_completion_streaming(self, service, chat_request):
@@ -625,8 +630,8 @@ class TestBackendServiceFailover:
         # Assert
         assert primary_backend.chat_completions_called
         assert fallback_backend.chat_completions_called
-        assert response.content.content["id"] == "fallback-resp"
-        assert response.content.content["model"] == "fallback-model"
+        assert response.content["id"] == "fallback-resp"
+        assert response.content["model"] == "fallback-model"
 
     @pytest.mark.asyncio
     async def test_complex_failover_first_attempt(
@@ -645,7 +650,12 @@ class TestBackendServiceFailover:
         client2 = httpx.AsyncClient()
         first_fallback = MockBackend(client2)
         first_fallback.chat_completions_mock.return_value = ResponseEnvelope(
-            content={"id": "claude-resp", "created": 123, "model": "claude-2", "choices": []},
+            content={
+                "id": "claude-resp",
+                "created": 123,
+                "model": "claude-2",
+                "choices": [],
+            },
             headers={},
         )
 
@@ -703,8 +713,8 @@ class TestBackendServiceFailover:
         # The important part is that we got the expected response from the first fallback
         assert first_fallback.chat_completions_called
         assert not second_fallback.chat_completions_called
-        assert response.content.content["id"] == "claude-resp"
-        assert response.content.content["model"] == "claude-2"
+        assert response.content["id"] == "claude-resp"
+        assert response.content["model"] == "claude-2"
 
     @pytest.mark.asyncio
     async def test_complex_failover_second_attempt(
@@ -791,8 +801,8 @@ class TestBackendServiceFailover:
         # without calling the primary backend, depending on implementation details
         assert first_fallback.chat_completions_called
         assert second_fallback.chat_completions_called
-        assert response.content.content["id"] == "last-resort"
-        assert response.content.content["model"] == "last-resort-model"
+        assert response.content["id"] == "last-resort"
+        assert response.content["model"] == "last-resort-model"
 
     @pytest.mark.asyncio
     async def test_complex_failover_all_fail(

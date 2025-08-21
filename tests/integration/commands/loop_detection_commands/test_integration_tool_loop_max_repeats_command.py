@@ -1,9 +1,10 @@
-
 from unittest.mock import Mock
 
 import pytest
 
-pytestmark = pytest.mark.skip(reason="Snapshot fixture not available - requires significant test infrastructure setup")
+pytestmark = pytest.mark.skip(
+    reason="Snapshot fixture not available - requires significant test infrastructure setup"
+)
 from src.command_config import CommandParserConfig
 from src.command_parser import CommandParser
 from src.core.domain.session import LoopDetectionConfiguration, SessionState
@@ -18,14 +19,18 @@ async def run_command(command_string: str) -> str:
     from src.core.domain.commands.loop_detection_commands.tool_loop_max_repeats_command import (
         ToolLoopMaxRepeatsCommand,
     )
+
     parser = CommandParser(parser_config, command_prefix="!/")
-    parser.handlers = {"tool-loop-max-repeats": ToolLoopMaxRepeatsCommand()} # Manually insert handler
-    
+    parser.handlers = {
+        "tool-loop-max-repeats": ToolLoopMaxRepeatsCommand()
+    }  # Manually insert handler
+
     _, _ = await parser.process_messages([{"role": "user", "content": command_string}])
-    
+
     if parser.command_results:
         return parser.command_results[-1].message
     return ""
+
 
 @pytest.mark.asyncio
 async def test_max_repeats_success_snapshot(snapshot):
@@ -33,6 +38,7 @@ async def test_max_repeats_success_snapshot(snapshot):
     command_string = "!/tool-loop-max-repeats(max_repeats=5)"
     output_message = await run_command(command_string)
     assert output_message == snapshot
+
 
 @pytest.mark.asyncio
 async def test_max_repeats_failure_snapshot(snapshot):

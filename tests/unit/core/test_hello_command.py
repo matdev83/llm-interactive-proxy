@@ -10,12 +10,14 @@ def command() -> HelloCommand:
     """Returns a new instance of the HelloCommand for each test."""
     return HelloCommand()
 
+
 @pytest.fixture
 def mock_session() -> Mock:
     """Creates a mock session object with a default state."""
     mock = Mock(spec=Session)
     mock.state = SessionState()
     return mock
+
 
 @pytest.mark.asyncio
 async def test_hello_command_execution(command: HelloCommand, mock_session: Mock):

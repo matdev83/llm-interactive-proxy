@@ -17,7 +17,6 @@ from src.anthropic_converters import (
 from src.anthropic_models import AnthropicMessagesRequest
 from src.core.common.exceptions import LLMProxyError
 from src.core.interfaces.di_interface import IServiceProvider
-from src.core.interfaces.model_bases import DomainModel, InternalDTO
 from src.core.interfaces.request_processor_interface import IRequestProcessor
 from src.core.transport.fastapi.exception_adapters import (
     map_domain_exception_to_http_exception,
@@ -44,9 +43,7 @@ class AnthropicController:
     async def handle_anthropic_messages(
         self,
         request: Request,
-        request_data: (
-            AnthropicMessagesRequest | DomainModel | InternalDTO | dict[str, Any]
-        ),
+        request_data: AnthropicMessagesRequest | dict[str, Any],
     ) -> Response:
         """Handle Anthropic messages requests.
 
@@ -64,9 +61,10 @@ class AnthropicController:
             import dataclasses
 
             if isinstance(request_data, AnthropicMessagesRequest):
-                anthropic_request = request_data
+                anthropic_request: AnthropicMessagesRequest = request_data
             else:
                 # Convert various shapes (dict, pydantic, dataclass) to a dict
+                payload: dict[str, Any]
                 if isinstance(request_data, dict):
                     payload = request_data
                 elif hasattr(request_data, "model_dump"):
@@ -99,8 +97,13 @@ class AnthropicController:
             # Process the request using the request processor
             response = await self._processor.process_request(ctx, openai_request_data)
 
+            # Check if response is a coroutine and await it if needed
+            import asyncio
+            if asyncio.iscoroutine(response):
+                response = await response
+            
             # Convert domain response to FastAPI response
-            adapted_response = domain_response_to_fastapi(response)
+            adapted_response: Response = domain_response_to_fastapi(response)
 
             # Convert the OpenAI response back to Anthropic format
             body_content: bytes | memoryview = adapted_response.body
@@ -118,20 +121,32 @@ class AnthropicController:
             else:
                 anthropic_response_data = openai_response_data
 
-            # Return as FastAPI Response with Anthropic format
+            # Check if streaming was requested
+            is_streaming = anthropic_request.stream
+            logger.info(f"Streaming requested: {is_streaming}, adapted_response type: {type(adapted_response)}")
+
+            # Return as FastAPI Response with appropriate format
             from fastapi import Response as FastAPIResponse
 
-            return FastAPIResponse(
-                content=json.dumps(anthropic_response_data),
-                media_type="application/json",
-                headers=adapted_response.headers,
-            )
+            if is_streaming:
+                # For streaming, we need to return the adapted response directly
+                # since domain_response_to_fastapi should handle streaming properly
+                logger.info(f"Returning streaming response: {adapted_response}")
+                return adapted_response
+            else:
+                # For non-streaming, return Anthropic-formatted JSON response
+                logger.info(f"Returning JSON response: {anthropic_response_data}")
+                return FastAPIResponse(
+                    content=json.dumps(anthropic_response_data),
+                    media_type="application/json",
+                    headers=adapted_response.headers,
+                )
         except LLMProxyError as e:
             # Map domain exceptions to HTTP exceptions
             raise map_domain_exception_to_http_exception(e)
-        except HTTPException:
+        except HTTPException as e:
             # Re-raise HTTP exceptions
-            raise
+            raise e
         except Exception as e:
             # Log and convert other exceptions to HTTP exceptions
             logger.error(f"Error handling Anthropic messages: {e}", exc_info=True)
@@ -155,7 +170,7 @@ def get_anthropic_controller(service_provider: IServiceProvider) -> AnthropicCon
     """
     try:
         # Try to get the existing request processor from the service provider
-        request_processor = service_provider.get_service(IRequestProcessor)  # type: ignore[type-abstract]
+        request_processor: IRequestProcessor | None = service_provider.get_service(IRequestProcessor)  # type: ignore[type-abstract]
         if request_processor is None:
             # Try to get the concrete implementation
             from src.core.services.request_processor_service import RequestProcessor
@@ -171,18 +186,18 @@ def get_anthropic_controller(service_provider: IServiceProvider) -> AnthropicCon
             )
             from src.core.interfaces.session_service_interface import ISessionService
 
-            cmd = service_provider.get_service(ICommandService)  # type: ignore[type-abstract]
-            backend = service_provider.get_service(IBackendService)  # type: ignore[type-abstract]
-            session = service_provider.get_service(ISessionService)  # type: ignore[type-abstract]
-            response_proc = service_provider.get_service(IResponseProcessor)  # type: ignore[type-abstract]
+            cmd: ICommandService | None = service_provider.get_service(ICommandService)  # type: ignore[type-abstract]
+            backend: IBackendService | None = service_provider.get_service(IBackendService)  # type: ignore[type-abstract]
+            session: ISessionService | None = service_provider.get_service(ISessionService)  # type: ignore[type-abstract]
+            response_proc: IResponseProcessor | None = service_provider.get_service(IResponseProcessor)  # type: ignore[type-abstract]
 
             if cmd and backend and session and response_proc:
                 from src.core.services.backend_processor import BackendProcessor
                 from src.core.services.command_processor import CommandProcessor
                 from src.core.services.request_processor_service import RequestProcessor
 
-                command_processor = CommandProcessor(cmd)
-                backend_processor = BackendProcessor(backend, session)
+                command_processor: CommandProcessor = CommandProcessor(cmd)
+                backend_processor: BackendProcessor = BackendProcessor(backend, session)
 
                 request_processor = RequestProcessor(
                     command_processor, backend_processor, session, response_proc
@@ -193,7 +208,7 @@ def get_anthropic_controller(service_provider: IServiceProvider) -> AnthropicCon
 
                 if isinstance(service_provider, ServiceProvider):
                     # Access the _singleton_instances attribute safely
-                    singleton_instances = getattr(
+                    singleton_instances: dict[type, Any] | None = getattr(
                         service_provider, "_singleton_instances", None
                     )
                     if singleton_instances is not None:

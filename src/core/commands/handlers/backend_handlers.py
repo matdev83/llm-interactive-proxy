@@ -58,10 +58,10 @@ class BackendHandler(BaseCommandHandler):
                 success=False, message="Backend value must be a string"
             )
 
-        backend_val = param_value.strip().lower()
+        backend_val: str = param_value.strip().lower()
         if context:
             # Get BackendRegistry from service provider
-            from src.core.services.backend_registry_service import backend_registry
+            from src.core.services.backend_registry import backend_registry
 
             if backend_val not in backend_registry.get_registered_backends():
                 return CommandHandlerResult(
@@ -138,7 +138,7 @@ class ModelHandler(BaseCommandHandler):
             # Create new backend config with model unset
             new_backend_config = current_state.backend_config.with_model(None)
             # Create new state with updated backend config
-            new_state = current_state.with_backend_config(new_backend_config)
+            new_state: ISessionState = current_state.with_backend_config(new_backend_config)
             return CommandHandlerResult(
                 success=True, message="model unset", new_state=new_state
             )
@@ -148,15 +148,17 @@ class ModelHandler(BaseCommandHandler):
                 success=False, message="Model value must be a string"
             )
 
-        model_val = param_value.strip()
+        model_val: str = param_value.strip()
 
         # Check if the value contains a backend prefix
         if ":" in model_val:
+            backend_prefix: str
+            model_name: str
             backend_prefix, model_name = model_val.split(":", 1)
 
             if context:
                 # Get BackendRegistry from service provider
-                from src.core.services.backend_registry_service import backend_registry
+                from src.core.services.backend_registry import backend_registry
 
                 if backend_prefix not in backend_registry.get_registered_backends():
                     return CommandHandlerResult(
@@ -223,7 +225,7 @@ class OpenAIUrlHandler(BaseCommandHandler):
                 success=False, message="OpenAI URL value must be a string"
             )
 
-        url_val = param_value.strip()
+        url_val: str = param_value.strip()
 
         # Validate URL format
         if not url_val.startswith(("http://", "https://")):
@@ -232,8 +234,8 @@ class OpenAIUrlHandler(BaseCommandHandler):
             )
 
         # Update the state
-        builder = SessionStateBuilder(current_state)
-        new_state = SessionStateAdapter(
+        builder: SessionStateBuilder = SessionStateBuilder(current_state)
+        new_state: SessionStateAdapter = SessionStateAdapter(
             builder.with_backend_config(
                 current_state.backend_config.with_openai_url(url_val)
             ).build()

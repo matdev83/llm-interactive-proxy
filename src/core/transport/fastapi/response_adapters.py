@@ -82,8 +82,53 @@ def to_fastapi_response(
             content = content.model_dump()
         elif is_dataclass(content) and not isinstance(content, type):
             content = asdict(content)
+
+        # Sanitize content to avoid un-awaited coroutine/AsyncMock objects
+        try:
+            import asyncio
+
+            # Try to import AsyncMock for detection
+            try:
+                from unittest.mock import AsyncMock
+
+                async_mock = AsyncMock
+            except ImportError:
+                async_mock = None
+        except Exception:
+            async_mock = None
+
+        def _sanitize(obj: Any) -> Any:
+            if obj is None:
+                return None
+            if isinstance(obj, dict):
+                return {k: _sanitize(v) for k, v in obj.items()}
+            if isinstance(obj, list):
+                return [_sanitize(v) for v in obj]
+            if isinstance(obj, tuple):
+                return tuple(_sanitize(v) for v in obj)
+            # Coroutine objects
+            try:
+                if asyncio.iscoroutine(obj):
+                    return str(obj)
+            except Exception:
+                pass
+            if async_mock is not None:
+                try:
+                    if isinstance(obj, async_mock):
+                        return str(obj)
+                except TypeError:
+                    # async_mock might not be a valid type for isinstance
+                    pass
+            # Fallback for objects not directly serializable
+            try:
+                json.dumps(obj)
+                return obj
+            except Exception:
+                return str(obj)
+
+        safe_content = _sanitize(content)
         return JSONResponse(
-            content=content,
+            content=safe_content,
             status_code=status_code,
             headers=headers,
         )

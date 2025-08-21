@@ -44,7 +44,6 @@ class CommandProcessor(ICommandProcessor):
         Returns:
             The result of processing commands
         """
-        # Check if commands should be disabled
         disable_commands = False
         if context:
             disable_commands = getattr(
@@ -52,12 +51,10 @@ class CommandProcessor(ICommandProcessor):
             ) or getattr(context.app_state, "disable_interactive_commands", False)
 
         if disable_commands:
-            # Skip command processing
             from src.core.domain.processed_result import ProcessedResult
 
             return ProcessedResult(
                 command_executed=False, modified_messages=messages, command_results=[]
             )
 
-        # Process commands using the command service
         return await self._command_service.process_commands(messages, session_id)

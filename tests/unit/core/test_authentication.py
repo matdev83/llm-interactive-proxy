@@ -355,11 +355,9 @@ class TestAppIntegration:
         app = MagicMock(spec=FastAPI)
 
         # Configure middleware with proper auth settings
-        configure_middleware(app, {
-            "auth_token": "test-token",
-            "disable_auth": False,
-            "api_keys": []
-        })
+        configure_middleware(
+            app, {"auth_token": "test-token", "disable_auth": False, "api_keys": []}
+        )
 
         # Verify
         app.add_middleware.assert_any_call(

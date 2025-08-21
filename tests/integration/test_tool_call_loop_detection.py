@@ -178,7 +178,9 @@ class TestToolCallLoopDetection:
     """Integration tests for tool call loop detection."""
 
     @pytest.mark.asyncio
-    @pytest.mark.skip(reason="Complex tool call loop detection test with multiple scenarios - requires deeper integration testing")
+    @pytest.mark.skip(
+        reason="Complex tool call loop detection test with multiple scenarios - requires deeper integration testing"
+    )
     async def test_break_mode_blocks_repeated_tool_calls(
         self, test_client, mock_backend
     ):
@@ -387,7 +389,9 @@ class TestToolCallLoopDetection:
         assert data["choices"][0]["finish_reason"] == "error"
 
     @pytest.mark.asyncio
-    @pytest.mark.skip(reason="Complex tool call loop detection test - requires specialized integration setup")
+    @pytest.mark.skip(
+        reason="Complex tool call loop detection test - requires specialized integration setup"
+    )
     async def test_different_tool_calls_not_blocked(self, test_client, mock_backend):
         """Test that different tool calls are not blocked."""
         # Configure the mock to return responses with different tool calls
@@ -435,7 +439,9 @@ class TestToolCallLoopDetection:
             )
 
     @pytest.mark.asyncio
-    @pytest.mark.skip(reason="Complex tool call loop detection test - requires specialized integration setup")
+    @pytest.mark.skip(
+        reason="Complex tool call loop detection test - requires specialized integration setup"
+    )
     async def test_disabled_tool_call_loop_detection(self, test_client, mock_backend):
         """Test that disabled tool call loop detection doesn't block repeated tool calls."""
         # Update the app config to disable tool call loop detection

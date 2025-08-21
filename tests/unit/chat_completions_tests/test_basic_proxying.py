@@ -36,11 +36,11 @@ def test_basic_request_proxying_non_streaming(test_client):
     ) as mock_method:
         # The backend service should return a ResponseEnvelope
         from src.core.domain.responses import ResponseEnvelope
-        
+
         response_envelope = ResponseEnvelope(
             content=mock_backend_response,
             headers={"content-type": "application/json"},
-            status_code=200
+            status_code=200,
         )
         mock_method.return_value = response_envelope
 
@@ -78,7 +78,7 @@ async def test_basic_request_proxying_streaming(test_client):
     async def mock_stream_gen():
         yield b'data: {"choices": [{"delta": {"content": "Hello"}, "index": 0}]}\\n\n'
         yield b'data: {"choices": [{"delta": {"content": " world"}, "index": 0}]}\\n\n'
-        yield b'data: [DONE]\\n\n'
+        yield b"data: [DONE]\\n\n"
 
     # Get the backend service from the DI container
     backend_service = test_client.app.state.service_provider.get_required_service(
@@ -92,11 +92,11 @@ async def test_basic_request_proxying_streaming(test_client):
     ) as mock_method:
         # The backend service should return a StreamingResponseEnvelope, not raw async generator
         from src.core.domain.responses import StreamingResponseEnvelope
-        
+
         streaming_envelope = StreamingResponseEnvelope(
             content=mock_stream_gen(),
             media_type="text/event-stream",
-            headers={"content-type": "text/event-stream"}
+            headers={"content-type": "text/event-stream"},
         )
         mock_method.return_value = streaming_envelope
 

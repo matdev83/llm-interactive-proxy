@@ -18,6 +18,8 @@ from typing import Any, TypeVar, cast
 
 import structlog
 
+from src.core.config.app_config import AppConfig
+
 # Type variable for generic functions
 T = TypeVar("T")
 
@@ -141,7 +143,9 @@ class ApiKeyRedactionFilter(logging.Filter):
     occurrences with a mask.
     """
 
-    def __init__(self, api_keys: list[str] | set[str] | None = None, mask: str = "***") -> None:
+    def __init__(
+        self, api_keys: list[str] | set[str] | None = None, mask: str = "***"
+    ) -> None:
         super().__init__()
         self.mask = mask
         keys = set(api_keys or [])
@@ -221,7 +225,9 @@ class ApiKeyRedactionFilter(logging.Filter):
         return True
 
 
-def install_api_key_redaction_filter(api_keys: list[str] | set[str] | None, mask: str = "***") -> None:
+def install_api_key_redaction_filter(
+    api_keys: list[str] | set[str] | None, mask: str = "***"
+) -> None:
     """Install the API key redaction filter on the root logger and its handlers.
 
     This function is safe to call multiple times; it will add a filter instance
@@ -246,7 +252,7 @@ def install_api_key_redaction_filter(api_keys: list[str] | set[str] | None, mask
         return
 
 
-def discover_api_keys_from_config_and_env(config: object | None = None) -> list[str]:
+def discover_api_keys_from_config_and_env(config: AppConfig | None = None) -> list[str]:
     """Discover API keys from AppConfig-like objects and the environment.
 
     This inspects the provided `config` for known locations (auth.api_keys,
@@ -260,7 +266,7 @@ def discover_api_keys_from_config_and_env(config: object | None = None) -> list[
         if config is not None and getattr(config, "auth", None):
             ak = getattr(config.auth, "api_keys", None)
             if ak:
-                for k in (ak if isinstance(ak, (list, tuple)) else [ak]):
+                for k in ak if isinstance(ak, list | tuple) else [ak]:
                     if k:
                         found.add(str(k))
     except Exception:
@@ -284,7 +290,7 @@ def discover_api_keys_from_config_and_env(config: object | None = None) -> list[
                     bcfg = getattr(backends, b)
                     ak = getattr(bcfg, "api_key", None)
                     if ak:
-                        if isinstance(ak, (list, tuple)):
+                        if isinstance(ak, list | tuple):
                             for k in ak:
                                 if k:
                                     found.add(str(k))

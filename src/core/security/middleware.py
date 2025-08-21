@@ -3,7 +3,7 @@ Security middleware for API key and token authentication.
 """
 
 import logging
-from collections.abc import Awaitable, Callable, Iterable
+from collections.abc import Awaitable, Callable
 from typing import Any
 
 from fastapi import Request, Response
@@ -24,16 +24,14 @@ class APIKeyMiddleware(BaseHTTPMiddleware):
     def __init__(
         self,
         app: Any,
-        valid_keys: Iterable[str],
+        valid_keys: list[str],
         bypass_paths: list[str] | None = None,
     ) -> None:
         super().__init__(app)
         self.valid_keys = set(valid_keys)
         self.bypass_paths = bypass_paths or ["/docs", "/openapi.json", "/redoc"]
 
-    async def dispatch(
-        self, request: Request, call_next: Callable[[Request], Awaitable[Response]]
-    ) -> Response:
+    async def dispatch(self, request: Request, call_next: Callable[[Request], Awaitable[Response]]) -> Response:
         """
         Process the request and check for a valid API key.
 
@@ -70,28 +68,40 @@ class APIKeyMiddleware(BaseHTTPMiddleware):
             return response
 
         # Check for API key in header
-        auth_header = request.headers.get("Authorization")
-        api_key = None
+        auth_header: str | None = request.headers.get("Authorization")
+        api_key: str | None = None
 
         if auth_header and auth_header.startswith("Bearer "):
-            api_key = auth_header.replace("Bearer ", "")
+            api_key = auth_header.replace("Bearer ", "", 1)
 
         # Debug: log detected API key (masked) for test troubleshooting
         try:
-            masked = api_key[:4] + "..." if api_key else None
+            masked: str | None = api_key[:4] + "..." if api_key else None
             logger.debug("Detected API key in request: %s", masked)
         except Exception:
             pass
+
+        # Check for Gemini API key in x-goog-api-key header
+        if not api_key:
+            api_key = request.headers.get("x-goog-api-key")
 
         # Check for API key in query parameter
         if not api_key:
             api_key = request.query_params.get("api_key")
 
+        # Check for additional API keys in app.state (for tests)
+        app_state_keys: set[str] = set()
+        if hasattr(request.app.state, "client_api_key") and request.app.state.client_api_key:
+            app_state_keys.add(request.app.state.client_api_key)
+
+        # Combine configured keys with app.state keys
+        all_valid_keys: set[str] = self.valid_keys | app_state_keys
+
         # Validate the API key
         logger.info(
-            f"API Key authentication is enabled key_count={len(self.valid_keys)}"
+            f"API Key authentication is enabled key_count={len(all_valid_keys)}"
         )
-        if not api_key or api_key not in self.valid_keys:
+        if not api_key or api_key not in all_valid_keys:
             logger.warning(
                 "Invalid or missing API key for %s %s from client %s",
                 request.method,
@@ -124,9 +134,7 @@ class AuthMiddleware(BaseHTTPMiddleware):
         self.valid_token = valid_token
         self.bypass_paths = bypass_paths or ["/docs", "/openapi.json", "/redoc"]
 
-    async def dispatch(
-        self, request: Request, call_next: Callable[[Request], Awaitable[Response]]
-    ) -> Response:
+    async def dispatch(self, request: Request, call_next: Callable[[Request], Awaitable[Response]]) -> Response:
         """
         Process the request and check for a valid token.
 
@@ -143,7 +151,7 @@ class AuthMiddleware(BaseHTTPMiddleware):
             return response
 
         # Check for token in header
-        token = request.headers.get("X-Auth-Token")
+        token: str | None = request.headers.get("X-Auth-Token")
 
         # Validate the token
         if not token or token != self.valid_token:

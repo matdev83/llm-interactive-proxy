@@ -10,13 +10,10 @@ from __future__ import annotations
 import asyncio
 import json
 from collections.abc import AsyncGenerator
-from typing import Any, List, Union
 
 
 async def create_streaming_generator(
-    content: List[str], 
-    model: str = "mock-model", 
-    chunk_delay_seconds: float = 0.01
+    content: list[str], model: str = "mock-model", chunk_delay_seconds: float = 0.01
 ) -> AsyncGenerator[bytes, None]:
     """
     Create a streaming generator for testing that produces chunks in SSE format.
@@ -36,9 +33,7 @@ async def create_streaming_generator(
             "object": "chat.completion.chunk",
             "created": 1234567890,
             "model": model,
-            "choices": [
-                {"index": 0, "delta": {"content": chunk}}
-            ],
+            "choices": [{"index": 0, "delta": {"content": chunk}}],
         }
         # Format as SSE
         yield f"data: {json.dumps(data)}\n\n".encode()

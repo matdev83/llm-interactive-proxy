@@ -65,8 +65,8 @@ class CreateFailoverRouteHandler(BaseCommandHandler):
                 message="Create failover route requires name and policy parameters",
             )
 
-        name = param_value.get("name")
-        policy = str(param_value.get("policy", "")).lower()
+        name: str | None = param_value.get("name")
+        policy: str = str(param_value.get("policy", "")).lower()
 
         if not name or policy not in {"k", "m", "km", "mk"}:
             return CommandHandlerResult(
@@ -133,12 +133,7 @@ class DeleteFailoverRouteHandler(BaseCommandHandler):
         Returns:
             A result containing success/failure status and updated state
         """
-        if not isinstance(param_value, dict):
-            return CommandHandlerResult(
-                success=False, message="Delete failover route requires name parameter"
-            )
-
-        name = param_value.get("name")
+        name: str | None = param_value.get("name")
 
         if not name:
             return CommandHandlerResult(
@@ -210,12 +205,7 @@ class RouteListHandler(BaseCommandHandler):
         Returns:
             A result containing success/failure status
         """
-        if not isinstance(param_value, dict):
-            return CommandHandlerResult(
-                success=False, message="Route list requires name parameter"
-            )
-
-        name = param_value.get("name")
+        name: str | None = param_value.get("name")
 
         if not name:
             return CommandHandlerResult(
@@ -288,14 +278,8 @@ class RouteAppendHandler(BaseCommandHandler):
         Returns:
             A result containing success/failure status and updated state
         """
-        if not isinstance(param_value, dict):
-            return CommandHandlerResult(
-                success=False,
-                message="Route append requires name and element parameters",
-            )
-
-        name = param_value.get("name")
-        element = param_value.get("element")
+        name: str | None = param_value.get("name")
+        element: str | None = param_value.get("element")
 
         if not name or not element:
             return CommandHandlerResult(
@@ -312,8 +296,8 @@ class RouteAppendHandler(BaseCommandHandler):
         # Validate element format (backend:model or model)
         if ":" in element:
             backend, model = element.split(":", 1)
-            from src.core.services.backend_registry_service import (
-                backend_registry,  # Added this import
+            from src.core.services.backend_registry import (
+                backend_registry,  # Updated import path
             )
 
             if context and backend not in backend_registry.get_registered_backends():
@@ -387,8 +371,8 @@ class RoutePrependHandler(BaseCommandHandler):
                 message="Route prepend requires name and element parameters",
             )
 
-        name = param_value.get("name")
-        element = param_value.get("element")
+        name: str | None = param_value.get("name")
+        element: str | None = param_value.get("element")
 
         if not name or not element:
             return CommandHandlerResult(
@@ -479,7 +463,7 @@ class RouteClearHandler(BaseCommandHandler):
                 success=False, message="Route clear requires name parameter"
             )
 
-        name = param_value.get("name")
+        name: str | None = param_value.get("name")
 
         if not name:
             return CommandHandlerResult(
@@ -551,18 +535,18 @@ class ListFailoverRoutesHandler(BaseCommandHandler):
         Returns:
             A result containing success/failure status
         """
-        routes = current_state.backend_config.failover_routes
+        routes: dict[str, Any] = current_state.backend_config.failover_routes
 
         if not routes:
             return CommandHandlerResult(
                 success=True, message="No failover routes defined"
             )
 
-        route_info = []
+        route_info: list[str] = []
         for name, route in routes.items():
-            policy = route.get("policy", "k")
+            policy: str = route.get("policy", "k")
             route_info.append(f"{name}:{policy}")
 
-        message = "Failover routes: " + ", ".join(route_info)
+        message: str = "Failover routes: " + ", ".join(route_info)
 
         return CommandHandlerResult(success=True, message=message)

@@ -185,71 +185,12 @@ class OpenRouterBackend(OpenAIConnector):
             call_kwargs["headers_override"] = headers_override
             call_kwargs["openai_url"] = self.api_base_url
 
-            parent_result = await super().chat_completions(
+            return await super().chat_completions(
                 request_data=request_data,
                 processed_messages=processed_messages,
                 effective_model=effective_model,
                 **call_kwargs,
             )
-
-            # Normalize parent_result into domain envelopes only. Do not return
-            # raw tuples or transport responses from this method — callers expect
-            # domain envelopes (controllers/adapters will convert to transport).
-            from starlette.responses import StreamingResponse
-
-            if isinstance(parent_result, tuple) and len(parent_result) == 2:
-                content, headers = parent_result
-                return ResponseEnvelope(
-                    content=content, headers=headers or {}, status_code=200
-                )
-
-            if isinstance(parent_result, StreamingResponse):
-                return StreamingResponseEnvelope(
-                    content=parent_result.body_iterator,
-                    media_type=getattr(
-                        parent_result, "media_type", "text/event-stream"
-                    ),
-                    headers=dict(getattr(parent_result, "headers", {})),
-                )
-
-            # Handle the case where parent_result is already a ResponseEnvelope
-            # This is the case that's causing the error in tests
-            if isinstance(parent_result, ResponseEnvelope):
-                # Return it directly - no need to wrap it again
-                return parent_result
-
-            if isinstance(parent_result, StreamingResponseEnvelope):
-                # Return it directly - no need to wrap it again
-                return parent_result
-
-            # If we get here, we have an unexpected return type
-            logger.warning(
-                f"Unexpected return type from parent chat_completions: {type(parent_result)}"
-            )
-
-            # Try to convert it to a ResponseEnvelope as a fallback
-            try:
-                if hasattr(parent_result, "content") and hasattr(
-                    parent_result, "headers"
-                ):
-                    # It looks like a response-like object, try to adapt it
-                    content = getattr(parent_result, "content", {})
-                    headers = getattr(parent_result, "headers", {})
-                    status_code = getattr(parent_result, "status_code", 200)
-                    return ResponseEnvelope(
-                        content=content, headers=headers, status_code=status_code
-                    )
-                else:
-                    # Last resort, just wrap it in a ResponseEnvelope
-                    return ResponseEnvelope(
-                        content=parent_result, headers={}, status_code=200
-                    )
-            except Exception as e:
-                # If all else fails, raise the original error
-                logger.error(f"Failed to adapt unexpected return type: {e}")
-                raise TypeError(
-                    f"Unexpected return type from parent chat_completions: {type(parent_result)}"
-                )
         except ServiceUnavailableError as e:
             # Adapt parent error details to OpenRouter-specific wording
             # Tests expect an HTTPException(503) on connection failure, so

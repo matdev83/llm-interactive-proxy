@@ -18,7 +18,11 @@ def command() -> SetCommand:
 
 @pytest.fixture
 def mock_session() -> Mock:
-    """Creates a mock session object with a default state."""
+    """Creates a mock session object with a default state.
+    
+    This fixture demonstrates the traditional approach. For new tests,
+    consider using the safe_session_service fixture to prevent coroutine warnings.
+    """
     mock = Mock(spec=Session)
     mock.state = SessionState(
         backend_config=BackendConfiguration(
@@ -30,8 +34,31 @@ def mock_session() -> Mock:
     return mock
 
 
+@pytest.fixture
+def safe_mock_session(safe_session_service):
+    """Creates a safe session using the testing framework.
+    
+    This demonstrates the recommended approach to prevent coroutine warnings.
+    """
+    # Set up session state on the safe session service
+    safe_session_service.set('state', SessionState(
+        backend_config=BackendConfiguration(
+            backend_type="test_backend", model="test_model"
+        ),
+        reasoning_config=ReasoningConfiguration(temperature=0.5),
+        project=None,
+    ))
+    
+    # Create a mock that uses the safe session state
+    mock = Mock(spec=Session)
+    mock.state = safe_session_service.get('state')
+    return mock
+
+
 @pytest.mark.asyncio
-async def test_handle_temperature_success(command: SetCommand, mock_session: Mock) -> None:
+async def test_handle_temperature_success(
+    command: SetCommand, mock_session: Mock
+) -> None:
     # Arrange
     value = "0.8"
 
@@ -60,7 +87,9 @@ async def test_handle_temperature_invalid_value(
 
 
 @pytest.mark.asyncio
-async def test_handle_temperature_out_of_range(command: SetCommand, mock_session: Mock) -> None:
+async def test_handle_temperature_out_of_range(
+    command: SetCommand, mock_session: Mock
+) -> None:
     # Arrange
     value = "2.0"
 
@@ -140,3 +169,24 @@ async def test_handle_project_success(command: SetCommand, mock_session: Mock) -
     assert result.success is True
     assert result.message == "Project changed to test_project"
     assert new_state.project == "test_project"
+
+
+@pytest.mark.asyncio
+async def test_handle_temperature_with_safe_session(
+    command: SetCommand, safe_mock_session: Mock
+) -> None:
+    """Demonstrates using the safe session service to prevent coroutine warnings."""
+    # Arrange
+    value = "0.9"
+    
+    # Act
+    result, new_state = await command._handle_temperature(value, safe_mock_session.state, {})
+    
+    # Assert
+    assert result.success is True
+    assert result.message == "Temperature set to 0.9"
+    assert new_state.reasoning_config.temperature == 0.9
+    
+    # Demonstrate that the safe session service is working
+    # This would normally cause coroutine warnings with AsyncMock
+    # but works fine with SafeSessionService

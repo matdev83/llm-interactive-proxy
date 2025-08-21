@@ -1,4 +1,3 @@
-
 from unittest.mock import Mock
 
 import pytest
@@ -14,10 +13,9 @@ from src.core.domain.session import BackendConfiguration, Session, SessionState
 def mock_session() -> Mock:
     """Creates a mock session object with a default state."""
     mock = Mock(spec=Session)
-    mock.state = SessionState(
-        backend_config=BackendConfiguration()
-    )
+    mock.state = SessionState(backend_config=BackendConfiguration())
     return mock
+
 
 @pytest.mark.asyncio
 async def test_create_failover_route(mock_session: Mock):
@@ -33,6 +31,7 @@ async def test_create_failover_route(mock_session: Mock):
     assert "Failover route 'myroute' created" in result.message
     # The command modifies session.state directly, so we check the mock
     assert "myroute" in mock_session.state.backend_config.failover_routes
+
 
 @pytest.mark.asyncio
 async def test_delete_failover_route(mock_session: Mock):
@@ -51,6 +50,7 @@ async def test_delete_failover_route(mock_session: Mock):
     assert result.success is True
     assert "Failover route 'myroute' deleted" in result.message
     assert "myroute" not in mock_session.state.backend_config.failover_routes
+
 
 @pytest.mark.asyncio
 async def test_list_failover_routes(mock_session: Mock):

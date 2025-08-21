@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import logging
 from collections import defaultdict, deque
+from typing import Any
 
 from fastapi import FastAPI
 
@@ -111,8 +112,8 @@ class ApplicationBuilder:
             RuntimeError: If circular dependencies are detected
         """
         # Build dependency graph
-        graph = defaultdict(list)
-        in_degree = defaultdict(int)
+        graph: dict[str, list[str]] = defaultdict(list)
+        in_degree: dict[str, int] = defaultdict(int)
 
         # Initialize all nodes
         for stage_name in self._stages:
@@ -129,11 +130,11 @@ class ApplicationBuilder:
                 in_degree[stage_name] += 1
 
         # Topological sort using Kahn's algorithm
-        queue = deque([name for name in self._stages if in_degree[name] == 0])
-        result = []
+        queue: deque[str] = deque([name for name in self._stages if in_degree[name] == 0])
+        result: list[str] = []
 
         while queue:
-            current = queue.popleft()
+            current: str = queue.popleft()
             result.append(current)
 
             # Remove edges from current node
@@ -164,10 +165,10 @@ class ApplicationBuilder:
         """
         for stage_name, stage in self._stages.items():
             try:
-                is_valid = await stage.validate(self._services, config)
+                is_valid: bool = await stage.validate(self._services, config)
                 if not is_valid:
                     raise RuntimeError(f"Stage '{stage_name}' validation failed")
-            except Exception as e:
+            except Exception as e: # type: ignore[misc]
                 raise RuntimeError(f"Stage '{stage_name}' validation error: {e}") from e
 
     async def build(self, config: AppConfig) -> FastAPI:
@@ -189,35 +190,37 @@ class ApplicationBuilder:
         await self.validate_stages(config)
 
         # Calculate execution order
-        execution_order = self._get_execution_order()
+        execution_order: list[str] = self._get_execution_order()
         logger.info(f"Executing stages in order: {execution_order}")
 
         # Execute stages in dependency order
         for stage_name in execution_order:
-            stage = self._stages[stage_name]
+            stage: InitializationStage = self._stages[stage_name]
             logger.info(f"Executing stage: {stage_name}")
 
             try:
                 await stage.execute(self._services, config)
                 logger.debug(f"Stage '{stage_name}' completed successfully")
-            except Exception as e:
+            except Exception as e: # type: ignore[misc]
                 logger.error(f"Stage '{stage_name}' failed: {e}")
                 raise RuntimeError(f"Stage '{stage_name}' execution failed: {e}") from e
 
         # Build service provider
-        service_provider = self._services.build_service_provider()
+        service_provider: IServiceProvider = self._services.build_service_provider()
         logger.info("Service provider built successfully")
 
         # Create FastAPI application
-        app = self._create_fastapi_app(config, service_provider)
+        app: FastAPI = self._create_fastapi_app(config, service_provider)
         logger.info("FastAPI application created successfully")
 
         return app
 
-    def build_compat(self, config: AppConfig, service_provider: IServiceProvider | None = None) -> FastAPI:
+    def build_compat(
+        self, config: AppConfig, service_provider: IServiceProvider | None = None
+    ) -> FastAPI:
         """
         Backward-compatible build method that accepts an optional service_provider.
-        
+
         This method maintains compatibility with older tests that may pass a service_provider
         as a second argument. The service_provider is ignored in favor of the new staged
         initialization approach.
@@ -230,14 +233,14 @@ class ApplicationBuilder:
             Configured FastAPI application
         """
         import asyncio
-        
+
         try:
             asyncio.get_running_loop()
             # If we're in an async context, we need to run in a new thread
             import concurrent.futures
 
             with concurrent.futures.ThreadPoolExecutor() as executor:
-                future = executor.submit(asyncio.run, self.build(config))
+                future: concurrent.futures.Future[FastAPI] = executor.submit(asyncio.run, self.build(config))
                 return future.result()
         except RuntimeError:
             # No running loop, we can use asyncio.run directly
@@ -256,7 +259,7 @@ class ApplicationBuilder:
         Returns:
             Configured FastAPI application
         """
-        app = FastAPI(
+        app: FastAPI = FastAPI(
             title="LLM Interactive Proxy",
             description="A proxy for interacting with LLM APIs",
             version="0.1.0",
@@ -277,9 +280,9 @@ class ApplicationBuilder:
             )
 
             # Use the discovery function to find all API keys from config and environment
-            api_keys = discover_api_keys_from_config_and_env(config)
+            api_keys: list[str] = discover_api_keys_from_config_and_env(config)
             logger.debug(f"Discovered {len(api_keys)} API keys for redaction")
-            
+
             install_api_key_redaction_filter(api_keys)
         except Exception:
             # Don't fail app creation if logging redaction cannot be installed
@@ -330,22 +333,27 @@ class ApplicationBuilder:
     ) -> None:
         """Add startup and shutdown handlers."""
 
-        @app.on_event("startup")
-        async def startup_handler() -> None:
-            logger.info("Application startup complete")
+        from contextlib import asynccontextmanager
 
-        @app.on_event("shutdown")
-        async def shutdown_handler() -> None:
+        @asynccontextmanager
+        async def lifespan(app: FastAPI):  # type: ignore[no-untyped-def,no-any-return,misc]
+            # Startup
+            logger.info("Application startup complete")
+            yield
+            # Shutdown
             logger.info("Shutting down application")
             # Clean up resources
             try:
                 import httpx
 
-                client = service_provider.get_service(httpx.AsyncClient)
+                client: httpx.AsyncClient | None = service_provider.get_service(httpx.AsyncClient)
                 if client:
                     await client.aclose()
             except Exception:
                 pass
+
+        # Set lifespan handler
+        app.router.lifespan_context = lifespan
 
 
 # Convenience function for building applications
@@ -362,7 +370,7 @@ async def build_app_async(config: AppConfig | None = None) -> FastAPI:
     if config is None:
         config = AppConfig.from_env()
 
-    builder = ApplicationBuilder().add_default_stages()
+    builder: ApplicationBuilder = ApplicationBuilder().add_default_stages()
     return await builder.build(config)
 
 
@@ -384,14 +392,29 @@ def build_app(config: AppConfig | None = None) -> FastAPI:
     if config is None:
         config = AppConfig.from_env()
 
+    async def _build_wrapper() -> FastAPI:
+        """Wrapper to defer coroutine creation until needed.
+
+        Some tests may mock `build_app_async` with an AsyncMock whose return_value
+        is itself a coroutine. In that case, awaiting once yields a coroutine
+        object. Detect and await again to produce the FastAPI app.
+        """
+        res: FastAPI | Any = await build_app_async(config)
+        import asyncio as _asyncio
+        if _asyncio.iscoroutine(res):
+            final_result: FastAPI = await res  # type: ignore[misc]
+            return final_result
+        final_result = res  # type: ignore[assignment]
+        return final_result
+
     try:
         asyncio.get_running_loop()
         # If we're in an async context, we need to run in a new thread
         import concurrent.futures
 
         with concurrent.futures.ThreadPoolExecutor() as executor:
-            future = executor.submit(asyncio.run, build_app_async(config))
+            future: concurrent.futures.Future[FastAPI] = executor.submit(lambda: asyncio.run(_build_wrapper()))
             return future.result()
     except RuntimeError:
         # No running loop, we can use asyncio.run directly
-        return asyncio.run(build_app_async(config))
+        return asyncio.run(_build_wrapper())

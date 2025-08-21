@@ -66,7 +66,7 @@ class TestQwenOAuthToolCallingUnit:
             )
         ]
 
-        test_message = ChatMessage(role="user", content="What\'s the weather?")
+        test_message = ChatMessage(role="user", content="What's the weather?")
         request_data = ChatRequest(
             model="qwen3-coder-plus",
             messages=[test_message],

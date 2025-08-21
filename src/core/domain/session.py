@@ -91,7 +91,7 @@ class SessionStateAdapter(ISessionState):
     """Adapter that makes SessionState implement ISessionState interface."""
 
     def __init__(self, session_state: SessionState):
-        self._state = session_state
+        self._state: SessionState | ISessionState = session_state
 
     @property
     def backend_config(self) -> IBackendConfig:
@@ -168,12 +168,12 @@ class SessionStateAdapter(ISessionState):
     @property
     def override_model(self) -> str | None:
         """Get the override model from backend configuration."""
-        return self._state.backend_config.model
+        return cast(BackendConfiguration, self._state.backend_config).model
 
     @property
     def override_backend(self) -> str | None:
         """Get the override backend from backend configuration."""
-        return self._state.backend_config.backend_type
+        return cast(BackendConfiguration, self._state.backend_config).backend_type
 
     def equals(self, other: Any) -> bool:
         """Check if this value object equals another."""
@@ -186,46 +186,46 @@ class SessionStateAdapter(ISessionState):
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> ISessionState:
         """Create a value object from a dictionary."""
-        state = SessionState.from_dict(data)
+        state: SessionState = cast(SessionState, SessionState.from_dict(data))
         return cls(state)  # type: ignore
 
     def with_backend_config(self, config: IBackendConfig) -> ISessionState:
         """Create a new session state with updated backend config."""
-        new_state = self._state.with_backend_config(cast(BackendConfiguration, config))
+        new_state = cast(SessionState, self._state).with_backend_config(cast(BackendConfiguration, config))
         return SessionStateAdapter(new_state)
 
     def with_reasoning_config(self, config: IReasoningConfig) -> ISessionState:
         """Create a new session state with updated reasoning config."""
-        new_state = self._state.with_reasoning_config(
+        new_state = cast(SessionState, self._state).with_reasoning_config(
             cast(ReasoningConfiguration, config)
         )
         return SessionStateAdapter(new_state)
 
     def with_loop_config(self, config: ILoopDetectionConfig) -> ISessionState:
         """Create a new session state with updated loop config."""
-        new_state = self._state.with_loop_config(
+        new_state = cast(SessionState, self._state).with_loop_config(
             cast(LoopDetectionConfiguration, config)
         )
         return SessionStateAdapter(new_state)
 
     def with_project(self, project: str | None) -> ISessionState:
         """Create a new session state with updated project."""
-        new_state = self._state.with_project(project)
+        new_state = cast(SessionState, self._state).with_project(project)
         return SessionStateAdapter(new_state)
 
     def with_project_dir(self, project_dir: str | None) -> ISessionState:
         """Create a new session state with updated project directory."""
-        new_state = self._state.with_project_dir(project_dir)
+        new_state = cast(SessionState, self._state).with_project_dir(project_dir)
         return SessionStateAdapter(new_state)
 
     def with_interactive_just_enabled(self, enabled: bool) -> ISessionState:
         """Create a new session state with updated interactive_just_enabled flag."""
-        new_state = self._state.with_interactive_just_enabled(enabled)
+        new_state = cast(SessionState, self._state).with_interactive_just_enabled(enabled)
         return SessionStateAdapter(new_state)
 
     def with_hello_requested(self, hello_requested: bool) -> ISessionState:
         """Create a new session state with updated hello_requested flag."""
-        new_state = self._state.with_hello_requested(hello_requested)
+        new_state = cast(SessionState, self._state).with_hello_requested(hello_requested)
         return SessionStateAdapter(new_state)
 
     # Mutable convenience methods expected by legacy tests
@@ -249,7 +249,7 @@ class SessionStateAdapter(ISessionState):
 
     def set_override_model(self, backend: str, model: str) -> None:
         """Set an override backend/model pair on the session state."""
-        new_backend_config = self._state.backend_config.with_backend_and_model(
+        new_backend_config = cast(BackendConfiguration, self._state.backend_config).with_backend_and_model(
             backend, model
         )
         self._state = self._state.with_backend_config(
@@ -258,7 +258,7 @@ class SessionStateAdapter(ISessionState):
 
     def unset_override_model(self) -> None:
         """Clear any override backend/model on the session state."""
-        new_backend_config = self._state.backend_config.without_override()
+        new_backend_config = cast(BackendConfiguration, self._state.backend_config).without_override()
         self._state = self._state.with_backend_config(
             cast(BackendConfiguration, new_backend_config)
         )
@@ -276,7 +276,7 @@ class Session(ISession):
         last_active_at: datetime | None = None,
         agent: str | None = None,
     ):
-        self._session_id = session_id
+        self._session_id: str = session_id
         self._state: ISessionState  # Type annotation fix
 
         # Handle different state types
@@ -287,10 +287,10 @@ class Session(ISession):
         else:
             self._state = state
 
-        self._history = history or []
-        self._created_at = created_at or datetime.now(timezone.utc)
-        self._last_active_at = last_active_at or datetime.now(timezone.utc)
-        self._agent = agent
+        self._history: list[SessionInteraction] = history or []
+        self._created_at: datetime = created_at or datetime.now(timezone.utc)
+        self._last_active_at: datetime = last_active_at or datetime.now(timezone.utc)
+        self._agent: str | None = agent
 
     @property
     def id(self) -> str:
@@ -327,7 +327,7 @@ class Session(ISession):
                 else:
                     # Best-effort: try to copy dict representation
                     try:
-                        new_state = SessionState.from_dict(value.to_dict())
+                        new_state: SessionState = cast(SessionState, SessionState.from_dict(value.to_dict()))
                         self._state._state = new_state  # type: ignore
                     except Exception:
                         # Fallback to replacing the adapter reference
@@ -374,9 +374,9 @@ class Session(ISession):
             self._state, SessionStateAdapter
         ):
             # Get the current state
-            current_state = self._state._state
+            current_state: SessionState = cast(SessionState, self._state._state)
             # Create a new state with is_cline_agent=True
-            new_state = SessionState(
+            new_state: SessionState = SessionState(
                 backend_config=current_state.backend_config,
                 reasoning_config=current_state.reasoning_config,
                 loop_config=current_state.loop_config,
@@ -412,7 +412,7 @@ class Session(ISession):
             else:
                 # Try to convert via to_dict/from_dict
                 try:
-                    new_state = SessionState.from_dict(state.to_dict())
+                    new_state: SessionState = cast(SessionState, SessionState.from_dict(state.to_dict()))
                     self._state._state = new_state  # type: ignore
                 except Exception:
                     self._state = state
@@ -443,13 +443,13 @@ class Session(ISession):
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> Session:
         """Create a session from a dictionary."""
-        state = None
+        state: SessionState | None = None
         if data.get("state"):
-            state_value = SessionState.from_dict(data["state"])
+            state_value: SessionState = cast(SessionState, SessionState.from_dict(data["state"]))
             if isinstance(state_value, SessionState):
                 state = state_value
 
-        history = []
+        history: list[SessionInteraction] = []
         if data.get("history"):
             for h in data["history"]:
                 if isinstance(h, dict):
@@ -458,14 +458,14 @@ class Session(ISession):
                     history.append(h)
 
         # Convert ISO format strings to datetime objects
-        created_at = None
+        created_at: datetime | None = None
         if data.get("created_at"):
             if isinstance(data["created_at"], str):
                 created_at = datetime.fromisoformat(data["created_at"])
             else:
                 created_at = data["created_at"]
 
-        last_active_at = None
+        last_active_at: datetime | None = None
         if data.get("last_active_at"):
             if isinstance(data["last_active_at"], str):
                 last_active_at = datetime.fromisoformat(data["last_active_at"])

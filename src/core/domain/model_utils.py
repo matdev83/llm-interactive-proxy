@@ -31,11 +31,11 @@ def parse_model_backend(model: str, default_backend: str = "") -> tuple[str, str
         Tuple of (backend_type, model_name)
     """
     # Find the first occurrence of either ':' or '/'
-    colon_pos = model.find(":")
-    slash_pos = model.find("/")
+    colon_pos: int = model.find(":")
+    slash_pos: int = model.find("/")
 
     # Determine which separator comes first (or if only one exists)
-    separator_pos = -1
+    separator_pos: int = -1
     if colon_pos != -1 and slash_pos != -1:
         # Both exist, use the first one
         separator_pos = min(colon_pos, slash_pos)
@@ -48,8 +48,8 @@ def parse_model_backend(model: str, default_backend: str = "") -> tuple[str, str
 
     if separator_pos != -1:
         # Split at the first separator
-        backend = model[:separator_pos]
-        model_name = model[separator_pos + 1 :]
+        backend: str = model[:separator_pos]
+        model_name: str = model[separator_pos + 1 :]
         return backend, model_name
     else:
         # No separator found, use default backend

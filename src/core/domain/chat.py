@@ -237,14 +237,14 @@ class ChatResponse(ValueObject):
             A new ChatResponse
         """
         # Extract required fields with defaults
-        id = response.get("id", "")
-        created = response.get("created", 0)
-        model = response.get("model", "unknown")
-        choices = response.get("choices", [])
+        id: str = response.get("id", "")
+        created: int = response.get("created", 0)
+        model: str = response.get("model", "unknown")
+        choices: list[Any] = response.get("choices", [])
 
         # Extract optional fields
-        usage = response.get("usage")
-        system_fingerprint = response.get("system_fingerprint")
+        usage: dict[str, Any] | None = response.get("usage")
+        system_fingerprint: str | None = response.get("system_fingerprint")
 
         return cls(
             id=id,
@@ -280,19 +280,19 @@ class StreamingChatResponse(ValueObject):
             A new StreamingChatResponse
         """
         # Extract the response content and other fields from the chunk
-        content = None
+        content: str | None = None
         if chunk.get("choices"):
-            choice = chunk["choices"][0]
+            choice: dict[str, Any] = chunk["choices"][0]
             if "delta" in choice:
-                delta = choice["delta"]
+                delta: dict[str, Any] = choice["delta"]
                 if "content" in delta:
                     content = delta["content"]
 
                 # Might have tool calls in delta
-                tool_calls = delta.get("tool_calls")
+                tool_calls: list[dict[str, Any]] | None = delta.get("tool_calls")
 
                 # The delta is the actual delta object
-                delta_obj = delta
+                delta_obj: dict[str, Any] | None = delta
             else:
                 # Simpler format
                 content = choice.get("text", "")
@@ -300,12 +300,12 @@ class StreamingChatResponse(ValueObject):
                 delta_obj = None
 
             # Extract finish reason if present
-            finish_reason = choice.get("finish_reason")
+            finish_reason: str | None = choice.get("finish_reason")
         else:
             # Anthropic format
             if "content" in chunk:
                 if isinstance(chunk["content"], list):
-                    content_parts = [
+                    content_parts: list[str] = [
                         p["text"] for p in chunk["content"] if p.get("type") == "text"
                     ]
                     content = "".join(content_parts)
@@ -317,10 +317,10 @@ class StreamingChatResponse(ValueObject):
             finish_reason = chunk.get("stop_reason")
 
         # Extract model
-        model = chunk.get("model", "unknown")
+        model: str = chunk.get("model", "unknown")
 
         # Extract system fingerprint
-        system_fingerprint = chunk.get("system_fingerprint")
+        system_fingerprint: str | None = chunk.get("system_fingerprint")
 
         return cls(
             content=content,

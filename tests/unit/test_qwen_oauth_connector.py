@@ -307,9 +307,10 @@ class TestQwenOAuthConnectorUnit:
                 connector,
                 "_handle_non_streaming_response",
                 AsyncMock(
-                    return_value=(
-                        mock_response.json.return_value,
-                        mock_response.headers,
+                    return_value=ResponseEnvelope(
+                        content=mock_response.json.return_value,
+                        headers=mock_response.headers,
+                        status_code=mock_response.status_code
                     )
                 ),
             ),
@@ -356,8 +357,13 @@ class TestQwenOAuthConnectorUnit:
         mock_response.headers = {"content-type": "application/json"}
 
         # Create a mock for the parent class method
+        from src.core.domain.responses import ResponseEnvelope
         parent_mock = AsyncMock(
-            return_value=(mock_response.json.return_value, mock_response.headers)
+            return_value=ResponseEnvelope(
+                content=mock_response.json.return_value,
+                headers=mock_response.headers,
+                status_code=mock_response.status_code
+            )
         )
 
         # Mock parent class methods
@@ -478,7 +484,10 @@ class TestQwenOAuthConnectorUnit:
             )
 
             assert isinstance(result, ResponseEnvelope)
-            assert "Error: Test error" in result.content["choices"][0]["message"]["content"]
+            assert (
+                "Error: Test error"
+                in result.content["choices"][0]["message"]["content"]
+            )
 
     @pytest.mark.asyncio
     async def test_save_oauth_credentials(self, connector, mock_credentials):

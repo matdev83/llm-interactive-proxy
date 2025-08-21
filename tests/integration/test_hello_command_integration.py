@@ -6,7 +6,6 @@ from unittest.mock import patch
 
 import pytest
 from fastapi.testclient import TestClient
-from src.core.app.test_builder import build_test_app as build_app
 
 
 @pytest.fixture
@@ -29,6 +28,7 @@ async def app(monkeypatch: pytest.MonkeyPatch):
 
     # Build the app first
     from src.core.app.test_builder import build_test_app
+
     app = build_test_app(app_config)
 
     # Store minimal config in app.state
@@ -209,7 +209,7 @@ def test_hello_command_integration(app):
                 "messages": [{"role": "user", "content": "!/hello"}],
                 "session_id": "test-hello-session",
             },
-            headers={"Authorization": "Bearer test-openai-key"}
+            headers={"Authorization": "Bearer test-openai-key"},
         )
 
         # Verify the response

@@ -1,4 +1,3 @@
-
 from unittest.mock import Mock
 
 import pytest
@@ -13,16 +12,20 @@ class MockCommand(BaseCommand):
         self.description = description
         self.format = format_str
         self.examples = examples
+
     async def execute(self, args, session, context):
         pass
+
 
 @pytest.fixture
 def command() -> HelpCommand:
     return HelpCommand()
 
+
 @pytest.fixture
 def mock_session() -> Mock:
     return Mock(spec=Session)
+
 
 @pytest.fixture
 def mock_handlers() -> dict:
@@ -31,8 +34,11 @@ def mock_handlers() -> dict:
         "set": MockCommand("set", "Sets a value", "set(k=v)", ["!/set(foo=bar)"]),
     }
 
+
 @pytest.mark.asyncio
-async def test_help_general(command: HelpCommand, mock_session: Mock, mock_handlers: dict):
+async def test_help_general(
+    command: HelpCommand, mock_session: Mock, mock_handlers: dict
+):
     # Arrange
     context = {"handlers": mock_handlers}
 
@@ -45,8 +51,11 @@ async def test_help_general(command: HelpCommand, mock_session: Mock, mock_handl
     assert "- help - Shows help" in result.message
     assert "- set - Sets a value" in result.message
 
+
 @pytest.mark.asyncio
-async def test_help_specific_command(command: HelpCommand, mock_session: Mock, mock_handlers: dict):
+async def test_help_specific_command(
+    command: HelpCommand, mock_session: Mock, mock_handlers: dict
+):
     # Arrange
     context = {"handlers": mock_handlers}
     args = {"set": True}
@@ -60,8 +69,11 @@ async def test_help_specific_command(command: HelpCommand, mock_session: Mock, m
     assert "Format: set(k=v)" in result.message
     assert "Examples: !/set(foo=bar)" in result.message
 
+
 @pytest.mark.asyncio
-async def test_help_unknown_command(command: HelpCommand, mock_session: Mock, mock_handlers: dict):
+async def test_help_unknown_command(
+    command: HelpCommand, mock_session: Mock, mock_handlers: dict
+):
     # Arrange
     context = {"handlers": mock_handlers}
     args = {"unknown": True}

@@ -1,11 +1,10 @@
 from __future__ import annotations
 
+import os
 from typing import Any
 
 from fastapi import FastAPI
 from starlette.middleware.cors import CORSMiddleware
-
-import os
 
 from src.core.common.logging import get_logger
 from src.core.security import APIKeyMiddleware, AuthMiddleware
@@ -47,6 +46,7 @@ def configure_middleware(app: FastAPI, config: Any) -> None:
 
     if not disable_auth:
         logger.info("API Key authentication is enabled", key_count=len(api_keys))
+        # Add API Key middleware
         app.add_middleware(APIKeyMiddleware, valid_keys=api_keys)
     else:
         logger.info("API Key authentication is disabled")

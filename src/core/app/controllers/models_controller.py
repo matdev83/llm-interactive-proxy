@@ -12,8 +12,8 @@ from typing import Any
 from fastapi import APIRouter, Depends, HTTPException, Request
 
 from src.core.interfaces.backend_service_interface import IBackendService
-from src.core.services.backend_registry_service import (
-    backend_registry,  # Added this import
+from src.core.services.backend_registry import (
+    backend_registry,  # Updated import path
 )
 
 logger = logging.getLogger(__name__)
@@ -106,7 +106,7 @@ async def list_models(
 
         # Iterate through dynamically discovered backend types from the registry
         for backend_type in backend_registry.get_registered_backends():
-            backend_config = None
+            backend_config: Any | None = None
             if config.backends:
                 # Access backend config dynamically using getattr
                 backend_config = getattr(config.backends, backend_type, None)
@@ -114,14 +114,14 @@ async def list_models(
             if backend_config and backend_config.api_key:
                 try:
                     # Create backend instance
-                    backend_instance = backend_factory.create_backend(backend_type)
+                    backend_instance: Any = backend_factory.create_backend(backend_type)
 
                     # Get available models from the backend
-                    models = backend_instance.get_available_models()
+                    models: list[str] = backend_instance.get_available_models()
 
                     # Add models to the list with proper formatting
                     for model in models:
-                        model_id = (
+                        model_id: str = (
                             f"{backend_type}:{model}"
                             if backend_type != "openai"
                             else model
@@ -139,7 +139,7 @@ async def list_models(
                             )
                     logger.debug(f"Discovered {len(models)} models from {backend_type}")
 
-                except Exception as e:
+                except Exception as e: # type: ignore[misc]
                     logger.warning(f"Failed to get models from {backend_type}: {e}")
                     continue
 
@@ -170,7 +170,7 @@ async def list_models(
             "data": all_models,
         }
 
-    except Exception as e:
+    except Exception as e: # type: ignore[misc]
         logger.error(f"Error listing models: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 

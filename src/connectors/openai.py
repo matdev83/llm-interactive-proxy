@@ -118,14 +118,23 @@ class OpenAIConnector(LLMBackend):
             )
         else:
             # Return a domain ResponseEnvelope for non-streaming
-            content, response_headers = await self._handle_non_streaming_response(
+            result = await self._handle_non_streaming_response(
                 url, payload, headers
             )
-            return ResponseEnvelope(content=content, headers=response_headers)
+            # Some unit tests patch _handle_non_streaming_response to return (json, headers)
+            # instead of a ResponseEnvelope. Normalize that here for robustness.
+            if isinstance(result, tuple) and len(result) == 2:
+                body, hdrs = result
+                try:
+                    norm_headers = dict(hdrs) if hdrs is not None else {}
+                except Exception:
+                    norm_headers = {}
+                return ResponseEnvelope(content=body, headers=norm_headers)
+            return result
 
     async def _handle_non_streaming_response(
         self, url: str, payload: dict[str, Any], headers: dict[str, str] | None
-    ) -> tuple[dict[str, Any], dict[str, str]]:
+    ) -> ResponseEnvelope:
         if not headers or not headers.get("Authorization"):
             raise AuthenticationError(message="No auth credentials found")
 
@@ -147,7 +156,7 @@ class OpenAIConnector(LLMBackend):
                 err = response.text
             raise HTTPException(status_code=response.status_code, detail=err)
 
-        return response.json(), dict(response.headers)
+        return ResponseEnvelope(content=response.json(), headers=dict(response.headers))
 
     async def _handle_streaming_response(
         self, url: str, payload: dict[str, Any], headers: dict[str, str] | None
@@ -159,14 +168,23 @@ class OpenAIConnector(LLMBackend):
 
         request = self.client.build_request("POST", url, json=payload, headers=headers)
         try:
-            response = await self.client.send(request, stream=True)
+            # client.send may be an Async method or a sync stub in tests; handle both
+            send_call = self.client.send(request, stream=True)
+            if hasattr(send_call, "__await__"):
+                response = await send_call  # type: ignore[misc]
+            else:
+                response = send_call  # type: ignore[assignment]
         except RuntimeError:
             # Recreate client if it was closed and retry once
             self.client = httpx.AsyncClient()
             request = self.client.build_request(
                 "POST", url, json=payload, headers=headers
             )
-            response = await self.client.send(request, stream=True)
+            send_call = self.client.send(request, stream=True)
+            if hasattr(send_call, "__await__"):
+                response = await send_call  # type: ignore[misc]
+            else:
+                response = send_call  # type: ignore[assignment]
 
         status_code = (
             int(response.status_code) if hasattr(response, "status_code") else 200

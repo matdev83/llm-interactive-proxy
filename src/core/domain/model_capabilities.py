@@ -94,18 +94,8 @@ class ModelPricing(InternalDTO):
         cached: bool = False,
         batch: bool = False,
     ) -> float:
-        """Calculate the cost for a request.
-
-        Args:
-            input_tokens: Number of input tokens
-            output_tokens: Number of output tokens
-            cached: Whether input is cached
-            batch: Whether this is a batch request
-
-        Returns:
-            Total cost in the specified currency
-        """
-        total_cost = 0.0
+        """Calculate the cost for a request."""
+        total_cost: float = 0.0
 
         # Calculate input cost
         if batch and self.batch_input_cost_per_1k:
@@ -218,7 +208,7 @@ class ModelCapabilities(InternalDTO):
         Returns:
             Dictionary representation of the model capabilities
         """
-        return {
+        result: dict[str, Any] = {
             "model_id": self.model_id,
             "backend_type": self.backend_type,
             "metadata": {
@@ -274,6 +264,7 @@ class ModelCapabilities(InternalDTO):
             "average_latency_ms": self.average_latency_ms,
             "tokens_per_second": self.tokens_per_second,
         }
+        return result
 
 
 # Predefined model capability profiles

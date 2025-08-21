@@ -48,6 +48,7 @@ class _ProxyServer:
             self.config_file_path = Path(f.name)
 
         from src.core.config.app_config import AppConfig
+
         app_config = AppConfig.model_validate(cfg)
         self.app = build_app(config=app_config)
         self.server: uvicorn.Server | None = None

@@ -3,6 +3,7 @@ Pytest configuration file for unit tests.
 
 This file contains shared fixtures and configuration for the unit tests.
 """
+
 from collections.abc import AsyncGenerator
 
 import pytest

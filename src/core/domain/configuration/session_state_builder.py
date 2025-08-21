@@ -32,17 +32,17 @@ class SessionStateBuilder:
         """
         if state:
             # ISessionState exposes the necessary properties for builder
-            self._backend_config = state.backend_config  # type: ignore
-            self._reasoning_config = state.reasoning_config  # type: ignore
-            self._loop_config = state.loop_config  # type: ignore
-            self._project_config = ProjectConfiguration(
+            self._backend_config: IBackendConfig | BackendConfiguration = state.backend_config  # type: ignore
+            self._reasoning_config: IReasoningConfig | ReasoningConfiguration = state.reasoning_config  # type: ignore
+            self._loop_config: ILoopDetectionConfig | LoopDetectionConfiguration = state.loop_config  # type: ignore
+            self._project_config: ProjectConfiguration = ProjectConfiguration(
                 project=state.project, project_dir=state.project_dir
             )
-            self._interactive_just_enabled = getattr(
+            self._interactive_just_enabled: bool = getattr(
                 state, "interactive_just_enabled", False
             )
-            self._hello_requested = getattr(state, "hello_requested", False)
-            self._is_cline_agent = getattr(state, "is_cline_agent", False)
+            self._hello_requested: bool = getattr(state, "hello_requested", False)
+            self._is_cline_agent: bool = getattr(state, "is_cline_agent", False)
         else:
             self._backend_config = BackendConfiguration()
             self._reasoning_config = ReasoningConfiguration()

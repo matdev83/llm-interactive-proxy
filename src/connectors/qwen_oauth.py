@@ -331,53 +331,11 @@ class QwenOAuthConnector(OpenAIConnector):
                 )
 
             # Call the parent class method to handle the actual API request
-            parent_result = await super().chat_completions(
+            return await super().chat_completions(
                 request_data=modified_request,
                 processed_messages=processed_messages,
                 effective_model=model_name,
                 **kwargs,
-            )
-
-            # Normalize parent_result into domain envelopes expected by callers/tests
-            # Parent may return:
-            # - tuple (content_dict, headers) for non-streaming
-            # - ResponseEnvelope (domain) for non-streaming
-            # - StreamingResponse (transport) for streaming
-            # - StreamingResponseEnvelope (domain) for streaming
-            from starlette.responses import StreamingResponse
-
-            # Normalize parent_result into shapes expected by various callers/tests.
-            # We intentionally make this symmetric so callers that expect the
-            # transport/native tuple or StreamingResponse receive those, while
-            # tests that expect domain envelopes also get them depending on
-            # what the parent returned.
-            if isinstance(parent_result, tuple) and len(parent_result) == 2:
-                # Parent returned (content, headers) tuple -> wrap into domain envelope
-                content, headers = parent_result
-                return ResponseEnvelope(content=content, headers=headers or {})
-
-            if isinstance(parent_result, ResponseEnvelope):
-                # Parent returned domain envelope -> return it directly
-                # This is the case that's failing in tests
-                return parent_result
-
-            if isinstance(parent_result, StreamingResponse):
-                # Parent returned transport StreamingResponse -> wrap into domain envelope
-                return StreamingResponseEnvelope(
-                    content=parent_result.body_iterator,
-                    media_type=getattr(
-                        parent_result, "media_type", "text/event-stream"
-                    ),
-                    headers=dict(getattr(parent_result, "headers", {})),
-                )
-
-            if isinstance(parent_result, StreamingResponseEnvelope):
-                # Parent returned domain streaming envelope -> return it directly
-                return parent_result
-
-            # Unknown type -> error
-            raise TypeError(
-                f"Unexpected return type from parent chat_completions: {type(parent_result)}"
             )
 
         except HTTPException:

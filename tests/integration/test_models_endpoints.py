@@ -28,6 +28,9 @@ class TestModelsEndpoints:
     def app_with_auth_enabled(self, monkeypatch):
         """Create app with authentication enabled."""
         monkeypatch.setenv("PROXY_API_KEYS", "test-key-123")
+        monkeypatch.delenv("API_KEYS", raising=False)  # Remove any conflicting API_KEYS
+        monkeypatch.delenv("LLM_INTERACTIVE_PROXY_API_KEY", raising=False)  # Remove any conflicting legacy keys
+        monkeypatch.delenv("AUTH_TOKEN", raising=False)  # Remove auth token to prevent AuthMiddleware interference
         return build_app()
 
     def test_models_endpoint_no_auth(self, app_with_auth_disabled):
@@ -57,7 +60,6 @@ class TestModelsEndpoints:
             assert "data" in data
             assert isinstance(data["data"], list)
 
-    @pytest.mark.skip(reason="Test isolation issue - passes individually but fails in full suite")
     def test_models_endpoint_with_auth(self, app_with_auth_enabled):
         """Test /models endpoint with authentication."""
         with TestClient(app_with_auth_enabled) as client:
@@ -73,7 +75,9 @@ class TestModelsEndpoints:
             data = response.json()
             assert data["object"] == "list"
 
-    @pytest.mark.skip(reason="Test isolation issue - passes individually but fails in full suite")
+    @pytest.mark.skip(
+        reason="Test isolation issue - passes individually but fails in full suite"
+    )
     def test_models_endpoint_invalid_auth(self, app_with_auth_enabled):
         """Test /models endpoint with invalid authentication."""
         with TestClient(app_with_auth_enabled) as client:
@@ -324,10 +328,17 @@ class TestModelsDiscovery:
         mock_backend_factory.initialize_backend = AsyncMock()
 
         # Mock the ensure_backend method to return the appropriate backend
-        mock_backend_factory.ensure_backend = AsyncMock(side_effect=[
-            ValueError("API key invalid"),
-            MagicMock(get_available_models=lambda: ["openrouter/gpt-4", "openrouter/claude-3"])
-        ])
+        mock_backend_factory.ensure_backend = AsyncMock(
+            side_effect=[
+                ValueError("API key invalid"),
+                MagicMock(
+                    get_available_models=lambda: [
+                        "openrouter/gpt-4",
+                        "openrouter/claude-3",
+                    ]
+                ),
+            ]
+        )
 
         # Should handle the error and not crash
         with contextlib.suppress(Exception):

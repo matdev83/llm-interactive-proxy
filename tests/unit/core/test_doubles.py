@@ -123,14 +123,20 @@ class MockBackendService(IBackendService):
     """A mock backend service for testing."""
 
     def __init__(self) -> None:
-        self.responses: list[ResponseEnvelope | StreamingResponseEnvelope | Exception] = []
+        self.responses: list[
+            ResponseEnvelope | StreamingResponseEnvelope | Exception
+        ] = []
         self.calls: list[ChatRequest] = []
         self.validations: dict[str, dict[str, bool]] = {}
 
-    def add_response(self, response: ResponseEnvelope | StreamingResponseEnvelope | Exception) -> None:
+    def add_response(
+        self, response: ResponseEnvelope | StreamingResponseEnvelope | Exception
+    ) -> None:
         # If the response is an async generator, wrap it in a StreamingResponseEnvelope
-        if hasattr(response, '__aiter__'):
-            response = StreamingResponseEnvelope(content=response, media_type="text/event-stream")
+        if hasattr(response, "__aiter__"):
+            response = StreamingResponseEnvelope(
+                content=response, media_type="text/event-stream"
+            )
         self.responses.append(response)
 
     async def call_completion(
@@ -148,8 +154,8 @@ class MockBackendService(IBackendService):
         # Normalize domain-level ChatResponse into ResponseEnvelope for tests
         from src.core.domain.chat import ChatResponse
         from src.core.domain.responses import ResponseEnvelope
-        
-        if hasattr(response, '__aiter__'):
+
+        if hasattr(response, "__aiter__"):
             return response
 
         if isinstance(response, ChatResponse):
@@ -166,11 +172,13 @@ class MockBackendService(IBackendService):
                         msg_dict["role"] = role
                     if content is not None:
                         msg_dict["content"] = content
-                choices_list.append({
-                    "index": getattr(ch, "index", 0),
-                    "message": msg_dict,
-                    "finish_reason": getattr(ch, "finish_reason", "stop"),
-                })
+                choices_list.append(
+                    {
+                        "index": getattr(ch, "index", 0),
+                        "message": msg_dict,
+                        "finish_reason": getattr(ch, "finish_reason", "stop"),
+                    }
+                )
 
             content = {
                 "id": getattr(response, "id", ""),
@@ -181,7 +189,11 @@ class MockBackendService(IBackendService):
                 "usage": getattr(response, "usage", None),
             }
 
-            return ResponseEnvelope(content=content, headers={"content-type": "application/json"}, status_code=200)
+            return ResponseEnvelope(
+                content=content,
+                headers={"content-type": "application/json"},
+                status_code=200,
+            )
 
         return response
 
@@ -197,7 +209,9 @@ class MockBackendService(IBackendService):
     async def process_backend_request(
         self, request: ChatRequest, session_id: str | None = None, context: Any = None
     ) -> ResponseEnvelope | StreamingResponseEnvelope:
-        return await self.call_completion(request, stream=bool(getattr(request, "stream", False)))
+        return await self.call_completion(
+            request, stream=bool(getattr(request, "stream", False))
+        )
 
     async def validate_backend_and_model(
         self, backend: str, model: str

@@ -79,7 +79,7 @@ class GeminiGenerationConfig(ValueObject, IBackendSpecificConfig):
 
     def with_thinking_budget(self, budget: int) -> GeminiGenerationConfig:
         """Create a new config with updated thinking budget."""
-        thinking_config = dict(self.thinking_config)
+        thinking_config: dict[str, Any] = dict(self.thinking_config)
         thinking_config["thinkingBudget"] = budget
         return self.model_copy(update={"thinking_config": thinking_config})
 
@@ -100,14 +100,14 @@ class GeminiGenerationConfig(ValueObject, IBackendSpecificConfig):
         """
         if isinstance(config_json, str):
             try:
-                config_dict = json.loads(config_json)
+                config_dict: dict[str, Any] = json.loads(config_json)
             except json.JSONDecodeError:
                 raise ValueError("Invalid JSON for generation config")
         else:
             config_dict = config_json
 
         # Extract known parameters
-        updates = {}
+        updates: dict[str, Any] = {}
 
         # Handle thinking config
         if "thinkingConfig" in config_dict and isinstance(
