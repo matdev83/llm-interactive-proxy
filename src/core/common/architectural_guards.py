@@ -11,7 +11,8 @@ import functools
 import inspect
 import logging
 import warnings
-from typing import Any, Callable, TypeVar
+from collections.abc import Callable
+from typing import Any, TypeVar
 
 logger = logging.getLogger(__name__)
 
@@ -53,7 +54,7 @@ def enforce_no_direct_state_access(func: F) -> F:
                 
                 # Check for suspicious variable names that might indicate direct state access
                 suspicious_vars = [
-                    name for name in caller_locals.keys() 
+                    name for name in caller_locals
                     if 'app' in name.lower() and 'state' in str(caller_locals.get(name, ''))
                 ]
                 

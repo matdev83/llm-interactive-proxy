@@ -60,15 +60,93 @@ def discover_commands(
                             # Re-raise unexpected TypeError
                             raise
 
-                    if command_instance is not None:
+                    if command_instance is not None and hasattr(command_instance, "name") and command_instance.name:
                         # The command name should be an attribute on the instance
-                        if hasattr(command_instance, "name") and command_instance.name:
-                            if command_instance.name in handlers:
-                                # Log a warning or raise an error for duplicate command names
-                                pass
-                            handlers[command_instance.name] = command_instance
+                        if command_instance.name in handlers:
+                            # Log a warning or raise an error for duplicate command names
+                            pass
+                        handlers[command_instance.name] = command_instance
         except Exception:
             # Log errors for debugging, e.g., print(f"Could not process {module_name}: {e}")
             pass
+
+    # Additionally attempt to discover compatibility shims from the
+    # `src.core.commands.handlers` package (legacy handler shims).
+    try:
+        extra_pkg = importlib.import_module("src.core.commands.handlers")
+        extra_module_path = getattr(extra_pkg, "__path__", [])
+        for _, module_name, _ in pkgutil.iter_modules(extra_module_path, extra_pkg.__name__ + "."):
+            try:
+                module = importlib.import_module(module_name)
+                for _, obj in inspect.getmembers(module, inspect.isclass):
+                    # Accept either new-style BaseCommand implementations or
+                    # legacy handler shims that expose `name` and `execute`.
+                    try:
+                        is_new_style = issubclass(obj, BaseCommand) and obj is not BaseCommand
+                    except Exception:
+                        is_new_style = False
+                    if is_new_style:
+                        try:
+                            command_instance = obj()
+                        except TypeError:
+                            # Skip DI-required constructors
+                            continue
+                    else:
+                        # For legacy handlers, accept any class that has `name` and `execute`
+                        if hasattr(obj, "name") and callable(getattr(obj, "execute", None)):
+                            try:
+                                command_instance = obj()
+                            except TypeError:
+                                continue
+                        else:
+                            continue
+
+                    if command_instance is not None and hasattr(command_instance, "name") and command_instance.name:
+                        if command_instance.name in handlers:
+                            # Log a warning or raise an error for duplicate command names
+                            pass
+                        handlers[command_instance.name] = command_instance
+            except Exception:
+                # ignore errors importing/instantiating compatibility handlers
+                pass
+    except ImportError:
+        # no compatibility handlers package available
+        pass
+
+    # Also attempt to discover legacy command classes in `src.core.commands`.
+    try:
+        legacy_pkg = importlib.import_module("src.core.commands")
+        legacy_module_path = getattr(legacy_pkg, "__path__", [])
+        for _, module_name, _ in pkgutil.iter_modules(legacy_module_path, legacy_pkg.__name__ + "."):
+            try:
+                module = importlib.import_module(module_name)
+                for _, obj in inspect.getmembers(module, inspect.isclass):
+                    # Accept classes that either subclass BaseCommand or look like legacy handlers
+                    try:
+                        is_new_style = issubclass(obj, BaseCommand) and obj is not BaseCommand
+                    except Exception:
+                        is_new_style = False
+                    if is_new_style:
+                        try:
+                            command_instance = obj()
+                        except TypeError:
+                            continue
+                    else:
+                        if hasattr(obj, "name") and callable(getattr(obj, "execute", None)):
+                            try:
+                                command_instance = obj()
+                            except TypeError:
+                                continue
+                        else:
+                            continue
+
+                    if command_instance is not None and hasattr(command_instance, "name") and command_instance.name:
+                        if command_instance.name in handlers:
+                            pass
+                        handlers[command_instance.name] = command_instance
+            except Exception:
+                pass
+    except ImportError:
+        pass
 
     return handlers

@@ -79,7 +79,7 @@ class CreateFailoverRouteHandler(BaseCommandHandler):
         new_state = SessionStateAdapter(
             builder.with_backend_config(
                 current_state.backend_config.with_failover_route(name, policy)
-            ).build()
+            ).with_interactive_just_enabled(True).build()
         )
 
         return CommandHandlerResult(

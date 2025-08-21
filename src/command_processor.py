@@ -178,6 +178,25 @@ class CommandProcessor:
         logger.debug(
             f"_apply_new_state called: proxy_type={type(proxy)}, new_state_type={type(new_state)}"
         )
+        
+        # Handle interactive_just_enabled flag specially - this needs to be propagated
+        # from the command result to the proxy state
+        prop = getattr(type(proxy), "interactive_just_enabled", None)
+        if (
+            hasattr(new_state, "interactive_just_enabled")
+            and hasattr(proxy, "interactive_just_enabled")
+            and isinstance(prop, property)
+            and getattr(prop, "fset", None) is not None
+        ):
+            try:
+                # Use type ignore to bypass the read-only check for compatibility
+                proxy.interactive_just_enabled = new_state.interactive_just_enabled  # type: ignore[misc]
+                logger.debug(
+                    f"Propagated interactive_just_enabled={new_state.interactive_just_enabled} to proxy state"
+                )
+            except Exception as e:
+                logger.warning(f"Failed to propagate interactive_just_enabled: {e}")
+            
         # If new_state is an adapter, unwrap repeatedly to get concrete SessionState
         concrete_state = new_state
         try:

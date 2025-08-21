@@ -118,7 +118,7 @@ class TestQwenOAuthEnhancedErrorHandling:
             patch.object(connector, "_refresh_token_if_needed", return_value=True),
             patch(
                 "src.connectors.openai.OpenAIConnector.chat_completions",
-                AsyncMock(return_value=({"id": "test"}, {})),
+                AsyncMock(return_value=ResponseEnvelope(content={"id": "test"}, headers={})),
             ) as mock_parent,
         ):
 

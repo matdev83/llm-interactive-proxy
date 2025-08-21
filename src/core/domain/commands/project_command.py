@@ -10,7 +10,9 @@ import logging
 from collections.abc import Mapping
 from typing import Any
 
-from src.core.constants import COMMAND_EXECUTION_ERROR
+from src.core.constants import (
+    COMMAND_EXECUTION_ERROR,
+)
 from src.core.domain.command_results import CommandResult
 from src.core.domain.commands.base_command import BaseCommand
 from src.core.domain.commands.secure_base_command import StatelessCommandBase

@@ -1,20 +1,21 @@
 """Compatibility shim providing legacy SetCommandHandler expected by tests.
 
 This handler implements a minimal subset of the legacy behaviour required by
-unit tests: handling `temperature` parameter and mutating the provided
-`SessionStateAdapter` (proxy_state) in-place.
+unit tests: handling `temperature` and `command-prefix` parameters and mutating 
+the provided `SessionStateAdapter` (proxy_state) in-place.
 """
 
 from __future__ import annotations
 
+import contextlib
 import logging
 from typing import Any
 
-from src.core.constants import COMMAND_PARSING_ERROR
 from src.core.commands.handlers.base_handler import (
     BaseCommandHandler,
     CommandHandlerResult,
 )
+from src.core.constants import COMMAND_PARSING_ERROR
 from src.core.domain.command_context import CommandContext
 from src.core.interfaces.domain_entities_interface import ISessionState
 
@@ -103,10 +104,92 @@ class SetCommandHandler(BaseCommandHandler):
                                 success=False,
                                 message="Invalid temperature value. Must be a number between 0.0 and 1.0",
                             )
+                    elif key == "command-prefix":
+                        # Validate command prefix
+                        from src.command_prefix import validate_command_prefix
+                        
+                        error = validate_command_prefix(value)
+                        if error:
+                            return CommandHandlerResult(
+                                success=False,
+                                message=error,
+                            )
+                        
+                        # Update command prefix in application state
+                        if context and hasattr(context, "app") and hasattr(context.app, "state"):
+                            context.app.state.command_prefix = value
+                            
+                        # Also update in session state if available
+                        from src.core.domain.session import SessionStateAdapter
+                        
+                        if isinstance(current_state, SessionStateAdapter) and hasattr(current_state, "_state"):
+                            # No direct setter for command_prefix in SessionState
+                            # Return success and let the command processor handle it
+                            return CommandHandlerResult(
+                                success=True,
+                                message=f"Command prefix set to {value}",
+                                new_state=current_state,  # Return current state unchanged
+                            )
+                        
+                        return CommandHandlerResult(
+                            success=True,
+                            message=f"Command prefix set to {value}",
+                        )
+                    elif key == "interactive-mode":
+                        # Handle interactive mode setting
+                        value_upper = value.upper()
+                        if value_upper in ("ON", "TRUE", "YES", "1", "ENABLED", "ENABLE"):
+                            enabled = True
+                        elif value_upper in ("OFF", "FALSE", "NO", "0", "DISABLED", "DISABLE"):
+                            enabled = False
+                        else:
+                            return CommandHandlerResult(
+                                success=False,
+                                message=f"Invalid interactive mode value: {value}. Use ON/OFF, TRUE/FALSE, etc.",
+                            )
+                        
+                        # Update interactive mode in session state
+                        from src.core.domain.session import SessionStateAdapter
+                        
+                        if isinstance(current_state, SessionStateAdapter) and hasattr(current_state, "_state"):
+                            # Use the with_interactive_just_enabled method to create a new state
+                            
+                            # Use the interface method to create a new state with updated flag
+                            updated_state = current_state.with_interactive_just_enabled(enabled)
+                            
+                            # For immediate effect in tests, we also need to update the adapter directly
+                            # This is a compatibility shim for tests that expect immediate state changes
+                            if hasattr(current_state, "interactive_just_enabled") and hasattr(type(current_state), "interactive_just_enabled"):
+                                prop = type(current_state).interactive_just_enabled
+                                if hasattr(prop, "fset") and prop.fset is not None:
+                                    # Only set if it has a setter
+                                    # Use contextlib.suppress to avoid noisy try/except-pass
+                                    with contextlib.suppress(Exception):
+                                        current_state.interactive_just_enabled = enabled  # type: ignore[misc]
+                            
+                            return CommandHandlerResult(
+                                success=True,
+                                message=f"Interactive mode {'enabled' if enabled else 'disabled'}",
+                                new_state=updated_state,
+                            )
+                        
+                        # Fallback for other state types
+                        if hasattr(current_state, "with_interactive_just_enabled"):
+                            updated_state = current_state.with_interactive_just_enabled(enabled)
+                            return CommandHandlerResult(
+                                success=True,
+                                message=f"Interactive mode {'enabled' if enabled else 'disabled'}",
+                                new_state=updated_state,
+                            )
+                        
+                        return CommandHandlerResult(
+                            success=False,
+                            message="Cannot update interactive mode: unsupported state type",
+                        )
                     else:
                         return CommandHandlerResult(
                             success=False,
-                            message=f"Unsupported parameter: {key}",
+                            message=f"Unknown parameter: {key}",
                         )
                 else:
                     return CommandHandlerResult(

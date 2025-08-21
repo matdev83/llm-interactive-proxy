@@ -118,19 +118,9 @@ class OpenAIConnector(LLMBackend):
             )
         else:
             # Return a domain ResponseEnvelope for non-streaming
-            result = await self._handle_non_streaming_response(
+            return await self._handle_non_streaming_response(
                 url, payload, headers
             )
-            # Some unit tests patch _handle_non_streaming_response to return (json, headers)
-            # instead of a ResponseEnvelope. Normalize that here for robustness.
-            if isinstance(result, tuple) and len(result) == 2:
-                body, hdrs = result
-                try:
-                    norm_headers = dict(hdrs) if hdrs is not None else {}
-                except Exception:
-                    norm_headers = {}
-                return ResponseEnvelope(content=body, headers=norm_headers)
-            return result
 
     async def _handle_non_streaming_response(
         self, url: str, payload: dict[str, Any], headers: dict[str, str] | None

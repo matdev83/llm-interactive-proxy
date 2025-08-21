@@ -13,6 +13,7 @@ from typing import Any
 from fastapi import FastAPI, Request
 
 from src.core.di.services import get_service_provider
+from src.core.domain.responses import ResponseEnvelope, StreamingResponseEnvelope
 from src.core.interfaces.model_bases import DomainModel, InternalDTO
 
 logger = logging.getLogger(__name__)
@@ -34,7 +35,7 @@ class ChatService:
         self,
         http_request: Request,
         request_data: DomainModel | InternalDTO | dict[str, Any],
-    ) -> Any:
+    ) -> dict[str, Any] | ResponseEnvelope | StreamingResponseEnvelope:
         """
         Process a chat completion request.
 

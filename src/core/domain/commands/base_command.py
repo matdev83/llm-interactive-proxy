@@ -23,17 +23,14 @@ class BaseCommand(ABC):
     @abstractproperty
     def name(self) -> str:
         """Command name."""
-        pass
 
     @abstractproperty
     def format(self) -> str:
         """Command format string."""
-        pass
 
     @abstractproperty
     def description(self) -> str:
         """Command description."""
-        pass
 
     @property
     def examples(self) -> list[str]:

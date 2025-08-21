@@ -11,7 +11,9 @@ import abc
 import logging
 from typing import Any, cast
 
-from src.core.constants import COMMAND_EXECUTION_ERROR
+from src.core.constants import (
+    COMMAND_EXECUTION_ERROR,
+)
 from src.core.domain.command_results import CommandResult
 from src.core.domain.session import Session
 

@@ -47,7 +47,9 @@ class CommandProcessor(ICommandProcessor):
         disable_commands = False
         if context:
             # Use application state service instead of direct state access
-            from src.core.services.application_state_service import get_default_application_state
+            from src.core.services.application_state_service import (
+                get_default_application_state,
+            )
             
             app_state_service = get_default_application_state()
             disable_commands = (

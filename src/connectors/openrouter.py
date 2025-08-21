@@ -5,7 +5,6 @@ from collections.abc import Callable
 from typing import Any, cast
 
 import httpx
-from fastapi import HTTPException
 
 from src.connectors.openai import OpenAIConnector
 from src.core.adapters.api_adapters import legacy_to_domain_chat_request
@@ -191,29 +190,9 @@ class OpenRouterBackend(OpenAIConnector):
                 effective_model=effective_model,
                 **call_kwargs,
             )
-        except ServiceUnavailableError as e:
-            # Adapt parent error details to OpenRouter-specific wording
-            # Tests expect an HTTPException(503) on connection failure, so
-            # convert ServiceUnavailableError to HTTPException with 503.
-            msg = e.message
-            if "Could not connect to API" in msg:
-                msg = msg.replace(
-                    "Could not connect to API", "Could not connect to OpenRouter"
-                )
-            if "Could not connect to backend" in msg:
-                msg = msg.replace(
-                    "Could not connect to backend", "Could not connect to OpenRouter"
-                )
-            raise HTTPException(status_code=503, detail=msg) from None
-        except BackendError as e:
-            # Handle streaming errors
-            if e.message.startswith("API streaming error:"):
-                raise BackendError(
-                    message=e.message.replace(
-                        "API streaming error:", "OpenRouter stream error:"
-                    ),
-                    code="openrouter_error",
-                ) from None
+        except ServiceUnavailableError:
+            raise
+        except BackendError:
             raise
         finally:
             self.headers_provider = original_headers_provider

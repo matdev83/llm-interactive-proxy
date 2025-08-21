@@ -54,11 +54,6 @@ def to_fastapi_response(
         envelope = ResponseEnvelope(
             content=domain_response, headers=None, status_code=200
         )
-    elif isinstance(domain_response, tuple) and len(domain_response) == 2:
-        # (content, headers) tuple
-        envelope = ResponseEnvelope(
-            content=domain_response[0], headers=domain_response[1], status_code=200
-        )
     else:
         # Fallback: wrap whatever we got
         envelope = ResponseEnvelope(

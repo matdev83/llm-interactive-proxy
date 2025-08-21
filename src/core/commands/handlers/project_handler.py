@@ -7,13 +7,13 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from src.core.constants.command_output_constants import (
-    PROJECT_SET_MESSAGE,
-    PROJECT_UNSET_MESSAGE,
-)
 from src.core.commands.handlers.base_handler import (
     BaseCommandHandler,
     CommandHandlerResult,
+)
+from src.core.constants.command_output_constants import (
+    PROJECT_SET_MESSAGE,
+    PROJECT_UNSET_MESSAGE,
 )
 from src.core.interfaces.domain_entities_interface import ISessionState
 

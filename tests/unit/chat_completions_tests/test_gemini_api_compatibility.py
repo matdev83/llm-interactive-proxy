@@ -8,6 +8,7 @@ from unittest.mock import AsyncMock, patch
 
 from fastapi.testclient import TestClient
 from src.core.app.application_factory import build_app
+from src.core.domain.responses import ResponseEnvelope
 
 
 class TestGeminiModelsEndpoint:
@@ -97,9 +98,10 @@ class TestGeminiGenerateContent:
 
         client.app.state.rate_limits = RateLimitRegistry()
         if not hasattr(client.app.state, "session_manager"):
-            from src.core.services.sync_session_manager import SyncSessionManager
             from unittest.mock import Mock
+
             from src.core.interfaces.session_service_interface import ISessionService
+            from src.core.services.sync_session_manager import SyncSessionManager
 
             # Create a mock session service for testing
             mock_session_service = Mock(spec=ISessionService)
@@ -181,7 +183,7 @@ class TestGeminiGenerateContent:
         with patch.object(
             client.app.state.openrouter_backend,
             "chat_completions",
-            new=AsyncMock(return_value=(mock_response, {})),
+            new=AsyncMock(return_value=ResponseEnvelope(content=mock_response, headers={})),
         ):
             # Mock response already defined above
 
@@ -250,7 +252,7 @@ class TestGeminiGenerateContent:
         with patch.object(
             client.app.state.openrouter_backend,
             "chat_completions",
-            new=AsyncMock(return_value=(mock_response, {})),
+            new=AsyncMock(return_value=ResponseEnvelope(content=mock_response, headers={})),
         ):
 
             response = client.post(
@@ -454,7 +456,7 @@ class TestGeminiRequestConversion:
         with patch.object(
             client.app.state.openrouter_backend,
             "chat_completions",
-            new=AsyncMock(return_value=(mock_response, {})),
+            new=AsyncMock(return_value=ResponseEnvelope(content=mock_response, headers={})),
         ) as mock_backend:
 
             response = client.post(

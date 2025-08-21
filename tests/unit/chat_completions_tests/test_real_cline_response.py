@@ -3,6 +3,8 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
+from tests.conftest import get_backend_instance
+
 # Skip all tests in this file for now - they require complex mocking of backend state
 pytestmark = pytest.mark.skip(reason="Tests require complex backend mocking that's currently broken")
 
@@ -10,9 +12,11 @@ pytestmark = pytest.mark.skip(reason="Tests require complex backend mocking that
 def create_mock_backend():
     """Create a mock backend for testing."""
     from unittest.mock import MagicMock
+
+    from src.core.domain.responses import ResponseEnvelope
     mock_backend = MagicMock()
-    mock_backend.chat_completions = AsyncMock(return_value=(
-        {
+    mock_backend.chat_completions = AsyncMock(return_value=ResponseEnvelope(
+        content={
             "id": "test-response",
             "object": "chat.completion",
             "created": 1234567890,
@@ -26,7 +30,7 @@ def create_mock_backend():
             ],
             "usage": {"prompt_tokens": 10, "completion_tokens": 5, "total_tokens": 15},
         },
-        {},
+        headers={}
     ))
     return mock_backend
 

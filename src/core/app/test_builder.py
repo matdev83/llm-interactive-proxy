@@ -143,7 +143,9 @@ class ApplicationTestBuilder(ApplicationBuilder):
             app.state.service_provider = new_app.state.service_provider
 
         # Copy other important state attributes using application state service
-        from src.core.services.application_state_service import get_default_application_state
+        from src.core.services.application_state_service import (
+            get_default_application_state,
+        )
         
         app_state_service = get_default_application_state()
         app_state_service.set_state_provider(new_app.state)
@@ -177,7 +179,9 @@ class ApplicationTestBuilder(ApplicationBuilder):
         )
 
         # First make sure services are initialized
-        from src.core.services.application_state_service import get_default_application_state
+        from src.core.services.application_state_service import (
+            get_default_application_state,
+        )
         
         app_state_service = get_default_application_state()
         app_state_service.set_state_provider(app.state)

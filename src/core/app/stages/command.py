@@ -151,16 +151,28 @@ class CommandStage(InitializationStage):
                     # Register domain command implementations
                     from src.core.domain.commands.hello_command import HelloCommand
                     from src.core.domain.commands.help_command import HelpCommand
+                    from src.core.domain.commands.loop_detection_commands.loop_detection_command import (
+                        LoopDetectionCommand,
+                    )
+                    from src.core.domain.commands.loop_detection_commands.tool_loop_detection_command import (
+                        ToolLoopDetectionCommand,
+                    )
+                    from src.core.domain.commands.loop_detection_commands.tool_loop_max_repeats_command import (
+                        ToolLoopMaxRepeatsCommand,
+                    )
+                    from src.core.domain.commands.loop_detection_commands.tool_loop_mode_command import (
+                        ToolLoopModeCommand,
+                    )
+                    from src.core.domain.commands.loop_detection_commands.tool_loop_ttl_command import (
+                        ToolLoopTTLCommand,
+                    )
                     from src.core.domain.commands.model_command import ModelCommand
                     from src.core.domain.commands.oneoff_command import OneoffCommand
                     from src.core.domain.commands.project_command import ProjectCommand
                     from src.core.domain.commands.pwd_command import PwdCommand
-                    from src.core.domain.commands.temperature_command import TemperatureCommand
-                    from src.core.domain.commands.loop_detection_commands.loop_detection_command import LoopDetectionCommand
-                    from src.core.domain.commands.loop_detection_commands.tool_loop_detection_command import ToolLoopDetectionCommand
-                    from src.core.domain.commands.loop_detection_commands.tool_loop_max_repeats_command import ToolLoopMaxRepeatsCommand
-                    from src.core.domain.commands.loop_detection_commands.tool_loop_mode_command import ToolLoopModeCommand
-                    from src.core.domain.commands.loop_detection_commands.tool_loop_ttl_command import ToolLoopTTLCommand
+                    from src.core.domain.commands.temperature_command import (
+                        TemperatureCommand,
+                    )
 
                     # Register stateless commands (no DI required)
                     registry.register(HelloCommand())
@@ -177,16 +189,16 @@ class CommandStage(InitializationStage):
                     registry.register(ToolLoopTTLCommand())
 
                     # Register stateful commands (with DI)
-                    from src.core.domain.commands.set_command import SetCommand
-                    from src.core.domain.commands.unset_command import UnsetCommand
                     from src.core.domain.commands.failover_commands import (
                         CreateFailoverRouteCommand,
                         DeleteFailoverRouteCommand,
                         ListFailoverRoutesCommand,
                         RouteAppendCommand,
-                        RoutePrependCommand,
                         RouteClearCommand,
+                        RoutePrependCommand,
                     )
+                    from src.core.domain.commands.set_command import SetCommand
+                    from src.core.domain.commands.unset_command import UnsetCommand
                     from src.core.interfaces.state_provider_interface import (
                         ISecureStateAccess,
                         ISecureStateModification,

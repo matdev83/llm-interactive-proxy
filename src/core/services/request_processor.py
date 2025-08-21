@@ -123,7 +123,9 @@ class RequestProcessor(IRequestProcessor):
         # Process any commands in the messages (unless disabled)
         # Command disabling flags are resolved from RequestContext.state and app_state
         # Use application state service instead of direct state access
-        from src.core.services.application_state_service import get_default_application_state
+        from src.core.services.application_state_service import (
+            get_default_application_state,
+        )
         
         app_state_service = get_default_application_state()
         disable_commands: bool = (
@@ -187,7 +189,9 @@ class RequestProcessor(IRequestProcessor):
                 if fr:
                     with suppress(Exception):
                         # Use application state service instead of direct state access
-                        from src.core.services.application_state_service import get_default_application_state
+                        from src.core.services.application_state_service import (
+                            get_default_application_state,
+                        )
                         
                         app_state_service = get_default_application_state()
                         app_state_service.set_failover_routes(fr)

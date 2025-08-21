@@ -3,23 +3,23 @@ from __future__ import annotations
 import logging
 from typing import Any
 
+from src.core.commands.handlers.base_handler import (
+    BaseCommandHandler,
+    CommandHandlerResult,
+)
 from src.core.constants.command_output_constants import (
+    BACKEND_AND_MODEL_SET_MESSAGE,
     BACKEND_MUST_BE_STRING_MESSAGE,
     BACKEND_NOT_FUNCTIONAL_MESSAGE,
     BACKEND_NOT_SUPPORTED_MESSAGE,
     BACKEND_SET_MESSAGE,
+    MODEL_BACKEND_NOT_SUPPORTED_MESSAGE,
     MODEL_MUST_BE_STRING_MESSAGE,
     MODEL_SET_MESSAGE,
     MODEL_UNSET_MESSAGE,
-    MODEL_BACKEND_NOT_SUPPORTED_MESSAGE,
-    BACKEND_AND_MODEL_SET_MESSAGE,
     OPENAI_URL_MUST_BE_STRING_MESSAGE,
     OPENAI_URL_MUST_START_WITH_HTTP_MESSAGE,
     OPENAI_URL_SET_MESSAGE,
-)
-from src.core.commands.handlers.base_handler import (
-    BaseCommandHandler,
-    CommandHandlerResult,
 )
 from src.core.domain.command_context import CommandContext
 from src.core.domain.configuration.session_state_builder import SessionStateBuilder

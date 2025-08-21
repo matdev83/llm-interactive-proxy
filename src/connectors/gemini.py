@@ -11,6 +11,7 @@ from fastapi import HTTPException
 
 from src.connectors.base import LLMBackend
 from src.core.adapters.api_adapters import legacy_to_domain_chat_request
+from src.core.common.exceptions import BackendError, ServiceUnavailableError
 from src.core.domain.chat import (
     ChatRequest,
     MessageContentPartImage,
@@ -268,13 +269,10 @@ class GeminiBackend(LLMBackend):
                     response.status_code,
                     body_text,
                 )
-                raise HTTPException(
+                raise BackendError(
+                    message=f"Gemini stream error: {response.status_code} - {body_text}",
+                    code="gemini_error",
                     status_code=response.status_code,
-                    detail={
-                        "message": f"Gemini stream error: {response.status_code} - {body_text}",
-                        "type": "gemini_error",
-                        "code": response.status_code,
-                    },
                 )
 
             async def stream_generator() -> AsyncGenerator[bytes, None]:
@@ -330,9 +328,8 @@ class GeminiBackend(LLMBackend):
         except httpx.RequestError as e:
             if logger.isEnabledFor(logging.ERROR):
                 logger.error("Request error connecting to Gemini: %s", e, exc_info=True)
-            raise HTTPException(
-                status_code=503,
-                detail=f"Service unavailable: Could not connect to Gemini ({e})",
+            raise ServiceUnavailableError(
+                message=f"Could not connect to Gemini ({e})",
             )
 
     async def chat_completions(  # type: ignore[override]
@@ -500,8 +497,10 @@ class GeminiBackend(LLMBackend):
                     error_detail = response.json()
                 except Exception:
                     error_detail = response.text
-                raise HTTPException(
-                    status_code=response.status_code, detail=error_detail
+                raise BackendError(
+                    message=str(error_detail),
+                    code="gemini_error",
+                    status_code=response.status_code,
                 )
             data = response.json()
             if logger.isEnabledFor(logging.DEBUG):
@@ -514,9 +513,8 @@ class GeminiBackend(LLMBackend):
         except httpx.RequestError as e:
             if logger.isEnabledFor(logging.ERROR):
                 logger.error("Request error connecting to Gemini: %s", e, exc_info=True)
-            raise HTTPException(
-                status_code=503,
-                detail=f"Service unavailable: Could not connect to Gemini ({e})",
+            raise ServiceUnavailableError(
+                message=f"Could not connect to Gemini ({e})",
             )
 
     async def list_models(
@@ -535,16 +533,17 @@ class GeminiBackend(LLMBackend):
                     error_detail = response.json()
                 except Exception:
                     error_detail = response.text
-                raise HTTPException(
-                    status_code=response.status_code, detail=error_detail
+                raise BackendError(
+                    message=str(error_detail),
+                    code="gemini_error",
+                    status_code=response.status_code,
                 )
             return cast(dict[str, Any], response.json())
         except httpx.RequestError as e:
             if logger.isEnabledFor(logging.ERROR):
                 logger.error("Request error connecting to Gemini: %s", e, exc_info=True)
-            raise HTTPException(
-                status_code=503,
-                detail=f"Service unavailable: Could not connect to Gemini ({e})",
+            raise ServiceUnavailableError(
+                message=f"Could not connect to Gemini ({e})",
             )
 
 

@@ -14,7 +14,6 @@ from src.core.domain.commands.secure_base_command import (
     SecureCommandBase,
     StatefulCommandBase,
     StatelessCommandBase,
-    create_secure_command,
 )
 from src.core.interfaces.state_provider_interface import (
     ISecureStateAccess,

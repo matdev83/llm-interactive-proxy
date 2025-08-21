@@ -48,7 +48,9 @@ class APIKeyMiddleware(BaseHTTPMiddleware):
             return response
 
         # Check if auth is disabled for tests or development
-        from src.core.services.application_state_service import get_default_application_state
+        from src.core.services.application_state_service import (
+            get_default_application_state,
+        )
         
         app_state_service = get_default_application_state()
         # Set the state provider to the current request's app state for this request

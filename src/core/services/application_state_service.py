@@ -38,61 +38,61 @@ class ApplicationStateService(IApplicationState):
     def get_command_prefix(self) -> str | None:
         """Get the command prefix."""
         if self._state_provider and hasattr(self._state_provider, "command_prefix"):
-            return getattr(self._state_provider, "command_prefix")
+            return self._state_provider.command_prefix
         return self._local_state.get("command_prefix")
 
     def set_command_prefix(self, prefix: str) -> None:
         """Set the command prefix."""
         if self._state_provider:
-            setattr(self._state_provider, "command_prefix", prefix)
+            self._state_provider.command_prefix = prefix
         self._local_state["command_prefix"] = prefix
 
     def get_api_key_redaction_enabled(self) -> bool:
         """Get whether API key redaction is enabled."""
         if self._state_provider and hasattr(self._state_provider, "api_key_redaction_enabled"):
-            return bool(getattr(self._state_provider, "api_key_redaction_enabled"))
+            return bool(self._state_provider.api_key_redaction_enabled)
         return bool(self._local_state.get("api_key_redaction_enabled", False))
 
     def set_api_key_redaction_enabled(self, enabled: bool) -> None:
         """Set whether API key redaction is enabled."""
         if self._state_provider:
-            setattr(self._state_provider, "api_key_redaction_enabled", enabled)
+            self._state_provider.api_key_redaction_enabled = enabled
         self._local_state["api_key_redaction_enabled"] = enabled
 
     def get_disable_interactive_commands(self) -> bool:
         """Get whether interactive commands are disabled."""
         if self._state_provider and hasattr(self._state_provider, "disable_interactive_commands"):
-            return bool(getattr(self._state_provider, "disable_interactive_commands"))
+            return bool(self._state_provider.disable_interactive_commands)
         return bool(self._local_state.get("disable_interactive_commands", False))
 
     def set_disable_interactive_commands(self, disabled: bool) -> None:
         """Set whether interactive commands are disabled."""
         if self._state_provider:
-            setattr(self._state_provider, "disable_interactive_commands", disabled)
+            self._state_provider.disable_interactive_commands = disabled
         self._local_state["disable_interactive_commands"] = disabled
 
     def get_disable_commands(self) -> bool:
         """Get whether commands are disabled."""
         if self._state_provider and hasattr(self._state_provider, "disable_commands"):
-            return bool(getattr(self._state_provider, "disable_commands"))
+            return bool(self._state_provider.disable_commands)
         return bool(self._local_state.get("disable_commands", False))
 
     def set_disable_commands(self, disabled: bool) -> None:
         """Set whether commands are disabled."""
         if self._state_provider:
-            setattr(self._state_provider, "disable_commands", disabled)
+            self._state_provider.disable_commands = disabled
         self._local_state["disable_commands"] = disabled
 
     def get_failover_routes(self) -> list[dict[str, Any]] | None:
         """Get failover routes."""
         if self._state_provider and hasattr(self._state_provider, "failover_routes"):
-            return getattr(self._state_provider, "failover_routes")
+            return self._state_provider.failover_routes
         return self._local_state.get("failover_routes")
 
     def set_failover_routes(self, routes: list[dict[str, Any]]) -> None:
         """Set failover routes."""
         if self._state_provider:
-            setattr(self._state_provider, "failover_routes", routes)
+            self._state_provider.failover_routes = routes
         self._local_state["failover_routes"] = routes
 
     def get_setting(self, key: str, default: Any = None) -> Any:

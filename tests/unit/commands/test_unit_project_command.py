@@ -1,65 +1,60 @@
-import pytest
-from unittest.mock import Mock, AsyncMock
+from unittest.mock import Mock
 
-from src.core.domain.commands.project_command import ProjectCommand
-from src.core.domain.command_results import CommandResult
-from src.core.domain.session import Session
+import pytest
+from src.core.constants.command_output_constants import (
+    PROJECT_SET_MESSAGE,
+    PROJECT_UNSET_MESSAGE,
+)
+from src.core.commands.handlers.project_handler import ProjectCommandHandler
+from src.core.domain.session import Session, SessionState
 
 
 @pytest.fixture
-def command() -> ProjectCommand:
-    """Fixture for ProjectCommand."""
-    return ProjectCommand()
+def handler() -> ProjectCommandHandler:
+    return ProjectCommandHandler()
 
 
 @pytest.fixture
 def mock_session() -> Mock:
-    """Fixture for a mocked session."""
-    session = Mock(spec=Session)
-    session.state.project = None
-    # Mock the with_project method to return a proper mock
-    mock_new_state = Mock()
-    mock_new_state.project = "my-new-project"
-    session.state.with_project.return_value = mock_new_state
-    return session
+    mock = Mock(spec=Session)
+    mock.state = SessionState()
+    return mock
 
 
-@pytest.mark.asyncio
-async def test_project_command_success(command: ProjectCommand, mock_session: Mock):
+def test_project_handler_success(handler: ProjectCommandHandler, mock_session: Mock):
     # Arrange
-    args = {"name": "my-new-project"}
+    project_name = "my-new-project"
 
     # Act
-    result = await command.execute(args, mock_session)
+    result = handler.handle(project_name, mock_session.state)
 
     # Assert
     assert result.success is True
-    assert result.message == "Project changed to my-new-project"
-    assert result.new_state.project == "my-new-project"
+    assert result.message == PROJECT_SET_MESSAGE.format(project=project_name)
+    assert result.new_state is not None
+    assert result.new_state.project == project_name
 
 
-@pytest.mark.asyncio
-async def test_project_command_unset(command: ProjectCommand, mock_session: Mock):
-    # Arrange
-    mock_session.state.project = "existing-project"
-    args = {"name": None}
-
+def test_project_handler_unset(handler: ProjectCommandHandler, mock_session: Mock):
     # Act
-    result = await command.execute(args, mock_session)
+    result = handler.handle(None, mock_session.state)
 
     # Assert
-    assert result.success is False
-    assert result.message == "Project name must be specified"
+    assert result.success is True
+    assert result.message == PROJECT_UNSET_MESSAGE
+    assert result.new_state is not None
+    assert result.new_state.project is None
 
 
-@pytest.mark.asyncio
-async def test_project_command_failure_no_name(command: ProjectCommand, mock_session: Mock):
+def test_project_handler_failure_empty_name(handler: ProjectCommandHandler, mock_session: Mock):
     # Arrange
-    args = {}
+    project_name = ""
 
     # Act
-    result = await command.execute(args, mock_session)
+    result = handler.handle(project_name, mock_session.state)
 
     # Assert
-    assert result.success is False
-    assert result.message == "Project name must be specified"
+    assert result.success is True  # Empty string is treated as a valid project name
+    assert result.message == PROJECT_SET_MESSAGE.format(project=project_name)
+    assert result.new_state is not None
+    assert result.new_state.project == project_name

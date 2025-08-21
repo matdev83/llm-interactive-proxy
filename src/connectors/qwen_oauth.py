@@ -2,10 +2,8 @@
 Qwen OAuth connector that uses OAuth tokens from qwen-code CLI
 """
 
-import asyncio
 import json
 import logging
-import secrets
 from pathlib import Path
 from typing import (
     TYPE_CHECKING,
@@ -347,29 +345,7 @@ class QwenOAuthConnector(OpenAIConnector):
         except Exception as e:
             # Convert other exceptions to BackendError
             logger.error(f"Error in Qwen OAuth chat_completions: {e}")
-
-            # Create a response payload envelope as callers/tests expect
-            payload = {
-                "id": f"chatcmpl-qwen-{secrets.token_hex(8)}",
-                "object": "chat.completion",
-                "created": int(asyncio.get_event_loop().time()),
-                "model": effective_model,
-                "choices": [
-                    {
-                        "index": 0,
-                        "message": {"role": "assistant", "content": f"Error: {e!s}"},
-                        "finish_reason": "stop",
-                    }
-                ],
-                "usage": {
-                    "prompt_tokens": 0,
-                    "completion_tokens": 0,
-                    "total_tokens": 0,
-                },
-            }
-            return ResponseEnvelope(
-                content=payload, headers={"content-type": "application/json"}
-            )
+            raise BackendError(message=f"Qwen OAuth chat completion failed: {e!s}") from e
 
 
 backend_registry.register_backend("qwen-oauth", QwenOAuthConnector)

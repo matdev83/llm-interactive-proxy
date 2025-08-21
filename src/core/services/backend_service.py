@@ -66,12 +66,15 @@ class BackendService(IBackendService):
         self, request: ChatRequest, stream: bool = False, allow_failover: bool = True
     ) -> ResponseEnvelope | StreamingResponseEnvelope:
         """Call the LLM backend for a completion."""
-        session_id = request.extra_body.get("session_id")
+        session_id = request.extra_body.get("session_id") if request.extra_body else None
         session = await self._session_service.get_session(session_id) if session_id else None
 
         backend_type: str | None = None
         if session and session.state and session.state.backend_config:
-            backend_type = session.state.backend_config.backend_type
+            from src.core.domain.configuration.backend_config import (
+                BackendConfiguration,
+            )
+            backend_type = cast(BackendConfiguration, session.state.backend_config).backend_type
 
         if not backend_type:
             backend_type = (
@@ -201,18 +204,15 @@ class BackendService(IBackendService):
                 effective_model=effective_model,
             )
 
-            if stream:
-                return result
-            else:
-                return result
+            return result
 
-        except (BackendError, RateLimitExceededError):
-            raise
-        except Exception as e:
+        except (BackendError, RateLimitExceededError) as e:
             if not allow_failover:
-                raise BackendError(
-                    message=f"Backend call failed: {e!s}", backend_name=backend_type
-                )
+                raise e # Re-raise the specific BackendError or RateLimitExceededError
+            # If allow_failover is True, proceed with failover logic below
+            # The rest of the failover logic remains as is for now.
+            # This block will now only be entered if a BackendError or RateLimitExceededError occurred
+            # and allow_failover is True.
 
             request_failover_routes_nested: dict[str, Any] | None = (
                 request.extra_body.get("failover_routes")
@@ -250,7 +250,7 @@ class BackendService(IBackendService):
                     last_error_nested: Exception | None = None
                     for attempt in attempts_nested:
                         try:
-                            attempt_extra__body_nested: dict[str, Any] = (
+                            attempt_extra_body_nested: dict[str, Any] = (
                                 request.extra_body.copy() if request.extra_body else {}
                             )
                             attempt_extra_body_nested["backend_type"] = attempt.backend

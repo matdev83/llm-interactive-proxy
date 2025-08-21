@@ -37,11 +37,14 @@ class TestMockBackendRegression:
         )
 
         # Call the mock backend directly
-        response, headers = await mock_backend.chat_completions(
+        response_envelope = await mock_backend.chat_completions(
             request_data=request,
             processed_messages=[NewChatMessage(role="user", content="Hello, world!")],
             effective_model="mock-model",
         )
+
+        # Extract response from envelope
+        response = response_envelope.content
 
         # Verify response structure
         assert "id" in response
@@ -69,11 +72,14 @@ class TestMockBackendRegression:
         )
 
         # Call the mock backend directly
-        response, headers = await mock_backend.chat_completions(
+        response_envelope = await mock_backend.chat_completions(
             request_data=request,
             processed_messages=[ChatMessage(role="user", content="Hello, world!")],
             effective_model="mock-model",
         )
+
+        # Extract response from envelope
+        response = response_envelope.content
 
         # Verify response structure
         assert "id" in response
@@ -201,13 +207,20 @@ class TestMockBackendRegression:
         )
 
         # Call the mock backend directly
-        response, headers = await mock_backend.chat_completions(
+        response_envelope = await mock_backend.chat_completions(
             request_data=request,
             processed_messages=[
-                NewChatMessage(role="user", content="What's the weather like?")
+                ChatMessage(role="user", content="What's the weather like?")
             ],
             effective_model="mock-model",
         )
+
+        # Extract response and headers from envelope
+        response = response_envelope.content
+        headers = response_envelope.headers
+
+        # Extract response from envelope
+        response = response_envelope.content
 
         # Verify tool call in response
         assert "choices" in response
@@ -269,13 +282,16 @@ class TestMockBackendRegression:
         )
 
         # Call the mock backend directly
-        response, headers = await mock_backend.chat_completions(
+        response_envelope = await mock_backend.chat_completions(
             request_data=request,
             processed_messages=[
                 ChatMessage(role="user", content="What's the weather like?")
             ],
             effective_model="mock-model",
         )
+
+        # Extract response from envelope
+        response = response_envelope.content
 
         # Verify tool call in response
         choices = response.get("choices")

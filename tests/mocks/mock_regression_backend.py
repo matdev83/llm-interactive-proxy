@@ -10,6 +10,8 @@ import json
 from collections.abc import AsyncIterator
 from typing import Any, TypedDict
 
+from src.core.domain.responses import ResponseEnvelope
+
 
 class Message(TypedDict):
     role: str
@@ -71,7 +73,7 @@ class MockRegressionBackend:
         processed_messages: list[Any],
         effective_model: str,
         **kwargs: Any,
-    ) -> tuple[ChatCompletionResponse, dict[str, str]] | AsyncIterator[dict[str, Any]]:
+    ) -> ResponseEnvelope | AsyncIterator[dict[str, Any]]:
         """Handle chat completion requests.
 
         Args:
@@ -96,7 +98,8 @@ class MockRegressionBackend:
             # Return the generator directly
             return self.stream_generator()
         else:
-            return self._create_standard_response()
+            response, headers = self._create_standard_response()
+            return ResponseEnvelope(content=response, headers=headers)
 
     async def stream_generator(self) -> AsyncIterator[dict[str, Any]]:
         """Generate streaming response chunks."""

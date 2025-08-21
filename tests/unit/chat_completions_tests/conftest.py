@@ -9,6 +9,7 @@ from src.core.config.app_config import (
     BackendConfig,
     BackendSettings,
 )
+from src.core.domain.responses import ResponseEnvelope
 
 
 @pytest.fixture
@@ -16,7 +17,10 @@ def mock_openai_backend():
     """Mock OpenAI backend."""
     backend = MagicMock()
     backend.chat_completions = AsyncMock(
-        return_value=({"choices": [{"message": {"content": "ok"}}]}, {})
+        return_value=ResponseEnvelope(
+            content={"choices": [{"message": {"content": "ok"}}]},
+            headers={}
+        )
     )
     backend.get_available_models = lambda: ["gpt-3.5-turbo", "gpt-4"]
     return backend
@@ -27,7 +31,10 @@ def mock_openrouter_backend():
     """Mock OpenRouter backend."""
     backend = MagicMock()
     backend.chat_completions = AsyncMock(
-        return_value=({"choices": [{"message": {"content": "ok"}}]}, {})
+        return_value=ResponseEnvelope(
+            content={"choices": [{"message": {"content": "ok"}}]},
+            headers={}
+        )
     )
     backend.get_available_models = lambda: ["m1", "m2", "model-a"]
     return backend
@@ -38,7 +45,10 @@ def mock_gemini_backend():
     """Mock Gemini backend."""
     backend = MagicMock()
     backend.chat_completions = AsyncMock(
-        return_value=({"choices": [{"message": {"content": "ok"}}]}, {})
+        return_value=ResponseEnvelope(
+            content={"choices": [{"message": {"content": "ok"}}]},
+            headers={}
+        )
     )
     backend.get_available_models = lambda: ["gemini-pro", "gemini-ultra"]
     return backend
@@ -49,7 +59,10 @@ def mock_anthropic_backend():
     """Mock Anthropic backend."""
     backend = MagicMock()
     backend.chat_completions = AsyncMock(
-        return_value=({"choices": [{"message": {"content": "ok"}}]}, {})
+        return_value=ResponseEnvelope(
+            content={"choices": [{"message": {"content": "ok"}}]},
+            headers={}
+        )
     )
     backend.get_available_models = lambda: ["claude-2", "claude-3-opus"]
     return backend
@@ -60,7 +73,10 @@ def mock_qwen_oauth_backend():
     """Mock Qwen OAuth backend."""
     backend = MagicMock()
     backend.chat_completions = AsyncMock(
-        return_value=({"choices": [{"message": {"content": "ok"}}]}, {})
+        return_value=ResponseEnvelope(
+            content={"choices": [{"message": {"content": "ok"}}]},
+            headers={}
+        )
     )
     backend.get_available_models = lambda: ["qwen-turbo", "qwen-max"]
     return backend
@@ -71,7 +87,10 @@ def mock_zai_backend():
     """Mock ZAI backend."""
     backend = MagicMock()
     backend.chat_completions = AsyncMock(
-        return_value=({"choices": [{"message": {"content": "ok"}}]}, {})
+        return_value=ResponseEnvelope(
+            content={"choices": [{"message": {"content": "ok"}}]},
+            headers={}
+        )
     )
     backend.get_available_models = lambda: ["zai-model-1", "zai-model-2"]
     return backend

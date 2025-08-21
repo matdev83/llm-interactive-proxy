@@ -78,7 +78,9 @@ class BackendProcessor(IBackendProcessor):
             failover_routes = None
             if context:
                 # Use application state service instead of direct state access
-                from src.core.services.application_state_service import get_default_application_state
+                from src.core.services.application_state_service import (
+                    get_default_application_state,
+                )
                 
                 app_state_service = get_default_application_state()
                 failover_routes = app_state_service.get_failover_routes()
