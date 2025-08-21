@@ -13,7 +13,14 @@ from src.core.domain.session import (
 @pytest.fixture
 def command() -> SetCommand:
     """Returns a new instance of the SetCommand for each test."""
-    return SetCommand()
+    from src.core.services.application_state_service import ApplicationStateService
+    from src.core.services.secure_state_service import SecureStateService
+    
+    # Create mock state services for testing
+    app_state = ApplicationStateService()
+    secure_state = SecureStateService(app_state)
+    
+    return SetCommand(state_reader=secure_state, state_modifier=secure_state)
 
 
 @pytest.fixture

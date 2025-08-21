@@ -16,6 +16,7 @@ from src.core.domain.chat import (
 )
 from src.core.domain.responses import ResponseEnvelope, StreamingResponseEnvelope
 from src.core.interfaces.rate_limiter_interface import RateLimitInfo
+from src.core.interfaces.session_service_interface import ISessionService
 from src.core.services.backend_factory_service import BackendFactory
 from src.core.services.backend_service import BackendService
 
@@ -27,7 +28,9 @@ class MockBackend(LLMBackend):
     """Mock implementation of LLMBackend for testing."""
 
     def __init__(
-        self, client: httpx.AsyncClient, available_models: list[str] | None = None
+        self,
+        client: httpx.AsyncClient,
+        available_models: list[str] | None = None,
     ) -> None:
         self.client = client
         self.available_models = available_models or ["model1", "model2"]
@@ -172,7 +175,8 @@ class TestBackendServiceBasic:
         registry = BackendRegistry()
         factory = BackendFactory(client, registry)
         rate_limiter = MockRateLimiter()
-        return ConcreteBackendService(factory, rate_limiter, mock_config)
+        session_service = Mock(spec=ISessionService)
+        return ConcreteBackendService(factory, rate_limiter, mock_config, session_service)
 
     @pytest.mark.asyncio
     async def test_get_or_create_backend_cached(self, service):
@@ -255,7 +259,8 @@ class TestBackendServiceCompletions:
         registry = BackendRegistry()
         factory = BackendFactory(client, registry)
         rate_limiter = MockRateLimiter()
-        return ConcreteBackendService(factory, rate_limiter, mock_config)
+        session_service = Mock(spec=ISessionService)
+        return ConcreteBackendService(factory, rate_limiter, mock_config, session_service)
 
     @pytest.fixture
     def chat_request(self):
@@ -417,7 +422,9 @@ class TestBackendServiceCompletions:
 
     @pytest.mark.asyncio
     async def test_call_completion_invalid_streaming_response(
-        self, service, chat_request
+        self,
+        service,
+        chat_request,
     ):
         """Test error handling for invalid streaming response format."""
         # Arrange
@@ -452,7 +459,8 @@ class TestBackendServiceValidation:
         factory = BackendFactory(client, registry)
         rate_limiter = MockRateLimiter()
         mock_config = Mock()
-        return ConcreteBackendService(factory, rate_limiter, mock_config)
+        session_service = Mock(spec=ISessionService)
+        return ConcreteBackendService(factory, rate_limiter, mock_config, session_service)
 
     @pytest.mark.asyncio
     async def test_validate_backend_and_model_valid(self, service):
@@ -527,6 +535,7 @@ class TestBackendServiceFailover:
         registry = BackendRegistry()
         factory = BackendFactory(client, registry)
         rate_limiter = MockRateLimiter()
+        session_service = Mock(spec=ISessionService)
 
         # Configure failover routes
         failover_routes: dict[str, dict[str, Any]] = {
@@ -537,7 +546,11 @@ class TestBackendServiceFailover:
         }
 
         return ConcreteBackendService(
-            factory, rate_limiter, mock_config, failover_routes=failover_routes
+            factory,
+            rate_limiter,
+            mock_config,
+            session_service,
+            failover_routes=failover_routes,
         )
 
     @pytest.fixture
@@ -549,6 +562,7 @@ class TestBackendServiceFailover:
         registry = BackendRegistry()
         factory = BackendFactory(client, registry)
         rate_limiter = MockRateLimiter()
+        session_service = Mock(spec=ISessionService)
 
         # Configure complex failover routes by model
         failover_routes: dict[str, dict[str, Any]] = {
@@ -564,7 +578,11 @@ class TestBackendServiceFailover:
         }
 
         return ConcreteBackendService(
-            factory, rate_limiter, mock_config, failover_routes=failover_routes
+            factory,
+            rate_limiter,
+            mock_config,
+            session_service,
+            failover_routes=failover_routes,
         )
 
     @pytest.fixture
@@ -635,7 +653,9 @@ class TestBackendServiceFailover:
 
     @pytest.mark.asyncio
     async def test_complex_failover_first_attempt(
-        self, service_with_complex_failover, chat_request_complex
+        self,
+        service_with_complex_failover,
+        chat_request_complex,
     ):
         """Test complex model-specific failover, first attempt succeeds."""
         # Arrange
@@ -718,7 +738,9 @@ class TestBackendServiceFailover:
 
     @pytest.mark.asyncio
     async def test_complex_failover_second_attempt(
-        self, service_with_complex_failover, chat_request_complex
+        self,
+        service_with_complex_failover,
+        chat_request_complex,
     ):
         """Test complex model-specific failover, second attempt succeeds after first fails."""
         # Arrange
@@ -806,7 +828,9 @@ class TestBackendServiceFailover:
 
     @pytest.mark.asyncio
     async def test_complex_failover_all_fail(
-        self, service_with_complex_failover, chat_request_complex
+        self,
+        service_with_complex_failover,
+        chat_request_complex,
     ):
         """Test complex model-specific failover when all attempts fail."""
         # Arrange
@@ -886,4 +910,4 @@ class TestBackendServiceFailover:
         assert first_fallback.chat_completions_called
         assert second_fallback.chat_completions_called
         # The exact error message varies between implementations, but it should indicate failure
-        assert "backends failed" in str(exc_info.value)
+        assert "All failover attempts failed" in str(exc_info.value)

@@ -6,18 +6,34 @@ from typing import Any
 
 from src.core.domain.command_results import CommandResult
 from src.core.domain.commands.base_command import BaseCommand
+from src.core.domain.commands.secure_base_command import StatelessCommandBase
 from src.core.domain.session import Session
 
 logger = logging.getLogger(__name__)
 
 
-class ToolLoopDetectionCommand(BaseCommand):
+class ToolLoopDetectionCommand(StatelessCommandBase, BaseCommand):
     """Command for enabling/disabling tool loop detection."""
 
-    name = "tool-loop-detection"
-    format = "tool-loop-detection(enabled=true|false)"
-    description = "Enable or disable tool loop detection for the current session"
-    examples = ["!/tool-loop-detection(enabled=true)"]
+    def __init__(self):
+        """Initialize without state services."""
+        StatelessCommandBase.__init__(self)
+
+    @property
+    def name(self) -> str:
+        return "tool-loop-detection"
+
+    @property
+    def format(self) -> str:
+        return "tool-loop-detection(enabled=true|false)"
+
+    @property
+    def description(self) -> str:
+        return "Enable or disable tool loop detection for the current session"
+
+    @property
+    def examples(self) -> list[str]:
+        return ["!/tool-loop-detection(enabled=true)"]
 
     async def execute(
         self, args: Mapping[str, Any], session: Session, context: Any = None

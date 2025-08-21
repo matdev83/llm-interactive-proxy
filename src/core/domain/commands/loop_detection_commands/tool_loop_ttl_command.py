@@ -6,18 +6,34 @@ from typing import Any
 
 from src.core.domain.command_results import CommandResult
 from src.core.domain.commands.base_command import BaseCommand
+from src.core.domain.commands.secure_base_command import StatelessCommandBase
 from src.core.domain.session import Session
 
 logger = logging.getLogger(__name__)
 
 
-class ToolLoopTTLCommand(BaseCommand):
+class ToolLoopTTLCommand(StatelessCommandBase, BaseCommand):
     """Command for setting tool loop TTL."""
 
-    name = "tool-loop-ttl"
-    format = "tool-loop-ttl(ttl_seconds=<number>)"
-    description = "Set the TTL (time to live) for tool loop detection in seconds"
-    examples = ["!/tool-loop-ttl(ttl_seconds=60)"]
+    def __init__(self):
+        """Initialize without state services."""
+        StatelessCommandBase.__init__(self)
+
+    @property
+    def name(self) -> str:
+        return "tool-loop-ttl"
+
+    @property
+    def format(self) -> str:
+        return "tool-loop-ttl(ttl_seconds=<number>)"
+
+    @property
+    def description(self) -> str:
+        return "Set the TTL (time to live) for tool loop detection in seconds"
+
+    @property
+    def examples(self) -> list[str]:
+        return ["!/tool-loop-ttl(ttl_seconds=60)"]
 
     async def execute(
         self, args: Mapping[str, Any], session: Session, context: Any = None

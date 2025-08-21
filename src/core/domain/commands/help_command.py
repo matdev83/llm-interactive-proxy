@@ -6,18 +6,34 @@ from typing import Any
 
 from src.core.domain.command_results import CommandResult
 from src.core.domain.commands.base_command import BaseCommand
+from src.core.domain.commands.secure_base_command import StatelessCommandBase
 from src.core.domain.session import Session
 
 logger = logging.getLogger(__name__)
 
 
-class HelpCommand(BaseCommand):
+class HelpCommand(StatelessCommandBase, BaseCommand):
     """Command to display help information about available commands."""
 
-    name = "help"
-    format = "help(<command>)"
-    description = "Show available commands or details for a single command"
-    examples = ["!/help", "!/help(set)"]
+    def __init__(self):
+        """Initialize without state services."""
+        StatelessCommandBase.__init__(self)
+
+    @property
+    def name(self) -> str:
+        return "help"
+
+    @property
+    def format(self) -> str:
+        return "help(<command>)"
+
+    @property
+    def description(self) -> str:
+        return "Show available commands or details for a single command"
+
+    @property
+    def examples(self) -> list[str]:
+        return ["!/help", "!/help(set)"]
 
     async def execute(
         self,

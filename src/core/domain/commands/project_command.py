@@ -10,23 +10,40 @@ import logging
 from collections.abc import Mapping
 from typing import Any
 
+from src.core.constants import COMMAND_EXECUTION_ERROR
 from src.core.domain.command_results import CommandResult
 from src.core.domain.commands.base_command import BaseCommand
+from src.core.domain.commands.secure_base_command import StatelessCommandBase
 from src.core.domain.session import Session
 
 logger = logging.getLogger(__name__)
 
 
-class ProjectCommand(BaseCommand):
+class ProjectCommand(StatelessCommandBase, BaseCommand):
     """Command for setting the project name."""
 
-    name = "project"
-    format = "project([name=project-name])"
-    description = "Change the active project for LLM requests"
-    examples = [
-        "!/project(name=my-project)",
-        "!/project(name=work-project)",
-    ]
+    def __init__(self):
+        """Initialize without state services."""
+        StatelessCommandBase.__init__(self)
+
+    @property
+    def name(self) -> str:
+        return "project"
+
+    @property
+    def format(self) -> str:
+        return "project([name=project-name])"
+
+    @property
+    def description(self) -> str:
+        return "Change the active project for LLM requests"
+
+    @property
+    def examples(self) -> list[str]:
+        return [
+            "!/project(name=my-project)",
+            "!/project(name=work-project)",
+        ]
 
     async def execute(
         self, args: Mapping[str, Any], session: Session, context: Any = None
@@ -61,9 +78,10 @@ class ProjectCommand(BaseCommand):
                 new_state=updated_state,
             )
         except Exception as e:
-            logger.error(f"Error setting project: {e}")
+            error_message = COMMAND_EXECUTION_ERROR.format(error=str(e))
+            logger.error(error_message)
             return CommandResult(
                 success=False,
-                message=f"Error setting project: {e}",
+                message=error_message,
                 name=self.name,
             )

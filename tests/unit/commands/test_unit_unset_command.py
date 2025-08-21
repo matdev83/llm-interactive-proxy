@@ -1,16 +1,30 @@
 import pytest
+from unittest.mock import Mock
 from src.core.domain.commands.unset_command import UnsetCommand
 from src.core.domain.session import (
     BackendConfiguration,
     ReasoningConfiguration,
     SessionState,
 )
+from src.core.interfaces.state_provider_interface import (
+    ISecureStateAccess,
+    ISecureStateModification,
+)
 
 
 @pytest.fixture
 def command() -> UnsetCommand:
     """Returns a new instance of the UnsetCommand for each test."""
-    return UnsetCommand()
+    mock_state_reader = Mock(spec=ISecureStateAccess)
+    mock_state_modifier = Mock(spec=ISecureStateModification)
+
+    # Set up default return values for state reader methods
+    mock_state_reader.get_command_prefix.return_value = "!/"
+    mock_state_reader.get_api_key_redaction_enabled.return_value = True
+    mock_state_reader.get_disable_interactive_commands.return_value = False
+    mock_state_reader.get_failover_routes.return_value = []
+
+    return UnsetCommand(state_reader=mock_state_reader, state_modifier=mock_state_modifier)
 
 
 @pytest.fixture

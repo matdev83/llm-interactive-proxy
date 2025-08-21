@@ -73,11 +73,15 @@ def service_provider(services: ServiceCollection) -> IServiceProvider:
 
 @pytest.fixture
 def mock_app_for_parser() -> FastAPI:
-    app = FastAPI()
-    # Essential for CommandParser init if create_command_instances relies on it
-    app.state.functional_backends = {"openrouter", "gemini"}
-    app.state.config_manager = None  # Mock this if it's used during command loading
-    return app
+    class MockAppState:
+            def __init__(self):
+                self.functional_backends = {"openrouter", "gemini"}
+                self.config_manager = None
+                self.api_key_redaction_enabled = True # Make it a regular attribute
+                self.default_api_key_redaction_enabled = True # Make it a regular attribute
+                self.command_prefix = DEFAULT_COMMAND_PREFIX # Make it a regular attribute
+        app.state = MockAppState()
+        return app
 
 
 @pytest.fixture
@@ -87,6 +91,8 @@ def proxy_state() -> SessionStateAdapter:
     session_state = SessionState()
     return SessionStateAdapter(session_state)
 
+
+    # ... existing fixtures ...
 
 @pytest.fixture(
     params=[True, False], ids=["preserve_unknown_True", "preserve_unknown_False"]
@@ -105,11 +111,45 @@ async def command_parser(
     parser.handlers.clear()
 
     # Create fresh mocks for each parametrization to avoid state leakage
-    # Pass the mock_app to the command constructor if it needs it (optional here)
     hello_cmd = MockSuccessCommand("hello", app=mock_app_for_parser)
     another_cmd = MockSuccessCommand("anothercmd", app=mock_app_for_parser)
     parser.register_command(hello_cmd)
     parser.register_command(another_cmd)
+
+    # Mocks for SetCommand and UnsetCommand
+    mock_state_reader = MagicMock(spec=ISecureStateAccess)
+    mock_state_modifier = MagicMock(spec=ISecureStateModification)
+
+    def mock_read_state_setting(key: str) -> Any:
+        if key == "api_key_redaction_enabled":
+            return mock_app_for_parser.state.api_key_redaction_enabled
+        elif key == "command_prefix":
+            return mock_app_for_parser.state.command_prefix
+        # For other session state related settings, read from proxy_state
+        # Note: proxy_state is a SessionStateAdapter, which wraps a SessionState object.
+        # The attributes like backend_config, reasoning_config, project, interactive_just_enabled
+        # are properties on SessionStateAdapter that delegate to the underlying SessionState.
+        # So, direct attribute access on proxy_state is appropriate here.
+        return getattr(proxy_state, key, None)
+
+    def mock_update_state_setting(key: str, value: Any) -> None:
+        if key == "api_key_redaction_enabled":
+            mock_app_for_parser.state.api_key_redaction_enabled = value
+        elif key == "command_prefix":
+            mock_app_for_parser.state.command_prefix = value
+        else:
+            # For other session state related settings, update proxy_state
+            setattr(proxy_state, key, value)
+
+    mock_state_reader.read_state_setting.side_effect = mock_read_state_setting
+    mock_state_modifier.update_state_setting.side_effect = mock_update_state_setting
+
+    set_cmd = SetCommand(state_reader=mock_state_reader, state_modifier=mock_state_modifier)
+    unset_cmd = UnsetCommand(state_reader=mock_state_reader, state_modifier=mock_state_modifier)
+
+    parser.register_command(set_cmd)
+    parser.register_command(unset_cmd)
+
     yield parser
 
 

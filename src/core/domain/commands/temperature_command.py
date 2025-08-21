@@ -4,20 +4,37 @@ import logging
 from collections.abc import Mapping
 from typing import Any
 
+from src.core.constants import COMMAND_EXECUTION_ERROR
 from src.core.domain.command_results import CommandResult
 from src.core.domain.commands.base_command import BaseCommand
+from src.core.domain.commands.secure_base_command import StatelessCommandBase
 from src.core.domain.session import Session
 
 logger = logging.getLogger(__name__)
 
 
-class TemperatureCommand(BaseCommand):
+class TemperatureCommand(StatelessCommandBase, BaseCommand):
     """Command for setting the temperature value."""
 
-    name = "temperature"
-    format = "temperature(value=0.0-1.0)"
-    description = "Change the temperature setting for LLM requests"
-    examples = ["!/temperature(value=0.7)"]
+    def __init__(self):
+        """Initialize without state services."""
+        StatelessCommandBase.__init__(self)
+
+    @property
+    def name(self) -> str:
+        return "temperature"
+
+    @property
+    def format(self) -> str:
+        return "temperature(value=0.0-1.0)"
+
+    @property
+    def description(self) -> str:
+        return "Change the temperature setting for LLM requests"
+
+    @property
+    def examples(self) -> list[str]:
+        return ["!/temperature(value=0.7)"]
 
     async def execute(
         self, args: Mapping[str, Any], session: Session, context: Any = None
@@ -59,7 +76,8 @@ class TemperatureCommand(BaseCommand):
                 name=self.name,
             )
         except Exception as e:
-            logger.error(f"Error setting temperature: {e}")
+            error_message = COMMAND_EXECUTION_ERROR.format(error=str(e))
+            logger.error(error_message)
             return CommandResult(
-                success=False, message=f"Error setting temperature: {e}", name=self.name
+                success=False, message=error_message, name=self.name
             )

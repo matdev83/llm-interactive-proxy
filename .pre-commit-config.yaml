@@ -12,3 +12,9 @@ repos:
           - PyYAML
           - pydantic
           - python-dotenv
+    -   id: architectural-check
+        name: Architectural Violations Check
+        entry: python .pre-commit-hooks/architectural-check.py
+        language: python
+        files: ^src/core/(domain|services)/.*\.py$
+        description: Check for SOLID principle violations and architectural issues

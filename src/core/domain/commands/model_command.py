@@ -4,20 +4,37 @@ import logging
 from collections.abc import Mapping
 from typing import Any
 
+from src.core.constants import COMMAND_EXECUTION_ERROR
 from src.core.domain.command_results import CommandResult
 from src.core.domain.commands.base_command import BaseCommand
+from src.core.domain.commands.secure_base_command import StatelessCommandBase
 from src.core.domain.session import Session
 
 logger = logging.getLogger(__name__)
 
 
-class ModelCommand(BaseCommand):
+class ModelCommand(StatelessCommandBase, BaseCommand):
     """Command for setting the model name."""
 
-    name = "model"
-    format = "model(name=<model-name>)"
-    description = "Change the active model for LLM requests"
-    examples = ["!/model(name=gpt-4)", "!/model(name=openrouter:gpt-4)"]
+    def __init__(self):
+        """Initialize without state services."""
+        StatelessCommandBase.__init__(self)
+
+    @property
+    def name(self) -> str:
+        return "model"
+
+    @property
+    def format(self) -> str:
+        return "model(name=<model-name>)"
+
+    @property
+    def description(self) -> str:
+        return "Change the active model for LLM requests"
+
+    @property
+    def examples(self) -> list[str]:
+        return ["!/model(name=gpt-4)", "!/model(name=openrouter:gpt-4)"]
 
     async def execute(
         self, args: Mapping[str, Any], session: Session, context: Any = None
@@ -44,9 +61,10 @@ class ModelCommand(BaseCommand):
                 new_state=updated_state,
             )
         except Exception as e:
-            logger.error(f"Error unsetting model: {e}")
+            error_message = COMMAND_EXECUTION_ERROR.format(error=str(e))
+            logger.error(error_message)
             return CommandResult(
-                success=False, message=f"Error unsetting model: {e}", name=self.name
+                success=False, message=error_message, name=self.name
             )
 
     def _set_model(self, model_name: str, session: Session) -> CommandResult:
@@ -77,7 +95,8 @@ class ModelCommand(BaseCommand):
                 new_state=updated_state,
             )
         except Exception as e:
-            logger.error(f"Error setting model: {e}")
+            error_message = COMMAND_EXECUTION_ERROR.format(error=str(e))
+            logger.error(error_message)
             return CommandResult(
-                success=False, message=f"Error setting model: {e}", name=self.name
+                success=False, message=error_message, name=self.name
             )

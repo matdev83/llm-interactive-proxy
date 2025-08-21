@@ -6,25 +6,57 @@ from typing import Any
 
 from src.core.domain.command_results import CommandResult
 from src.core.domain.commands.base_command import BaseCommand
+from src.core.domain.commands.secure_base_command import StatefulCommandBase
 from src.core.domain.session import Session
 from src.core.interfaces.domain_entities_interface import ISessionState
+from src.core.interfaces.state_provider_interface import (
+    ISecureStateAccess,
+    ISecureStateModification,
+)
 
 logger = logging.getLogger(__name__)
 
 
-class SetCommand(BaseCommand):
+class SetCommand(StatefulCommandBase, BaseCommand):
     """Command for setting various session parameters."""
 
-    name = "set"
-    format = "set(parameter=value, ...)"
-    description = "Set various parameters for the session"
-    examples = [
-        "!/set(backend=openrouter)",
-        "!/set(model=openrouter:claude-3-opus-20240229, temperature=0.8)",
-    ]
+    def __init__(
+        self,
+        state_reader: ISecureStateAccess,
+        state_modifier: ISecureStateModification,
+    ):
+        """Initialize with required state services.
+        
+        Args:
+            state_reader: Service for reading state
+            state_modifier: Service for modifying state
+        """
+        StatefulCommandBase.__init__(self, state_reader, state_modifier)
+
+    @property
+    def name(self) -> str:
+        return "set"
+    
+    @property
+    def format(self) -> str:
+        return "set(parameter=value, ...)"
+    
+    @property
+    def description(self) -> str:
+        return "Set various parameters for the session"
+    
+    @property
+    def examples(self) -> list[str]:
+        return [
+            "!/set(backend=openrouter)",
+            "!/set(model=openrouter:claude-3-opus-20240229, temperature=0.8)",
+        ]
 
     async def execute(
-        self, args: Mapping[str, Any], session: Session, context: Any = None
+        self,
+        args: Mapping[str, Any],
+        session: Session,
+        context: Any = None,
     ) -> CommandResult:
         """Set various session parameters."""
         if not args:
@@ -71,8 +103,6 @@ class SetCommand(BaseCommand):
             return CommandResult(
                 success=False, message="No valid parameters provided.", name=self.name
             )
-        
-        print(f"SetCommand.execute: updated_state: {updated_state}")
 
         return CommandResult(
             success=True,
@@ -83,7 +113,10 @@ class SetCommand(BaseCommand):
         )
 
     async def _handle_backend_and_model(
-        self, args: dict[str, Any], state: ISessionState, context: Any
+        self,
+        args: dict[str, Any],
+        state: ISessionState,
+        context: Any,
     ) -> tuple[CommandResult, ISessionState]:
         messages = []
         data = {}
@@ -135,7 +168,10 @@ class SetCommand(BaseCommand):
         )
 
     async def _handle_temperature(
-        self, value: Any, state: ISessionState, context: Any
+        self,
+        value: Any,
+        state: ISessionState,
+        context: Any,
     ) -> tuple[CommandResult, ISessionState]:
         if value is None:
             return (
@@ -172,7 +208,10 @@ class SetCommand(BaseCommand):
             )
 
     async def _handle_project(
-        self, value: Any, state: ISessionState, context: Any
+        self,
+        value: Any,
+        state: ISessionState,
+        context: Any,
     ) -> tuple[CommandResult, ISessionState]:
         if not isinstance(value, str) or not value:
             return (
@@ -192,7 +231,10 @@ class SetCommand(BaseCommand):
         )
 
     async def _handle_command_prefix(
-        self, value: Any, state: ISessionState, context: Any
+        self,
+        value: Any,
+        state: ISessionState,
+        context: Any,
     ) -> tuple[CommandResult, ISessionState]:
         if not isinstance(value, str):
             return (
@@ -200,7 +242,7 @@ class SetCommand(BaseCommand):
                 state,
             )
 
-        if (value.startswith("'"') and value.endswith("'"')) or (
+        if (value.startswith("'") and value.endswith("'")) or (
             value.startswith('"') and value.endswith('"')
         ):
             value = value[1:-1]
@@ -216,15 +258,8 @@ class SetCommand(BaseCommand):
                 state,
             )
 
-        if context and hasattr(context, "app"):
-            app = context.app
-            app.state.command_prefix = value
-
-            from src.core.services.app_settings_service import get_default_instance
-
-            settings_service = get_default_instance()
-            if settings_service:
-                settings_service.set_command_prefix(value)
+        # Update state through secure DI interface
+        self.update_state_setting('command_prefix', value)
 
         return (
             CommandResult(
@@ -236,7 +271,10 @@ class SetCommand(BaseCommand):
         )
 
     async def _handle_interactive_mode(
-        self, value: Any, state: ISessionState, context: Any
+        self,
+        value: Any,
+        state: ISessionState,
+        context: Any,
     ) -> tuple[CommandResult, ISessionState]:
         """Handle setting interactive mode."""
         if not isinstance(value, str):
@@ -273,7 +311,10 @@ class SetCommand(BaseCommand):
         )
 
     async def _handle_redact_api_keys_in_prompts(
-        self, value: Any, state: ISessionState, context: Any
+        self,
+        value: Any,
+        state: ISessionState,
+        context: Any,
     ) -> tuple[CommandResult, ISessionState]:
         """Handle setting API key redaction."""
         if not isinstance(value, str):
@@ -298,15 +339,8 @@ class SetCommand(BaseCommand):
                 state,
             )
 
-        if context and hasattr(context, "app"):
-            app = context.app
-            app.state.api_key_redaction_enabled = bool(enabled)
-
-            from src.core.services.app_settings_service import get_default_instance
-
-            settings_service = get_default_instance()
-            if settings_service:
-                settings_service.set_redact_api_keys(enabled)
+        # Update state through secure DI interface
+        self.update_state_setting('api_key_redaction_enabled', bool(enabled))
 
         return (
             CommandResult(

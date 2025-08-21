@@ -46,9 +46,14 @@ class CommandProcessor(ICommandProcessor):
         """
         disable_commands = False
         if context:
-            disable_commands = getattr(
-                context.state, "disable_commands", False
-            ) or getattr(context.app_state, "disable_interactive_commands", False)
+            # Use application state service instead of direct state access
+            from src.core.services.application_state_service import get_default_application_state
+            
+            app_state_service = get_default_application_state()
+            disable_commands = (
+                getattr(context.state, "disable_commands", False) or
+                app_state_service.get_disable_interactive_commands()
+            )
 
         if disable_commands:
             from src.core.domain.processed_result import ProcessedResult

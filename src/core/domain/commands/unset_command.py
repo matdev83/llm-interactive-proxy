@@ -10,25 +10,52 @@ import logging
 from collections.abc import Mapping
 from typing import Any
 
+from src.core.common.architectural_guards import domain_layer_guard
 from src.core.domain.command_results import CommandResult
 from src.core.domain.commands.base_command import BaseCommand
+from src.core.domain.commands.secure_base_command import StatefulCommandBase
 from src.core.domain.configuration.reasoning_config import ReasoningConfiguration
 from src.core.domain.session import Session
 from src.core.interfaces.domain_entities_interface import ISessionState
+from src.core.interfaces.state_provider_interface import (
+    ISecureStateAccess,
+    ISecureStateModification,
+)
 
 logger = logging.getLogger(__name__)
 
 
-class UnsetCommand(BaseCommand):
+@domain_layer_guard
+class UnsetCommand(StatefulCommandBase, BaseCommand):
     """Command for unsetting (clearing) various session parameters."""
 
-    name = "unset"
-    format = "unset(parameter)"
-    description = "Unset (clear) various parameters for the session"
-    examples = ["!/unset(model)", "!/unset(temperature)"]
+    def __init__(
+        self,
+        state_reader: ISecureStateAccess,
+        state_modifier: ISecureStateModification | None = None,
+    ):
+        """Initialize with required state services."""
+        StatefulCommandBase.__init__(self, state_reader, state_modifier)
+        self._setup_handlers()
 
-    def __init__(self) -> None:
-        super().__init__()
+    @property
+    def name(self) -> str:
+        return "unset"
+
+    @property
+    def format(self) -> str:
+        return "unset(parameter)"
+
+    @property
+    def description(self) -> str:
+        return "Unset (clear) various parameters for the session"
+
+    @property
+    def examples(self) -> list[str]:
+        return ["!/unset(model)", "!/unset(temperature)"]
+
+    def _setup_handlers(self) -> None:
+        """Set up parameter handlers."""
         self.param_handlers = {
             "backend": self._unset_backend,
             "model": self._unset_model,
@@ -139,36 +166,8 @@ class UnsetCommand(BaseCommand):
     def _unset_redact_api_keys(
         self, state: ISessionState, context: Any
     ) -> tuple[CommandResult, ISessionState]:
-        # Try to get the app settings service from the service provider
-        service_provider = context.get("service_provider")
-        if service_provider:
-            try:
-                from src.core.interfaces.app_settings_interface import IAppSettings
-
-                app_settings = service_provider.get_service(IAppSettings)
-                if app_settings:
-                    app_settings.set_redact_api_keys(True)
-                    result = CommandResult(
-                        success=True,
-                        message="API key redaction reset to default (enabled)",
-                        data={"redact-api-keys-in-prompts": True},
-                    )
-                    return result, state  # No state change in session
-            except Exception:
-                pass
-
-        # Legacy fallback for backwards compatibility during transition
-        try:
-            from src.core.services.command_settings_service import get_default_instance
-
-            get_default_instance().api_key_redaction_enabled = True
-
-            # Legacy app.state support during transition
-            app = context.get("app")
-            if app:
-                app.state.api_key_redaction_enabled = True
-        except Exception:
-            pass
+        # Update state through secure DI interface
+        self.update_state_setting('api_key_redaction_enabled', True)
 
         result = CommandResult(
             success=True,
@@ -180,36 +179,8 @@ class UnsetCommand(BaseCommand):
     def _unset_command_prefix(
         self, state: ISessionState, context: Any
     ) -> tuple[CommandResult, ISessionState]:
-        # Try to get the app settings service from the service provider
-        service_provider = context.get("service_provider")
-        if service_provider:
-            try:
-                from src.core.interfaces.app_settings_interface import IAppSettings
-
-                app_settings = service_provider.get_service(IAppSettings)
-                if app_settings:
-                    app_settings.set_command_prefix("!/")
-                    result = CommandResult(
-                        success=True,
-                        message="Command prefix reset to default (!/)",
-                        data={"command-prefix": "!/"},
-                    )
-                    return result, state  # No state change in session
-            except Exception:
-                pass
-
-        # Legacy fallback for backwards compatibility during transition
-        try:
-            from src.core.services.command_settings_service import get_default_instance
-
-            get_default_instance().command_prefix = "!/"
-
-            # Legacy app.state support during transition
-            app = context.get("app")
-            if app:
-                app.state.command_prefix = "!/"
-        except Exception:
-            pass
+        # Update state through secure DI interface
+        self.update_state_setting('command_prefix', "!/")
 
         result = CommandResult(
             success=True,

@@ -6,21 +6,37 @@ from typing import Any
 
 from src.core.domain.command_results import CommandResult
 from src.core.domain.commands.base_command import BaseCommand
+from src.core.domain.commands.secure_base_command import StatelessCommandBase
 from src.core.domain.session import Session
 
 logger = logging.getLogger(__name__)
 
 
-class HelloCommand(BaseCommand):
+class HelloCommand(StatelessCommandBase, BaseCommand):
     """
     Domain command for handling the 'hello' command.
     It returns a welcome banner and sets a flag on the session state.
     """
 
-    name: str = "hello"
-    format: str = "!/hello"
-    description: str = "Return the interactive welcome banner"
-    examples: list[str] = ["!/hello"]
+    def __init__(self):
+        """Initialize without state services."""
+        StatelessCommandBase.__init__(self)
+
+    @property
+    def name(self) -> str:
+        return "hello"
+
+    @property
+    def format(self) -> str:
+        return "!/hello"
+
+    @property
+    def description(self) -> str:
+        return "Return the interactive welcome banner"
+
+    @property
+    def examples(self) -> list[str]:
+        return ["!/hello"]
 
     async def execute(
         self,

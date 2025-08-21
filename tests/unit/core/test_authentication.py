@@ -9,6 +9,7 @@ import pytest
 from fastapi import FastAPI, Request, Response
 from fastapi.testclient import TestClient
 from src.core.security.middleware import APIKeyMiddleware, AuthMiddleware
+from src.core.app.middleware_config import configure_middleware
 
 
 @pytest.fixture
@@ -191,8 +192,9 @@ class TestAuthMiddleware:
 
 
 @pytest.fixture
-def mock_app():
+def mock_app(monkeypatch):
     """Create a mock FastAPI application."""
+    monkeypatch.setenv("DISABLE_AUTH", "false")
     app = FastAPI()
 
     @app.get("/test")
@@ -211,6 +213,15 @@ def client_with_auth(mock_app):
     """Create a test client with authentication enabled."""
     # Add API key middleware
     mock_app.add_middleware(APIKeyMiddleware, valid_keys=["test-key"])
+
+    # Return test client
+    return TestClient(mock_app)
+
+    # Return test client
+    return TestClient(mock_app)
+
+    # Return test client
+    return TestClient(mock_app)
 
     # Return test client
     return TestClient(mock_app)

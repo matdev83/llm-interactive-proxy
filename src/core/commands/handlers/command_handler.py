@@ -11,6 +11,7 @@ import abc
 import logging
 from typing import Any, cast
 
+from src.core.constants import COMMAND_EXECUTION_ERROR
 from src.core.domain.command_results import CommandResult
 from src.core.domain.session import Session
 
@@ -137,10 +138,11 @@ class BackendCommandHandler(ILegacyCommandHandler):
                 data={"name": self.name, "backend": backend_name},
             )
         except Exception as e:
-            logger.error(f"Error setting backend: {e}")
+            error_message = COMMAND_EXECUTION_ERROR.format(error=str(e))
+            logger.error(error_message)
             return CommandResult(
                 success=False,
-                message=f"Error setting backend: {e}",
+                message=error_message,
                 data={"name": self.name},
             )
 
@@ -237,10 +239,11 @@ class ModelCommandHandler(ILegacyCommandHandler):
                 data={"model": actual_model, "backend": backend_type},
             )
         except Exception as e:
-            logger.error(f"Error setting model: {e}")
+            error_message = COMMAND_EXECUTION_ERROR.format(error=str(e))
+            logger.error(error_message)
             return CommandResult(
                 success=False,
-                message=f"Error setting model: {e}",
+                message=error_message,
                 data={"name": self.name},
             )
 
@@ -341,10 +344,11 @@ class TemperatureCommandHandler(ILegacyCommandHandler):
                 data={"name": self.name},
             )
         except Exception as e:
-            logger.error(f"Error setting temperature: {e}")
+            error_message = COMMAND_EXECUTION_ERROR.format(error=str(e))
+            logger.error(error_message)
             return CommandResult(
                 success=False,
-                message=f"Error setting temperature: {e}",
+                message=error_message,
                 data={"name": self.name},
             )
 

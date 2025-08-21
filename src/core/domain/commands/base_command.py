@@ -7,7 +7,7 @@ This module provides the base class for all commands in the new architecture.
 from __future__ import annotations
 
 import logging
-from abc import ABC, abstractmethod
+from abc import ABC, abstractmethod, abstractproperty
 from collections.abc import Mapping
 from typing import Any
 
@@ -20,10 +20,25 @@ logger = logging.getLogger(__name__)
 class BaseCommand(ABC):
     """Base class for all commands in the new architecture."""
 
-    name: str
-    format: str = ""
-    description: str = ""
-    examples: list[str] = []
+    @abstractproperty
+    def name(self) -> str:
+        """Command name."""
+        pass
+
+    @abstractproperty
+    def format(self) -> str:
+        """Command format string."""
+        pass
+
+    @abstractproperty
+    def description(self) -> str:
+        """Command description."""
+        pass
+
+    @property
+    def examples(self) -> list[str]:
+        """Command examples (optional)."""
+        return []
 
     @abstractmethod
     async def execute(

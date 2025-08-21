@@ -10,6 +10,7 @@ from __future__ import annotations
 import logging
 from typing import Any
 
+from src.core.constants import COMMAND_PARSING_ERROR
 from src.core.commands.handlers.base_handler import (
     BaseCommandHandler,
     CommandHandlerResult,
@@ -113,10 +114,11 @@ class SetCommandHandler(BaseCommandHandler):
                         message="Invalid format. Use key=value format",
                     )
             except Exception as e:
-                logger.error(f"Error processing parameter: {e}")
+                error_message = COMMAND_PARSING_ERROR.format(error=str(e))
+                logger.error(error_message)
                 return CommandHandlerResult(
                     success=False,
-                    message=f"Error processing parameter: {e}",
+                    message=error_message,
                 )
         else:
             return CommandHandlerResult(

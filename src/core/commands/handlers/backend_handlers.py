@@ -3,6 +3,20 @@ from __future__ import annotations
 import logging
 from typing import Any
 
+from src.core.constants.command_output_constants import (
+    BACKEND_MUST_BE_STRING_MESSAGE,
+    BACKEND_NOT_FUNCTIONAL_MESSAGE,
+    BACKEND_NOT_SUPPORTED_MESSAGE,
+    BACKEND_SET_MESSAGE,
+    MODEL_MUST_BE_STRING_MESSAGE,
+    MODEL_SET_MESSAGE,
+    MODEL_UNSET_MESSAGE,
+    MODEL_BACKEND_NOT_SUPPORTED_MESSAGE,
+    BACKEND_AND_MODEL_SET_MESSAGE,
+    OPENAI_URL_MUST_BE_STRING_MESSAGE,
+    OPENAI_URL_MUST_START_WITH_HTTP_MESSAGE,
+    OPENAI_URL_SET_MESSAGE,
+)
 from src.core.commands.handlers.base_handler import (
     BaseCommandHandler,
     CommandHandlerResult,
@@ -35,7 +49,7 @@ class BackendHandler(BaseCommandHandler):
     @property
     def examples(self) -> list[str]:
         """Examples of using this parameter."""
-        return ["!/set(backend=openai)", "!/set(backend=openrouter)"]
+        return ["!/set(backend=openai)", "~/set(backend=openrouter)"]
 
     def handle(
         self,
@@ -55,7 +69,7 @@ class BackendHandler(BaseCommandHandler):
         """
         if not isinstance(param_value, str):
             return CommandHandlerResult(
-                success=False, message="Backend value must be a string"
+                success=False, message=BACKEND_MUST_BE_STRING_MESSAGE
             )
 
         backend_val: str = param_value.strip().lower()
@@ -65,7 +79,7 @@ class BackendHandler(BaseCommandHandler):
 
             if backend_val not in backend_registry.get_registered_backends():
                 return CommandHandlerResult(
-                    success=False, message=f"Backend {backend_val} not supported"
+                    success=False, message=BACKEND_NOT_SUPPORTED_MESSAGE.format(backend=backend_val)
                 )
 
         # Check against functional_backends if provided
@@ -81,7 +95,7 @@ class BackendHandler(BaseCommandHandler):
 
             return CommandHandlerResult(
                 success=True,
-                message=f"Backend {backend_val} not functional (session override unset)",
+                message=BACKEND_NOT_FUNCTIONAL_MESSAGE.format(backend=backend_val),
                 new_state=unset_state,
             )
 
@@ -92,7 +106,7 @@ class BackendHandler(BaseCommandHandler):
         )
 
         return CommandHandlerResult(
-            success=True, message=f"Backend set to {backend_val}", new_state=set_state
+            success=True, message=BACKEND_SET_MESSAGE.format(backend=backend_val), new_state=set_state
         )
 
 
@@ -112,9 +126,9 @@ class ModelHandler(BaseCommandHandler):
     def examples(self) -> list[str]:
         """Examples of using this parameter."""
         return [
-            "!/set(model=gpt-4)",
-            "!/set(model=openrouter:claude-3-opus)",
-            "!/set(model=gemini:gemini-pro)",
+            "~/set(model=gpt-4)",
+            "~/set(model=openrouter:claude-3-opus)",
+            "~/set(model=gemini:gemini-pro)",
         ]
 
     def handle(
@@ -140,12 +154,12 @@ class ModelHandler(BaseCommandHandler):
             # Create new state with updated backend config
             new_state: ISessionState = current_state.with_backend_config(new_backend_config)
             return CommandHandlerResult(
-                success=True, message="model unset", new_state=new_state
+                success=True, message=MODEL_UNSET_MESSAGE, new_state=new_state
             )
 
         if not isinstance(param_value, str):
             return CommandHandlerResult(
-                success=False, message="Model value must be a string"
+                success=False, message=MODEL_MUST_BE_STRING_MESSAGE
             )
 
         model_val: str = param_value.strip()
@@ -163,7 +177,7 @@ class ModelHandler(BaseCommandHandler):
                 if backend_prefix not in backend_registry.get_registered_backends():
                     return CommandHandlerResult(
                         success=False,
-                        message=f"Backend {backend_prefix} in model {model_val} not supported",
+                        message=MODEL_BACKEND_NOT_SUPPORTED_MESSAGE.format(backend=backend_prefix, model=model_val),
                     )
 
             # Set both backend and model
@@ -174,7 +188,7 @@ class ModelHandler(BaseCommandHandler):
 
             return CommandHandlerResult(
                 success=True,
-                message=f"Backend set to {backend_prefix} with model {model_name}",
+                message=BACKEND_AND_MODEL_SET_MESSAGE.format(backend=backend_prefix, model=model_name),
                 new_state=new_state,
             )
         else:
@@ -183,7 +197,7 @@ class ModelHandler(BaseCommandHandler):
             new_state = SessionStateAdapter(builder.with_model(model_val).build())
 
             return CommandHandlerResult(
-                success=True, message=f"Model set to {model_val}", new_state=new_state
+                success=True, message=MODEL_SET_MESSAGE.format(model=model_val), new_state=new_state
             )
 
 
@@ -222,7 +236,7 @@ class OpenAIUrlHandler(BaseCommandHandler):
         """
         if not isinstance(param_value, str):
             return CommandHandlerResult(
-                success=False, message="OpenAI URL value must be a string"
+                success=False, message=OPENAI_URL_MUST_BE_STRING_MESSAGE
             )
 
         url_val: str = param_value.strip()
@@ -230,7 +244,7 @@ class OpenAIUrlHandler(BaseCommandHandler):
         # Validate URL format
         if not url_val.startswith(("http://", "https://")):
             return CommandHandlerResult(
-                success=False, message="OpenAI URL must start with http:// or https://"
+                success=False, message=OPENAI_URL_MUST_START_WITH_HTTP_MESSAGE
             )
 
         # Update the state
@@ -242,5 +256,5 @@ class OpenAIUrlHandler(BaseCommandHandler):
         )
 
         return CommandHandlerResult(
-            success=True, message=f"OpenAI URL set to {url_val}", new_state=new_state
+            success=True, message=OPENAI_URL_SET_MESSAGE.format(url=url_val), new_state=new_state
         )

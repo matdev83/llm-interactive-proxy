@@ -122,9 +122,14 @@ class RequestProcessor(IRequestProcessor):
 
         # Process any commands in the messages (unless disabled)
         # Command disabling flags are resolved from RequestContext.state and app_state
-        disable_commands: bool = getattr(
-            context.state, "disable_commands", False
-        ) or getattr(context.app_state, "disable_interactive_commands", False)
+        # Use application state service instead of direct state access
+        from src.core.services.application_state_service import get_default_application_state
+        
+        app_state_service = get_default_application_state()
+        disable_commands: bool = (
+            getattr(context.state, "disable_commands", False) or
+            app_state_service.get_disable_interactive_commands()
+        )
 
         command_result: ProcessedResult
 
@@ -181,7 +186,11 @@ class RequestProcessor(IRequestProcessor):
                 fr = getattr(session.state.backend_config, "failover_routes", None)
                 if fr:
                     with suppress(Exception):
-                        context.app_state.failover_routes = fr
+                        # Use application state service instead of direct state access
+                        from src.core.services.application_state_service import get_default_application_state
+                        
+                        app_state_service = get_default_application_state()
+                        app_state_service.set_failover_routes(fr)
             except Exception:
                 pass
 

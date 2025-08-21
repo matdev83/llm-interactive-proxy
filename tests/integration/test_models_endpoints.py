@@ -13,6 +13,7 @@ from fastapi.testclient import TestClient
 
 # from src.constants import BackendType # Removed BackendType import
 from src.core.app.test_builder import build_test_app as build_app
+from src.core.interfaces.session_service_interface import ISessionService
 
 
 class TestModelsEndpoints:
@@ -223,8 +224,11 @@ class TestModelsDiscovery:
         mock_config = MagicMock()
         mock_config.get.return_value = None
 
+        # Create mock session service
+        mock_session_service = MagicMock(spec=ISessionService)
+
         # Create backend service
-        service = BackendService(mock_backend_factory, mock_rate_limiter, mock_config)
+        service = BackendService(mock_backend_factory, mock_rate_limiter, mock_config, mock_session_service)
 
         # Mock OpenAI backend
         mock_openai = MagicMock()
@@ -262,8 +266,11 @@ class TestModelsDiscovery:
         mock_config = MagicMock()
         mock_config.get.return_value = None
 
+        # Create mock session service
+        mock_session_service = MagicMock(spec=ISessionService)
+
         # Create backend service
-        service = BackendService(mock_backend_factory, mock_rate_limiter, mock_config)
+        service = BackendService(mock_backend_factory, mock_rate_limiter, mock_config, mock_session_service)
 
         # Mock Anthropic backend
         mock_anthropic = MagicMock()
@@ -303,6 +310,9 @@ class TestModelsDiscovery:
         mock_config = MagicMock()
         mock_config.get.return_value = None
 
+        # Create mock session service
+        mock_session_service = MagicMock(spec=ISessionService)
+
         # Create backend service with failover routes
         failover_routes = {
             "openai": {  # Used string literal
@@ -315,6 +325,7 @@ class TestModelsDiscovery:
             mock_backend_factory,
             mock_rate_limiter,
             mock_config,
+            mock_session_service,
             failover_routes=failover_routes,
         )
 

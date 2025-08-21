@@ -54,9 +54,21 @@ from src.core.interfaces.session_service_interface import ISessionService
 
 class MockSuccessCommand(BaseCommand):
     def __init__(self, command_name: str, app: FastAPI | None = None) -> None:
-        self.name = command_name
+        self._name = command_name
         self._called = False
         self._called_with_args: dict[str, Any] | None = None
+
+    @property
+    def name(self) -> str:
+        return self._name
+
+    @property
+    def format(self) -> str:
+        return f"{self._name}(<args>)"
+
+    @property
+    def description(self) -> str:
+        return f"Mock command for {self._name}"
 
     @property
     def called(self) -> bool:
@@ -76,7 +88,7 @@ class MockSuccessCommand(BaseCommand):
         self._called = True
         self._called_with_args = dict(args)  # Convert Mapping to Dict for storage
         return CommandResult(
-            success=True, message=f"{self.name} executed successfully", name=self.name
+            success=True, message=f"{self._name} executed successfully", name=self._name
         )
 
 

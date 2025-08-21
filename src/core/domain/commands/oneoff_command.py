@@ -12,24 +12,40 @@ from typing import Any
 
 from src.core.domain.command_results import CommandResult
 from src.core.domain.commands.base_command import BaseCommand
+from src.core.domain.commands.secure_base_command import StatelessCommandBase
 from src.core.domain.model_utils import parse_model_backend
 from src.core.domain.session import Session
 
 logger = logging.getLogger(__name__)
 
 
-class OneoffCommand(BaseCommand):
+class OneoffCommand(StatelessCommandBase, BaseCommand):
     """Command to set a one-time override for the backend and model."""
 
-    name = "oneoff"
-    format = "oneoff(backend/model)"
-    description = (
-        "Sets a one-time override for the backend and model for the next request."
-    )
-    examples = [
-        "!/oneoff(openrouter/gpt-4)",
-        "!/one-off(gemini/gemini-pro)",
-    ]
+    def __init__(self):
+        """Initialize without state services."""
+        StatelessCommandBase.__init__(self)
+
+    @property
+    def name(self) -> str:
+        return "oneoff"
+
+    @property
+    def format(self) -> str:
+        return "oneoff(backend/model)"
+
+    @property
+    def description(self) -> str:
+        return (
+            "Sets a one-time override for the backend and model for the next request."
+        )
+
+    @property
+    def examples(self) -> list[str]:
+        return [
+            "!/oneoff(openrouter/gpt-4)",
+            "!/one-off(gemini/gemini-pro)",
+        ]
 
     async def execute(
         self, args: Mapping[str, Any], session: Session, context: Any = None

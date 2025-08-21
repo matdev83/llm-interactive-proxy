@@ -12,18 +12,42 @@ from typing import Any
 
 from src.core.domain.command_results import CommandResult
 from src.core.domain.commands.base_command import BaseCommand
-from src.core.domain.session import Session  # Added Session import
+from src.core.domain.commands.secure_base_command import StatefulCommandBase
+from src.core.domain.session import Session
+from src.core.interfaces.state_provider_interface import (
+    ISecureStateAccess,
+    ISecureStateModification,
+)
 
 logger = logging.getLogger(__name__)
 
 
-class CreateFailoverRouteCommand(BaseCommand):
+class CreateFailoverRouteCommand(StatefulCommandBase, BaseCommand):
     """Command to create a new failover route."""
 
-    name = "create-failover-route"
-    format = "create-failover-route(name=<n>,policy=k|m|km|mk)"
-    description = "Create a new failover route with given policy"
-    examples = ["!/create-failover-route(name=myroute,policy=k)"]
+    def __init__(
+        self,
+        state_reader: ISecureStateAccess,
+        state_modifier: ISecureStateModification | None = None,
+    ):
+        """Initialize with required state services."""
+        StatefulCommandBase.__init__(self, state_reader, state_modifier)
+
+    @property
+    def name(self) -> str:
+        return "create-failover-route"
+
+    @property
+    def format(self) -> str:
+        return "create-failover-route(name=<n>,policy=k|m|km|mk)"
+
+    @property
+    def description(self) -> str:
+        return "Create a new failover route with given policy"
+
+    @property
+    def examples(self) -> list[str]:
+        return ["!/create-failover-route(name=myroute,policy=k)"]
 
     async def execute(
         self,
@@ -70,13 +94,32 @@ class CreateFailoverRouteCommand(BaseCommand):
         )
 
 
-class DeleteFailoverRouteCommand(BaseCommand):
-    """Command to delete an existing failover route."""
+class DeleteFailoverRouteCommand(StatefulCommandBase, BaseCommand):
+    """Command to delete a failover route."""
 
-    name = "delete-failover-route"
-    format = "delete-failover-route(name=<route_name>)"
-    description = "Delete an existing failover route"
-    examples = ["!/delete-failover-route(name=myroute)"]
+    def __init__(
+        self,
+        state_reader: ISecureStateAccess,
+        state_modifier: ISecureStateModification | None = None,
+    ):
+        """Initialize with required state services."""
+        StatefulCommandBase.__init__(self, state_reader, state_modifier)
+
+    @property
+    def name(self) -> str:
+        return "delete-failover-route"
+
+    @property
+    def format(self) -> str:
+        return "delete-failover-route(name=<route_name>)"
+
+    @property
+    def description(self) -> str:
+        return "Delete an existing failover route"
+
+    @property
+    def examples(self) -> list[str]:
+        return ["!/delete-failover-route(name=myroute)"]
 
     async def execute(
         self,
@@ -127,13 +170,32 @@ class DeleteFailoverRouteCommand(BaseCommand):
         )
 
 
-class ListFailoverRoutesCommand(BaseCommand):
-    """Command to list all configured failover routes."""
+class ListFailoverRoutesCommand(StatefulCommandBase, BaseCommand):
+    """Command to list all failover routes."""
 
-    name = "list-failover-routes"
-    format = "list-failover-routes"
-    description = "List all configured failover routes"
-    examples = ["!/list-failover-routes"]
+    def __init__(
+        self,
+        state_reader: ISecureStateAccess,
+        state_modifier: ISecureStateModification | None = None,
+    ):
+        """Initialize with required state services."""
+        StatefulCommandBase.__init__(self, state_reader, state_modifier)
+
+    @property
+    def name(self) -> str:
+        return "list-failover-routes"
+
+    @property
+    def format(self) -> str:
+        return "list-failover-routes"
+
+    @property
+    def description(self) -> str:
+        return "List all configured failover routes"
+
+    @property
+    def examples(self) -> list[str]:
+        return ["!/list-failover-routes"]
 
     async def execute(
         self,
@@ -171,13 +233,32 @@ class ListFailoverRoutesCommand(BaseCommand):
         return CommandResult(name=self.name, success=True, message=message)
 
 
-class RouteListCommand(BaseCommand):
-    """Command to list elements in a failover route."""
+class RouteListCommand(StatefulCommandBase, BaseCommand):
+    """Command to list route details."""
 
-    name = "route-list"
-    format = "route-list(name=<route_name>)"
-    description = "List elements in a failover route"
-    examples = ["!/route-list(name=myroute)"]
+    def __init__(
+        self,
+        state_reader: ISecureStateAccess,
+        state_modifier: ISecureStateModification | None = None,
+    ):
+        """Initialize with required state services."""
+        StatefulCommandBase.__init__(self, state_reader, state_modifier)
+
+    @property
+    def name(self) -> str:
+        return "route-list"
+
+    @property
+    def format(self) -> str:
+        return "route-list(name=<route_name>)"
+
+    @property
+    def description(self) -> str:
+        return "List elements in a failover route"
+
+    @property
+    def examples(self) -> list[str]:
+        return ["!/route-list(name=myroute)"]
 
     async def execute(
         self,
@@ -235,13 +316,32 @@ class RouteListCommand(BaseCommand):
         return CommandResult(name=self.name, success=True, message=message)
 
 
-class RouteAppendCommand(BaseCommand):
-    """Command to append an element to a failover route."""
+class RouteAppendCommand(StatefulCommandBase, BaseCommand):
+    """Command to append to a route."""
 
-    name = "route-append"
-    format = "route-append(name=<route_name>,element=<backend:model>)"
-    description = "Append an element to a failover route"
-    examples = ["!/route-append(name=myroute,element=openai:gpt-4)"]
+    def __init__(
+        self,
+        state_reader: ISecureStateAccess,
+        state_modifier: ISecureStateModification | None = None,
+    ):
+        """Initialize with required state services."""
+        StatefulCommandBase.__init__(self, state_reader, state_modifier)
+
+    @property
+    def name(self) -> str:
+        return "route-append"
+
+    @property
+    def format(self) -> str:
+        return "route-append(name=<route_name>,element=<backend:model>)"
+
+    @property
+    def description(self) -> str:
+        return "Append an element to a failover route"
+
+    @property
+    def examples(self) -> list[str]:
+        return ["!/route-append(name=myroute,element=openai:gpt-4)"]
 
     async def execute(
         self,
@@ -322,13 +422,32 @@ class RouteAppendCommand(BaseCommand):
         )
 
 
-class RoutePrependCommand(BaseCommand):
-    """Command to prepend an element to a failover route."""
+class RoutePrependCommand(StatefulCommandBase, BaseCommand):
+    """Command to prepend to a route."""
 
-    name = "route-prepend"
-    format = "route-prepend(name=<route_name>,element=<backend:model>)"
-    description = "Prepend an element to a failover route"
-    examples = ["!/route-prepend(name=myroute,element=openai:gpt-4)"]
+    def __init__(
+        self,
+        state_reader: ISecureStateAccess,
+        state_modifier: ISecureStateModification | None = None,
+    ):
+        """Initialize with required state services."""
+        StatefulCommandBase.__init__(self, state_reader, state_modifier)
+
+    @property
+    def name(self) -> str:
+        return "route-prepend"
+
+    @property
+    def format(self) -> str:
+        return "route-prepend(name=<route_name>,element=<backend:model>)"
+
+    @property
+    def description(self) -> str:
+        return "Prepend an element to a failover route"
+
+    @property
+    def examples(self) -> list[str]:
+        return ["!/route-prepend(name=myroute,element=openai:gpt-4)"]
 
     async def execute(
         self,
@@ -392,13 +511,32 @@ class RoutePrependCommand(BaseCommand):
         )
 
 
-class RouteClearCommand(BaseCommand):
-    """Command to clear all elements from a failover route."""
+class RouteClearCommand(StatefulCommandBase, BaseCommand):
+    """Command to clear a route."""
 
-    name = "route-clear"
-    format = "route-clear(name=<route_name>)"
-    description = "Clear all elements from a failover route"
-    examples = ["!/route-clear(name=myroute)"]
+    def __init__(
+        self,
+        state_reader: ISecureStateAccess,
+        state_modifier: ISecureStateModification | None = None,
+    ):
+        """Initialize with required state services."""
+        StatefulCommandBase.__init__(self, state_reader, state_modifier)
+
+    @property
+    def name(self) -> str:
+        return "route-clear"
+
+    @property
+    def format(self) -> str:
+        return "route-clear(name=<route_name>)"
+
+    @property
+    def description(self) -> str:
+        return "Clear all elements from a failover route"
+
+    @property
+    def examples(self) -> list[str]:
+        return ["!/route-clear(name=myroute)"]
 
     async def execute(
         self,

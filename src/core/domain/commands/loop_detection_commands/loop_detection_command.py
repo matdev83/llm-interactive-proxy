@@ -6,18 +6,34 @@ from typing import Any
 
 from src.core.domain.command_results import CommandResult
 from src.core.domain.commands.base_command import BaseCommand
+from src.core.domain.commands.secure_base_command import StatelessCommandBase
 from src.core.domain.session import Session
 
 logger = logging.getLogger(__name__)
 
 
-class LoopDetectionCommand(BaseCommand):
+class LoopDetectionCommand(StatelessCommandBase, BaseCommand):
     """Command for enabling/disabling loop detection."""
 
-    name = "loop-detection"
-    format = "loop-detection(enabled=true|false)"
-    description = "Enable or disable loop detection for the current session"
-    examples = ["!/loop-detection(enabled=true)", "!/loop-detection(enabled=false)"]
+    def __init__(self):
+        """Initialize without state services."""
+        StatelessCommandBase.__init__(self)
+
+    @property
+    def name(self) -> str:
+        return "loop-detection"
+
+    @property
+    def format(self) -> str:
+        return "loop-detection(enabled=true|false)"
+
+    @property
+    def description(self) -> str:
+        return "Enable or disable loop detection for the current session"
+
+    @property
+    def examples(self) -> list[str]:
+        return ["!/loop-detection(enabled=true)", "!/loop-detection(enabled=false)"]
 
     async def execute(
         self, args: Mapping[str, Any], session: Session, context: Any = None

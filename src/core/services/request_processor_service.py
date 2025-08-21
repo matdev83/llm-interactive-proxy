@@ -25,11 +25,7 @@ logger = logging.getLogger(__name__)
 
 
 class RequestProcessor(IRequestProcessor):
-    """Implementation of the request processor.
-
-    This service orchestrates the request processing flow, including
-    command handling, backend calls, and response processing.
-    """
+    """Implementation of the request processor."""
 
     def __init__(
         self,
@@ -39,60 +35,35 @@ class RequestProcessor(IRequestProcessor):
         response_processor: IResponseProcessor,
         session_resolver: ISessionResolver | None = None,
     ) -> None:
-        """Initialize the request processor.
-
-        Args:
-            command_processor: Service for processing commands
-            backend_processor: Service for processing backend requests
-            session_service: Service for managing sessions
-            response_processor: Service for processing responses
-            session_resolver: Optional service for resolving session IDs
-        """
+        """Initialize the request processor."""
         self._command_processor = command_processor
         self._backend_processor = backend_processor
         self._session_service = session_service
         self._response_processor = response_processor
 
-        # Use provided session resolver or create a default one
         self._session_resolver = session_resolver or DefaultSessionResolver()
 
     async def process_request(
         self, context: RequestContext, request_data: Any
     ) -> ResponseEnvelope | StreamingResponseEnvelope:
-        """Process an incoming chat completion request.
-
-        Args:
-            context: Transport-agnostic request context containing headers/cookies/state
-            request_data: The parsed request data
-
-        Returns:
-            An appropriate response object
-        """
-        # Convert legacy request to domain model if needed
+        """Process an incoming chat completion request."""
         domain_request = request_data
         if not isinstance(request_data, ChatRequest):
             domain_request = legacy_to_domain_chat_request(request_data)
 
-        # Resolve session ID using the session resolver
         session_id: str = await self._session_resolver.resolve_session_id(context)
 
-        # Process commands
         messages = domain_request.messages
         command_result = await self._command_processor.process_commands(
             messages, session_id, context
         )
 
-        # If command-only response, handle it
         if command_result.command_executed and not command_result.modified_messages:
-            # If messages are empty after command processing, it's a command-only request
-            # Record the command in session history
             await self._record_command_in_session(domain_request, session_id)
             return await self._process_command_result(command_result)
 
-        # Process backend request
         backend_request = domain_request
         if command_result.modified_messages:
-            # Update request with modified messages
             backend_request = ChatRequest(
                 model=domain_request.model,
                 messages=command_result.modified_messages,
@@ -103,17 +74,18 @@ class RequestProcessor(IRequestProcessor):
                 extra_body=domain_request.extra_body,
             )
 
-        # Call backend processor
+        extra_body = backend_request.extra_body.copy() if backend_request.extra_body else {}
+        if "session_id" not in extra_body:
+            extra_body["session_id"] = session_id
+        
+        backend_request = backend_request.model_copy(update={"extra_body": extra_body})
+
         backend_response = await self._backend_processor.process_backend_request(
             request=backend_request, session_id=session_id, context=context
         )
 
-        # Ensure session interaction is recorded. BackendProcessor is expected to
-        # handle this, but some test doubles (or older mocks) may not. As a
-        # defensive fallback, update the session here if the backend didn't.
         session = await self._session_service.get_session(session_id)
 
-        # Extract raw prompt from original request to preserve user input including commands
         raw_prompt = ""
         if domain_request and getattr(domain_request, "messages", None):
             for message in reversed(domain_request.messages):
@@ -131,7 +103,6 @@ class RequestProcessor(IRequestProcessor):
                     raw_prompt = content if isinstance(content, str) else str(content)
                     break
 
-        # Only add a new interaction if none exist or last prompt differs
         try:
             last = session.history[-1] if session.history else None
             last_prompt = getattr(last, "prompt", None) if last else None
@@ -177,18 +148,10 @@ class RequestProcessor(IRequestProcessor):
         await self._session_service.update_session(session)
         logger.info("Session updated in repository")
 
-        # Return the backend response
         return backend_response
 
     async def _process_command_result(self, command_result: Any) -> ResponseEnvelope:
-        """Process a command-only result into a ResponseEnvelope.
-
-        This method exists to allow tests to patch it when they want to
-        inject specific command result payloads. The default implementation
-        will take the first item from command_result.command_results and
-        wrap it into a ResponseEnvelope if it's a dict or dataclass-like
-        structure.
-        """
+        """Process a command-only result into a ResponseEnvelope."""
         try:
             first = None
             if getattr(command_result, "command_results", None):
@@ -201,11 +164,9 @@ class RequestProcessor(IRequestProcessor):
                     status_code=200,
                 )
 
-            # If it's already a ResponseEnvelope-like, return as-is
             if isinstance(first, ResponseEnvelope):
                 return first
 
-            # If it's a dict, return wrapped
             if isinstance(first, dict):
                 return ResponseEnvelope(
                     content=first,
@@ -213,7 +174,6 @@ class RequestProcessor(IRequestProcessor):
                     status_code=200,
                 )
 
-            # If it has the expected attributes, extract them
             if (
                 hasattr(first, "name")
                 and hasattr(first, "success")
@@ -221,7 +181,7 @@ class RequestProcessor(IRequestProcessor):
                 and hasattr(first, "data")
             ):
                 content = {
-                    "id": "proxy_cmd_processed",  # Add this line
+                    "id": "proxy_cmd_processed",
                     "name": first.name,
                     "success": first.success,
                     "message": first.message,
@@ -233,7 +193,6 @@ class RequestProcessor(IRequestProcessor):
                     status_code=200,
                 )
             else:
-                # Generic fallback for other objects
                 content = {
                     k: getattr(first, k) for k in dir(first) if not k.startswith("_")
                 }
@@ -256,7 +215,6 @@ class RequestProcessor(IRequestProcessor):
         """Record a command-only request in the session history."""
         session = await self._session_service.get_session(session_id)
 
-        # Extract raw prompt from original request
         raw_prompt = ""
         if domain_request and getattr(domain_request, "messages", None):
             for message in reversed(domain_request.messages):
@@ -274,7 +232,6 @@ class RequestProcessor(IRequestProcessor):
                     raw_prompt = content if isinstance(content, str) else str(content)
                     break
 
-        # Only add if prompt exists and differs from last
         if raw_prompt:
             try:
                 last = session.history[-1] if session.history else None
@@ -288,7 +245,7 @@ class RequestProcessor(IRequestProcessor):
                 session.add_interaction(
                     SessionInteraction(
                         prompt=raw_prompt,
-                        handler="proxy",  # Command-only requests are handled by proxy
+                        handler="proxy",
                         backend=getattr(
                             session.state.backend_config, "backend_type", None
                         ),

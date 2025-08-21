@@ -67,15 +67,11 @@ class BackendService(IBackendService):
     ) -> ResponseEnvelope | StreamingResponseEnvelope:
         """Call the LLM backend for a completion."""
         session_id = request.extra_body.get("session_id")
-        print(f"BackendService: session_id: {session_id}")
         session = await self._session_service.get_session(session_id) if session_id else None
-        print(f"BackendService: session: {session}")
 
         backend_type: str | None = None
         if session and session.state and session.state.backend_config:
             backend_type = session.state.backend_config.backend_type
-        
-        print(f"BackendService: backend_type from session: {backend_type}")
 
         if not backend_type:
             backend_type = (
@@ -97,8 +93,6 @@ class BackendService(IBackendService):
             )
             backend_type = parsed_backend
             effective_model = parsed_model
-        
-        print(f"BackendService: final backend_type: {backend_type}")
 
         request_failover_routes: dict[str, Any] | None = (
             request.extra_body.get("failover_routes") if request.extra_body else None

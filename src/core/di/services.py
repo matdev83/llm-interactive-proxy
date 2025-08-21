@@ -28,7 +28,15 @@ from src.core.interfaces.response_handler_interface import (
 from src.core.interfaces.response_processor_interface import IResponseProcessor
 from src.core.interfaces.session_resolver_interface import ISessionResolver
 from src.core.interfaces.session_service_interface import ISessionService
+from src.core.interfaces.application_state_interface import IApplicationState
+from src.core.interfaces.state_provider_interface import (
+    ISecureStateAccess,
+    ISecureStateModification,
+)
 from src.core.services.app_settings_service import AppSettings
+from src.core.services.application_state_service import ApplicationStateService
+from src.core.services.secure_command_factory import SecureCommandFactory
+from src.core.services.secure_state_service import SecureStateService
 from src.core.services.backend_processor import BackendProcessor
 from src.core.services.backend_service import BackendService
 from src.core.services.command_processor import CommandProcessor
@@ -320,6 +328,45 @@ def register_core_services(
             cast(type, IAppSettings),
             implementation_factory=_app_settings_factory,
         )
+
+    # Register application state service
+    def _application_state_factory(provider: IServiceProvider) -> ApplicationStateService:
+        return ApplicationStateService()
+
+    _add_singleton(ApplicationStateService, implementation_factory=_application_state_factory)
+
+    with contextlib.suppress(Exception):
+        services.add_singleton(
+            cast(type, IApplicationState),
+            implementation_factory=_application_state_factory,
+        )
+
+    # Register secure state service
+    def _secure_state_factory(provider: IServiceProvider) -> SecureStateService:
+        app_state = provider.get_required_service(ApplicationStateService)
+        return SecureStateService(app_state)
+
+    _add_singleton(SecureStateService, implementation_factory=_secure_state_factory)
+
+    with contextlib.suppress(Exception):
+        services.add_singleton(
+            cast(type, ISecureStateAccess),
+            implementation_factory=_secure_state_factory,
+        )
+        services.add_singleton(
+            cast(type, ISecureStateModification),
+            implementation_factory=_secure_state_factory,
+        )
+
+    # Register secure command factory
+    def _secure_command_factory(provider: IServiceProvider) -> SecureCommandFactory:
+        secure_state = provider.get_required_service(SecureStateService)
+        return SecureCommandFactory(
+            state_reader=secure_state,
+            state_modifier=secure_state,
+        )
+
+    _add_singleton(SecureCommandFactory, implementation_factory=_secure_command_factory)
 
     # Register backend service
     def _backend_service_factory(provider: IServiceProvider) -> BackendService:

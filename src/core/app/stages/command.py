@@ -149,11 +149,62 @@ class CommandStage(InitializationStage):
                     registry = provider.get_required_service(CommandRegistry)
 
                     # Register domain command implementations
-                    from src.core.commands.set_command import SetCommand
-                    from src.core.commands.unset_command import UnsetCommand
+                    from src.core.domain.commands.hello_command import HelloCommand
+                    from src.core.domain.commands.help_command import HelpCommand
+                    from src.core.domain.commands.model_command import ModelCommand
+                    from src.core.domain.commands.oneoff_command import OneoffCommand
+                    from src.core.domain.commands.project_command import ProjectCommand
+                    from src.core.domain.commands.pwd_command import PwdCommand
+                    from src.core.domain.commands.temperature_command import TemperatureCommand
+                    from src.core.domain.commands.loop_detection_commands.loop_detection_command import LoopDetectionCommand
+                    from src.core.domain.commands.loop_detection_commands.tool_loop_detection_command import ToolLoopDetectionCommand
+                    from src.core.domain.commands.loop_detection_commands.tool_loop_max_repeats_command import ToolLoopMaxRepeatsCommand
+                    from src.core.domain.commands.loop_detection_commands.tool_loop_mode_command import ToolLoopModeCommand
+                    from src.core.domain.commands.loop_detection_commands.tool_loop_ttl_command import ToolLoopTTLCommand
 
-                    registry.register(SetCommand())
-                    registry.register(UnsetCommand())
+                    # Register stateless commands (no DI required)
+                    registry.register(HelloCommand())
+                    registry.register(HelpCommand())
+                    registry.register(ModelCommand())
+                    registry.register(OneoffCommand())
+                    registry.register(ProjectCommand())
+                    registry.register(PwdCommand())
+                    registry.register(TemperatureCommand())
+                    registry.register(LoopDetectionCommand())
+                    registry.register(ToolLoopDetectionCommand())
+                    registry.register(ToolLoopMaxRepeatsCommand())
+                    registry.register(ToolLoopModeCommand())
+                    registry.register(ToolLoopTTLCommand())
+
+                    # Register stateful commands (with DI)
+                    from src.core.domain.commands.set_command import SetCommand
+                    from src.core.domain.commands.unset_command import UnsetCommand
+                    from src.core.domain.commands.failover_commands import (
+                        CreateFailoverRouteCommand,
+                        DeleteFailoverRouteCommand,
+                        ListFailoverRoutesCommand,
+                        RouteAppendCommand,
+                        RoutePrependCommand,
+                        RouteClearCommand,
+                    )
+                    from src.core.interfaces.state_provider_interface import (
+                        ISecureStateAccess,
+                        ISecureStateModification,
+                    )
+
+                    # Get state services from provider
+                    state_reader = provider.get_required_service(ISecureStateAccess)
+                    state_modifier = provider.get_required_service(ISecureStateModification)
+
+                    # Register stateful commands
+                    registry.register(SetCommand(state_reader, state_modifier))
+                    registry.register(UnsetCommand(state_reader, state_modifier))
+                    registry.register(CreateFailoverRouteCommand(state_reader, state_modifier))
+                    registry.register(DeleteFailoverRouteCommand(state_reader, state_modifier))
+                    registry.register(ListFailoverRoutesCommand(state_reader, state_modifier))
+                    registry.register(RouteAppendCommand(state_reader, state_modifier))
+                    registry.register(RoutePrependCommand(state_reader, state_modifier))
+                    registry.register(RouteClearCommand(state_reader, state_modifier))
 
                     logger.debug("Registered domain commands")
                 except Exception as e:

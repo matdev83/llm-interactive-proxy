@@ -9,6 +9,27 @@ from __future__ import annotations
 import logging
 from typing import Any
 
+from src.core.constants.command_output_constants import (
+    LOOP_DETECTION_BOOLEAN_REQUIRED_MESSAGE,
+    LOOP_DETECTION_DISABLED_MESSAGE,
+    LOOP_DETECTION_ENABLED_MESSAGE,
+    LOOP_DETECTION_INVALID_BOOLEAN_MESSAGE,
+    TOOL_LOOP_DETECTION_BOOLEAN_REQUIRED_MESSAGE,
+    TOOL_LOOP_DETECTION_DISABLED_MESSAGE,
+    TOOL_LOOP_DETECTION_ENABLED_MESSAGE,
+    TOOL_LOOP_DETECTION_INVALID_BOOLEAN_MESSAGE,
+    TOOL_LOOP_MAX_REPEATS_AT_LEAST_TWO_MESSAGE,
+    TOOL_LOOP_MAX_REPEATS_MUST_BE_INTEGER_MESSAGE,
+    TOOL_LOOP_MAX_REPEATS_REQUIRED_MESSAGE,
+    TOOL_LOOP_MAX_REPEATS_SET_MESSAGE,
+    TOOL_LOOP_MODE_INVALID_MESSAGE,
+    TOOL_LOOP_MODE_REQUIRED_MESSAGE,
+    TOOL_LOOP_MODE_SET_MESSAGE,
+    TOOL_LOOP_TTL_AT_LEAST_ONE_MESSAGE,
+    TOOL_LOOP_TTL_MUST_BE_INTEGER_MESSAGE,
+    TOOL_LOOP_TTL_REQUIRED_MESSAGE,
+    TOOL_LOOP_TTL_SET_MESSAGE,
+)
 from src.core.commands.handlers.base_handler import (
     BaseCommandHandler,
     CommandHandlerResult,
@@ -41,8 +62,8 @@ class LoopDetectionHandler(BaseCommandHandler):
     def examples(self) -> list[str]:
         """Examples of using this command."""
         return [
-            "!/set(loop-detection=true)",
-            "!/set(loop-detection=false)",
+            "~/set(loop-detection=true)",
+            "~/set(loop-detection=false)",
         ]
 
     def can_handle(self, param_name: str) -> bool:
@@ -93,13 +114,13 @@ class LoopDetectionHandler(BaseCommandHandler):
         """
         if param_value is None:
             return CommandHandlerResult(
-                success=False, message="Boolean value must be specified"
+                success=False, message=LOOP_DETECTION_BOOLEAN_REQUIRED_MESSAGE
             )
 
         bool_value = self._parse_bool(str(param_value))
         if bool_value is None:
             return CommandHandlerResult(
-                success=False, message=f"Invalid boolean value: {param_value}"
+                success=False, message=LOOP_DETECTION_INVALID_BOOLEAN_MESSAGE.format(value=param_value)
             )
 
         # Create new state with updated loop detection setting
@@ -109,7 +130,7 @@ class LoopDetectionHandler(BaseCommandHandler):
 
         return CommandHandlerResult(
             success=True,
-            message=f"Loop detection {'enabled' if bool_value else 'disabled'}",
+            message=LOOP_DETECTION_ENABLED_MESSAGE if bool_value else LOOP_DETECTION_DISABLED_MESSAGE,
             new_state=new_state,
         )
 
@@ -135,8 +156,8 @@ class ToolLoopDetectionHandler(BaseCommandHandler):
     def examples(self) -> list[str]:
         """Examples of using this command."""
         return [
-            "!/set(tool-loop-detection=true)",
-            "!/set(tool-loop-detection=false)",
+            "~/set(tool-loop-detection=true)",
+            "~/set(tool-loop-detection=false)",
         ]
 
     def can_handle(self, param_name: str) -> bool:
@@ -187,13 +208,13 @@ class ToolLoopDetectionHandler(BaseCommandHandler):
         """
         if param_value is None:
             return CommandHandlerResult(
-                success=False, message="Boolean value must be specified"
+                success=False, message=TOOL_LOOP_DETECTION_BOOLEAN_REQUIRED_MESSAGE
             )
 
         bool_value = self._parse_bool(str(param_value))
         if bool_value is None:
             return CommandHandlerResult(
-                success=False, message=f"Invalid boolean value: {param_value}"
+                success=False, message=TOOL_LOOP_DETECTION_INVALID_BOOLEAN_MESSAGE.format(value=param_value)
             )
 
         # Create new state with updated tool loop detection setting
@@ -203,7 +224,7 @@ class ToolLoopDetectionHandler(BaseCommandHandler):
 
         return CommandHandlerResult(
             success=True,
-            message=f"Tool call loop detection {'enabled' if bool_value else 'disabled'}",
+            message=TOOL_LOOP_DETECTION_ENABLED_MESSAGE if bool_value else TOOL_LOOP_DETECTION_DISABLED_MESSAGE,
             new_state=new_state,
         )
 
@@ -229,8 +250,8 @@ class ToolLoopMaxRepeatsHandler(BaseCommandHandler):
     def examples(self) -> list[str]:
         """Examples of using this command."""
         return [
-            "!/set(tool-loop-max-repeats=3)",
-            "!/set(tool-loop-max-repeats=5)",
+            "~/set(tool-loop-max-repeats=3)",
+            "~/set(tool-loop-max-repeats=5)",
         ]
 
     def can_handle(self, param_name: str) -> bool:
@@ -265,19 +286,19 @@ class ToolLoopMaxRepeatsHandler(BaseCommandHandler):
         """
         if param_value is None:
             return CommandHandlerResult(
-                success=False, message="Max repeats value must be specified"
+                success=False, message=TOOL_LOOP_MAX_REPEATS_REQUIRED_MESSAGE
             )
 
         try:
             max_repeats = int(param_value)
             if max_repeats < 2:
                 return CommandHandlerResult(
-                    success=False, message="Max repeats must be at least 2"
+                    success=False, message=TOOL_LOOP_MAX_REPEATS_AT_LEAST_TWO_MESSAGE
                 )
         except ValueError:
             return CommandHandlerResult(
                 success=False,
-                message=f"Invalid max repeats value: {param_value}. Must be an integer.",
+                message=TOOL_LOOP_MAX_REPEATS_MUST_BE_INTEGER_MESSAGE.format(value=param_value),
             )
 
         # Create new state with updated tool loop max repeats setting
@@ -287,7 +308,7 @@ class ToolLoopMaxRepeatsHandler(BaseCommandHandler):
 
         return CommandHandlerResult(
             success=True,
-            message=f"Tool call loop max repeats set to {max_repeats}",
+            message=TOOL_LOOP_MAX_REPEATS_SET_MESSAGE.format(max_repeats=max_repeats),
             new_state=new_state,
         )
 
@@ -313,8 +334,8 @@ class ToolLoopTTLHandler(BaseCommandHandler):
     def examples(self) -> list[str]:
         """Examples of using this command."""
         return [
-            "!/set(tool-loop-ttl=60)",
-            "!/set(tool-loop-ttl=120)",
+            "~/set(tool-loop-ttl=60)",
+            "~/set(tool-loop-ttl=120)",
         ]
 
     def can_handle(self, param_name: str) -> bool:
@@ -349,29 +370,29 @@ class ToolLoopTTLHandler(BaseCommandHandler):
         """
         if param_value is None:
             return CommandHandlerResult(
-                success=False, message="TTL value must be specified"
+                success=False, message=TOOL_LOOP_TTL_REQUIRED_MESSAGE
             )
 
         try:
             ttl = int(param_value)
             if ttl < 1:
                 return CommandHandlerResult(
-                    success=False, message="TTL must be at least 1 second"
+                    success=False, message=TOOL_LOOP_TTL_AT_LEAST_ONE_MESSAGE
                 )
         except ValueError:
             return CommandHandlerResult(
                 success=False,
-                message=f"Invalid TTL value: {param_value}. Must be an integer.",
+                message=TOOL_LOOP_TTL_MUST_BE_INTEGER_MESSAGE.format(value=param_value),
             )
 
         # Create new state with updated tool loop TTL setting
         new_state = current_state.with_loop_config(
-            current_state.loop_config.with_tool_loop_ttl(ttl)
+            current_state.loop_config.with_tool_loop_ttl_seconds(ttl)
         )
 
         return CommandHandlerResult(
             success=True,
-            message=f"Tool call loop TTL set to {ttl} seconds",
+            message=TOOL_LOOP_TTL_SET_MESSAGE.format(ttl=ttl),
             new_state=new_state,
         )
 
@@ -397,8 +418,8 @@ class ToolLoopModeHandler(BaseCommandHandler):
     def examples(self) -> list[str]:
         """Examples of using this command."""
         return [
-            "!/set(tool-loop-mode=break)",
-            "!/set(tool-loop-mode=chance_then_break)",
+            "~/set(tool-loop-mode=break)",
+            "~/set(tool-loop-mode=chance_then_break)",
         ]
 
     def can_handle(self, param_name: str) -> bool:
@@ -433,14 +454,14 @@ class ToolLoopModeHandler(BaseCommandHandler):
         """
         if param_value is None:
             return CommandHandlerResult(
-                success=False, message="Loop mode must be specified"
+                success=False, message=TOOL_LOOP_MODE_REQUIRED_MESSAGE
             )
 
         mode = str(param_value).lower()
         if mode not in ("break", "chance_then_break"):
             return CommandHandlerResult(
                 success=False,
-                message=f"Invalid loop mode: {param_value}. Use break or chance_then_break.",
+                message=TOOL_LOOP_MODE_INVALID_MESSAGE.format(value=param_value),
             )
 
         # Convert string to enum
@@ -455,6 +476,6 @@ class ToolLoopModeHandler(BaseCommandHandler):
 
         return CommandHandlerResult(
             success=True,
-            message=f"Tool call loop mode set to {mode}",
+            message=TOOL_LOOP_MODE_SET_MESSAGE.format(mode=mode),
             new_state=new_state,
         )

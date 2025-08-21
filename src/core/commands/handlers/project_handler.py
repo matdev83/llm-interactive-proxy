@@ -7,6 +7,10 @@ from __future__ import annotations
 import logging
 from typing import Any
 
+from src.core.constants.command_output_constants import (
+    PROJECT_SET_MESSAGE,
+    PROJECT_UNSET_MESSAGE,
+)
 from src.core.commands.handlers.base_handler import (
     BaseCommandHandler,
     CommandHandlerResult,
@@ -47,7 +51,7 @@ class ProjectCommandHandler(BaseCommandHandler):
         if param_value is None:
             updated_state = current_state.with_project(None)
             return CommandHandlerResult(
-                success=True, message="Project unset", new_state=updated_state
+                success=True, message=PROJECT_UNSET_MESSAGE, new_state=updated_state
             )
 
         project_name = str(param_value)
@@ -57,6 +61,6 @@ class ProjectCommandHandler(BaseCommandHandler):
 
         return CommandHandlerResult(
             success=True,
-            message=f"Project set to {project_name}",
+            message=PROJECT_SET_MESSAGE.format(project=project_name),
             new_state=updated_state,
         )

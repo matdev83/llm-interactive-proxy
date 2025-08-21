@@ -45,14 +45,28 @@ def discover_commands(
             for _, obj in inspect.getmembers(module, inspect.isclass):
                 # Check if the class is a subclass of BaseCommand and not BaseCommand itself
                 if issubclass(obj, BaseCommand) and obj is not BaseCommand:
-                    # Instantiate the command
-                    command_instance = obj()
-                    # The command name should be an attribute on the instance
-                    if hasattr(command_instance, "name") and command_instance.name:
-                        if command_instance.name in handlers:
-                            # Log a warning or raise an error for duplicate command names
-                            pass
-                        handlers[command_instance.name] = command_instance
+                    # Try to instantiate the command
+                    command_instance = None
+                    try:
+                        # First try to instantiate without parameters (for backward compatibility)
+                        command_instance = obj()
+                    except TypeError as e:
+                        if "missing" in str(e) and "argument" in str(e):
+                            # This command requires dependency injection
+                            # For now, we'll skip DI-required commands in discovery
+                            # They should be registered manually in the DI container
+                            continue
+                        else:
+                            # Re-raise unexpected TypeError
+                            raise
+
+                    if command_instance is not None:
+                        # The command name should be an attribute on the instance
+                        if hasattr(command_instance, "name") and command_instance.name:
+                            if command_instance.name in handlers:
+                                # Log a warning or raise an error for duplicate command names
+                                pass
+                            handlers[command_instance.name] = command_instance
         except Exception:
             # Log errors for debugging, e.g., print(f"Could not process {module_name}: {e}")
             pass

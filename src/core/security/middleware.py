@@ -48,19 +48,24 @@ class APIKeyMiddleware(BaseHTTPMiddleware):
             return response
 
         # Check if auth is disabled for tests or development
-        if (
-            hasattr(request.app.state, "disable_auth")
-            and request.app.state.disable_auth
-        ):
+        from src.core.services.application_state_service import get_default_application_state
+        
+        app_state_service = get_default_application_state()
+        # Set the state provider to the current request's app state for this request
+        app_state_service.set_state_provider(request.app.state)
+        
+        disable_auth = app_state_service.get_setting("disable_auth", False)
+        if disable_auth:
             # Auth is disabled, skip validation
             response = await call_next(request)
             return response
 
         # Check if auth is disabled in the app config
+        app_config = app_state_service.get_setting("app_config")
         if (
-            hasattr(request.app.state, "app_config")
-            and hasattr(request.app.state.app_config, "auth")
-            and getattr(request.app.state.app_config.auth, "disable_auth", False)
+            app_config
+            and hasattr(app_config, "auth")
+            and getattr(app_config.auth, "disable_auth", False)
         ):
             # Auth is disabled in the config, skip validation
             logger.info("Skipping auth - disabled in app_config")
@@ -91,8 +96,9 @@ class APIKeyMiddleware(BaseHTTPMiddleware):
 
         # Check for additional API keys in app.state (for tests)
         app_state_keys: set[str] = set()
-        if hasattr(request.app.state, "client_api_key") and request.app.state.client_api_key:
-            app_state_keys.add(request.app.state.client_api_key)
+        client_api_key = app_state_service.get_setting("client_api_key")
+        if client_api_key:
+            app_state_keys.add(client_api_key)
 
         # Combine configured keys with app.state keys
         all_valid_keys: set[str] = self.valid_keys | app_state_keys

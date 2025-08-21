@@ -170,7 +170,6 @@ class CommandService(ICommandService):
                 modified_messages=[], command_executed=False, command_results=[]
             )
 
-        print(f"CommandService.process_commands: session_id: {session_id}")
         session = (
             await self._session_service.get_session(session_id)
             if self._session_service
@@ -271,8 +270,6 @@ class CommandService(ICommandService):
                                     result = coro_result
                             except Exception:
                                 result = await cmd.execute(args, session, context)
-
-                            print(f"CommandService.process_commands: result: {result}")
 
                             if (
                                 (result.success or getattr(result, "new_state", None))

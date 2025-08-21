@@ -76,8 +76,12 @@ class BackendProcessor(IBackendProcessor):
 
             # Get failover routes from session and add them to extra_body
             failover_routes = None
-            if context and hasattr(context.app_state, "failover_routes"):
-                failover_routes = context.app_state.failover_routes
+            if context:
+                # Use application state service instead of direct state access
+                from src.core.services.application_state_service import get_default_application_state
+                
+                app_state_service = get_default_application_state()
+                failover_routes = app_state_service.get_failover_routes()
             elif hasattr(session.state.backend_config, "failover_routes"):
                 failover_routes = session.state.backend_config.failover_routes
 

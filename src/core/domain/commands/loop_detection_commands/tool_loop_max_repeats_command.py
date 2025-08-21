@@ -6,18 +6,34 @@ from typing import Any
 
 from src.core.domain.command_results import CommandResult
 from src.core.domain.commands.base_command import BaseCommand
+from src.core.domain.commands.secure_base_command import StatelessCommandBase
 from src.core.domain.session import Session
 
 logger = logging.getLogger(__name__)
 
 
-class ToolLoopMaxRepeatsCommand(BaseCommand):
+class ToolLoopMaxRepeatsCommand(StatelessCommandBase, BaseCommand):
     """Command for setting tool loop max repeats."""
 
-    name = "tool-loop-max-repeats"
-    format = "tool-loop-max-repeats(max_repeats=<number>)"
-    description = "Set the maximum number of repeats for tool loop detection"
-    examples = ["!/tool-loop-max-repeats(max_repeats=5)"]
+    def __init__(self):
+        """Initialize without state services."""
+        StatelessCommandBase.__init__(self)
+
+    @property
+    def name(self) -> str:
+        return "tool-loop-max-repeats"
+
+    @property
+    def format(self) -> str:
+        return "tool-loop-max-repeats(max_repeats=<number>)"
+
+    @property
+    def description(self) -> str:
+        return "Set the maximum number of repeats for tool loop detection"
+
+    @property
+    def examples(self) -> list[str]:
+        return ["!/tool-loop-max-repeats(max_repeats=5)"]
 
     async def execute(
         self, args: Mapping[str, Any], session: Session, context: Any = None

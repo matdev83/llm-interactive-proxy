@@ -6,19 +6,35 @@ from typing import Any
 
 from src.core.domain.command_results import CommandResult
 from src.core.domain.commands.base_command import BaseCommand
+from src.core.domain.commands.secure_base_command import StatelessCommandBase
 from src.core.domain.session import Session
 from src.tool_call_loop.config import ToolLoopMode
 
 logger = logging.getLogger(__name__)
 
 
-class ToolLoopModeCommand(BaseCommand):
+class ToolLoopModeCommand(StatelessCommandBase, BaseCommand):
     """Command for setting tool loop mode."""
 
-    name = "tool-loop-mode"
-    format = "tool-loop-mode(mode=strict|relaxed|off)"
-    description = "Set the mode for tool loop detection"
-    examples = ["!/tool-loop-mode(mode=strict)"]
+    def __init__(self):
+        """Initialize without state services."""
+        StatelessCommandBase.__init__(self)
+
+    @property
+    def name(self) -> str:
+        return "tool-loop-mode"
+
+    @property
+    def format(self) -> str:
+        return "tool-loop-mode(mode=strict|relaxed|off)"
+
+    @property
+    def description(self) -> str:
+        return "Set the mode for tool loop detection"
+
+    @property
+    def examples(self) -> list[str]:
+        return ["!/tool-loop-mode(mode=strict)"]
 
     async def execute(
         self, args: Mapping[str, Any], session: Session, context: Any = None

@@ -7,11 +7,27 @@ from src.core.domain.session import Session
 
 
 class MockCommand(BaseCommand):
-    def __init__(self, name, description, format_str, examples):
-        self.name = name
-        self.description = description
-        self.format = format_str
-        self.examples = examples
+    def __init__(self, name_val, description_val, format_str_val, examples_val):
+        self._name_val = name_val
+        self._description_val = description_val
+        self._format_str_val = format_str_val
+        self._examples_val = examples_val
+
+    @property
+    def name(self) -> str:
+        return self._name_val
+
+    @property
+    def format(self) -> str:
+        return self._format_str_val
+
+    @property
+    def description(self) -> str:
+        return self._description_val
+
+    @property
+    def examples(self) -> list[str]:
+        return self._examples_val
 
     async def execute(self, args, session, context):
         pass
