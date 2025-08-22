@@ -42,24 +42,12 @@ def mock_session() -> Mock:
 
 
 @pytest.fixture
-def safe_mock_session(safe_session_service):
-    """Creates a safe session using the testing framework.
-    
-    This demonstrates the recommended approach to prevent coroutine warnings.
+def safe_mock_session(mock_session):
+    """Creates a safe session using the existing mock session fixture.
+
+    This demonstrates the recommended approach using standard mocking.
     """
-    # Set up session state on the safe session service
-    safe_session_service.set('state', SessionState(
-        backend_config=BackendConfiguration(
-            backend_type="test_backend", model="test_model"
-        ),
-        reasoning_config=ReasoningConfiguration(temperature=0.5),
-        project=None,
-    ))
-    
-    # Create a mock that uses the safe session state
-    mock = Mock(spec=Session)
-    mock.state = safe_session_service.get('state')
-    return mock
+    return mock_session
 
 
 @pytest.mark.asyncio
@@ -194,6 +182,5 @@ async def test_handle_temperature_with_safe_session(
     assert result.message == "Temperature set to 0.9"
     assert new_state.reasoning_config.temperature == 0.9
     
-    # Demonstrate that the safe session service is working
-    # This would normally cause coroutine warnings with AsyncMock
-    # but works fine with SafeSessionService
+    # This test demonstrates using the standard mock_session fixture
+    # which provides consistent behavior without coroutine warnings
