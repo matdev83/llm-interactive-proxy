@@ -8,6 +8,16 @@ from src.core.domain.commands.base_command import BaseCommand
 from src.core.domain.session import Session
 
 
+def process_commands_in_messages_test():
+    """Mock function for processing commands in messages for tests."""
+    return []
+
+
+def setup_test_command_registry_for_unit_tests():
+    """Mock function for setting up test command registry."""
+    return []
+
+
 class MockSetCommand(BaseCommand):
     """Mock implementation of the set command for tests."""
 
