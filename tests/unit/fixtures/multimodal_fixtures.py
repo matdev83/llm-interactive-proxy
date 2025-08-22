@@ -129,3 +129,5 @@ def multimodal_message_with_command(command_text="!/set(model=openrouter:test-mo
             image_content_part,
         ],
     )
+
+

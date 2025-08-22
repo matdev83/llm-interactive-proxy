@@ -1,12 +1,14 @@
 """Mock command implementations for unit tests."""
 
+import re
 from collections.abc import Mapping
-from typing import Any
+from typing import Any, cast
 
 from src.core.domain.chat import ChatMessage
 from src.core.domain.command_results import CommandResult
 from src.core.domain.commands.base_command import BaseCommand
 from src.core.domain.session import Session, SessionStateAdapter
+from src.core.domain.configuration.backend_config import BackendConfiguration
 
 
 async def process_commands_in_messages_test(
@@ -19,7 +21,7 @@ async def process_commands_in_messages_test(
 ) -> tuple[list[ChatMessage], list[str]]:
     """Mock function for processing commands in messages for tests.
 
-    This implementation accepts and ignores any additional parameters that might be passed.
+    This implementation detects commands using regex and processes them accordingly.
 
     Args:
         messages: List of chat messages to process
@@ -32,8 +34,120 @@ async def process_commands_in_messages_test(
     Returns:
         A tuple of (processed_messages, commands_found)
     """
-    # Return the messages unchanged and an empty list of commands
-    return messages, []
+    # Command pattern to match commands like !/set(model=value) or !/hello
+    command_pattern = re.compile(rf"{re.escape(command_prefix)}(\w+)(?:\((.*?)\))?")
+
+    # List to collect found commands
+    commands_found = []
+
+    # Process each message
+    processed_messages = []
+    for message in messages:
+        content = message.content
+
+        # Find all commands in the message
+        matches = list(command_pattern.finditer(content))
+
+        if matches:
+            # Extract command names
+            command_names = [match.group(1) for match in matches]
+            commands_found.extend(command_names)
+
+            # Execute commands to update session state
+            for match in matches:
+                command_name = match.group(1)
+                args_str = match.group(2) or ""
+
+                # Execute the command based on its type
+                if command_name == "set":
+                    await _execute_set_command(session_state, args_str)
+                elif command_name == "unset":
+                    await _execute_unset_command(session_state, args_str)
+                elif command_name == "hello":
+                    await _execute_hello_command(session_state)
+
+            # If strip_commands is True, replace content with empty string
+            if strip_commands:
+                processed_message = ChatMessage(
+                    role=message.role,
+                    content="",  # Empty content as required by tests
+                    name=message.name,
+                    tool_calls=message.tool_calls,
+                    tool_call_id=message.tool_call_id
+                )
+            else:
+                processed_message = message
+        else:
+            # No commands found, keep the original message
+            processed_message = message
+
+        processed_messages.append(processed_message)
+
+    return processed_messages, commands_found
+
+
+async def _execute_set_command(session_state: SessionStateAdapter, args_str: str) -> None:
+    """Execute a set command to update session state."""
+    # Parse arguments like "model=gpt-4-turbo" or "project='abc def'" or "backend=gemini"
+    arg_pairs = re.findall(r'(\w+)=["\']?([^"\']+)["\']?', args_str)
+
+    for param, value in arg_pairs:
+        if param == "model":
+            # Handle model with backend prefix like "openrouter:gpt-4-turbo"
+            if ":" in value:
+                backend, model = value.split(":", 1)
+                # Update both backend and model
+                new_backend_config = session_state.backend_config.with_backend(backend).with_model(model)
+            else:
+                # Update just the model
+                new_backend_config = session_state.backend_config.with_model(value)
+
+            session_state._state = session_state._state.with_backend_config(
+                cast(BackendConfiguration, new_backend_config)
+            )
+        elif param == "project":
+            # Update the project
+            session_state._state = session_state._state.with_project(value)
+        elif param == "backend":
+            # Update the backend type
+            new_backend_config = session_state.backend_config.with_backend(value)
+            session_state._state = session_state._state.with_backend_config(
+                cast(BackendConfiguration, new_backend_config)
+            )
+        elif param == "interactive-mode":
+            # Update interactive mode
+            session_state._state = session_state._state.with_interactive_just_enabled(value.upper() == "ON")
+
+
+async def _execute_unset_command(session_state: SessionStateAdapter, args_str: str) -> None:
+    """Execute an unset command to clear session state values."""
+    # Parse arguments like "model", "project", "model, project"
+    params = [param.strip() for param in args_str.split(",")]
+
+    for param in params:
+        if param == "model":
+            # Clear the model
+            new_backend_config = session_state.backend_config.with_model(None)
+            session_state._state = session_state._state.with_backend_config(
+                cast(BackendConfiguration, new_backend_config)
+            )
+        elif param == "project":
+            # Clear the project
+            session_state._state = session_state._state.with_project(None)
+        elif param == "backend":
+            # Clear the backend type
+            new_backend_config = session_state.backend_config.with_backend(None)
+            session_state._state = session_state._state.with_backend_config(
+                cast(BackendConfiguration, new_backend_config)
+            )
+        elif param == "interactive":
+            # Clear interactive mode
+            session_state._state = session_state._state.with_interactive_just_enabled(False)
+
+
+async def _execute_hello_command(session_state: SessionStateAdapter) -> None:
+    """Execute a hello command to set the hello_requested flag."""
+    session_state._state = session_state._state.with_hello_requested(True)
 
 
 def setup_test_command_registry_for_unit_tests() -> Any:
