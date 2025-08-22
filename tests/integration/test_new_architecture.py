@@ -247,8 +247,12 @@ def test_command_processing(client: TestClient) -> None:
             assert "help" in response_data["choices"][0]["message"]["content"].lower()
 
 
-def test_streaming_response(client: TestClient) -> None:
+@pytest.mark.no_global_mock
+def test_streaming_response(client: TestClient, test_backend_service) -> None:
     """Test that streaming responses work."""
+    from unittest.mock import AsyncMock, patch
+    from src.core.domain.responses import StreamingResponseEnvelope
+
     # Create a chat request
     request_data = {
         "model": "mock-model",
@@ -256,12 +260,30 @@ def test_streaming_response(client: TestClient) -> None:
         "stream": True,
     }
 
-    # Send the request
-    response = client.post("/v1/chat/completions", json=request_data)
+    # Mock the backend service to return a streaming response
+    async def mock_stream_gen():
+        yield b'data: {"choices": [{"delta": {"content": "Hello"}, "index": 0}]}\\n\n'
+        yield b'data: {"choices": [{"delta": {"content": " world"}, "index": 0}]}\\n\n'
+        yield b"data: [DONE]\\n\n"
 
-    # Check the response
-    assert response.status_code == 200
-    assert response.headers["content-type"] == "text/event-stream"
+    with patch.object(
+        test_backend_service,
+        "call_completion",
+        new_callable=AsyncMock,
+    ) as mock_method:
+        streaming_envelope = StreamingResponseEnvelope(
+            content=mock_stream_gen(),
+            media_type="text/event-stream",
+            headers={"content-type": "text/event-stream"},
+        )
+        mock_method.return_value = streaming_envelope
+
+        # Send the request
+        response = client.post("/v1/chat/completions", json=request_data)
+
+        # Check the response
+        assert response.status_code == 200
+        assert response.headers["content-type"] == "text/event-stream"
 
     # Read the streaming response
     chunks = []

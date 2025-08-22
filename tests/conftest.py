@@ -575,3 +575,42 @@ def test_backend_factory(test_httpx_client) -> Generator[Any, None, None]:
     registry = BackendRegistry()
     factory = BackendFactory(test_httpx_client, registry)
     yield factory
+
+
+@pytest.fixture
+def mock_env_vars(monkeypatch) -> dict[str, str]:
+    """Create mock environment variables for testing."""
+    env_vars = {
+        "APP_HOST": "127.0.0.1",
+        "APP_PORT": "8080",
+        "OPENAI_API_KEY": "test-openai-key",
+        "OPENROUTER_API_KEY": "test-openrouter-key",
+        "DISABLE_AUTH": "true",
+    }
+
+    # Set the environment variables
+    for key, value in env_vars.items():
+        monkeypatch.setenv(key, value)
+
+    return env_vars
+
+
+@pytest.fixture
+def temp_config_path(tmp_path):
+    """Create a temporary config file for testing."""
+    from pathlib import Path
+
+    config_path = tmp_path / "test_config.yaml"
+    config_content = """
+host: localhost
+port: 9000
+backends:
+  openai:
+    api_key: ["test-openai-key"]
+  openrouter:
+    api_key: ["test-openrouter-key"]
+auth:
+  disable_auth: true
+"""
+    config_path.write_text(config_content)
+    return config_path

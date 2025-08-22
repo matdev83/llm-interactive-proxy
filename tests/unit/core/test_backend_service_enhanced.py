@@ -107,6 +107,7 @@ class TestBackendFactory:
             assert isinstance(backend, MockBackend)
             assert backend.client == client
 
+    @pytest.mark.no_global_mock
     @pytest.mark.asyncio
     async def test_initialize_backend(self):
         """Test initializing a backend with the factory."""

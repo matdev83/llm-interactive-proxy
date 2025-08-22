@@ -68,7 +68,7 @@ def _dummy_openai_tool_call_response(
 
 
 @pytest.mark.asyncio
-async def test_anthropic_messages_non_streaming(test_client: TestClient):
+async def test_anthropic_messages_non_streaming(test_client: TestClient, backend_service):
     """Test the Anthropic API compatibility endpoint for non-streaming requests."""
 
     anthropic_request = {
@@ -77,12 +77,7 @@ async def test_anthropic_messages_non_streaming(test_client: TestClient):
         "messages": [{"role": "user", "content": "Hello, world!"}],
     }
 
-    # Get the backend service from the service provider
-    backend_service = test_client.app.state.service_provider.get_required_service(
-        IBackendService
-    )
-
-    # Patch the backend service's call_completion method
+    # Patch the backend service's call_completion method using the fixture
     with patch.object(
         backend_service, "call_completion", new_callable=AsyncMock
     ) as mock_call_completion:
@@ -144,7 +139,7 @@ async def test_anthropic_messages_non_streaming(test_client: TestClient):
 
 @pytest.mark.asyncio
 async def test_anthropic_messages_with_tool_use_from_openai_tool_calls(
-    test_client: TestClient,
+    test_client: TestClient, backend_service,
 ):
     """OpenAI tool_calls should map to Anthropic tool_use content blocks."""
     anthropic_request = {
@@ -158,11 +153,6 @@ async def test_anthropic_messages_with_tool_use_from_openai_tool_calls(
         "type": "function",
         "function": {"name": "get_weather", "arguments": '{"city":"Paris"}'},
     }
-
-    # Get the backend service from the service provider
-    backend_service = test_client.app.state.service_provider.get_required_service(
-        IBackendService
-    )
 
     with patch.object(
         backend_service, "call_completion", new_callable=AsyncMock

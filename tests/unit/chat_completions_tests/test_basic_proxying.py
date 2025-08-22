@@ -6,7 +6,7 @@ from src.core.interfaces.backend_service_interface import IBackendService
 # --- Test Cases ---
 
 
-def test_basic_request_proxying_non_streaming(test_client):
+def test_basic_request_proxying_non_streaming(test_client, backend_service):
     """Test basic request proxying for non-streaming responses using new architecture."""
     mock_backend_response = {
         "id": "comp-123",
@@ -23,12 +23,7 @@ def test_basic_request_proxying_non_streaming(test_client):
         "usage": {"prompt_tokens": 9, "completion_tokens": 12, "total_tokens": 21},
     }
 
-    # Get the backend service from the DI container
-    backend_service = test_client.app.state.service_provider.get_required_service(
-        IBackendService
-    )
-
-    # Mock the backend service's call_completion method
+    # Mock the backend service's call_completion method using the fixture
     with patch.object(
         backend_service,
         "call_completion",
@@ -70,7 +65,7 @@ def test_basic_request_proxying_non_streaming(test_client):
 
 
 @pytest.mark.asyncio
-async def test_basic_request_proxying_streaming(test_client):
+async def test_basic_request_proxying_streaming(test_client, backend_service):
     """Test basic request proxying for streaming responses using new architecture."""
 
     # Simulate a streaming response from the backend mock with proper format
@@ -79,11 +74,6 @@ async def test_basic_request_proxying_streaming(test_client):
         yield b'data: {"choices": [{"delta": {"content": "Hello"}, "index": 0}]}\\n\n'
         yield b'data: {"choices": [{"delta": {"content": " world"}, "index": 0}]}\\n\n'
         yield b"data: [DONE]\\n\n"
-
-    # Get the backend service from the DI container
-    backend_service = test_client.app.state.service_provider.get_required_service(
-        IBackendService
-    )
 
     with patch.object(
         backend_service,
