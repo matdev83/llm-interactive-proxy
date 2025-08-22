@@ -334,7 +334,6 @@ class TestBackendServiceCompletions:
                 assert result_chunks[i] == chunks[i].encode()
 
     @pytest.mark.asyncio
-    @pytest.mark.skip("Skipping due to exception type mismatch")
     async def test_call_completion_streaming_error(self, service, chat_request):
         """Test error handling in streaming completion."""
 
@@ -348,7 +347,7 @@ class TestBackendServiceCompletions:
         with patch.object(service, "_get_or_create_backend", return_value=mock_backend):
             # Act & Assert
             with pytest.raises(BackendError) as exc_info:
-                await service.call_completion(chat_request, stream=True)
+                await service.call_completion(chat_request, stream=True, allow_failover=False)
 
             # Verify the error was caught and wrapped in BackendError
             assert "Streaming error" in str(exc_info.value) or "ValueError" in str(
@@ -384,7 +383,7 @@ class TestBackendServiceCompletions:
         # so we're only checking for the essential message
 
     @pytest.mark.asyncio
-    @pytest.mark.skip("Skipping due to exception type mismatch")
+
     async def test_call_completion_backend_error(self, service, chat_request):
         """Test error handling when backend calls fail."""
         # Arrange
@@ -395,7 +394,7 @@ class TestBackendServiceCompletions:
         with patch.object(service, "_get_or_create_backend", return_value=mock_backend):
             # Act & Assert
             with pytest.raises(BackendError) as exc_info:
-                await service.call_completion(chat_request)
+                await service.call_completion(chat_request, allow_failover=False)
 
             # Verify exception details
             assert "Backend call failed" in str(exc_info.value)
@@ -403,7 +402,7 @@ class TestBackendServiceCompletions:
             # Note: The backend type may not be included in the error message in all implementations
 
     @pytest.mark.asyncio
-    @pytest.mark.skip("Skipping due to exception type mismatch")
+
     async def test_call_completion_invalid_response(self, service, chat_request):
         """Test error handling for invalid response format."""
         # Arrange
@@ -425,7 +424,7 @@ class TestBackendServiceCompletions:
             ) or "Backend call failed" in str(exc_info.value)
 
     @pytest.mark.asyncio
-    @pytest.mark.skip("Skipping due to exception type mismatch")
+
     async def test_call_completion_invalid_streaming_response(
         self,
         service,
@@ -443,7 +442,7 @@ class TestBackendServiceCompletions:
         with patch.object(service, "_get_or_create_backend", return_value=mock_backend):
             # Act & Assert
             with pytest.raises(BackendError) as exc_info:
-                await service.call_completion(chat_request, stream=True)
+                await service.call_completion(chat_request, stream=True, allow_failover=False)
 
             # Don't check for specific error message as it may vary across implementations
             assert "Invalid streaming response" in str(
@@ -609,7 +608,7 @@ class TestBackendServiceFailover:
         )
 
     @pytest.mark.asyncio
-    @pytest.mark.skip("Skipping due to exception type mismatch")
+
     async def test_simple_failover(self, service_with_simple_failover, chat_request):
         """Test simple backend failover when primary fails."""
         # Arrange
