@@ -35,10 +35,11 @@ class FailoverService:
             failover_routes: A dictionary mapping backend types to failover routes
         """
         self.failover_routes: dict[str, Any] = failover_routes or {}
-        logger.debug(
-            "Initialized failover service",
-            failover_routes=self.failover_routes,
-        )
+        # Disable debug logging to improve test performance
+        # logger.debug(
+        #     "Initialized failover service",
+        #     failover_routes=self.failover_routes,
+        # )
 
     def get_failover_route(self, backend_type: str) -> Any | None:
         """Get the failover route for a backend type.
