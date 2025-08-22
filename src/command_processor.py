@@ -137,6 +137,8 @@ class CommandProcessor:
                             "Could not apply new_state to proxy_state: %s",
                             type(self.config.proxy_state),
                         )
+                # If this is a pure command (the entire text is just the command),
+                # return empty string to clear the content
                 if text_content.strip() == command_full.strip():
                     return "", True
             else:

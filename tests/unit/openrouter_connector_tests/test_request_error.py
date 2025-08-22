@@ -6,6 +6,7 @@ import pytest_asyncio
 from fastapi import HTTPException  # Used
 from pytest_httpx import HTTPXMock
 from src.connectors.openrouter import OpenRouterBackend
+from src.core.common.exceptions import BackendError, ServiceUnavailableError
 
 # from starlette.responses import StreamingResponse # F401: Removed
 from src.core.domain.chat import ChatMessage, ChatRequest
@@ -58,7 +59,6 @@ def sample_processed_messages() -> list[ChatMessage]:
 
 @pytest.mark.asyncio
 @pytest.mark.httpx_mock()
-@pytest.mark.skip("Skipping due to exception type mismatch")
 async def test_chat_completions_request_error(
     openrouter_backend: OpenRouterBackend,
     httpx_mock: HTTPXMock,
@@ -67,7 +67,7 @@ async def test_chat_completions_request_error(
 ):
     httpx_mock.add_exception(httpx.ConnectError("Connection failed"))
 
-    with pytest.raises(HTTPException) as exc_info:
+    with pytest.raises(ServiceUnavailableError) as exc_info:
         await openrouter_backend.chat_completions(
             request_data=sample_chat_request_data,
             processed_messages=sample_processed_messages,
@@ -78,6 +78,6 @@ async def test_chat_completions_request_error(
             api_key="FAKE_KEY",
         )
 
-    assert exc_info.value.status_code == 503  # Service Unavailable
-    assert "Could not connect to OpenRouter" in exc_info.value.detail
-    assert "Connection failed" in exc_info.value.detail
+    # Check that the ServiceUnavailableError contains the error information
+    assert "Connection failed" in str(exc_info.value)
+    assert "Could not connect to backend" in str(exc_info.value)

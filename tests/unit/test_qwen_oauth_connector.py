@@ -13,6 +13,7 @@ import httpx
 import pytest
 from fastapi import HTTPException
 from src.connectors.qwen_oauth import QwenOAuthConnector
+from src.core.common.exceptions import BackendError
 from src.core.domain.chat import ChatMessage, ChatRequest
 from src.core.domain.responses import (
     ResponseEnvelope,
@@ -453,7 +454,6 @@ class TestQwenOAuthConnectorUnit:
             assert exc_info.value.status_code == 401
 
     @pytest.mark.asyncio
-    @pytest.mark.skip("Skipping due to exception type mismatch")
     async def test_chat_completions_exception_handling(self, connector, mock_client):
         """Test chat completion exception handling."""
         # Setup
@@ -476,19 +476,18 @@ class TestQwenOAuthConnectorUnit:
                 "src.connectors.openai.OpenAIConnector.chat_completions",
                 AsyncMock(side_effect=Exception("Test error")),
             ),
+            pytest.raises(BackendError) as exc_info
         ):
-
-            result = await connector.chat_completions(
+            # The exception should be caught and wrapped in a BackendError
+            await connector.chat_completions(
                 request_data=request_data,
                 processed_messages=[test_message],
                 effective_model="qwen3-coder-plus",
             )
-
-            assert isinstance(result, ResponseEnvelope)
-            assert (
-                "Error: Test error"
-                in result.content["choices"][0]["message"]["content"]
-            )
+            
+        # Verify the BackendError contains the original error message
+        assert "Test error" in str(exc_info.value)
+        assert "Qwen OAuth chat completion failed" in str(exc_info.value)
 
     @pytest.mark.asyncio
     async def test_save_oauth_credentials(self, connector, mock_credentials):

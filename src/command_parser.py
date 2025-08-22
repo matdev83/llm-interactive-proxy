@@ -154,6 +154,16 @@ class CommandParser:
                     new_results.append(cr)
             self.command_results = new_results
 
+        # Check if this is a pure command message (the entire message is just the command)
+        # If so, clear its content regardless of processed_content
+        if self._is_original_purely_command(original_content):
+            if isinstance(original_content, str):
+                processed_content = ""
+                modified = True
+            elif isinstance(original_content, list):
+                processed_content = []
+                modified = True
+
         processed_content, modified = await self._maybe_use_error_message(
             original_content, processed_content, modified
         )

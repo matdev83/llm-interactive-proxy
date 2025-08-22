@@ -7,8 +7,8 @@ from typing import Any, cast
 from src.core.domain.chat import ChatMessage
 from src.core.domain.command_results import CommandResult
 from src.core.domain.commands.base_command import BaseCommand
-from src.core.domain.session import Session, SessionStateAdapter
 from src.core.domain.configuration.backend_config import BackendConfiguration
+from src.core.domain.session import Session, SessionStateAdapter
 
 
 async def process_commands_in_messages_test(
@@ -46,7 +46,21 @@ async def process_commands_in_messages_test(
         content = message.content
 
         # Find all commands in the message
-        matches = list(command_pattern.finditer(content))
+        if isinstance(content, str):
+            matches = list(command_pattern.finditer(content))
+        elif isinstance(content, list):
+            # For multimodal content, only look for commands in text parts
+            matches = []
+            for part in content:
+                if (
+                    hasattr(part, "type")
+                    and part.type == "text"
+                    and hasattr(part, "text")
+                ):
+                    matches.extend(list(command_pattern.finditer(part.text)))
+        else:
+            # Unsupported content type
+            matches = []
 
         if matches:
             # Extract command names
@@ -66,15 +80,80 @@ async def process_commands_in_messages_test(
                 elif command_name == "hello":
                     await _execute_hello_command(session_state)
 
-            # If strip_commands is True, replace content with empty string
+            # If strip_commands is True, replace command with empty string but preserve surrounding text
             if strip_commands:
-                processed_message = ChatMessage(
-                    role=message.role,
-                    content="",  # Empty content as required by tests
-                    name=message.name,
-                    tool_calls=message.tool_calls,
-                    tool_call_id=message.tool_call_id
-                )
+                if isinstance(content, str):
+                    # Replace each command with empty string in string content
+                    modified_content = content
+                    for match in reversed(
+                        matches
+                    ):  # Process in reverse to preserve indices
+                        start, end = match.span()
+                        modified_content = (
+                            modified_content[:start] + modified_content[end:]
+                        )
+
+                    processed_message = ChatMessage(
+                        role=message.role,
+                        content=modified_content,  # Modified content with commands removed
+                        name=message.name,
+                        tool_calls=message.tool_calls,
+                        tool_call_id=message.tool_call_id,
+                    )
+                elif isinstance(content, list):
+                    # For multimodal content, we need to process each text part
+                    modified_parts = []
+                    text_part_indices = {}
+
+                    # First, collect all text parts and their indices
+                    for i, part in enumerate(content):
+                        if (
+                            hasattr(part, "type")
+                            and part.type == "text"
+                            and hasattr(part, "text")
+                        ):
+                            text_part_indices[i] = part
+
+                    # Now process each text part for commands
+                    for _, text_part in text_part_indices.items():
+                        # Find commands in this text part
+                        part_matches = list(command_pattern.finditer(text_part.text))
+                        if part_matches:
+                            # Replace commands in this part
+                            modified_text = text_part.text
+                            for match in reversed(part_matches):
+                                start, end = match.span()
+                                modified_text = (
+                                    modified_text[:start] + modified_text[end:]
+                                )
+
+                            # If the part is now empty, don't include it
+                            if modified_text.strip():
+                                from src.core.domain.chat import MessageContentPartText
+
+                                modified_parts.append(
+                                    MessageContentPartText(
+                                        type="text", text=modified_text
+                                    )
+                                )
+                        else:
+                            # No commands in this part, keep it as is
+                            modified_parts.append(text_part)
+
+                    # Add all non-text parts
+                    for i, part in enumerate(content):
+                        if i not in text_part_indices:
+                            modified_parts.append(part)
+
+                    processed_message = ChatMessage(
+                        role=message.role,
+                        content=modified_parts,
+                        name=message.name,
+                        tool_calls=message.tool_calls,
+                        tool_call_id=message.tool_call_id,
+                    )
+                else:
+                    processed_message = message
             else:
                 processed_message = message
         else:
@@ -86,10 +165,19 @@ async def process_commands_in_messages_test(
     return processed_messages, commands_found
 
 
-async def _execute_set_command(session_state: SessionStateAdapter, args_str: str) -> None:
+async def _execute_set_command(
+    session_state: SessionStateAdapter, args_str: str
+) -> None:
     """Execute a set command to update session state."""
     # Parse arguments like "model=gpt-4-turbo" or "project='abc def'" or "backend=gemini"
-    arg_pairs = re.findall(r'(\w+)=["\']?([^"\']+)["\']?', args_str)
+    # Handle multiple parameters separated by commas
+    args_str = args_str.strip()
+    arg_parts = [part.strip() for part in args_str.split(",")]
+    arg_pairs = []
+    for part in arg_parts:
+        # Find parameter=value pairs in each part
+        matches = re.findall(r'(\w+)=["\']?([^"\']+)["\']?', part)
+        arg_pairs.extend(matches)
 
     for param, value in arg_pairs:
         if param == "model":
@@ -97,7 +185,9 @@ async def _execute_set_command(session_state: SessionStateAdapter, args_str: str
             if ":" in value:
                 backend, model = value.split(":", 1)
                 # Update both backend and model
-                new_backend_config = session_state.backend_config.with_backend(backend).with_model(model)
+                new_backend_config = session_state.backend_config.with_backend(
+                    backend
+                ).with_model(model)
             else:
                 # Update just the model
                 new_backend_config = session_state.backend_config.with_model(value)
@@ -116,10 +206,14 @@ async def _execute_set_command(session_state: SessionStateAdapter, args_str: str
             )
         elif param == "interactive-mode":
             # Update interactive mode
-            session_state._state = session_state._state.with_interactive_just_enabled(value.upper() == "ON")
+            session_state._state = session_state._state.with_interactive_just_enabled(
+                value.upper() == "ON"
+            )
 
 
-async def _execute_unset_command(session_state: SessionStateAdapter, args_str: str) -> None:
+async def _execute_unset_command(
+    session_state: SessionStateAdapter, args_str: str
+) -> None:
     """Execute an unset command to clear session state values."""
     # Parse arguments like "model", "project", "model, project"
     params = [param.strip() for param in args_str.split(",")]
@@ -142,7 +236,9 @@ async def _execute_unset_command(session_state: SessionStateAdapter, args_str: s
             )
         elif param == "interactive":
             # Clear interactive mode
-            session_state._state = session_state._state.with_interactive_just_enabled(False)
+            session_state._state = session_state._state.with_interactive_just_enabled(
+                False
+            )
 
 
 async def _execute_hello_command(session_state: SessionStateAdapter) -> None:
@@ -185,10 +281,33 @@ class MockSetCommand(BaseCommand):
         self, args: Mapping[str, Any], session: Session, context: Any = None
     ) -> CommandResult:
         """Execute the command and return success."""
-        # Return empty string to simulate command stripping
+        # Parse arguments and generate appropriate message
+        message = ""
+        if "model" in args:
+            model_value = args["model"]
+            if ":" in model_value:
+                backend, model = model_value.split(":", 1)
+                message = f"Backend changed to {backend}; Model changed to {model}"
+            elif model_value:
+                message = f"Model changed to {model_value}"
+            else:
+                message = "Model unset"
+        elif "temperature" in args:
+            message = f"Temperature set to {args['temperature']}"
+        elif "project" in args:
+            message = f"Project set to {args['project']}"
+        elif "backend" in args:
+            message = f"Backend changed to {args['backend']}"
+        elif "interactive-mode" in args:
+            message = f"Interactive mode {'enabled' if args['interactive-mode'].upper() == 'ON' else 'disabled'}"
+        else:
+            # Generic message if no specific parameter was set
+            message = "Settings updated"
+            
+        # Return result with appropriate message
         result = CommandResult(
             success=True,
-            message="",
+            message=message,
             name=self.name,
             new_state=session,  # Use new_state instead of modified_session
             data={"processed_content": ""},  # Add processed_content to data
@@ -218,13 +337,50 @@ class MockUnsetCommand(BaseCommand):
         self, args: Mapping[str, Any], session: Session, context: Any = None
     ) -> CommandResult:
         """Execute the command and return success."""
-        # Return empty string to simulate command stripping
+        # Generate appropriate message based on parameters
+        messages = []
+        
+        # Convert args to list if it's a dict with boolean values
+        params = []
+        if isinstance(args, dict):
+            for key, value in args.items():
+                if isinstance(value, bool) and value:
+                    params.append(key)
+                else:
+                    params.append(key)
+        
+        if not params:
+            return CommandResult(
+                success=True,
+                message="unset: nothing to do",
+                name=self.name,
+                new_state=session,
+                data={"processed_content": ""},
+            )
+        
+        for param in params:
+            if param == "model":
+                messages.append("Model reset to default")
+            elif param == "temperature":
+                messages.append("Temperature reset to default (None)")
+            elif param == "project":
+                messages.append("Project reset to default")
+            elif param == "backend":
+                messages.append("Backend reset to default")
+            elif param == "interactive":
+                messages.append("Interactive mode disabled")
+        
+        if not messages:
+            message = "unset: nothing to do"
+        else:
+            message = "\n".join(messages)
+        
         result = CommandResult(
             success=True,
-            message="",
+            message=message,
             name=self.name,
-            new_state=session,  # Use new_state instead of modified_session
-            data={"processed_content": ""},  # Add processed_content to data
+            new_state=session,
+            data={"processed_content": ""},
         )
         return result
 
@@ -251,10 +407,18 @@ class MockHelpCommand(BaseCommand):
         self, args: Mapping[str, Any], session: Session, context: Any = None
     ) -> CommandResult:
         """Execute the command and return success."""
-        # Return empty string to simulate command stripping
+        # Generate help message based on args
+        message = "Mock help information"
+        
+        # If specific command is requested, customize the message
+        if args and len(args) > 0:
+            command_name = next(iter(args.keys()), None)
+            if command_name:
+                message = f"Mock help information for command: {command_name}"
+        
         result = CommandResult(
             success=True,
-            message="Mock help information",
+            message=message,
             name=self.name,
             data={"processed_content": ""},  # Add processed_content to data
         )
@@ -286,13 +450,59 @@ class MockHelloCommand(BaseCommand):
         # Mark the session as having received a hello command
         session.state = session.state.with_hello_requested(True)
 
-        # Return empty string to simulate command stripping
+        # Return a friendly greeting message
         result = CommandResult(
             success=True,
-            message="Hello!",
+            message="Hello! I'm the mock command handler.",
             name=self.name,
             new_state=session,  # Use new_state instead of modified_session
             data={"processed_content": ""},  # Add processed_content to data
+        )
+        return result
+
+    def _validate_di_usage(self) -> None:
+        """Mock validation method to satisfy BaseCommand requirements."""
+
+
+class MockModelCommand(BaseCommand):
+    """Mock implementation of the model command for tests."""
+
+    @property
+    def name(self) -> str:
+        return "model"
+
+    @property
+    def description(self) -> str:
+        return "Set or unset the model (MOCK)"
+
+    @property
+    def format(self) -> str:
+        return "model(name=value)"
+
+    async def execute(
+        self, args: Mapping[str, Any], session: Session, context: Any = None
+    ) -> CommandResult:
+        """Execute the command and return success."""
+        # Parse arguments and generate appropriate message
+        message = ""
+        name = args.get("name", "")
+        
+        if name:
+            if ":" in name:
+                backend, model = name.split(":", 1)
+                message = f"Backend changed to {backend}; Model changed to {model}"
+            else:
+                message = f"Model changed to {name}"
+        else:
+            message = "Model unset"
+            
+        # Return result with appropriate message
+        result = CommandResult(
+            success=True,
+            message=message,
+            name=self.name,
+            new_state=session,
+            data={"processed_content": ""},
         )
         return result
 
@@ -311,5 +521,6 @@ def get_mock_commands() -> dict[str, BaseCommand]:
         "unset": MockUnsetCommand(),
         "help": MockHelpCommand(),
         "hello": MockHelloCommand(),
+        "model": MockModelCommand(),
     }
     return commands

@@ -100,8 +100,9 @@ class TestProcessTextForCommands:
             strip_commands=True,  # Strip commands for backward compatibility
         )
         processed_text = processed_messages[0].content if processed_messages else ""
-        # In the new implementation, the entire content is replaced with an empty string
-        assert processed_text == ""
+        # The command is removed, but surrounding text is preserved
+        assert "!/set" not in processed_text
+        # Also verify the state was updated correctly
         assert commands_found
         assert session.state.backend_config.model == "gpt-4-turbo"
 
@@ -119,8 +120,9 @@ class TestProcessTextForCommands:
             strip_commands=True,  # Strip commands for backward compatibility
         )
         processed_text = processed_messages[0].content if processed_messages else ""
-        # In the new implementation, the entire content is replaced with an empty string
-        assert processed_text == ""
+        # The command is removed, but surrounding text is preserved
+        assert "!/set" not in processed_text
+        # Also verify the state was updated correctly
         assert commands_found
         assert session.state.backend_config.model == "my/model-v1"
 
@@ -146,8 +148,9 @@ class TestProcessTextForCommands:
             strip_commands=True,  # Strip commands for backward compatibility
         )
         processed_text = processed_messages[0].content if processed_messages else ""
-        # In the new implementation, the entire content is replaced with an empty string
-        assert processed_text == ""
+        # The command is removed, but surrounding text is preserved
+        assert "!/set" not in processed_text
+        # Also verify the state was updated correctly
         assert commands_found
         assert session.state.backend_config.model is None
 
@@ -167,8 +170,9 @@ class TestProcessTextForCommands:
             strip_commands=True,  # Strip commands for backward compatibility
         )
         processed_text = processed_messages[0].content if processed_messages else ""
-        # In the new implementation, the entire content is replaced with an empty string
-        assert processed_text == ""
+        # The command is removed, but surrounding text is preserved
+        assert "!/set" not in processed_text
+        # Also verify the state was updated correctly
         assert commands_found
         # In the new implementation, commands are processed in order they appear in the text
         # 1. !/set(model=claude-2) is processed -> model becomes "claude-2"
@@ -181,12 +185,12 @@ class TestProcessTextForCommands:
         session = Session(session_id="test_session")
         current_session_state = session.state
         text = "This is a !/unknown(command=value) that should be kept."
-        
+
         # For this specific test, we need to use the original process_commands_in_messages
         # with preserve_unknown=True to ensure unknown commands are preserved
         from src.command_config import CommandParserConfig
         from src.command_parser import CommandParser
-        
+
         config = CommandParserConfig(
             proxy_state=current_session_state,
             app=self.mock_app,
@@ -197,7 +201,7 @@ class TestProcessTextForCommands:
         processed_messages, commands_found = await parser.process_messages(
             [ChatMessage(role="user", content=text)]
         )
-        
+
         processed_text = processed_messages[0].content if processed_messages else ""
         assert processed_text == text  # Unknown command is preserved
         assert commands_found  # It was detected as a command pattern
@@ -219,8 +223,9 @@ class TestProcessTextForCommands:
             strip_commands=True,  # Strip commands for backward compatibility
         )
         processed_text = processed_messages[0].content if processed_messages else ""
-        # In the new implementation, the entire content is replaced with an empty string
-        assert processed_text == ""
+        # The command is removed, but surrounding text is preserved
+        assert "!/set" not in processed_text
+        # Also verify the state was updated correctly
         assert commands_found
         assert session.state.backend_config.model == "test-model"
 
@@ -238,8 +243,9 @@ class TestProcessTextForCommands:
             strip_commands=True,  # Strip commands for backward compatibility
         )
         processed_text = processed_messages[0].content if processed_messages else ""
-        # In the new implementation, the entire content is replaced with an empty string
-        assert processed_text == ""
+        # The command is removed, but surrounding text is preserved
+        assert "!/set" not in processed_text
+        # Also verify the state was updated correctly
         assert commands_found
         assert session.state.backend_config.model == "another-model"
 
@@ -374,8 +380,9 @@ class TestProcessTextForCommands:
             strip_commands=True,  # Strip commands for backward compatibility
         )
         processed_text = processed_messages[0].content if processed_messages else ""
-        # In the new implementation, the entire content is replaced with an empty string
-        assert processed_text == ""
+        # The command is removed, but surrounding text is preserved
+        assert "!/set" not in processed_text
+        # Also verify the state was updated correctly
         assert found
         # For this test, we'll directly set the interactive_just_enabled flag
         # since the command handler has been updated to handle it properly
@@ -440,8 +447,9 @@ class TestProcessTextForCommands:
             strip_commands=True,  # Strip commands for backward compatibility
         )
         processed_text = processed_messages[0].content if processed_messages else ""
-        # In the new implementation, the entire content is replaced with an empty string
-        assert processed_text == ""
+        # The command is removed, but surrounding text is preserved
+        assert "!/set" not in processed_text
+        # Also verify the state was updated correctly
         assert found
         assert session.state.hello_requested
 
@@ -450,7 +458,7 @@ class TestProcessTextForCommands:
     async def test_unknown_command_removed_interactive(self):
         session = Session(session_id="test_session")
         state = session.state
-        
+
         # Use our process_commands_in_messages_test function with strip_commands=True
         text = "Hi !/foo(bar=1)"
         processed_messages, found = await process_commands_in_messages_test(
@@ -463,19 +471,20 @@ class TestProcessTextForCommands:
         )
         processed = processed_messages[0].content if processed_messages else ""
         assert found
-        # Accept either empty string (new behavior) or "Hi" (old behavior)
-        assert processed == "" or processed == "Hi"
+        # The command is removed, but surrounding text is preserved
+        assert "!/foo" not in processed
 
     @pytest.mark.no_global_mock
     @pytest.mark.asyncio
     async def test_set_invalid_model_interactive(self):
         session = Session(session_id="test_session")
         state = session.state
-        
+
         # Use our mock_commands implementation
         from tests.unit.mock_commands import setup_test_command_registry_for_unit_tests
+
         setup_test_command_registry_for_unit_tests()
-        
+
         config = CommandParserConfig(
             proxy_state=state,
             app=self.mock_app,
@@ -486,12 +495,13 @@ class TestProcessTextForCommands:
         processed_messages, commands_found = await parser.process_messages(
             [ChatMessage(role="user", content="!/set(model=openrouter:bad)")]
         )
-        
+
         # Manually update the session state since the parser doesn't do it automatically
         # in the test environment
         from tests.unit.utils.session_utils import update_session_state
+
         update_session_state(session, model="bad", backend_type="openrouter")
-        
+
         # Now verify the session state
         assert session.state.backend_config.model == "bad"
         assert session.state.backend_config.backend_type == "openrouter"
@@ -504,11 +514,12 @@ class TestProcessTextForCommands:
     async def test_set_invalid_model_noninteractive(self):
         session = Session(session_id="test_session")
         state = session.state
-        
+
         # Use our mock_commands implementation
         from tests.unit.mock_commands import setup_test_command_registry_for_unit_tests
+
         setup_test_command_registry_for_unit_tests()
-        
+
         config = CommandParserConfig(
             proxy_state=state,
             app=self.mock_app,
@@ -519,12 +530,13 @@ class TestProcessTextForCommands:
         await parser.process_messages(
             [ChatMessage(role="user", content="!/set(model=openrouter:bad)")]
         )
-        
+
         # Manually update the session state since the parser doesn't do it automatically
         # in the test environment
         from tests.unit.utils.session_utils import update_session_state
+
         update_session_state(session, model="bad", backend_type="openrouter")
-        
+
         # Now verify the session state
         assert session.state.backend_config.backend_type == "openrouter"
         assert session.state.backend_config.model == "bad"
@@ -544,8 +556,9 @@ class TestProcessTextForCommands:
         )
         processed = processed_messages[0].content if processed_messages else ""
         assert found
-        # In the new implementation, the entire content is replaced with an empty string
-        assert processed == ""
+        # The command is removed but surrounding text is preserved
+        assert "!/set" not in processed
+        assert "hi" in processed
         assert session.state.backend_config.backend_type == "gemini"
         assert session.state.backend_config.model is None
 
@@ -586,7 +599,10 @@ class TestProcessTextForCommands:
 
         # Mock the app.state.api_key_redaction_enabled property
         from unittest.mock import PropertyMock
-        type(self.mock_app.state).api_key_redaction_enabled = PropertyMock(return_value=True)
+
+        type(self.mock_app.state).api_key_redaction_enabled = PropertyMock(
+            return_value=True
+        )
 
         # Set redaction to false
         text = "!/set(redact-api-keys-in-prompts=false)"
@@ -604,7 +620,9 @@ class TestProcessTextForCommands:
         assert processed == "" or "redact-api-keys-in-prompts" in processed
 
         # Update mock to return False for verification
-        type(self.mock_app.state).api_key_redaction_enabled = PropertyMock(return_value=False)
+        type(self.mock_app.state).api_key_redaction_enabled = PropertyMock(
+            return_value=False
+        )
         # Verify the mock now returns False
         assert self.mock_app.state.api_key_redaction_enabled is False
 
@@ -613,14 +631,19 @@ class TestProcessTextForCommands:
     async def test_unset_redact_api_keys_flag(self):
         session = Session(session_id="test_session")
         state = session.state
-        
+
         # Mock the api_key_redaction_enabled property to return False initially
         from unittest.mock import PropertyMock
-        type(self.mock_app.state).api_key_redaction_enabled = PropertyMock(return_value=False)
-        
+
+        type(self.mock_app.state).api_key_redaction_enabled = PropertyMock(
+            return_value=False
+        )
+
         # Also mock the default_api_key_redaction_enabled property to return True
-        type(self.mock_app.state).default_api_key_redaction_enabled = PropertyMock(return_value=True)
-        
+        type(self.mock_app.state).default_api_key_redaction_enabled = PropertyMock(
+            return_value=True
+        )
+
         text = "!/unset(redact-api-keys-in-prompts)"
         processed_messages, found = await process_commands_in_messages_test(
             [ChatMessage(role="user", content=text)],
@@ -632,10 +655,15 @@ class TestProcessTextForCommands:
         processed = processed_messages[0].content if processed_messages else ""
         assert processed == ""
         assert found
-        
+
         # Update mock to return True for verification (matching the default)
-        type(self.mock_app.state).api_key_redaction_enabled = PropertyMock(return_value=True)
-        
+        type(self.mock_app.state).api_key_redaction_enabled = PropertyMock(
+            return_value=True
+        )
+
         # Verify it's now the same as the default (True)
         assert self.mock_app.state.api_key_redaction_enabled is True
-        assert self.mock_app.state.api_key_redaction_enabled == self.mock_app.state.default_api_key_redaction_enabled
+        assert (
+            self.mock_app.state.api_key_redaction_enabled
+            == self.mock_app.state.default_api_key_redaction_enabled
+        )

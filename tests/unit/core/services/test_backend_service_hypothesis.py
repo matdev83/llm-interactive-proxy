@@ -185,7 +185,6 @@ class TestBackendServiceHypothesis:
                 with pytest.raises(RateLimitExceededError):
                     await service.call_completion(chat_request)
 
-    @pytest.mark.skip("Skipping due to exception type mismatch with new DI architecture")
     @pytest.mark.asyncio
     async def test_call_completion_backend_error_with_hypothesis(self):
         """Test backend error handling with various error messages."""
@@ -217,8 +216,10 @@ class TestBackendServiceHypothesis:
 
             with patch.object(service, "_get_or_create_backend", return_value=mock_backend):
                 # Act & Assert
+                # We need to explicitly set allow_failover=False to prevent the service from
+                # attempting to use fallback backends, which would catch the exception
                 with pytest.raises(BackendError) as exc_info:
-                    await service.call_completion(chat_request)
+                    await service.call_completion(chat_request, allow_failover=False)
 
                 # Verify the error includes the original message
                 assert error_msg in str(exc_info.value)

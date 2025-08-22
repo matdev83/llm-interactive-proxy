@@ -6,6 +6,7 @@ import httpx
 import pytest
 from fastapi import HTTPException
 from src.connectors.qwen_oauth import QwenOAuthConnector
+from src.core.common.exceptions import BackendError
 from src.core.domain.chat import ChatMessage, ChatRequest
 from src.core.domain.responses import ResponseEnvelope
 
@@ -69,7 +70,6 @@ class TestQwenOAuthEnhancedErrorHandling:
             assert await connector._refresh_token_if_needed() is True
 
     @pytest.mark.asyncio
-    @pytest.mark.skip("Skipping due to exception type mismatch")
     async def test_chat_completions_generic_error_handling(self, connector):
         """Test generic error handling in chat_completions method."""
         # Setup test data
@@ -77,7 +77,7 @@ class TestQwenOAuthEnhancedErrorHandling:
             model="qwen3-coder-plus",
             messages=[ChatMessage(role="user", content="Hello")],
         )
-        processed_messages = [{"role": "user", "content": "Hello"}]
+        processed_messages = [ChatMessage(role="user", content="Hello")]
 
         # Mock token refresh to succeed and parent class method to raise an exception
         with (
@@ -86,23 +86,18 @@ class TestQwenOAuthEnhancedErrorHandling:
                 "src.connectors.openai.OpenAIConnector.chat_completions",
                 side_effect=Exception("Test error"),
             ),
+            pytest.raises(BackendError) as exc_info
         ):
-
-            # Execute and verify
-            result = await connector.chat_completions(
+            # Execute and verify the exception is wrapped in BackendError
+            await connector.chat_completions(
                 request_data=request,
                 processed_messages=processed_messages,
                 effective_model="qwen3-coder-plus",
             )
-
-            # Verify error response format
-            assert isinstance(result, ResponseEnvelope)
-            assert result.content["object"] == "chat.completion"
-            assert "Test error" in result.content["choices"][0]["message"]["content"]
-            assert result.headers["content-type"] == "application/json"
-            assert result.content["usage"]["prompt_tokens"] == 0
-            assert result.content["usage"]["completion_tokens"] == 0
-            assert result.content["usage"]["total_tokens"] == 0
+        
+        # Verify the BackendError contains the original error message
+        assert "Test error" in str(exc_info.value)
+        assert "Qwen OAuth chat completion failed" in str(exc_info.value)
 
     @pytest.mark.asyncio
     async def test_model_prefix_stripping(self, connector):
