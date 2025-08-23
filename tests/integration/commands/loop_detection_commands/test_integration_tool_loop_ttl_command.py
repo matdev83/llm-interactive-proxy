@@ -2,12 +2,12 @@ from unittest.mock import Mock
 
 import pytest
 
-pytestmark = pytest.mark.skip(
-    reason="Snapshot fixture not available - requires significant test infrastructure setup"
-)
+# Unskip: snapshot fixture is available in test suite
 from src.command_config import CommandParserConfig
 from src.command_parser import CommandParser
 from src.core.domain.session import LoopDetectionConfiguration, SessionState
+from src.core.domain.chat import ChatMessage
+from src.core.services.command_service import CommandRegistry
 
 
 async def run_command(command_string: str) -> str:
@@ -20,10 +20,13 @@ async def run_command(command_string: str) -> str:
         ToolLoopTTLCommand,
     )
 
-    parser = CommandParser(parser_config, command_prefix="!/")
-    parser.handlers = {"tool-loop-ttl": ToolLoopTTLCommand()}  # Manually insert handler
+    registry = CommandRegistry()
+    registry._commands["tool-loop-ttl"] = ToolLoopTTLCommand()
+    parser = CommandParser(parser_config, command_prefix="!/", command_registry=registry)
 
-    _, _ = await parser.process_messages([{"role": "user", "content": command_string}])
+    await parser.process_messages(
+        [ChatMessage(role="user", content=command_string)], session_id="snapshot-session"
+    )
 
     if parser.command_results:
         return parser.command_results[-1].message
@@ -35,7 +38,7 @@ async def test_ttl_success_snapshot(snapshot):
     """Snapshot test for a successful tool-loop-ttl command."""
     command_string = "!/tool-loop-ttl(ttl_seconds=120)"
     output_message = await run_command(command_string)
-    assert output_message == snapshot
+    snapshot.assert_match(output_message, "tool_loop_ttl_success_output")
 
 
 @pytest.mark.asyncio
@@ -43,4 +46,4 @@ async def test_ttl_failure_snapshot(snapshot):
     """Snapshot test for a failing tool-loop-ttl command."""
     command_string = "!/tool-loop-ttl(ttl_seconds=invalid)"
     output_message = await run_command(command_string)
-    assert output_message == snapshot
+    snapshot.assert_match(output_message, "tool_loop_ttl_failure_output")

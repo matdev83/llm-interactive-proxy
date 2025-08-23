@@ -1,0 +1,11 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(find:*)",
+      "Bash(grep -i \"error\\|exception\\|fail\" /mnt/c/Users/Mateusz/source/repos/llm-interactive-proxy/dev/debug/*.log)",
+      "Bash(pytest:*)"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}

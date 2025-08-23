@@ -25,13 +25,17 @@ def mock_request():
     mock.client.host = "127.0.0.1"
     mock.method = "GET"
 
-    # Set up app.state with auth disabled = False to ensure auth checks run
+    # Set up app.state with proper structure for middleware
     mock.app = MagicMock()
     mock.app.state = MagicMock()
+    mock.app.state.client_api_key = None
     mock.app.state.disable_auth = False
+    
+    # Mock the app config structure
     mock.app.state.app_config = MagicMock()
     mock.app.state.app_config.auth = MagicMock()
     mock.app.state.app_config.auth.disable_auth = False
+    mock.app.state.app_config.auth.api_keys = []
 
     return mock
 
@@ -47,7 +51,14 @@ def api_key_middleware():
     """Create an APIKeyMiddleware instance with test keys."""
     app = MagicMock()
     test_keys = ["test-key", "another-test-key"]
-    return APIKeyMiddleware(app, valid_keys=test_keys)
+    middleware = APIKeyMiddleware(app, valid_keys=test_keys)
+    # Mock the application state service for testing
+    middleware.app_state_service = MagicMock()
+    middleware.app_state_service.get_setting.side_effect = lambda key, default=None: {
+        "disable_auth": False,
+        "app_config": MagicMock(auth=MagicMock(disable_auth=False, api_keys=test_keys))
+    }.get(key, default)
+    return middleware
 
 
 @pytest.fixture
@@ -55,7 +66,14 @@ def auth_token_middleware():
     """Create an AuthMiddleware instance with a test token."""
     app = MagicMock()
     test_token = "test-token"
-    return AuthMiddleware(app, valid_token=test_token)
+    middleware = AuthMiddleware(app, valid_token=test_token)
+    # Mock the application state service for testing
+    middleware.app_state_service = MagicMock()
+    middleware.app_state_service.get_setting.side_effect = lambda key, default=None: {
+        "disable_auth": False,
+        "app_config": MagicMock(auth=MagicMock(disable_auth=False, api_keys=[]))
+    }.get(key, default)
+    return middleware
 
 
 class TestAPIKeyMiddleware:
@@ -220,15 +238,6 @@ def client_with_auth(mock_app):
     # Return test client
     return TestClient(mock_app)
 
-    # Return test client
-    return TestClient(mock_app)
-
-    # Return test client
-    return TestClient(mock_app)
-
-    # Return test client
-    return TestClient(mock_app)
-
 
 @pytest.fixture
 def client_with_token_auth(mock_app):
@@ -257,7 +266,6 @@ class TestIntegratedAuthentication:
         assert response.status_code == 200
         assert response.json() == {"message": "Test endpoint"}
 
-    @pytest.mark.skip("Skipping due to auth configuration mismatch in tests")
     def test_api_key_auth_invalid(self, client_with_auth):
         """Test invalid API key authentication."""
         response = client_with_auth.get(
@@ -266,7 +274,6 @@ class TestIntegratedAuthentication:
         assert response.status_code == 401
         assert response.json() == {"detail": HTTP_401_UNAUTHORIZED_MESSAGE}
 
-    @pytest.mark.skip("Skipping due to auth configuration mismatch in tests")
     def test_api_key_auth_missing(self, client_with_auth):
         """Test missing API key."""
         response = client_with_auth.get("/test")
