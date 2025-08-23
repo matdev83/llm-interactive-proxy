@@ -2,46 +2,40 @@ from unittest.mock import Mock
 
 import pytest
 
-# Removed skip marker - now have snapshot fixture available
-from src.command_config import CommandParserConfig
-from src.command_parser import CommandParser
-from src.core.domain.chat import ChatMessage
 from src.core.domain.session import SessionState
 
 
 async def run_command(command_string: str) -> str:
-    parser_config = Mock(spec=CommandParserConfig)
-    parser_config.proxy_state = SessionState()
-    parser_config.app = Mock()
-    parser_config.preserve_unknown = True
-
     from src.core.domain.commands.project_command import ProjectCommand
 
-    parser = CommandParser(parser_config, command_prefix="!/")
-    parser.handlers = {"project": ProjectCommand()}  # Manually insert handler
+    state = SessionState()
+    # parse args like !/project(name=abc)
+    args: dict[str, object] = {}
+    if "(" in command_string and ")" in command_string:
+        arg_part = command_string.split("(", 1)[1].rsplit(")", 1)[0]
+        if "=" in arg_part:
+            key, value = arg_part.split("=", 1)
+            args[key.strip()] = value.strip()
 
-    _, _ = await parser.process_messages(
-        [ChatMessage(role="user", content=command_string)]
-    )
+    class _Session:
+        def __init__(self, state: SessionState) -> None:
+            self.state = state
 
-    if parser.command_results:
-        return parser.command_results[-1].message
-    return ""
+    result = await ProjectCommand().execute(args, _Session(state))
+    return getattr(result, "message", "")
 
 
 @pytest.mark.asyncio
-@pytest.mark.skip("Skipping until command handling in tests is fixed")
 async def test_project_success_snapshot(snapshot):
     """Snapshot test for a successful project command."""
     command_string = "!/project(name=my-awesome-project)"
     output_message = await run_command(command_string)
-    assert output_message == snapshot(output_message)
+    snapshot.assert_match(output_message, "project_success_output")
 
 
 @pytest.mark.asyncio
-@pytest.mark.skip("Skipping until command handling in tests is fixed")
 async def test_project_failure_snapshot(snapshot):
     """Snapshot test for a failing project command."""
     command_string = "!/project(name=)"
     output_message = await run_command(command_string)
-    assert output_message == snapshot(output_message)
+    snapshot.assert_match(output_message, "project_failure_output")
