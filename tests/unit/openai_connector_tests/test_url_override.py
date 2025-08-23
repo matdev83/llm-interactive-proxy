@@ -6,7 +6,6 @@ from src.connectors.openai import OpenAIConnector
 from src.core.domain.chat import ChatMessage, ChatRequest
 
 
-
 @pytest.fixture
 def mock_client():
     # Provide an AsyncMock AsyncClient; tests will set .post/.get return_value

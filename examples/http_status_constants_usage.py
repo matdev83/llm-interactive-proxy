@@ -5,10 +5,9 @@ more maintainable and consistent.
 """
 
 from fastapi import HTTPException
-
 from src.core.constants import (
-    HTTP_503_SERVICE_UNAVAILABLE_MESSAGE,
     HTTP_500_INTERNAL_SERVER_ERROR_MESSAGE,
+    HTTP_503_SERVICE_UNAVAILABLE_MESSAGE,
 )
 
 
@@ -42,4 +41,3 @@ def example_controller_function():
 
 class ServiceUnavailableError(Exception):
     """Custom exception for service unavailability."""
-    pass

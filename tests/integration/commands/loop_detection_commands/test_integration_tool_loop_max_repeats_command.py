@@ -5,8 +5,8 @@ import pytest
 # Unskip: snapshot fixture is available in test suite
 from src.command_config import CommandParserConfig
 from src.command_parser import CommandParser
-from src.core.domain.session import LoopDetectionConfiguration, SessionState
 from src.core.domain.chat import ChatMessage
+from src.core.domain.session import LoopDetectionConfiguration, SessionState
 from src.core.services.command_service import CommandRegistry
 
 

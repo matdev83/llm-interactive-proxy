@@ -15,8 +15,8 @@ def main() -> int:
 
     # Check specific services
     try:
-        from src.core.interfaces.request_processor_interface import IRequestProcessor
         from src.core.app.controllers.chat_controller import ChatController
+        from src.core.interfaces.request_processor_interface import IRequestProcessor
         from src.core.services.request_processor_service import RequestProcessor
     except Exception as e:
         print("Import error:", e)
@@ -33,9 +33,9 @@ def main() -> int:
         for svc in (IRequestProcessor, RequestProcessor, ChatController):
             try:
                 inst = provider.get_service(svc)
-                print(f"{getattr(svc,'__name__')} resolvable:", inst is not None)
+                print(f"{svc.__name__} resolvable:", inst is not None)
             except Exception as e:
-                print(f"{getattr(svc,'__name__')} resolution error:", e)
+                print(f"{svc.__name__} resolution error:", e)
     except Exception as e:
         print("Could not build provider:", e)
 

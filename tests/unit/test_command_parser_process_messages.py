@@ -1,12 +1,12 @@
 from typing import cast
 
 import pytest
-from src.core.domain.chat import ChatMessage, MessageContentPartText
-from src.core.interfaces.command_processor_interface import ICommandProcessor
 
 # For backward compatibility, import the legacy CommandParser too
 # but the tests will now work with either implementation
 from src.command_parser import CommandParser
+from src.core.domain.chat import ChatMessage, MessageContentPartText
+
 from tests.unit.core.test_doubles import MockSuccessCommand
 
 # --- Tests for CommandParser.process_messages ---

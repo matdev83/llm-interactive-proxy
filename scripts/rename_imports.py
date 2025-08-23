@@ -10,7 +10,6 @@ and similarly for services -> *_service.
 
 It auto-detects candidates from the filesystem.
 """
-import os
 import re
 from pathlib import Path
 

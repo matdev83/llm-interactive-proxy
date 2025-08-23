@@ -6,7 +6,8 @@
       "Bash(pytest:*)",
       "Bash(python -m pytest tests/unit/proxy_logic_tests/test_process_commands_in_messages.py::TestProcessCommandsInMessages::test_custom_command_prefix -v)",
       "Bash(python3 -m pytest tests/unit/proxy_logic_tests/test_process_commands_in_messages.py::TestProcessCommandsInMessages::test_custom_command_prefix -v)",
-      "Bash(python3:*)"
+      "Bash(python3:*)",
+      "Bash(ruff check:*)"
     ],
     "deny": [],
     "ask": []

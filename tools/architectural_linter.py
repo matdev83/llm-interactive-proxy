@@ -10,7 +10,6 @@ import ast
 import os
 import sys
 from pathlib import Path
-from typing import List, Dict, Any
 
 
 class ArchitecturalViolation:
@@ -32,7 +31,7 @@ class SOLIDViolationDetector(ast.NodeVisitor):
     
     def __init__(self, file_path: str):
         self.file_path = file_path
-        self.violations: List[ArchitecturalViolation] = []
+        self.violations: list[ArchitecturalViolation] = []
         self.is_domain_layer = '/domain/' in file_path
         self.is_service_layer = '/services/' in file_path
         self.current_class = None
@@ -186,10 +185,10 @@ class SOLIDViolationDetector(ast.NodeVisitor):
             ))
 
 
-def lint_file(file_path: str) -> List[ArchitecturalViolation]:
+def lint_file(file_path: str) -> list[ArchitecturalViolation]:
     """Lint a single Python file for architectural violations."""
     try:
-        with open(file_path, 'r', encoding='utf-8') as f:
+        with open(file_path, encoding='utf-8') as f:
             content = f.read()
         
         tree = ast.parse(content, filename=file_path)
@@ -210,7 +209,7 @@ def lint_file(file_path: str) -> List[ArchitecturalViolation]:
         )]
 
 
-def lint_directory(directory: str, patterns: List[str] = None) -> List[ArchitecturalViolation]:
+def lint_directory(directory: str, patterns: list[str] = None) -> list[ArchitecturalViolation]:
     """Lint all Python files in a directory."""
     if patterns is None:
         patterns = ['**/*.py']

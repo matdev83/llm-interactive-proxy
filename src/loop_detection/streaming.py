@@ -326,7 +326,7 @@ def _detect_simple_repetition(text: str) -> tuple[str | None, int]:
         # Generic short-pattern repetition
         max_token_len = 6
         for size in range(1, max_token_len + 1):
-            for i in range(0, min(len(text), 256) - size * 3 + 1):
+            for i in range(min(len(text), 256) - size * 3 + 1):
                 candidate = text[i : i + size]
                 if not candidate.strip():
                     continue

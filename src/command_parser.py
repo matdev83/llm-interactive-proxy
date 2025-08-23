@@ -6,6 +6,7 @@ from typing import Any, cast
 from fastapi import FastAPI
 
 from src.command_processor import CommandProcessor, get_command_pattern
+from src.constants import DEFAULT_COMMAND_PREFIX
 from src.command_utils import (
     extract_feedback_from_tool_result,
     get_text_for_command_check,
@@ -22,7 +23,13 @@ from src.core.domain.request_context import RequestContext
 from src.core.interfaces.command_processor_interface import ICommandProcessor
 from src.core.interfaces.domain_entities_interface import ISessionState
 from src.core.services.command_service import CommandRegistry
-from src.command_config import CommandProcessorConfig
+from src.command_config import CommandProcessorConfig as NewCommandProcessorConfig
+import logging
+import inspect
+import re
+from typing import Any, cast
+from fastapi import FastAPI # Needed for RequestContext.app type
+
 
 logger = logging.getLogger(__name__)
 
@@ -32,12 +39,11 @@ class CommandParser(ICommandProcessor):
 
     def __init__(
         self,
-        config: "CommandParserConfig",
-        command_prefix: str,
+        command_prefix: str = DEFAULT_COMMAND_PREFIX,
         command_registry: CommandRegistry | None = None,
     ) -> None:
-        self.config = config
         self.command_pattern = get_command_pattern(command_prefix)
+        self.command_results: list[CommandResult] = []
 
         if command_registry:
             self.handlers = command_registry.get_all()
@@ -45,7 +51,6 @@ class CommandParser(ICommandProcessor):
                 f"Using commands from injected registry (ID: {id(command_registry)})"
             )
         else:
-            # Fallback to DI-registered commands or auto-discovery
             di_registry = CommandRegistry.get_instance()
             if di_registry:
                 logger.info(f"Using commands from DI registry (ID: {id(di_registry)})")
@@ -61,13 +66,10 @@ class CommandParser(ICommandProcessor):
             f"Loaded {len(self.handlers)} commands: {list(self.handlers.keys())}"
         )
 
-        # Ensure we have at least some commands (except in test environments)
         if not self.handlers:
             logger.error(
                 "No commands found! Neither injected registry, DI registry nor auto-discovery provided commands."
             )
-
-            # Check if we're in a testing environment - if so, use mock command handlers
             import sys
 
             is_test_env = "pytest" in sys.modules or hasattr(sys, "_called_from_test")
@@ -75,14 +77,10 @@ class CommandParser(ICommandProcessor):
             if is_test_env:
                 logger.warning("Test environment detected, using mock command handlers")
                 try:
-                    # Use the mock commands from tests/unit/mock_commands.py
                     from tests.unit.mock_commands import get_mock_commands
-
                     self.handlers = cast(dict[str, BaseCommand], get_mock_commands())
                 except ImportError:
-                    # Fallback if mock_commands is not available
                     from src.core.domain.commands.help_command import HelpCommand
-
                     self.handlers = cast(
                         dict[str, BaseCommand], {"help": HelpCommand()}
                     )
@@ -92,17 +90,7 @@ class CommandParser(ICommandProcessor):
                     "This indicates a serious configuration issue."
                 )
 
-        self.command_results: list[CommandResult] = []
-
-        processor_config = CommandProcessorConfig(
-            proxy_state=config.proxy_state,
-            app=config.app,
-            command_pattern=self.command_pattern,
-            handlers=self.handlers,
-            preserve_unknown=config.preserve_unknown,
-            command_results=self.command_results,
-        )
-        self.command_processor = CommandProcessor(processor_config)
+        self.command_processor: CommandProcessor | None = None
 
     def register_command(self, command: BaseCommand) -> None:
         self.handlers[command.name.lower()] = command
@@ -128,25 +116,42 @@ class CommandParser(ICommandProcessor):
         return get_text_for_command_check(content)
 
     async def _execute_commands_in_target_message(
-        self, target_idx: int, modified_messages: list[ChatMessage]
+        self,
+        target_idx: int,
+        modified_messages: list[ChatMessage],
+        context: RequestContext | None,
     ) -> bool:
         """Processes commands in the specified message and updates it.
         Returns True if a command was found and an attempt to execute it was made.
         """
         msg_to_process = modified_messages[target_idx]
         original_content = msg_to_process.content
+
+        if self.command_processor is None:
+            if context is None or context.app is None or context.session is None:
+                logger.error("CommandProcessor cannot be initialized without a valid context (app and session).")
+                return False
+
+            processor_config = NewCommandProcessorConfig(
+                proxy_state=context.session.state,
+                app=context.app,
+                command_pattern=self.command_pattern,
+                handlers=self.handlers,
+                preserve_unknown=True,
+                command_results=self.command_results,
+            )
+            self.command_processor = CommandProcessor(processor_config)
+
+
         processed_content, found, modified = await self._process_content(msg_to_process)
         if not found:
             return False
 
-        # Handle async command results
         if self.command_results:
             new_results: list = []
             for cr in self.command_results:
                 if inspect.isawaitable(cr):
-                    # Create a new event loop to run the awaitable
                     import asyncio
-
                     loop = asyncio.new_event_loop()
                     try:
                         result = loop.run_until_complete(cr)
@@ -157,8 +162,6 @@ class CommandParser(ICommandProcessor):
                     new_results.append(cr)
             self.command_results = new_results
 
-        # Check if this is a pure command message (the entire message is just the command)
-        # If so, clear its content regardless of processed_content
         if self._is_original_purely_command(original_content):
             if isinstance(original_content, str):
                 processed_content = ""
@@ -178,6 +181,9 @@ class CommandParser(ICommandProcessor):
     async def _process_content(
         self, msg_to_process: ChatMessage
     ) -> tuple[str | list[MessageContentPart] | None, bool, bool]:
+        if self.command_processor is None:
+            raise RuntimeError("CommandProcessor not initialized.")
+
         if isinstance(msg_to_process.content, str):
             return await self.command_processor.handle_string_content(
                 msg_to_process.content
@@ -200,7 +206,6 @@ class CommandParser(ICommandProcessor):
             and self.command_results
         ):
             last_result = self.command_results[-1]
-            # Handle async command result
             if inspect.isawaitable(last_result):
                 last_result = await last_result
             if not last_result.success and last_result.message:
@@ -227,7 +232,6 @@ class CommandParser(ICommandProcessor):
             and processed_content is None
             and isinstance(original_content, list)
         ):
-            # Entire list content was consumed by the.
             msg_to_process.content = []
             logger.info(
                 "List content removed by command in message index %s. Role: %s.",
@@ -248,7 +252,6 @@ class CommandParser(ICommandProcessor):
             if is_empty:
                 original_content = original_messages[original_msg_idx].content
                 if is_original_purely_command(original_content, self.command_pattern):
-                    # Pure command became empty. Retain it, ensuring content is canonical empty.
                     current_msg_state.content = (
                         [] if isinstance(original_content, list) else ""
                     )
@@ -284,7 +287,6 @@ class CommandParser(ICommandProcessor):
                 command_results=[],
             )
 
-        # Find the index of the last message containing a command to avoid unnecessary processing.
         command_message_idx = -1
         for i in range(len(messages) - 1, -1, -1):
             text_for_check = get_text_for_command_check(messages[i].content)
@@ -292,7 +294,6 @@ class CommandParser(ICommandProcessor):
                 command_message_idx = i
                 break
 
-        # If no command is found, return the original list reference, avoiding any copies.
         if command_message_idx == -1:
             return ProcessedResult(
                 modified_messages=messages,
@@ -300,18 +301,14 @@ class CommandParser(ICommandProcessor):
                 command_results=[],
             )
 
-        # A command was found. Create a shallow copy of the list and deep copy only the message
-        # that needs to be modified. This is the core performance optimization.
         modified_messages = list(messages)
         msg_to_process = modified_messages[command_message_idx].model_copy(deep=True)
         modified_messages[command_message_idx] = msg_to_process
 
         overall_commands_processed = await self._execute_commands_in_target_message(
-            command_message_idx, modified_messages
+            command_message_idx, modified_messages, context
         )
 
-        # The original filtering logic is now safe to use because we have both the
-        # modified list and the original list for comparison.
         final_messages = self._filter_empty_messages(modified_messages, messages)
 
         if not final_messages and overall_commands_processed:
@@ -343,24 +340,36 @@ async def _process_text_for_commands(
     # This function is primarily for testing and specific internal uses where a
     # CommandParser instance is not fully initialized with all handlers.
     # It creates a minimal parser to process a single text string.
-    parser_config = CommandParserConfig(
+    # To avoid circular imports, CommandParserConfig is not used here.
+    # Instead, we pass the necessary components directly.
+    # This function will be removed once CommandParser is fully integrated.
+    
+    # Create a mock context for the temporary CommandParser instance
+    from src.core.domain.session import Session
+    mock_session = Session(session_id="temp-session", state=current_proxy_state)
+    mock_context = RequestContext(app=app, session=mock_session)
+
+    parser = CommandParser(command_prefix="")
+    parser.command_pattern = command_pattern # Override the command_pattern as it's passed directly for this helper
+
+    # Manually initialize the internal command_processor for this temporary parser
+    # This is a hack for legacy function _process_text_for_commands
+    processor_config = NewCommandProcessorConfig(
         proxy_state=current_proxy_state,
         app=app,
+        command_pattern=command_pattern,
+        handlers=parser.handlers, # Use the handlers discovered by the temporary parser
         preserve_unknown=True,
-        functional_backends=functional_backends,
+        command_results=parser.command_results,
     )
-    parser = CommandParser(parser_config, command_prefix="")
-    # Override the command_pattern as it's passed directly for this helper
-    parser.command_pattern = command_pattern
-    # Use the internal command_processor for actual text processing
+    parser.command_processor = CommandProcessor(processor_config)
+    
     (
         processed_text,
         commands_found,
         _,
     ) = await parser.command_processor.handle_string_content(text_content)
 
-    # For tests relying on this helper, if a command-only message was processed
-    # and failed, return the error message from the command execution.
     if commands_found and not processed_text.strip() and parser.command_results:
         last_result = parser.command_results[-1]
         if not last_result.success and last_result.message:
@@ -371,14 +380,12 @@ async def _process_text_for_commands(
 
 async def process_commands_in_messages(
     messages: list[ChatMessage],
-    current_proxy_state: ISessionState,
     app: FastAPI | None = None,
     command_prefix: str = DEFAULT_COMMAND_PREFIX,
     context: RequestContext | None = None,
 ) -> tuple[list[ChatMessage], bool]:
     """
     Processes a list of chat messages to identify and execute embedded commands.
-
     This is the primary public interface for command processing. It initializes
     a CommandParser and uses it to process the messages.
     """
@@ -386,29 +393,20 @@ async def process_commands_in_messages(
         logger.debug("process_commands_in_messages received empty messages list.")
         return messages, False
 
-    functional_backends: set[str] | None = None
-    if app and hasattr(app, "state") and hasattr(app.state, "functional_backends"):
-        functional_backends = app.state.functional_backends
-    else:
-        logger.warning(
-            "FastAPI app instance or functional_backends not available in "
-            "app.state. CommandParser will be initialized without specific "
-            "functional_backends."
-        )
+    parser = CommandParser(command_prefix=command_prefix)
 
-    parser_config = CommandParserConfig(
-        proxy_state=current_proxy_state,
-        app=app,  # type: ignore
-        preserve_unknown=True,
-        functional_backends=functional_backends,
-    )
-    parser = CommandParser(parser_config, command_prefix=command_prefix)
+    if context is None:
+        from src.core.domain.session import Session, SessionState
+        
+        # Create a minimal context if not provided
+        mock_session_state = SessionState()
+        mock_session = Session(session_id="default-session-id", state=mock_session_state)
+        context = RequestContext(app=app, session=mock_session)
+    
+    # Ensure app is in context if provided directly to this function
+    if app and context.app is None:
+        context.app = app
 
-    session_id = (
-        context.session_id
-        if context and context.session_id is not None
-        else "default-session-id"
-    )
-    result = await parser.process_messages(messages, session_id, context)
+    result = await parser.process_messages(messages, "unused_session_id", context)
 
     return result.modified_messages, result.command_executed

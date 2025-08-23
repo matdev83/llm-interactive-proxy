@@ -14,7 +14,7 @@ def main() -> None:
     conf = getattr(app.state, "app_config", None)
 
     print(f"service_provider: {bool(sp)}")
-    print(f"service_provider repr: {repr(sp)}")
+    print(f"service_provider repr: {sp!r}")
 
     if conf is None:
         print("app_config: None")

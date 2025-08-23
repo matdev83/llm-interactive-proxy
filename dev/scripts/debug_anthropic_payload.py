@@ -1,12 +1,20 @@
 """Debug Anthropic payload builder."""
-from pathlib import Path
 import sys
+from pathlib import Path
+
 project_root = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(project_root))
 
-from src.connectors.anthropic import AnthropicBackend
-from src.core.domain.chat import ChatRequest, ChatMessage, ToolDefinition, FunctionDefinition
 from unittest.mock import AsyncMock
+
+from src.connectors.anthropic import AnthropicBackend
+from src.core.domain.chat import (
+    ChatMessage,
+    ChatRequest,
+    FunctionDefinition,
+    ToolDefinition,
+)
+
 
 async def main():
     client = AsyncMock()
@@ -35,6 +43,7 @@ async def main():
     print(payload)
 
 import asyncio
+
 asyncio.run(main())
 
 

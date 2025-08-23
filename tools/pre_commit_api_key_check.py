@@ -1,10 +1,9 @@
-import os
-import sys
-import re
-import yaml
-from pathlib import Path
 import subprocess
+import sys
 import types
+from pathlib import Path
+
+import yaml
 
 # Add the project root to the sys.path to import project modules
 project_root = Path(__file__).resolve().parents[1]
@@ -12,9 +11,10 @@ sys.path.insert(0, str(project_root))
 
 from src.core.common.logging_utils import discover_api_keys_from_config_and_env
 
+
 def load_config_from_yaml(config_path: Path):
     """Loads configuration from a YAML file and converts it to a SimpleNamespace object."""
-    with open(config_path, 'r') as f:
+    with open(config_path) as f:
         config_dict = yaml.safe_load(f)
 
     # Convert dictionary to a SimpleNamespace to mimic object access
@@ -39,7 +39,7 @@ def get_staged_files_content():
                 full_path = project_root / file_path
                 if full_path.is_file():
                     try:
-                        with open(full_path, 'r', encoding='utf-8') as f:
+                        with open(full_path, encoding='utf-8') as f:
                             file_contents[file_path] = f.read()
                     except Exception as e:
                         print(f"Warning: Could not read file {file_path}: {e}", file=sys.stderr)

@@ -14,7 +14,7 @@ if str(project_root) not in sys.path:
     sys.path.insert(0, str(project_root))
 
 from src.connectors.gemini import GeminiBackend
-from src.core.domain.chat import ChatRequest, ChatMessage
+from src.core.domain.chat import ChatMessage, ChatRequest
 
 
 async def main() -> None:
