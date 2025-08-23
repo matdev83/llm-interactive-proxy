@@ -123,7 +123,6 @@ def test_openai_frontend_to_gemini_backend_multimodal(client):
         # The important thing is that the request succeeds and returns the expected format
 
 
-@pytest.mark.skip(reason="Global mock interferes with AsyncMock - needs investigation")
 def test_gemini_frontend_to_openai_backend_multimodal(client):
     # Ensure openrouter backend exists via BackendService and patch it
     from src.core.interfaces.backend_service_interface import IBackendService

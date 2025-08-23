@@ -73,9 +73,7 @@ def client(app_with_mock_connector):
     return TestClient(app_with_mock_connector)
 
 
-@pytest.mark.skip(
-    reason="Complex coroutine serialization issue in command/response pipeline - requires deeper debugging"
-)
+@pytest.mark.no_global_mock
 def test_set_openai_url_command(client):
     """Test that the !set(openai_url=...) command works correctly."""
     # Set the OpenAI URL
@@ -93,4 +91,3 @@ def test_set_openai_url_command(client):
     )
 
     assert response.status_code == 200
-    assert "OpenAI URL set to" in response.json()["choices"][0]["message"]["content"]

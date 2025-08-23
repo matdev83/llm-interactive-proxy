@@ -5,7 +5,6 @@ from typing import Any, cast
 
 from fastapi import FastAPI
 
-from src.command_config import CommandParserConfig, CommandProcessorConfig
 from src.command_processor import CommandProcessor, get_command_pattern
 from src.command_utils import (
     extract_feedback_from_tool_result,
@@ -14,7 +13,6 @@ from src.command_utils import (
     is_original_purely_command,
     is_tool_call_result,
 )
-from src.constants import DEFAULT_COMMAND_PREFIX
 from src.core.domain.chat import ChatMessage, MessageContentPart
 from src.core.domain.command_results import CommandResult
 from src.core.domain.commands.base_command import BaseCommand
@@ -24,6 +22,7 @@ from src.core.domain.request_context import RequestContext
 from src.core.interfaces.command_processor_interface import ICommandProcessor
 from src.core.interfaces.domain_entities_interface import ISessionState
 from src.core.services.command_service import CommandRegistry
+from src.command_config import CommandProcessorConfig
 
 logger = logging.getLogger(__name__)
 

@@ -455,12 +455,37 @@ def setup_test_command_registry() -> Any:
 
 
 # Function to get a backend instance for tests
-def get_backend_instance() -> Any:
+def get_backend_instance(app: FastAPI | None = None, name: str | None = None) -> Any:
     """Get a backend instance for tests.
 
+    If `app` and `name` are provided, attempt to retrieve the backend instance
+    from the app's service provider; otherwise return a simple mock backend.
+
+    Args:
+        app: Optional FastAPI app to resolve real backend service
+        name: Optional backend name to fetch (e.g., "openrouter")
+
     Returns:
-        Any: A backend instance
+        Any: A backend instance or mock
     """
+    try:
+        if app is not None and name is not None and hasattr(app, "state"):
+            from src.core.interfaces.backend_service_interface import IBackendService
+
+            service_provider = getattr(app.state, "service_provider", None)
+            if service_provider is not None:
+                backend_service = service_provider.get_required_service(IBackendService)
+                # Prefer public accessor if available; fallback to internal mapping
+                backend = getattr(backend_service, "get_backend", None)
+                if callable(backend):
+                    return backend(name)
+                backends_map = getattr(backend_service, "_backends", None)
+                if isinstance(backends_map, dict) and name in backends_map:
+                    return backends_map[name]
+    except Exception:
+        pass
+
+    # Fallback: return a basic mock backend
     mock_backend = MagicMock(spec=LLMBackend)
     mock_backend.chat_completions = AsyncMock(
         return_value=MagicMock(
@@ -496,7 +521,16 @@ def get_session_service_from_app(app: FastAPI) -> Any:
     Returns:
         Any: A session service
     """
-    return app.state.session_service
+    try:
+        return app.state.session_service
+    except AttributeError:
+        # Resolve via DI container if not exposed on app.state
+        from src.core.interfaces.session_service_interface import ISessionService
+
+        service_provider = getattr(app.state, "service_provider", None)
+        if service_provider is None:
+            raise
+        return service_provider.get_required_service(ISessionService)
 
 
 @pytest.fixture

@@ -3,7 +3,10 @@
     "allow": [
       "Bash(find:*)",
       "Bash(grep -i \"error\\|exception\\|fail\" /mnt/c/Users/Mateusz/source/repos/llm-interactive-proxy/dev/debug/*.log)",
-      "Bash(pytest:*)"
+      "Bash(pytest:*)",
+      "Bash(python -m pytest tests/unit/proxy_logic_tests/test_process_commands_in_messages.py::TestProcessCommandsInMessages::test_custom_command_prefix -v)",
+      "Bash(python3 -m pytest tests/unit/proxy_logic_tests/test_process_commands_in_messages.py::TestProcessCommandsInMessages::test_custom_command_prefix -v)",
+      "Bash(python3:*)"
     ],
     "deny": [],
     "ask": []
