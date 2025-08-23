@@ -24,7 +24,7 @@ def fix_indentation(file_path: Path) -> bool:
         content = f.read()
 
     # Check if the file has the indentation issue
-    pattern = r"if TYPE_CHECKING:[\r\n]+\s+# Removed legacy import"
+    pattern = r"if TYPE_CHECKING:[\r\n]+\s+pass  # No imports needed"
     if not re.search(pattern, content):
         return False
 

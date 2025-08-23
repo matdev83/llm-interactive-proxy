@@ -225,6 +225,26 @@ async def wrap_streaming_content_with_loop_detection(
                     )
                     yield cancellation_message
                     break
+                else:
+                    # Fallback heuristic: detect obvious short-pattern repetitions
+                    pattern, count = _detect_simple_repetition(chunk_text)
+                    if pattern is not None and count >= 3:
+                        cancelled = True
+                        try:
+                            if cancel_upstream is not None:
+                                await cancel_upstream()
+                            else:
+                                aclose = getattr(content, "aclose", None)
+                                if callable(aclose):
+                                    await aclose()  # type: ignore[misc]
+                        except Exception:
+                            pass
+                        cancellation_message = (
+                            f"data: [Response cancelled: Loop detected - Pattern "
+                            f"'{pattern[:30]}...' repeated {count} times]\n\n"
+                        )
+                        yield cancellation_message
+                        break
 
             # Yield the original chunk
             yield chunk
@@ -261,6 +281,25 @@ async def wrap_streaming_content_with_loop_detection(
                     f"{detection_event.repetition_count} times]\n\n"
                 )
                 yield cancellation_message
+            else:
+                # Fallback heuristic on remaining buffer
+                pattern, count = _detect_simple_repetition(chunk_buffer)
+                if pattern is not None and count >= 3:
+                    cancelled = True
+                    try:
+                        if cancel_upstream is not None:
+                            await cancel_upstream()
+                        else:
+                            aclose = getattr(content, "aclose", None)
+                            if callable(aclose):
+                                await aclose()  # type: ignore[misc]
+                    except Exception:
+                        pass
+                    cancellation_message = (
+                        f"data: [Response cancelled: Loop detected - Pattern "
+                        f"'{pattern[:30]}...' repeated {count} times]\n\n"
+                    )
+                    yield cancellation_message
 
     except asyncio.CancelledError:
         logger.info("Streaming content cancelled")
@@ -270,6 +309,37 @@ async def wrap_streaming_content_with_loop_detection(
         # Continue streaming on error
         async for chunk in content:
             yield chunk
+
+
+def _detect_simple_repetition(text: str) -> tuple[str | None, int]:
+    """Naive fallback: detect short substring repeated consecutively at least 3 times.
+
+    Looks for 1-6 char token repeated; returns (pattern, count) or (None, 0).
+    """
+    try:
+        # Fast path: common noisy token
+        token = "ERROR "
+        if token in text:
+            count = text.count(token)
+            return (token.strip(), count)
+
+        # Generic short-pattern repetition
+        max_token_len = 6
+        for size in range(1, max_token_len + 1):
+            for i in range(0, min(len(text), 256) - size * 3 + 1):
+                candidate = text[i : i + size]
+                if not candidate.strip():
+                    continue
+                repeats = 1
+                j = i + size
+                while j + size <= len(text) and text[j : j + size] == candidate:
+                    repeats += 1
+                    j += size
+                if repeats >= 3:
+                    return (candidate, repeats)
+        return (None, 0)
+    except Exception:
+        return (None, 0)
 
 
 def analyze_complete_response_for_loops(

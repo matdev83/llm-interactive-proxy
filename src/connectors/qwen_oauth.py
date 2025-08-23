@@ -28,8 +28,9 @@ from src.core.services.backend_registry import backend_registry
 from .openai import OpenAIConnector
 
 if TYPE_CHECKING:
+    from src.core.domain.configuration.app_identity_config import IAppIdentityConfig
+
     # No legacy ChatCompletionRequest here; connectors should use domain ChatRequest
-    pass
 
 logger = logging.getLogger(__name__)
 
@@ -286,6 +287,7 @@ class QwenOAuthConnector(OpenAIConnector):
         request_data: DomainModel | InternalDTO | dict[str, Any],
         processed_messages: list[Any],
         effective_model: str,
+        identity: "IAppIdentityConfig | None" = None,
         **kwargs: Any,
     ) -> ResponseEnvelope | StreamingResponseEnvelope:
         # Normalize incoming request to ChatRequest
@@ -315,17 +317,19 @@ class QwenOAuthConnector(OpenAIConnector):
                 modified_request = request_data.model_copy(update={"model": model_name})
             except Exception:
                 # Fallback: build a new ChatRequest dict
-                modified_request = ChatRequest(
-                    model=model_name,
-                    messages=request_data.messages,
-                    temperature=getattr(request_data, "temperature", None),
-                    top_p=getattr(request_data, "top_p", None),
-                    max_tokens=getattr(request_data, "max_tokens", None),
-                    stream=getattr(request_data, "stream", None),
-                    tools=getattr(request_data, "tools", None),
-                    tool_choice=getattr(request_data, "tool_choice", None),
-                    session_id=getattr(request_data, "session_id", None),
-                    extra_body=getattr(request_data, "extra_body", None),
+                modified_request = request_data.model_copy(
+                    update={
+                        "model": model_name,
+                        "messages": request_data.messages,
+                        "temperature": getattr(request_data, "temperature", None),
+                        "top_p": getattr(request_data, "top_p", None),
+                        "max_tokens": getattr(request_data, "max_tokens", None),
+                        "stream": getattr(request_data, "stream", None),
+                        "tools": getattr(request_data, "tools", None),
+                        "tool_choice": getattr(request_data, "tool_choice", None),
+                        "session_id": getattr(request_data, "session_id", None),
+                        "extra_body": getattr(request_data, "extra_body", None),
+                    }
                 )
 
             # Call the parent class method to handle the actual API request
@@ -345,7 +349,9 @@ class QwenOAuthConnector(OpenAIConnector):
         except Exception as e:
             # Convert other exceptions to BackendError
             logger.error(f"Error in Qwen OAuth chat_completions: {e}")
-            raise BackendError(message=f"Qwen OAuth chat completion failed: {e!s}") from e
+            raise BackendError(
+                message=f"Qwen OAuth chat completion failed: {e!s}"
+            ) from e
 
 
 backend_registry.register_backend("qwen-oauth", QwenOAuthConnector)

@@ -13,7 +13,7 @@ from fastapi.testclient import TestClient
 from src.core.domain.chat import ChatResponse
 from src.core.interfaces.backend_service_interface import IBackendService
 from src.core.services.loop_detector_service import LoopDetector
-from src.core.services.response_middleware_service import LoopDetectionMiddleware
+from src.core.services.response_middleware import LoopDetectionMiddleware
 from src.core.services.response_processor_service import ResponseProcessor
 
 

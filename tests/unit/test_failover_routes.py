@@ -1,10 +1,9 @@
-from typing import Any, cast
+from typing import cast
 from unittest.mock import Mock
 
 import pytest
 from src.core.domain.configuration.backend_config import BackendConfiguration
 from src.core.domain.session import Session, SessionState, SessionStateAdapter
-from src.core.interfaces.configuration_interface import IBackendConfig
 
 
 class TestFailoverRoutes:

@@ -39,6 +39,7 @@ class ApplicationTestBuilder(ApplicationBuilder):
     This builder provides convenient methods for creating test applications
     with different levels of mocking and service replacement.
     """
+
     # Prevent pytest from collecting this as a test class
     __test__ = False
 
@@ -146,10 +147,10 @@ class ApplicationTestBuilder(ApplicationBuilder):
         from src.core.services.application_state_service import (
             get_default_application_state,
         )
-        
+
         app_state_service = get_default_application_state()
         app_state_service.set_state_provider(new_app.state)
-        
+
         # Copy important state attributes through the abstraction
         for attr in ["app_config", "httpx_client", "disable_auth"]:
             if hasattr(new_app.state, attr):
@@ -182,10 +183,10 @@ class ApplicationTestBuilder(ApplicationBuilder):
         from src.core.services.application_state_service import (
             get_default_application_state,
         )
-        
+
         app_state_service = get_default_application_state()
         app_state_service.set_state_provider(app.state)
-        
+
         if not hasattr(app.state, "service_provider") or not app.state.service_provider:
             await self._initialize_services(app, config)
 
@@ -354,9 +355,7 @@ def create_test_config() -> AppConfig:
     default_backend = os.environ.get("LLM_BACKEND", "openai")
 
     # Set up backend config based on the default backend
-    backend_settings = BackendSettings(
-        default_backend=default_backend,
-    )
+    backend_settings = BackendSettings(default_backend=default_backend)
 
     # Always include openai as a fallback
     backend_settings.__dict__["openai"] = BackendConfig(api_key=["test_key"])
@@ -388,20 +387,20 @@ def create_test_config() -> AppConfig:
 def build_httpx_mock_test_app(config: AppConfig | None = None) -> FastAPI:
     """
     Build a test app with real backends for HTTP mocking tests.
-    
+
     This uses real backend services that make HTTP calls, which can then
     be mocked using HTTPXMock or similar tools. This is useful for tests
     that need to mock HTTP responses but want to test the full request flow.
-    
+
     Args:
         config: Test configuration, defaults to basic test config
-    
+
     Returns:
         FastAPI application with real backends for HTTP mocking
     """
     if config is None:
         config = create_test_config()
-    
+
     # Use real backend services for HTTP mocking
     builder = (
         ApplicationTestBuilder()
@@ -412,7 +411,7 @@ def build_httpx_mock_test_app(config: AppConfig | None = None) -> FastAPI:
         .add_stage(ProcessorStage())
         .add_stage(ControllerStage())
     )
-    
+
     return cast(FastAPI, asyncio.run(builder.build(config)))
 
 
@@ -458,7 +457,9 @@ def build_unit_test_app(
 
     builder: ApplicationTestBuilder = ApplicationTestBuilder()
     builder = builder.add_stage(CoreServicesStage())  # type: ignore[assignment]
-    builder = builder.add_custom_stage("unit_test_mocks", services_to_mock, ["core_services"])  # type: ignore[assignment]
+    builder = builder.add_custom_stage(
+        "unit_test_mocks", services_to_mock, ["core_services"]
+    )  # type: ignore[assignment]
 
     return cast(FastAPI, asyncio.run(builder.build(config)))
 

@@ -24,9 +24,7 @@ class BackendProcessor(IBackendProcessor):
     """Implementation of the backend processor interface."""
 
     def __init__(
-        self,
-        backend_service: IBackendService,
-        session_service: ISessionService,
+        self, backend_service: IBackendService, session_service: ISessionService
     ) -> None:
         """Initialize the backend processor.
 
@@ -75,17 +73,19 @@ class BackendProcessor(IBackendProcessor):
                 }
 
             # Get failover routes from session and add them to extra_body
-            failover_routes = None
+            failover_routes: list[dict[str, Any]] | None = None
             if context:
                 # Use application state service instead of direct state access
                 from src.core.services.application_state_service import (
                     get_default_application_state,
                 )
-                
+
                 app_state_service = get_default_application_state()
                 failover_routes = app_state_service.get_failover_routes()
             elif hasattr(session.state.backend_config, "failover_routes"):
-                failover_routes = session.state.backend_config.failover_routes
+                _failover_routes = session.state.backend_config.failover_routes
+                if isinstance(_failover_routes, list):
+                    failover_routes = _failover_routes
 
             if failover_routes:
                 extra_body_dict["failover_routes"] = failover_routes

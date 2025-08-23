@@ -1,7 +1,7 @@
 import inspect
 import logging
 import re
-from typing import Any
+from typing import Any, cast
 
 from fastapi import FastAPI
 
@@ -19,51 +19,53 @@ from src.core.domain.chat import ChatMessage, MessageContentPart
 from src.core.domain.command_results import CommandResult
 from src.core.domain.commands.base_command import BaseCommand
 from src.core.domain.commands.discovery import discover_commands
+from src.core.domain.processed_result import ProcessedResult
+from src.core.domain.request_context import RequestContext
+from src.core.interfaces.command_processor_interface import ICommandProcessor
 from src.core.interfaces.domain_entities_interface import ISessionState
-
-# Removed legacy import
-
-# Removed legacy import
+from src.core.services.command_service import CommandRegistry
 
 logger = logging.getLogger(__name__)
 
 
-class CommandParser:
+class CommandParser(ICommandProcessor):
     """Parse and apply proxy commands embedded in chat messages."""
 
     def __init__(
         self,
         config: "CommandParserConfig",
         command_prefix: str,
+        command_registry: CommandRegistry | None = None,
     ) -> None:
         self.config = config
         self.command_pattern = get_command_pattern(command_prefix)
 
-        # Always try to get DI-registered commands first, fall back to discovery if not available
-        from src.core.services.command_service import CommandRegistry
-
-        di_registry = CommandRegistry.get_instance()
-
-        if di_registry:
-            logger.info("Using commands from DI registry")
-            self.handlers = di_registry.get_all()
-            logger.debug(
-                f"Loaded {len(self.handlers)} commands from DI registry: {list(self.handlers.keys())}"
+        if command_registry:
+            self.handlers = command_registry.get_all()
+            logger.info(
+                f"Using commands from injected registry (ID: {id(command_registry)})"
             )
         else:
-            logger.warning(
-                "DI command registry not available, falling back to auto-discovery. "
-                "This may miss commands that require dependency injection."
-            )
-            self.handlers = discover_commands()
-            logger.debug(
-                f"Discovered {len(self.handlers)} commands via auto-discovery: {list(self.handlers.keys())}"
-            )
+            # Fallback to DI-registered commands or auto-discovery
+            di_registry = CommandRegistry.get_instance()
+            if di_registry:
+                logger.info(f"Using commands from DI registry (ID: {id(di_registry)})")
+                self.handlers = di_registry.get_all()
+            else:
+                logger.warning(
+                    "DI command registry not available, falling back to auto-discovery. "
+                    "This may miss commands that require dependency injection."
+                )
+                self.handlers = discover_commands()
+
+        logger.debug(
+            f"Loaded {len(self.handlers)} commands: {list(self.handlers.keys())}"
+        )
 
         # Ensure we have at least some commands (except in test environments)
         if not self.handlers:
             logger.error(
-                "No commands found! Both DI registry and auto-discovery failed."
+                "No commands found! Neither injected registry, DI registry nor auto-discovery provided commands."
             )
 
             # Check if we're in a testing environment - if so, use mock command handlers
@@ -77,12 +79,14 @@ class CommandParser:
                     # Use the mock commands from tests/unit/mock_commands.py
                     from tests.unit.mock_commands import get_mock_commands
 
-                    self.handlers = get_mock_commands()
+                    self.handlers = cast(dict[str, BaseCommand], get_mock_commands())
                 except ImportError:
                     # Fallback if mock_commands is not available
                     from src.core.domain.commands.help_command import HelpCommand
 
-                    self.handlers = {"help": HelpCommand()}
+                    self.handlers = cast(
+                        dict[str, BaseCommand], {"help": HelpCommand()}
+                    )
             else:
                 raise RuntimeError(
                     "Command initialization failed: No commands available. "
@@ -267,12 +271,19 @@ class CommandParser:
         return final_messages
 
     async def process_messages(
-        self, messages: list[ChatMessage]
-    ) -> tuple[list[ChatMessage], bool]:
+        self,
+        messages: list[ChatMessage],
+        session_id: str,
+        context: RequestContext | None = None,
+    ) -> ProcessedResult:
         self.command_results.clear()
         if not messages:
             logger.debug("process_messages received empty messages list.")
-            return messages, False
+            return ProcessedResult(
+                modified_messages=messages,
+                command_executed=False,
+                command_results=[],
+            )
 
         # Find the index of the last message containing a command to avoid unnecessary processing.
         command_message_idx = -1
@@ -284,7 +295,11 @@ class CommandParser:
 
         # If no command is found, return the original list reference, avoiding any copies.
         if command_message_idx == -1:
-            return messages, False
+            return ProcessedResult(
+                modified_messages=messages,
+                command_executed=False,
+                command_results=[],
+            )
 
         # A command was found. Create a shallow copy of the list and deep copy only the message
         # that needs to be modified. This is the core performance optimization.
@@ -312,7 +327,11 @@ class CommandParser:
             len(final_messages),
             overall_commands_processed,
         )
-        return final_messages, overall_commands_processed
+        return ProcessedResult(
+            modified_messages=final_messages,
+            command_executed=overall_commands_processed,
+            command_results=self.command_results,
+        )
 
 
 async def _process_text_for_commands(
@@ -335,9 +354,11 @@ async def _process_text_for_commands(
     # Override the command_pattern as it's passed directly for this helper
     parser.command_pattern = command_pattern
     # Use the internal command_processor for actual text processing
-    processed_text, commands_found, _ = (
-        await parser.command_processor.handle_string_content(text_content)
-    )
+    (
+        processed_text,
+        commands_found,
+        _,
+    ) = await parser.command_processor.handle_string_content(text_content)
 
     # For tests relying on this helper, if a command-only message was processed
     # and failed, return the error message from the command execution.
@@ -354,6 +375,7 @@ async def process_commands_in_messages(
     current_proxy_state: ISessionState,
     app: FastAPI | None = None,
     command_prefix: str = DEFAULT_COMMAND_PREFIX,
+    context: RequestContext | None = None,
 ) -> tuple[list[ChatMessage], bool]:
     """
     Processes a list of chat messages to identify and execute embedded commands.
@@ -372,7 +394,7 @@ async def process_commands_in_messages(
         logger.warning(
             "FastAPI app instance or functional_backends not available in "
             "app.state. CommandParser will be initialized without specific "
-            "functional_backends.",
+            "functional_backends."
         )
 
     parser_config = CommandParserConfig(
@@ -383,6 +405,11 @@ async def process_commands_in_messages(
     )
     parser = CommandParser(parser_config, command_prefix=command_prefix)
 
-    final_messages, commands_processed = await parser.process_messages(messages)
+    session_id = (
+        context.session_id
+        if context and context.session_id is not None
+        else "default-session-id"
+    )
+    result = await parser.process_messages(messages, session_id, context)
 
-    return final_messages, commands_processed
+    return result.modified_messages, result.command_executed

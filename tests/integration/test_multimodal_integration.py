@@ -104,33 +104,6 @@ class TestMultimodalIntegration:
         assert gemini_format["parts"][0]["text"] == "Describe this image:"
         assert "inline_data" in gemini_format["parts"][1]
 
-    def test_legacy_compatibility(self):
-        """Test compatibility with legacy message format."""
-        # Create a legacy message
-        legacy_message = {
-            "role": "user",
-            "content": "Hello, world!",
-            "name": "test_user",
-        }
-
-        # Convert to multimodal message
-        multimodal_message = MultimodalMessage.from_legacy_message(legacy_message)
-
-        # Verify the conversion
-        assert multimodal_message.role == "user"
-        assert multimodal_message.name == "test_user"
-        assert isinstance(multimodal_message.content, list)
-        assert len(multimodal_message.content) == 1
-        assert multimodal_message.content[0].type == ContentType.TEXT
-        assert multimodal_message.content[0].data == "Hello, world!"
-
-        # Convert back to legacy format
-        back_to_legacy = multimodal_message.to_legacy_format()
-
-        # Verify the conversion back
-        assert back_to_legacy["role"] == legacy_message["role"]
-        assert back_to_legacy["name"] == legacy_message["name"]
-        assert back_to_legacy["content"] == legacy_message["content"]
 
     def test_complex_multimodal_message(self):
         """Test a complex multimodal message with multiple content parts."""
@@ -160,9 +133,6 @@ class TestMultimodalIntegration:
         text_content = message.get_text_content()
         assert text_content == "Here are some images: Please describe them."
 
-        # Convert to legacy format
-        legacy_format = message.to_legacy_format()
-        assert legacy_format["content"] == "Here are some images: Please describe them."
 
         # Convert to OpenAI format
         openai_format = message.to_backend_format("openai")
@@ -212,6 +182,3 @@ class TestMultimodalIntegration:
         text_content = message.get_text_content()
         assert text_content == "Here's an audio file: And here's a video:"
 
-        # Convert to legacy format
-        legacy_format = message.to_legacy_format()
-        assert legacy_format["content"] == "Here's an audio file: And here's a video:"

@@ -12,12 +12,12 @@ import asyncio
 import inspect
 import warnings
 from abc import ABC, abstractmethod
-from typing import Any, Callable, Protocol, TypeVar, Union, cast
+from typing import Any, Protocol, TypeVar
 from unittest.mock import AsyncMock, MagicMock, Mock
 
 # Type definitions
 T = TypeVar("T")
-MockType = Union[Mock, MagicMock, AsyncMock]
+MockType = Mock | MagicMock | AsyncMock
 
 
 class SyncOnlyService(Protocol):
@@ -64,7 +64,6 @@ class SafeSessionService:
 
 class MockValidationError(Exception):
     """Exception raised when mock validation fails."""
-    pass
 
 
 class EnforcedMockFactory:
@@ -140,8 +139,7 @@ class ValidatedTestStage(ABC):
     def _validate_service(self, service: Any, name: str, force_sync: bool = False) -> Any:
         """Validate that service mocks are properly configured."""
         # Check for common problematic patterns
-        if isinstance(service, AsyncMock):
-            if force_sync or self._should_be_sync_service(name):
+        if isinstance(service, AsyncMock) and (force_sync or self._should_be_sync_service(name)):
                 warnings.warn(
                     f"Service '{name}' is using AsyncMock but should be synchronous. "
                     f"Consider using EnforcedMockFactory.create_sync_mock() instead.",
@@ -174,7 +172,6 @@ class ValidatedTestStage(ABC):
     @abstractmethod
     def setup(self) -> None:
         """Set up the test stage. Must be implemented by subclasses."""
-        pass
 
 
 class MockBackendTestStage(ValidatedTestStage):
@@ -256,14 +253,14 @@ class CoroutineWarningDetector:
 SafeTestSession = SafeSessionService
 
 __all__ = [
-    'SyncOnlyService',
-    'AsyncOnlyService', 
+    'AsyncOnlyService',
+    'CoroutineWarningDetector',
+    'EnforcedMockFactory',
+    'MockBackendTestStage',
+    'MockValidationError',
+    'RealBackendTestStage',
     'SafeSessionService',
     'SafeTestSession',
-    'EnforcedMockFactory',
-    'ValidatedTestStage',
-    'MockBackendTestStage',
-    'RealBackendTestStage',
-    'CoroutineWarningDetector',
-    'MockValidationError'
+    'SyncOnlyService',
+    'ValidatedTestStage'
 ]

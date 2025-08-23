@@ -188,3 +188,13 @@ class ISessionState(IValueObject):
     @abc.abstractmethod
     def is_cline_agent(self) -> bool:
         """Get whether the current agent is a CLI agent."""
+
+    @property
+    @abc.abstractmethod
+    def override_model(self) -> str | None:
+        """Get the override model from backend configuration."""
+
+    @property
+    @abc.abstractmethod
+    def override_backend(self) -> str | None:
+        """Get the override backend from backend configuration."""

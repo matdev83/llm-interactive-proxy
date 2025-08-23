@@ -1,11 +1,7 @@
-from unittest.mock import Mock, MagicMock
-from typing import Any, cast
+from typing import Any
+from unittest.mock import MagicMock
 
 import pytest
-
-from src.command_config import CommandParserConfig
-from src.command_parser import CommandParser
-from src.core.domain.chat import ChatMessage
 from src.core.domain.session import (
     BackendConfiguration,
     ReasoningConfiguration,

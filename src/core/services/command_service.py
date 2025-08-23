@@ -123,10 +123,10 @@ class CommandRegistry:
             The command handler or None if not found
         """
         return self.get(name)
-    
+
     # Static instance for bridging
     _instance: "CommandRegistry | None" = None
-    
+
     @staticmethod
     def get_instance() -> "CommandRegistry | None":
         """Get the global instance of the registry.
@@ -253,18 +253,14 @@ class CommandService(ICommandService):
                                     match_end = len(content)
                             else:
                                 match_end = len(content)
-                            remaining = content[
-                                match_end:
-                            ]
+                            remaining = content[match_end:]
                         else:
                             match = re.match(r"!/(\w+)", content)
                             if match:
                                 cmd_name = match.group(1)
                                 args_str = None
                                 match_end = match.end()
-                                remaining = content[
-                                    match_end:
-                                ]
+                                remaining = content[match_end:]
                             else:
                                 continue
 

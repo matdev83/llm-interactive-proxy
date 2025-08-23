@@ -15,7 +15,7 @@ logger = logging.getLogger(__name__)
 class ToolLoopTTLCommand(StatelessCommandBase, BaseCommand):
     """Command for setting tool loop TTL."""
 
-    def __init__(self):
+    def __init__(self) -> None:
         """Initialize without state services."""
         StatelessCommandBase.__init__(self)
 

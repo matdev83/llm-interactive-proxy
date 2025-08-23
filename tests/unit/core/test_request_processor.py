@@ -6,6 +6,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 from src.core.common.exceptions import BackendError, LLMProxyError
+from src.core.domain.chat import ChatMessage, ChatRequest
 from src.core.domain.commands import CommandResult
 from src.core.domain.processed_result import ProcessedResult
 from src.core.domain.request_context import RequestContext
@@ -33,7 +34,7 @@ class MockState:
         self.disable_commands = False
 
 
-class MockRequestContext:
+class MockRequestContext(RequestContext):
     """Mock RequestContext for testing."""
 
     def __init__(
@@ -44,38 +45,33 @@ class MockRequestContext:
         disable_commands: bool = False,
         disable_interactive_commands: bool = False,
     ) -> None:
-        self.headers = headers or {}
-        self.cookies = cookies or {}
-        self.state = MagicMock()
+        super().__init__(
+            headers=headers or {},
+            cookies=cookies or {},
+            state=MockState(),
+            app_state=MagicMock(),
+            client_host="127.0.0.1",
+            original_request=None,
+        )
+        self.session_id = session_id
         self.state.disable_commands = disable_commands
-
-        self.app_state = MagicMock()
         self.app_state.force_set_project = False
         self.app_state.disable_interactive_commands = disable_interactive_commands
         self.app_state.failover_routes = {}
 
-        self.client_host = "127.0.0.1"
-        self.original_request = None
-        self.session_id = session_id
 
-
-class MockRequestData:
-    """Mock request data for testing."""
-
-    def __init__(
-        self, stream=False, messages=None, model="gpt-4", session_id=None
-    ) -> None:
-        self.stream = stream
-        self.messages = messages or [{"role": "user", "content": "Hello"}]
-        self.model = model
-        self.temperature = None
-        self.top_p = None
-        self.max_tokens = None
-        self.tools = None
-        self.tool_choice = None
-        self.user = None
-        self.session_id = session_id
-        self.extra_body = None
+def create_mock_request(
+    stream=False, messages=None, model="gpt-4", session_id=None
+) -> ChatRequest:
+    """Factory for creating ChatRequest objects for tests."""
+    if messages is None:
+        messages = [ChatMessage(role="user", content="Hello")]
+    return ChatRequest(
+        model=model,
+        messages=messages,
+        stream=stream,
+        session_id=session_id,
+    )
 
 
 @pytest.fixture
@@ -112,7 +108,7 @@ async def test_process_request_basic(session_service: MockSessionService) -> Non
 
     # Create a request context and data
     context = MockRequestContext(headers={"x-session-id": "test-session"})
-    request_data = MockRequestData()
+    request_data = create_mock_request()
 
     # Setup command service to return no commands processed
     command_service.add_result(
@@ -132,7 +128,7 @@ async def test_process_request_basic(session_service: MockSessionService) -> Non
 
     # Assert - should be a ResponseEnvelope now
     assert isinstance(response_obj, ResponseEnvelope)
-    assert response_obj.content["id"] == response.id
+    assert response_obj.content["id"] == response.content["id"]
     assert response_obj.content["choices"][0]["message"]["content"] == "Hello there!"
 
     # Check that session was retrieved and updated
@@ -163,8 +159,8 @@ async def test_process_request_with_commands(
 
     # Create a request context and data
     context = MockRequestContext(headers={"x-session-id": "test-session"})
-    request_data = MockRequestData(
-        messages=[{"role": "user", "content": "!/set(project=test) How are you?"}]
+    request_data = create_mock_request(
+        messages=[ChatMessage(role="user", content="!/set(project=test) How are you?")]
     )
 
     # Setup command service to return command processed with remaining content
@@ -184,7 +180,7 @@ async def test_process_request_with_commands(
     # Mock the session service to return a session with project set
     session = await session_service.get_session("test-session")
     # Mock the state property to return a value with project set
-    session_service.sessions["test-session"].state.project = "test"
+    session_service.sessions["test-session"].state.project = "test"  # type: ignore
 
     # Setup backend service to return a response
     response = TestDataBuilder.create_chat_response("I'm doing well, thanks!")
@@ -195,7 +191,7 @@ async def test_process_request_with_commands(
 
     # Assert - should be a ResponseEnvelope now
     assert isinstance(response_obj, ResponseEnvelope)
-    assert response_obj.content["id"] == response.id
+    assert response_obj.content["id"] == response.content["id"]
     assert (
         response_obj.content["choices"][0]["message"]["content"]
         == "I'm doing well, thanks!"
@@ -229,7 +225,9 @@ async def test_process_command_only_request(
 
     # Create a request context and data
     context = MockRequestContext(headers={"x-session-id": "test-session"})
-    request_data = MockRequestData(messages=[{"role": "user", "content": "!/hello"}])
+    request_data = create_mock_request(
+        messages=[ChatMessage(role="user", content="!/hello")]
+    )
 
     # Setup command service to return command processed with no remaining content
     processed_messages = []
@@ -278,7 +276,7 @@ async def test_process_streaming_request(session_service: MockSessionService) ->
 
     # Create a request context and data
     context = MockRequestContext(headers={"x-session-id": "test-session"})
-    request_data = MockRequestData(stream=True)
+    request_data = create_mock_request(stream=True)
 
     # Setup command service to return no commands processed
     command_service.add_result(
@@ -341,7 +339,7 @@ async def test_backend_error_handling(session_service: MockSessionService) -> No
 
     # Create a request context and data
     context = MockRequestContext(headers={"x-session-id": "test-session"})
-    request_data = MockRequestData()
+    request_data = create_mock_request()
 
     # Setup command service to return no commands processed
     command_service.add_result(

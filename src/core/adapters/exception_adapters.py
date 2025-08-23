@@ -22,9 +22,9 @@ from src.core.common.exceptions import (
 logger = logging.getLogger(__name__)
 
 
-def create_exception_handler() -> (
-    Callable[[Request, Exception], Coroutine[Any, Any, Response]]
-):
+def create_exception_handler() -> Callable[
+    [Request, Exception], Coroutine[Any, Any, Response]
+]:
     """Create an exception handler for the application that maps domain exceptions to HTTP responses."""
 
     async def exception_handler(request: Request, exc: Exception) -> Response:
@@ -41,9 +41,7 @@ def create_exception_handler() -> (
                 headers = {"Retry-After": str(exc.reset_at)}
 
             return JSONResponse(
-                status_code=status_code,
-                content=content,
-                headers=headers,
+                status_code=status_code, content=content, headers=headers
             )
 
         # FastAPI HTTPExceptions - pass through

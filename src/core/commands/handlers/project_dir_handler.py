@@ -80,9 +80,7 @@ class ProjectDirCommandHandler(BaseCommandHandler):
             # Create new state with project directory unset
             new_state = current_state.with_project_dir(None)
             return CommandHandlerResult(
-                success=True,
-                message="Project directory unset",
-                new_state=new_state,
+                success=True, message="Project directory unset", new_state=new_state
             )
 
         # Get the directory path
@@ -92,8 +90,7 @@ class ProjectDirCommandHandler(BaseCommandHandler):
         if not os.path.isdir(dir_path):
             # Tests expect a specific error message phrasing
             return CommandHandlerResult(
-                success=False,
-                message=f"Directory '{dir_path}' not found.",
+                success=False, message=f"Directory '{dir_path}' not found."
             )
 
         # Create new state with updated project directory

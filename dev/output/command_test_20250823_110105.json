@@ -1,0 +1,7 @@
+[
+  {
+    "command": "!/help",
+    "status": "error",
+    "error": "{\"detail\":{\"error\":{\"message\":\"Failed to initialize backend gemini\",\"type\":\"BackendError\",\"code\":\"backend_error\",\"details\":{\"error\":\"Failed to create backend gemini: gemini_api_base_url, key_name, and api_key are required for GeminiBackend\"},\"backend\":\"gemini\"}}}"
+  }
+]

@@ -4,9 +4,7 @@ import logging
 from collections.abc import Mapping
 from typing import Any
 
-from src.core.constants import (
-    COMMAND_EXECUTION_ERROR,
-)
+from src.core.constants import COMMAND_EXECUTION_ERROR
 from src.core.domain.command_results import CommandResult
 from src.core.domain.commands.base_command import BaseCommand
 from src.core.domain.commands.secure_base_command import StatelessCommandBase
@@ -18,7 +16,7 @@ logger = logging.getLogger(__name__)
 class ModelCommand(StatelessCommandBase, BaseCommand):
     """Command for setting the model name."""
 
-    def __init__(self):
+    def __init__(self) -> None:
         """Initialize without state services."""
         StatelessCommandBase.__init__(self)
 
@@ -65,9 +63,7 @@ class ModelCommand(StatelessCommandBase, BaseCommand):
         except Exception as e:
             error_message = COMMAND_EXECUTION_ERROR.format(error=str(e))
             logger.error(error_message)
-            return CommandResult(
-                success=False, message=error_message, name=self.name
-            )
+            return CommandResult(success=False, message=error_message, name=self.name)
 
     def _set_model(self, model_name: str, session: Session) -> CommandResult:
         """Sets the model, potentially with a backend override."""
@@ -99,6 +95,4 @@ class ModelCommand(StatelessCommandBase, BaseCommand):
         except Exception as e:
             error_message = COMMAND_EXECUTION_ERROR.format(error=str(e))
             logger.error(error_message)
-            return CommandResult(
-                success=False, message=error_message, name=self.name
-            )
+            return CommandResult(success=False, message=error_message, name=self.name)

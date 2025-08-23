@@ -24,7 +24,9 @@ class BackendConfig(ValueObject):
 
     def with_backend(self, backend_type: str | None) -> IBackendConfig:
         """Create a new config with updated backend type."""
-        return cast(IBackendConfig, self.model_copy(update={"backend_type": backend_type}))
+        return cast(
+            IBackendConfig, self.model_copy(update={"backend_type": backend_type})
+        )
 
     def with_model(self, model: str | None) -> IBackendConfig:
         """Create a new config with updated model."""
@@ -40,16 +42,24 @@ class BackendConfig(ValueObject):
 
     def with_interactive_mode(self, enabled: bool) -> IBackendConfig:
         """Create a new config with updated interactive mode."""
-        return cast(IBackendConfig, self.model_copy(update={"interactive_mode": enabled}))
+        return cast(
+            IBackendConfig, self.model_copy(update={"interactive_mode": enabled})
+        )
 
     def without_override(self) -> IBackendConfig:
         """Create a new config with cleared override settings."""
-        return cast(IBackendConfig, self.model_copy(update={"backend_type": None, "model": None}))
+        return cast(
+            IBackendConfig,
+            self.model_copy(update={"backend_type": None, "model": None}),
+        )
 
     def with_oneoff_route(self, backend: str, model: str) -> IBackendConfig:
         """Create a new config with a one-off route for the next request."""
         # For now, just store as backend/model override
-        return cast(IBackendConfig, self.model_copy(update={"backend_type": backend, "model": model}))
+        return cast(
+            IBackendConfig,
+            self.model_copy(update={"backend_type": backend, "model": model}),
+        )
 
     def with_failover_route(self, name: str, policy: str) -> IBackendConfig:
         """Create a new config with a new failover route."""

@@ -8,10 +8,11 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from fastapi import FastAPI, Request, Response
 from fastapi.testclient import TestClient
+from src.core.app.middleware_config import configure_middleware
+
 # Import HTTP status constants
 from src.core.constants import HTTP_401_UNAUTHORIZED_MESSAGE
 from src.core.security.middleware import APIKeyMiddleware, AuthMiddleware
-from src.core.app.middleware_config import configure_middleware
 
 
 @pytest.fixture
@@ -364,7 +365,6 @@ class TestAppIntegration:
     def test_app_with_auth_token(self, mock_middleware):
         """Test application with auth token enabled."""
         # Import locally to ensure environment variables are read
-        from src.core.app.middleware_config import configure_middleware
 
         # Create mock app
         app = MagicMock(spec=FastAPI)

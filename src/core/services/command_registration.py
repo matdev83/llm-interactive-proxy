@@ -1,7 +1,7 @@
 """Command registration utilities for the DI container."""
 
 import logging
-from typing import TypeVar
+from typing import TypeVar, cast
 
 from src.core.di.container import ServiceCollection
 from src.core.domain.commands.base_command import BaseCommand
@@ -38,11 +38,13 @@ from src.core.domain.commands.pwd_command import PwdCommand
 from src.core.domain.commands.set_command import SetCommand
 from src.core.domain.commands.temperature_command import TemperatureCommand
 from src.core.domain.commands.unset_command import UnsetCommand
+from src.core.interfaces.di_interface import IServiceProvider
 from src.core.interfaces.state_provider_interface import (
     ISecureStateAccess,
     ISecureStateModification,
 )
 from src.core.services.command_service import CommandRegistry
+from src.core.services.secure_state_service import SecureStateService
 
 logger = logging.getLogger(__name__)
 
@@ -50,8 +52,7 @@ T = TypeVar("T", bound=BaseCommand)
 
 
 def register_all_commands(
-    services: ServiceCollection,
-    registry: CommandRegistry,
+    services: ServiceCollection, registry: CommandRegistry
 ) -> None:
     """Register all commands in the DI container.
 
@@ -82,75 +83,100 @@ def register_all_commands(
     services.add_singleton_factory(
         SetCommand,
         lambda provider: SetCommand(
-            provider.get_service(ISecureStateAccess),
-            provider.get_service(ISecureStateModification),
+            cast(ISecureStateAccess, provider.get_required_service(SecureStateService)),
+            cast(
+                ISecureStateModification,
+                provider.get_required_service(SecureStateService),
+            ),
         ),
     )
     services.add_singleton_factory(
         UnsetCommand,
         lambda provider: UnsetCommand(
-            provider.get_service(ISecureStateAccess),
-            provider.get_service(ISecureStateModification),
+            cast(ISecureStateAccess, provider.get_required_service(SecureStateService)),
+            cast(
+                ISecureStateModification,
+                provider.get_required_service(SecureStateService),
+            ),
         ),
     )
     services.add_singleton_factory(
         CreateFailoverRouteCommand,
         lambda provider: CreateFailoverRouteCommand(
-            provider.get_service(ISecureStateAccess),
-            provider.get_service(ISecureStateModification),
+            cast(ISecureStateAccess, provider.get_required_service(SecureStateService)),
+            cast(
+                ISecureStateModification,
+                provider.get_required_service(SecureStateService),
+            ),
         ),
     )
     services.add_singleton_factory(
         DeleteFailoverRouteCommand,
         lambda provider: DeleteFailoverRouteCommand(
-            provider.get_service(ISecureStateAccess),
-            provider.get_service(ISecureStateModification),
+            cast(ISecureStateAccess, provider.get_required_service(SecureStateService)),
+            cast(
+                ISecureStateModification,
+                provider.get_required_service(SecureStateService),
+            ),
         ),
     )
     services.add_singleton_factory(
         ListFailoverRoutesCommand,
         lambda provider: ListFailoverRoutesCommand(
-            provider.get_service(ISecureStateAccess),
-            provider.get_service(ISecureStateModification),
+            cast(ISecureStateAccess, provider.get_required_service(SecureStateService)),
+            cast(
+                ISecureStateModification,
+                provider.get_required_service(SecureStateService),
+            ),
         ),
     )
     services.add_singleton_factory(
         RouteAppendCommand,
         lambda provider: RouteAppendCommand(
-            provider.get_service(ISecureStateAccess),
-            provider.get_service(ISecureStateModification),
+            cast(ISecureStateAccess, provider.get_required_service(SecureStateService)),
+            cast(
+                ISecureStateModification,
+                provider.get_required_service(SecureStateService),
+            ),
         ),
     )
     services.add_singleton_factory(
         RouteClearCommand,
         lambda provider: RouteClearCommand(
-            provider.get_service(ISecureStateAccess),
-            provider.get_service(ISecureStateModification),
+            cast(ISecureStateAccess, provider.get_required_service(SecureStateService)),
+            cast(
+                ISecureStateModification,
+                provider.get_required_service(SecureStateService),
+            ),
         ),
     )
     services.add_singleton_factory(
         RoutePrependCommand,
         lambda provider: RoutePrependCommand(
-            provider.get_service(ISecureStateAccess),
-            provider.get_service(ISecureStateModification),
+            cast(ISecureStateAccess, provider.get_required_service(SecureStateService)),
+            cast(
+                ISecureStateModification,
+                provider.get_required_service(SecureStateService),
+            ),
         ),
     )
     services.add_singleton_factory(
         OpenAIUrlCommand,
         lambda provider: OpenAIUrlCommand(
-            provider.get_service(ISecureStateAccess),
-            provider.get_service(ISecureStateModification),
+            cast(ISecureStateAccess, provider.get_required_service(SecureStateService)),
+            cast(
+                ISecureStateModification,
+                provider.get_required_service(SecureStateService),
+            ),
         ),
     )
 
     # Register all commands in the registry for lookup by name
-    _register_all_commands_in_registry(services, registry)
+    _register_all_commands_in_registry(services.build_service_provider(), registry)
 
 
 def _register_stateless_command(
-    services: ServiceCollection,
-    registry: CommandRegistry,
-    command_type: type[T],
+    services: ServiceCollection, registry: CommandRegistry, command_type: type[T]
 ) -> None:
     """Register a stateless command in the DI container.
 
@@ -159,15 +185,11 @@ def _register_stateless_command(
         registry: The command registry to register with
         command_type: The command class to register
     """
-    services.add_singleton_factory(
-        command_type,
-        lambda _: command_type(),
-    )
+    services.add_singleton_factory(command_type, lambda _: command_type())
 
 
 def _register_all_commands_in_registry(
-    services: ServiceCollection,
-    registry: CommandRegistry,
+    provider: IServiceProvider, registry: CommandRegistry
 ) -> None:
     """Register all commands from the DI container in the command registry.
 
@@ -175,14 +197,9 @@ def _register_all_commands_in_registry(
     through the DI container.
 
     Args:
-        services: The service collection containing the commands
+        provider: The service provider to resolve commands from
         registry: The command registry to register commands with
     """
-    # We need to resolve all command types from the DI container
-    # and register them in the registry
-    from src.core.di.services import build_service_provider
-
-    provider = build_service_provider(services)
 
     # Get all registered command types
     command_types: list[type[BaseCommand]] = [
@@ -215,12 +232,7 @@ def _register_all_commands_in_registry(
     for command_type in command_types:
         try:
             # Get the command instance from the DI container
-            command = provider.get_service(command_type)
-            if command is None:
-                logger.error(
-                    f"Command {command_type.__name__} not registered in DI container"
-                )
-                continue
+            command = provider.get_required_service(command_type)
             registry.register(command)
         except Exception as e:
             logger.error(f"Failed to register command {command_type.__name__}: {e}")

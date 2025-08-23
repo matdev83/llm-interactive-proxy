@@ -1,9 +1,12 @@
 from typing import cast
 
 import pytest
-from src.command_parser import CommandParser
 from src.core.domain.chat import ChatMessage, MessageContentPartText
+from src.core.interfaces.command_processor_interface import ICommandProcessor
 
+# For backward compatibility, import the legacy CommandParser too
+# but the tests will now work with either implementation
+from src.command_parser import CommandParser
 from tests.unit.core.test_doubles import MockSuccessCommand
 
 # --- Tests for CommandParser.process_messages ---
@@ -12,12 +15,12 @@ from tests.unit.core.test_doubles import MockSuccessCommand
 @pytest.mark.asyncio
 async def test_process_messages_single_message_with_command(
     command_parser: CommandParser,
-):
+) -> None:
     messages = [ChatMessage(role="user", content="!/hello")]
     cast(MockSuccessCommand, command_parser.handlers["hello"]).reset_mock_state()
-    processed_messages, any_command_processed = await command_parser.process_messages(
-        messages
-    )
+    result = await command_parser.process_messages(messages, session_id="test-session")
+    processed_messages = result.modified_messages
+    any_command_processed = result.command_executed
 
     assert any_command_processed is True
     # The message content becomes "" if it was a command-only message and command succeeded
@@ -36,7 +39,7 @@ async def test_process_messages_single_message_with_command(
 @pytest.mark.asyncio
 async def test_process_messages_stops_after_first_command_in_message_content_list(
     command_parser: CommandParser,
-):
+) -> None:
     messages = [
         ChatMessage(
             role="user",
@@ -50,9 +53,9 @@ async def test_process_messages_stops_after_first_command_in_message_content_lis
     cast(MockSuccessCommand, command_parser.handlers["hello"]).reset_mock_state()
     cast(MockSuccessCommand, command_parser.handlers["anothercmd"]).reset_mock_state()
 
-    processed_messages, any_command_processed = await command_parser.process_messages(
-        messages
-    )
+    result = await command_parser.process_messages(messages, session_id="test-session")
+    processed_messages = result.modified_messages
+    any_command_processed = result.command_executed
 
     assert any_command_processed is True
     assert len(processed_messages) == 1
@@ -93,7 +96,7 @@ async def test_process_messages_stops_after_first_command_in_message_content_lis
 @pytest.mark.asyncio
 async def test_process_messages_processes_command_in_last_message_and_stops(
     command_parser: CommandParser,
-):
+) -> None:
     messages = [
         ChatMessage(role="user", content="!/hello"),
         ChatMessage(role="user", content="!/anothercmd"),
@@ -107,9 +110,9 @@ async def test_process_messages_processes_command_in_last_message_and_stops(
     # In this case, "!/anothercmd" is in the last message, so it will be processed.
     # "!/hello" will not be processed.
 
-    processed_messages, any_command_processed = await command_parser.process_messages(
-        messages
-    )
+    result = await command_parser.process_messages(messages, session_id="test-session")
+    processed_messages = result.modified_messages
+    any_command_processed = result.command_executed
 
     assert any_command_processed is True
     assert len(processed_messages) == 2

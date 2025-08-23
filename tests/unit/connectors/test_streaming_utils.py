@@ -3,7 +3,7 @@ Tests for the streaming utilities module using Hypothesis for property-based tes
 """
 
 import pytest
-from hypothesis import given, settings
+from hypothesis import given
 from hypothesis import strategies as st
 from hypothesis.strategies import composite
 from src.connectors.streaming_utils import (

@@ -18,6 +18,32 @@ class IConfig(abc.ABC):
         """Set a configuration value."""
 
 
+class IAppIdentityConfig(abc.ABC):
+    """Interface for application identity configuration."""
+
+    @property
+    @abc.abstractmethod
+    def title(self) -> str:
+        """The title of the application."""
+        ...
+
+    @property
+    @abc.abstractmethod
+    def url(self) -> str:
+        """The URL of the application."""
+        ...
+
+    @abc.abstractmethod
+    def with_title(self, title: str) -> IAppIdentityConfig:
+        """Create a new config with an updated title."""
+        ...
+
+    @abc.abstractmethod
+    def with_url(self, url: str) -> IAppIdentityConfig:
+        """Create a new config with an updated URL."""
+        ...
+
+
 class IBackendConfig(abc.ABC):
     """Interface for backend configuration."""
 

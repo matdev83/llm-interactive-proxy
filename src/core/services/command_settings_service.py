@@ -22,9 +22,7 @@ class CommandSettingsService(ICommandSettingsService):
     """
 
     def __init__(
-        self,
-        default_command_prefix: str = "!/",
-        default_api_key_redaction: bool = True,
+        self, default_command_prefix: str = "!/", default_api_key_redaction: bool = True
     ) -> None:
         """Initialize the command settings service.
 

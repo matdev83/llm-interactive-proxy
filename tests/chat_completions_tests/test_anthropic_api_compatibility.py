@@ -1,5 +1,4 @@
 from typing import Any
-from unittest.mock import AsyncMock, patch
 
 import pytest
 from fastapi.testclient import TestClient
@@ -13,7 +12,6 @@ from src.core.domain.chat import (
 from src.core.domain.chat import (
     ChatResponse as ChatCompletionResponse,
 )
-from src.core.interfaces.backend_service_interface import IBackendService
 
 
 def _dummy_openai_response() -> ChatCompletionResponse:

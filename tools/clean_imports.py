@@ -30,6 +30,10 @@ def clean_imports(file_path: Path) -> bool:
         r"import src\.core\.app\.legacy_state_compatibility",
         r"from src\.core\.adapters\.legacy_.*",
         r"import src\.core\.adapters\.legacy_.*",
+        r"from src\.core\.integration\.bridge import .*",
+        r"import src\.core\.integration\.bridge",
+        r"from src\.core\.services\.session_migration_service import .*",
+        r"import src\.core\.services\.session_migration_service",
     ]
 
     # Read the file content
@@ -39,7 +43,7 @@ def clean_imports(file_path: Path) -> bool:
     # Check if any legacy import pattern is found
     original_content = content
     for pattern in legacy_import_patterns:
-        content = re.sub(pattern, "# Removed legacy import", content)
+        content = re.sub(pattern, "", content)
 
     # Write the file if it was modified
     if content != original_content:

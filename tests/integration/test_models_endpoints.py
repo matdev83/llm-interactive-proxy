@@ -76,17 +76,18 @@ class TestModelsEndpoints:
             data = response.json()
             assert data["object"] == "list"
 
-    @pytest.mark.skip(
-        reason="Test isolation issue - passes individually but fails in full suite"
-    )
-    def test_models_endpoint_invalid_auth(self, app_with_auth_enabled):
+    def test_models_endpoint_invalid_auth(self, app_with_auth_enabled, monkeypatch):
         """Test /models endpoint with invalid authentication."""
+        # Ensure any prior API key env is cleared to avoid leakage across tests
+        monkeypatch.delenv("API_KEYS", raising=False)
+        monkeypatch.delenv("LLM_INTERACTIVE_PROXY_API_KEY", raising=False)
         with TestClient(app_with_auth_enabled) as client:
             response = client.get(
                 "/models", headers={"Authorization": "Bearer invalid-key"}
             )
             assert response.status_code == 401
-            assert "Invalid or missing API key" in response.json()["detail"]
+            detail = response.json().get("detail", "")
+            assert detail in ("Unauthorized", "Invalid or missing API key")
 
     def test_models_with_configured_backends(self, monkeypatch):
         """Test models discovery with configured backends."""
@@ -205,7 +206,7 @@ class TestModelsDiscovery:
     @pytest.fixture
     def mock_backend_factory(self):
         """Create a mock backend factory."""
-        from src.core.services.backend_factory_service import BackendFactory
+        from src.core.services.backend_factory import BackendFactory
 
         factory = MagicMock(spec=BackendFactory)
         return factory

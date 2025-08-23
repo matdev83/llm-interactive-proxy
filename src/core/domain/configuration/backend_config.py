@@ -136,7 +136,9 @@ class BackendConfiguration(ValueObject, IBackendConfig):
     def with_appended_route_element(self, name: str, element: str) -> IBackendConfig:
         """Create a new config with an element appended to a failover route."""
         new_routes: dict[str, dict[str, Any]] = dict(self.failover_routes_data)
-        route: dict[str, Any] = new_routes.setdefault(name, {"policy": "k", "elements": []})
+        route: dict[str, Any] = new_routes.setdefault(
+            name, {"policy": "k", "elements": []}
+        )
         elements: list[str] = list(route.get("elements", []))
         elements.append(element)
         route["elements"] = elements
@@ -145,7 +147,9 @@ class BackendConfiguration(ValueObject, IBackendConfig):
     def with_prepended_route_element(self, name: str, element: str) -> IBackendConfig:
         """Create a new config with an element prepended to a failover route."""
         new_routes: dict[str, dict[str, Any]] = dict(self.failover_routes_data)
-        route: dict[str, Any] = new_routes.setdefault(name, {"policy": "k", "elements": []})
+        route: dict[str, Any] = new_routes.setdefault(
+            name, {"policy": "k", "elements": []}
+        )
         elements: list[str] = list(route.get("elements", []))
         elements.insert(0, element)
         route["elements"] = elements

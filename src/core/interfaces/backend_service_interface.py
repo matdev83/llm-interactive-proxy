@@ -36,7 +36,5 @@ class IBackendService(ABC):
 
     @abstractmethod
     async def chat_completions(
-        self,
-        request: ChatRequest,
-        **kwargs: Any,
+        self, request: ChatRequest, **kwargs: Any
     ) -> ResponseEnvelope | StreamingResponseEnvelope: ...

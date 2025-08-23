@@ -17,7 +17,6 @@ from src.core.interfaces.model_bases import DomainModel, InternalDTO
 from src.core.interfaces.request_processor_interface import IRequestProcessor
 from src.core.services.backend_processor import BackendProcessor
 from src.core.services.command_processor import CommandProcessor
-from src.core.transport.fastapi.api_adapters import legacy_to_domain_chat_request
 from src.core.transport.fastapi.exception_adapters import (
     map_domain_exception_to_http_exception,
 )
@@ -57,8 +56,9 @@ class ChatController:
         try:
             # Convert legacy request to domain model if needed
             domain_request = request_data
-            if not isinstance(request_data, ChatRequest):
-                domain_request = legacy_to_domain_chat_request(request_data)
+            if not isinstance(domain_request, ChatRequest):
+                # This should not happen with the new architecture
+                raise LLMProxyError("Invalid request data format", status_code=400)
 
             # Narrow type for mypy
             from typing import cast

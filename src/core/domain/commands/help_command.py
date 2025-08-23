@@ -15,7 +15,7 @@ logger = logging.getLogger(__name__)
 class HelpCommand(StatelessCommandBase, BaseCommand):
     """Command to display help information about available commands."""
 
-    def __init__(self):
+    def __init__(self) -> None:
         """Initialize without state services."""
         StatelessCommandBase.__init__(self)
 
@@ -36,10 +36,7 @@ class HelpCommand(StatelessCommandBase, BaseCommand):
         return ["!/help", "!/help(set)"]
 
     async def execute(
-        self,
-        args: Mapping[str, Any],
-        session: Session,
-        context: Any = None,
+        self, args: Mapping[str, Any], session: Session, context: Any = None
     ) -> CommandResult:
         """
         Execute the help command.

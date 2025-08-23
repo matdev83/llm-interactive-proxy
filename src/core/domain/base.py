@@ -31,7 +31,8 @@ class ValueObject(DomainModel, IValueObject, ABC):
     """
 
     model_config = ConfigDict(
-        arbitrary_types_allowed=True, frozen=True  # Value objects are immutable
+        arbitrary_types_allowed=True,
+        frozen=True,  # Value objects are immutable
     )
 
     def equals(self, other: Any) -> bool:

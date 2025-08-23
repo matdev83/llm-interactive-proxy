@@ -126,39 +126,12 @@ def legacy_to_domain_chat_request(
     return ChatRequest(**rq_kwargs)
 
 
-def domain_to_legacy_chat_request(domain_request: ChatRequest) -> dict[str, Any]:
-    """
-    Convert a domain ChatRequest to a legacy-compatible dict.
-
-    This returns a plain dict compatible with the legacy ChatCompletionRequest
-    shape so callers that still expect legacy structures can continue to
-    operate without importing `src.models`.
-    """
-    # Convert to dict first to handle all fields
-    request_dict = domain_request.to_legacy_format()
-
-    # Handle extra_body separately
-    extra_params = domain_request.extra_body
-
-    # Remove extra_body from request_dict if it exists
-    if "extra_body" in request_dict:
-        del request_dict["extra_body"]
-
-    # Attach extra_params under legacy name
-    if extra_params:
-        request_dict["extra_params"] = extra_params
-
-    return request_dict
-
-
 # Note: response conversion helpers to/from legacy dicts were removed to
 # enforce domain-first handling. If code needs a legacy-compatible dict,
 # use `domain_response.model_dump()` or call the adapter `domain_to_legacy_chat_request`.
 
 
-def _convert_tool_calls(
-    tool_calls: list[Any] | None,
-) -> list[ToolCall] | None:
+def _convert_tool_calls(tool_calls: list[Any] | None) -> list[ToolCall] | None:
     """
     Convert tool calls from legacy format to domain format.
 
@@ -200,9 +173,7 @@ def _convert_tool_calls(
     return domain_tool_calls
 
 
-def _convert_tools(
-    tools: list[Any],
-) -> list[dict[str, Any]] | None:
+def _convert_tools(tools: list[Any]) -> list[dict[str, Any]] | None:
     """
     Convert tools from legacy format to domain format.
 

@@ -1,59 +1,43 @@
 """Test file to verify error constants are accessible and correctly imported."""
 
 import pytest
-
 from src.core.constants import (
     # Authentication error messages
     AUTH_INVALID_OR_MISSING_API_KEY,
     AUTH_INVALID_OR_MISSING_AUTH_TOKEN,
-    
+    BACKEND_CONNECTION_ERROR,
     # Backend error messages
     BACKEND_NOT_FOUND_ERROR,
-    BACKEND_CONNECTION_ERROR,
-    
+    COMMAND_EXECUTION_ERROR,
     # Command error messages
     COMMAND_NOT_FOUND_ERROR,
-    COMMAND_EXECUTION_ERROR,
-    
     # Configuration error messages
     CONFIG_LOADING_ERROR,
     CONFIG_VALIDATION_ERROR,
-    
-    # Session error messages
-    SESSION_NOT_FOUND_ERROR,
-    
-    # Model error messages
-    MODEL_NOT_AVAILABLE_ERROR,
-    
-    # Loop detection error messages
-    LOOP_DETECTED_ERROR,
-    
-    # Tool call error messages
-    TOOL_CALL_EXECUTION_ERROR,
-    
-    # Streaming error messages
-    STREAMING_PROCESSING_ERROR,
-    
-    # Network error messages
-    NETWORK_TIMEOUT_ERROR,
-    
     # File system error messages
     FILE_NOT_FOUND_ERROR,
-    
-    # JSON error messages
-    JSON_PARSING_ERROR,
-    
-    # Validation error messages
-    VALIDATION_TYPE_ERROR,
-    
-    # Rate limiting error messages
-    RATE_LIMIT_EXCEEDED_ERROR,
-    
-    # Security error messages
-    SECURITY_REDACTION_ERROR,
-    
     # Generic error messages
     GENERIC_INTERNAL_ERROR,
+    # JSON error messages
+    JSON_PARSING_ERROR,
+    # Loop detection error messages
+    LOOP_DETECTED_ERROR,
+    # Model error messages
+    MODEL_NOT_AVAILABLE_ERROR,
+    # Network error messages
+    NETWORK_TIMEOUT_ERROR,
+    # Rate limiting error messages
+    RATE_LIMIT_EXCEEDED_ERROR,
+    # Security error messages
+    SECURITY_REDACTION_ERROR,
+    # Session error messages
+    SESSION_NOT_FOUND_ERROR,
+    # Streaming error messages
+    STREAMING_PROCESSING_ERROR,
+    # Tool call error messages
+    TOOL_CALL_EXECUTION_ERROR,
+    # Validation error messages
+    VALIDATION_TYPE_ERROR,
 )
 
 

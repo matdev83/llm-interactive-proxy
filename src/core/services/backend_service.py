@@ -6,9 +6,7 @@ from typing import Any, cast
 from src.connectors.base import LLMBackend
 from src.core.common.exceptions import BackendError, RateLimitExceededError
 from src.core.config.app_config import AppConfig
-from src.core.domain.chat import (
-    ChatRequest,
-)
+from src.core.domain.chat import ChatRequest
 from src.core.domain.responses import ResponseEnvelope, StreamingResponseEnvelope
 from src.core.interfaces.backend_config_provider_interface import IBackendConfigProvider
 from src.core.interfaces.backend_service_interface import IBackendService
@@ -51,7 +49,9 @@ class BackendService(IBackendService):
         self._rate_limiter = rate_limiter
         self._config = config
         self._session_service = session_service  # Store session_service
-        self._backend_config_provider: IBackendConfigProvider | None = backend_config_provider
+        self._backend_config_provider: IBackendConfigProvider | None = (
+            backend_config_provider
+        )
         self._backend_configs: dict[str, Any] = {}
         self._failover_routes: dict[str, dict[str, Any]] = failover_routes or {}
         self._backends: dict[str, LLMBackend] = {}
@@ -59,22 +59,31 @@ class BackendService(IBackendService):
         from src.core.services.failover_coordinator import FailoverCoordinator
 
         self._failover_service: FailoverService = FailoverService(failover_routes={})
-        self._failover_coordinator: FailoverCoordinator = FailoverCoordinator(self._failover_service)
+        self._failover_coordinator: FailoverCoordinator = FailoverCoordinator(
+            self._failover_service
+        )
         self._backend_config_service: BackendConfigService = BackendConfigService()
 
     async def call_completion(
         self, request: ChatRequest, stream: bool = False, allow_failover: bool = True
     ) -> ResponseEnvelope | StreamingResponseEnvelope:
         """Call the LLM backend for a completion."""
-        session_id = request.extra_body.get("session_id") if request.extra_body else None
-        session = await self._session_service.get_session(session_id) if session_id else None
+        session_id = (
+            request.extra_body.get("session_id") if request.extra_body else None
+        )
+        session = (
+            await self._session_service.get_session(session_id) if session_id else None
+        )
 
         backend_type: str | None = None
         if session and session.state and session.state.backend_config:
             from src.core.domain.configuration.backend_config import (
                 BackendConfiguration,
             )
-            backend_type = cast(BackendConfiguration, session.state.backend_config).backend_type
+
+            backend_type = cast(
+                BackendConfiguration, session.state.backend_config
+            ).backend_type
 
         if not backend_type:
             backend_type = (
@@ -113,7 +122,7 @@ class BackendService(IBackendService):
                     BackendConfiguration,
                 )
 
-                backend_config: BackendConfiguration = BackendConfiguration(
+                _backend_config: BackendConfiguration = BackendConfiguration(
                     backend_type=backend_type,
                     model=effective_model,
                     failover_routes_data=effective_failover_routes,
@@ -123,6 +132,7 @@ class BackendService(IBackendService):
                     effective_model, backend_type
                 )
 
+                last_error: Exception | None = None
                 if not attempts:
                     raise BackendError(
                         message="all backends failed", backend_name=backend_type
@@ -152,7 +162,7 @@ class BackendService(IBackendService):
                         last_error = attempt_error
                         continue
 
-                if 'last_error' in locals():
+                if last_error:
                     raise BackendError(
                         message=f"All failover attempts failed. Last error: {last_error!s}",
                         backend_name=backend_type,
@@ -199,17 +209,27 @@ class BackendService(IBackendService):
             )
 
             try:
-                result: ResponseEnvelope | StreamingResponseEnvelope = await backend.chat_completions(
+                app_config_typed: AppConfig = cast(AppConfig, self._config)
+                backend_config_from_app = app_config_typed.backends.get(backend_type)
+                identity = (
+                    backend_config_from_app.identity
+                    if backend_config_from_app and backend_config_from_app.identity
+                    else app_config_typed.identity
+                )
+                result: (
+                    ResponseEnvelope | StreamingResponseEnvelope
+                ) = await backend.chat_completions(
                     request_data=domain_request,
                     processed_messages=request.messages,
                     effective_model=effective_model,
+                    identity=identity,
                 )
 
                 return result
             except Exception as call_exc:
                 # If the exception is already a BackendError or RateLimitExceededError,
                 # treat it specially; otherwise wrap or re-raise depending on allow_failover.
-                if isinstance(call_exc, (BackendError, RateLimitExceededError)):
+                if isinstance(call_exc, BackendError | RateLimitExceededError):
                     if not allow_failover:
                         # Re-raise the original domain-specific exception
                         raise
@@ -225,10 +245,14 @@ class BackendService(IBackendService):
 
                 # Proceed with failover logic using last_error as the last seen exception
                 request_failover_routes_nested: dict[str, Any] | None = (
-                    request.extra_body.get("failover_routes") if request.extra_body else None
+                    request.extra_body.get("failover_routes")
+                    if request.extra_body
+                    else None
                 )
                 effective_failover_routes_nested: dict[str, Any] = (
-                    request_failover_routes_nested if request_failover_routes_nested else self._failover_routes
+                    request_failover_routes_nested
+                    if request_failover_routes_nested
+                    else self._failover_routes
                 )
 
                 if request.model in effective_failover_routes_nested:
@@ -237,14 +261,18 @@ class BackendService(IBackendService):
                             BackendConfiguration,
                         )
 
-                        backend_config_nested: BackendConfiguration = BackendConfiguration(
-                            backend_type=backend_type,
-                            model=request.model,
-                            failover_routes_data=effective_failover_routes_nested,
+                        backend_config_nested: BackendConfiguration = (
+                            BackendConfiguration(
+                                backend_type=backend_type,
+                                model=request.model,
+                                failover_routes_data=effective_failover_routes_nested,
+                            )
                         )
 
-                        attempts_nested: list[Any] = self._failover_service.get_failover_attempts(
-                            backend_config_nested, request.model, backend_type
+                        attempts_nested: list[Any] = (
+                            self._failover_service.get_failover_attempts(
+                                backend_config_nested, request.model, backend_type
+                            )
                         )
 
                         if not attempts_nested:
@@ -257,19 +285,27 @@ class BackendService(IBackendService):
                         for attempt in attempts_nested:
                             try:
                                 attempt_extra_body_nested: dict[str, Any] = (
-                                    request.extra_body.copy() if request.extra_body else {}
+                                    request.extra_body.copy()
+                                    if request.extra_body
+                                    else {}
                                 )
-                                attempt_extra_body_nested["backend_type"] = attempt.backend
+                                attempt_extra_body_nested["backend_type"] = (
+                                    attempt.backend
+                                )
 
-                                attempt_request_nested: ChatRequest = request.model_copy(
-                                    update={
-                                        "extra_body": attempt_extra_body_nested,
-                                        "model": attempt.model,
-                                    }
+                                attempt_request_nested: ChatRequest = (
+                                    request.model_copy(
+                                        update={
+                                            "extra_body": attempt_extra_body_nested,
+                                            "model": attempt.model,
+                                        }
+                                    )
                                 )
 
                                 return await self.call_completion(
-                                    attempt_request_nested, stream=stream, allow_failover=False
+                                    attempt_request_nested,
+                                    stream=stream,
+                                    allow_failover=False,
                                 )
                             except Exception as attempt_error:
                                 logger.warning(
@@ -291,7 +327,9 @@ class BackendService(IBackendService):
                         )
 
                 elif backend_type in self._failover_routes:
-                    fallback_info: dict[str, Any] = self._failover_routes.get(backend_type, {})
+                    fallback_info: dict[str, Any] = self._failover_routes.get(
+                        backend_type, {}
+                    )
                     fallback_backend: str | None = fallback_info.get("backend")
                     fallback_model: str | None = fallback_info.get("model")
 
@@ -306,17 +344,24 @@ class BackendService(IBackendService):
                         )
                         fallback_extra_body["backend_type"] = fallback_backend
 
-                        fallback_updates: dict[str, Any] = {"extra_body": fallback_extra_body}
+                        fallback_updates: dict[str, Any] = {
+                            "extra_body": fallback_extra_body
+                        }
                         if fallback_model:
                             fallback_updates["model"] = fallback_model
 
-                        fallback_request: ChatRequest = request.model_copy(update=fallback_updates)
+                        fallback_request: ChatRequest = request.model_copy(
+                            update=fallback_updates
+                        )
 
-                        return await self.call_completion(fallback_request, stream=stream)
+                        return await self.call_completion(
+                            fallback_request, stream=stream
+                        )
 
                 # If we get here, wrap the last error into BackendError
                 raise BackendError(
-                    message=f"Backend call failed: {last_error!s}", backend_name=backend_type
+                    message=f"Backend call failed: {last_error!s}",
+                    backend_name=backend_type,
                 )
 
         except Exception:
@@ -352,7 +397,9 @@ class BackendService(IBackendService):
                     backend_type
                 )
 
-            backend: LLMBackend = await self._factory.ensure_backend(backend_type, provider_cfg)
+            backend: LLMBackend = await self._factory.ensure_backend(
+                backend_type, provider_cfg
+            )
             self._backends[backend_type] = backend
             return backend
         except Exception as e:

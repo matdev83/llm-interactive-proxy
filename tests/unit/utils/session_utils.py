@@ -5,19 +5,19 @@ ensuring consistent behavior across all tests.
 """
 
 import gc
-from typing import Optional, cast
+from typing import cast
 
 from src.core.domain.configuration.backend_config import BackendConfiguration
-from src.core.domain.session import Session, SessionState, SessionStateAdapter
+from src.core.domain.session import Session, SessionStateAdapter
 
 
 def update_session_state(
     session: Session, 
-    backend_type: Optional[str] = None,
-    model: Optional[str] = None,
-    project: Optional[str] = None,
-    hello_requested: Optional[bool] = None,
-    interactive_mode: Optional[bool] = None,
+    backend_type: str | None = None,
+    model: str | None = None,
+    project: str | None = None,
+    hello_requested: bool | None = None,
+    interactive_mode: bool | None = None,
 ) -> None:
     """Update the session state with the given values.
     
@@ -65,7 +65,7 @@ def update_session_state(
     session.state = current_state
 
 
-def find_session_by_state(state: SessionStateAdapter) -> Optional[Session]:
+def find_session_by_state(state: SessionStateAdapter) -> Session | None:
     """Find the session that contains the given state.
     
     This function searches for a session that contains the given state,
@@ -86,11 +86,11 @@ def find_session_by_state(state: SessionStateAdapter) -> Optional[Session]:
 
 def update_state_in_session(
     state: SessionStateAdapter,
-    backend_type: Optional[str] = None,
-    model: Optional[str] = None,
-    project: Optional[str] = None,
-    hello_requested: Optional[bool] = None,
-    interactive_mode: Optional[bool] = None,
+    backend_type: str | None = None,
+    model: str | None = None,
+    project: str | None = None,
+    hello_requested: bool | None = None,
+    interactive_mode: bool | None = None,
 ) -> None:
     """Update the session state with the given values.
     
@@ -122,5 +122,6 @@ def update_state_in_session(
         # If the session was not found, we can't update the state
         # This is a no-op
         pass
+
 
 

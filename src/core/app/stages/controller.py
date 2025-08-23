@@ -62,112 +62,90 @@ class ControllerStage(InitializationStage):
 
     def _register_chat_controller(self, services: ServiceCollection) -> None:
         """Register chat controller with request processor dependency."""
-        try:
-            from src.core.app.controllers.chat_controller import ChatController
-            from src.core.interfaces.request_processor_interface import (
-                IRequestProcessor,
+        from src.core.app.controllers.chat_controller import ChatController
+        from src.core.interfaces.request_processor_interface import IRequestProcessor
+
+        def chat_controller_factory(provider: IServiceProvider) -> ChatController:
+            """Factory function for creating ChatController."""
+            from typing import cast
+
+            request_processor: IRequestProcessor = provider.get_required_service(
+                cast(type, IRequestProcessor)
             )
+            return ChatController(request_processor)
 
-            def chat_controller_factory(provider: IServiceProvider) -> ChatController:
-                """Factory function for creating ChatController."""
-                from typing import cast
+        # Register as singleton
+        services.add_singleton(
+            ChatController, implementation_factory=chat_controller_factory
+        )
 
-                request_processor: IRequestProcessor = provider.get_required_service(
-                    cast(type, IRequestProcessor)
-                )
-                return ChatController(request_processor)
-
-            # Register as singleton
-            services.add_singleton(
-                ChatController, implementation_factory=chat_controller_factory
-            )
-
-            logger.debug("Registered chat controller")
-        except ImportError as e:
-            logger.warning(f"Could not register chat controller: {e}")
+        logger.debug("Registered chat controller")
 
     def _register_anthropic_controller(self, services: ServiceCollection) -> None:
         """Register anthropic controller with request processor dependency."""
-        try:
-            from src.core.app.controllers.anthropic_controller import (
-                AnthropicController,
+        from src.core.app.controllers.anthropic_controller import AnthropicController
+        from src.core.interfaces.request_processor_interface import IRequestProcessor
+
+        def anthropic_controller_factory(
+            provider: IServiceProvider,
+        ) -> AnthropicController:
+            """Factory function for creating AnthropicController."""
+            from typing import cast
+
+            request_processor: IRequestProcessor = provider.get_required_service(
+                cast(type, IRequestProcessor)
             )
-            from src.core.interfaces.request_processor_interface import (
-                IRequestProcessor,
-            )
+            return AnthropicController(request_processor)
 
-            def anthropic_controller_factory(
-                provider: IServiceProvider,
-            ) -> AnthropicController:
-                """Factory function for creating AnthropicController."""
-                from typing import cast
+        # Register as singleton
+        services.add_singleton(
+            AnthropicController, implementation_factory=anthropic_controller_factory
+        )
 
-                request_processor: IRequestProcessor = provider.get_required_service(
-                    cast(type, IRequestProcessor)
-                )
-                return AnthropicController(request_processor)
-
-            # Register as singleton
-            services.add_singleton(
-                AnthropicController, implementation_factory=anthropic_controller_factory
-            )
-
-            logger.debug("Registered anthropic controller")
-        except ImportError as e:
-            logger.warning(f"Could not register anthropic controller: {e}")
+        logger.debug("Registered anthropic controller")
 
     def _register_models_controller(self, services: ServiceCollection) -> None:
         """Register models controller with backend service dependency."""
-        try:
-            from src.core.app.controllers.models_controller import ModelsController
-            from src.core.interfaces.backend_service_interface import IBackendService
+        from src.core.app.controllers.models_controller import ModelsController
+        from src.core.interfaces.backend_service_interface import IBackendService
 
-            def models_controller_factory(
-                provider: IServiceProvider,
-            ) -> ModelsController:
-                """Factory function for creating ModelsController."""
-                from typing import cast
+        def models_controller_factory(provider: IServiceProvider) -> ModelsController:
+            """Factory function for creating ModelsController."""
+            from typing import cast
 
-                backend_service: IBackendService = provider.get_required_service(
-                    cast(type, IBackendService)
-                )
-                return ModelsController(backend_service)
-
-            # Register as singleton
-            services.add_singleton(
-                ModelsController, implementation_factory=models_controller_factory
+            backend_service: IBackendService = provider.get_required_service(
+                cast(type, IBackendService)
             )
+            return ModelsController(backend_service)
 
-            logger.debug("Registered models controller")
-        except ImportError as e:
-            logger.warning(f"Could not register models controller: {e}")
+        # Register as singleton
+        services.add_singleton(
+            ModelsController, implementation_factory=models_controller_factory
+        )
+
+        logger.debug("Registered models controller")
 
     def _register_usage_controller(self, services: ServiceCollection) -> None:
         """Register usage controller with usage tracking dependency."""
-        try:
-            from src.core.app.controllers.usage_controller import UsageController
-            from src.core.interfaces.usage_tracking_interface import (
-                IUsageTrackingService,
+        from src.core.app.controllers.usage_controller import UsageController
+        from src.core.interfaces.usage_tracking_interface import IUsageTrackingService
+
+        def usage_controller_factory(provider: IServiceProvider) -> UsageController:
+            """Factory function for creating UsageController."""
+            from typing import cast
+
+            # Usage tracking service is optional
+            usage_service: IUsageTrackingService | None = provider.get_service(
+                cast(type, IUsageTrackingService)
             )
+            return UsageController(usage_service)
 
-            def usage_controller_factory(provider: IServiceProvider) -> UsageController:
-                """Factory function for creating UsageController."""
-                from typing import cast
+        # Register as singleton
+        services.add_singleton(
+            UsageController, implementation_factory=usage_controller_factory
+        )
 
-                # Usage tracking service is optional
-                usage_service: IUsageTrackingService | None = provider.get_service(
-                    cast(type, IUsageTrackingService)
-                )
-                return UsageController(usage_service)
-
-            # Register as singleton
-            services.add_singleton(
-                UsageController, implementation_factory=usage_controller_factory
-            )
-
-            logger.debug("Registered usage controller")
-        except ImportError as e:
-            logger.warning(f"Could not register usage controller: {e}")
+        logger.debug("Registered usage controller")
 
     async def validate(self, services: ServiceCollection, config: AppConfig) -> bool:
         """Validate that controller services can be registered."""

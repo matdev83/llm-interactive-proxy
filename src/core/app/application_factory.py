@@ -17,8 +17,7 @@ from src.core.config.app_config import AppConfig
 
 
 def build_app(
-    config: AppConfig | dict[str, Any] | None = None,
-    config_path: str | None = None,
+    config: AppConfig | dict[str, Any] | None = None, config_path: str | None = None
 ) -> FastAPI:
     """Build the FastAPI application using the new staged initialization.
 
@@ -43,7 +42,9 @@ def build_app(
         config = AppConfig.from_env()
     elif isinstance(config, dict):
         # Convert dict config to AppConfig object
-        config = AppConfig.from_legacy_config(config)
+        # Assuming that if a dict is passed, it conforms to the new AppConfig schema
+        # This removes the need for from_legacy_config
+        config = AppConfig(**config)
 
     # Handle mocked configs in test environments
     try:
@@ -81,7 +82,8 @@ def build_app_with_config(
     elif config is None:
         config = AppConfig.from_env()
     elif isinstance(config, dict):
-        config = AppConfig.from_legacy_config(config)
+        # Assuming that if a dict is passed, it conforms to the new AppConfig schema
+        config = AppConfig(**config)
 
     # Use new staged initialization
     app = new_build_app(config)

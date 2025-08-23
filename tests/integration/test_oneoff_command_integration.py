@@ -6,14 +6,15 @@ Integration tests for the OneOff command in the new SOLID architecture.
 from unittest.mock import AsyncMock, patch
 
 import pytest
+import pytest_asyncio
 from fastapi.testclient import TestClient
 from src.core.app.test_builder import build_test_app as build_app
 from src.core.config.app_config import AppConfig
-from src.core.interfaces.backend_service_interface import IBackendService
 from src.core.domain.commands.oneoff_command import OneoffCommand
+from src.core.interfaces.backend_service_interface import IBackendService
 
 
-@pytest.fixture
+@pytest_asyncio.fixture
 async def app():
     """Create a test app with oneoff commands enabled."""
     # Create app with test config
@@ -41,9 +42,7 @@ async def app():
     yield app
 
 
-# Mock the get_integration_bridge function to return the bridge from app.state
-def mock_get_integration_bridge(_=None):
-    return app.state.integration_bridge
+# No integration bridge needed - using SOLID architecture directly
 
 
 async def mock_dispatch(self, request, call_next):
@@ -51,6 +50,7 @@ async def mock_dispatch(self, request, call_next):
 
 
 
+@pytest.mark.asyncio
 async def test_oneoff_command_integration(app):
     """Test that the OneOff command works correctly in the integration environment."""
     # Get the backend service from the service provider
@@ -60,12 +60,7 @@ async def test_oneoff_command_integration(app):
     client = TestClient(app)
     
     # Mock the command processor to handle oneoff commands
-    from src.core.domain.processed_result import ProcessedResult
-    from src.core.domain.command_results import CommandResult
-    from src.core.domain.chat import ChatMessage
     from src.command_parser import CommandParser
-    
-    original_process_messages = CommandParser.process_messages
     
     async def mock_process_messages(self, messages):
         # Check if this is the oneoff command message
@@ -77,7 +72,7 @@ async def test_oneoff_command_integration(app):
             ).get_session("test-oneoff-session")
             
             # Execute the command
-            result = await oneoff_cmd.execute({"openai/gpt-4": True}, session, {})
+            _ = await oneoff_cmd.execute({"openai/gpt-4": True}, session, {})
             
             # Update the message content
             modified_messages = messages.copy()
@@ -90,10 +85,6 @@ async def test_oneoff_command_integration(app):
     
     # Patch the necessary functions
     with (
-        patch(
-            "src.core.integration.bridge.get_integration_bridge",
-            new=mock_get_integration_bridge,
-        ),
         patch(
             "src.core.security.middleware.APIKeyMiddleware.dispatch", new=mock_dispatch
         ),

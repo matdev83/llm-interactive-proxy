@@ -27,46 +27,41 @@ class TestLoopDetector:
         result = detector.process_chunk("test test test test test")
         assert result is None
 
-    def test_simple_loop_detection(self) -> None:
-        """Test detection of simple loops."""
+    def test_simple_loop_detection_with_chunking(self) -> None:
+        """Test detection of simple loops with chunked processing."""
         config = LoopDetectionConfig(
-            enabled=True, buffer_size=1024, max_pattern_length=200
+            enabled=True,
+            buffer_size=1024,
+            content_chunk_size=10,
+            content_loop_threshold=3,
         )
-        # Lower thresholds for testing
-        config.short_pattern_threshold.min_repetitions = 3
-        config.short_pattern_threshold.min_total_length = 10
-        config.medium_pattern_threshold.min_repetitions = 2
-        config.medium_pattern_threshold.min_total_length = 20
-
         events = []
 
-        def on_loop_detected(event):
+        def on_loop_detected(event: LoopDetectionEvent) -> None:
             events.append(event)
 
         detector = LoopDetector(config=config, on_loop_detected=on_loop_detected)
 
-        # Send a clearly looping pattern of >=100 chars repeated 3 times
-        long_block = "ERROR " * 20  # 120 chars
-        loop_text = long_block * 3
+        pattern = "repeatthis"  # 10 chars, matching chunk size
+        result = None
 
-        result = detector.process_chunk(loop_text)
+        # Process the pattern enough times to trigger the loop
+        for i in range(config.content_loop_threshold):
+            result = detector.process_chunk(pattern)
+            # The loop should be detected on the last chunk
+            if i < config.content_loop_threshold - 1:
+                assert result is None, f"Loop detected prematurely on iteration {i}"
+                assert not events
 
-        # Debug: print what was detected
-        print(f"Result: {result}")
-        print(f"Events: {events}")
+        # The final chunk should trigger the detection
+        assert result is not None, "Loop not detected on the final chunk"
+        assert len(events) == 1, "on_loop_detected callback was not triggered"
 
-        # Should detect the loop
-        assert (
-            result is not None or len(events) > 0
-        ), "Loop not detected for 120-char repeated block"
-
-        if result:
-            assert isinstance(result, LoopDetectionEvent)
-            assert result.repetition_count >= 3
-
-        if events:
-            assert isinstance(events[0], LoopDetectionEvent)
-            assert events[0].repetition_count >= 3
+        # Verify the event details
+        event = events[0]
+        assert isinstance(event, LoopDetectionEvent)
+        assert event.pattern == pattern
+        assert event.repetition_count == config.content_loop_threshold
 
     def test_no_false_positive_normal_text(self) -> None:
         """Test that normal text doesn't trigger false positives."""

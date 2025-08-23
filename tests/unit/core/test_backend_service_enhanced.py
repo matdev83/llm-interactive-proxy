@@ -17,7 +17,7 @@ from src.core.domain.chat import (
 from src.core.domain.responses import ResponseEnvelope, StreamingResponseEnvelope
 from src.core.interfaces.rate_limiter_interface import RateLimitInfo
 from src.core.interfaces.session_service_interface import ISessionService
-from src.core.services.backend_factory_service import BackendFactory
+from src.core.services.backend_factory import BackendFactory
 from src.core.services.backend_service import BackendService
 
 # Legacy models removed; use domain ChatRequest instead when needed
@@ -90,7 +90,7 @@ class TestBackendFactory:
         """Test creating a backend with the factory."""
         # Arrange
         client = httpx.AsyncClient()
-        from src.core.services.backend_registry_service import BackendRegistry
+        from src.core.services.backend_registry import BackendRegistry
 
         registry = BackendRegistry()
         factory = BackendFactory(client, registry)
@@ -113,7 +113,7 @@ class TestBackendFactory:
         """Test initializing a backend with the factory."""
         # Arrange
         client = httpx.AsyncClient()
-        from src.core.services.backend_registry_service import BackendRegistry
+        from src.core.services.backend_registry import BackendRegistry
 
         registry = BackendRegistry()
         factory = BackendFactory(client, registry)
@@ -132,7 +132,7 @@ class TestBackendFactory:
         """Test creating a backend with an invalid type."""
         # Arrange
         client = httpx.AsyncClient()
-        from src.core.services.backend_registry_service import BackendRegistry
+        from src.core.services.backend_registry import BackendRegistry
 
         registry = BackendRegistry()
         factory = BackendFactory(client, registry)
@@ -171,7 +171,7 @@ class TestBackendServiceBasic:
     def service(self, mock_config):
         """Create a BackendService instance for testing."""
         client = httpx.AsyncClient()
-        from src.core.services.backend_registry_service import BackendRegistry
+        from src.core.services.backend_registry import BackendRegistry
 
         registry = BackendRegistry()
         factory = BackendFactory(client, registry)
@@ -255,7 +255,7 @@ class TestBackendServiceCompletions:
     def service(self, mock_config):
         """Create a BackendService instance for testing."""
         client = httpx.AsyncClient()
-        from src.core.services.backend_registry_service import BackendRegistry
+        from src.core.services.backend_registry import BackendRegistry
 
         registry = BackendRegistry()
         factory = BackendFactory(client, registry)
@@ -457,7 +457,7 @@ class TestBackendServiceValidation:
     def service(self):
         """Create a BackendService instance for testing."""
         client = httpx.AsyncClient()
-        from src.core.services.backend_registry_service import BackendRegistry
+        from src.core.services.backend_registry import BackendRegistry
 
         registry = BackendRegistry()
         factory = BackendFactory(client, registry)
@@ -534,7 +534,7 @@ class TestBackendServiceFailover:
     def service_with_simple_failover(self, mock_config):
         """Create a BackendService instance with simple failover routes."""
         client = httpx.AsyncClient()
-        from src.core.services.backend_registry_service import BackendRegistry
+        from src.core.services.backend_registry import BackendRegistry
 
         registry = BackendRegistry()
         factory = BackendFactory(client, registry)
@@ -561,7 +561,7 @@ class TestBackendServiceFailover:
     def service_with_complex_failover(self, mock_config):
         """Create a BackendService instance with complex failover routes."""
         client = httpx.AsyncClient()
-        from src.core.services.backend_registry_service import BackendRegistry
+        from src.core.services.backend_registry import BackendRegistry
 
         registry = BackendRegistry()
         factory = BackendFactory(client, registry)

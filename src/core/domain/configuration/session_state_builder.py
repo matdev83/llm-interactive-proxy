@@ -32,9 +32,15 @@ class SessionStateBuilder:
         """
         if state:
             # ISessionState exposes the necessary properties for builder
-            self._backend_config: IBackendConfig | BackendConfiguration = state.backend_config  # type: ignore
-            self._reasoning_config: IReasoningConfig | ReasoningConfiguration = state.reasoning_config  # type: ignore
-            self._loop_config: ILoopDetectionConfig | LoopDetectionConfiguration = state.loop_config  # type: ignore
+            self._backend_config: IBackendConfig | BackendConfiguration = (
+                state.backend_config
+            )  # type: ignore
+            self._reasoning_config: IReasoningConfig | ReasoningConfiguration = (
+                state.reasoning_config
+            )  # type: ignore
+            self._loop_config: ILoopDetectionConfig | LoopDetectionConfiguration = (
+                state.loop_config
+            )  # type: ignore
             self._project_config: ProjectConfiguration = ProjectConfiguration(
                 project=state.project, project_dir=state.project_dir
             )

@@ -15,7 +15,7 @@ logger = logging.getLogger(__name__)
 class ToolLoopMaxRepeatsCommand(StatelessCommandBase, BaseCommand):
     """Command for setting tool loop max repeats."""
 
-    def __init__(self):
+    def __init__(self) -> None:
         """Initialize without state services."""
         StatelessCommandBase.__init__(self)
 

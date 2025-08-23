@@ -10,7 +10,6 @@ import logging
 from collections.abc import Mapping
 from typing import Any
 
-from src.core.common.architectural_guards import domain_layer_guard
 from src.core.domain.command_results import CommandResult
 from src.core.domain.commands.base_command import BaseCommand
 from src.core.domain.commands.secure_base_command import StatefulCommandBase
@@ -25,7 +24,6 @@ from src.core.interfaces.state_provider_interface import (
 logger = logging.getLogger(__name__)
 
 
-@domain_layer_guard
 class UnsetCommand(StatefulCommandBase, BaseCommand):
     """Command for unsetting (clearing) various session parameters."""
 
@@ -170,7 +168,7 @@ class UnsetCommand(StatefulCommandBase, BaseCommand):
         self, state: ISessionState, context: Any
     ) -> tuple[CommandResult, ISessionState]:
         # Update state through secure DI interface
-        self.update_state_setting('api_key_redaction_enabled', True)
+        self.update_state_setting("api_key_redaction_enabled", True)
 
         result = CommandResult(
             success=True,
@@ -183,7 +181,7 @@ class UnsetCommand(StatefulCommandBase, BaseCommand):
         self, state: ISessionState, context: Any
     ) -> tuple[CommandResult, ISessionState]:
         # Update state through secure DI interface
-        self.update_state_setting('command_prefix', "!/")
+        self.update_state_setting("command_prefix", "!/")
 
         result = CommandResult(
             success=True,

@@ -156,7 +156,7 @@ def register_core_services(
     # Register session resolver
     _add_singleton(DefaultSessionResolver)
     # Register both the concrete type and the interface
-    _add_singleton(ISessionResolver, DefaultSessionResolver)  # type: ignore
+    _add_singleton(ISessionResolver, DefaultSessionResolver)  # type: ignore[type-abstract]
 
     # Register CommandRegistry
     from src.core.services.command_service import CommandRegistry
@@ -176,7 +176,7 @@ def register_core_services(
     with contextlib.suppress(Exception):
         services.add_singleton(
             cast(type, ICommandService), implementation_factory=_command_service_factory
-        )
+        )  # type: ignore[type-abstract]
 
     # Register session service factory
     def _session_service_factory(provider: IServiceProvider) -> SessionService:
@@ -196,14 +196,15 @@ def register_core_services(
 
     with contextlib.suppress(Exception):
         services.add_singleton(
-            cast(type, ISessionService),
-            implementation_factory=_session_service_factory,
-        )
+            cast(type, ISessionService), implementation_factory=_session_service_factory
+        )  # type: ignore[type-abstract]
 
     # Register command processor
     def _command_processor_factory(provider: IServiceProvider) -> CommandProcessor:
         # Get command service
-        command_service: ICommandService = provider.get_required_service(ICommandService)  # type: ignore[type-abstract]
+        command_service: ICommandService = provider.get_required_service(
+            ICommandService
+        )  # type: ignore[type-abstract]
 
         # Return command processor
         return CommandProcessor(command_service)
@@ -215,13 +216,17 @@ def register_core_services(
         services.add_singleton(
             cast(type, ICommandProcessor),
             implementation_factory=_command_processor_factory,
-        )
+        )  # type: ignore[type-abstract]
 
     # Register backend processor
     def _backend_processor_factory(provider: IServiceProvider) -> BackendProcessor:
         # Get backend service and session service
-        backend_service: IBackendService = provider.get_required_service(IBackendService)  # type: ignore[type-abstract]
-        session_service: ISessionService = provider.get_required_service(ISessionService)  # type: ignore[type-abstract]
+        backend_service: IBackendService = provider.get_required_service(
+            IBackendService
+        )  # type: ignore[type-abstract]
+        session_service: ISessionService = provider.get_required_service(
+            ISessionService
+        )  # type: ignore[type-abstract]
 
         # Return backend processor
         return BackendProcessor(backend_service, session_service)
@@ -233,7 +238,7 @@ def register_core_services(
         services.add_singleton(
             cast(type, IBackendProcessor),
             implementation_factory=_backend_processor_factory,
-        )
+        )  # type: ignore[type-abstract]
 
     # Register response handlers
     _add_singleton(DefaultNonStreamingResponseHandler)
@@ -241,12 +246,10 @@ def register_core_services(
 
     with contextlib.suppress(Exception):
         services.add_singleton(
-            cast(type, INonStreamingResponseHandler),
-            DefaultNonStreamingResponseHandler,
+            cast(type, INonStreamingResponseHandler), DefaultNonStreamingResponseHandler
         )
         services.add_singleton(
-            cast(type, IStreamingResponseHandler),
-            DefaultStreamingResponseHandler,
+            cast(type, IStreamingResponseHandler), DefaultStreamingResponseHandler
         )
 
     # Register response processor
@@ -267,16 +270,14 @@ def register_core_services(
             from src.core.interfaces.response_processor_interface import (
                 IResponseMiddleware,
             )
-            from src.core.services.response_middleware import (
-                LoopDetectionMiddleware,
-            )
+            from src.core.services.response_middleware import LoopDetectionMiddleware
 
             middleware: list[IResponseMiddleware] = []
             if detector:
                 middleware.append(LoopDetectionMiddleware(detector))
 
             return ResponseProcessor(loop_detector=detector, middleware=middleware)
-        except Exception as e: # type: ignore[misc]
+        except Exception as e:  # type: ignore[misc]
             import logging
 
             logger = logging.getLogger(__name__)
@@ -292,30 +293,18 @@ def register_core_services(
         services.add_singleton(
             cast(type, IResponseProcessor),
             implementation_factory=_response_processor_factory,
-        )
+        )  # type: ignore[type-abstract]
 
     # Register app settings
     def _app_settings_factory(provider: IServiceProvider) -> AppSettings:
-        # Get app_state from FastAPI app if available
+        # Get app_state from IApplicationState if available
         app_state: Any | None = None
-        try:
-            # Import here to avoid circular imports
-            from fastapi import FastAPI
-
-            # Get FastAPI app from app_config if available
-            app_config: AppConfig | None = provider.get_service(AppConfig)
-            if (
-                app_config
-                and hasattr(app_config, "app")
-                and isinstance(app_config.app, FastAPI)
-            ):
-                app_state = app_config.app.state
-        except Exception:
-            # Ignore errors, just log them at debug level
-            import logging
-
-            logger = logging.getLogger(__name__)
-            logger.debug("Error getting app_state for AppSettings", exc_info=True)
+        with contextlib.suppress(Exception):
+            app_state_service: IApplicationState | None = provider.get_service(
+                ApplicationStateService
+            )
+            if app_state_service:
+                app_state = app_state_service.get_setting("service_provider")
 
         # Create app settings
         return AppSettings(app_state)
@@ -325,21 +314,24 @@ def register_core_services(
 
     with contextlib.suppress(Exception):
         services.add_singleton(
-            cast(type, IAppSettings),
-            implementation_factory=_app_settings_factory,
-        )
+            cast(type, IAppSettings), implementation_factory=_app_settings_factory
+        )  # type: ignore[type-abstract]
 
     # Register application state service
-    def _application_state_factory(provider: IServiceProvider) -> ApplicationStateService:
+    def _application_state_factory(
+        provider: IServiceProvider,
+    ) -> ApplicationStateService:
         return ApplicationStateService()
 
-    _add_singleton(ApplicationStateService, implementation_factory=_application_state_factory)
+    _add_singleton(
+        ApplicationStateService, implementation_factory=_application_state_factory
+    )
 
     with contextlib.suppress(Exception):
         services.add_singleton(
             cast(type, IApplicationState),
             implementation_factory=_application_state_factory,
-        )
+        )  # type: ignore[type-abstract]
 
     # Register secure state service
     def _secure_state_factory(provider: IServiceProvider) -> SecureStateService:
@@ -350,20 +342,18 @@ def register_core_services(
 
     with contextlib.suppress(Exception):
         services.add_singleton(
-            cast(type, ISecureStateAccess),
-            implementation_factory=_secure_state_factory,
-        )
+            cast(type, ISecureStateAccess), implementation_factory=_secure_state_factory
+        )  # type: ignore[type-abstract]
         services.add_singleton(
             cast(type, ISecureStateModification),
             implementation_factory=_secure_state_factory,
-        )
+        )  # type: ignore[type-abstract]
 
     # Register secure command factory
     def _secure_command_factory(provider: IServiceProvider) -> SecureCommandFactory:
         secure_state = provider.get_required_service(SecureStateService)
         return SecureCommandFactory(
-            state_reader=secure_state,
-            state_modifier=secure_state,
+            state_reader=secure_state, state_modifier=secure_state
         )
 
     _add_singleton(SecureCommandFactory, implementation_factory=_secure_command_factory)
@@ -392,16 +382,20 @@ def register_core_services(
         rate_limiter: RateLimiter = RateLimiter()
 
         # Return backend service
-        return BackendService(backend_factory, rate_limiter, app_config)
+        return BackendService(
+            backend_factory,
+            rate_limiter,
+            app_config,
+            session_service=provider.get_required_service(SessionService),
+        )
 
     # Register backend service and bind to interface
     _add_singleton(BackendService, implementation_factory=_backend_service_factory)
 
     with contextlib.suppress(Exception):
         services.add_singleton(
-            cast(type, IBackendService),
-            implementation_factory=_backend_service_factory,
-        )
+            cast(type, IBackendService), implementation_factory=_backend_service_factory
+        )  # type: ignore[type-abstract]
 
     # Register request processor
     def _request_processor_factory(provider: IServiceProvider) -> RequestProcessor:
@@ -414,10 +408,16 @@ def register_core_services(
         from src.core.interfaces.session_service_interface import ISessionService
 
         # Get required services
-        command_proc: ICommandProcessor = provider.get_required_service(ICommandProcessor)  # type: ignore[type-abstract]
-        backend_proc: IBackendProcessor = provider.get_required_service(IBackendProcessor)  # type: ignore[type-abstract]
+        command_proc: ICommandProcessor = provider.get_required_service(
+            ICommandProcessor
+        )  # type: ignore[type-abstract]
+        backend_proc: IBackendProcessor = provider.get_required_service(
+            IBackendProcessor
+        )  # type: ignore[type-abstract]
         session_svc: ISessionService = provider.get_required_service(ISessionService)  # type: ignore[type-abstract]
-        response_proc: IResponseProcessor = provider.get_required_service(IResponseProcessor)  # type: ignore[type-abstract]
+        response_proc: IResponseProcessor = provider.get_required_service(
+            IResponseProcessor
+        )  # type: ignore[type-abstract]
 
         # Get session resolver if available
         session_resolver: ISessionResolver | None = None
@@ -425,7 +425,9 @@ def register_core_services(
             session_resolver = provider.get_service(ISessionResolver)  # type: ignore[type-abstract]
 
         # Return request processor
-        return RequestProcessor(command_proc, backend_proc, session_svc, response_proc, session_resolver)  # type: ignore[arg-type]
+        return RequestProcessor(
+            command_proc, backend_proc, session_svc, response_proc, session_resolver
+        )  # type: ignore[arg-type]
 
     # Register request processor and bind to interface
     _add_singleton(RequestProcessor, implementation_factory=_request_processor_factory)
@@ -434,7 +436,7 @@ def register_core_services(
         _add_singleton(
             cast(type, IRequestProcessor),
             implementation_factory=_request_processor_factory,
-        )
+        )  # type: ignore[type-abstract]
 
 
 def get_service(service_type: type[T]) -> T | None:

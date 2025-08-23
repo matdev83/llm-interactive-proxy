@@ -16,6 +16,9 @@ from src.core.adapters.api_adapters import legacy_to_domain_chat_request
 from src.core.common.exceptions import AuthenticationError, ServiceUnavailableError
 from src.core.domain.chat import ChatRequest
 from src.core.domain.responses import ResponseEnvelope, StreamingResponseEnvelope
+from src.core.interfaces.configuration_interface import (
+    IAppIdentityConfig,  # Import IAppIdentityConfig
+)
 from src.core.interfaces.model_bases import DomainModel, InternalDTO
 from src.core.services.backend_registry import backend_registry
 
@@ -37,11 +40,16 @@ class OpenAIConnector(LLMBackend):
         self.available_models: list[str] = []
         self.api_key: str | None = None
         self.api_base_url: str = "https://api.openai.com/v1"
+        self.identity: Any | None = None
 
     def get_headers(self) -> dict[str, str]:
         if not self.api_key:
             return {}
-        return {"Authorization": f"Bearer {self.api_key}"}
+        headers = {"Authorization": f"Bearer {self.api_key}"}
+        if self.identity:
+            headers["HTTP-Referer"] = self.identity.url
+            headers["X-Title"] = self.identity.title
+        return headers
 
     async def initialize(self, **kwargs: Any) -> None:
         self.api_key = kwargs.get("api_key")
@@ -86,6 +94,7 @@ class OpenAIConnector(LLMBackend):
         request_data: DomainModel | InternalDTO | dict[str, Any],
         processed_messages: list[Any],
         effective_model: str,
+        identity: IAppIdentityConfig | None = None,
         **kwargs: Any,
     ) -> ResponseEnvelope | StreamingResponseEnvelope:
         # Normalize incoming request to domain ChatRequest
@@ -98,6 +107,8 @@ class OpenAIConnector(LLMBackend):
         headers = kwargs.pop("headers_override", None)
         if headers is None:
             try:
+                if identity:
+                    self.identity = identity
                 headers = self.get_headers()
             except Exception:
                 headers = None
@@ -118,9 +129,7 @@ class OpenAIConnector(LLMBackend):
             )
         else:
             # Return a domain ResponseEnvelope for non-streaming
-            return await self._handle_non_streaming_response(
-                url, payload, headers
-            )
+            return await self._handle_non_streaming_response(url, payload, headers)
 
     async def _handle_non_streaming_response(
         self, url: str, payload: dict[str, Any], headers: dict[str, str] | None
@@ -146,7 +155,11 @@ class OpenAIConnector(LLMBackend):
                 err = response.text
             raise HTTPException(status_code=response.status_code, detail=err)
 
-        return ResponseEnvelope(content=response.json(), headers=dict(response.headers))
+        return ResponseEnvelope(
+            content=response.json(),
+            status_code=response.status_code,
+            headers=dict(response.headers),
+        )
 
     async def _handle_streaming_response(
         self, url: str, payload: dict[str, Any], headers: dict[str, str] | None
@@ -158,23 +171,14 @@ class OpenAIConnector(LLMBackend):
 
         request = self.client.build_request("POST", url, json=payload, headers=headers)
         try:
-            # client.send may be an Async method or a sync stub in tests; handle both
-            send_call = self.client.send(request, stream=True)
-            if hasattr(send_call, "__await__"):
-                response = await send_call  # type: ignore[misc]
-            else:
-                response = send_call  # type: ignore[assignment]
+            response = await self.client.send(request, stream=True)
         except RuntimeError:
             # Recreate client if it was closed and retry once
             self.client = httpx.AsyncClient()
             request = self.client.build_request(
                 "POST", url, json=payload, headers=headers
             )
-            send_call = self.client.send(request, stream=True)
-            if hasattr(send_call, "__await__"):
-                response = await send_call  # type: ignore[misc]
-            else:
-                response = send_call  # type: ignore[assignment]
+            response = await self.client.send(request, stream=True)
 
         status_code = (
             int(response.status_code) if hasattr(response, "status_code") else 200

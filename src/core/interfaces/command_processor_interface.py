@@ -17,19 +17,19 @@ class ICommandProcessor(ABC):
     """Interface for processing commands in messages."""
 
     @abstractmethod
-    async def process_commands(
+    async def process_messages(
         self,
         messages: list[Any],
         session_id: str,
         context: RequestContext | None = None,
     ) -> ProcessedResult:
-        """Process commands in messages.
+        """Process commands in a list of chat messages.
 
         Args:
-            messages: The messages to process
-            session_id: The session ID
-            context: Optional request context
+            messages: The messages to process.
 
         Returns:
-            The result of processing commands
+            A tuple containing:
+            - The list of messages after processing, with commands removed or modified.
+            - A boolean indicating if any commands were processed.
         """

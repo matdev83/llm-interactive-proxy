@@ -7,14 +7,13 @@ import unittest
 from unittest.mock import patch
 
 from examples.http_status_constants_usage import (
-    handle_service_unavailable_error,
-    handle_internal_server_error,
-    ServiceUnavailableError,
     example_controller_function,
+    handle_internal_server_error,
+    handle_service_unavailable_error,
 )
 from src.core.constants import (
-    HTTP_503_SERVICE_UNAVAILABLE_MESSAGE,
     HTTP_500_INTERNAL_SERVER_ERROR_MESSAGE,
+    HTTP_503_SERVICE_UNAVAILABLE_MESSAGE,
 )
 
 

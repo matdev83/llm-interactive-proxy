@@ -4,23 +4,21 @@ This module provides fixtures for setting up multimodal content tests.
 """
 
 import pytest
-from typing import Any, Dict, List, Optional, Union
-
 from src.core.domain.chat import (
     ChatMessage,
+    ImageURL,
     MessageContentPartImage,
     MessageContentPartText,
-    ImageURL,
 )
 
 
 @pytest.fixture
-def text_content_part(text="This is a text part"):
+def text_content_part(text: str = "This is a text part") -> MessageContentPartText:
     """Create a text content part.
-    
+
     Args:
         text: The text content
-        
+
     Returns:
         MessageContentPartText: A text content part
     """
@@ -28,13 +26,15 @@ def text_content_part(text="This is a text part"):
 
 
 @pytest.fixture
-def image_content_part(url="https://example.com/image.jpg", detail=None):
+def image_content_part(
+    url: str = "https://example.com/image.jpg", detail: str | None = None
+) -> MessageContentPartImage:
     """Create an image content part.
-    
+
     Args:
         url: The image URL
         detail: The image detail level
-        
+
     Returns:
         MessageContentPartImage: An image content part
     """
@@ -45,14 +45,18 @@ def image_content_part(url="https://example.com/image.jpg", detail=None):
 
 
 @pytest.fixture
-def multimodal_message(text_content_part, image_content_part, role="user"):
+def multimodal_message(
+    text_content_part: MessageContentPartText,
+    image_content_part: MessageContentPartImage,
+    role: str = "user",
+) -> ChatMessage:
     """Create a multimodal message.
-    
+
     Args:
         text_content_part: A text content part
         image_content_part: An image content part
         role: The message role
-        
+
     Returns:
         ChatMessage: A multimodal message
     """
@@ -63,13 +67,15 @@ def multimodal_message(text_content_part, image_content_part, role="user"):
 
 
 @pytest.fixture
-def text_message(text="This is a text message", role="user"):
+def text_message(
+    text: str = "This is a text message", role: str = "user"
+) -> ChatMessage:
     """Create a text message.
-    
+
     Args:
         text: The message text
         role: The message role
-        
+
     Returns:
         ChatMessage: A text message
     """
@@ -77,13 +83,15 @@ def text_message(text="This is a text message", role="user"):
 
 
 @pytest.fixture
-def image_message(image_content_part, role="user"):
+def image_message(
+    image_content_part: MessageContentPartImage, role: str = "user"
+) -> ChatMessage:
     """Create an image-only message.
-    
+
     Args:
         image_content_part: An image content part
         role: The message role
-        
+
     Returns:
         ChatMessage: An image-only message
     """
@@ -91,13 +99,15 @@ def image_message(image_content_part, role="user"):
 
 
 @pytest.fixture
-def message_with_command(command_text="!/set(model=openrouter:test-model)", role="user"):
+def message_with_command(
+    command_text: str = "!/set(model=openrouter:test-model)", role: str = "user"
+) -> ChatMessage:
     """Create a message with a command.
-    
+
     Args:
         command_text: The command text
         role: The message role
-        
+
     Returns:
         ChatMessage: A message with a command
     """
@@ -105,14 +115,18 @@ def message_with_command(command_text="!/set(model=openrouter:test-model)", role
 
 
 @pytest.fixture
-def multimodal_message_with_command(command_text="!/set(model=openrouter:test-model)", image_content_part=None, role="user"):
+def multimodal_message_with_command(
+    command_text: str = "!/set(model=openrouter:test-model)",
+    image_content_part: MessageContentPartImage | None = None,
+    role: str = "user",
+) -> ChatMessage:
     """Create a multimodal message with a command.
-    
+
     Args:
         command_text: The command text
         image_content_part: An image content part (created if None)
         role: The message role
-        
+
     Returns:
         ChatMessage: A multimodal message with a command
     """
@@ -121,7 +135,7 @@ def multimodal_message_with_command(command_text="!/set(model=openrouter:test-mo
             type="image_url",
             image_url=ImageURL(url="https://example.com/image.jpg", detail=None),
         )
-    
+
     return ChatMessage(
         role=role,
         content=[
@@ -129,5 +143,3 @@ def multimodal_message_with_command(command_text="!/set(model=openrouter:test-mo
             image_content_part,
         ],
     )
-
-

@@ -11,9 +11,7 @@ import abc
 import logging
 from typing import Any, cast
 
-from src.core.constants import (
-    COMMAND_EXECUTION_ERROR,
-)
+from src.core.constants import COMMAND_EXECUTION_ERROR
 from src.core.domain.command_results import CommandResult
 from src.core.domain.session import Session
 
@@ -116,10 +114,15 @@ class BackendCommandHandler(ILegacyCommandHandler):
             if isinstance(session.state, SessionStateAdapter):
                 # Working with SessionStateAdapter - get the underlying state
                 old_state = session.state._state
-                new_state = old_state.with_backend_config(
-                    cast(BackendConfiguration, backend_config)
-                )
-                updated_state = SessionStateAdapter(new_state)
+                # Ensure old_state is SessionState, not ISessionState
+                if isinstance(old_state, SessionState):
+                    new_state = old_state.with_backend_config(
+                        cast(BackendConfiguration, backend_config)
+                    )
+                    updated_state = SessionStateAdapter(new_state)
+                else:
+                    # Fallback for other implementations
+                    updated_state = session.state
             elif isinstance(session.state, SessionState):
                 # Working with SessionState directly
                 new_state = session.state.with_backend_config(
@@ -143,9 +146,7 @@ class BackendCommandHandler(ILegacyCommandHandler):
             error_message = COMMAND_EXECUTION_ERROR.format(error=str(e))
             logger.error(error_message)
             return CommandResult(
-                success=False,
-                message=error_message,
-                data={"name": self.name},
+                success=False, message=error_message, data={"name": self.name}
             )
 
 
@@ -217,8 +218,13 @@ class ModelCommandHandler(ILegacyCommandHandler):
             if isinstance(session.state, SessionStateAdapter):
                 # Working with SessionStateAdapter - get the underlying state
                 old_state = session.state._state
-                new_state = old_state.with_backend_config(concrete_backend_config)
-                updated_state = SessionStateAdapter(new_state)
+                # Ensure old_state is SessionState, not ISessionState
+                if isinstance(old_state, SessionState):
+                    new_state = old_state.with_backend_config(concrete_backend_config)
+                    updated_state = SessionStateAdapter(new_state)
+                else:
+                    # Fallback for other implementations
+                    updated_state = session.state
             elif isinstance(session.state, SessionState):
                 # Working with SessionState directly
                 new_state = session.state.with_backend_config(concrete_backend_config)
@@ -244,9 +250,7 @@ class ModelCommandHandler(ILegacyCommandHandler):
             error_message = COMMAND_EXECUTION_ERROR.format(error=str(e))
             logger.error(error_message)
             return CommandResult(
-                success=False,
-                message=error_message,
-                data={"name": self.name},
+                success=False, message=error_message, data={"name": self.name}
             )
 
 
@@ -320,10 +324,31 @@ class TemperatureCommandHandler(ILegacyCommandHandler):
             if isinstance(session.state, SessionStateAdapter):
                 # Working with SessionStateAdapter - get the underlying state
                 old_state = session.state._state
-                new_state = old_state.with_reasoning_config(concrete_reasoning_config)
-                updated_state = SessionStateAdapter(new_state)
+                # Ensure old_state is SessionState, not ISessionState
+                if isinstance(old_state, SessionState):
+                    # Create a new ReasoningConfiguration from the IReasoningConfig
+                    concrete_reasoning_config = ReasoningConfiguration(
+                        reasoning_effort=concrete_reasoning_config.reasoning_effort,
+                        thinking_budget=concrete_reasoning_config.thinking_budget,
+                        temperature=concrete_reasoning_config.temperature,
+                        gemini_generation_config=concrete_reasoning_config.gemini_generation_config,
+                    )
+                    new_state = old_state.with_reasoning_config(
+                        concrete_reasoning_config
+                    )
+                    updated_state = SessionStateAdapter(new_state)
+                else:
+                    # Fallback for other implementations
+                    updated_state = session.state
             elif isinstance(session.state, SessionState):
                 # Working with SessionState directly
+                # Create a new ReasoningConfiguration from the IReasoningConfig
+                concrete_reasoning_config = ReasoningConfiguration(
+                    reasoning_effort=concrete_reasoning_config.reasoning_effort,
+                    thinking_budget=concrete_reasoning_config.thinking_budget,
+                    temperature=concrete_reasoning_config.temperature,
+                    gemini_generation_config=concrete_reasoning_config.gemini_generation_config,
+                )
                 new_state = session.state.with_reasoning_config(
                     concrete_reasoning_config
                 )
@@ -349,9 +374,7 @@ class TemperatureCommandHandler(ILegacyCommandHandler):
             error_message = COMMAND_EXECUTION_ERROR.format(error=str(e))
             logger.error(error_message)
             return CommandResult(
-                success=False,
-                message=error_message,
-                data={"name": self.name},
+                success=False, message=error_message, data={"name": self.name}
             )
 
 

@@ -123,9 +123,7 @@ def to_fastapi_response(
 
         safe_content = _sanitize(content)
         return JSONResponse(
-            content=safe_content,
-            status_code=status_code,
-            headers=headers,
+            content=safe_content, status_code=status_code, headers=headers
         )
     else:
         # For other media types, convert content to string if needed
@@ -187,8 +185,7 @@ def to_fastapi_streaming_response(
 
 
 def domain_response_to_fastapi(
-    domain_response: Any,
-    content_converter: Callable[[Any], Any] | None = None,
+    domain_response: Any, content_converter: Callable[[Any], Any] | None = None
 ) -> Response | StreamingResponse:
     """Convert any domain response to a FastAPI response.
 
@@ -221,9 +218,7 @@ def domain_response_to_fastapi(
 
         return to_fastapi_streaming_response(
             StreamingResponseEnvelope(
-                content=content_iterator,
-                media_type="text/event-stream",
-                headers={},
+                content=content_iterator, media_type="text/event-stream", headers={}
             )
         )
 

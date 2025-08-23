@@ -27,6 +27,12 @@ class ISessionService(ABC):
         pass
 
     @abstractmethod
+    async def update_session_backend_config(
+        self, session_id: str, backend_type: str, model: str
+    ) -> None:
+        """Update the backend configuration for a given session."""
+
+    @abstractmethod
     async def delete_session(self, session_id: str) -> bool:
         pass
 

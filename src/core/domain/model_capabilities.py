@@ -297,10 +297,7 @@ KNOWN_MODEL_CAPABILITIES = {
             requests_per_minute=200,
             tokens_per_minute=40000,
         ),
-        pricing=ModelPricing(
-            input_cost_per_1k=0.03,
-            output_cost_per_1k=0.06,
-        ),
+        pricing=ModelPricing(input_cost_per_1k=0.03, output_cost_per_1k=0.06),
     ),
     "gpt-4-turbo": ModelCapabilities(
         model_id="gpt-4-turbo",
@@ -330,10 +327,7 @@ KNOWN_MODEL_CAPABILITIES = {
             requests_per_minute=500,
             tokens_per_minute=150000,
         ),
-        pricing=ModelPricing(
-            input_cost_per_1k=0.01,
-            output_cost_per_1k=0.03,
-        ),
+        pricing=ModelPricing(input_cost_per_1k=0.01, output_cost_per_1k=0.03),
     ),
     "claude-3-opus": ModelCapabilities(
         model_id="claude-3-opus-20240229",
@@ -362,9 +356,6 @@ KNOWN_MODEL_CAPABILITIES = {
             requests_per_minute=50,
             tokens_per_minute=100000,
         ),
-        pricing=ModelPricing(
-            input_cost_per_1k=0.015,
-            output_cost_per_1k=0.075,
-        ),
+        pricing=ModelPricing(input_cost_per_1k=0.015, output_cost_per_1k=0.075),
     ),
 }

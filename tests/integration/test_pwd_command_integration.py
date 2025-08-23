@@ -3,10 +3,11 @@ Integration tests for the PWD command in the new SOLID architecture.
 """
 
 import pytest
+import pytest_asyncio
 from src.core.app.test_builder import build_test_app as build_app
 
 
-@pytest.fixture
+@pytest_asyncio.fixture
 async def app(monkeypatch: pytest.MonkeyPatch):
     """Create a test application."""
     # Build the app
@@ -40,12 +41,7 @@ async def app(monkeypatch: pytest.MonkeyPatch):
     set_service_provider(service_provider)
     app.state.service_provider = service_provider
 
-    # Initialize the integration bridge
-    from src.core.integration.bridge import IntegrationBridge
-
-    bridge = IntegrationBridge(app)
-    bridge.new_initialized = True  # Mark new architecture as initialized
-    app.state.integration_bridge = bridge
+    # No integration bridge needed - using SOLID architecture directly
 
     # Mock the backend service to avoid actual API calls
 
@@ -138,6 +134,7 @@ async def app(monkeypatch: pytest.MonkeyPatch):
     return app
 
 
+@pytest.mark.asyncio
 async def test_pwd_command_integration_with_project_dir(app):
     """Test that the PWD command works correctly with a project directory set."""
     # Import the command and session classes
@@ -161,6 +158,7 @@ async def test_pwd_command_integration_with_project_dir(app):
     assert result.message == "/test/project/dir"
 
 
+@pytest.mark.asyncio
 async def test_pwd_command_integration_without_project_dir(app):
     """Test that the PWD command works correctly without a project directory set."""
     # Import the command and session classes

@@ -15,6 +15,7 @@ from src.core.common.exceptions import (
 )
 from src.core.domain.chat import ChatRequest
 from src.core.domain.responses import ResponseEnvelope, StreamingResponseEnvelope
+from src.core.interfaces.configuration_interface import IAppIdentityConfig
 from src.core.interfaces.model_bases import DomainModel, InternalDTO
 from src.core.services.backend_registry import backend_registry
 
@@ -39,7 +40,14 @@ class OpenRouterBackend(OpenAIConnector):
                 message="OpenRouter headers provider, key name, or API key not set.",
                 code="missing_credentials",
             )
-        return self.headers_provider(self.key_name, self.api_key)
+        headers = self.headers_provider(self.key_name, self.api_key)
+        if self.identity:
+            headers["HTTP-Referer"] = self.identity.url
+            headers["X-Title"] = self.identity.title
+        logger.info(
+            f"OpenRouter headers: Authorization: Bearer {self.api_key[:20]}..., HTTP-Referer: {headers.get('HTTP-Referer', 'NOT_SET')}, X-Title: {headers.get('X-Title', 'NOT_SET')}"
+        )
+        return headers
 
     async def initialize(self, **kwargs: Any) -> None:
         """Fetch available models and cache them for later use."""
@@ -91,11 +99,30 @@ class OpenRouterBackend(OpenAIConnector):
             request_data, processed_messages, effective_model
         )
 
-        # Ensure the model name includes the provider prefix for OpenRouter
-        if "/" not in effective_model:
-            payload["model"] = f"openrouter/{effective_model}"
-        else:
-            payload["model"] = effective_model
+        # Log the effective model for debugging
+        logger.info(
+            f"OpenRouter _prepare_payload: effective_model = '{effective_model}'"
+        )
+
+        # For OpenRouter, the model name should be sent as-is (without any prefix)
+        # The proxy already strips the "openrouter:" prefix before calling this method
+        payload["model"] = effective_model
+
+        # Clean up the payload by removing None values and extra fields that might cause issues
+        cleaned_payload = {"model": payload["model"], "messages": payload["messages"]}
+
+        # Only add non-None values
+        for key, value in payload.items():
+            if key not in ["model", "messages"] and value is not None:
+                cleaned_payload[key] = value
+
+        # Remove extra_body as it might contain proxy-specific data that OpenRouter doesn't expect
+        cleaned_payload.pop("extra_body", None)
+
+        logger.info(f"OpenRouter cleaned payload being sent: {cleaned_payload}")
+
+        # Use the cleaned payload
+        payload = cleaned_payload
 
         # Add project to payload if available
         if "project" in request_data.model_dump(exclude_unset=True):
@@ -129,10 +156,12 @@ class OpenRouterBackend(OpenAIConnector):
         request_data: DomainModel | InternalDTO | dict[str, Any],
         processed_messages: list[Any],
         effective_model: str,
+        identity: IAppIdentityConfig | None = None,
         project: str | None = None,
         **kwargs: Any,
     ) -> ResponseEnvelope | StreamingResponseEnvelope:
         # Normalize incoming request to ChatRequest
+        self.identity = identity
         request_data = legacy_to_domain_chat_request(request_data)
         request_data = cast(ChatRequest, request_data)
         # Allow tests and callers to provide per-call OpenRouter settings via kwargs

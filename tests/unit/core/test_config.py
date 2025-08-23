@@ -5,7 +5,11 @@ Tests for the configuration module.
 from pathlib import Path
 
 import pytest
-from src.core.config.app_config import AppConfig, load_config
+from src.core.config.app_config import (
+    AppConfig,
+    LogLevel,
+    load_config,
+)
 
 
 def test_app_config_defaults() -> None:
@@ -21,77 +25,17 @@ def test_app_config_defaults() -> None:
     assert config.backends.default_backend == "openai"
     assert config.auth.disable_auth is False
     assert config.session.cleanup_enabled is True
-    assert config.logging.level == AppConfig.LogLevel.INFO
+    assert config.logging.level == LogLevel.INFO
 
 
 def test_app_config_validation() -> None:
     """Test validation in AppConfig."""
     # Arrange & Act & Assert
     with pytest.raises(ValueError):
-        # Invalid backend URL
-        AppConfig(
-            backends=AppConfig.BackendSettings(
-                openai=AppConfig.BackendConfig(
-                    api_url="invalid-url"  # Missing http:// or https://
-                )
-            )
-        )
+        # Create config with invalid backend URL
+        AppConfig(backends={"openai": {"api_url": "invalid-url"}})
 
 
-def test_app_config_to_legacy_config() -> None:
-    """Test conversion to legacy config format."""
-    # Arrange
-    config = AppConfig(
-        host="localhost",
-        port=9000,
-        backends=AppConfig.BackendSettings(
-            default_backend="openai",
-            openai=AppConfig.BackendConfig(
-                api_key=["test_key"],
-                api_url="https://api.example.com",
-                timeout=30,
-                extra={"foo": "bar"},
-            ),
-        ),
-    )
-
-    # Act
-    legacy_config = config.to_legacy_config()
-
-    # Assert
-    assert legacy_config["host"] == "localhost"
-    assert legacy_config["port"] == 9000
-    assert legacy_config["default_backend"] == "openai"
-    assert legacy_config["openai_api_key"] == "test_key"
-    assert legacy_config["openai_api_url"] == "https://api.example.com"
-    assert legacy_config["openai_timeout"] == 30
-    assert legacy_config["openai_foo"] == "bar"
-
-
-def test_app_config_from_legacy_config() -> None:
-    """Test creation from legacy config format."""
-    # Arrange
-    legacy_config = {
-        "host": "localhost",
-        "port": 9000,
-        "default_backend": "openai",
-        "openai_api_key": "test_key",
-        "openai_api_url": "https://api.example.com",
-        "openai_timeout": 30,
-        "openai_foo": "bar",
-    }
-
-    # Act
-    config = AppConfig.from_legacy_config(legacy_config)
-
-    # Assert
-    assert config.host == "localhost"
-    assert config.port == 9000
-    assert config.backends.default_backend == "openai"
-    assert config.backends.openai.api_key == ["test_key"]
-    assert config.backends.openai.api_url == "https://api.example.com"
-    assert config.backends.openai.timeout == 30
-    assert config.backends.openai.extra == {"foo": "bar"}
 
 
 def test_app_config_from_env(mock_env_vars: dict[str, str]) -> None:

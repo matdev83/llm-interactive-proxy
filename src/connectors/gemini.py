@@ -18,6 +18,7 @@ from src.core.domain.chat import (
     MessageContentPartText,
 )
 from src.core.domain.responses import ResponseEnvelope, StreamingResponseEnvelope
+from src.core.interfaces.configuration_interface import IAppIdentityConfig
 from src.core.interfaces.model_bases import DomainModel, InternalDTO
 from src.core.services.backend_registry import backend_registry
 
@@ -113,9 +114,7 @@ class GeminiBackend(LLMBackend):
         }
 
     def _convert_full_response(
-        self,
-        data: dict[str, Any],
-        model: str,
+        self, data: dict[str, Any], model: str
     ) -> dict[str, Any]:
         """Convert a Gemini JSON response to OpenAI format, including function calls."""
         candidate: dict[str, Any] = {}
@@ -172,8 +171,7 @@ class GeminiBackend(LLMBackend):
         }
 
     def _convert_part_for_gemini(
-        self,
-        part: MessageContentPartText | MessageContentPartImage,
+        self, part: MessageContentPartText | MessageContentPartImage
     ) -> dict[str, Any]:
         """Convert a MessageContentPart into Gemini API format."""
         if isinstance(part, MessageContentPartText):
@@ -201,8 +199,7 @@ class GeminiBackend(LLMBackend):
         return data
 
     def _prepare_gemini_contents(
-        self,
-        processed_messages: list[Any],
+        self, processed_messages: list[Any]
     ) -> list[dict[str, Any]]:
         payload_contents = []
         for msg in processed_messages:
@@ -245,11 +242,7 @@ class GeminiBackend(LLMBackend):
         return payload_contents
 
     async def _handle_gemini_streaming_response(
-        self,
-        base_url: str,
-        payload: dict,
-        headers: dict,
-        effective_model: str,
+        self, base_url: str, payload: dict, headers: dict, effective_model: str
     ) -> StreamingResponseEnvelope:
         url = f"{base_url}:streamGenerateContent"
         try:
@@ -328,15 +321,14 @@ class GeminiBackend(LLMBackend):
         except httpx.RequestError as e:
             if logger.isEnabledFor(logging.ERROR):
                 logger.error("Request error connecting to Gemini: %s", e, exc_info=True)
-            raise ServiceUnavailableError(
-                message=f"Could not connect to Gemini ({e})",
-            )
+            raise ServiceUnavailableError(message=f"Could not connect to Gemini ({e})")
 
     async def chat_completions(  # type: ignore[override]
         self,
         request_data: DomainModel | InternalDTO | dict[str, Any],
         processed_messages: list[Any],
         effective_model: str,
+        identity: IAppIdentityConfig | None = None,
         openrouter_api_base_url: str | None = None,
         openrouter_headers_provider: Callable[[str, str], dict[str, str]] | None = None,
         key_name: str | None = None,
@@ -350,6 +342,11 @@ class GeminiBackend(LLMBackend):
         base_api_url, headers = self._resolve_gemini_api_config(
             gemini_api_base_url, openrouter_api_base_url, api_key, **kwargs
         )
+        if identity:
+            if identity.url:
+                headers["HTTP-Referer"] = identity.url
+            if identity.title:
+                headers["X-Title"] = identity.title
 
         # Normalize incoming request to ChatRequest
         request_data = legacy_to_domain_chat_request(request_data)
@@ -436,18 +433,16 @@ class GeminiBackend(LLMBackend):
         return base.rstrip("/"), {"x-goog-api-key": key}
 
     def _apply_generation_config(
-        self,
-        payload: dict[str, Any],
-        request_data: ChatRequest,
+        self, payload: dict[str, Any], request_data: ChatRequest
     ) -> None:
         # Initialize generationConfig
         generation_config = payload.setdefault("generationConfig", {})
 
         # thinking budget
         if getattr(request_data, "thinking_budget", None):
-            generation_config.setdefault("thinkingConfig", {})[
-                "thinkingBudget"
-            ] = request_data.thinking_budget  # type: ignore[index]
+            generation_config.setdefault("thinkingConfig", {})["thinkingBudget"] = (
+                request_data.thinking_budget
+            )  # type: ignore[index]
 
         # generation config blob - merge with existing config
         if getattr(request_data, "generation_config", None):
@@ -483,11 +478,7 @@ class GeminiBackend(LLMBackend):
         return model_name
 
     async def _handle_gemini_non_streaming_response(
-        self,
-        base_url: str,
-        payload: dict,
-        headers: dict,
-        effective_model: str,
+        self, base_url: str, payload: dict, headers: dict, effective_model: str
     ) -> ResponseEnvelope:
         url = f"{base_url}:generateContent"
         try:
@@ -513,16 +504,10 @@ class GeminiBackend(LLMBackend):
         except httpx.RequestError as e:
             if logger.isEnabledFor(logging.ERROR):
                 logger.error("Request error connecting to Gemini: %s", e, exc_info=True)
-            raise ServiceUnavailableError(
-                message=f"Could not connect to Gemini ({e})",
-            )
+            raise ServiceUnavailableError(message=f"Could not connect to Gemini ({e})")
 
     async def list_models(
-        self,
-        *,
-        gemini_api_base_url: str,
-        key_name: str,
-        api_key: str,
+        self, *, gemini_api_base_url: str, key_name: str, api_key: str
     ) -> dict[str, Any]:
         headers = {"x-goog-api-key": api_key}
         url = f"{gemini_api_base_url.rstrip('/')}/v1beta/models"
@@ -542,9 +527,7 @@ class GeminiBackend(LLMBackend):
         except httpx.RequestError as e:
             if logger.isEnabledFor(logging.ERROR):
                 logger.error("Request error connecting to Gemini: %s", e, exc_info=True)
-            raise ServiceUnavailableError(
-                message=f"Could not connect to Gemini ({e})",
-            )
+            raise ServiceUnavailableError(message=f"Could not connect to Gemini ({e})")
 
 
 backend_registry.register_backend("gemini", GeminiBackend)

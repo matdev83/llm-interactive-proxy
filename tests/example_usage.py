@@ -6,19 +6,15 @@ to prevent coroutine warnings in your test suites.
 """
 
 import asyncio
-import pytest
 from unittest.mock import Mock
 
 from testing_framework import (
-    SafeTestSession,
-    SafeSessionService, 
+    CoroutineWarningDetector,
     EnforcedMockFactory,
     MockBackendTestStage,
     RealBackendTestStage,
+    SafeSessionService,
     ValidatedTestStage,
-    CoroutineWarningDetector,
-    SyncOnlyService,
-    AsyncOnlyService
 )
 
 

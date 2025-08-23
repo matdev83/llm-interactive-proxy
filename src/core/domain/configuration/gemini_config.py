@@ -27,7 +27,7 @@ class GeminiGenerationConfig(ValueObject, IBackendSpecificConfig):
 
     model_config = ConfigDict(
         # Ignore extra attributes to suppress warnings about field names shadowing parent attributes
-        extra="ignore",
+        extra="ignore"
         # Other config options can be added here as needed
     )
 

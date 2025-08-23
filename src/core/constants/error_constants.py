@@ -23,7 +23,9 @@ COMMAND_PARSING_ERROR = "Error parsing command: {error}"
 COMMAND_EXECUTION_ERROR = "Error executing command: {error}"
 COMMAND_NOT_FOUND_ERROR = "Command not found: {command}"
 COMMAND_INVALID_ARGUMENT_ERROR = "Invalid argument for command {command}: {argument}"
-COMMAND_MISSING_ARGUMENT_ERROR = "Missing required argument for command {command}: {argument}"
+COMMAND_MISSING_ARGUMENT_ERROR = (
+    "Missing required argument for command {command}: {argument}"
+)
 COMMAND_PERMISSION_DENIED_ERROR = "Permission denied for command: {command}"
 
 # Configuration error messages
@@ -53,7 +55,9 @@ LOOP_DETECTED_ERROR = "Loop detected in response stream"
 TOOL_CALL_EXECUTION_ERROR = "Error executing tool call: {error}"
 TOOL_CALL_NOT_FOUND_ERROR = "Tool call not found: {tool_call_id}"
 TOOL_CALL_INVALID_FORMAT_ERROR = "Invalid tool call format: {error}"
-TOOL_CALL_MAX_RETRIES_EXCEEDED_ERROR = "Maximum tool call retries exceeded for: {tool_name}"
+TOOL_CALL_MAX_RETRIES_EXCEEDED_ERROR = (
+    "Maximum tool call retries exceeded for: {tool_name}"
+)
 
 # Streaming error messages
 STREAMING_CONNECTION_ERROR = "Streaming connection error: {error}"
@@ -76,7 +80,9 @@ JSON_PARSING_ERROR = "JSON parsing error: {error}"
 JSON_ENCODING_ERROR = "JSON encoding error: {error}"
 
 # Validation error messages
-VALIDATION_TYPE_ERROR = "Type validation error: expected {expected_type}, got {actual_type}"
+VALIDATION_TYPE_ERROR = (
+    "Type validation error: expected {expected_type}, got {actual_type}"
+)
 VALIDATION_RANGE_ERROR = "Value out of range: {value} not in [{min_value}, {max_value}]"
 VALIDATION_REQUIRED_FIELD_ERROR = "Required field missing: {field}"
 VALIDATION_FORMAT_ERROR = "Invalid format for {field}: {value}"

@@ -80,7 +80,7 @@ class ProcessorStage(InitializationStage):
                 command_service: ICommandService = provider.get_required_service(
                     cast(type, ICommandService)
                 )
-                return CommandProcessor(command_service)
+                return CommandProcessor(command_service) # No change needed here, constructor is correct
 
             # Register concrete implementation
             services.add_singleton(
@@ -96,7 +96,7 @@ class ProcessorStage(InitializationStage):
             )
 
             logger.debug("Registered command processor")
-        except ImportError as e: # type: ignore[misc]
+        except ImportError as e:  # type: ignore[misc]
             logger.warning(f"Could not register command processor: {e}")
 
     def _register_backend_processor(self, services: ServiceCollection) -> None:
@@ -135,7 +135,7 @@ class ProcessorStage(InitializationStage):
             )
 
             logger.debug("Registered backend processor")
-        except ImportError as e: # type: ignore[misc]
+        except ImportError as e:  # type: ignore[misc]
             logger.warning(f"Could not register backend processor: {e}")
 
     def _register_response_processor(self, services: ServiceCollection) -> None:
@@ -185,7 +185,7 @@ class ProcessorStage(InitializationStage):
             )
 
             logger.debug("Registered response processor with middleware")
-        except ImportError as e: # type: ignore[misc]
+        except ImportError as e:  # type: ignore[misc]
             logger.warning(f"Could not register response processor: {e}")
 
     def _register_request_processor(self, services: ServiceCollection) -> None:
@@ -251,7 +251,7 @@ class ProcessorStage(InitializationStage):
             )
 
             logger.debug("Registered request processor with all dependencies")
-        except ImportError as e: # type: ignore[misc]
+        except ImportError as e:  # type: ignore[misc]
             logger.warning(f"Could not register request processor: {e}")
 
     async def validate(self, services: ServiceCollection, config: AppConfig) -> bool:
@@ -260,6 +260,6 @@ class ProcessorStage(InitializationStage):
             # Check that required modules are available
 
             return True
-        except ImportError as e: # type: ignore[misc]
+        except ImportError as e:  # type: ignore[misc]
             logger.error(f"Processor services validation failed: {e}")
             return False

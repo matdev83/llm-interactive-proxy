@@ -274,9 +274,9 @@ def _apply_gemini_header_info(
 
 
 def _apply_anthropic_header_info(billing_info: BillingInfo) -> None:
-    billing_info["provider_info"][
-        "note"
-    ] = "Anthropic backend - usage info in response only"
+    billing_info["provider_info"]["note"] = (
+        "Anthropic backend - usage info in response only"
+    )
     billing_info["usage"] = {
         "prompt_tokens": 0,
         "completion_tokens": 0,
@@ -300,11 +300,7 @@ def extract_billing_info_from_response(
     billing_info: BillingInfo = {
         "backend": backend,
         "provider_info": {},
-        "usage": {
-            "prompt_tokens": 0,
-            "completion_tokens": 0,
-            "total_tokens": 0,
-        },
+        "usage": {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},
         "cost": 0.0,
         # legacy flat keys kept for backwards compat
         "prompt_tokens": None,
@@ -656,11 +652,7 @@ def get_usage_stats(
         # Get model rankings
         rankings = accounting.get_model_rankings(days=days)
 
-        return {
-            "period_stats": stats,
-            "model_rankings": rankings,
-            "days": days,
-        }
+        return {"period_stats": stats, "model_rankings": rankings, "days": days}
     except Exception as e:
         logger.error(f"Failed to get usage stats: {e}")
         return {"error": str(e)}
@@ -680,10 +672,7 @@ def get_audit_logs(
         audit_logger = accounting.audit_logger
 
         entries = audit_logger.get_entries(
-            start_date=start_date,
-            end_date=end_date,
-            username=username,
-            limit=limit,
+            start_date=start_date, end_date=end_date, username=username, limit=limit
         )
 
         return [

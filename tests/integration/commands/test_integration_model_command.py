@@ -1,15 +1,10 @@
-from unittest.mock import Mock
 
 import pytest
 
 # Removed skip marker - now have snapshot fixture available
-from src.command_config import CommandParserConfig
-from src.command_parser import CommandParser
-from src.core.domain.chat import ChatMessage
 from src.core.domain.session import BackendConfiguration, SessionState
 
 # Import the centralized test helper
-from tests.conftest import setup_test_command_registry
 
 
 async def run_command(command_string: str, initial_state: SessionState = None) -> str:

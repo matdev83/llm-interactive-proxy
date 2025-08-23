@@ -1,14 +1,11 @@
 import asyncio
 import logging
-import unittest.mock
-from collections.abc import AsyncIterator, Generator
+from collections.abc import Generator
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, Mock
 
 # Targeted fix for specific AsyncMock coroutine warning patterns
 # Store original AsyncMock for safe usage
-from unittest.mock import AsyncMock as _OriginalAsyncMock
-
 import httpx
 import pytest
 import requests
@@ -20,13 +17,12 @@ from fastapi.testclient import TestClient
 # Only patch specific problematic test modules that we know cause issues
 # This preserves legitimate AsyncMock usage while fixing the problematic patterns
 _PROBLEMATIC_TEST_MODULES = {
-    "tests.unit.openai_connector_tests.test_streaming_response",
     "tests.unit.openrouter_connector_tests.test_headers_plumbing",
     "tests.unit.core.app.test_application_factory",
 }
 
 
-class SmartAsyncMock(_OriginalAsyncMock):
+class SmartAsyncMock(AsyncMock): # Inherit directly from AsyncMock
     """AsyncMock that converts to regular Mock for problematic patterns.
 
     This implementation uses a cached module check for better performance.
@@ -60,17 +56,17 @@ class SmartAsyncMock(_OriginalAsyncMock):
                 pass
 
         # Default to real AsyncMock for legitimate async testing
-        return super().__new__(cls)
+        return super().__new__(cls, *args, **kwargs) # Pass args and kwargs to super().__new__
 
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
+    # __init__ is implicitly called by __new__ for AsyncMock, no need to override if no extra init logic
+    # def __init__(self, *args, **kwargs):
+    #     super().__init__(*args, **kwargs)
 
-
-# Store original for explicit usage
-unittest.mock._OriginalAsyncMock = _OriginalAsyncMock
 
 # Replace AsyncMock with our smart class (preserves isinstance() compatibility)
-unittest.mock.AsyncMock = SmartAsyncMock
+# No need to store original AsyncMock as it's directly imported for SmartAsyncMock
+from unittest.mock import AsyncMock  # Explicitly import AsyncMock for SmartAsyncMock
+
 from src.connectors.base import LLMBackend
 from src.core.app.test_builder import (
     build_test_app,
@@ -85,8 +81,15 @@ from src.core.config.app_config import (
     SessionConfig,
 )
 from src.core.di.container import ServiceCollection
+from src.core.domain.responses import (
+    StreamingResponseEnvelope,  # Added for AsyncIterBytes in global mock
+)
 from src.core.interfaces.backend_service_interface import IBackendService
 from src.core.interfaces.session_service_interface import ISessionService
+
+from tests.unit.openai_connector_tests.test_streaming_response import (
+    AsyncIterBytes,  # Added for AsyncIterBytes in global mock
+)
 
 # Import shared fixtures
 
@@ -118,15 +121,15 @@ try:
 
         _original_httpx_iter_lines = httpx.Response.iter_lines
 
-        def _httpx_iter_lines_force_bytes(self, *args, **kwargs):
-            """Ensure httpx.Response.iter_lines always yields bytes."""
+        def _httpx_iter_lines_force_str(self, *args, **kwargs): # Renamed function
+            """Ensure httpx.Response.iter_lines always yields str."""
             for line in _original_httpx_iter_lines(self, *args, **kwargs):
-                if isinstance(line, str):
-                    yield line.encode("utf-8")
+                if isinstance(line, bytes): # Decode bytes to str
+                    yield line.decode("utf-8")
                 else:
                     yield line
 
-        httpx.Response.iter_lines = _httpx_iter_lines_force_bytes
+        httpx.Response.iter_lines = _httpx_iter_lines_force_str # Use renamed function
     except (ImportError, AttributeError):
         pass
 except Exception as e:
@@ -231,11 +234,10 @@ def _global_mock_backend_init(monkeypatch, request):
 
     # Mock streaming response
     async def _mock_chat_completions_stream(*args, **kwargs):
-        from src.core.domain.responses import StreamingResponseEnvelope
 
         # Create a simple streaming response for compatibility
         return StreamingResponseEnvelope(
-            content=AsyncIterator[bytes](),  # Empty async iterator
+            content=AsyncIterBytes([]),  # Use AsyncIterBytes
             headers={},
         )
 
@@ -345,24 +347,16 @@ def test_app_config() -> AppConfig:
     """
     return AppConfig(
         logging=LoggingConfig(level=LogLevel.INFO),
-        session=SessionConfig(
-            default_backend="openai",
-            default_model="gpt-3.5-turbo",
-            history_size=10,
-        ),
+        session=SessionConfig(), # Removed invalid parameters
         backends=BackendSettings(
-            configs={
-                "openai": BackendConfig(api_key=["test-key"]),
-                "anthropic": BackendConfig(api_key=["test-key"]),
-                "gemini": BackendConfig(api_key=["test-key"]),
-                "openrouter": BackendConfig(api_key=["test-key"]),
-            }
+            openai=BackendConfig(api_key=["test-key"]), # Changed to direct assignment
+            anthropic=BackendConfig(api_key=["test-key"]),
+            gemini=BackendConfig(api_key=["test-key"]),
+            openrouter=BackendConfig(api_key=["test-key"]),
         ),
         auth=AuthConfig(
             api_keys=["test-key"],
-            token="test-token",
-            trusted_ips=["127.0.0.1"],
-        ),
+        ), # Removed invalid parameters
     )
 
 
@@ -392,15 +386,24 @@ def test_session_service(test_service_provider) -> Generator[Any, None, None]:
     Returns:
         Generator: A test session service
     """
+    from unittest.mock import MagicMock
+
+    from src.core.interfaces.session_repository_interface import ISessionRepository
     from src.core.services.session_service import SessionService
 
-    session_service = SessionService()
+    mock_session_repository = MagicMock(spec=ISessionRepository)
+    session_service = SessionService(session_repository=mock_session_repository)
     test_service_provider.register_instance(ISessionService, session_service)
     yield session_service
 
 
 @pytest.fixture
-def test_backend_service(test_service_provider) -> Generator[Any, None, None]:
+def test_backend_service(
+    test_service_provider: Any,
+    test_backend_factory: Any,
+    test_app_config: AppConfig,
+    test_session_service: Any,
+) -> Generator[Any, None, None]:
     """Create a test backend service.
 
     Args:
@@ -409,9 +412,19 @@ def test_backend_service(test_service_provider) -> Generator[Any, None, None]:
     Returns:
         Generator: A test backend service
     """
+    from unittest.mock import MagicMock
+
+    from src.core.interfaces.rate_limiter_interface import IRateLimiter
     from src.core.services.backend_service import BackendService
 
-    backend_service = BackendService(test_service_provider)
+    mock_rate_limiter = MagicMock(spec=IRateLimiter)
+
+    backend_service = BackendService(
+        factory=test_backend_factory,
+        rate_limiter=mock_rate_limiter,
+        config=test_app_config,
+        session_service=test_session_service,
+    )
     test_service_provider.register_instance(IBackendService, backend_service)
     yield backend_service
 
@@ -598,7 +611,6 @@ def mock_env_vars(monkeypatch) -> dict[str, str]:
 @pytest.fixture
 def temp_config_path(tmp_path):
     """Create a temporary config file for testing."""
-    from pathlib import Path
 
     config_path = tmp_path / "test_config.yaml"
     config_content = """

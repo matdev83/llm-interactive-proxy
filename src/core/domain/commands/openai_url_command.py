@@ -10,9 +10,7 @@ import logging
 from collections.abc import Mapping
 from typing import Any
 
-from src.core.constants import (
-    COMMAND_EXECUTION_ERROR,
-)
+from src.core.constants import COMMAND_EXECUTION_ERROR
 from src.core.domain.command_results import CommandResult
 from src.core.domain.commands.base_command import BaseCommand
 from src.core.domain.commands.secure_base_command import StatefulCommandBase
@@ -71,18 +69,14 @@ class OpenAIUrlCommand(StatefulCommandBase, BaseCommand):
         url = args.get("url")
         if not url:
             return CommandResult(
-                success=False,
-                message="OpenAI URL must be specified",
-                name=self.name,
+                success=False, message="OpenAI URL must be specified", name=self.name
             )
 
         try:
             # Validate URL format
             if not isinstance(url, str):
                 return CommandResult(
-                    success=False,
-                    message="OpenAI URL must be a string",
-                    name=self.name,
+                    success=False, message="OpenAI URL must be a string", name=self.name
                 )
 
             url_val = url.strip()
@@ -109,8 +103,4 @@ class OpenAIUrlCommand(StatefulCommandBase, BaseCommand):
         except Exception as e:
             error_message = COMMAND_EXECUTION_ERROR.format(error=str(e))
             logger.error(error_message)
-            return CommandResult(
-                success=False,
-                message=error_message,
-                name=self.name,
-            )
+            return CommandResult(success=False, message=error_message, name=self.name)

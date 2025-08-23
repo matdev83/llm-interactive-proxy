@@ -61,10 +61,7 @@ class LoopDetectionHandler(BaseCommandHandler):
     @property
     def examples(self) -> list[str]:
         """Examples of using this command."""
-        return [
-            "~/set(loop-detection=true)",
-            "~/set(loop-detection=false)",
-        ]
+        return ["~/set(loop-detection=true)", "~/set(loop-detection=false)"]
 
     def can_handle(self, param_name: str) -> bool:
         """Check if this handler can handle the given parameter.
@@ -120,7 +117,10 @@ class LoopDetectionHandler(BaseCommandHandler):
         bool_value = self._parse_bool(str(param_value))
         if bool_value is None:
             return CommandHandlerResult(
-                success=False, message=LOOP_DETECTION_INVALID_BOOLEAN_MESSAGE.format(value=param_value)
+                success=False,
+                message=LOOP_DETECTION_INVALID_BOOLEAN_MESSAGE.format(
+                    value=param_value
+                ),
             )
 
         # Create new state with updated loop detection setting
@@ -130,7 +130,9 @@ class LoopDetectionHandler(BaseCommandHandler):
 
         return CommandHandlerResult(
             success=True,
-            message=LOOP_DETECTION_ENABLED_MESSAGE if bool_value else LOOP_DETECTION_DISABLED_MESSAGE,
+            message=LOOP_DETECTION_ENABLED_MESSAGE
+            if bool_value
+            else LOOP_DETECTION_DISABLED_MESSAGE,
             new_state=new_state,
         )
 
@@ -155,10 +157,7 @@ class ToolLoopDetectionHandler(BaseCommandHandler):
     @property
     def examples(self) -> list[str]:
         """Examples of using this command."""
-        return [
-            "~/set(tool-loop-detection=true)",
-            "~/set(tool-loop-detection=false)",
-        ]
+        return ["~/set(tool-loop-detection=true)", "~/set(tool-loop-detection=false)"]
 
     def can_handle(self, param_name: str) -> bool:
         """Check if this handler can handle the given parameter.
@@ -214,7 +213,10 @@ class ToolLoopDetectionHandler(BaseCommandHandler):
         bool_value = self._parse_bool(str(param_value))
         if bool_value is None:
             return CommandHandlerResult(
-                success=False, message=TOOL_LOOP_DETECTION_INVALID_BOOLEAN_MESSAGE.format(value=param_value)
+                success=False,
+                message=TOOL_LOOP_DETECTION_INVALID_BOOLEAN_MESSAGE.format(
+                    value=param_value
+                ),
             )
 
         # Create new state with updated tool loop detection setting
@@ -224,7 +226,9 @@ class ToolLoopDetectionHandler(BaseCommandHandler):
 
         return CommandHandlerResult(
             success=True,
-            message=TOOL_LOOP_DETECTION_ENABLED_MESSAGE if bool_value else TOOL_LOOP_DETECTION_DISABLED_MESSAGE,
+            message=TOOL_LOOP_DETECTION_ENABLED_MESSAGE
+            if bool_value
+            else TOOL_LOOP_DETECTION_DISABLED_MESSAGE,
             new_state=new_state,
         )
 
@@ -249,10 +253,7 @@ class ToolLoopMaxRepeatsHandler(BaseCommandHandler):
     @property
     def examples(self) -> list[str]:
         """Examples of using this command."""
-        return [
-            "~/set(tool-loop-max-repeats=3)",
-            "~/set(tool-loop-max-repeats=5)",
-        ]
+        return ["~/set(tool-loop-max-repeats=3)", "~/set(tool-loop-max-repeats=5)"]
 
     def can_handle(self, param_name: str) -> bool:
         """Check if this handler can handle the given parameter.
@@ -298,7 +299,9 @@ class ToolLoopMaxRepeatsHandler(BaseCommandHandler):
         except ValueError:
             return CommandHandlerResult(
                 success=False,
-                message=TOOL_LOOP_MAX_REPEATS_MUST_BE_INTEGER_MESSAGE.format(value=param_value),
+                message=TOOL_LOOP_MAX_REPEATS_MUST_BE_INTEGER_MESSAGE.format(
+                    value=param_value
+                ),
             )
 
         # Create new state with updated tool loop max repeats setting
@@ -333,10 +336,7 @@ class ToolLoopTTLHandler(BaseCommandHandler):
     @property
     def examples(self) -> list[str]:
         """Examples of using this command."""
-        return [
-            "~/set(tool-loop-ttl=60)",
-            "~/set(tool-loop-ttl=120)",
-        ]
+        return ["~/set(tool-loop-ttl=60)", "~/set(tool-loop-ttl=120)"]
 
     def can_handle(self, param_name: str) -> bool:
         """Check if this handler can handle the given parameter.

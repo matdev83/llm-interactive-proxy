@@ -31,9 +31,9 @@ async def test_stream_cancellation_on_loop() -> None:
     ):
         collected.append(chunk)
         # Break if we see the cancellation notice for safety
-        if "Response cancelled" in chunk:
+        if "data: [Response cancelled:" in chunk:
             break
 
     joined = "".join(collected)
-    assert "Response cancelled" in joined, "Cancellation message not injected"
+    assert "data: [Response cancelled:" in joined, "Cancellation message not injected"
     assert "Should not reach here" not in joined, "Wrapper failed to stop the stream"

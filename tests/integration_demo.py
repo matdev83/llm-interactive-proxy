@@ -7,22 +7,20 @@ This demonstrates that the testing framework is not isolated code but is
 actually wired into the existing test infrastructure and can be used easily.
 """
 
-import asyncio
 import sys
 import warnings
 
+# Standard testing imports work seamlessly
+from unittest.mock import AsyncMock
+
 # Direct imports - no need for complex setup since it's integrated into conftest.py
 from testing_framework import (
-    SafeSessionService,
-    EnforcedMockFactory,
     CoroutineWarningDetector,
+    EnforcedMockFactory,
     MockBackendTestStage,
     RealBackendTestStage,
+    SafeSessionService,
 )
-
-# Standard testing imports work seamlessly
-import pytest
-from unittest.mock import AsyncMock
 
 
 def demonstrate_safe_session_usage():

@@ -334,22 +334,17 @@ api_timeout = config_adapter.get("api_timeout", 30)
 backend_type = config_adapter.backend_type
 ```
 
-### Integration Bridge
+### Direct Service Provider Usage
 
-The integration bridge manages coexistence of old and new configuration systems during migration:
+With the migration complete, services now use the DI container directly:
 
 ```python
-from src.core.integration.bridge import get_integration_bridge
+from src.core.di.services import get_service_provider
 
-bridge = get_integration_bridge()
+service_provider = get_service_provider()
 
-# Check if new configuration should be used
-if bridge.should_use_new_service("configuration"):
-    # Use new configuration system
-    config = service_provider.get_required_service(IBackendConfig)
-else:
-    # Fall back to legacy configuration
-    config = app.state.config
+# Use new configuration system directly
+config = service_provider.get_required_service(IBackendConfig)
 ```
 
 ## Best Practices

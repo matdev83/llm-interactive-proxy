@@ -25,16 +25,15 @@ class APIKeyMiddleware(BaseHTTPMiddleware):
     """
 
     def __init__(
-        self,
-        app: Any,
-        valid_keys: list[str],
-        bypass_paths: list[str] | None = None,
+        self, app: Any, valid_keys: list[str], bypass_paths: list[str] | None = None
     ) -> None:
         super().__init__(app)
         self.valid_keys = set(valid_keys)
         self.bypass_paths = bypass_paths or ["/docs", "/openapi.json", "/redoc"]
 
-    async def dispatch(self, request: Request, call_next: Callable[[Request], Awaitable[Response]]) -> Response:
+    async def dispatch(
+        self, request: Request, call_next: Callable[[Request], Awaitable[Response]]
+    ) -> Response:
         """
         Process the request and check for a valid API key.
 
@@ -54,11 +53,11 @@ class APIKeyMiddleware(BaseHTTPMiddleware):
         from src.core.services.application_state_service import (
             get_default_application_state,
         )
-        
+
         app_state_service = get_default_application_state()
         # Set the state provider to the current request's app state for this request
         app_state_service.set_state_provider(request.app.state)
-        
+
         disable_auth = app_state_service.get_setting("disable_auth", False)
         if disable_auth:
             # Auth is disabled, skip validation
@@ -136,16 +135,15 @@ class AuthMiddleware(BaseHTTPMiddleware):
     """
 
     def __init__(
-        self,
-        app: Any,
-        valid_token: str,
-        bypass_paths: list[str] | None = None,
+        self, app: Any, valid_token: str, bypass_paths: list[str] | None = None
     ) -> None:
         super().__init__(app)
         self.valid_token = valid_token
         self.bypass_paths = bypass_paths or ["/docs", "/openapi.json", "/redoc"]
 
-    async def dispatch(self, request: Request, call_next: Callable[[Request], Awaitable[Response]]) -> Response:
+    async def dispatch(
+        self, request: Request, call_next: Callable[[Request], Awaitable[Response]]
+    ) -> Response:
         """
         Process the request and check for a valid token.
 

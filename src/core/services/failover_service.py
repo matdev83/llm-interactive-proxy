@@ -58,10 +58,7 @@ class FailoverService:
                 failover_route=failover_route,
             )
         else:
-            logger.debug(
-                "No failover route found",
-                backend_type=backend_type,
-            )
+            logger.debug("No failover route found", backend_type=backend_type)
         return failover_route
 
     def get_failover_attempts(
@@ -87,10 +84,7 @@ class FailoverService:
         elements = route_config.get("elements", [])
 
         logger.debug(
-            "Getting failover attempts",
-            model=model,
-            policy=policy,
-            elements=elements,
+            "Getting failover attempts", model=model, policy=policy, elements=elements
         )
 
         attempts = []
@@ -134,15 +128,9 @@ class FailoverService:
         """
         if backend_type in self.failover_routes:
             del self.failover_routes[backend_type]
-            logger.info(
-                "Removed failover route",
-                backend_type=backend_type,
-            )
+            logger.info("Removed failover route", backend_type=backend_type)
             return True
-        logger.debug(
-            "No failover route to remove",
-            backend_type=backend_type,
-        )
+        logger.debug("No failover route to remove", backend_type=backend_type)
         return False
 
     def get_all_failover_routes(self) -> dict[str, Any]:

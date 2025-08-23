@@ -22,7 +22,7 @@ logger = logging.getLogger(__name__)
 class OneoffCommand(StatelessCommandBase, BaseCommand):
     """Command to set a one-time override for the backend and model."""
 
-    def __init__(self):
+    def __init__(self) -> None:
         """Initialize without state services."""
         StatelessCommandBase.__init__(self)
 
@@ -42,10 +42,7 @@ class OneoffCommand(StatelessCommandBase, BaseCommand):
 
     @property
     def examples(self) -> list[str]:
-        return [
-            "!/oneoff(openrouter/gpt-4)",
-            "!/one-off(gemini/gemini-pro)",
-        ]
+        return ["!/oneoff(openrouter/gpt-4)", "!/one-off(gemini/gemini-pro)"]
 
     async def execute(
         self, args: Mapping[str, Any], session: Session, context: Any = None

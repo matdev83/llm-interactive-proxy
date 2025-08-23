@@ -149,9 +149,7 @@ def gemini_to_openai_request(
     )
 
 
-def openai_to_gemini_response(
-    openai_response: ChatResponse,
-) -> GenerateContentResponse:
+def openai_to_gemini_response(openai_response: ChatResponse) -> GenerateContentResponse:
     """Convert OpenAI ChatCompletionResponse to Gemini GenerateContentResponse."""
     candidates = []
 
@@ -320,7 +318,9 @@ def _openai_part_to_gemini_part(
                 return Part(inline_data=Blob(mime_type=mime, data=b64_data))  # type: ignore[call-arg]
             except Exception:
                 return Part(text=f"[Image: {url}]")  # type: ignore[call-arg]
-        return Part(file_data=FileData(mime_type="application/octet-stream", file_uri=url))  # type: ignore[call-arg]
+        return Part(
+            file_data=FileData(mime_type="application/octet-stream", file_uri=url)
+        )  # type: ignore[call-arg]
     return None
 
 

@@ -28,7 +28,7 @@ class CommandProcessor(ICommandProcessor):
         """
         self._command_service = command_service
 
-    async def process_commands(
+    async def process_messages(
         self,
         messages: list[Any],
         session_id: str,
@@ -44,24 +44,11 @@ class CommandProcessor(ICommandProcessor):
         Returns:
             The result of processing commands
         """
-        disable_commands = False
-        if context:
-            # Use application state service instead of direct state access
-            from src.core.services.application_state_service import (
-                get_default_application_state,
-            )
-            
-            app_state_service = get_default_application_state()
-            disable_commands = (
-                getattr(context.state, "disable_commands", False) or
-                app_state_service.get_disable_interactive_commands()
-            )
-
-        if disable_commands:
-            from src.core.domain.processed_result import ProcessedResult
-
-            return ProcessedResult(
-                command_executed=False, modified_messages=messages, command_results=[]
-            )
-
-        return await self._command_service.process_commands(messages, session_id)
+        # In this simplified CommandProcessor for the interface,
+        # we assume commands are always processed by the command service.
+        # The disable_commands logic will be handled at a higher level (e.g., RequestProcessor).
+        processed_result = await self._command_service.process_commands(
+            messages,
+            session_id,
+        )
+        return processed_result

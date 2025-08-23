@@ -18,7 +18,7 @@ class HelloCommand(StatelessCommandBase, BaseCommand):
     It returns a welcome banner and sets a flag on the session state.
     """
 
-    def __init__(self):
+    def __init__(self) -> None:
         """Initialize without state services."""
         StatelessCommandBase.__init__(self)
 
@@ -39,10 +39,7 @@ class HelloCommand(StatelessCommandBase, BaseCommand):
         return ["!/hello"]
 
     async def execute(
-        self,
-        args: Mapping[str, Any],
-        session: Session,
-        context: Any = None,
+        self, args: Mapping[str, Any], session: Session, context: Any = None
     ) -> CommandResult:
         """
         Execute the hello command.

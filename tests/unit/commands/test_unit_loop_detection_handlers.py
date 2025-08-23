@@ -1,6 +1,13 @@
 from unittest.mock import Mock
 
 import pytest
+from src.core.commands.handlers.loop_detection_handlers import (
+    LoopDetectionHandler,
+    ToolLoopDetectionHandler,
+    ToolLoopMaxRepeatsHandler,
+    ToolLoopModeHandler,
+    ToolLoopTTLHandler,
+)
 from src.core.constants import (
     LOOP_DETECTION_BOOLEAN_REQUIRED_MESSAGE,
     LOOP_DETECTION_DISABLED_MESSAGE,
@@ -21,13 +28,6 @@ from src.core.constants import (
     TOOL_LOOP_TTL_MUST_BE_INTEGER_MESSAGE,
     TOOL_LOOP_TTL_REQUIRED_MESSAGE,
     TOOL_LOOP_TTL_SET_MESSAGE,
-)
-from src.core.commands.handlers.loop_detection_handlers import (
-    LoopDetectionHandler,
-    ToolLoopDetectionHandler,
-    ToolLoopMaxRepeatsHandler,
-    ToolLoopModeHandler,
-    ToolLoopTTLHandler,
 )
 from src.core.domain.session import LoopDetectionConfiguration, Session, SessionState
 from src.tool_call_loop.config import ToolLoopMode

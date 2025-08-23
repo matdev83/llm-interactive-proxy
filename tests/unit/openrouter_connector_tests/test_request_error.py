@@ -3,10 +3,9 @@
 import httpx
 import pytest
 import pytest_asyncio
-from fastapi import HTTPException  # Used
 from pytest_httpx import HTTPXMock
 from src.connectors.openrouter import OpenRouterBackend
-from src.core.common.exceptions import BackendError, ServiceUnavailableError
+from src.core.common.exceptions import ServiceUnavailableError
 
 # from starlette.responses import StreamingResponse # F401: Removed
 from src.core.domain.chat import ChatMessage, ChatRequest

@@ -1,2 +1,0 @@
-# This test is skipped because it depends on modules that don't exist yet:
-# - src.core.interfaces.request_processor

@@ -38,8 +38,10 @@ class ApplicationStateService(IApplicationState):
     def get_command_prefix(self) -> str | None:
         """Get the command prefix."""
         if self._state_provider and hasattr(self._state_provider, "command_prefix"):
-            return self._state_provider.command_prefix
-        return self._local_state.get("command_prefix")
+            prefix = self._state_provider.command_prefix
+            return prefix if isinstance(prefix, str) else None
+        local_prefix = self._local_state.get("command_prefix")
+        return local_prefix if isinstance(local_prefix, str) else None
 
     def set_command_prefix(self, prefix: str) -> None:
         """Set the command prefix."""
@@ -49,7 +51,9 @@ class ApplicationStateService(IApplicationState):
 
     def get_api_key_redaction_enabled(self) -> bool:
         """Get whether API key redaction is enabled."""
-        if self._state_provider and hasattr(self._state_provider, "api_key_redaction_enabled"):
+        if self._state_provider and hasattr(
+            self._state_provider, "api_key_redaction_enabled"
+        ):
             return bool(self._state_provider.api_key_redaction_enabled)
         return bool(self._local_state.get("api_key_redaction_enabled", False))
 
@@ -61,7 +65,9 @@ class ApplicationStateService(IApplicationState):
 
     def get_disable_interactive_commands(self) -> bool:
         """Get whether interactive commands are disabled."""
-        if self._state_provider and hasattr(self._state_provider, "disable_interactive_commands"):
+        if self._state_provider and hasattr(
+            self._state_provider, "disable_interactive_commands"
+        ):
             return bool(self._state_provider.disable_interactive_commands)
         return bool(self._local_state.get("disable_interactive_commands", False))
 
@@ -86,8 +92,10 @@ class ApplicationStateService(IApplicationState):
     def get_failover_routes(self) -> list[dict[str, Any]] | None:
         """Get failover routes."""
         if self._state_provider and hasattr(self._state_provider, "failover_routes"):
-            return self._state_provider.failover_routes
-        return self._local_state.get("failover_routes")
+            routes = self._state_provider.failover_routes
+            return routes if isinstance(routes, list) else None
+        local_routes = self._local_state.get("failover_routes")
+        return local_routes if isinstance(local_routes, list) else None
 
     def set_failover_routes(self, routes: list[dict[str, Any]]) -> None:
         """Set failover routes."""

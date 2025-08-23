@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from typing import Protocol
 
-from src.core.services.backend_factory_service import BackendFactory
+from src.core.services.backend_factory import BackendFactory
 
 
 class CommandContext(Protocol):

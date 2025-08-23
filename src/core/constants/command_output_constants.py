@@ -7,7 +7,9 @@ to make the test suite less fragile and easier to maintain.
 # Backend handler messages
 BACKEND_SET_MESSAGE = "Backend set to {backend}"
 BACKEND_NOT_SUPPORTED_MESSAGE = "Backend {backend} not supported"
-BACKEND_NOT_FUNCTIONAL_MESSAGE = "Backend {backend} not functional (session override unset)"
+BACKEND_NOT_FUNCTIONAL_MESSAGE = (
+    "Backend {backend} not functional (session override unset)"
+)
 BACKEND_MUST_BE_STRING_MESSAGE = "Backend value must be a string"
 
 # Model handler messages
@@ -22,7 +24,9 @@ BACKEND_AND_MODEL_SET_MESSAGE = "Backend set to {backend} with model {model}"
 # OpenAI URL handler messages
 OPENAI_URL_SET_MESSAGE = "OpenAI URL set to {url}"
 OPENAI_URL_MUST_BE_STRING_MESSAGE = "OpenAI URL value must be a string"
-OPENAI_URL_MUST_START_WITH_HTTP_MESSAGE = "OpenAI URL must start with http:// or https://"
+OPENAI_URL_MUST_START_WITH_HTTP_MESSAGE = (
+    "OpenAI URL must start with http:// or https://"
+)
 
 # Project handler messages
 PROJECT_SET_MESSAGE = "Project set to {project}"
@@ -43,19 +47,25 @@ TOOL_LOOP_DETECTION_INVALID_BOOLEAN_MESSAGE = "Invalid boolean value: {value}"
 # Tool loop max repeats handler messages
 TOOL_LOOP_MAX_REPEATS_SET_MESSAGE = "Tool call loop max repeats set to {max_repeats}"
 TOOL_LOOP_MAX_REPEATS_REQUIRED_MESSAGE = "Max repeats value must be specified"
-TOOL_LOOP_MAX_REPEATS_MUST_BE_INTEGER_MESSAGE = "Invalid max repeats value: {value}. Must be an integer."
+TOOL_LOOP_MAX_REPEATS_MUST_BE_INTEGER_MESSAGE = (
+    "Invalid max repeats value: {value}. Must be an integer."
+)
 TOOL_LOOP_MAX_REPEATS_AT_LEAST_TWO_MESSAGE = "Max repeats must be at least 2"
 
 # Tool loop TTL handler messages
 TOOL_LOOP_TTL_SET_MESSAGE = "Tool call loop TTL set to {ttl} seconds"
 TOOL_LOOP_TTL_REQUIRED_MESSAGE = "TTL value must be specified"
-TOOL_LOOP_TTL_MUST_BE_INTEGER_MESSAGE = "Invalid TTL value: {value}. Must be an integer."
+TOOL_LOOP_TTL_MUST_BE_INTEGER_MESSAGE = (
+    "Invalid TTL value: {value}. Must be an integer."
+)
 TOOL_LOOP_TTL_AT_LEAST_ONE_MESSAGE = "TTL must be at least 1 second"
 
 # Tool loop mode handler messages
 TOOL_LOOP_MODE_SET_MESSAGE = "Tool call loop mode set to {mode}"
 TOOL_LOOP_MODE_REQUIRED_MESSAGE = "Loop mode must be specified"
-TOOL_LOOP_MODE_INVALID_MESSAGE = "Invalid loop mode: {value}. Use break or chance_then_break."
+TOOL_LOOP_MODE_INVALID_MESSAGE = (
+    "Invalid loop mode: {value}. Use break or chance_then_break."
+)
 
 # Temperature handler messages
 TEMPERATURE_SET_MESSAGE = "Temperature set to {temperature}"
@@ -64,7 +74,9 @@ TEMPERATURE_OUT_OF_RANGE_MESSAGE = "Temperature must be between 0.0 and 1.0"
 
 # Oneoff handler messages
 ONEOFF_ROUTE_SET_MESSAGE = "One-off route set to {backend}/{model}."
-ONEOFF_BACKEND_MODEL_REQUIRED_MESSAGE = "Both backend and model must be specified for oneoff command"
+ONEOFF_BACKEND_MODEL_REQUIRED_MESSAGE = (
+    "Both backend and model must be specified for oneoff command"
+)
 
 # Failover handlers messages
 FAILOVER_ROUTE_CREATED_MESSAGE = "Created failover route: {route_name}"
@@ -74,8 +86,12 @@ FAILOVER_ROUTE_ALREADY_EXISTS_MESSAGE = "Failover route already exists: {route_n
 FAILOVER_ROUTE_APPENDED_MESSAGE = "Appended {element} to route: {route_name}"
 FAILOVER_ROUTE_PREPENDED_MESSAGE = "Prepended {element} to route: {route_name}"
 FAILOVER_ROUTE_CLEARED_MESSAGE = "Cleared route: {route_name}"
-FAILOVER_ELEMENT_INVALID_MESSAGE = "Invalid route element: {element}. Must be in format backend:model"
-FAILOVER_ELEMENT_NOT_FOUND_MESSAGE = "Element {element} not found in route: {route_name}"
+FAILOVER_ELEMENT_INVALID_MESSAGE = (
+    "Invalid route element: {element}. Must be in format backend:model"
+)
+FAILOVER_ELEMENT_NOT_FOUND_MESSAGE = (
+    "Element {element} not found in route: {route_name}"
+)
 
 # PWD handler messages
 PWD_CURRENT_DIRECTORY_MESSAGE = "Current directory: {directory}"

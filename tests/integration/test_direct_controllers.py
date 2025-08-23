@@ -1,5 +1,7 @@
 """Tests for the direct controllers without hybrid controller."""
 
+from collections.abc import AsyncGenerator, Generator
+from typing import Any
 from unittest.mock import MagicMock
 
 import pytest
@@ -8,15 +10,18 @@ from fastapi.testclient import TestClient
 
 
 @pytest.fixture
-def app():
+def app() -> Generator[FastAPI, None, None]:
     """Create a test FastAPI app."""
     app = FastAPI()
     app.state.config = {"command_prefix": "!/"}
     yield app
 
 
-@pytest.fixture
-async def setup_app(app):
+import pytest_asyncio
+
+
+@pytest_asyncio.fixture
+async def setup_app(app: FastAPI) -> AsyncGenerator[dict[str, Any], None]:
     """Set up the app with necessary services for testing."""
     # Create mock services
     from fastapi import Response
@@ -35,7 +40,7 @@ async def setup_app(app):
     mock_request_processor = MagicMock()
 
     # Make it async-compatible but return a regular function
-    async def mock_process_request(*args, **kwargs):
+    async def mock_process_request(*args: Any, **kwargs: Any) -> Response:
         return mock_response
 
     mock_request_processor.process_request = mock_process_request
@@ -50,12 +55,16 @@ async def setup_app(app):
 
     mock_controller = MagicMock()
 
-    async def mock_handle_chat_completion(request, request_data):
+    from fastapi import Request
+    from src.core.domain.chat import ChatRequest
+
+    async def mock_handle_chat_completion(
+        request: Request, request_data: ChatRequest
+    ) -> Response:
         return mock_response
 
     mock_controller.handle_chat_completion = mock_handle_chat_completion
     # Use the real ChatController with our mock request processor
-    from src.core.app.controllers.chat_controller import ChatController
     real_controller = ChatController(mock_request_processor)
     mock_provider.get_service.side_effect = lambda cls: (
         real_controller if cls == ChatController else mock_request_processor
@@ -77,16 +86,16 @@ async def setup_app(app):
     async def chat_completions(
         request: Request,
         request_data: ChatRequest = Body(...),
-        controller=Depends(get_chat_controller_if_available),
-    ):
+        controller: ChatController = Depends(get_chat_controller_if_available),
+    ) -> Response:
         return await controller.handle_chat_completion(request, request_data)
 
     @app.post("/v2/anthropic/messages")
     async def anthropic_messages(
         request: Request,
         request_data: AnthropicMessagesRequest = Body(...),
-        controller=Depends(get_anthropic_controller_if_available),
-    ):
+        controller: Any = Depends(get_anthropic_controller_if_available),
+    ) -> Any:
         return await controller.handle_anthropic_messages(request, request_data)
 
     yield {
@@ -96,7 +105,7 @@ async def setup_app(app):
     }
 
 
-def test_chat_controller(setup_app):
+async def test_chat_controller(setup_app: dict[str, Any]) -> None:
     """Test that chat controller uses the request processor correctly."""
     # Create test client
     client = TestClient(setup_app["app"])
@@ -120,7 +129,7 @@ def test_chat_controller(setup_app):
     # We can't directly check the content, but we can verify the status code
 
 
-def test_chat_controller_error_handling(setup_app):
+async def test_chat_controller_error_handling(setup_app: dict[str, Any]) -> None:
     """Test that chat controller handles errors properly."""
 
     # Create test client
@@ -128,10 +137,10 @@ def test_chat_controller_error_handling(setup_app):
 
     # Mock the request processor to raise an exception
     mock_request_processor = setup_app["mock_request_processor"]
-    
-    async def mock_error_process_request(*args, **kwargs):
+
+    async def mock_error_process_request(*args: Any, **kwargs: Any) -> None:
         raise Exception("Test error")
-    
+
     mock_request_processor.process_request = mock_error_process_request
 
     # Make a request that should trigger error handling
@@ -147,14 +156,14 @@ def test_chat_controller_error_handling(setup_app):
     assert response.status_code == 500
 
 
-def test_anthropic_controller(setup_app):
+async def test_anthropic_controller(setup_app: dict[str, Any]) -> None:
     """Test that anthropic controller uses the request processor correctly."""
     # This test is skipped until we can properly handle the mock response
     # The issue is that the mock response is being treated as a coroutine
     # but FastAPI's jsonable_encoder can't handle coroutines properly
 
 
-def test_anthropic_controller_error_handling(setup_app):
+async def test_anthropic_controller_error_handling(setup_app: dict[str, Any]) -> None:
     """Test that anthropic controller handles errors properly."""
     # This test is skipped until we can properly handle the mock response
     # The issue is that the mock response is being treated as a coroutine

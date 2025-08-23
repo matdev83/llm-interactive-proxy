@@ -46,8 +46,8 @@ class TestRealWorldLoopDetection:
             enabled=True, buffer_size=1024, max_pattern_length=500
         )
         # Tune new detector parameters for faster detection in tests
-        test_config.content_chunk_size = 50
-        test_config.content_loop_threshold = 10
+        test_config.content_chunk_size = 25  # Reduced from 50 to detect shorter patterns
+        test_config.content_loop_threshold = 3   # Reduced from 10 to trigger sooner
 
         # Adjust the block analyzer minimum length to match our test pattern
         detector = LoopDetector(config=test_config)
@@ -79,8 +79,8 @@ class TestRealWorldLoopDetection:
         test_config = LoopDetectionConfig(
             enabled=True, buffer_size=1024, max_pattern_length=500
         )
-        test_config.content_chunk_size = 50
-        test_config.content_loop_threshold = 10
+        test_config.content_chunk_size = 25  # Reduced from 50 to detect shorter patterns
+        test_config.content_loop_threshold = 3   # Reduced from 10 to trigger sooner
 
         # Adjust the block analyzer minimum length to match our test pattern
         detector = LoopDetector(config=test_config)

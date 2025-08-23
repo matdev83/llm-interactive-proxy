@@ -124,7 +124,7 @@ class ConfigLoader:
             try:
                 file_config: dict[str, Any] = self._load_config_file(config_file)
                 config.update(file_config)
-            except Exception as exc: # type: ignore[misc]
+            except Exception as exc:  # type: ignore[misc]
                 logger.warning("Failed to load config file %s: %s", config_file, exc)
 
         return config
@@ -263,7 +263,7 @@ class ConfigLoader:
                 result = json.loads(content)
                 return result if isinstance(result, dict) else {}
 
-        except (json.JSONDecodeError, yaml.YAMLError) as exc: # type: ignore[misc]
+        except (json.JSONDecodeError, yaml.YAMLError) as exc:  # type: ignore[misc]
             raise ValueError(f"Invalid configuration file format: {exc}") from exc
 
     def reload_config(self) -> None:

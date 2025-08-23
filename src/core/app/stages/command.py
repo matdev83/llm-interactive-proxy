@@ -53,20 +53,53 @@ class CommandStage(InitializationStage):
         # Register command service
         self._register_command_service(services)
 
-        # Register domain commands
-        self._register_domain_commands(services)
-
         logger.info("Command services initialized successfully")
+
+    async def validate(self, services: ServiceCollection, config: AppConfig) -> bool:
+        """Validate that command services can be registered."""
+        try:
+            # Check that required modules are available
+
+            # Validate config has command settings
+            if not hasattr(config, "command_prefix"):
+                logger.warning("Config missing command_prefix")
+
+            return True
+        except ImportError as e:
+            logger.error(f"Command services validation failed: {e}")
+            return False
 
     def _register_command_registry(self, services: ServiceCollection) -> None:
         """Register command registry as singleton."""
         try:
             from src.core.services.command_service import CommandRegistry
 
-            # Register as singleton (no dependencies)
-            services.add_singleton(CommandRegistry)
+            # Check if a global instance is already set (e.g., by a test fixture)
+            existing_registry = CommandRegistry.get_instance()
+            if existing_registry:
+                services.add_instance(CommandRegistry, existing_registry)
+                logger.debug("Registered existing CommandRegistry instance")
+            else:
+                # Register as singleton (no dependencies)
+                services.add_singleton(CommandRegistry)
+                logger.debug("Registered new CommandRegistry instance")
 
             logger.debug("Registered command registry")
+
+            from src.core.services.command_registration import register_all_commands
+            from src.core.services.command_service import CommandRegistry
+
+            # Get the command registry from the service provider
+            registry = services.build_service_provider().get_required_service(
+                CommandRegistry
+            )
+            # Register all commands using the centralized registration utility
+            # This will register both stateless and stateful commands
+            register_all_commands(services, registry)
+
+            logger.debug(
+                "Registered all domain commands using command registration utility"
+            )
         except ImportError as e:
             logger.warning(f"Could not register command registry: {e}")
 
@@ -131,63 +164,7 @@ class CommandStage(InitializationStage):
             )
 
             logger.debug("Registered command service with dependencies")
+
+            logger.debug("Registered command service and parser with dependencies")
         except ImportError as e:
-            logger.warning(f"Could not register command service: {e}")
-
-    def _register_domain_commands(self, services: ServiceCollection) -> None:
-        """Register domain command implementations with the registry."""
-        try:
-            # Register a factory that will register commands with the registry after it's built
-            def register_commands_factory(
-                provider: IServiceProvider,
-            ) -> _CommandRegistrationMarker:
-                """Factory function that registers domain commands during service provider build."""
-                try:
-                    # Get the command registry from the service provider
-                    from src.core.services.command_registration import (
-                        register_all_commands,
-                    )
-                    from src.core.services.command_service import CommandRegistry
-
-                    registry = provider.get_required_service(CommandRegistry)
-
-                    # Register all commands using the centralized registration utility
-                    # This will register both stateless and stateful commands
-                    register_all_commands(services, registry)
-
-                    logger.debug(
-                        "Registered all domain commands using command registration utility"
-                    )
-                except Exception as e:
-                    logger.warning(f"Could not register domain commands: {e}")
-
-                return (
-                    _CommandRegistrationMarker()
-                )  # Return an instance of the marker class
-
-            # Register the factory to run during service provider build
-            # We use a dummy type since this factory doesn't return a service
-            class _CommandRegistrationMarker:
-                pass
-
-            services.add_singleton(
-                _CommandRegistrationMarker,
-                implementation_factory=register_commands_factory,
-            )
-
-        except ImportError as e:
-            logger.warning(f"Could not register domain commands: {e}")
-
-    async def validate(self, services: ServiceCollection, config: AppConfig) -> bool:
-        """Validate that command services can be registered."""
-        try:
-            # Check that required modules are available
-
-            # Validate config has command settings
-            if not hasattr(config, "command_prefix"):
-                logger.warning("Config missing command_prefix")
-
-            return True
-        except ImportError as e:
-            logger.error(f"Command services validation failed: {e}")
-            return False
+            logger.warning(f"Could not register command service or parser: {e}")

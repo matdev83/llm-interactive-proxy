@@ -121,10 +121,7 @@ class ThinkingBudgetHandler(BaseCommandHandler):
     @property
     def examples(self) -> list[str]:
         """Examples of using this command."""
-        return [
-            "!/set(thinking-budget=1024)",
-            "!/set(thinking-budget=2048)",
-        ]
+        return ["!/set(thinking-budget=1024)", "!/set(thinking-budget=2048)"]
 
     def can_handle(self, param_name: str) -> bool:
         """Check if this handler can handle the given parameter.
@@ -207,7 +204,7 @@ class GeminiGenerationConfigHandler(BaseCommandHandler):
     def examples(self) -> list[str]:
         """Examples of using this command."""
         return [
-            "!/set(gemini-generation-config={'thinkingConfig': {'thinkingBudget': 1024}})",
+            "!/set(gemini-generation-config={'thinkingConfig': {'thinkingBudget': 1024}})"
         ]
 
     def can_handle(self, param_name: str) -> bool:

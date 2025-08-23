@@ -27,9 +27,7 @@ from src.core.common.exceptions import (
 logger = logging.getLogger(__name__)
 
 
-def map_domain_exception_to_http_exception(
-    exc: LLMProxyError,
-) -> HTTPException:
+def map_domain_exception_to_http_exception(exc: LLMProxyError) -> HTTPException:
     """Map a domain exception to a FastAPI HTTP exception.
 
     Args:

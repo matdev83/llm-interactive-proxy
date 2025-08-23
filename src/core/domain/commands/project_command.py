@@ -10,9 +10,7 @@ import logging
 from collections.abc import Mapping
 from typing import Any
 
-from src.core.constants import (
-    COMMAND_EXECUTION_ERROR,
-)
+from src.core.constants import COMMAND_EXECUTION_ERROR
 from src.core.domain.command_results import CommandResult
 from src.core.domain.commands.base_command import BaseCommand
 from src.core.domain.commands.secure_base_command import StatelessCommandBase
@@ -24,7 +22,7 @@ logger = logging.getLogger(__name__)
 class ProjectCommand(StatelessCommandBase, BaseCommand):
     """Command for setting the project name."""
 
-    def __init__(self):
+    def __init__(self) -> None:
         """Initialize without state services."""
         StatelessCommandBase.__init__(self)
 
@@ -42,10 +40,7 @@ class ProjectCommand(StatelessCommandBase, BaseCommand):
 
     @property
     def examples(self) -> list[str]:
-        return [
-            "!/project(name=my-project)",
-            "!/project(name=work-project)",
-        ]
+        return ["!/project(name=my-project)", "!/project(name=work-project)"]
 
     async def execute(
         self, args: Mapping[str, Any], session: Session, context: Any = None
@@ -63,9 +58,7 @@ class ProjectCommand(StatelessCommandBase, BaseCommand):
         project_name = args.get("name")
         if not project_name:
             return CommandResult(
-                success=False,
-                message="Project name must be specified",
-                name=self.name,
+                success=False, message="Project name must be specified", name=self.name
             )
 
         try:
@@ -82,8 +75,4 @@ class ProjectCommand(StatelessCommandBase, BaseCommand):
         except Exception as e:
             error_message = COMMAND_EXECUTION_ERROR.format(error=str(e))
             logger.error(error_message)
-            return CommandResult(
-                success=False,
-                message=error_message,
-                name=self.name,
-            )
+            return CommandResult(success=False, message=error_message, name=self.name)

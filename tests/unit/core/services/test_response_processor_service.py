@@ -2,15 +2,12 @@
 Tests for the ResponseProcessor service using Hypothesis for property-based testing.
 """
 
-import asyncio
-from collections.abc import AsyncIterator
-from typing import Any
 from unittest.mock import AsyncMock, Mock
 
 import pytest
-from hypothesis import given, strategies as st
-
-from src.core.domain.chat import ChatResponse, StreamingChatResponse
+from hypothesis import given
+from hypothesis import strategies as st
+from src.core.domain.chat import StreamingChatResponse
 from src.core.interfaces.loop_detector_interface import ILoopDetector
 from src.core.interfaces.response_processor_interface import (
     IResponseMiddleware,
@@ -36,34 +33,6 @@ class TestResponseProcessor:
         mw.process = AsyncMock(side_effect=lambda response, session_id, context: response)
         return mw
 
-    @pytest.mark.asyncio
-    async def test_process_response_with_chat_response(self) -> None:
-        """Test processing a ChatResponse object."""
-        # Create a ChatResponse using the from_legacy_response method
-        response_dict = {
-            "id": "test-id",
-            "created": 1234567890,
-            "model": "test-model",
-            "choices": [{
-                "index": 0,
-                "message": {
-                    "role": "assistant",
-                    "content": "Hello, world!"
-                },
-                "finish_reason": "stop"
-            }],
-            "usage": {"prompt_tokens": 10, "completion_tokens": 5},
-        }
-        response = ChatResponse.from_legacy_response(response_dict)
-        
-        processor = ResponseProcessor()
-        result = await processor.process_response(response, "test-session")
-        
-        assert isinstance(result, ProcessedResponse)
-        assert result.content == "Hello, world!"
-        assert result.usage == {"prompt_tokens": 10, "completion_tokens": 5}
-        assert result.metadata["model"] == "test-model"
-        assert result.metadata["id"] == "test-id"
 
     @pytest.mark.asyncio
     async def test_process_response_with_dict(self) -> None:
@@ -195,32 +164,3 @@ class TestResponseProcessor:
         assert isinstance(result, ProcessedResponse)
         assert result.content == content
         assert isinstance(result.metadata, dict)
-
-    @given(
-        model=st.text(min_size=1, max_size=50).filter(lambda x: x.isalnum()),
-        content=st.text(min_size=1, max_size=100)
-    )
-    @pytest.mark.asyncio
-    async def test_process_response_with_various_chat_responses(self, model, content) -> None:
-        """Property-based test for processing various ChatResponse objects."""
-        response_dict = {
-            "id": "test-id",
-            "created": 1234567890,
-            "model": model,
-            "choices": [{
-                "index": 0,
-                "message": {
-                    "role": "assistant",
-                    "content": content
-                },
-                "finish_reason": "stop"
-            }],
-        }
-        response = ChatResponse.from_legacy_response(response_dict)
-        
-        processor = ResponseProcessor()
-        result = await processor.process_response(response, "test-session")
-        
-        assert isinstance(result, ProcessedResponse)
-        assert result.content == content
-        assert result.metadata["model"] == model

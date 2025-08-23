@@ -47,10 +47,7 @@ def get_command_pattern(command_prefix: str) -> re.Pattern:
 class CommandProcessor:
     """Handles the parsing and execution of a single command."""
 
-    def __init__(
-        self,
-        config: "CommandProcessorConfig",
-    ) -> None:
+    def __init__(self, config: "CommandProcessorConfig") -> None:
         self.config = config
 
     async def process_text_and_execute_command(
@@ -100,9 +97,7 @@ class CommandProcessor:
                 try:
                     # Provide context as a dict to support domain command expectations
                     context = {"app": self.config.app, "handlers": self.config.handlers}
-                    coro_result = command_handler.execute(
-                        args, temp_session, context
-                    )  # type: ignore
+                    coro_result = command_handler.execute(args, temp_session, context)  # type: ignore
                     if asyncio.iscoroutine(coro_result):
                         execution_result = await coro_result
                     else:
@@ -126,7 +121,7 @@ class CommandProcessor:
                 if new_state is not None:
                     # Debug
                     logger.debug(
-                        f"execution_result: success={getattr(execution_result,'success',None)} message={getattr(execution_result,'message',None)} new_state_type={type(new_state)}"
+                        f"execution_result: success={getattr(execution_result, 'success', None)} message={getattr(execution_result, 'message', None)} new_state_type={type(new_state)}"
                     )
                     try:
                         self._apply_new_state(new_state)
@@ -145,9 +140,7 @@ class CommandProcessor:
                 logger.warning("Unknown command: %s.", command_name)
                 error_message = f"cmd not found: {command_name}"
                 unknown_cmd_result = CommandResult(
-                    name=command_name,
-                    success=False,
-                    message=error_message,
+                    name=command_name, success=False, message=error_message
                 )
                 self.config.command_results.append(unknown_cmd_result)
                 if self.config.preserve_unknown:
@@ -180,7 +173,7 @@ class CommandProcessor:
         logger.debug(
             f"_apply_new_state called: proxy_type={type(proxy)}, new_state_type={type(new_state)}"
         )
-        
+
         # Handle interactive_just_enabled flag specially - this needs to be propagated
         # from the command result to the proxy state
         prop = getattr(type(proxy), "interactive_just_enabled", None)
@@ -198,7 +191,7 @@ class CommandProcessor:
                 )
             except Exception as e:
                 logger.warning(f"Failed to propagate interactive_just_enabled: {e}")
-            
+
         # If new_state is an adapter, unwrap repeatedly to get concrete SessionState
         concrete_state = new_state
         try:
@@ -219,12 +212,12 @@ class CommandProcessor:
         ):
             logger.debug("Applying new_state via proxy.update_state")
             logger.debug(
-                f"before update_state: proxy._state id={(getattr(proxy,'_state',None) and id(proxy._state))}"
+                f"before update_state: proxy._state id={(getattr(proxy, '_state', None) and id(proxy._state))}"
             )
             # mypy: proxy may be an ISessionState adapter or concrete Session with update_state
             proxy.update_state(concrete_state)  # type: ignore[arg-type]
             logger.debug(
-                f"after update_state: proxy._state id={(getattr(proxy,'_state',None) and id(proxy._state))}"
+                f"after update_state: proxy._state id={(getattr(proxy, '_state', None) and id(proxy._state))}"
             )
             return
 
@@ -232,7 +225,7 @@ class CommandProcessor:
         if hasattr(proxy, "_state"):
             try:
                 logger.debug(
-                    f"before set proxy._state id={(getattr(proxy,'_state',None) and id(proxy._state))}"
+                    f"before set proxy._state id={(getattr(proxy, '_state', None) and id(proxy._state))}"
                 )
                 # If concrete_state is adapter (already unwrapped, unlikely here)
                 if hasattr(concrete_state, "_state"):
@@ -259,7 +252,7 @@ class CommandProcessor:
                         )
                     proxy._state = concrete_state
                 logger.debug(
-                    f"after set proxy._state id={(getattr(proxy,'_state',None) and id(proxy._state))}"
+                    f"after set proxy._state id={(getattr(proxy, '_state', None) and id(proxy._state))}"
                 )
                 try:
                     logger.debug(
@@ -301,7 +294,9 @@ class CommandProcessor:
                             # cast new_session_state to concrete SessionState for adapter ctor
                             from src.core.domain.session import SessionState
 
-                            self.config.proxy_state = SessionStateAdapter(cast(SessionState, new_session_state))  # type: ignore[attr-defined]
+                            self.config.proxy_state = SessionStateAdapter(
+                                cast(SessionState, new_session_state)
+                            )  # type: ignore[attr-defined]
                         except Exception:
                             import contextlib
 
@@ -317,10 +312,7 @@ class CommandProcessor:
         text = COMMENT_LINE_PATTERN.sub("", text)
         return text
 
-    async def handle_string_content(
-        self,
-        msg_content: str,
-    ) -> tuple[str, bool, bool]:
+    async def handle_string_content(self, msg_content: str) -> tuple[str, bool, bool]:
         original_content = msg_content
         processed_text, command_found = await self.process_text_and_execute_command(
             original_content
@@ -357,8 +349,7 @@ class CommandProcessor:
         return processed_text, command_found, content_modified
 
     async def process_single_part(
-        self,
-        part: MessageContentPart,
+        self, part: MessageContentPart
     ) -> tuple[MessageContentPart | None, bool]:
         """Processes a single part of a message."""
         if not isinstance(part, MessageContentPartText):
@@ -379,16 +370,12 @@ class CommandProcessor:
         if (
             processed_text.strip()
         ):  # If text remains (e.g. from cleaning non-command text)
-            return (
-                MessageContentPartText(type="text", text=processed_text),
-                False,
-            )
+            return (MessageContentPartText(type="text", text=processed_text), False)
 
         return None, False  # No command, and text is empty
 
     async def handle_list_content(
-        self,
-        msg_content_list: list[MessageContentPart],
+        self, msg_content_list: list[MessageContentPart]
     ) -> tuple[list[MessageContentPart], bool, bool]:
         new_parts: list[MessageContentPart] = []
         any_command_found_overall = (

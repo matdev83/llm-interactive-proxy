@@ -10,6 +10,7 @@ import httpx
 
 from src.core.common.exceptions import AuthenticationError, ConfigurationError
 from src.core.domain.responses import ResponseEnvelope, StreamingResponseEnvelope
+from src.core.interfaces.configuration_interface import IAppIdentityConfig
 from src.core.services.backend_registry import backend_registry
 
 from .openai import OpenAIConnector
@@ -122,12 +123,14 @@ class ZAIConnector(OpenAIConnector):
         request_data: Any,
         processed_messages: list[Any],
         effective_model: str,
+        identity: IAppIdentityConfig | None = None,
         **kwargs: Any,
     ) -> ResponseEnvelope | StreamingResponseEnvelope:
         return await super().chat_completions(
             request_data=request_data,
             processed_messages=processed_messages,
             effective_model=effective_model,
+            identity=identity,
             **kwargs,
         )
 

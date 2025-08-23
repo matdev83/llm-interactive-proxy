@@ -137,7 +137,7 @@ def client(
     with (
         TestClient(app) as client,
         patch(
-            "src.core.services.backend_factory_service.BackendFactory.create_backend"
+            "src.core.services.backend_factory.BackendFactory.create_backend"
         ) as mock_create_backend,
     ):
 
@@ -190,7 +190,7 @@ def interactive_client(
     with (
         TestClient(app) as client,
         patch(
-            "src.core.services.backend_factory_service.BackendFactory.create_backend"
+            "src.core.services.backend_factory.BackendFactory.create_backend"
         ) as mock_create_backend,
     ):
 
@@ -243,7 +243,7 @@ def commands_disabled_client(
     with (
         TestClient(app) as client,
         patch(
-            "src.core.services.backend_factory_service.BackendFactory.create_backend"
+            "src.core.services.backend_factory.BackendFactory.create_backend"
         ) as mock_create_backend,
     ):
 

@@ -1,5 +1,3 @@
-# import pytest # F401: Removed
-# # Removed legacy import
 from src.command_processor import parse_arguments
 
 
@@ -40,7 +38,3 @@ class TestParseArguments:
         assert parse_arguments(args_str) == expected
 
 
-# Removed TestProcessTextForCommands and TestProcessCommandsInMessages
-# as they are now in dedicated files:
-# tests/unit/proxy_logic_tests/test_process_text_for_commands.py
-# tests/unit/proxy_logic_tests/test_process_commands_in_messages.py

@@ -5,21 +5,13 @@ import time
 from collections.abc import AsyncIterator
 from typing import Any, cast
 
-from src.agents import (
-    detect_agent,
-    format_command_response_for_agent,
-)
-from src.core.common.exceptions import (
-    LoopDetectionError,
-)
+from src.agents import detect_agent, format_command_response_for_agent
+from src.core.adapters.api_adapters import legacy_to_domain_chat_request
+from src.core.common.exceptions import LoopDetectionError
 
 # Import HTTP status constants
 from src.core.constants import HTTP_400_BAD_REQUEST_MESSAGE
-from src.core.domain.chat import (
-    ChatCompletionChoice,
-    ChatRequest,
-    ChatResponse,
-)
+from src.core.domain.chat import ChatCompletionChoice, ChatRequest, ChatResponse
 from src.core.domain.chat import ChatMessage as DomainChatMessage
 from src.core.domain.processed_result import ProcessedResult
 from src.core.domain.request_context import RequestContext
@@ -33,7 +25,6 @@ from src.core.interfaces.response_processor_interface import IResponseProcessor
 from src.core.interfaces.session_resolver_interface import ISessionResolver
 from src.core.interfaces.session_service_interface import ISessionService
 from src.core.services.session_resolver_service import DefaultSessionResolver
-from src.core.transport.fastapi.api_adapters import legacy_to_domain_chat_request
 
 logger = logging.getLogger(__name__)
 
@@ -129,11 +120,11 @@ class RequestProcessor(IRequestProcessor):
         from src.core.services.application_state_service import (
             get_default_application_state,
         )
-        
+
         app_state_service = get_default_application_state()
         disable_commands: bool = (
-            getattr(context.state, "disable_commands", False) or
-            app_state_service.get_disable_interactive_commands()
+            getattr(context.state, "disable_commands", False)
+            or app_state_service.get_disable_interactive_commands()
         )
 
         command_result: ProcessedResult
@@ -195,7 +186,7 @@ class RequestProcessor(IRequestProcessor):
                         from src.core.services.application_state_service import (
                             get_default_application_state,
                         )
-                        
+
                         app_state_service = get_default_application_state()
                         app_state_service.set_failover_routes(fr)
             except Exception:
@@ -225,17 +216,14 @@ class RequestProcessor(IRequestProcessor):
             logger.debug(f"continue_to_backend: {continue_to_backend}")
             if not continue_to_backend:
                 # Format command result response
-                response_data: dict[str, Any] = (
-                    await self._handle_command_only_response(
-                        domain_request, command_result, session, raw_prompt
-                    )
+                response_data: dict[
+                    str, Any
+                ] = await self._handle_command_only_response(
+                    domain_request, command_result, session, raw_prompt
                 )
 
                 # Return the command response as a domain envelope
-                return ResponseEnvelope(
-                    content=response_data,
-                    status_code=200,
-                )
+                return ResponseEnvelope(content=response_data, status_code=200)
 
         # If no commands were executed, proceed to backend
         try:
@@ -288,22 +276,22 @@ class RequestProcessor(IRequestProcessor):
                 if failover_routes:
                     extra_body_dict["failover_routes"] = failover_routes
 
-                backend_response_data: ResponseEnvelope | StreamingResponseEnvelope = (
-                    await self._backend_service.call_completion(
-                        request=ChatRequest(
-                            model=request_model,
-                            messages=[
-                                DomainChatMessage.model_validate(msg)
-                                for msg in processed_messages
-                            ],
-                            temperature=temperature,
-                            top_p=top_p,
-                            max_tokens=max_tokens,
-                            stream=stream,
-                            extra_body=extra_body_dict,
-                        ),
+                backend_response_data: (
+                    ResponseEnvelope | StreamingResponseEnvelope
+                ) = await self._backend_service.call_completion(
+                    request=ChatRequest(
+                        model=request_model,
+                        messages=[
+                            DomainChatMessage.model_validate(msg)
+                            for msg in processed_messages
+                        ],
+                        temperature=temperature,
+                        top_p=top_p,
+                        max_tokens=max_tokens,
                         stream=stream,
-                    )
+                        extra_body=extra_body_dict,
+                    ),
+                    stream=stream,
                 )
             except Exception as e:
                 # Add a failed interaction to the session

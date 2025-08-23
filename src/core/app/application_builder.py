@@ -130,7 +130,9 @@ class ApplicationBuilder:
                 in_degree[stage_name] += 1
 
         # Topological sort using Kahn's algorithm
-        queue: deque[str] = deque([name for name in self._stages if in_degree[name] == 0])
+        queue: deque[str] = deque(
+            [name for name in self._stages if in_degree[name] == 0]
+        )
         result: list[str] = []
 
         while queue:
@@ -147,8 +149,7 @@ class ApplicationBuilder:
         if len(result) != len(self._stages):
             remaining = set(self._stages.keys()) - set(result)
             raise RuntimeError(
-                f"Circular dependency detected in stages. "
-                f"Remaining stages: {remaining}"
+                f"Circular dependency detected in stages. Remaining stages: {remaining}"
             )
 
         return result
@@ -168,7 +169,7 @@ class ApplicationBuilder:
                 is_valid: bool = await stage.validate(self._services, config)
                 if not is_valid:
                     raise RuntimeError(f"Stage '{stage_name}' validation failed")
-            except Exception as e: # type: ignore[misc]
+            except Exception as e:  # type: ignore[misc]
                 raise RuntimeError(f"Stage '{stage_name}' validation error: {e}") from e
 
     async def build(self, config: AppConfig) -> FastAPI:
@@ -201,7 +202,7 @@ class ApplicationBuilder:
             try:
                 await stage.execute(self._services, config)
                 logger.debug(f"Stage '{stage_name}' completed successfully")
-            except Exception as e: # type: ignore[misc]
+            except Exception as e:  # type: ignore[misc]
                 logger.error(f"Stage '{stage_name}' failed: {e}")
                 raise RuntimeError(f"Stage '{stage_name}' execution failed: {e}") from e
 
@@ -240,7 +241,9 @@ class ApplicationBuilder:
             import concurrent.futures
 
             with concurrent.futures.ThreadPoolExecutor() as executor:
-                future: concurrent.futures.Future[FastAPI] = executor.submit(asyncio.run, self.build(config))
+                future: concurrent.futures.Future[FastAPI] = executor.submit(
+                    lambda: asyncio.run(self.build(config))
+                )
                 return future.result()
         except RuntimeError:
             # No running loop, we can use asyncio.run directly
@@ -346,7 +349,9 @@ class ApplicationBuilder:
             try:
                 import httpx
 
-                client: httpx.AsyncClient | None = service_provider.get_service(httpx.AsyncClient)
+                client: httpx.AsyncClient | None = service_provider.get_service(
+                    httpx.AsyncClient
+                )
                 if client:
                     await client.aclose()
             except Exception:
@@ -401,6 +406,7 @@ def build_app(config: AppConfig | None = None) -> FastAPI:
         """
         res: FastAPI | Any = await build_app_async(config)
         import asyncio as _asyncio
+
         if _asyncio.iscoroutine(res):
             final_result: FastAPI = await res  # type: ignore[misc]
             return final_result
@@ -413,7 +419,9 @@ def build_app(config: AppConfig | None = None) -> FastAPI:
         import concurrent.futures
 
         with concurrent.futures.ThreadPoolExecutor() as executor:
-            future: concurrent.futures.Future[FastAPI] = executor.submit(lambda: asyncio.run(_build_wrapper()))
+            future: concurrent.futures.Future[FastAPI] = executor.submit(
+                lambda: asyncio.run(_build_wrapper())
+            )
             return future.result()
     except RuntimeError:
         # No running loop, we can use asyncio.run directly

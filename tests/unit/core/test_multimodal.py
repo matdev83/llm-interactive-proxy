@@ -204,34 +204,6 @@ class TestMultimodalMessage:
         assert result["content"][0]["type"] == ContentType.TEXT
         assert result["content"][1]["type"] == ContentType.IMAGE
 
-    def test_to_legacy_format(self) -> None:
-        """Test converting a message to legacy format."""
-        message = MultimodalMessage.with_image(
-            "user",
-            "Check out this image:",
-            "https://example.com/image.jpg",
-            name="test_user",
-        )
-
-        result = message.to_legacy_format()
-
-        assert result["role"] == "user"
-        assert result["name"] == "test_user"
-        assert result["content"] == "Check out this image:"
-
-    def test_to_legacy_format_no_text(self) -> None:
-        """Test converting a message with no text to legacy format."""
-        message = MultimodalMessage(
-            role="user",
-            content=[ContentPart.image_url("https://example.com/image.jpg")],
-            name="test_user",
-        )
-
-        result = message.to_legacy_format()
-
-        assert result["role"] == "user"
-        assert result["name"] == "test_user"
-        assert result["content"] == "[Multimodal content]"
 
     def test_to_openai_format(self) -> None:
         """Test converting a message to OpenAI format."""
@@ -279,22 +251,6 @@ class TestMultimodalMessage:
         assert "text" in result["parts"][0]
         assert "inline_data" in result["parts"][1]
 
-    def test_from_legacy_message(self) -> None:
-        """Test creating a message from a legacy message."""
-        legacy_message = {
-            "role": "user",
-            "content": "Hello, world!",
-            "name": "test_user",
-        }
-
-        message = MultimodalMessage.from_legacy_message(legacy_message)
-
-        assert message.role == "user"
-        assert message.name == "test_user"
-        assert isinstance(message.content, list)
-        assert len(message.content) == 1
-        assert message.content[0].type == ContentType.TEXT
-        assert message.content[0].data == "Hello, world!"
 
     def test_backend_format_selection(self) -> None:
         """Test selecting the correct backend format."""
@@ -315,4 +271,4 @@ class TestMultimodalMessage:
         assert isinstance(gemini_result["parts"], list)
 
         assert "content" in unknown_result
-        assert unknown_result["content"] == "Hello, world!"
+        assert isinstance(unknown_result["content"], list)

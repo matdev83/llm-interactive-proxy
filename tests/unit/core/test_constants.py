@@ -1,33 +1,29 @@
 """Test file to verify constants are accessible and correctly imported."""
 
 import pytest
-
 from src.core.constants import (
-    # API response constants
-    CONTENT_TYPE_JSON,
-    CONTENT_TYPE_EVENT_STREAM,
-    OBJECT_TYPE_LIST,
-    OBJECT_TYPE_CHAT_COMPLETION,
-    FIELD_OBJECT,
-    FIELD_ID,
-    FIELD_MODEL,
-    FIELD_CONTENT,
-    ROLE_USER,
-    ROLE_ASSISTANT,
-    
-    # Backend constants
-    BACKEND_OPENAI,
     BACKEND_ANTHROPIC,
     BACKEND_GEMINI,
-    
-    # Model constants
-    MODEL_GPT_35_TURBO,
-    MODEL_GPT_4,
-    MODEL_CLAUDE_3_SONNET,
-    
+    # Backend constants
+    BACKEND_OPENAI,
     # Command output constants
     BACKEND_SET_MESSAGE,
+    CONTENT_TYPE_EVENT_STREAM,
+    # API response constants
+    CONTENT_TYPE_JSON,
+    FIELD_CONTENT,
+    FIELD_ID,
+    FIELD_MODEL,
+    FIELD_OBJECT,
+    MODEL_CLAUDE_3_SONNET,
+    MODEL_GPT_4,
+    # Model constants
+    MODEL_GPT_35_TURBO,
     MODEL_SET_MESSAGE,
+    OBJECT_TYPE_CHAT_COMPLETION,
+    OBJECT_TYPE_LIST,
+    ROLE_ASSISTANT,
+    ROLE_USER,
 )
 
 

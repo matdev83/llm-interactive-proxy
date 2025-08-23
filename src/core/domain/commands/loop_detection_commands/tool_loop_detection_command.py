@@ -15,7 +15,7 @@ logger = logging.getLogger(__name__)
 class ToolLoopDetectionCommand(StatelessCommandBase, BaseCommand):
     """Command for enabling/disabling tool loop detection."""
 
-    def __init__(self):
+    def __init__(self) -> None:
         """Initialize without state services."""
         StatelessCommandBase.__init__(self)
 

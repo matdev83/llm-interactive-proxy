@@ -1,3 +1,4 @@
+from collections.abc import Sequence
 from typing import Any, TypeVar
 
 from pydantic import Field, field_validator
@@ -92,7 +93,7 @@ class ChatMessage(DomainModel):
     """
 
     role: str
-    content: str | list[MessageContentPart] | None = None
+    content: str | Sequence[MessageContentPart] | None = None
     name: str | None = None
     tool_calls: list[ToolCall] | None = None
     tool_call_id: str | None = None
@@ -170,28 +171,6 @@ class ChatRequest(ValueObject):
                     raise ValueError("Invalid tool definition")
         return result
 
-    def to_legacy_format(self) -> dict[str, Any]:
-        """
-        Convert to a format compatible with the legacy code.
-
-        Returns:
-            A dictionary representation for legacy code
-        """
-        result = {"model": self.model, "messages": [m.to_dict() for m in self.messages]}
-
-        # Add optional fields if they have values
-        for field_name in self.model_fields:
-            if field_name not in ["model", "messages", "session_id", "extra_body"]:
-                value = getattr(self, field_name)
-                if value is not None:
-                    result[field_name] = value
-
-        # Add extra_body fields directly to result
-        if self.extra_body:
-            result.update(self.extra_body)
-
-        return result
-
 
 class ChatCompletionChoiceMessage(DomainModel):
     """Represents the message content within a chat completion choice."""
@@ -224,36 +203,6 @@ class ChatResponse(ValueObject):
     usage: dict[str, Any] | None = None
     system_fingerprint: str | None = None
     object: str = "chat.completion"
-
-    @classmethod
-    def from_legacy_response(cls, response: dict[str, Any]) -> "ChatResponse":
-        """
-        Create a ChatResponse from a legacy response format.
-
-        Args:
-            response: A legacy response dictionary
-
-        Returns:
-            A new ChatResponse
-        """
-        # Extract required fields with defaults
-        id: str = response.get("id", "")
-        created: int = response.get("created", 0)
-        model: str = response.get("model", "unknown")
-        choices: list[Any] = response.get("choices", [])
-
-        # Extract optional fields
-        usage: dict[str, Any] | None = response.get("usage")
-        system_fingerprint: str | None = response.get("system_fingerprint")
-
-        return cls(
-            id=id,
-            created=created,
-            model=model,
-            choices=choices,
-            usage=usage,
-            system_fingerprint=system_fingerprint,
-        )
 
 
 class StreamingChatResponse(ValueObject):

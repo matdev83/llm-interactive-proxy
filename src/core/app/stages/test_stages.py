@@ -53,7 +53,7 @@ class MockBackendStage(InitializationStage):
 
         # Skip real backend service registration in test environment
         # The mock backend service should be sufficient for testing
-        
+
         # Override session service to ensure real sessions instead of mocks
         self._override_session_service_for_test_compatibility(services)
 
@@ -145,7 +145,9 @@ class MockBackendStage(InitializationStage):
 
                 # Handle streaming requests
                 if request and getattr(request, "stream", False):
-                    logger.info(f"Mock backend returning streaming response for model: {response_data['model']}")
+                    logger.info(
+                        f"Mock backend returning streaming response for model: {response_data['model']}"
+                    )
                     from src.core.domain.streaming_test_helpers import (
                         create_streaming_generator,
                     )
@@ -168,7 +170,9 @@ class MockBackendStage(InitializationStage):
                     logger.info(f"Created streaming envelope: {streaming_envelope}")
                     return streaming_envelope
                 else:
-                    logger.info(f"Mock backend returning JSON response for model: {response_data['model']}")
+                    logger.info(
+                        f"Mock backend returning JSON response for model: {response_data['model']}"
+                    )
 
                 return ResponseEnvelope(
                     content=response_data,
@@ -364,6 +368,9 @@ class MockBackendStage(InitializationStage):
             # Function to create BackendService instance
             def backend_service_factory(provider: IServiceProvider) -> BackendService:
                 from src.core.services.backend_factory import BackendFactory
+                from src.core.services.session_service_impl import (
+                    SessionService,  # Added import
+                )
 
                 backend_factory = provider.get_required_service(BackendFactory)
                 app_config = provider.get_required_service(AppConfig)
@@ -377,6 +384,7 @@ class MockBackendStage(InitializationStage):
                     rate_limiter,
                     app_config,
                     backend_config_provider=backend_config_provider,
+                    session_service=provider.get_required_service(SessionService),
                 )
 
             # Register BackendService with factory
@@ -394,9 +402,11 @@ class MockBackendStage(InitializationStage):
         except ImportError as e:
             logger.warning(f"Could not register mock backend factory: {e}")
 
-    def _override_session_service_for_test_compatibility(self, services: ServiceCollection) -> None:
+    def _override_session_service_for_test_compatibility(
+        self, services: ServiceCollection
+    ) -> None:
         """Override session service to ensure it returns real Session objects instead of mocks.
-        
+
         This prevents the 'coroutine was never awaited' warnings that occur when
         session service methods return AsyncMock instead of real Session objects.
         """
@@ -406,24 +416,23 @@ class MockBackendStage(InitializationStage):
             from src.core.interfaces.repositories_interface import ISessionRepository
             from src.core.interfaces.session_service_interface import ISessionService
             from src.core.services.session_service_impl import SessionService
-            
+
             def session_service_factory(provider: IServiceProvider) -> SessionService:
                 """Factory function for creating SessionService with real session repository."""
                 repo: ISessionRepository = provider.get_required_service(
                     cast(type, ISessionRepository)
                 )
                 return SessionService(repo)
-            
+
             # Override the session service registration to ensure it returns real Session objects
             services.add_singleton(
-                SessionService, 
-                implementation_factory=session_service_factory
+                SessionService, implementation_factory=session_service_factory
             )
             services.add_singleton(
                 cast(type, ISessionService),
                 implementation_factory=session_service_factory,
             )
-            
+
             logger.debug("Overrode session service to ensure real Session objects")
         except ImportError as e:
             logger.warning(f"Could not override session service: {e}")
@@ -503,7 +512,7 @@ class MinimalTestStage(InitializationStage):
 class RealBackendTestStage(InitializationStage):
     """
     Test stage that provides real backend services for HTTP mocking tests.
-    
+
     This stage is used by tests that need to make real HTTP calls
     but want to mock the HTTP responses (e.g., using HTTPXMock).
     """
@@ -524,19 +533,21 @@ class RealBackendTestStage(InitializationStage):
 
         # Import the real backend stage and use its registration methods
         from src.core.app.stages.backend import BackendStage
-        
+
         # Create a real backend stage and execute it
         real_backend_stage = BackendStage()
         await real_backend_stage.execute(services, config)
-        
+
         # Override session service to ensure real sessions instead of mocks
         self._override_session_service_for_test_compatibility(services)
 
         logger.info("Real backend services for HTTP mocking initialized successfully")
 
-    def _override_session_service_for_test_compatibility(self, services: ServiceCollection) -> None:
+    def _override_session_service_for_test_compatibility(
+        self, services: ServiceCollection
+    ) -> None:
         """Override session service to ensure it returns real Session objects instead of mocks.
-        
+
         This prevents the 'coroutine was never awaited' warnings that occur when
         session service methods return AsyncMock instead of real Session objects.
         """
@@ -546,24 +557,23 @@ class RealBackendTestStage(InitializationStage):
             from src.core.interfaces.repositories_interface import ISessionRepository
             from src.core.interfaces.session_service_interface import ISessionService
             from src.core.services.session_service_impl import SessionService
-            
+
             def session_service_factory(provider: IServiceProvider) -> SessionService:
                 """Factory function for creating SessionService with real session repository."""
                 repo: ISessionRepository = provider.get_required_service(
                     cast(type, ISessionRepository)
                 )
                 return SessionService(repo)
-            
+
             # Override the session service registration to ensure it returns real Session objects
             services.add_singleton(
-                SessionService, 
-                implementation_factory=session_service_factory
+                SessionService, implementation_factory=session_service_factory
             )
             services.add_singleton(
                 cast(type, ISessionService),
                 implementation_factory=session_service_factory,
             )
-            
+
             logger.debug("Overrode session service to ensure real Session objects")
         except ImportError as e:
             logger.warning(f"Could not override session service: {e}")

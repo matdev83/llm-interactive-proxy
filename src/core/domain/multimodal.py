@@ -265,32 +265,6 @@ class MultimodalMessage(ValueObject):
 
         return result
 
-    def to_legacy_format(self) -> dict[str, Any]:
-        """Convert to legacy format for backward compatibility."""
-        result: dict[str, Any] = {"role": self.role}
-
-        # Handle content based on type
-        if self.content is not None:
-            if isinstance(self.content, str):
-                result["content"] = self.content
-            else:
-                # For multimodal, concatenate text parts
-                text_content = self.get_text_content()
-                if text_content:
-                    result["content"] = text_content
-                else:
-                    result["content"] = "[Multimodal content]"
-
-        # Add other fields
-        if self.name:
-            result["name"] = self.name
-        if self.tool_calls:
-            result["tool_calls"] = self.tool_calls
-        if self.tool_call_id:
-            result["tool_call_id"] = self.tool_call_id
-
-        return result
-
     def to_backend_format(self, backend_type: str) -> dict[str, Any]:
         """Convert to backend-specific format."""
         if backend_type == "openai":
@@ -300,7 +274,8 @@ class MultimodalMessage(ValueObject):
         elif backend_type == "gemini":
             return self._to_gemini_format()
         else:
-            return self.to_legacy_format()
+            # Fallback for unsupported types, consider raising an error or a default conversion
+            return self._to_openai_format()
 
     def _to_openai_format(self) -> dict[str, Any]:
         """Convert to OpenAI format."""
@@ -374,25 +349,6 @@ class MultimodalMessage(ValueObject):
             result["parts"] = []
 
         return result
-
-    @classmethod
-    def from_legacy_message(cls, message: dict[str, Any]) -> MultimodalMessage:
-        """Create a MultimodalMessage from a legacy message format."""
-        content_value = message.get("content")
-
-        content_parts: list[ContentPart] | None = None
-        if content_value is not None and isinstance(content_value, str):
-            content_parts = [ContentPart.text(content_value)]
-        # Add handling for other types if necessary, or raise an error
-        # For now, if it's not a string, we'll treat it as no content parts
-
-        return cls(
-            role=message["role"],
-            content=content_parts,
-            name=message.get("name"),
-            tool_calls=message.get("tool_calls"),
-            tool_call_id=message.get("tool_call_id"),
-        )
 
     @classmethod
     def text(

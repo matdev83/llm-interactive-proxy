@@ -21,6 +21,7 @@ from src.core.common.exceptions import (
 )
 from src.core.domain.chat import ChatRequest
 from src.core.domain.responses import ResponseEnvelope, StreamingResponseEnvelope
+from src.core.interfaces.configuration_interface import IAppIdentityConfig
 from src.core.interfaces.model_bases import DomainModel, InternalDTO
 
 # Legacy ChatCompletionRequest removed from connector signatures; use domain ChatRequest
@@ -101,6 +102,7 @@ class AnthropicBackend(LLMBackend):
         request_data: DomainModel | InternalDTO | dict[str, Any],
         processed_messages: list,
         effective_model: str,
+        identity: IAppIdentityConfig | None = None,
         openrouter_api_base_url: str | None = None,
         openrouter_headers_provider: Callable[[str, str], dict[str, str]] | None = None,
         key_name: str | None = None,
@@ -114,8 +116,7 @@ class AnthropicBackend(LLMBackend):
         effective_api_key = api_key or getattr(self, "api_key", None)
         if effective_api_key is None:
             raise AuthenticationError(
-                message="Anthropic API key not configured",
-                code="missing_api_key",
+                message="Anthropic API key not configured", code="missing_api_key"
             )
 
         base_url = (openrouter_api_base_url or ANTHROPIC_DEFAULT_BASE_URL).rstrip("/")
@@ -135,6 +136,11 @@ class AnthropicBackend(LLMBackend):
             "anthropic-version": ANTHROPIC_VERSION_HEADER,
             "content-type": "application/json",
         }
+        if identity:
+            if identity.url:
+                headers["HTTP-Referer"] = identity.url
+            if identity.title:
+                headers["X-Title"] = identity.title
 
         if logger.isEnabledFor(logging.INFO):
             logger.info(
@@ -237,18 +243,12 @@ class AnthropicBackend(LLMBackend):
     # Non-streaming handling
     # -----------------------------------------------------------
     async def _handle_non_streaming_response(
-        self,
-        url: str,
-        payload: dict,
-        headers: dict,
-        model: str,
+        self, url: str, payload: dict, headers: dict, model: str
     ) -> ResponseEnvelope:
         try:
             response = await self.client.post(url, json=payload, headers=headers)
         except RuntimeError:
             # Client may have been closed by the fixture scope; recreate and retry
-            import httpx
-
             self.client = httpx.AsyncClient()
             response = await self.client.post(url, json=payload, headers=headers)
         except httpx.RequestError as e:
@@ -266,18 +266,16 @@ class AnthropicBackend(LLMBackend):
         data = response.json()
         converted = self._convert_full_response(data, model)
         return ResponseEnvelope(
-            content=converted, headers=dict(response.headers), status_code=response.status_code
+            content=converted,
+            headers=dict(response.headers),
+            status_code=response.status_code,
         )
 
     # -----------------------------------------------------------
     # Streaming handling
     # -----------------------------------------------------------
     async def _handle_streaming_response(
-        self,
-        url: str,
-        payload: dict,
-        headers: dict,
-        model: str,
+        self, url: str, payload: dict, headers: dict, model: str
     ) -> AsyncIterator[bytes]:
         """Handle a streaming response from Anthropic and return an async iterator of bytes."""
         request = self.client.build_request("POST", url, json=payload, headers=headers)
@@ -285,8 +283,6 @@ class AnthropicBackend(LLMBackend):
             response = await self.client.send(request, stream=True)
         except RuntimeError:
             # Recreate client and retry
-            import httpx
-
             self.client = httpx.AsyncClient()
             request = self.client.build_request(
                 "POST", url, json=payload, headers=headers
@@ -358,18 +354,12 @@ class AnthropicBackend(LLMBackend):
             "created": int(time.time()),
             "model": model,
             "choices": [
-                {
-                    "index": 0,
-                    "delta": {"content": text},
-                    "finish_reason": finish_reason,
-                }
+                {"index": 0, "delta": {"content": text}, "finish_reason": finish_reason}
             ],
         }
 
     def _convert_full_response(
-        self,
-        data: dict[str, Any],
-        model: str,
+        self, data: dict[str, Any], model: str
     ) -> dict[str, Any]:
         """Convert full Anthropic message response to OpenAI format."""
         # Anthropic response example:
@@ -426,10 +416,7 @@ class AnthropicBackend(LLMBackend):
             )
 
         url = f"{base.rstrip('/')}/models"
-        headers = {
-            "x-api-key": key_api,
-            "anthropic-version": ANTHROPIC_VERSION_HEADER,
-        }
+        headers = {"x-api-key": key_api, "anthropic-version": ANTHROPIC_VERSION_HEADER}
         try:
             response = await self.client.get(url, headers=headers)
         except RuntimeError:

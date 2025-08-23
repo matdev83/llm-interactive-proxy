@@ -38,6 +38,7 @@ htmlcov/
 # Logs and temporary files
 logs/
 *.log
+*.txt
 debug.log
 temp/
 tmp/
@@ -53,6 +54,9 @@ config.ini
 settings.py
 local_settings.py
 db.sqlite3
+*.db
+*.sqlite
+*.sqlite3
 
 # Other common ignores
 celerybeat-schedule
@@ -73,4 +77,5 @@ build/
 uv.lock
 *.txt
 WARP.md
-.hypothesis
+.hypothesis/
+.kiro/

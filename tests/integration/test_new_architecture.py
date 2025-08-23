@@ -4,7 +4,6 @@ Integration tests for the new architecture.
 These tests validate that the new architecture works end-to-end.
 """
 
-import json
 import logging
 from collections.abc import Generator
 
@@ -190,8 +189,8 @@ def test_command_processing(client: TestClient) -> None:
 
         # Then patch command processor to return a help message
         with patch(
-            "src.core.services.command_processor.CommandProcessor.process_commands"
-        ) as mock_process_commands:
+            "src.core.services.command_processor.CommandProcessor.process_messages"
+        ) as mock_process_messages:
             from src.core.domain.processed_result import ProcessedResult
 
             # Create a mock command response with response property
@@ -231,7 +230,7 @@ def test_command_processing(client: TestClient) -> None:
                 mock_process_result.return_value = mock_command_response
 
             # Set the return value of the command mock
-            mock_process_commands.return_value = mock_result
+            mock_process_messages.return_value = mock_result
 
             # Send the request
             response = client.post("/v1/chat/completions", json=request_data)

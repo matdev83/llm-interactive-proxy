@@ -2,8 +2,8 @@
 Demo test to show the automatic enforcement in action.
 """
 
-import pytest
 from unittest.mock import AsyncMock
+
 from src.core.domain.session import Session
 
 

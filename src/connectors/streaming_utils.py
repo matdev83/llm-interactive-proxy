@@ -14,9 +14,7 @@ from collections.abc import AsyncGenerator, AsyncIterator
 from typing import Any
 
 from src.core.domain.responses import StreamingResponseEnvelope
-from src.core.domain.streaming_response_processor import (
-    StreamNormalizer,
-)
+from src.core.domain.streaming_response_processor import StreamNormalizer
 
 logger = logging.getLogger(__name__)
 
@@ -132,7 +130,5 @@ def normalize_streaming_response(
                 yield chunk
 
     return StreamingResponseEnvelope(
-        content=create_normalized_stream(),
-        media_type=media_type,
-        headers=headers or {},
+        content=create_normalized_stream(), media_type=media_type, headers=headers or {}
     )

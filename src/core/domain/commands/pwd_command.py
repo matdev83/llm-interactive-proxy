@@ -21,7 +21,7 @@ logger = logging.getLogger(__name__)
 class PwdCommand(StatelessCommandBase, BaseCommand):
     """Command to display the current project directory."""
 
-    def __init__(self):
+    def __init__(self) -> None:
         """Initialize without state services."""
         StatelessCommandBase.__init__(self)
 
@@ -57,14 +57,8 @@ class PwdCommand(StatelessCommandBase, BaseCommand):
         project_dir = session.state.project_dir
 
         if project_dir:
-            return CommandResult(
-                name=self.name,
-                success=True,
-                message=project_dir,
-            )
+            return CommandResult(name=self.name, success=True, message=project_dir)
         else:
             return CommandResult(
-                name=self.name,
-                success=True,
-                message="Project directory not set",
+                name=self.name, success=True, message="Project directory not set"
             )

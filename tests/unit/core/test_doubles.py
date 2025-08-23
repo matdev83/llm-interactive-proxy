@@ -14,6 +14,7 @@ from fastapi import FastAPI
 from src.core.domain.chat import (
     ChatCompletionChoice,
     ChatCompletionChoiceMessage,
+    ChatMessage,
     ChatRequest,
     ChatResponse,
 )
@@ -27,10 +28,10 @@ from src.core.domain.configuration import (
 from src.core.domain.request_context import RequestContext
 from src.core.domain.responses import ResponseEnvelope, StreamingResponseEnvelope
 from src.core.domain.session import Session, SessionInteraction, SessionState
+from src.core.interfaces.backend_processor_interface import IBackendProcessor
 from src.core.interfaces.backend_service_interface import BackendError, IBackendService
 from src.core.interfaces.command_processor_interface import ICommandProcessor
 from src.core.interfaces.command_service_interface import (
-    ICommandService,
     ProcessedResult,
 )
 from src.core.interfaces.di_interface import (
@@ -48,7 +49,10 @@ from src.core.interfaces.response_handler_interface import (
     INonStreamingResponseHandler,
     IStreamingResponseHandler,
 )
-from src.core.interfaces.response_processor_interface import IResponseProcessor
+from src.core.interfaces.response_processor_interface import (
+    IResponseProcessor,
+    ProcessedResponse,
+)
 from src.core.interfaces.session_service_interface import ISessionService
 
 
@@ -131,7 +135,7 @@ class MockServiceScope(IServiceScope):
 #
 # Mock Backend Service
 #
-class MockBackendService(IBackendService):
+class MockBackendService(IBackendService, IBackendProcessor):
     """A mock backend service for testing."""
 
     def __init__(self) -> None:
@@ -139,20 +143,18 @@ class MockBackendService(IBackendService):
             ResponseEnvelope | StreamingResponseEnvelope | Exception
         ] = []
         self.calls: list[ChatRequest] = []
-        self.validations: dict[str, dict[str, bool]] = {}
+        self.validations: dict[str, dict[str, bool]] = {
+            "openrouter": {"test-model": True}
+        }
 
     def add_response(
         self, response: ResponseEnvelope | StreamingResponseEnvelope | Exception
     ) -> None:
         # If the response is an async generator, wrap it in a StreamingResponseEnvelope
-        if hasattr(response, "__aiter__"):
-            response = StreamingResponseEnvelope(
-                content=response, media_type="text/event-stream"
-            )
         self.responses.append(response)
 
     async def call_completion(
-        self, request: ChatRequest, stream: bool = False
+        self, request: ChatRequest, stream: bool = False, allow_failover: bool = True
     ) -> ResponseEnvelope | StreamingResponseEnvelope:
         self.calls.append(request)
 
@@ -253,9 +255,9 @@ class MockSessionService(ISessionService):
             self.sessions[session_id] = Session(
                 session_id=session_id,
                 state=SessionState(
-                    backend_config=BackendConfig(),
-                    reasoning_config=ReasoningConfig(),
-                    loop_config=LoopDetectionConfig(),
+                    backend_config=BackendConfig(backend_type="mock", model="mock-model"),  # type: ignore
+                    reasoning_config=ReasoningConfig(temperature=0.7),  # type: ignore
+                    loop_config=LoopDetectionConfig(loop_detection_enabled=True),  # type: ignore
                 ),
                 created_at=datetime.now(timezone.utc),
                 last_active_at=datetime.now(timezone.utc),
@@ -272,9 +274,9 @@ class MockSessionService(ISessionService):
         session = Session(
             session_id=session_id,
             state=SessionState(
-                backend_config=BackendConfig(),
-                reasoning_config=ReasoningConfig(),
-                loop_config=LoopDetectionConfig(),
+                backend_config=BackendConfig(backend_type="mock", model="mock-model"),  # type: ignore
+                reasoning_config=ReasoningConfig(temperature=0.7),  # type: ignore
+                loop_config=LoopDetectionConfig(loop_detection_enabled=True),  # type: ignore
             ),
             created_at=datetime.now(timezone.utc),
             last_active_at=datetime.now(timezone.utc),
@@ -291,6 +293,14 @@ class MockSessionService(ISessionService):
     async def update_session(self, session: ISession) -> None:
         self.sessions[session.session_id] = session  # type: ignore
 
+    async def update_session_backend_config(
+        self, session_id: str, backend_type: str, model: str
+    ) -> None:
+        session = await self.get_session(session_id)
+        new_backend_config = BackendConfig(backend_type=backend_type, model=model)  # type: ignore
+        session.state = session.state.with_backend_config(new_backend_config)
+        self.sessions[session_id] = session
+
     async def delete_session(self, session_id: str) -> bool:
         if session_id in self.sessions:
             del self.sessions[session_id]
@@ -301,9 +311,6 @@ class MockSessionService(ISessionService):
         return list(self.sessions.values())
 
 
-#
-# Mock Command Service
-#
 class MockCommandProcessor(ICommandProcessor):
     """A mock command processor for testing."""
 
@@ -311,7 +318,7 @@ class MockCommandProcessor(ICommandProcessor):
         self.processed: list[list[Any]] = []
         self.results: list[ProcessedResult] = []
 
-    async def process_commands(
+    async def process_messages(
         self,
         messages: list[Any],
         session_id: str,
@@ -325,33 +332,6 @@ class MockCommandProcessor(ICommandProcessor):
             )
 
         return self.results.pop(0)
-
-    def add_result(self, result: ProcessedResult) -> None:
-        self.results.append(result)
-
-
-class MockCommandService(ICommandService):
-    """A mock command service for testing (legacy compatibility)."""
-
-    def __init__(self) -> None:
-        self.commands: dict[str, Any] = {}
-        self.processed: list[list[Any]] = []
-        self.results: list[ProcessedResult] = []
-
-    async def process_commands(
-        self, messages: list[Any], session_id: str
-    ) -> ProcessedResult:
-        self.processed.append(messages)
-
-        if not self.results:
-            return ProcessedResult(
-                modified_messages=messages, command_executed=False, command_results=[]
-            )
-
-        return self.results.pop(0)
-
-    async def register_command(self, command_name: str, command_handler: Any) -> None:
-        self.commands[command_name] = command_handler
 
     def add_result(self, result: ProcessedResult) -> None:
         self.results.append(result)
@@ -420,9 +400,9 @@ class MockLoopDetector(ILoopDetector):
 
     async def configure(
         self,
-        _min_pattern_length: int = 100,
-        _max_pattern_length: int = 8000,
-        _min_repetitions: int = 2,
+        min_pattern_length: int = 100,
+        max_pattern_length: int = 8000,
+        min_repetitions: int = 2,
     ) -> None:
         pass
 
@@ -430,9 +410,6 @@ class MockLoopDetector(ILoopDetector):
         self.results.append(result)
 
 
-#
-# Mock Response Processor
-#
 class MockResponseProcessor(IResponseProcessor):
     """A mock response processor for testing."""
 
@@ -442,24 +419,25 @@ class MockResponseProcessor(IResponseProcessor):
         self.streaming_handler = MockStreamingResponseHandler()
 
     async def process_response(
-        self, response: Any, is_streaming: bool = False
-    ) -> ResponseEnvelope | StreamingResponseEnvelope:
+        self, response: Any, session_id: str
+    ) -> ProcessedResponse:
         self.processed.append(response)
+        processed_response = await self.non_streaming_handler.process_response(response)
+        return ProcessedResponse(
+            content=processed_response.content,
+        )
 
-        if is_streaming:
-            return await self.process_streaming_response(response)
-        else:
-            return await self.process_non_streaming_response(response)
+    async def register_middleware(self, middleware: Any, priority: int = 0) -> None:
+        """Register a response middleware (mock implementation)."""
 
-    async def process_non_streaming_response(
-        self, response: dict[str, Any]
-    ) -> ResponseEnvelope:
-        return await self.non_streaming_handler.process_response(response)
+    def process_streaming_response(
+        self, response_iterator: AsyncIterator[Any], session_id: str
+    ) -> AsyncIterator[ProcessedResponse]:
+        async def mock_iterator() -> AsyncIterator[ProcessedResponse]:
+            async for chunk in response_iterator:
+                yield ProcessedResponse(content=chunk.decode("utf-8"))
 
-    async def process_streaming_response(
-        self, response: AsyncIterator[bytes]
-    ) -> StreamingResponseEnvelope:
-        return await self.streaming_handler.process_response(response)
+        return mock_iterator()
 
 
 class MockNonStreamingResponseHandler(INonStreamingResponseHandler):
@@ -479,14 +457,7 @@ class MockStreamingResponseHandler(IStreamingResponseHandler):
     async def process_response(
         self, response: AsyncIterator[bytes]
     ) -> StreamingResponseEnvelope:
-        async def mock_iterator() -> AsyncIterator[bytes]:
-            async for chunk in response:
-                yield chunk
-
-        return StreamingResponseEnvelope(
-            iterator_supplier=mock_iterator,
-            headers={"content-type": "text/event-stream"},
-        )
+        return StreamingResponseEnvelope(content=response)
 
 
 #
@@ -551,11 +522,9 @@ class TestDataBuilder:
         return Session(
             session_id=session_id,
             state=SessionState(
-                backend_config=BackendConfig(
-                    backend_type="openai", model="gpt-4", interactive_mode=True
-                ),
-                reasoning_config=ReasoningConfig(temperature=0.7),
-                loop_config=LoopDetectionConfig(loop_detection_enabled=True),
+                backend_config=BackendConfig(backend_type="openai", model="gpt-4"),  # type: ignore
+                reasoning_config=ReasoningConfig(temperature=0.7),  # type: ignore
+                loop_config=LoopDetectionConfig(loop_detection_enabled=True),  # type: ignore
             ),
             created_at=datetime.now(timezone.utc),
             last_active_at=datetime.now(timezone.utc),
@@ -576,24 +545,24 @@ class TestDataBuilder:
 
     @staticmethod
     def create_chat_request(
-        messages: list[dict[str, Any]] | None = None,
+        messages: list[ChatMessage] | None = None,
     ) -> ChatRequest:
         """Create a test chat request."""
         if messages is None:
-            messages = [{"role": "user", "content": "Hello"}]
+            messages = [ChatMessage(role="user", content="Hello")]
 
         return ChatRequest(
-            messages=[
-                {"role": item["role"], "content": item["content"]} for item in messages
-            ],
+            messages=messages,
             model="gpt-4",
             stream=False,
         )
 
     @staticmethod
-    def create_chat_response(content: str = "Hello there!") -> ChatResponse:
-        """Create a test chat response."""
-        return ChatResponse(
+    def create_chat_response(
+        content: str = "Hello there!",
+    ) -> ResponseEnvelope:
+        """Create a test chat response envelope."""
+        chat_response = ChatResponse(
             id="resp-123",
             created=int(datetime.now(timezone.utc).timestamp()),
             model="gpt-4",
@@ -607,4 +576,9 @@ class TestDataBuilder:
                 )
             ],
             usage={"prompt_tokens": 10, "completion_tokens": 20, "total_tokens": 30},
+        )
+        return ResponseEnvelope(
+            content=chat_response.model_dump(),
+            status_code=200,
+            headers={"content-type": "application/json"},
         )

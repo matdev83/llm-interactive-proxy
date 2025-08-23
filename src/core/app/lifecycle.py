@@ -61,8 +61,7 @@ class AppLifecycle:
             max_age = self.config.get("session_max_age", 86400)  # 1 day default
 
             task = asyncio.create_task(
-                self._session_cleanup_task(interval, max_age),
-                name="session_cleanup",
+                self._session_cleanup_task(interval, max_age), name="session_cleanup"
             )
             self._background_tasks.append(task)
             logger.info(

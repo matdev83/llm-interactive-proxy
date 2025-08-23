@@ -18,10 +18,7 @@ class BackendConfigService:
     """
 
     def apply_backend_config(
-        self,
-        request: ChatRequest,
-        backend_type: str,
-        config: AppConfig,
+        self, request: ChatRequest, backend_type: str, config: AppConfig
     ) -> ChatRequest:
         """Apply backend-specific configuration to a request.
 

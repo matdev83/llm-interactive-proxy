@@ -1,5 +1,6 @@
-import pytest
 from unittest.mock import Mock
+
+import pytest
 from src.core.domain.commands.unset_command import UnsetCommand
 from src.core.domain.session import (
     BackendConfiguration,

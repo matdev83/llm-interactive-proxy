@@ -1,8 +1,0 @@
-{
-    "api_key": "sk-test",
-    "api_base": "http://localhost:8000/v1",
-    "model": "gemini:models/gemini-2.5-flash-preview-05-20",
-    "prompts": [
-        "!/hello"
-    ]
-}

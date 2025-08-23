@@ -1,7 +1,5 @@
-from unittest.mock import AsyncMock, patch
 
 import pytest
-from src.core.interfaces.backend_service_interface import IBackendService
 
 # --- Test Cases ---
 

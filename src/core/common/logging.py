@@ -113,11 +113,7 @@ def setup_logging(
             console_logger.error(f"Failed to set up file logging: {e}")
 
     # Configure the root logger
-    logging.basicConfig(
-        level=level,
-        format="%(message)s",
-        handlers=handlers,
-    )
+    logging.basicConfig(level=level, format="%(message)s", handlers=handlers)
 
     # Get the root logger
     root_logger = logging.getLogger()
@@ -153,11 +149,7 @@ def get_logger(name: str | None = None) -> structlog.stdlib.BoundLogger:
 class LoggingMiddleware:
     """Middleware for logging requests and responses."""
 
-    def __init__(
-        self,
-        request_logging: bool = True,
-        response_logging: bool = False,
-    ):
+    def __init__(self, request_logging: bool = True, response_logging: bool = False):
         """Initialize the middleware.
 
         Args:
@@ -188,12 +180,7 @@ class LoggingMiddleware:
             client = request.client.host if request.client else "unknown"
 
             # Log before processing
-            self.logger.info(
-                "Request received",
-                method=method,
-                url=url,
-                client=client,
-            )
+            self.logger.info("Request received", method=method, url=url, client=client)
 
         try:
             # Process request

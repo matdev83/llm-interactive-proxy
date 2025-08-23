@@ -7,16 +7,15 @@ from unittest.mock import AsyncMock, Mock, patch
 
 import httpx
 import pytest
-from hypothesis import given, settings, strategies as st, HealthCheck
-
+from hypothesis import HealthCheck, given, settings
+from hypothesis import strategies as st
 from src.connectors.base import LLMBackend
 from src.core.common.exceptions import BackendError, RateLimitExceededError
 from src.core.domain.backend_type import BackendType
 from src.core.domain.chat import ChatMessage, ChatRequest
 from src.core.domain.responses import ResponseEnvelope
-from src.core.interfaces.rate_limiter_interface import RateLimitInfo
 from src.core.interfaces.session_service_interface import ISessionService
-from src.core.services.backend_factory_service import BackendFactory
+from src.core.services.backend_factory import BackendFactory
 from src.core.services.backend_service import BackendService
 
 
@@ -61,7 +60,7 @@ class MockBackend(LLMBackend):
 def create_backend_service():
     """Create a BackendService instance for testing."""
     client = httpx.AsyncClient()
-    from src.core.services.backend_registry_service import BackendRegistry
+    from src.core.services.backend_registry import BackendRegistry
 
     registry = BackendRegistry()
     factory = BackendFactory(client, registry)
@@ -180,10 +179,9 @@ class TestBackendServiceHypothesis:
                     reset_at=123, 
                     limit=10
                 ))
-            ):
+            ), pytest.raises(RateLimitExceededError):
                 # Act & Assert
-                with pytest.raises(RateLimitExceededError):
-                    await service.call_completion(chat_request)
+                await service.call_completion(chat_request)
 
     @pytest.mark.asyncio
     async def test_call_completion_backend_error_with_hypothesis(self):

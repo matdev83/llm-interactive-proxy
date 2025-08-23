@@ -4,6 +4,7 @@ import abc
 from typing import TYPE_CHECKING, Any
 
 from src.core.domain.responses import ResponseEnvelope, StreamingResponseEnvelope
+from src.core.interfaces.configuration_interface import IAppIdentityConfig
 from src.core.interfaces.model_bases import DomainModel, InternalDTO
 
 if TYPE_CHECKING:
@@ -24,6 +25,7 @@ class LLMBackend(abc.ABC):
         request_data: DomainModel | InternalDTO | dict[str, Any],
         processed_messages: list,  # Messages after command processing (domain objects or dicts)
         effective_model: str,  # Model after considering override
+        identity: IAppIdentityConfig | None = None,
         **kwargs: Any,
     ) -> ResponseEnvelope | StreamingResponseEnvelope:
         """

@@ -1,10 +1,10 @@
+from typing import Any
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from src.core.domain.chat import ChatMessage, ChatRequest
 from src.core.domain.responses import ResponseEnvelope
 from src.core.interfaces.backend_processor_interface import IBackendProcessor
-from src.core.interfaces.command_service_interface import ICommandService
 from src.core.interfaces.response_processor_interface import IResponseProcessor
 from src.core.interfaces.session_service_interface import ISessionService
 from src.core.services.request_processor_service import RequestProcessor
@@ -15,19 +15,22 @@ async def test_top_p_fix_with_actual_request() -> None:
     """Test that demonstrates our fix works with a real request that includes top_p."""
 
     # Create mocks for dependencies
-    mock_command_processor = MagicMock(spec=ICommandService)
+    from src.core.interfaces.command_processor_interface import ICommandProcessor
+
+    mock_command_processor = MagicMock(spec=ICommandProcessor)
     mock_backend_processor = MagicMock(spec=IBackendProcessor)
     mock_session_service = MagicMock(spec=ISessionService)
     mock_response_processor = MagicMock(spec=IResponseProcessor)
-    
+
     # Configure session service to return a real session object instead of AsyncMock
     from src.core.domain.session import Session
+
     test_session = Session(session_id="test_session")
     mock_session_service.get_session = AsyncMock(return_value=test_session)
     mock_session_service.update_session = AsyncMock(return_value=None)
 
-    # Configure mock_command_processor.process_commands as an AsyncMock
-    mock_command_processor.process_commands = AsyncMock(
+    # Configure mock_command_processor.process_messages as an AsyncMock
+    mock_command_processor.process_messages = AsyncMock(
         return_value=MagicMock(
             modified_messages=[ChatMessage(role="user", content="Hello")],
             command_executed=False,
@@ -38,7 +41,7 @@ async def test_top_p_fix_with_actual_request() -> None:
     # Configure mock_backend_processor to capture the request it receives
     captured_request = None
 
-    async def capture_request(*args, **kwargs):
+    async def capture_request(*args: Any, **kwargs: Any) -> ResponseEnvelope:
         nonlocal captured_request
         captured_request = kwargs.get("request")
         # Return a dummy response envelope

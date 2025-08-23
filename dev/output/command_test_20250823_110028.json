@@ -1,0 +1,7 @@
+[
+  {
+    "command": "!/help",
+    "status": "error",
+    "error": "{\"detail\":{\"error\":{\"message\":\"Backend call failed: No auth credentials found\",\"type\":\"BackendError\",\"code\":\"backend_error\",\"backend\":\"openai\"}}}"
+  }
+]

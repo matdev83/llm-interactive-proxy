@@ -5,10 +5,11 @@ Integration tests for the Hello command in the new SOLID architecture.
 from unittest.mock import patch
 
 import pytest
+import pytest_asyncio
 from fastapi.testclient import TestClient
 
 
-@pytest.fixture
+@pytest_asyncio.fixture
 async def app(monkeypatch: pytest.MonkeyPatch):
     """Create a test application."""
     # Create test config with auth disabled from the start
@@ -51,12 +52,7 @@ async def app(monkeypatch: pytest.MonkeyPatch):
     if hasattr(new_app.state, "httpx_client"):
         app.state.httpx_client = new_app.state.httpx_client
 
-    # Initialize the integration bridge
-    from src.core.integration.bridge import IntegrationBridge
-
-    bridge = IntegrationBridge(app)
-    bridge.new_initialized = True  # Mark new architecture as initialized
-    app.state.integration_bridge = bridge
+    # No integration bridge needed - using SOLID architecture directly
 
     # Mock the backend service to avoid actual API calls
     from unittest.mock import AsyncMock
@@ -107,13 +103,12 @@ async def app(monkeypatch: pytest.MonkeyPatch):
     return app
 
 
-def test_hello_command_integration(app):
+@pytest.mark.asyncio
+async def test_hello_command_integration(app):
     """Test that the Hello command works correctly in the integration environment."""
     # Mock the APIKeyMiddleware's dispatch method to always return the next response
 
-    # Mock the get_integration_bridge function to return the bridge from app.state
-    def mock_get_integration_bridge(_=None):
-        return app.state.integration_bridge
+    # No integration bridge needed - using SOLID architecture directly
 
     async def mock_dispatch(self, request, call_next):
         return await call_next(request)
@@ -185,10 +180,6 @@ def test_hello_command_integration(app):
         )
 
     with (
-        patch(
-            "src.core.integration.bridge.get_integration_bridge",
-            new=mock_get_integration_bridge,
-        ),
         patch(
             "src.core.security.middleware.APIKeyMiddleware.dispatch", new=mock_dispatch
         ),

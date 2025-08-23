@@ -15,7 +15,7 @@ logger = logging.getLogger(__name__)
 class LoopDetectionCommand(StatelessCommandBase, BaseCommand):
     """Command for enabling/disabling loop detection."""
 
-    def __init__(self):
+    def __init__(self) -> None:
         """Initialize without state services."""
         StatelessCommandBase.__init__(self)
 

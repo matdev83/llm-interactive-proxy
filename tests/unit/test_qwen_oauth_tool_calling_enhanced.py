@@ -16,7 +16,7 @@ from src.core.domain.chat import (
     ToolCall,
     ToolDefinition,
 )
-from src.core.domain.responses import StreamingResponseEnvelope
+from src.core.domain.responses import ResponseEnvelope, StreamingResponseEnvelope
 from starlette.responses import StreamingResponse
 
 
@@ -375,7 +375,6 @@ class TestQwenOAuthToolCallingEnhanced:
         )
 
         # Create a StreamingResponseEnvelope to match what the Qwen connector expects
-        from src.core.domain.responses import StreamingResponseEnvelope
 
         mock_stream_envelope = StreamingResponseEnvelope(
             content=mock_stream_response.body_iterator,

@@ -20,10 +20,7 @@ from src.core.app.controllers.anthropic_controller import (
     AnthropicController,
     get_anthropic_controller,
 )
-from src.core.app.controllers.chat_controller import (
-    ChatController,
-    get_chat_controller,
-)
+from src.core.app.controllers.chat_controller import ChatController, get_chat_controller
 from src.core.app.controllers.usage_controller import router as usage_router
 
 # Import HTTP status constants
@@ -57,7 +54,9 @@ async def get_chat_controller_if_available(request: Request) -> ChatController:
     """
     service_provider = getattr(request.app.state, "service_provider", None)
     if not service_provider:
-        raise HTTPException(status_code=503, detail=HTTP_503_SERVICE_UNAVAILABLE_MESSAGE)
+        raise HTTPException(
+            status_code=503, detail=HTTP_503_SERVICE_UNAVAILABLE_MESSAGE
+        )
 
     try:
         chat_controller = service_provider.get_service(ChatController)
@@ -66,7 +65,9 @@ async def get_chat_controller_if_available(request: Request) -> ChatController:
         return cast(ChatController, get_chat_controller(service_provider))
     except Exception as e:
         logger.exception(f"Failed to get ChatController from service provider: {e}")
-        raise HTTPException(status_code=500, detail=HTTP_500_INTERNAL_SERVER_ERROR_MESSAGE)
+        raise HTTPException(
+            status_code=500, detail=HTTP_500_INTERNAL_SERVER_ERROR_MESSAGE
+        )
 
 
 async def get_anthropic_controller_if_available(
@@ -85,7 +86,9 @@ async def get_anthropic_controller_if_available(
     """
     service_provider = getattr(request.app.state, "service_provider", None)
     if not service_provider:
-        raise HTTPException(status_code=503, detail=HTTP_503_SERVICE_UNAVAILABLE_MESSAGE)
+        raise HTTPException(
+            status_code=503, detail=HTTP_503_SERVICE_UNAVAILABLE_MESSAGE
+        )
 
     try:
         anthropic_controller = service_provider.get_service(AnthropicController)
@@ -115,13 +118,13 @@ async def get_service_provider_dependency(request: Request) -> IServiceProvider:
     """
     service_provider = getattr(request.app.state, "service_provider", None)
     if not service_provider:
-        raise HTTPException(status_code=503, detail=HTTP_503_SERVICE_UNAVAILABLE_MESSAGE)
+        raise HTTPException(
+            status_code=503, detail=HTTP_503_SERVICE_UNAVAILABLE_MESSAGE
+        )
     return cast(IServiceProvider, service_provider)
 
 
-async def get_chat_controller_dependency(
-    request: Request,
-) -> ChatController:
+async def get_chat_controller_dependency(request: Request) -> ChatController:
     """Get a chat controller dependency.
 
     Args:
@@ -256,8 +259,11 @@ def register_versioned_endpoints(app: FastAPI) -> None:
                         "description": "GPT-4 model",
                         "input_token_limit": 32768,
                         "output_token_limit": 8192,
-                        "supported_generation_methods": ["generateContent", "streamGenerateContent"],
-                        "version": "001"
+                        "supported_generation_methods": [
+                            "generateContent",
+                            "streamGenerateContent",
+                        ],
+                        "version": "001",
                     },
                     {
                         "name": "models/gemini-pro",
@@ -265,14 +271,19 @@ def register_versioned_endpoints(app: FastAPI) -> None:
                         "description": "Gemini Pro model",
                         "input_token_limit": 32768,
                         "output_token_limit": 8192,
-                        "supported_generation_methods": ["generateContent", "streamGenerateContent"],
-                        "version": "001"
-                    }
+                        "supported_generation_methods": [
+                            "generateContent",
+                            "streamGenerateContent",
+                        ],
+                        "version": "001",
+                    },
                 ]
             }
         except Exception as e:
             logger.exception(f"Error getting Gemini models: {e}")
-            raise HTTPException(status_code=500, detail=HTTP_500_INTERNAL_SERVER_ERROR_MESSAGE)
+            raise HTTPException(
+                status_code=500, detail=HTTP_500_INTERNAL_SERVER_ERROR_MESSAGE
+            )
 
     @app.post("/v1beta/models/{model}:generateContent")
     async def gemini_generate_content(
@@ -294,28 +305,34 @@ def register_versioned_endpoints(app: FastAPI) -> None:
                         # Process all parts for each content item
                         text_parts = []
                         image_parts = []
-                        
+
                         # First collect all parts
                         for part in content["parts"]:
                             if "text" in part:
                                 text_parts.append(part["text"])
                             elif "inline_data" in part:
-                                mime_type = part["inline_data"].get("mime_type", "image/unknown")
+                                mime_type = part["inline_data"].get(
+                                    "mime_type", "image/unknown"
+                                )
                                 image_parts.append(f"[Attachment: {mime_type}]")
-                        
+
                         # Combine text and image references
                         combined_content = " ".join(text_parts + image_parts)
                         if combined_content:
-                            openai_messages.append({
-                                "role": content.get("role", "user"),
-                                "content": combined_content
-                            })
+                            openai_messages.append(
+                                {
+                                    "role": content.get("role", "user"),
+                                    "content": combined_content,
+                                }
+                            )
 
             # Create minimal request for backend
             backend_request = {
                 "model": model,
-                "messages": openai_messages[:1],  # Just use first message for backend call
-                "stream": False
+                "messages": openai_messages[
+                    :1
+                ],  # Just use first message for backend call
+                "stream": False,
             }
 
             # Get backend service and call it directly to avoid controller complexity
@@ -325,45 +342,52 @@ def register_versioned_endpoints(app: FastAPI) -> None:
             try:
                 # Check if there's a mock backend on app.state (test scenario)
                 app_state = request.app.state
-                if hasattr(app_state, "openrouter_backend") and app_state.openrouter_backend:
+                if (
+                    hasattr(app_state, "openrouter_backend")
+                    and app_state.openrouter_backend
+                ):
                     # Use the test mock backend directly
-                    result = await app_state.openrouter_backend.chat_completions(backend_request)
-                    response_text = result[0]["choices"][0]["message"]["content"] if result and len(result) > 0 and "choices" in result[0] else "Test response"
+                    result = await app_state.openrouter_backend.chat_completions(
+                        backend_request
+                    )
+                    response_text = (
+                        result[0]["choices"][0]["message"]["content"]
+                        if result and len(result) > 0 and "choices" in result[0]
+                        else "Test response"
+                    )
                 else:
                     # Create a ChatRequest object from the backend_request data
                     from src.core.domain.chat import ChatMessage, ChatRequest
-                    
+
                     # Convert the backend_request to a ChatRequest object
                     chat_messages = [
-                        ChatMessage(
-                            role=msg["role"],
-                            content=msg["content"]
-                        )
+                        ChatMessage(role=msg["role"], content=msg["content"])
                         for msg in backend_request["messages"]  # type: ignore[union-attr, attr-defined]
                     ]
-                    
+
                     chat_request = ChatRequest(
                         messages=chat_messages,
                         model=backend_request["model"],  # type: ignore[arg-type]
-                        stream=backend_request.get("stream", False)  # type: ignore[arg-type]
+                        stream=backend_request.get("stream", False),  # type: ignore[arg-type]
                     )
-                    
+
                     # Call the backend service using the public call_completion method
                     result = await backend_service.call_completion(chat_request)
-                    
+
                     # Extract the response text from the result
-                    if hasattr(result, 'content') and isinstance(result.content, dict):
-                        response_text = result.content.get("choices", [{}])[0].get("message", {}).get("content", "Test response")
+                    if hasattr(result, "content") and isinstance(result.content, dict):
+                        response_text = (
+                            result.content.get("choices", [{}])[0]
+                            .get("message", {})
+                            .get("content", "Test response")
+                        )
                     else:
                         response_text = "Test response"
             except Exception as e:
                 # Check if it's an HTTPException that should be re-raised
                 if isinstance(e, HTTPException):
                     # Preserve the original status code and detail
-                    raise HTTPException(
-                        status_code=e.status_code,
-                        detail=e.detail
-                    )
+                    raise HTTPException(status_code=e.status_code, detail=e.detail)
                 # Fallback to dynamic response based on input
                 response_text = "Test response"
                 if openai_messages:
@@ -379,22 +403,18 @@ def register_versioned_endpoints(app: FastAPI) -> None:
                 "candidates": [
                     {
                         "content": {
-                            "parts": [
-                                {
-                                    "text": response_text
-                                }
-                            ],
-                            "role": "model"
+                            "parts": [{"text": response_text}],
+                            "role": "model",
                         },
                         "finishReason": "STOP",
-                        "index": 0
+                        "index": 0,
                     }
                 ],
                 "usageMetadata": {
                     "promptTokenCount": 10,
                     "candidatesTokenCount": 20,
-                    "totalTokenCount": 30
-                }
+                    "totalTokenCount": 30,
+                },
             }
         except HTTPException as http_exc:
             # Re-raise HTTP exceptions with their original status code
@@ -403,7 +423,9 @@ def register_versioned_endpoints(app: FastAPI) -> None:
         except Exception as e:
             # For other exceptions, return a 500 error
             logger.exception(f"Error in Gemini generate content: {e}")
-            raise HTTPException(status_code=500, detail=HTTP_500_INTERNAL_SERVER_ERROR_MESSAGE)
+            raise HTTPException(
+                status_code=500, detail=HTTP_500_INTERNAL_SERVER_ERROR_MESSAGE
+            )
 
     @app.post("/v1beta/models/{model}:streamGenerateContent")
     async def gemini_stream_generate_content(
@@ -428,12 +450,13 @@ def register_versioned_endpoints(app: FastAPI) -> None:
                     yield chunk
 
             return StreamingResponse(
-                generate_stream(),
-                media_type="text/plain; charset=utf-8"
+                generate_stream(), media_type="text/plain; charset=utf-8"
             )
         except Exception as e:
             logger.exception(f"Error in Gemini stream generate content: {e}")
-            raise HTTPException(status_code=500, detail=HTTP_500_INTERNAL_SERVER_ERROR_MESSAGE)
+            raise HTTPException(
+                status_code=500, detail=HTTP_500_INTERNAL_SERVER_ERROR_MESSAGE
+            )
 
     # Include usage router
     app.include_router(usage_router)

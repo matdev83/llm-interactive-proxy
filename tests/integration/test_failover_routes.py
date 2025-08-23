@@ -33,18 +33,12 @@ def test_failover_route_commands(app, monkeypatch):
     """Test failover route commands in the new architecture."""
     # Mock the APIKeyMiddleware's dispatch method to always return the next response
 
-    # Patch the get_integration_bridge function to return the bridge from app.state
-    def mock_get_integration_bridge(_=None):
-        return app.state.integration_bridge
+    # No integration bridge needed - using SOLID architecture directly
 
     async def mock_dispatch(self, request, call_next):
         return await call_next(request)
 
     with (
-        patch(
-            "src.core.integration.bridge.get_integration_bridge",
-            new=mock_get_integration_bridge,
-        ),
         patch(
             "src.core.security.middleware.APIKeyMiddleware.dispatch", new=mock_dispatch
         ),

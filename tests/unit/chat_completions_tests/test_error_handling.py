@@ -1,7 +1,7 @@
 from typing import Any
 from unittest.mock import AsyncMock, patch
-import pytest
 
+import pytest
 from src.core.domain.responses import ResponseEnvelope
 
 # from httpx import Response # F401: Removed
@@ -46,8 +46,9 @@ def test_empty_messages_after_processing_no_commands_bad_request(
 
 def test_get_openrouter_headers_no_api_key(client: Any) -> None:
     # Simulate a backend error by mocking the backend processor
-    from src.core.common.exceptions import BackendError
     from unittest.mock import patch
+
+    from src.core.common.exceptions import BackendError
 
     mock_error = BackendError(
         message="Simulated backend error due to bad headers", backend_name="openai"

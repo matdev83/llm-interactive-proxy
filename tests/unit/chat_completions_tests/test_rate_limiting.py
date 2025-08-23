@@ -1,10 +1,10 @@
 import re
 import uuid
+
 import pytest
-from pytest_httpx import HTTPXMock
 from fastapi.testclient import TestClient
+from pytest_httpx import HTTPXMock
 from src.core.app.test_builder import build_httpx_mock_test_app
-from src.core.interfaces.backend_service_interface import IBackendService
 
 
 @pytest.fixture

@@ -1,7 +1,5 @@
-from unittest.mock import Mock
 
 import pytest
-
 from src.core.domain.session import ReasoningConfiguration, SessionState
 
 

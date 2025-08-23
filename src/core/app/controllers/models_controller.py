@@ -69,8 +69,7 @@ async def get_backend_service(request: Request) -> IBackendService:
 
 @router.get("/models")
 async def list_models(
-    request: Request,
-    backend_service: IBackendService = Depends(get_backend_service),
+    request: Request, backend_service: IBackendService = Depends(get_backend_service)
 ) -> dict[str, Any]:
     """List available models from all configured backends.
 
@@ -86,7 +85,7 @@ async def list_models(
         # Get app config from DI
         from src.core.config.app_config import AppConfig
         from src.core.interfaces.configuration_interface import IConfig
-        from src.core.services.backend_factory_service import (
+        from src.core.services.backend_factory import (
             BackendFactory,  # Import BackendFactory
         )
 
@@ -141,7 +140,7 @@ async def list_models(
                             )
                     logger.debug(f"Discovered {len(models)} models from {backend_type}")
 
-                except Exception as e: # type: ignore[misc]
+                except Exception as e:  # type: ignore[misc]
                     logger.warning(f"Failed to get models from {backend_type}: {e}")
                     continue
 
@@ -167,20 +166,16 @@ async def list_models(
 
         logger.info(f"Returning {len(all_models)} models")
 
-        return {
-            "object": "list",
-            "data": all_models,
-        }
+        return {"object": "list", "data": all_models}
 
-    except Exception as e: # type: ignore[misc]
+    except Exception as e:  # type: ignore[misc]
         logger.error(f"Error listing models: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.get("/v1/models")
 async def list_models_v1(
-    request: Request,
-    backend_service: IBackendService = Depends(get_backend_service),
+    request: Request, backend_service: IBackendService = Depends(get_backend_service)
 ) -> dict[str, Any]:
     """OpenAI-compatible models endpoint.
 

@@ -4,10 +4,7 @@ import json
 import logging
 from typing import Any
 
-from src.anthropic_models import (
-    AnthropicMessage,
-    AnthropicMessagesRequest,
-)
+from src.anthropic_models import AnthropicMessage, AnthropicMessagesRequest
 
 
 def anthropic_to_openai_request(
@@ -85,12 +82,7 @@ def _normalize_openai_response_to_dict(openai_response: Any) -> dict[str, Any]:
     return {
         "id": openai_response.id,
         "model": openai_response.model,
-        "choices": [
-            {
-                "message": msg_obj,
-                "finish_reason": first_choice.finish_reason,
-            }
-        ],
+        "choices": [{"message": msg_obj, "finish_reason": first_choice.finish_reason}],
         "usage": {
             "prompt_tokens": getattr(usage_obj, "prompt_tokens", 0) if usage_obj else 0,
             "completion_tokens": (

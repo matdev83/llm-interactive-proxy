@@ -1,0 +1,13 @@
+Failover route 'myroute' created with policy 'k'
+---
+Failover route 'myroute' does not exist
+---
+Failover route 'myroute' does not exist
+---
+No failover routes defined
+---
+Failover route 'myroute' does not exist
+---
+Failover route 'myroute' does not exist
+---
+Failover route 'nonexistent' does not exist

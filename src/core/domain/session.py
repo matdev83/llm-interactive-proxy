@@ -191,7 +191,9 @@ class SessionStateAdapter(ISessionState):
 
     def with_backend_config(self, config: IBackendConfig) -> ISessionState:
         """Create a new session state with updated backend config."""
-        new_state = cast(SessionState, self._state).with_backend_config(cast(BackendConfiguration, config))
+        new_state = cast(SessionState, self._state).with_backend_config(
+            cast(BackendConfiguration, config)
+        )
         return SessionStateAdapter(new_state)
 
     def with_reasoning_config(self, config: IReasoningConfig) -> ISessionState:
@@ -220,12 +222,16 @@ class SessionStateAdapter(ISessionState):
 
     def with_interactive_just_enabled(self, enabled: bool) -> ISessionState:
         """Create a new session state with updated interactive_just_enabled flag."""
-        new_state = cast(SessionState, self._state).with_interactive_just_enabled(enabled)
+        new_state = cast(SessionState, self._state).with_interactive_just_enabled(
+            enabled
+        )
         return SessionStateAdapter(new_state)
 
     def with_hello_requested(self, hello_requested: bool) -> ISessionState:
         """Create a new session state with updated hello_requested flag."""
-        new_state = cast(SessionState, self._state).with_hello_requested(hello_requested)
+        new_state = cast(SessionState, self._state).with_hello_requested(
+            hello_requested
+        )
         return SessionStateAdapter(new_state)
 
     # Mutable convenience methods expected by legacy tests
@@ -249,16 +255,18 @@ class SessionStateAdapter(ISessionState):
 
     def set_override_model(self, backend: str, model: str) -> None:
         """Set an override backend/model pair on the session state."""
-        new_backend_config = cast(BackendConfiguration, self._state.backend_config).with_backend_and_model(
-            backend, model
-        )
+        new_backend_config = cast(
+            BackendConfiguration, self._state.backend_config
+        ).with_backend_and_model(backend, model)
         self._state = self._state.with_backend_config(
             cast(BackendConfiguration, new_backend_config)
         )
 
     def unset_override_model(self) -> None:
         """Clear any override backend/model on the session state."""
-        new_backend_config = cast(BackendConfiguration, self._state.backend_config).without_override()
+        new_backend_config = cast(
+            BackendConfiguration, self._state.backend_config
+        ).without_override()
         self._state = self._state.with_backend_config(
             cast(BackendConfiguration, new_backend_config)
         )
@@ -327,7 +335,9 @@ class Session(ISession):
                 else:
                     # Best-effort: try to copy dict representation
                     try:
-                        new_state: SessionState = cast(SessionState, SessionState.from_dict(value.to_dict()))
+                        new_state: SessionState = cast(
+                            SessionState, SessionState.from_dict(value.to_dict())
+                        )
                         self._state._state = new_state  # type: ignore
                     except Exception:
                         # Fallback to replacing the adapter reference
@@ -412,7 +422,9 @@ class Session(ISession):
             else:
                 # Try to convert via to_dict/from_dict
                 try:
-                    new_state: SessionState = cast(SessionState, SessionState.from_dict(state.to_dict()))
+                    new_state: SessionState = cast(
+                        SessionState, SessionState.from_dict(state.to_dict())
+                    )
                     self._state._state = new_state  # type: ignore
                 except Exception:
                     self._state = state
@@ -445,7 +457,9 @@ class Session(ISession):
         """Create a session from a dictionary."""
         state: SessionState | None = None
         if data.get("state"):
-            state_value: SessionState = cast(SessionState, SessionState.from_dict(data["state"]))
+            state_value: SessionState = cast(
+                SessionState, SessionState.from_dict(data["state"])
+            )
             if isinstance(state_value, SessionState):
                 state = state_value
 

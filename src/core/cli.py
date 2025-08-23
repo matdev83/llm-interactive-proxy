@@ -54,7 +54,9 @@ from src.core.services.backend_registry import (
 
 
 def parse_cli_args(argv: list[str] | None = None) -> argparse.Namespace:
-    parser: argparse.ArgumentParser = argparse.ArgumentParser(description="Run the LLM proxy server")
+    parser: argparse.ArgumentParser = argparse.ArgumentParser(
+        description="Run the LLM proxy server"
+    )
 
     # Dynamically get registered backends
     registered_backends: list[str] = backend_registry.get_registered_backends()
@@ -274,7 +276,7 @@ def main(
     # Allow tests to inject a custom build_app function (mock) by passing
     # `build_app_fn`. The test mocks expect to be called with cfg and
     # the config_file keyword argument.
-    app: FastAPI # Declare app here
+    app: FastAPI  # Declare app here
     if build_app_fn is not None:
         app = build_app_fn(cfg, args.config_file)
     else:
@@ -292,7 +294,9 @@ def _maybe_run_as_daemon(args: argparse.Namespace, cfg: AppConfig) -> bool:
         import subprocess
         import time
 
-        args_list: list[str] = [arg for arg in sys.argv[1:] if not arg.startswith("--daemon")]
+        args_list: list[str] = [
+            arg for arg in sys.argv[1:] if not arg.startswith("--daemon")
+        ]
         command: list[str] = [sys.executable, "-m", "src.core.cli", *args_list]
         subprocess.Popen(
             command, creationflags=subprocess.DETACHED_PROCESS, close_fds=True

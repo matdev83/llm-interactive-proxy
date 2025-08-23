@@ -1,9 +1,11 @@
+import asyncio
 import json
 import os
 import socket
 import tempfile
 import threading
 import time
+from collections.abc import Generator
 from pathlib import Path
 from typing import Any
 
@@ -59,21 +61,18 @@ class _ProxyServer:
     def _find_free_port() -> int:
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
             s.bind(("127.0.0.1", 0))
-            return s.getsockname()[1]
+            return int(s.getsockname()[1])
 
     # --------------------------------------------------------------
     def start(self) -> None:
-        def _run() -> None:
+        async def _run() -> None:
             config = uvicorn.Config(
                 self.app, host="127.0.0.1", port=self.port, log_level="error"
             )
             self.server = uvicorn.Server(config)
-            # Uvicorn <0.25 blocks forever - run inside event loop.
-            import asyncio
+            await self.server.serve()
 
-            asyncio.run(self.server.serve())
-
-        self._thread = threading.Thread(target=_run, daemon=True)
+        self._thread = threading.Thread(target=lambda: asyncio.run(_run()), daemon=True)
         self._thread.start()
 
         # Wait until the server responds or timeout after 15 s
@@ -117,7 +116,7 @@ REQUIRED_ENV_VARS = {
 
 
 @pytest.fixture(scope="function")
-def proxy_server(request):
+def proxy_server(request: Any) -> Generator[_ProxyServer, None, None]:
     """Start proxy configured for the backend under test."""
     # Determine backend being tested - it can arrive either via direct parameterisation
     # of *this* fixture (indirect=True) or via a separate "backend" parameter on the
@@ -193,7 +192,7 @@ def _available(client_name: str) -> bool:
     }[client_name]
 
 
-def _skip_unavailable(client_name: str):
+def _skip_unavailable(client_name: str) -> None:
     if not _available(client_name):
         pytest.skip(f"Required client library for {client_name} not installed")
 
@@ -215,7 +214,9 @@ SCENARIOS = [
 @pytest.mark.integration  # Mark the whole suite for selective runs
 @pytest.mark.network  # Requires real API access
 @pytest.mark.parametrize("client_type,backend", SCENARIOS)
-def test_end_to_end_chat_completion(client_type: str, backend: str, proxy_server):  # type: ignore[misc]
+def test_end_to_end_chat_completion(
+    client_type: str, backend: str, proxy_server: _ProxyServer
+) -> None:
     """End-to-end check - send simple prompt through proxy to real backend and verify basic response structure."""
     _skip_unavailable(client_type)
 
@@ -301,7 +302,7 @@ def _configure_openai(base_url: str) -> None:
 @pytest.mark.integration
 @pytest.mark.network  # Requires real API access
 @pytest.mark.parametrize("backend", list(BACKEND_MODEL_MAP.keys()))
-def test_openai_tool_call_handling(backend: str, proxy_server):  # type: ignore[override]
+def test_openai_tool_call_handling(backend: str, proxy_server: _ProxyServer) -> None:
     if not OPENAI_AVAILABLE:
         pytest.skip("openai python package not installed - skipping tool-call test")
 
@@ -353,7 +354,9 @@ def test_openai_tool_call_handling(backend: str, proxy_server):  # type: ignore[
 @pytest.mark.integration
 @pytest.mark.network  # Requires real API access
 @pytest.mark.parametrize("client_type,backend", SCENARIOS)
-def test_end_to_end_chat_completion_streaming(client_type: str, backend: str, proxy_server):  # type: ignore[misc]
+def test_end_to_end_chat_completion_streaming(
+    client_type: str, backend: str, proxy_server: _ProxyServer
+) -> None:
     _skip_unavailable(client_type)
 
     model_name = BACKEND_MODEL_MAP[backend]

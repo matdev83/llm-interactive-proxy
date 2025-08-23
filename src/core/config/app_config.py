@@ -5,11 +5,12 @@ import logging
 import os
 from enum import Enum
 from pathlib import Path
-from typing import Any, ClassVar, cast
+from typing import Any, cast
 
 from pydantic import ConfigDict, Field, field_validator
 
 from src.core.config.config_loader import _collect_api_keys
+from src.core.domain.configuration.app_identity_config import AppIdentityConfig
 from src.core.interfaces.configuration_interface import IConfig
 from src.core.interfaces.model_bases import DomainModel
 
@@ -70,6 +71,7 @@ class BackendConfig(DomainModel):
     api_url: str | None = None
     models: list[str] = Field(default_factory=list)
     timeout: int = 120  # seconds
+    identity: AppIdentityConfig | None = None
     extra: dict[str, Any] = Field(default_factory=dict)
 
     @field_validator("api_key", mode="before")
@@ -223,6 +225,8 @@ class BackendSettings(DomainModel):
 class AppConfig(DomainModel, IConfig):
     """Complete application configuration."""
 
+    model_config = ConfigDict(arbitrary_types_allowed=True)
+
     host: str = "0.0.0.0"
     port: int = 8000
     proxy_timeout: int = 120
@@ -237,10 +241,14 @@ class AppConfig(DomainModel, IConfig):
     model_defaults: dict[str, dict[str, Any]] = Field(default_factory=dict)
     failover_routes: dict[str, dict[str, Any]] = Field(default_factory=dict)
 
-    # Nested class references for backward compatibility
-    BackendSettings: ClassVar[type[BackendSettings]] = BackendSettings
-    BackendConfig: ClassVar[type[BackendConfig]] = BackendConfig
-    LogLevel: ClassVar[type[LogLevel]] = LogLevel
+    # Nested class references for backward compatibility are removed to avoid Pydantic issues.
+    # BackendSettings: TypeAlias = BackendSettings
+    # BackendConfig: TypeAlias = BackendConfig
+    # LogLevel: TypeAlias = LogLevel
+    # AppIdentityConfig: TypeAlias = AppIdentityConfig
+
+    # Identity settings
+    identity: AppIdentityConfig = Field(default_factory=AppIdentityConfig)
 
     # Auth settings
     auth: AuthConfig = Field(default_factory=AuthConfig)
@@ -257,167 +265,11 @@ class AppConfig(DomainModel, IConfig):
             f.write(self.model_dump_json(indent=4))
 
     # Integration with legacy config
-    def to_legacy_config(self) -> dict[str, Any]:
-        """Convert to the legacy configuration format.
-
-        Returns:
-            Dictionary in the legacy configuration format
-        """
-        config: dict[str, Any] = {
-            "host": self.host,
-            "port": self.port,
-            "proxy_timeout": self.proxy_timeout,
-            "command_prefix": self.command_prefix,
-            # Auth settings
-            "disable_auth": self.auth.disable_auth if self.auth is not None else False,
-            "api_keys": self.auth.api_keys if self.auth is not None else [],
-            "auth_token": self.auth.auth_token if self.auth is not None else None,
-            # Session settings
-            "session_cleanup_enabled": (
-                self.session.cleanup_enabled if self.session is not None else True
-            ),
-            "session_cleanup_interval": (
-                self.session.cleanup_interval if self.session is not None else 3600
-            ),
-            "session_max_age": (
-                self.session.max_age if self.session is not None else 86400
-            ),
-            "default_interactive_mode": (
-                self.session.default_interactive_mode
-                if self.session is not None
-                else False
-            ),
-            "force_set_project": (
-                self.session.force_set_project if self.session is not None else False
-            ),
-            "disable_interactive_commands": (
-                self.session.disable_interactive_commands
-                if self.session is not None
-                else False
-            ),
-            # Logging settings
-            "log_level": (
-                self.logging.level.value if self.logging is not None else "INFO"
-            ),
-            "request_logging": (
-                self.logging.request_logging if self.logging is not None else False
-            ),
-            "response_logging": (
-                self.logging.response_logging if self.logging is not None else False
-            ),
-            "log_file": self.logging.log_file if self.logging is not None else None,
-            # Backend settings
-            "default_backend": (
-                self.backends.default_backend if self.backends is not None else "openai"
-            ),
-            "model_defaults": self.model_defaults,
-            "failover_routes": self.failover_routes,
-        }
-
-        # Add backend-specific configurations
-        if self.backends is not None:
-            for backend_name in backend_registry.get_registered_backends():
-                backend_config: BackendConfig = getattr(self.backends, backend_name)
-                if isinstance(backend_config, BackendConfig):
-                    api_keys: list[str] = backend_config.api_key
-                    config[f"{backend_name}_api_key"] = api_keys[0] if api_keys else ""
-                    config[f"{backend_name}_api_url"] = backend_config.api_url
-                    config[f"{backend_name}_timeout"] = backend_config.timeout
-
-                    # Add any extra backend-specific settings
-                    for key, value in backend_config.extra.items():
-                        config[f"{backend_name}_{key}"] = value
-
-        return config
-
-    @classmethod
-    def from_legacy_config(cls, legacy_config: dict[str, Any]) -> AppConfig:
-        """Create AppConfig from the legacy configuration format.
-        
-        Args:
-            legacy_config: Dictionary in the legacy configuration format
-
-        Returns:
-            AppConfig instance
-        """
-        # Create basic config structure
-        config: dict[str, Any] = {
-            "host": legacy_config.get("host", "0.0.0.0"),
-            "port": legacy_config.get("port", 8000),
-            "proxy_timeout": legacy_config.get("proxy_timeout", 120),
-            "command_prefix": legacy_config.get("command_prefix", "!/"),
-            "auth": {
-                "disable_auth": legacy_config.get("disable_auth", False),
-                "api_keys": legacy_config.get("api_keys", []),
-                "auth_token": legacy_config.get("auth_token"),
-            },
-            "session": {
-                "cleanup_enabled": legacy_config.get("session_cleanup_enabled", True),
-                "cleanup_interval": legacy_config.get("session_cleanup_interval", 3600),
-                "max_age": legacy_config.get("session_max_age", 86400),
-                "default_interactive_mode": legacy_config.get(
-                    "default_interactive_mode", True
-                ),
-                "force_set_project": legacy_config.get("force_set_project", False),
-            },
-            "logging": {
-                "level": legacy_config.get("log_level", "INFO"),
-                "request_logging": legacy_config.get("request_logging", False),
-                "response_logging": legacy_config.get("response_logging", False),
-                "log_file": legacy_config.get("log_file"),
-            },
-            "model_defaults": legacy_config.get("model_defaults", {}),
-            "failover_routes": legacy_config.get("failover_routes", {}),
-            "backends": {
-                "default_backend": legacy_config.get("default_backend", "openai"),
-            },
-        }
-
-        # Extract backend configurations
-        # Dynamically get registered backends
-        registered_backends: list[str] = backend_registry.get_registered_backends()
-        for backend in registered_backends:
-            backend_config: dict[str, Any] = {}
-
-            # Extract common backend settings
-            api_key: str = legacy_config.get(f"{backend}_api_key", "")
-            if api_key:
-                backend_config["api_key"] = [api_key]
-
-            api_url: str | None = legacy_config.get(f"{backend}_api_url")
-            if api_url:
-                backend_config["api_url"] = api_url
-
-            timeout: int | None = legacy_config.get(f"{backend}_timeout")
-            if timeout:
-                backend_config["timeout"] = timeout
-
-            # Extract extra backend settings
-            extra: dict[str, Any] = {}
-            for key, value in legacy_config.items():
-                if key.startswith(f"{backend}_") and key not in [
-                    f"{backend}_api_key",
-                    f"{backend}_api_url",
-                    f"{backend}_timeout",
-                ]:
-                    # Extract the part after {backend}_
-                    extra_key: str = key[len(f"{backend}_") :]
-                    extra[extra_key] = value
-
-            if extra:
-                backend_config["extra"] = extra
-
-            if backend_config:
-                backends_dict: dict[str, Any] = config["backends"]
-                if isinstance(backends_dict, dict):
-                    backends_dict[backend] = backend_config
-
-        return cls(**config)
 
     @classmethod
     def from_env(cls) -> AppConfig:
         """Create AppConfig from environment variables.
-        
+
         Returns:
             AppConfig instance
         """
@@ -463,7 +315,14 @@ class AppConfig(DomainModel, IConfig):
         }
 
         config["backends"] = {
-            "default_backend": os.environ.get("LLM_BACKEND", "openai"),
+            "default_backend": os.environ.get("LLM_BACKEND", "openai")
+        }
+
+        config["identity"] = {
+            "title": os.environ.get("APP_TITLE", "llm-interactive-proxy"),
+            "url": os.environ.get(
+                "APP_URL", "https://github.com/matdev83/llm-interactive-proxy"
+            ),
         }
 
         # Log the determined default_backend
@@ -618,10 +477,12 @@ def load_config(config_path: str | Path | None = None) -> AppConfig:
                 # Merge file config with environment config
                 if isinstance(file_config, dict):
                     env_dict: dict[str, Any] = config.model_dump()
-                    merged_config_dict: dict[str, Any] = _merge_dicts(env_dict, file_config)
+                    merged_config_dict: dict[str, Any] = _merge_dicts(
+                        env_dict, file_config
+                    )
                     config = AppConfig.model_validate(merged_config_dict)
 
-        except Exception as e: # type: ignore[misc]
+        except Exception as e:  # type: ignore[misc]
             logger.error(f"Error loading configuration file: {e!s}")
 
     return config

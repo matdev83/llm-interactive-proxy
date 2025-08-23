@@ -5,7 +5,7 @@ Tests for the SessionService implementation.
 import pytest
 from src.core.domain.session import SessionInteraction
 from src.core.repositories.session_repository import InMemorySessionRepository
-from src.core.services.session_service import SessionService
+from src.core.services.session_service_impl import SessionService
 
 
 @pytest.mark.asyncio

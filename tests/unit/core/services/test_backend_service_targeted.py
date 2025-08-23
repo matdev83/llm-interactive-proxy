@@ -7,14 +7,13 @@ from unittest.mock import AsyncMock, Mock, patch
 
 import httpx
 import pytest
-
 from src.connectors.base import LLMBackend
 from src.core.common.exceptions import BackendError
 from src.core.domain.backend_type import BackendType
 from src.core.domain.chat import ChatMessage, ChatRequest
 from src.core.domain.responses import ResponseEnvelope
 from src.core.interfaces.session_service_interface import ISessionService
-from src.core.services.backend_factory_service import BackendFactory
+from src.core.services.backend_factory import BackendFactory
 from src.core.services.backend_service import BackendService
 
 
@@ -59,7 +58,7 @@ class MockBackend(LLMBackend):
 def create_backend_service():
     """Create a BackendService instance for testing."""
     client = httpx.AsyncClient()
-    from src.core.services.backend_registry_service import BackendRegistry
+    from src.core.services.backend_registry import BackendRegistry
 
     registry = BackendRegistry()
     factory = BackendFactory(client, registry)

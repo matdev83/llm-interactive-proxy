@@ -2,7 +2,6 @@ from unittest.mock import AsyncMock
 
 import httpx
 import pytest
-from fastapi import HTTPException
 from src.connectors.gemini import GeminiBackend
 from src.core.common.exceptions import BackendError
 

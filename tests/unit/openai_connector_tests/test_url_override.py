@@ -5,7 +5,6 @@ import pytest
 from src.connectors.openai import OpenAIConnector
 from src.core.domain.chat import ChatMessage, ChatRequest
 
-# Removed legacy import
 
 
 @pytest.fixture

@@ -41,9 +41,7 @@ class AnthropicController:
         self._processor = request_processor
 
     async def handle_anthropic_messages(
-        self,
-        request: Request,
-        request_data: AnthropicMessagesRequest | dict[str, Any],
+        self, request: Request, request_data: AnthropicMessagesRequest | dict[str, Any]
     ) -> Response:
         """Handle Anthropic messages requests.
 
@@ -99,9 +97,10 @@ class AnthropicController:
 
             # Check if response is a coroutine and await it if needed
             import asyncio
+
             if asyncio.iscoroutine(response):
                 response = await response
-            
+
             # Convert domain response to FastAPI response
             adapted_response: Response = domain_response_to_fastapi(response)
 
@@ -123,7 +122,9 @@ class AnthropicController:
 
             # Check if streaming was requested
             is_streaming = anthropic_request.stream
-            logger.info(f"Streaming requested: {is_streaming}, adapted_response type: {type(adapted_response)}")
+            logger.info(
+                f"Streaming requested: {is_streaming}, adapted_response type: {type(adapted_response)}"
+            )
 
             # Return as FastAPI Response with appropriate format
             from fastapi import Response as FastAPIResponse
@@ -170,7 +171,9 @@ def get_anthropic_controller(service_provider: IServiceProvider) -> AnthropicCon
     """
     try:
         # Try to get the existing request processor from the service provider
-        request_processor: IRequestProcessor | None = service_provider.get_service(IRequestProcessor)  # type: ignore[type-abstract]
+        request_processor: IRequestProcessor | None = service_provider.get_service(
+            IRequestProcessor
+        )  # type: ignore[type-abstract]
         if request_processor is None:
             # Try to get the concrete implementation
             from src.core.services.request_processor_service import RequestProcessor
@@ -187,9 +190,15 @@ def get_anthropic_controller(service_provider: IServiceProvider) -> AnthropicCon
             from src.core.interfaces.session_service_interface import ISessionService
 
             cmd: ICommandService | None = service_provider.get_service(ICommandService)  # type: ignore[type-abstract]
-            backend: IBackendService | None = service_provider.get_service(IBackendService)  # type: ignore[type-abstract]
-            session: ISessionService | None = service_provider.get_service(ISessionService)  # type: ignore[type-abstract]
-            response_proc: IResponseProcessor | None = service_provider.get_service(IResponseProcessor)  # type: ignore[type-abstract]
+            backend: IBackendService | None = service_provider.get_service(
+                IBackendService
+            )  # type: ignore[type-abstract]
+            session: ISessionService | None = service_provider.get_service(
+                ISessionService
+            )  # type: ignore[type-abstract]
+            response_proc: IResponseProcessor | None = service_provider.get_service(
+                IResponseProcessor
+            )  # type: ignore[type-abstract]
 
             if cmd and backend and session and response_proc:
                 from src.core.services.backend_processor import BackendProcessor

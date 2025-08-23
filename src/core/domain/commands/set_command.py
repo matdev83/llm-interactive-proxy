@@ -21,12 +21,10 @@ class SetCommand(StatefulCommandBase, BaseCommand):
     """Command for setting various session parameters."""
 
     def __init__(
-        self,
-        state_reader: ISecureStateAccess,
-        state_modifier: ISecureStateModification,
+        self, state_reader: ISecureStateAccess, state_modifier: ISecureStateModification
     ):
         """Initialize with required state services.
-        
+
         Args:
             state_reader: Service for reading state
             state_modifier: Service for modifying state
@@ -36,15 +34,15 @@ class SetCommand(StatefulCommandBase, BaseCommand):
     @property
     def name(self) -> str:
         return "set"
-    
+
     @property
     def format(self) -> str:
         return "set(parameter=value, ...)"
-    
+
     @property
     def description(self) -> str:
         return "Set various parameters for the session"
-    
+
     @property
     def examples(self) -> list[str]:
         return [
@@ -53,10 +51,7 @@ class SetCommand(StatefulCommandBase, BaseCommand):
         ]
 
     async def execute(
-        self,
-        args: Mapping[str, Any],
-        session: Session,
-        context: Any = None,
+        self, args: Mapping[str, Any], session: Session, context: Any = None
     ) -> CommandResult:
         """Set various session parameters."""
         # Validate that this command was created through proper DI
@@ -116,10 +111,7 @@ class SetCommand(StatefulCommandBase, BaseCommand):
         )
 
     async def _handle_backend_and_model(
-        self,
-        args: dict[str, Any],
-        state: ISessionState,
-        context: Any,
+        self, args: dict[str, Any], state: ISessionState, context: Any
     ) -> tuple[CommandResult, ISessionState]:
         messages = []
         data = {}
@@ -171,10 +163,7 @@ class SetCommand(StatefulCommandBase, BaseCommand):
         )
 
     async def _handle_temperature(
-        self,
-        value: Any,
-        state: ISessionState,
-        context: Any,
+        self, value: Any, state: ISessionState, context: Any
     ) -> tuple[CommandResult, ISessionState]:
         if value is None:
             return (
@@ -211,10 +200,7 @@ class SetCommand(StatefulCommandBase, BaseCommand):
             )
 
     async def _handle_project(
-        self,
-        value: Any,
-        state: ISessionState,
-        context: Any,
+        self, value: Any, state: ISessionState, context: Any
     ) -> tuple[CommandResult, ISessionState]:
         if not isinstance(value, str) or not value:
             return (
@@ -234,10 +220,7 @@ class SetCommand(StatefulCommandBase, BaseCommand):
         )
 
     async def _handle_command_prefix(
-        self,
-        value: Any,
-        state: ISessionState,
-        context: Any,
+        self, value: Any, state: ISessionState, context: Any
     ) -> tuple[CommandResult, ISessionState]:
         if not isinstance(value, str):
             return (
@@ -262,7 +245,7 @@ class SetCommand(StatefulCommandBase, BaseCommand):
             )
 
         # Update state through secure DI interface
-        self.update_state_setting('command_prefix', value)
+        self.update_state_setting("command_prefix", value)
 
         return (
             CommandResult(
@@ -274,10 +257,7 @@ class SetCommand(StatefulCommandBase, BaseCommand):
         )
 
     async def _handle_interactive_mode(
-        self,
-        value: Any,
-        state: ISessionState,
-        context: Any,
+        self, value: Any, state: ISessionState, context: Any
     ) -> tuple[CommandResult, ISessionState]:
         """Handle setting interactive mode."""
         if not isinstance(value, str):
@@ -314,10 +294,7 @@ class SetCommand(StatefulCommandBase, BaseCommand):
         )
 
     async def _handle_redact_api_keys_in_prompts(
-        self,
-        value: Any,
-        state: ISessionState,
-        context: Any,
+        self, value: Any, state: ISessionState, context: Any
     ) -> tuple[CommandResult, ISessionState]:
         """Handle setting API key redaction."""
         if not isinstance(value, str):
@@ -343,7 +320,7 @@ class SetCommand(StatefulCommandBase, BaseCommand):
             )
 
         # Update state through secure DI interface
-        self.update_state_setting('api_key_redaction_enabled', bool(enabled))
+        self.update_state_setting("api_key_redaction_enabled", bool(enabled))
 
         return (
             CommandResult(

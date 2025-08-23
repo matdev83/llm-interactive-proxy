@@ -76,11 +76,11 @@ class ChatService:
         session_id: str = http_request.headers.get("x-session-id", "default")
 
         # Convert incoming request to domain ChatRequest (handles dicts/legacy models)
-        from src.core.domain.chat import ChatRequest
-        from src.core.domain.processed_result import ProcessedResult
-        from src.core.transport.fastapi.api_adapters import (
+        from src.core.adapters.api_adapters import (
             legacy_to_domain_chat_request,
         )
+        from src.core.domain.chat import ChatRequest
+        from src.core.domain.processed_result import ProcessedResult
 
         domain_request: ChatRequest = legacy_to_domain_chat_request(request_data)
 

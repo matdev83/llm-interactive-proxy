@@ -1,23 +1,53 @@
-from unittest.mock import Mock
+
+from typing import Any
 
 import pytest
-
-pytestmark = pytest.mark.skip(
-    reason="Snapshot fixture not available - requires significant test infrastructure setup"
+from src.core.domain.session import BackendConfiguration, Session, SessionState
+from src.core.interfaces.state_provider_interface import (
+    ISecureStateAccess,
+    ISecureStateModification,
 )
-from src.command_config import CommandParserConfig
-from src.command_parser import CommandParser
-from src.core.domain.session import BackendConfiguration, SessionState
 
 
-# Helper function to run a command against a given state
+# Helper function to run a command against a given state (direct execution)
 async def run_command(command_string: str, state: SessionState) -> str:
-    parser_config = Mock(spec=CommandParserConfig)
-    parser_config.proxy_state = state
-    parser_config.app = Mock()
-    parser_config.preserve_unknown = True
+    # Build minimal Session wrapper expected by commands
+    session = Session(session_id="test", state=state)
 
-    # Manually register all failover commands for the test
+    # Minimal in-memory state service to satisfy DI for stateful commands
+    class _StateService(ISecureStateAccess, ISecureStateModification):
+        def __init__(self) -> None:
+            self._prefix = "!/"
+            self._redaction = False
+            self._disabled = False
+            self._routes: list[dict[str, Any]] = []
+
+        def get_command_prefix(self) -> str | None:
+            return self._prefix
+
+        def get_api_key_redaction_enabled(self) -> bool:
+            return self._redaction
+
+        def get_disable_interactive_commands(self) -> bool:
+            return self._disabled
+
+        def get_failover_routes(self) -> list[dict[str, Any]] | None:
+            return self._routes
+
+        def update_command_prefix(self, prefix: str) -> None:
+            self._prefix = prefix
+
+        def update_api_key_redaction(self, enabled: bool) -> None:
+            self._redaction = enabled
+
+        def update_interactive_commands(self, disabled: bool) -> None:
+            self._disabled = disabled
+
+        def update_failover_routes(self, routes: list[dict[str, Any]]) -> None:
+            self._routes = routes
+
+    svc = _StateService()
+
     from src.core.domain.commands.failover_commands import (
         CreateFailoverRouteCommand,
         DeleteFailoverRouteCommand,
@@ -28,22 +58,43 @@ async def run_command(command_string: str, state: SessionState) -> str:
         RoutePrependCommand,
     )
 
-    parser = CommandParser(parser_config, command_prefix="!/")
-    parser.handlers = {
-        "create-failover-route": CreateFailoverRouteCommand(),
-        "delete-failover-route": DeleteFailoverRouteCommand(),
-        "list-failover-routes": ListFailoverRoutesCommand(),
-        "route-append": RouteAppendCommand(),
-        "route-clear": RouteClearCommand(),
-        "route-list": RouteListCommand(),
-        "route-prepend": RoutePrependCommand(),
+    handlers = {
+        "create-failover-route": CreateFailoverRouteCommand(svc, svc),
+        "delete-failover-route": DeleteFailoverRouteCommand(svc, svc),
+        "list-failover-routes": ListFailoverRoutesCommand(svc, svc),
+        "route-append": RouteAppendCommand(svc, svc),
+        "route-clear": RouteClearCommand(svc, svc),
+        "route-list": RouteListCommand(svc, svc),
+        "route-prepend": RoutePrependCommand(svc, svc),
     }
 
-    _, _ = await parser.process_messages([{"role": "user", "content": command_string}])
+    # Parse command name and arguments from command_string like !/cmd(a=b,c=d)
+    assert command_string.startswith("!/")
+    after = command_string[2:]
+    if "(" in after and after.endswith(")"):
+        name, args_str = after.split("(", 1)
+        args_str = args_str[:-1]
+    else:
+        name, args_str = after, ""
 
-    if parser.command_results:
-        return parser.command_results[-1].message
-    return ""
+    args: dict[str, Any] = {}
+    if args_str:
+        for part in args_str.split(","):
+            part = part.strip()
+            if not part:
+                continue
+            if "=" in part:
+                k, v = part.split("=", 1)
+                args[k.strip()] = v.strip()
+            else:
+                args[part] = True
+
+    cmd = handlers.get(name)
+    if not cmd:
+        return f"cmd not found: {name}"
+
+    result = await cmd.execute(args, session)
+    return getattr(result, "message", "")
 
 
 @pytest.mark.asyncio
@@ -81,4 +132,5 @@ async def test_failover_commands_lifecycle(snapshot):
     )
 
     # Assert all results against a single snapshot
-    assert "\n---\n".join(results) == snapshot
+    from_str = "\n---\n".join(results)
+    snapshot.assert_match(from_str, "failover_lifecycle_output")
