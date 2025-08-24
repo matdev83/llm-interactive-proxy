@@ -65,11 +65,11 @@ class OneoffCommand(StatelessCommandBase, BaseCommand):
                 message="oneoff command requires a backend/model argument.",
             )
 
-        arg_key = next(iter(args.keys()))
+        arg_key = next(iter(args.keys()), "")
 
         # Use robust parsing that handles both slash and colon syntax
         backend, model = parse_model_backend(arg_key)
-        if not backend:
+        if not backend or not model:
             return CommandResult(
                 name=self.name,
                 success=False,

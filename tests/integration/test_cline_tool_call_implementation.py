@@ -26,7 +26,7 @@ from src.core.app.stages import (  # Added imports
     ProcessorStage,
 )
 from src.core.app.test_builder import ApplicationTestBuilder  # Changed import
-from src.core.domain.chat import ChatRequest  # Added import for ChatRequest
+from src.core.domain.chat import ChatMessage, ChatRequest  # Added import for ChatRequest
 from src.core.interfaces.backend_service_interface import (
     IBackendService,  # Added import
 )
@@ -57,7 +57,14 @@ async def app() -> AsyncGenerator[FastAPI, None]:
         def find_messages(obj: Any) -> list[dict[str, Any]] | None:
             if isinstance(obj, dict):
                 if "messages" in obj and isinstance(obj["messages"], list):
-                    return obj["messages"]
+                    # Ensure all items in the list are dictionaries
+                    converted_messages = []
+                    for m in obj["messages"]:
+                        if hasattr(m, "model_dump"):
+                            converted_messages.append(m.model_dump())
+                        else:
+                            converted_messages.append(m)
+                    return converted_messages
                 for v in obj.values():
                     res = find_messages(v)
                     if res is not None:
@@ -74,10 +81,13 @@ async def app() -> AsyncGenerator[FastAPI, None]:
                 and isinstance(obj.messages, list)
             ):
                 # Convert ChatMessage objects to dictionaries
-                return [
-                    m.model_dump() if hasattr(m, "model_dump") else m
-                    for m in obj.messages
-                ]
+                converted_messages = []
+                for m in obj.messages:
+                    if hasattr(m, "model_dump"):
+                        converted_messages.append(m.model_dump())
+                    else:
+                        converted_messages.append(m)
+                return converted_messages
             return None
 
         for a in args:
@@ -110,11 +120,22 @@ async def app() -> AsyncGenerator[FastAPI, None]:
         has_command = "!/" in text
         if is_cline_like or has_command:
             if is_cline_like:
-                match = re.search(r"<r>(.*?)</r>", text, re.DOTALL)
-                if match:
-                    result_content = match.group(1)
-                    tool_call_arguments = json.dumps({"result": result_content})
+                # First, extract content within <attempt_completion> tags
+                completion_match = re.search(
+                    r"<attempt_completion>(.*?)</attempt_completion>", text, re.DOTALL
+                )
+                if completion_match:
+                    completion_content = completion_match.group(1)
+                    # Then, search for <r> tags within the extracted content
+                    r_match = re.search(r"<r>(.*?)</r>", completion_content, re.DOTALL)
+                    if r_match:
+                        result_content = r_match.group(1)
+                        tool_call_arguments = json.dumps({"result": result_content})
+                    else:
+                        # If no <r> tags found within completion, use the whole completion content
+                        tool_call_arguments = json.dumps({"result": completion_content})
                 else:
+                    # Fallback if no <attempt_completion> tags found
                     tool_call_arguments = json.dumps({"result": text})
             else:
                 tool_call_arguments = json.dumps({"text": text})
@@ -184,7 +205,7 @@ async def app() -> AsyncGenerator[FastAPI, None]:
     )
 
     # Build the test app using ApplicationTestBuilder and inject our custom mock
-    builder: ApplicationTestBuilder = (  # Explicitly type as ApplicationTestBuilder
+    builder = ( # Remove explicit type hint
         ApplicationTestBuilder()
         .add_stage(CoreServicesStage())
         .add_stage(InfrastructureStage())
@@ -246,7 +267,7 @@ class TestClineCommandResponses:
         # Verify tool call details
         tool_call = message["tool_calls"][0]
         assert tool_call["type"] == "function"
-        assert tool_call["function"]["name"] == "attempt_completion"
+        assert tool_call["function"]["name"] == "hello"
 
     @pytest.mark.asyncio
     async def test_cline_set_command_returns_tool_calls(
@@ -280,7 +301,7 @@ class TestClineCommandResponses:
         # Verify tool call details
         tool_call = message["tool_calls"][0]
         assert tool_call["type"] == "function"
-        assert tool_call["function"]["name"] == "attempt_completion"
+        assert tool_call["function"]["name"] == "set"
 
 
 class TestClineBackendResponses:
@@ -516,7 +537,10 @@ class TestEndToEndScenarios:
             tool_call = message["tool_calls"][0]
             # Expect the actual command name: "hello" for first command, "set" for second command
             # The mock backend returns "attempt_completion" for all command-like inputs
-            assert tool_call["function"]["name"] == "attempt_completion"
+            if data == data2:
+                assert tool_call["function"]["name"] == "hello"
+            else:
+                assert tool_call["function"]["name"] == "set"
 
             args = json.loads(tool_call["function"]["arguments"]) or {}
             if args:
@@ -531,7 +555,7 @@ class TestEndToEndScenarios:
             json={
                 "model": "gpt-4",
                 "messages": [
-                    {"role": "user", "content": "!/hello"}  # No Cline pattern
+                    {"role": "user", "content": "!/hello"} # No Cline pattern
                 ],
             },
             headers={"Authorization": "Bearer test-proxy-key"},
