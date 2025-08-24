@@ -43,5 +43,3 @@ def start_server(detach: bool = True) -> int:
 
 if __name__ == "__main__":
     start_server()
-
-

@@ -32,10 +32,8 @@ def test_backend_config_immutability() -> None:
 
     # Assert
     # Use model_dump() to access the values directly
-    assert config.model_dump()["backend_type"] == "openai"  # Original unchanged
-    assert (
-        new_config.model_dump()["backend_type"] == "anthropic"
-    )  # New config has updated value
+    assert config.backend_type == "openai"  # Original unchanged
+    assert new_config.backend_type == "anthropic"  # New config has updated value
     # Note: model is cleared when changing backend, so we don't check it
 
 
@@ -56,8 +54,8 @@ def test_reasoning_config_immutability() -> None:
 
     # Assert
     # Use model_dump() to access the values directly
-    assert config.model_dump()["temperature"] == 0.7  # Original unchanged
-    assert new_config.model_dump()["temperature"] == 0.8  # New config has updated value
+    assert config.temperature == 0.7  # Original unchanged
+    assert new_config.temperature == 0.8  # New config has updated value
 
 
 def test_loop_detection_config_immutability() -> None:
@@ -77,10 +75,8 @@ def test_loop_detection_config_immutability() -> None:
 
     # Assert
     # Use model_dump() to access the values directly
-    assert config.model_dump()["loop_detection_enabled"] is True  # Original unchanged
-    assert (
-        new_config.model_dump()["loop_detection_enabled"] is False
-    )  # New config has updated value
+    assert config.loop_detection_enabled is True  # Original unchanged
+    assert new_config.loop_detection_enabled is False  # New config has updated value
 
 
 def test_session_state_immutability() -> None:
@@ -136,4 +132,4 @@ def test_session_mutability() -> None:
 
     # Assert
     assert len(session.history) == 1
-    assert session.state._state == new_state
+    assert session.state.to_dict() == new_state.to_dict()

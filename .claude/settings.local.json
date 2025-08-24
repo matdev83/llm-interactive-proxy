@@ -8,9 +8,26 @@
       "Bash(python3 -m pytest tests/unit/proxy_logic_tests/test_process_commands_in_messages.py::TestProcessCommandsInMessages::test_custom_command_prefix -v)",
       "Bash(python3:*)",
       "Bash(ruff check:*)",
-      "Bash(mypy:*)"
+      "Bash(mypy:*)",
+      "Bash(vulture src/ --min-confidence 60 --sort-by-size)",
+      "Bash(vulture:*)",
+      "Bash(.venv pytest --tb=short -q)",
+      "Bash(./.venv/bin/pytest)"
     ],
     "deny": [],
     "ask": []
+  },
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Edit|MultiEdit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "jq -r '.tool_input.file_path // .tool_response.filePath // \\\"\\\"' | { read f; case \\\"$f\\\" in *.py) ./.venv/Scripts/python.exe -m ruff check --fix \\\"$f\\\" && ./.venv/Scripts/python.exe -m black \\\"$f\\\" && ./.venv/Scripts/python.exe -m mypy \\\"$f\\\";; esac; }"
+          }
+        ]
+      }
+    ]
   }
 }

@@ -2,7 +2,7 @@
 Tests for the RequestProcessor implementation.
 """
 
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from src.core.common.exceptions import BackendError, LLMProxyError
@@ -11,6 +11,8 @@ from src.core.domain.commands import CommandResult
 from src.core.domain.processed_result import ProcessedResult
 from src.core.domain.request_context import RequestContext
 from src.core.domain.responses import ResponseEnvelope, StreamingResponseEnvelope
+from src.core.interfaces.application_state_interface import IApplicationState
+from src.core.interfaces.domain_entities_interface import ISessionState
 from src.core.interfaces.session_resolver_interface import ISessionResolver
 from src.core.services.request_processor_service import RequestProcessor
 
@@ -20,18 +22,6 @@ from tests.unit.core.test_doubles import (
     MockSessionService,
     TestDataBuilder,
 )
-
-
-class MockState:
-    """Mock state for testing."""
-
-    def __init__(self) -> None:
-        self.project = None
-        self.backend_config = MagicMock()
-        self.backend_config.backend_type = None
-        self.backend_config.model = None
-        self.backend_config.failover_routes = {}
-        self.disable_commands = False
 
 
 class MockRequestContext(RequestContext):
@@ -44,24 +34,35 @@ class MockRequestContext(RequestContext):
         session_id: str | None = None,
         disable_commands: bool = False,
         disable_interactive_commands: bool = False,
+        is_cline_agent: bool = False,
     ) -> None:
+        mock_app_state = MagicMock(spec=IApplicationState)
+        mock_app_state.force_set_project = False
+        mock_app_state.disable_commands = disable_commands
+        mock_app_state.disable_interactive_commands = disable_interactive_commands
+        mock_app_state.failover_routes = {}
+        mock_app_state.is_cline_agent = is_cline_agent
+
         super().__init__(
             headers=headers or {},
             cookies=cookies or {},
-            state=MockState(),
-            app_state=MagicMock(),
+            state=MagicMock(spec=ISessionState),
+            app_state=mock_app_state,
             client_host="127.0.0.1",
             original_request=None,
         )
         self.session_id = session_id
-        self.state.disable_commands = disable_commands
-        self.app_state.force_set_project = False
-        self.app_state.disable_interactive_commands = disable_interactive_commands
-        self.app_state.failover_routes = {}
+
+
+from collections.abc import AsyncGenerator
+from typing import Any
 
 
 def create_mock_request(
-    stream=False, messages=None, model="gpt-4", session_id=None
+    stream: bool = False,
+    messages: list[ChatMessage] | None = None,
+    model: str = "gpt-4",
+    session_id: str | None = None,
 ) -> ChatRequest:
     """Factory for creating ChatRequest objects for tests."""
     if messages is None:
@@ -102,7 +103,7 @@ async def test_process_request_basic(session_service: MockSessionService) -> Non
         command_service,
         backend_service,
         session_service,
-        response_processor=MagicMock(),
+        response_processor=AsyncMock(),
         session_resolver=session_resolver,
     )
 
@@ -153,7 +154,7 @@ async def test_process_request_with_commands(
         command_service,
         backend_service,
         session_service,
-        response_processor=MagicMock(),
+        response_processor=AsyncMock(),
         session_resolver=session_resolver,
     )
 
@@ -180,7 +181,9 @@ async def test_process_request_with_commands(
     # Mock the session service to return a session with project set
     session = await session_service.get_session("test-session")
     # Mock the state property to return a value with project set
-    session_service.sessions["test-session"].state.project = "test"  # type: ignore
+    new_state = session.state.with_project("test")
+    session.state = new_state
+    session_service.sessions["test-session"] = session
 
     # Setup backend service to return a response
     response = TestDataBuilder.create_chat_response("I'm doing well, thanks!")
@@ -219,7 +222,7 @@ async def test_process_command_only_request(
         command_service,
         backend_service,
         session_service,
-        response_processor=MagicMock(),
+        response_processor=AsyncMock(),
         session_resolver=session_resolver,
     )
 
@@ -230,7 +233,7 @@ async def test_process_command_only_request(
     )
 
     # Setup command service to return command processed with no remaining content
-    processed_messages = []
+    processed_messages: list[dict[str, Any]] = []
     command_service.add_result(
         ProcessedResult(
             modified_messages=processed_messages,
@@ -242,6 +245,10 @@ async def test_process_command_only_request(
             ],
         )
     )
+
+    # Add a response to the mock backend service
+    response = TestDataBuilder.create_chat_response("Hello acknowledged")
+    backend_service.add_response(response)
 
     # Act
     response_obj = await processor.process_request(context, request_data)
@@ -270,7 +277,7 @@ async def test_process_streaming_request(session_service: MockSessionService) ->
         command_service,
         backend_service,
         session_service,
-        response_processor=MagicMock(),
+        response_processor=AsyncMock(),
         session_resolver=session_resolver,
     )
 
@@ -288,7 +295,7 @@ async def test_process_streaming_request(session_service: MockSessionService) ->
     )
 
     # Setup backend service for streaming
-    async def mock_stream_generator():
+    async def mock_stream_generator() -> AsyncGenerator[bytes, None]:
         yield b'data: {"choices":[{"delta":{"content":"Hello"},"index":0}]}\n\n'
         yield b'data: {"choices":[{"delta":{"content":" there!"},"index":0}]}\n\n'
         yield b"data: [DONE]\n\n"
@@ -333,7 +340,7 @@ async def test_backend_error_handling(session_service: MockSessionService) -> No
         command_service,
         backend_service,
         session_service,
-        response_processor=MagicMock(),
+        response_processor=AsyncMock(),
         session_resolver=session_resolver,
     )
 

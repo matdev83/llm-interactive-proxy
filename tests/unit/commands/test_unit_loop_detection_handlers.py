@@ -68,7 +68,9 @@ def mock_session() -> Mock:
 
 
 # LoopDetectionHandler tests
-def test_loop_detection_handler_enable(loop_detection_handler: LoopDetectionHandler, mock_session: Mock):
+def test_loop_detection_handler_enable(
+    loop_detection_handler: LoopDetectionHandler, mock_session: Mock
+):
     # Arrange
     param_value = "true"
 
@@ -82,7 +84,9 @@ def test_loop_detection_handler_enable(loop_detection_handler: LoopDetectionHand
     assert result.new_state.loop_config.loop_detection_enabled is True
 
 
-def test_loop_detection_handler_disable(loop_detection_handler: LoopDetectionHandler, mock_session: Mock):
+def test_loop_detection_handler_disable(
+    loop_detection_handler: LoopDetectionHandler, mock_session: Mock
+):
     # Arrange
     mock_session.state = SessionState(
         loop_config=LoopDetectionConfiguration(loop_detection_enabled=True)
@@ -99,7 +103,9 @@ def test_loop_detection_handler_disable(loop_detection_handler: LoopDetectionHan
     assert result.new_state.loop_config.loop_detection_enabled is False
 
 
-def test_loop_detection_handler_no_value(loop_detection_handler: LoopDetectionHandler, mock_session: Mock):
+def test_loop_detection_handler_no_value(
+    loop_detection_handler: LoopDetectionHandler, mock_session: Mock
+):
     # Arrange
     param_value = None
 
@@ -111,7 +117,9 @@ def test_loop_detection_handler_no_value(loop_detection_handler: LoopDetectionHa
     assert result.message == LOOP_DETECTION_BOOLEAN_REQUIRED_MESSAGE
 
 
-def test_loop_detection_handler_invalid_value(loop_detection_handler: LoopDetectionHandler, mock_session: Mock):
+def test_loop_detection_handler_invalid_value(
+    loop_detection_handler: LoopDetectionHandler, mock_session: Mock
+):
     # Arrange
     param_value = "invalid"
 
@@ -120,11 +128,15 @@ def test_loop_detection_handler_invalid_value(loop_detection_handler: LoopDetect
 
     # Assert
     assert result.success is False
-    assert result.message == LOOP_DETECTION_INVALID_BOOLEAN_MESSAGE.format(value=param_value)
+    assert result.message == LOOP_DETECTION_INVALID_BOOLEAN_MESSAGE.format(
+        value=param_value
+    )
 
 
 # ToolLoopDetectionHandler tests
-def test_tool_loop_detection_handler_enable(tool_loop_detection_handler: ToolLoopDetectionHandler, mock_session: Mock):
+def test_tool_loop_detection_handler_enable(
+    tool_loop_detection_handler: ToolLoopDetectionHandler, mock_session: Mock
+):
     # Arrange
     param_value = "true"
 
@@ -138,7 +150,9 @@ def test_tool_loop_detection_handler_enable(tool_loop_detection_handler: ToolLoo
     assert result.new_state.loop_config.tool_loop_detection_enabled is True
 
 
-def test_tool_loop_detection_handler_disable(tool_loop_detection_handler: ToolLoopDetectionHandler, mock_session: Mock):
+def test_tool_loop_detection_handler_disable(
+    tool_loop_detection_handler: ToolLoopDetectionHandler, mock_session: Mock
+):
     # Arrange
     mock_session.state = SessionState(
         loop_config=LoopDetectionConfiguration(tool_loop_detection_enabled=True)
@@ -155,7 +169,9 @@ def test_tool_loop_detection_handler_disable(tool_loop_detection_handler: ToolLo
     assert result.new_state.loop_config.tool_loop_detection_enabled is False
 
 
-def test_tool_loop_detection_handler_no_value(tool_loop_detection_handler: ToolLoopDetectionHandler, mock_session: Mock):
+def test_tool_loop_detection_handler_no_value(
+    tool_loop_detection_handler: ToolLoopDetectionHandler, mock_session: Mock
+):
     # Arrange
     param_value = None
 
@@ -167,7 +183,9 @@ def test_tool_loop_detection_handler_no_value(tool_loop_detection_handler: ToolL
     assert result.message == TOOL_LOOP_DETECTION_BOOLEAN_REQUIRED_MESSAGE
 
 
-def test_tool_loop_detection_handler_invalid_value(tool_loop_detection_handler: ToolLoopDetectionHandler, mock_session: Mock):
+def test_tool_loop_detection_handler_invalid_value(
+    tool_loop_detection_handler: ToolLoopDetectionHandler, mock_session: Mock
+):
     # Arrange
     param_value = "invalid"
 
@@ -176,11 +194,15 @@ def test_tool_loop_detection_handler_invalid_value(tool_loop_detection_handler: 
 
     # Assert
     assert result.success is False
-    assert result.message == TOOL_LOOP_DETECTION_INVALID_BOOLEAN_MESSAGE.format(value=param_value)
+    assert result.message == TOOL_LOOP_DETECTION_INVALID_BOOLEAN_MESSAGE.format(
+        value=param_value
+    )
 
 
 # ToolLoopMaxRepeatsHandler tests
-def test_tool_loop_max_repeats_handler_success(tool_loop_max_repeats_handler: ToolLoopMaxRepeatsHandler, mock_session: Mock):
+def test_tool_loop_max_repeats_handler_success(
+    tool_loop_max_repeats_handler: ToolLoopMaxRepeatsHandler, mock_session: Mock
+):
     # Arrange
     param_value = "5"
 
@@ -194,7 +216,9 @@ def test_tool_loop_max_repeats_handler_success(tool_loop_max_repeats_handler: To
     assert result.new_state.loop_config.tool_loop_max_repeats == 5
 
 
-def test_tool_loop_max_repeats_handler_no_value(tool_loop_max_repeats_handler: ToolLoopMaxRepeatsHandler, mock_session: Mock):
+def test_tool_loop_max_repeats_handler_no_value(
+    tool_loop_max_repeats_handler: ToolLoopMaxRepeatsHandler, mock_session: Mock
+):
     # Arrange
     param_value = None
 
@@ -206,7 +230,9 @@ def test_tool_loop_max_repeats_handler_no_value(tool_loop_max_repeats_handler: T
     assert result.message == TOOL_LOOP_MAX_REPEATS_REQUIRED_MESSAGE
 
 
-def test_tool_loop_max_repeats_handler_invalid_value(tool_loop_max_repeats_handler: ToolLoopMaxRepeatsHandler, mock_session: Mock):
+def test_tool_loop_max_repeats_handler_invalid_value(
+    tool_loop_max_repeats_handler: ToolLoopMaxRepeatsHandler, mock_session: Mock
+):
     # Arrange
     param_value = "invalid"
 
@@ -215,10 +241,14 @@ def test_tool_loop_max_repeats_handler_invalid_value(tool_loop_max_repeats_handl
 
     # Assert
     assert result.success is False
-    assert result.message == TOOL_LOOP_MAX_REPEATS_MUST_BE_INTEGER_MESSAGE.format(value=param_value)
+    assert result.message == TOOL_LOOP_MAX_REPEATS_MUST_BE_INTEGER_MESSAGE.format(
+        value=param_value
+    )
 
 
-def test_tool_loop_max_repeats_handler_too_low(tool_loop_max_repeats_handler: ToolLoopMaxRepeatsHandler, mock_session: Mock):
+def test_tool_loop_max_repeats_handler_too_low(
+    tool_loop_max_repeats_handler: ToolLoopMaxRepeatsHandler, mock_session: Mock
+):
     # Arrange
     param_value = "1"
 
@@ -231,7 +261,9 @@ def test_tool_loop_max_repeats_handler_too_low(tool_loop_max_repeats_handler: To
 
 
 # ToolLoopTTLHandler tests
-def test_tool_loop_ttl_handler_success(tool_loop_ttl_handler: ToolLoopTTLHandler, mock_session: Mock):
+def test_tool_loop_ttl_handler_success(
+    tool_loop_ttl_handler: ToolLoopTTLHandler, mock_session: Mock
+):
     # Arrange
     param_value = "60"
 
@@ -245,7 +277,9 @@ def test_tool_loop_ttl_handler_success(tool_loop_ttl_handler: ToolLoopTTLHandler
     assert result.new_state.loop_config.tool_loop_ttl_seconds == 60
 
 
-def test_tool_loop_ttl_handler_no_value(tool_loop_ttl_handler: ToolLoopTTLHandler, mock_session: Mock):
+def test_tool_loop_ttl_handler_no_value(
+    tool_loop_ttl_handler: ToolLoopTTLHandler, mock_session: Mock
+):
     # Arrange
     param_value = None
 
@@ -257,7 +291,9 @@ def test_tool_loop_ttl_handler_no_value(tool_loop_ttl_handler: ToolLoopTTLHandle
     assert result.message == TOOL_LOOP_TTL_REQUIRED_MESSAGE
 
 
-def test_tool_loop_ttl_handler_invalid_value(tool_loop_ttl_handler: ToolLoopTTLHandler, mock_session: Mock):
+def test_tool_loop_ttl_handler_invalid_value(
+    tool_loop_ttl_handler: ToolLoopTTLHandler, mock_session: Mock
+):
     # Arrange
     param_value = "invalid"
 
@@ -266,10 +302,14 @@ def test_tool_loop_ttl_handler_invalid_value(tool_loop_ttl_handler: ToolLoopTTLH
 
     # Assert
     assert result.success is False
-    assert result.message == TOOL_LOOP_TTL_MUST_BE_INTEGER_MESSAGE.format(value=param_value)
+    assert result.message == TOOL_LOOP_TTL_MUST_BE_INTEGER_MESSAGE.format(
+        value=param_value
+    )
 
 
-def test_tool_loop_ttl_handler_too_low(tool_loop_ttl_handler: ToolLoopTTLHandler, mock_session: Mock):
+def test_tool_loop_ttl_handler_too_low(
+    tool_loop_ttl_handler: ToolLoopTTLHandler, mock_session: Mock
+):
     # Arrange
     param_value = "0"
 
@@ -282,7 +322,9 @@ def test_tool_loop_ttl_handler_too_low(tool_loop_ttl_handler: ToolLoopTTLHandler
 
 
 # ToolLoopModeHandler tests
-def test_tool_loop_mode_handler_success_break(tool_loop_mode_handler: ToolLoopModeHandler, mock_session: Mock):
+def test_tool_loop_mode_handler_success_break(
+    tool_loop_mode_handler: ToolLoopModeHandler, mock_session: Mock
+):
     # Arrange
     param_value = "break"
 
@@ -296,7 +338,9 @@ def test_tool_loop_mode_handler_success_break(tool_loop_mode_handler: ToolLoopMo
     assert result.new_state.loop_config.tool_loop_mode == ToolLoopMode.BREAK
 
 
-def test_tool_loop_mode_handler_success_chance_then_break(tool_loop_mode_handler: ToolLoopModeHandler, mock_session: Mock):
+def test_tool_loop_mode_handler_success_chance_then_break(
+    tool_loop_mode_handler: ToolLoopModeHandler, mock_session: Mock
+):
     # Arrange
     param_value = "chance_then_break"
 
@@ -310,7 +354,9 @@ def test_tool_loop_mode_handler_success_chance_then_break(tool_loop_mode_handler
     assert result.new_state.loop_config.tool_loop_mode == ToolLoopMode.CHANCE_THEN_BREAK
 
 
-def test_tool_loop_mode_handler_no_value(tool_loop_mode_handler: ToolLoopModeHandler, mock_session: Mock):
+def test_tool_loop_mode_handler_no_value(
+    tool_loop_mode_handler: ToolLoopModeHandler, mock_session: Mock
+):
     # Arrange
     param_value = None
 
@@ -322,7 +368,9 @@ def test_tool_loop_mode_handler_no_value(tool_loop_mode_handler: ToolLoopModeHan
     assert result.message == TOOL_LOOP_MODE_REQUIRED_MESSAGE
 
 
-def test_tool_loop_mode_handler_invalid_value(tool_loop_mode_handler: ToolLoopModeHandler, mock_session: Mock):
+def test_tool_loop_mode_handler_invalid_value(
+    tool_loop_mode_handler: ToolLoopModeHandler, mock_session: Mock
+):
     # Arrange
     param_value = "invalid"
 

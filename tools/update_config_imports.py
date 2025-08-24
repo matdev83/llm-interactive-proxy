@@ -50,28 +50,28 @@ REPLACEMENTS = [
 
 def update_imports(file_path: Path) -> bool:
     """Update imports in a file.
-    
+
     Args:
         file_path: The path to the file to update
-        
+
     Returns:
         True if the file was modified, False otherwise
     """
     with open(file_path, encoding="utf-8") as f:
         content = f.read()
-        
+
     original_content = content
-    
+
     # Apply all replacements
     for pattern, replacement in REPLACEMENTS:
         content = re.sub(pattern, replacement, content)
-        
+
     # Check if the file was modified
     if content != original_content:
         with open(file_path, "w", encoding="utf-8") as f:
             f.write(content)
         return True
-        
+
     return False
 
 
@@ -79,17 +79,17 @@ def main():
     """Main entry point."""
     # Get the project root
     project_root = Path(__file__).resolve().parent.parent
-    
+
     # Find all Python files
     python_files = list(project_root.glob("**/*.py"))
-    
+
     # Update imports in all files
     modified_files = []
     for file_path in python_files:
         if update_imports(file_path):
             modified_files.append(file_path)
             print(f"Updated imports in {file_path}")
-            
+
     # Print summary
     print(f"\nScanned {len(python_files)} files, modified {len(modified_files)} files.")
 

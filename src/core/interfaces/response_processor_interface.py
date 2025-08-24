@@ -25,7 +25,7 @@ class ProcessedResponse:
         self.usage = usage
         self.metadata = metadata or {}
 
-    content: str
+    content: str | None
     usage: dict[str, Any] | None = None
     metadata: dict[str, Any] = {}
 

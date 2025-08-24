@@ -76,9 +76,19 @@ def main() -> int:
         text = p.read_text(encoding="utf-8")
         new_text = text
         for rx, repl in iface_patterns:
-            new_text = rx.sub(lambda m: m.group(0).replace(m.group(0).split()[1], f"src.core.interfaces.{repl}"), new_text)
+            new_text = rx.sub(
+                lambda m: m.group(0).replace(
+                    m.group(0).split()[1], f"src.core.interfaces.{repl}"
+                ),
+                new_text,
+            )
         for rx, repl in svc_patterns:
-            new_text = rx.sub(lambda m: m.group(0).replace(m.group(0).split()[1], f"src.core.services.{repl}"), new_text)
+            new_text = rx.sub(
+                lambda m: m.group(0).replace(
+                    m.group(0).split()[1], f"src.core.services.{repl}"
+                ),
+                new_text,
+            )
 
         # replace dotted references
         for rx, repl in iface_dot_patterns:
@@ -103,5 +113,3 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-
-

@@ -113,7 +113,15 @@ class ISession(IEntity):
         """
 
 
-class ISessionState(IValueObject):
+class ISessionStateMutator(ABC):
+    """Interface for session state mutator methods."""
+
+    @abc.abstractmethod
+    def with_is_cline_agent(self, is_cline: bool) -> ISessionState:
+        """Create a new state with updated is_cline_agent flag."""
+
+
+class ISessionState(IValueObject, ISessionStateMutator):
     """Interface for session state value objects."""
 
     @property

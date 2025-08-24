@@ -132,6 +132,7 @@ class ChatRequest(ValueObject):
     tools: list[dict[str, Any]] | None = None
     tool_choice: str | dict[str, Any] | None = None
     session_id: str | None = None
+    agent: str | None = None  # Add agent field
     extra_body: dict[str, Any] | None = None
 
     # Reasoning parameters for o1, o3, o4-mini and other reasoning models

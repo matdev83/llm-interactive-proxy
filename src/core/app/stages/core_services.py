@@ -12,11 +12,14 @@ from __future__ import annotations
 
 import logging
 
+from src.core.app.middleware.tool_call_repair_middleware import ToolCallRepairMiddleware
 from src.core.config.app_config import AppConfig
 from src.core.di.container import ServiceCollection
 from src.core.interfaces.application_state_interface import IApplicationState
 from src.core.interfaces.di_interface import IServiceProvider
 from src.core.services.application_state_service import ApplicationStateService
+from src.core.services.response_processor_service import ResponseProcessor
+from src.core.services.tool_call_repair_service import ToolCallRepairService
 
 from .base import InitializationStage
 
@@ -49,23 +52,52 @@ class CoreServicesStage(InitializationStage):
         services.add_instance(AppConfig, config)
         logger.debug("Registered AppConfig instance")
 
-        # Register ApplicationStateService as a singleton instance
-        from src.core.services.application_state_service import ApplicationStateService
+        # Register ToolCallRepairService as a singleton with configured buffer cap
+        def _tool_repair_factory(_: IServiceProvider) -> ToolCallRepairService:
+            cap = 64 * 1024
+            try:
+                cap = int(config.session.tool_call_repair_buffer_cap_bytes)
+            except Exception:
+                pass
+            return ToolCallRepairService(max_buffer_bytes=cap)
 
-        services.add_singleton(ApplicationStateService)
-        logger.debug("Registered ApplicationStateService")
+        services.add_singleton(ToolCallRepairService, implementation_factory=_tool_repair_factory)
+        logger.debug(
+            "Registered ToolCallRepairService with cap=%d bytes",
+            int(getattr(config.session, "tool_call_repair_buffer_cap_bytes", 65536)),
+        )
+
+        # Register ResponseProcessor as a singleton
+        def response_processor_factory(provider: IServiceProvider) -> ResponseProcessor:
+            processor = ResponseProcessor()
+            if config.session.tool_call_repair_enabled:
+                # Register ToolCallRepairMiddleware with the ResponseProcessor
+                tool_call_repair_service = provider.get_required_service(
+                    ToolCallRepairService
+                )
+                tool_call_middleware = ToolCallRepairMiddleware(
+                    config, tool_call_repair_service
+                )
+                # Since register_middleware is async, we create a task for it.
+                # The DI container does not directly support async factories for add_singleton.
+                import asyncio
+
+                task = asyncio.create_task(
+                    processor.register_middleware(tool_call_middleware)
+                )
+                processor.add_background_task(task)  # Store the task
+            return processor
+
+        services.add_singleton(
+            ResponseProcessor, implementation_factory=response_processor_factory
+        )
+        logger.debug("Registered ResponseProcessor with ToolCallRepairMiddleware")
 
         # Register session repository
         self._register_session_repository(services)
 
         # Register session service
         self._register_session_service(services)
-
-        # Register ApplicationStateService as a singleton instance
-        from src.core.services.application_state_service import ApplicationStateService
-
-        services.add_singleton(ApplicationStateService)
-        logger.debug("Registered ApplicationStateService")
 
         # Register session resolver
         self._register_session_resolver(services, config)
@@ -165,6 +197,15 @@ class CoreServicesStage(InitializationStage):
             logger.warning(
                 f"Could not register session resolver or SecureStateService: {e}"
             )
+
+        # Register core services from DI services module
+        try:
+            from src.core.di.services import register_core_services
+            register_core_services(services, config)
+            logger.debug("Registered core services from DI module")
+        except Exception as e:
+            logger.error(f"Failed to register core services from DI module: {e}")
+            raise
 
     async def validate(self, services: ServiceCollection, config: AppConfig) -> bool:
         """Validate that core services can be registered."""

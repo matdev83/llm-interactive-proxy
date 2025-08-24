@@ -187,3 +187,4 @@ Create failover routes with policies (k, m, km, mk):
 ### Testing
 - `PYTEST_CURRENT_TEST`: Automatically detected during pytest execution
 - Test mocks are automatically set up in `tests/conftest.py`
+- While executing Python and coding tools like `ruff`, `pytest`, `black`, `mypy`, `vulture`, ALWAYS use proper `.venv` command prefix

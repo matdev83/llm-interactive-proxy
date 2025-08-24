@@ -22,10 +22,13 @@ async def run_command(command_string: str) -> str:
 
     registry = CommandRegistry()
     registry._commands["tool-loop-detection"] = ToolLoopDetectionCommand()
-    parser = CommandParser(parser_config, command_prefix="!/", command_registry=registry)
+    parser = CommandParser(
+        parser_config, command_prefix="!/", command_registry=registry
+    )
 
     await parser.process_messages(
-        [ChatMessage(role="user", content=command_string)], session_id="snapshot-session"
+        [ChatMessage(role="user", content=command_string)],
+        session_id="snapshot-session",
     )
 
     if parser.command_results:

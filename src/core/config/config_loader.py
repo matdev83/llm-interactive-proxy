@@ -161,7 +161,6 @@ class ConfigLoader:
                 "ANTHROPIC_API_BASE_URL", "https://api.anthropic.com/v1"
             ),
             "google_cloud_project": os.getenv("GOOGLE_CLOUD_PROJECT"),
-            
             # Application configuration
             "app_site_url": os.getenv("APP_SITE_URL", "http://localhost:8000"),
             "app_x_title": os.getenv("APP_X_TITLE", "InterceptorProxy"),
@@ -181,7 +180,6 @@ class ConfigLoader:
                 os.getenv("DISABLE_INTERACTIVE_COMMANDS"), False
             ),
             "disable_accounting": _str_to_bool(os.getenv("DISABLE_ACCOUNTING"), False),
-            
             # Loop detection configuration
             "loop_detection_enabled": _str_to_bool(
                 os.getenv("LOOP_DETECTION_ENABLED"), True
@@ -192,7 +190,6 @@ class ConfigLoader:
             "loop_detection_max_pattern_length": int(
                 os.getenv("LOOP_DETECTION_MAX_PATTERN_LENGTH", "500")
             ),
-            
             # Tool call loop detection configuration
             "tool_loop_detection_enabled": _str_to_bool(
                 os.getenv("TOOL_LOOP_DETECTION_ENABLED"), True

@@ -8,7 +8,7 @@ from src.core.app.test_builder import build_test_app as app_main_build_app
 from src.core.cli import apply_cli_args, main, parse_cli_args
 
 
-def test_apply_cli_args_sets_env(monkeypatch):
+def test_apply_cli_args_sets_env(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("GEMINI_API_KEY", raising=False)
     for i in range(1, 21):
         monkeypatch.delenv(f"GEMINI_API_KEY_{i}", raising=False)
@@ -40,7 +40,7 @@ def test_apply_cli_args_sets_env(monkeypatch):
     monkeypatch.delenv("COMMAND_PREFIX", raising=False)
 
 
-def test_cli_interactive_mode(monkeypatch):
+def test_cli_interactive_mode(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("DISABLE_INTERACTIVE_MODE", raising=False)
     args = parse_cli_args(["--disable-interactive-mode"])
     cfg = apply_cli_args(args)
@@ -49,7 +49,7 @@ def test_cli_interactive_mode(monkeypatch):
     monkeypatch.delenv("DISABLE_INTERACTIVE_MODE", raising=False)
 
 
-def test_cli_redaction_flag(monkeypatch):
+def test_cli_redaction_flag(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("REDACT_API_KEYS_IN_PROMPTS", raising=False)
     monkeypatch.delenv("GEMINI_API_KEY", raising=False)
     for i in range(1, 21):
@@ -67,7 +67,7 @@ def test_cli_redaction_flag(monkeypatch):
     assert cfg.session.default_interactive_mode is False
 
 
-def test_cli_force_set_project(monkeypatch):
+def test_cli_force_set_project(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("FORCE_SET_PROJECT", raising=False)
     # Test setting the flag
     args = parse_cli_args(["--force-set-project"])
@@ -77,7 +77,7 @@ def test_cli_force_set_project(monkeypatch):
     monkeypatch.delenv("FORCE_SET_PROJECT", raising=False)
 
 
-def test_cli_disable_interactive_commands(monkeypatch):
+def test_cli_disable_interactive_commands(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("DISABLE_INTERACTIVE_COMMANDS", raising=False)
     monkeypatch.delenv("GEMINI_API_KEY", raising=False)
     for i in range(1, 21):
@@ -96,19 +96,22 @@ def test_cli_disable_interactive_commands(monkeypatch):
     #     monkeypatch.delenv("FORCE_SET_PROJECT", raising=False)
 
 
-def test_cli_log_argument(tmp_path):
+from pathlib import Path
+
+
+def test_cli_log_argument(tmp_path: Path) -> None:
     args = parse_cli_args(["--log", str(tmp_path / "out.log")])
     assert args.log_file == str(tmp_path / "out.log")
 
 
-def test_main_log_file(monkeypatch, tmp_path):
+def test_main_log_file(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     import src.core.cli as cli
 
     log_file = tmp_path / "srv.log"
 
     recorded = {}
 
-    def fake_basic_config(**kwargs):
+    def fake_basic_config(**kwargs: dict[str, str]) -> None:
         recorded.update(kwargs)
 
     monkeypatch.setattr(cli.logging, "basicConfig", fake_basic_config)
@@ -120,7 +123,7 @@ def test_main_log_file(monkeypatch, tmp_path):
     assert recorded.get("filename") == str(log_file)
 
 
-def test_build_app_uses_env(monkeypatch):
+def test_build_app_uses_env(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("GEMINI_API_KEY", raising=False)
     for i in range(1, 21):
         monkeypatch.delenv(f"GEMINI_API_KEY_{i}", raising=False)
@@ -140,7 +143,7 @@ def test_build_app_uses_env(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_build_app_uses_interactive_env(monkeypatch):
+async def test_build_app_uses_interactive_env(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("GEMINI_API_KEY", raising=False)
     for i in range(1, 21):
         monkeypatch.delenv(f"GEMINI_API_KEY_{i}", raising=False)
@@ -163,7 +166,7 @@ async def test_build_app_uses_interactive_env(monkeypatch):
         assert session.state.interactive_mode is True
 
 
-def test_default_command_prefix_from_env(monkeypatch):
+def test_default_command_prefix_from_env(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("COMMAND_PREFIX", raising=False)
     monkeypatch.delenv("GEMINI_API_KEY", raising=False)
     monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
@@ -176,7 +179,9 @@ def test_default_command_prefix_from_env(monkeypatch):
 
 
 @pytest.mark.parametrize("prefix", ["!", "!!", "prefix with space", "12345678901"])
-def test_invalid_command_prefix_cli(monkeypatch, prefix):
+def test_invalid_command_prefix_cli(
+    monkeypatch: pytest.MonkeyPatch, prefix: str
+) -> None:
     for i in range(1, 21):
         monkeypatch.delenv(f"GEMINI_API_KEY_{i}", raising=False)
     monkeypatch.delenv("GEMINI_API_KEY", raising=False)
@@ -187,7 +192,7 @@ def test_invalid_command_prefix_cli(monkeypatch, prefix):
 
 
 @pytest.mark.skipif(os.name == "nt", reason="Test for non-Windows systems")
-def test_check_privileges_root(monkeypatch):
+def test_check_privileges_root(monkeypatch: pytest.MonkeyPatch) -> None:
     from src.core.cli import _check_privileges
 
     monkeypatch.setattr(os, "geteuid", lambda: 0, raising=False)
@@ -196,7 +201,7 @@ def test_check_privileges_root(monkeypatch):
 
 
 @pytest.mark.skipif(os.name == "nt", reason="Test for non-Windows systems")
-def test_check_privileges_non_root(monkeypatch):
+def test_check_privileges_non_root(monkeypatch: pytest.MonkeyPatch) -> None:
     from src.core.cli import _check_privileges
 
     monkeypatch.setattr(os, "geteuid", lambda: 1000, raising=False)
@@ -204,7 +209,7 @@ def test_check_privileges_non_root(monkeypatch):
 
 
 @pytest.mark.skipif(os.name != "nt", reason="Test for Windows systems")
-def test_check_privileges_admin_windows(monkeypatch):
+def test_check_privileges_admin_windows(monkeypatch: pytest.MonkeyPatch) -> None:
     import ctypes
 
     from src.core.cli import _check_privileges
@@ -220,7 +225,7 @@ def test_check_privileges_admin_windows(monkeypatch):
 
 
 @pytest.mark.skipif(os.name != "nt", reason="Test for Windows systems")
-def test_check_privileges_non_admin_windows(monkeypatch):
+def test_check_privileges_non_admin_windows(monkeypatch: pytest.MonkeyPatch) -> None:
     import ctypes
 
     from src.core.cli import _check_privileges
@@ -234,20 +239,20 @@ def test_check_privileges_non_admin_windows(monkeypatch):
     _check_privileges()
 
 
-def test_parse_cli_args_basic():
+def test_parse_cli_args_basic() -> None:
     """Test basic CLI argument parsing."""
     args = parse_cli_args(["--port", "8080", "--host", "0.0.0.0"])
     assert args.port == 8080
     assert args.host == "0.0.0.0"
 
 
-def test_parse_cli_args_disable_auth():
+def test_parse_cli_args_disable_auth() -> None:
     """Test parsing disable-auth flag."""
     args = parse_cli_args(["--disable-auth"])
     assert args.disable_auth is True
 
 
-def test_apply_cli_args_basic():
+def test_apply_cli_args_basic() -> None:
     """Test basic CLI argument application."""
     args = parse_cli_args(["--port", "8080"])
     with patch.dict(os.environ, {}, clear=True):
@@ -255,7 +260,7 @@ def test_apply_cli_args_basic():
         assert cfg.port == 8080
 
 
-def test_apply_cli_args_disable_auth_forces_localhost():
+def test_apply_cli_args_disable_auth_forces_localhost() -> None:
     """Test that disable_auth via CLI forces host to localhost."""
     args = parse_cli_args(["--disable-auth", "--host", "0.0.0.0"])
     with (
@@ -269,7 +274,7 @@ def test_apply_cli_args_disable_auth_forces_localhost():
         mock_logging.warning.assert_called_once()
 
 
-def test_apply_cli_args_disable_auth_with_localhost_no_warning():
+def test_apply_cli_args_disable_auth_with_localhost_no_warning() -> None:
     """Test that disable_auth with localhost doesn't trigger warning."""
     args = parse_cli_args(["--disable-auth", "--host", "127.0.0.1"])
     with (
@@ -283,7 +288,7 @@ def test_apply_cli_args_disable_auth_with_localhost_no_warning():
         mock_logging.warning.assert_not_called()
 
 
-def test_main_disable_auth_forces_localhost():
+def test_main_disable_auth_forces_localhost() -> None:
     """Test that main function forces localhost when disable_auth is set."""
     with (
         patch.dict(
@@ -309,7 +314,7 @@ def test_main_disable_auth_forces_localhost():
         assert len(auth_disabled_warnings) >= 1
 
 
-def test_main_disable_auth_with_localhost_no_force():
+def test_main_disable_auth_with_localhost_no_force() -> None:
     """Test that main function doesn't force localhost when it's already localhost."""
     with (
         patch.dict(
@@ -335,7 +340,7 @@ def test_main_disable_auth_with_localhost_no_force():
         assert len(auth_disabled_warnings) >= 1
 
 
-def test_main_auth_enabled_allows_custom_host():
+def test_main_auth_enabled_allows_custom_host() -> None:
     """Test that main function allows custom host when auth is enabled."""
     with (
         patch.dict(

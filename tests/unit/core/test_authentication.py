@@ -30,7 +30,7 @@ def mock_request():
     mock.app.state = MagicMock()
     mock.app.state.client_api_key = None
     mock.app.state.disable_auth = False
-    
+
     # Mock the app config structure
     mock.app.state.app_config = MagicMock()
     mock.app.state.app_config.auth = MagicMock()
@@ -56,7 +56,7 @@ def api_key_middleware():
     middleware.app_state_service = MagicMock()
     middleware.app_state_service.get_setting.side_effect = lambda key, default=None: {
         "disable_auth": False,
-        "app_config": MagicMock(auth=MagicMock(disable_auth=False, api_keys=test_keys))
+        "app_config": MagicMock(auth=MagicMock(disable_auth=False, api_keys=test_keys)),
     }.get(key, default)
     return middleware
 
@@ -71,7 +71,7 @@ def auth_token_middleware():
     middleware.app_state_service = MagicMock()
     middleware.app_state_service.get_setting.side_effect = lambda key, default=None: {
         "disable_auth": False,
-        "app_config": MagicMock(auth=MagicMock(disable_auth=False, api_keys=[]))
+        "app_config": MagicMock(auth=MagicMock(disable_auth=False, api_keys=[])),
     }.get(key, default)
     return middleware
 
@@ -120,7 +120,9 @@ class TestAPIKeyMiddleware:
         # Verify
         call_next.assert_not_called()
         assert response.status_code == 401
-        assert response.body == f'{{"detail":"{HTTP_401_UNAUTHORIZED_MESSAGE}"}}'.encode()
+        assert (
+            response.body == f'{{"detail":"{HTTP_401_UNAUTHORIZED_MESSAGE}"}}'.encode()
+        )
 
     @pytest.mark.asyncio
     async def test_missing_key(self, api_key_middleware, mock_request):
@@ -134,7 +136,9 @@ class TestAPIKeyMiddleware:
         # Verify
         call_next.assert_not_called()
         assert response.status_code == 401
-        assert response.body == f'{{"detail":"{HTTP_401_UNAUTHORIZED_MESSAGE}"}}'.encode()
+        assert (
+            response.body == f'{{"detail":"{HTTP_401_UNAUTHORIZED_MESSAGE}"}}'.encode()
+        )
 
     @pytest.mark.asyncio
     async def test_bypass_path(self, api_key_middleware, mock_request):
@@ -181,7 +185,9 @@ class TestAuthMiddleware:
         # Verify
         call_next.assert_not_called()
         assert response.status_code == 401
-        assert response.body == f'{{"detail":"{HTTP_401_UNAUTHORIZED_MESSAGE}"}}'.encode()
+        assert (
+            response.body == f'{{"detail":"{HTTP_401_UNAUTHORIZED_MESSAGE}"}}'.encode()
+        )
 
     @pytest.mark.asyncio
     async def test_missing_token(self, auth_token_middleware, mock_request):
@@ -195,7 +201,9 @@ class TestAuthMiddleware:
         # Verify
         call_next.assert_not_called()
         assert response.status_code == 401
-        assert response.body == f'{{"detail":"{HTTP_401_UNAUTHORIZED_MESSAGE}"}}'.encode()
+        assert (
+            response.body == f'{{"detail":"{HTTP_401_UNAUTHORIZED_MESSAGE}"}}'.encode()
+        )
 
     @pytest.mark.asyncio
     async def test_bypass_path(self, auth_token_middleware, mock_request):

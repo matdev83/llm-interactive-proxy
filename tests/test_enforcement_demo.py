@@ -12,7 +12,7 @@ def test_problematic_session_mock():
     # This should trigger a warning from our SafeAsyncMock
     session_mock = AsyncMock(spec=Session)
     session_mock.session_id = "test-123"
-    
+
     # Use the mock
     result = session_mock.session_id
     assert result == "test-123"

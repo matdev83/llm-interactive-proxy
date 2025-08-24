@@ -62,14 +62,14 @@ class DefaultStreamingResponseHandler(IStreamingResponseHandler):
 
     async def _normalize_stream(
         self, source: AsyncIterator[bytes]
-    ) -> AsyncIterator[bytes]:
+    ) -> AsyncIterator[ProcessedResponse]:
         """Normalize a streaming response.
 
         Args:
             source: The source iterator
 
         Yields:
-            Normalized chunks from the source iterator
+            Normalized chunks from the source iterator as ProcessedResponse objects
         """
         async for chunk in source:
             # Check if the chunk is a valid JSON object
@@ -78,9 +78,9 @@ class DefaultStreamingResponseHandler(IStreamingResponseHandler):
                 json.loads(chunk.decode("utf-8"))
 
                 # If it's a valid JSON object, yield it as is
-                yield chunk
+                yield ProcessedResponse(content=chunk.decode("utf-8"))
             except json.JSONDecodeError:
                 # If it's not a valid JSON object, normalize it
                 # This could involve wrapping it in a JSON object or other processing
                 # For now, just yield it as is
-                yield chunk
+                yield ProcessedResponse(content=chunk.decode("utf-8"))

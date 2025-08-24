@@ -232,7 +232,16 @@ def _register_all_commands_in_registry(
     for command_type in command_types:
         try:
             # Get the command instance from the DI container
+            logger.debug(
+                f"Attempting to get command {command_type.__name__} from DI container"
+            )
             command = provider.get_required_service(command_type)
+            logger.debug(
+                f"Successfully got command {command_type.__name__} from DI container"
+            )
             registry.register(command)
+            logger.debug(
+                f"Successfully registered command {command_type.__name__} in registry"
+            )
         except Exception as e:
             logger.error(f"Failed to register command {command_type.__name__}: {e}")

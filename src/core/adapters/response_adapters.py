@@ -21,7 +21,7 @@ def to_fastapi_streaming_response(
 ) -> StreamingResponse:
     """Convert a domain StreamingResponseEnvelope to a FastAPI StreamingResponse."""
     return StreamingResponse(
-        content=envelope.content,
+        content=envelope.body_iterator,
         media_type=envelope.media_type,
         headers=envelope.headers,
     )

@@ -1,8 +1,11 @@
 from __future__ import annotations
 
 import contextlib
+import logging
 from datetime import datetime, timezone
 from typing import Any, cast
+
+logger = logging.getLogger(__name__)
 
 from pydantic import ConfigDict, Field
 
@@ -17,7 +20,11 @@ from src.core.interfaces.configuration_interface import (
     ILoopDetectionConfig,
     IReasoningConfig,
 )
-from src.core.interfaces.domain_entities_interface import ISession, ISessionState
+from src.core.interfaces.domain_entities_interface import (
+    ISession,
+    ISessionState,
+    ISessionStateMutator,
+)
 
 
 class SessionInteraction(ValueObject):
@@ -86,8 +93,12 @@ class SessionState(ValueObject):
         """Create a new session state with updated interactive_just_enabled flag."""
         return self.model_copy(update={"interactive_just_enabled": enabled})
 
+    def with_is_cline_agent(self, is_cline: bool) -> SessionState:
+        """Create a new session state with updated is_cline_agent flag."""
+        return self.model_copy(update={"is_cline_agent": is_cline})
 
-class SessionStateAdapter(ISessionState):
+
+class SessionStateAdapter(ISessionState, ISessionStateMutator):
     """Adapter that makes SessionState implement ISessionState interface."""
 
     def __init__(self, session_state: SessionState):
@@ -186,10 +197,10 @@ class SessionStateAdapter(ISessionState):
         return self._state.to_dict()
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> ISessionState:
-        """Create a value object from a dictionary."""
-        state: SessionState = cast(SessionState, SessionState.from_dict(data))
-        return cls(state)  # type: ignore
+    def from_dict(cls, data: dict[str, Any]) -> SessionState:
+        """Create a SessionState from a dictionary."""
+        # The superclass from_dict returns IValueObject, so we need to cast it to SessionState.
+        return cast(SessionState, super().from_dict(data))
 
     def with_backend_config(self, config: IBackendConfig) -> ISessionState:
         """Create a new session state with updated backend config."""
@@ -234,6 +245,11 @@ class SessionStateAdapter(ISessionState):
         new_state = cast(SessionState, self._state).with_hello_requested(
             hello_requested
         )
+        return SessionStateAdapter(new_state)
+
+    def with_is_cline_agent(self, is_cline: bool) -> ISessionState:
+        """Create a new session state with updated is_cline_agent flag."""
+        new_state = cast(SessionState, self._state).with_is_cline_agent(is_cline)
         return SessionStateAdapter(new_state)
 
     # Mutable convenience methods expected by legacy tests
@@ -285,17 +301,18 @@ class Session(ISession):
         created_at: datetime | None = None,
         last_active_at: datetime | None = None,
         agent: str | None = None,
-    ):
+    ) -> None:
         self._session_id: str = session_id
-        self._state: ISessionState  # Type annotation fix
+        self._state: ISessionState
 
-        # Handle different state types
         if state is None:
             self._state = SessionStateAdapter(SessionState())
-        elif isinstance(state, SessionState):
-            self._state = SessionStateAdapter(state)
-        else:
+        elif isinstance(state, SessionStateAdapter):
             self._state = state
+        elif isinstance(state, SessionState): # Handle raw SessionState directly
+            self._state = SessionStateAdapter(state)
+        else: # Handle other ISessionState implementations by attempting conversion
+            self._state = SessionStateAdapter(cast(SessionState, SessionState.from_dict(state.to_dict())))
 
         self._history: list[SessionInteraction] = history or []
         self._created_at: datetime = created_at or datetime.now(timezone.utc)
@@ -320,35 +337,12 @@ class Session(ISession):
     @state.setter
     def state(self, value: ISessionState) -> None:
         """Set the session state."""
-        # If we currently hold a SessionStateAdapter and are being assigned a
-        # new adapter or a concrete SessionState, mutate the existing adapter's
-        # internal state in-place so external holders of the adapter observe the
-        # update. This preserves identity for callers (tests) that passed the
-        # adapter object around.
-        if isinstance(self._state, object) and isinstance(
-            self._state, SessionStateAdapter
-        ):
-            # Mutate in-place if possible
-            try:
-                if isinstance(value, SessionStateAdapter):
-                    self._state._state = value._state
-                elif isinstance(value, SessionState):
-                    self._state._state = value
-                else:
-                    # Best-effort: try to copy dict representation
-                    try:
-                        new_state: SessionState = cast(
-                            SessionState, SessionState.from_dict(value.to_dict())
-                        )
-                        self._state._state = new_state  # type: ignore
-                    except Exception:
-                        # Fallback to replacing the adapter reference
-                        self._state = value
-            except Exception:
-                self._state = value
-        else:
+        if isinstance(value, SessionStateAdapter):
             self._state = value
-
+        elif isinstance(value, SessionState): # Handle raw SessionState directly
+            self._state = SessionStateAdapter(value)
+        else: # Handle other ISessionState implementations by attempting conversion
+            self._state = SessionStateAdapter(cast(SessionState, SessionState.from_dict(value.to_dict())))
         self._last_active_at = datetime.now(timezone.utc)
 
     @property
@@ -382,29 +376,22 @@ class Session(ISession):
         self._agent = value
 
         # Update the is_cline_agent flag in the session state
-        if (value == "cline" or value == "roocode") and isinstance(
-            self._state, SessionStateAdapter
-        ):
-            # Get the current state
-            current_state: SessionState = cast(SessionState, self._state._state)
-            # Create a new state with is_cline_agent=True
-            new_state: SessionState = SessionState(
-                backend_config=current_state.backend_config,
-                reasoning_config=current_state.reasoning_config,
-                loop_config=current_state.loop_config,
-                project=current_state.project,
-                project_dir=current_state.project_dir,
-                interactive_just_enabled=current_state.interactive_just_enabled,
-                hello_requested=current_state.hello_requested,
-                is_cline_agent=True,
-            )
-            # Update the state
-            self._state = SessionStateAdapter(new_state)
+        if value in ["cline", "roocode"]:
+            logger.debug(f"Setting is_cline_agent to True for agent: {value}")
+            self.state = self.state.with_is_cline_agent(True)
+        else:
+            logger.debug(f"Setting is_cline_agent to False for agent: {value}")
+            self.state = self.state.with_is_cline_agent(False)
 
     @property
     def proxy_state(self) -> ISessionState:
         """Get the proxy state (backward compatibility alias for state)."""
         return self._state
+
+    @property
+    def is_cline_agent(self) -> bool:
+        """Check if the agent for this session is Cline (from session state)."""
+        return self.state.is_cline_agent
 
     def add_interaction(self, interaction: SessionInteraction) -> None:
         """Add an interaction to the session history."""
@@ -413,25 +400,12 @@ class Session(ISession):
 
     def update_state(self, state: ISessionState) -> None:
         """Update the session state."""
-        # Prefer mutating existing adapter in-place so external holders of the
-        # adapter observe changes. Fall back to replacing the reference.
-        if isinstance(self._state, SessionStateAdapter):
-            # If caller provided an adapter, copy its concrete state into ours
-            if isinstance(state, SessionStateAdapter):
-                self._state._state = state._state
-            elif isinstance(state, SessionState):
-                self._state._state = state
-            else:
-                # Try to convert via to_dict/from_dict
-                try:
-                    new_state: SessionState = cast(
-                        SessionState, SessionState.from_dict(state.to_dict())
-                    )
-                    self._state._state = new_state  # type: ignore
-                except Exception:
-                    self._state = state
-        else:
+        if isinstance(state, SessionStateAdapter):
             self._state = state
+        elif isinstance(state, SessionState):
+            self._state = SessionStateAdapter(state)
+        else:
+            self._state = SessionStateAdapter(cast(SessionState, SessionState.from_dict(state.to_dict())))
         self._last_active_at = datetime.now(timezone.utc)
 
     def equals(self, other: Any) -> bool:

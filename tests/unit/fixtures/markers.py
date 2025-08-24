@@ -8,19 +8,15 @@ import pytest
 
 def register_markers(config):
     """Register custom markers with pytest.
-    
+
     Args:
         config: The pytest config object
     """
-    config.addinivalue_line(
-        "markers", "command: tests related to command handling"
-    )
+    config.addinivalue_line("markers", "command: tests related to command handling")
     config.addinivalue_line(
         "markers", "session: tests related to session state management"
     )
-    config.addinivalue_line(
-        "markers", "backend: tests related to backend services"
-    )
+    config.addinivalue_line("markers", "backend: tests related to backend services")
     config.addinivalue_line(
         "markers", "di: tests that use the dependency injection architecture"
     )
@@ -30,9 +26,7 @@ def register_markers(config):
     config.addinivalue_line(
         "markers", "integration: integration tests that require multiple components"
     )
-    config.addinivalue_line(
-        "markers", "network: tests that require network access"
-    )
+    config.addinivalue_line("markers", "network: tests that require network access")
     config.addinivalue_line(
         "markers", "loop_detection: tests related to loop detection"
     )

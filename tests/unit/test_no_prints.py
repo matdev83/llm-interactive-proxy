@@ -9,7 +9,7 @@ ALLOWED_FILES = {
     repo_root / "tools" / "deprecate_legacy_endpoints.py",
     repo_root / "debug_command_test.py",
     repo_root / "debug_parsing.py",
-    repo_root / ".pre-commit-hooks" / "architectural-check.py", # Added this line
+    repo_root / ".pre-commit-hooks" / "architectural-check.py",  # Added this line
 }
 
 

@@ -80,7 +80,9 @@ class ProcessorStage(InitializationStage):
                 command_service: ICommandService = provider.get_required_service(
                     cast(type, ICommandService)
                 )
-                return CommandProcessor(command_service) # No change needed here, constructor is correct
+                return CommandProcessor(
+                    command_service
+                )  # No change needed here, constructor is correct
 
             # Register concrete implementation
             services.add_singleton(

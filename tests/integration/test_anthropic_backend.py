@@ -17,12 +17,6 @@ from src.core.app.test_builder import build_test_app as build_app
 pytestmark = pytest.mark.network
 
 # Optional client libraries - skip related scenarios if missing.
-try:
-    import openai
-
-    OPENAI_AVAILABLE = True
-except ImportError:
-    OPENAI_AVAILABLE = False
 
 GENAI_AVAILABLE = False
 ANTHROPIC_AVAILABLE = True
@@ -117,7 +111,15 @@ REQUIRED_ENV_VARS = {
 @pytest.fixture(scope="function")
 def proxy_server(request: Any) -> Generator[_ProxyServer, None, None]:
     """Start proxy configured for the backend under test."""
-    backend = request.param if hasattr(request, "param") else request.getfixturevalue("backend") if "backend" in request.fixturenames else "zai_anthropic"
+    backend = (
+        request.param
+        if hasattr(request, "param")
+        else (
+            request.getfixturevalue("backend")
+            if "backend" in request.fixturenames
+            else "zai_anthropic"
+        )
+    )
 
     os.environ["DISABLE_AUTH"] = "true"
 
@@ -125,16 +127,24 @@ def proxy_server(request: Any) -> Generator[_ProxyServer, None, None]:
     anthropic_api_base_url: str
 
     if backend == "zai_anthropic":
-        zai_key_present = any(k.startswith("ZAI_API_KEY") and os.getenv(k) for k in os.environ)
+        zai_key_present = any(
+            k.startswith("ZAI_API_KEY") and os.getenv(k) for k in os.environ
+        )
         if not zai_key_present:
-            pytest.skip("ZAI_API_KEY not found, skipping real backend test for ZAI Anthropic endpoint")
-        
+            pytest.skip(
+                "ZAI_API_KEY not found, skipping real backend test for ZAI Anthropic endpoint"
+            )
+
         anthropic_api_keys = {"ANTHROPIC_API_KEY": os.environ["ZAI_API_KEY"]}
         anthropic_api_base_url = "https://api.z.ai/api/anthropic"
     else:
         # This block is theoretically unreachable given SCENARIOS, but kept for robustness
-        anthropic_api_keys = {k: v for k, v in os.environ.items() if k.startswith("ANTHROPIC_API_KEY") and v}
-        anthropic_api_base_url = "https://api.anthropic.com/v1" # Default Anthropic URL
+        anthropic_api_keys = {
+            k: v
+            for k, v in os.environ.items()
+            if k.startswith("ANTHROPIC_API_KEY") and v
+        }
+        anthropic_api_base_url = "https://api.anthropic.com/v1"  # Default Anthropic URL
 
     cfg: dict[str, Any] = {
         "backend": "anthropic",
@@ -155,6 +165,7 @@ def proxy_server(request: Any) -> Generator[_ProxyServer, None, None]:
         yield server
     finally:
         server.stop()
+
 
 ######################################################################
 # Test matrix - real backend round-trips

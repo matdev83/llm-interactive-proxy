@@ -24,8 +24,9 @@ class MockCommandProcessorFixtures(CommandProcessor):
         """Process messages for fixture tests."""
         # For debugging
         import logging
+
         logger = logging.getLogger(__name__)
-        
+
         # Log message type and content
         if messages and len(messages) > 0:
             logger.info(f"Message type: {type(messages[0])}")
@@ -57,7 +58,9 @@ class MockCommandProcessorFixtures(CommandProcessor):
             if "!/set" in content:
                 # Create modified messages with command removed
                 modified_messages = messages.copy()
-                if hasattr(messages[0], "model_copy") and callable(messages[0].model_copy):
+                if hasattr(messages[0], "model_copy") and callable(
+                    messages[0].model_copy
+                ):
                     new_message = messages[0].model_copy()
                     new_message.content = content.replace(
                         "!/set(model=openrouter:test-model)", ""

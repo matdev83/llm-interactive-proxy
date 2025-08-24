@@ -213,7 +213,7 @@ class TestAnthropicFrontendIntegration:
         response = self.client.post("/anthropic/v1/messages", json=request_data)
         # Our implementation is lenient with temperature validation for testing purposes
         assert response.status_code == 200
-        
+
         # Test with valid temperature
         request_data["temperature"] = 0.7  # Valid temperature
         response = self.client.post("/anthropic/v1/messages", json=request_data)

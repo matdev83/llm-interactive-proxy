@@ -24,8 +24,6 @@ class IUsageTrackingService(abc.ABC):
         username: str | None = None,
         project: str | None = None,
         session_id: str | None = None,
-        reasoning_tokens: int = 0,
-        cached_tokens: int = 0,
     ) -> UsageData:
         pass
 

@@ -30,10 +30,10 @@ def is_windows() -> bool:
 
 def restart_systemd_service(service_name: str) -> bool:
     """Restart a systemd service.
-    
+
     Args:
         service_name: The name of the service to restart
-        
+
     Returns:
         True if successful, False otherwise
     """
@@ -49,7 +49,7 @@ def restart_systemd_service(service_name: str) -> bool:
         if result.returncode != 0 and "could not be found" in result.stderr:
             logging.error(f"Service {service_name} does not exist")
             return False
-        
+
         # Restart the service
         result = subprocess.run(
             ["sudo", "systemctl", "restart", service_name],
@@ -57,14 +57,14 @@ def restart_systemd_service(service_name: str) -> bool:
             text=True,
             check=False,
         )
-        
+
         if result.returncode != 0:
             logging.error(f"Failed to restart service: {result.stderr}")
             return False
-        
+
         logging.info(f"Service {service_name} restarted successfully")
         return True
-    
+
     except Exception as e:
         logging.error(f"Error restarting service: {e!s}")
         return False
@@ -72,10 +72,10 @@ def restart_systemd_service(service_name: str) -> bool:
 
 def restart_docker_container(container_name: str) -> bool:
     """Restart a Docker container.
-    
+
     Args:
         container_name: The name of the container to restart
-        
+
     Returns:
         True if successful, False otherwise
     """
@@ -83,16 +83,24 @@ def restart_docker_container(container_name: str) -> bool:
     try:
         # Check if container exists
         result = subprocess.run(
-            ["docker", "ps", "-a", "--filter", f"name={container_name}", "--format", "{{.Names}}"],
+            [
+                "docker",
+                "ps",
+                "-a",
+                "--filter",
+                f"name={container_name}",
+                "--format",
+                "{{.Names}}",
+            ],
             capture_output=True,
             text=True,
             check=True,
         )
-        
+
         if not result.stdout.strip():
             logging.error(f"Container {container_name} does not exist")
             return False
-        
+
         # Restart the container
         result = subprocess.run(
             ["docker", "restart", container_name],
@@ -100,14 +108,14 @@ def restart_docker_container(container_name: str) -> bool:
             text=True,
             check=False,
         )
-        
+
         if result.returncode != 0:
             logging.error(f"Failed to restart container: {result.stderr}")
             return False
-        
+
         logging.info(f"Container {container_name} restarted successfully")
         return True
-    
+
     except Exception as e:
         logging.error(f"Error restarting container: {e!s}")
         return False
@@ -115,10 +123,10 @@ def restart_docker_container(container_name: str) -> bool:
 
 def restart_windows_service(service_name: str) -> bool:
     """Restart a Windows service.
-    
+
     Args:
         service_name: The name of the service to restart
-        
+
     Returns:
         True if successful, False otherwise
     """
@@ -131,18 +139,18 @@ def restart_windows_service(service_name: str) -> bool:
             text=True,
             check=False,
         )
-        
+
         if "The specified service does not exist" in result.stderr:
             logging.error(f"Service {service_name} does not exist")
             return False
-        
+
         # Stop the service
         subprocess.run(
             ["net", "stop", service_name],
             capture_output=True,
             check=False,
         )
-        
+
         # Start the service
         result = subprocess.run(
             ["net", "start", service_name],
@@ -150,14 +158,14 @@ def restart_windows_service(service_name: str) -> bool:
             text=True,
             check=False,
         )
-        
+
         if result.returncode != 0:
             logging.error(f"Failed to restart service: {result.stderr}")
             return False
-        
+
         logging.info(f"Service {service_name} restarted successfully")
         return True
-    
+
     except Exception as e:
         logging.error(f"Error restarting service: {e!s}")
         return False
@@ -165,7 +173,7 @@ def restart_windows_service(service_name: str) -> bool:
 
 def restart_dev_server() -> bool:
     """Restart the development server.
-    
+
     Returns:
         True if successful, False otherwise
     """
@@ -180,16 +188,17 @@ def restart_dev_server() -> bool:
                 text=True,
                 check=True,
             )
-            
+
             # Find uvicorn PIDs
             import re
+
             pids = []
             for line in result.stdout.splitlines():
                 if "python.exe" in line and "uvicorn" in line:
                     match = re.search(r"python\.exe\s+(\d+)", line)
                     if match:
                         pids.append(match.group(1))
-            
+
             # Kill processes
             for pid in pids:
                 subprocess.run(["taskkill", "/F", "/PID", pid], check=False)
@@ -200,19 +209,21 @@ def restart_dev_server() -> bool:
                 capture_output=True,
                 check=False,
             )
-        
+
         # Start the server
         script_dir = Path(__file__).resolve().parent.parent.parent
         app_module = "src.core.app.application_factory:app"
-        
+
         cmd = [
-            "uvicorn", 
-            app_module, 
-            "--host", "0.0.0.0",
-            "--port", "8000",
+            "uvicorn",
+            app_module,
+            "--host",
+            "0.0.0.0",
+            "--port",
+            "8000",
             "--reload",
         ]
-        
+
         if is_windows():
             # On Windows, start in a new window
             subprocess.Popen(
@@ -228,10 +239,10 @@ def restart_dev_server() -> bool:
                 stderr=subprocess.PIPE,
                 cwd=script_dir,
             )
-        
+
         logging.info("Development server restarted successfully")
         return True
-    
+
     except Exception as e:
         logging.error(f"Error restarting development server: {e!s}")
         return False
@@ -239,17 +250,19 @@ def restart_dev_server() -> bool:
 
 def main(args: list[str] | None = None) -> int:
     """Main entry point.
-    
+
     Args:
         args: Command line arguments
-        
+
     Returns:
         Exit code (0 for success, non-zero for failure)
     """
     setup_logging()
-    
-    parser = argparse.ArgumentParser(description="Restart the LLM Interactive Proxy service")
-    
+
+    parser = argparse.ArgumentParser(
+        description="Restart the LLM Interactive Proxy service"
+    )
+
     # Define target service type options as a mutually exclusive group
     service_type = parser.add_mutually_exclusive_group(required=True)
     service_type.add_argument(
@@ -276,31 +289,31 @@ def main(args: list[str] | None = None) -> int:
         help="Restart the development server",
         default=False,
     )
-    
+
     # Parse arguments
     parsed_args = parser.parse_args(args)
-    
+
     # Handle the restart based on the specified type
     success = False
-    
+
     if parsed_args.systemd:
         if is_windows():
             logging.error("Cannot restart systemd services on Windows")
             return 1
         success = restart_systemd_service(parsed_args.systemd)
-    
+
     elif parsed_args.docker:
         success = restart_docker_container(parsed_args.docker)
-    
+
     elif parsed_args.windows:
         if not is_windows():
             logging.error("Cannot restart Windows services on non-Windows platforms")
             return 1
         success = restart_windows_service(parsed_args.windows)
-    
+
     elif parsed_args.dev:
         success = restart_dev_server()
-    
+
     return 0 if success else 1
 
 

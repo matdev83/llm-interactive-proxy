@@ -10,7 +10,9 @@ def main() -> int:
     descriptors = getattr(col, "_descriptors", {})
     keys = list(descriptors.keys())
     print("DESCRIPTORS_COUNT:", len(keys))
-    names = [(getattr(k, "__module__", ""), getattr(k, "__name__", str(k))) for k in keys]
+    names = [
+        (getattr(k, "__module__", ""), getattr(k, "__name__", str(k))) for k in keys
+    ]
     pprint(names)
 
     # Check specific services
@@ -44,5 +46,3 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-
-

@@ -51,13 +51,13 @@ async def run_command(command_string: str, initial_state: SessionState = None) -
     """Run a command and return the result message."""
     # Import required modules
     from tests.unit.mock_commands import MockSetCommand
-    
+
     # Create a Session object to hold the state
     initial_state = initial_state or SessionState()
-    
+
     # Create a set command instance
     set_command = MockSetCommand()
-    
+
     # Execute the command directly
     if "!/set" in command_string:
         # Extract any arguments from the command
@@ -79,20 +79,19 @@ async def run_command(command_string: str, initial_state: SessionState = None) -
                     args[key.strip()] = value.strip()
             elif arg_part:
                 args[arg_part.strip()] = True
-        
+
         # Execute the set command directly
         result = await set_command.execute(args, initial_state)
-        
+
         # Return the message from the result
-        if result and hasattr(result, 'message'):
+        if result and hasattr(result, "message"):
             return result.message
-    
+
     # Return empty string if no command was found or executed
     return ""
 
 
 @pytest.mark.asyncio
-
 async def test_set_temperature_integration(snapshot):
     """
     Integration test for the SetCommand using snapshot testing.
@@ -117,7 +116,6 @@ async def test_set_temperature_integration(snapshot):
 
 
 @pytest.mark.asyncio
-
 async def test_set_backend_and_model_integration(snapshot):
     """
     Integration test for setting backend and model together.

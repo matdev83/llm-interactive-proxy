@@ -25,7 +25,9 @@ def command() -> UnsetCommand:
     mock_state_reader.get_disable_interactive_commands.return_value = False
     mock_state_reader.get_failover_routes.return_value = []
 
-    return UnsetCommand(state_reader=mock_state_reader, state_modifier=mock_state_modifier)
+    return UnsetCommand(
+        state_reader=mock_state_reader, state_modifier=mock_state_modifier
+    )
 
 
 @pytest.fixture

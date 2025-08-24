@@ -60,6 +60,12 @@ async def get_chat_controller_if_available(request: Request) -> ChatController:
 
     try:
         chat_controller = service_provider.get_service(ChatController)
+        logger.debug(
+            f"Got ChatController from service provider: {type(chat_controller).__name__}"
+        )
+        logger.debug(
+            f"ChatController processor type: {type(chat_controller._processor).__name__}"
+        )
         if chat_controller:
             return cast(ChatController, chat_controller)
         return cast(ChatController, get_chat_controller(service_provider))
@@ -485,7 +491,7 @@ def register_compatibility_endpoints(app: FastAPI) -> None:
         ),
     ) -> Response:
         return await controller.handle_anthropic_messages(request, request_data)
-        
+
     # Add Anthropic compatibility endpoints
     @app.post("/anthropic/v1/messages")
     async def anthropic_messages(
@@ -496,7 +502,7 @@ def register_compatibility_endpoints(app: FastAPI) -> None:
         ),
     ) -> Response:
         return await controller.handle_anthropic_messages(request, request_data)
-        
+
     @app.get("/anthropic/v1/models")
     async def anthropic_models(
         request: Request,
@@ -512,31 +518,31 @@ def register_compatibility_endpoints(app: FastAPI) -> None:
                 {
                     "id": "claude-3-5-sonnet-20241022",
                     "object": "model",
-                    "owned_by": "anthropic"
+                    "owned_by": "anthropic",
                 },
                 {
                     "id": "claude-3-5-haiku-20241022",
                     "object": "model",
-                    "owned_by": "anthropic"
+                    "owned_by": "anthropic",
                 },
                 {
                     "id": "claude-3-opus-20240229",
                     "object": "model",
-                    "owned_by": "anthropic"
+                    "owned_by": "anthropic",
                 },
                 {
                     "id": "claude-3-sonnet-20240229",
                     "object": "model",
-                    "owned_by": "anthropic"
+                    "owned_by": "anthropic",
                 },
                 {
                     "id": "claude-3-haiku-20240307",
                     "object": "model",
-                    "owned_by": "anthropic"
-                }
-            ]
+                    "owned_by": "anthropic",
+                },
+            ],
         }
-        
+
     @app.get("/anthropic/v1/info")
     async def anthropic_info() -> dict[str, Any]:
         """Get information about the Anthropic API."""
@@ -550,9 +556,9 @@ def register_compatibility_endpoints(app: FastAPI) -> None:
                 "claude-3-opus-20240229",
                 "claude-3-sonnet-20240229",
                 "claude-3-haiku-20240307",
-            ]
+            ],
         }
-        
+
     @app.get("/anthropic/health")
     async def anthropic_health() -> dict[str, Any]:
         """Health check endpoint."""

@@ -20,5 +20,3 @@ def main(timeout_seconds: int = 20) -> int:
 
 if __name__ == "__main__":
     sys.exit(main())
-
-

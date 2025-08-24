@@ -24,7 +24,7 @@ class TestHttpStatusConstantsUsage(unittest.TestCase):
         """Test that service unavailable errors use the correct HTTP status message."""
         with self.assertRaises(Exception) as context:
             handle_service_unavailable_error("Test Service")
-        
+
         self.assertIn(HTTP_503_SERVICE_UNAVAILABLE_MESSAGE, str(context.exception))
         self.assertIn("Test Service not available", str(context.exception))
 
@@ -32,11 +32,11 @@ class TestHttpStatusConstantsUsage(unittest.TestCase):
         """Test that internal server errors use the correct HTTP status message."""
         with self.assertRaises(Exception) as context:
             handle_internal_server_error("Test error")
-        
+
         self.assertIn(HTTP_500_INTERNAL_SERVER_ERROR_MESSAGE, str(context.exception))
         self.assertIn("Test error", str(context.exception))
 
-    @patch('examples.http_status_constants_usage.example_controller_function')
+    @patch("examples.http_status_constants_usage.example_controller_function")
     def test_example_controller_function_service_unavailable(self, mock_function):
         """Test that the example controller function handles service unavailable errors."""
         # This is just a basic test to ensure the function can be called

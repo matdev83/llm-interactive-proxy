@@ -204,7 +204,6 @@ class TestMultimodalMessage:
         assert result["content"][0]["type"] == ContentType.TEXT
         assert result["content"][1]["type"] == ContentType.IMAGE
 
-
     def test_to_openai_format(self) -> None:
         """Test converting a message to OpenAI format."""
         message = MultimodalMessage.with_image(
@@ -250,7 +249,6 @@ class TestMultimodalMessage:
         assert len(result["parts"]) == 2
         assert "text" in result["parts"][0]
         assert "inline_data" in result["parts"][1]
-
 
     def test_backend_format_selection(self) -> None:
         """Test selecting the correct backend format."""

@@ -183,7 +183,9 @@ class TestGeminiGenerateContent:
         with patch.object(
             client.app.state.openrouter_backend,
             "chat_completions",
-            new=AsyncMock(return_value=ResponseEnvelope(content=mock_response, headers={})),
+            new=AsyncMock(
+                return_value=ResponseEnvelope(content=mock_response, headers={})
+            ),
         ):
             # Mock response already defined above
 
@@ -252,7 +254,9 @@ class TestGeminiGenerateContent:
         with patch.object(
             client.app.state.openrouter_backend,
             "chat_completions",
-            new=AsyncMock(return_value=ResponseEnvelope(content=mock_response, headers={})),
+            new=AsyncMock(
+                return_value=ResponseEnvelope(content=mock_response, headers={})
+            ),
         ):
 
             response = client.post(
@@ -456,7 +460,9 @@ class TestGeminiRequestConversion:
         with patch.object(
             client.app.state.openrouter_backend,
             "chat_completions",
-            new=AsyncMock(return_value=ResponseEnvelope(content=mock_response, headers={})),
+            new=AsyncMock(
+                return_value=ResponseEnvelope(content=mock_response, headers={})
+            ),
         ) as mock_backend:
 
             response = client.post(

@@ -50,6 +50,7 @@ dev = [
     "pytest",
     "pytest-asyncio",
     "pytest-httpx",
+    "pytest-mock",
     "ruff",
     "black",
     "requests",
@@ -62,6 +63,8 @@ dev = [
     "pytest-snapshot",
     "mypy",
     "hypothesis",
+    "xenon",
+    "radon",
 ]
 
 [build-system]

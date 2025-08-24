@@ -70,9 +70,40 @@ async def http_exception_handler(request: Request, exc: HTTPException) -> Respon
     """
     logger.warning(f"HTTP error {exc.status_code}: {exc.detail}")
 
-    return JSONResponse(
-        status_code=exc.status_code,
-        content={
+    # Check if this is a chat completions endpoint request
+    is_chat_completions = False
+    if request.url.path.endswith("/chat/completions"):
+        is_chat_completions = True
+
+    if is_chat_completions:
+        # Return OpenAI-compatible error response with choices for chat completions
+        import time
+
+        content = {
+            "id": f"error-{int(time.time())}",
+            "object": "chat.completion",
+            "created": int(time.time()),
+            "model": "error",
+            "choices": [
+                {
+                    "index": 0,
+                    "message": {
+                        "role": "assistant",
+                        "content": f"Error: {exc.detail!s}",
+                    },
+                    "finish_reason": "error",
+                }
+            ],
+            "usage": {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},
+            "error": {
+                "message": str(exc.detail),
+                "type": "HttpError",
+                "status_code": exc.status_code,
+            },
+        }
+    else:
+        # Standard error response for non-chat completions endpoints
+        content = {
             "detail": {
                 "error": {
                     "message": str(exc.detail),
@@ -80,7 +111,11 @@ async def http_exception_handler(request: Request, exc: HTTPException) -> Respon
                     "status_code": exc.status_code,
                 }
             }
-        },
+        }
+
+    return JSONResponse(
+        status_code=exc.status_code,
+        content=content,
         headers=getattr(exc, "headers", None),
     )
 
@@ -108,6 +143,11 @@ async def proxy_exception_handler(request: Request, exc: LLMProxyError) -> Respo
     else:
         logger.warning(f"{exc_name}: {exc_message}")
 
+    # Check if this is a chat completions endpoint request
+    is_chat_completions = False
+    if request.url.path.endswith("/chat/completions"):
+        is_chat_completions = True
+
     # If this is a LLMProxyError, preserve its status_code and details.
     if isinstance(exc, LLMProxyError):
         if exc.details and logger.isEnabledFor(logging.DEBUG):
@@ -118,12 +158,55 @@ async def proxy_exception_handler(request: Request, exc: LLMProxyError) -> Respo
             if getattr(exc, "message", None) == "all backends failed"
             else exc.status_code
         )
-        content = {
-            "detail": {
-                "error": exc.message,
-                **({"details": exc.details} if getattr(exc, "details", None) else {}),
+
+        if is_chat_completions:
+            # Return OpenAI-compatible error response with choices for chat completions
+            import time
+
+            content = {
+                "id": f"error-{int(time.time())}",
+                "object": "chat.completion",
+                "created": int(time.time()),
+                "model": "error",
+                "choices": [
+                    {
+                        "index": 0,
+                        "message": {
+                            "role": "assistant",
+                            "content": f"Error: {exc_message}",
+                        },
+                        "finish_reason": "error",
+                    }
+                ],
+                "usage": {
+                    "prompt_tokens": 0,
+                    "completion_tokens": 0,
+                    "total_tokens": 0,
+                },
+                "error": {
+                    "message": exc_message,
+                    "type": exc_name,
+                    "status_code": status_code,
+                    **(
+                        {"details": exc.details}
+                        if getattr(exc, "details", None)
+                        else {}
+                    ),
+                },
             }
-        }
+        else:
+            # Standard error response for non-chat completions endpoints
+            content = {
+                "detail": {
+                    "error": exc_message,
+                    **(
+                        {"details": exc.details}
+                        if getattr(exc, "details", None)
+                        else {}
+                    ),
+                }
+            }
+
         return JSONResponse(status_code=status_code, content=content)
 
     # Fallback for non-ProxyError exceptions
@@ -153,9 +236,40 @@ async def general_exception_handler(request: Request, exc: Exception) -> Respons
     """
     logger.exception("Unhandled exception", exc_info=exc)
 
-    return JSONResponse(
-        status_code=500,
-        content={
+    # Check if this is a chat completions endpoint request
+    is_chat_completions = False
+    if request.url.path.endswith("/chat/completions"):
+        is_chat_completions = True
+
+    if is_chat_completions:
+        # Return OpenAI-compatible error response with choices for chat completions
+        import time
+
+        content = {
+            "id": f"error-{int(time.time())}",
+            "object": "chat.completion",
+            "created": int(time.time()),
+            "model": "error",
+            "choices": [
+                {
+                    "index": 0,
+                    "message": {
+                        "role": "assistant",
+                        "content": f"Error: {HTTP_500_INTERNAL_SERVER_ERROR_MESSAGE}",
+                    },
+                    "finish_reason": "error",
+                }
+            ],
+            "usage": {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},
+            "error": {
+                "message": HTTP_500_INTERNAL_SERVER_ERROR_MESSAGE,
+                "type": "InternalError",
+                "status_code": 500,
+            },
+        }
+    else:
+        # Standard error response for non-chat completions endpoints
+        content = {
             "detail": {
                 "error": {
                     "message": HTTP_500_INTERNAL_SERVER_ERROR_MESSAGE,
@@ -163,7 +277,11 @@ async def general_exception_handler(request: Request, exc: Exception) -> Respons
                     "status_code": 500,
                 }
             }
-        },
+        }
+
+    return JSONResponse(
+        status_code=500,
+        content=content,
     )
 
 

@@ -1,8 +1,10 @@
 import asyncio
 import logging
 from collections.abc import Generator
-from typing import Any
+from typing import Any, cast
 from unittest.mock import AsyncMock, MagicMock, Mock
+
+from pytest_mock import MockFixture
 
 # Targeted fix for specific AsyncMock coroutine warning patterns
 # Store original AsyncMock for safe usage
@@ -22,7 +24,7 @@ _PROBLEMATIC_TEST_MODULES = {
 }
 
 
-class SmartAsyncMock(AsyncMock): # Inherit directly from AsyncMock
+class SmartAsyncMock(AsyncMock):  # Inherit directly from AsyncMock
     """AsyncMock that converts to regular Mock for problematic patterns.
 
     This implementation uses a cached module check for better performance.
@@ -56,7 +58,9 @@ class SmartAsyncMock(AsyncMock): # Inherit directly from AsyncMock
                 pass
 
         # Default to real AsyncMock for legitimate async testing
-        return super().__new__(cls, *args, **kwargs) # Pass args and kwargs to super().__new__
+        return super().__new__(
+            cls, *args, **kwargs
+        )  # Pass args and kwargs to super().__new__
 
     # __init__ is implicitly called by __new__ for AsyncMock, no need to override if no extra init logic
     # def __init__(self, *args, **kwargs):
@@ -66,6 +70,83 @@ class SmartAsyncMock(AsyncMock): # Inherit directly from AsyncMock
 # Replace AsyncMock with our smart class (preserves isinstance() compatibility)
 # No need to store original AsyncMock as it's directly imported for SmartAsyncMock
 from unittest.mock import AsyncMock  # Explicitly import AsyncMock for SmartAsyncMock
+
+# Patch AsyncMock.__aiter__ to support iteration over AsyncMocks whose side_effect
+# returns an async generator function or an awaitable resolving to an async iterator.
+# This makes patterns like `async for x in mocker.AsyncMock(side_effect=gen):` work.
+try:
+    _orig_asyncmock_aiter = getattr(AsyncMock, "__aiter__", None)
+
+    async def _patched_asyncmock_aiter(self):  # type: ignore[no-redef]
+        try:
+            # Prefer side_effect if available
+            side_effect = getattr(self, "side_effect", None)
+            if side_effect is not None:
+                res = side_effect()
+                # If side_effect returned an async iterator directly
+                if hasattr(res, "__aiter__"):
+                    return res
+                # If side_effect returned an awaitable, await to get an iterator
+                if hasattr(res, "__await__"):
+
+                    async def _bridge():
+                        it = await res  # type: ignore[misc]
+                        async for item in it:
+                            yield item
+
+                    return _bridge()
+        except Exception:
+            pass
+        # Fallback to original behavior if present
+        if callable(_orig_asyncmock_aiter):
+            return _orig_asyncmock_aiter(self)  # type: ignore[misc]
+
+        # Final fallback: empty async generator
+        async def _empty():  # pragma: no cover - defensive
+            if False:
+                yield None  # type: ignore[misc]
+
+        return _empty()
+
+    if callable(_orig_asyncmock_aiter):
+        # Assign patched method
+        AsyncMock.__aiter__ = _patched_asyncmock_aiter  # type: ignore[assignment]
+except Exception:
+    pass
+
+# Additionally, patch pytest-mock's MockFixture.AsyncMock factory to ensure
+# async-iterable behavior when a side_effect async generator function is supplied.
+try:
+    import pytest_mock.plugin as _pmp  # type: ignore
+
+    _orig_factory_asyncmock = _pmp.MockFixture.AsyncMock
+
+    def _patched_factory_asyncmock(self, *args, **kwargs):  # type: ignore
+        mock_obj = _orig_factory_asyncmock(self, *args, **kwargs)
+        sf = kwargs.get("side_effect")
+        if sf is not None:
+            try:
+
+                async def _aiter_bridge():
+                    res = sf()
+                    if hasattr(res, "__await__"):
+                        res = await res  # type: ignore[misc]
+                    # res should now be an async iterator
+                    async for item in res:  # type: ignore[misc]
+                        yield item
+
+                # If __aiter__ exists and is a mock, assign side_effect
+                if hasattr(mock_obj, "__aiter__") and hasattr(
+                    mock_obj.__aiter__, "side_effect"
+                ):
+                    mock_obj.__aiter__.side_effect = _aiter_bridge  # type: ignore[attr-defined]
+            except Exception:
+                pass
+        return mock_obj
+
+    _pmp.MockFixture.AsyncMock = _patched_factory_asyncmock  # type: ignore[attr-defined]
+except Exception:
+    pass
 
 from src.connectors.base import LLMBackend
 from src.core.app.test_builder import (
@@ -86,6 +167,7 @@ from src.core.domain.responses import (
 )
 from src.core.interfaces.backend_service_interface import IBackendService
 from src.core.interfaces.session_service_interface import ISessionService
+from src.core.interfaces.domain_entities_interface import ISessionState # Added missing import
 
 from tests.unit.openai_connector_tests.test_streaming_response import (
     AsyncIterBytes,  # Added for AsyncIterBytes in global mock
@@ -121,15 +203,15 @@ try:
 
         _original_httpx_iter_lines = httpx.Response.iter_lines
 
-        def _httpx_iter_lines_force_str(self, *args, **kwargs): # Renamed function
+        def _httpx_iter_lines_force_str(self, *args, **kwargs):  # Renamed function
             """Ensure httpx.Response.iter_lines always yields str."""
             for line in _original_httpx_iter_lines(self, *args, **kwargs):
-                if isinstance(line, bytes): # Decode bytes to str
+                if isinstance(line, bytes):  # Decode bytes to str
                     yield line.decode("utf-8")
                 else:
                     yield line
 
-        httpx.Response.iter_lines = _httpx_iter_lines_force_str # Use renamed function
+        httpx.Response.iter_lines = _httpx_iter_lines_force_str  # Use renamed function
     except (ImportError, AttributeError):
         pass
 except Exception as e:
@@ -315,15 +397,16 @@ def test_session() -> Generator[Any, None, None]:
 
 
 @pytest.fixture
-def test_session_state(test_session) -> Any:
+def test_session_state(test_session) -> ISessionState:
     """Get the state from a test session.
 
     Args:
         test_session: A test session
 
     Returns:
-        Any: The state from the test session
+        ISessionState: The state from the test session
     """
+    # The session.state is already an ISessionState (specifically a SessionStateAdapter)
     return test_session.state
 
 
@@ -347,17 +430,18 @@ def test_app_config() -> AppConfig:
     """
     return AppConfig(
         logging=LoggingConfig(level=LogLevel.INFO),
-        session=SessionConfig(), # Removed invalid parameters
-        backends=BackendSettings(
-            openai=BackendConfig(api_key=["test-key"]), # Changed to direct assignment
-            anthropic=BackendConfig(api_key=["test-key"]),
-            gemini=BackendConfig(api_key=["test-key"]),
-            openrouter=BackendConfig(api_key=["test-key"]),
-        ),
+        session=SessionConfig(),
+        backends=BackendSettings(), # Initialize BackendSettings without direct API keys in constructor
         auth=AuthConfig(
             api_keys=["test-key"],
-        ), # Removed invalid parameters
+        ),
     )
+    # Set API keys directly on the backends object after initialization
+    app_config.backends.openai.api_key = ["test-key"]
+    app_config.backends.anthropic.api_key = ["test-key"]
+    app_config.backends.gemini.api_key = ["test-key"]
+    app_config.backends.openrouter.api_key = ["test-key"]
+    return app_config
 
 
 @pytest.fixture
@@ -370,7 +454,7 @@ def test_service_provider(test_service_collection) -> Generator[Any, None, None]
     Returns:
         Generator: A test service provider
     """
-    from src.core.di.provider import ServiceProvider
+    from src.core.di.provider import ServiceProvider # Added missing import
 
     provider = ServiceProvider(test_service_collection)
     yield provider
@@ -388,7 +472,7 @@ def test_session_service(test_service_provider) -> Generator[Any, None, None]:
     """
     from unittest.mock import MagicMock
 
-    from src.core.interfaces.session_repository_interface import ISessionRepository
+    from src.core.interfaces.session_repository_interface import ISessionRepository # Added missing import
     from src.core.services.session_service import SessionService
 
     mock_session_repository = MagicMock(spec=ISessionRepository)

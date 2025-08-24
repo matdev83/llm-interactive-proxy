@@ -1,4 +1,3 @@
-
 import pytest
 from src.core.domain.session import BackendConfiguration, SessionState
 

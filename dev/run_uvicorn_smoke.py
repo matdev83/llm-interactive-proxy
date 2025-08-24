@@ -6,7 +6,16 @@ import httpx
 
 
 def main() -> int:
-    cmd = [sys.executable, "-m", "src.core.cli", "--disable-auth", "--host", "127.0.0.1", "--port", "8001"]
+    cmd = [
+        sys.executable,
+        "-m",
+        "src.core.cli",
+        "--disable-auth",
+        "--host",
+        "127.0.0.1",
+        "--port",
+        "8001",
+    ]
     proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     try:
         # Wait for server to start

@@ -94,17 +94,16 @@ class AnthropicController:
 
             # Convert the dict to a ChatRequest object
             from src.core.domain.chat import ChatMessage, ChatRequest
-            
+
             messages = []
             if "messages" in openai_request_data:
                 messages = [
                     ChatMessage(
-                        role=msg.get("role", "user"),
-                        content=msg.get("content", "")
+                        role=msg.get("role", "user"), content=msg.get("content", "")
                     )
                     for msg in openai_request_data.get("messages", [])
                 ]
-            
+
             chat_request = ChatRequest(
                 messages=messages,
                 model=openai_request_data.get("model", ""),
@@ -114,9 +113,9 @@ class AnthropicController:
                 top_p=openai_request_data.get("top_p", 1.0),
                 frequency_penalty=openai_request_data.get("frequency_penalty", 0.0),
                 presence_penalty=openai_request_data.get("presence_penalty", 0.0),
-                stop=openai_request_data.get("stop", None),
+                stop=openai_request_data.get("stop"),
             )
-            
+
             # Process the request using the request processor
             response = await self._processor.process_request(ctx, chat_request)
 
@@ -132,7 +131,7 @@ class AnthropicController:
             # Convert the OpenAI response back to Anthropic format
             # Check if the response is a streaming response
             from fastapi.responses import StreamingResponse
-            
+
             if isinstance(adapted_response, StreamingResponse):
                 # For streaming responses, we'll handle them separately
                 openai_response_data = {}
@@ -143,7 +142,7 @@ class AnthropicController:
                 if isinstance(body_content, memoryview):
                     body_content = body_content.tobytes()
                 openai_response_data: dict[str, Any] = json.loads(body_content.decode())
-    
+
                 # Convert to Anthropic format if it has the expected OpenAI structure
                 # Otherwise, pass through the response as is
                 anthropic_response_data: dict[str, Any]
@@ -178,37 +177,35 @@ class AnthropicController:
                             yield adapted_response.body
                         else:
                             yield b'data: {"error": "Unable to stream response"}\n\n'
-                            
+
                     return StreamingResponse(
                         simple_stream(),
                         media_type="text/event-stream",
-                        headers=getattr(adapted_response, "headers", {})
+                        headers=getattr(adapted_response, "headers", {}),
                     )
             else:
                 # For non-streaming, return Anthropic-formatted JSON response
                 logger.info(f"Returning JSON response: {anthropic_response_data}")
-                
+
                 # If we're using the OpenAI format (choices), convert it to Anthropic format
                 if "choices" in anthropic_response_data:
                     # Convert OpenAI format to Anthropic format
                     first_choice = anthropic_response_data["choices"][0]
                     anthropic_formatted = {
-                        "id": anthropic_response_data.get("id", "msg_" + str(hash(str(anthropic_response_data)))),
+                        "id": anthropic_response_data.get(
+                            "id", "msg_" + str(hash(str(anthropic_response_data)))
+                        ),
                         "type": "message",
                         "role": "assistant",
                         "content": [
-                            {
-                                "type": "text",
-                                "text": first_choice["message"]["content"]
-                            }
+                            {"type": "text", "text": first_choice["message"]["content"]}
                         ],
                         "model": anthropic_response_data.get("model", ""),
                         "stop_reason": first_choice.get("finish_reason", "end_turn"),
                         "stop_sequence": None,
-                        "usage": anthropic_response_data.get("usage", {
-                            "input_tokens": 0,
-                            "output_tokens": 0
-                        })
+                        "usage": anthropic_response_data.get(
+                            "usage", {"input_tokens": 0, "output_tokens": 0}
+                        ),
                     }
                     return FastAPIResponse(
                         content=json.dumps(anthropic_formatted),

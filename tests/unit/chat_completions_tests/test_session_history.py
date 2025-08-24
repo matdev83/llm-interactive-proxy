@@ -62,7 +62,9 @@ async def test_session_records_proxy_and_backend_interactions(client):
     # Second entry: backend interaction recorded with usage and reply
     assert session.history[1].handler == "backend"
     assert session.history[1].response in ("backend reply", None)
-    assert session.history[1].usage is None or session.history[1].usage.total_tokens == 3
+    assert (
+        session.history[1].usage is None or session.history[1].usage.total_tokens == 3
+    )
 
 
 @pytest.mark.asyncio

@@ -286,8 +286,8 @@ class AnthropicBackend(LLMBackend):
     # -----------------------------------------------------------
     async def _handle_streaming_response(
         self, url: str, payload: dict, headers: dict, model: str
-    ) -> AsyncIterator[bytes]:
-        """Handle a streaming response from Anthropic and return an async iterator of bytes."""
+    ) -> AsyncIterator[ProcessedResponse]:
+        """Handle a streaming response from Anthropic and return an async iterator of ProcessedResponse objects."""
         request = self.client.build_request("POST", url, json=payload, headers=headers)
         try:
             response = await self.client.send(request, stream=True)

@@ -102,11 +102,11 @@ class TestBuildApp:
         mock_config_instance = MagicMock()
         mock_from_env.return_value = mock_config_instance
         mock_fastapi_app = MagicMock(spec=FastAPI)
-        
+
         # Create a coroutine mock that returns the FastAPI app
         async def mock_async_build(config):
             return mock_fastapi_app
-        
+
         mock_build_app_async.return_value = mock_async_build(mock_config_instance)
 
         app = build_app()
@@ -129,11 +129,11 @@ class TestBuildApp:
 
         # Mock FastAPI app with title
         mock_fastapi_app = MagicMock(spec=FastAPI, title="LLM Interactive Proxy")
-        
+
         # Create a coroutine mock that returns the FastAPI app
         async def mock_async_build(config):
             return mock_fastapi_app
-        
+
         mock_build_app_async.return_value = mock_async_build(mock_config_instance)
 
         app = build_app()
@@ -159,11 +159,11 @@ class TestBuildApp:
 
         # Attach the state to the app
         mock_fastapi_app.state = mock_state
-        
+
         # Create a coroutine mock that returns the FastAPI app
         async def mock_async_build(config):
             return mock_fastapi_app
-        
+
         mock_build_app_async.return_value = mock_async_build(mock_config_instance)
 
         app = build_app()

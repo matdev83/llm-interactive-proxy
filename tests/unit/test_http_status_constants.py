@@ -46,7 +46,9 @@ class TestHttpStatusConstants(unittest.TestCase):
 
     def test_server_error_status_messages(self):
         """Test that server error status messages are correctly defined."""
-        self.assertEqual(HTTP_500_INTERNAL_SERVER_ERROR_MESSAGE, "Internal Server Error")
+        self.assertEqual(
+            HTTP_500_INTERNAL_SERVER_ERROR_MESSAGE, "Internal Server Error"
+        )
         self.assertEqual(HTTP_501_NOT_IMPLEMENTED_MESSAGE, "Not Implemented")
         self.assertEqual(HTTP_502_BAD_GATEWAY_MESSAGE, "Bad Gateway")
         self.assertEqual(HTTP_503_SERVICE_UNAVAILABLE_MESSAGE, "Service Unavailable")

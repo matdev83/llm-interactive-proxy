@@ -216,13 +216,13 @@ class BackendService(IBackendService):
                     if backend_config_from_app and backend_config_from_app.identity
                     else app_config_typed.identity
                 )
-                result: (
-                    ResponseEnvelope | StreamingResponseEnvelope
-                ) = await backend.chat_completions(
-                    request_data=domain_request,
-                    processed_messages=request.messages,
-                    effective_model=effective_model,
-                    identity=identity,
+                result: ResponseEnvelope | StreamingResponseEnvelope = (
+                    await backend.chat_completions(
+                        request_data=domain_request,
+                        processed_messages=request.messages,
+                        effective_model=effective_model,
+                        identity=identity,
+                    )
                 )
 
                 return result

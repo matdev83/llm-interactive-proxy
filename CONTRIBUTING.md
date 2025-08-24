@@ -1,158 +1,167 @@
 # Contributing to LLM Interactive Proxy
 
-Thank you for your interest in contributing to the LLM Interactive Proxy! This document provides guidelines and instructions for contributing to the project.
-
-## Code of Conduct
-
-Please be respectful and considerate when interacting with other contributors. We aim to create a welcoming and inclusive environment for everyone.
-
-## Getting Started
-
-1. **Fork the repository** on GitHub.
-1. **Clone your fork** locally:
-   ```bash
-   git clone https://github.com/YOUR-USERNAME/llm-interactive-proxy.git
-   cd llm-interactive-proxy
-   ```
-1. **Create a virtual environment** and install dependencies:
-   ```bash
-   python -m venv .venv
-   # On Linux/macOS
-   source .venv/bin/activate
-   # On Windows
-   .venv\Scripts\activate
-
-   pip install -e .[dev]
-   ```
-1. **Create a feature branch** for your changes:
-   ```bash
-   git checkout -b feature/your-feature-name
-   ```
+We welcome contributions to the LLM Interactive Proxy! This guide provides an overview of the development workflow, architectural guidelines, and best practices for contributing to the project.
 
 ## Development Workflow
 
-1. **Check the existing issues** for tasks to work on or create a new issue to discuss your proposed changes.
-1. **Make your changes** following the project's architecture and coding standards.
-1. **Write or update tests** for your changes.
-1. **Run the linters and formatters** to ensure code quality:
-   ```bash
-   # Run ruff linter
-   ruff check --fix src/
-   # Run Black formatter
-   black src/
-   # Run MyPy type checker
-   mypy src/
-   ```
-1. **Run the tests** to ensure everything works:
-   ```bash
-   pytest
-   ```
-1. **Commit your changes** with descriptive commit messages.
-1. **Push your changes** to your fork:
-   ```bash
-   git push origin feature/your-feature-name
-   ```
-1. **Submit a pull request** to the main repository.
+### Setting Up Development Environment
 
-## Architecture and Design Principles
+1. **Clone the repository**:
 
-The LLM Interactive Proxy follows a clean architecture approach based on SOLID principles. Please refer to the [Developer Guide](docs/DEVELOPER_GUIDE.md) for detailed information on the architecture.
+    ```bash
+    git clone https://github.com/your-org/llm-interactive-proxy.git
+    cd llm-interactive-proxy
+    ```
 
-When contributing code, please follow these principles:
+2. **Create a virtual environment**:
 
-1. **Single Responsibility Principle (SRP)**: Each class should have only one reason to change.
-1. **Open/Closed Principle (OCP)**: Classes should be open for extension but closed for modification.
-1. **Liskov Substitution Principle (LSP)**: Subtypes must be substitutable for their base types.
-1. **Interface Segregation Principle (ISP)**: Clients shouldn't depend on interfaces they don't use.
-1. **Dependency Inversion Principle (DIP)**: Depend on abstractions, not concrete implementations.
+    ```bash
+    python -m venv .venv
+    ```
 
-## Coding Standards
+3. **Activate the virtual environment**:
+    - Windows: `.\.venv\Scripts\activate`
+    - Unix: `source .venv/bin/activate`
+4. **Install dependencies**:
 
-- **Type Hints**: Use Python type hints for function parameters and return values.
-- **Docstrings**: Add docstrings to all public methods and classes using Google style format.
-- **Tests**: Write tests for new functionality or bug fixes.
-- **PEP 8**: Follow PEP 8 style guidelines as enforced by Black and Ruff.
+    ```bash
+    pip install -e .[dev]
+    ```
 
-## Pull Request Guidelines
+5. **Create a `.env` file**: With your API keys (see `README.md` for details).
 
-- **Focused Changes**: Each pull request should address a single issue or feature.
-- **Documentation**: Update the documentation to reflect your changes if necessary.
-- **Tests**: Include tests for your changes.
-- **Linting**: Ensure your code passes linting checks.
-- **Descriptive PR**: Provide a clear description of the changes and why they are needed.
+### Running the Application
 
-## Feature Requests and Bug Reports
+```bash
+# Run with default settings
+python -m src.core.cli
 
-- **Feature Requests**: Open an issue with a clear description of the feature and why it would be valuable.
-- **Bug Reports**: Include steps to reproduce, expected behavior, actual behavior, and environment details.
+# Run with custom configuration
+python -m src.core.cli --config path/to/config.yaml
 
-## Adding New Backends
-
-To add a new LLM backend connector:
-
-1. Create a new file in `src/connectors/` implementing the `LLMBackend` abstract class.
-1. Add appropriate configuration options in `src/core/config/app_config.py`.
-1. Update the `BackendFactory` in `src/core/services/backend_factory.py` to support the new backend.
-1. Add tests for the new backend connector.
-1. Update the documentation to include the new backend.
-
-## Adding New Commands
-
-To add a new in-chat command:
-
-1. Create a new command handler in `src/commands/` following the command pattern.
-1. Register the command in the command registry.
-1. Add tests for the new command.
-1. Update the documentation to include the new command.
-
-## Working with Configuration
-
-The project uses a modern, type-safe configuration system. When working with configuration:
-
-### Configuration Interfaces
-
-Always depend on configuration interfaces, not concrete implementations:
-
-```python
-from src.core.interfaces.configuration import IBackendConfig, IReasoningConfig
-
-class MyService:
-    def __init__(self, backend_config: IBackendConfig, reasoning_config: IReasoningConfig):
-        self._backend_config = backend_config
-        self._reasoning_config = reasoning_config
+# Run with different backends
+python -m src.core.cli --default-backend openrouter
+python -m src.core.cli --default-backend gemini
+python -m src.core.cli --default-backend anthropic
 ```
 
-### Adding New Configuration Options
+### Running Tests
 
-1. **Define the interface** in `src/core/interfaces/configuration.py`
-2. **Implement the domain model** in `src/core/domain/configuration.py`
-3. **Register with DI container** in the application factory
-4. **Add environment variable handling** in the config loader
-5. **Write tests** for the new configuration options
-6. **Update documentation** including the new [Configuration Guide](docs/CONFIGURATION.md)
+```bash
+# Run all tests
+python -m pytest
 
-### Configuration Best Practices
+# Run specific test file
+python -m pytest tests/unit/test_backend_service.py
 
-- Use immutable configuration objects (frozen Pydantic models)
-- Implement proper interfaces for all configuration types
-- Use the builder pattern (`with_*` methods) for modifications
-- Validate configuration at application startup
-- Write comprehensive tests for configuration objects
+# Run with coverage
+python -m pytest --cov=src
+```
 
-## Documentation Changes
+### Linting and Formatting
 
-Documentation improvements are always welcome. Please follow these guidelines:
+```bash
+# Run ruff
+python -m ruff check src
 
-1. Ensure documentation is clear and concise.
-1. Update relevant sections when adding new features or changing existing ones.
-1. Use consistent formatting and style.
+# Run black
+python -m black src
 
-## License
+# Run mypy
+python -m mypy src
+```
 
-By contributing to the LLM Interactive Proxy, you agree that your contributions will be licensed under the project's license.
+## Architecture Overview
 
-## Questions and Support
+The LLM Interactive Proxy follows a clean architecture approach based on SOLID principles:
 
-If you have questions about contributing or need help, please open an issue labeled "question" or "help wanted".
+- **S**ingle Responsibility Principle: Each class has one responsibility.
+- **O**pen/Closed Principle: Open for extension, closed for modification.
+- **L**iskov Substitution Principle: Subtypes must be substitutable for their base types.
+- **I**nterface Segregation Principle: Clients shouldn't depend on methods they don't use.
+- **D**ependency Inversion Principle: High-level modules depend on abstractions, not concrete implementations.
 
-Thank you for contributing to the LLM Interactive Proxy!
+### Key Architectural Layers
+
+1. **Interface Layer** (`src/core/interfaces/`): Defines contracts (abstract base classes) for services.
+2. **Domain Layer** (`src/core/domain/`): Contains business entities and value objects; implements domain logic using immutable models.
+3. **Application Layer** (`src/core/app/`): Orchestrates application flow, connects domain to infrastructure, contains controllers and middleware.
+4. **Service Layer** (`src/core/services/`): Implements business use cases, orchestrates domain objects, depends on interfaces.
+5. **Infrastructure Layer** (`src/core/repositories/`, `src/connectors/`): Implements interfaces, handles data storage and external services, provides adapters.
+
+## Architecture Patterns and Best Practices
+
+### 1. Interface-Driven Development
+
+Define interfaces before implementations. Services interact through interfaces, enabling dependency inversion and clean testing.
+
+### 2. Dependency Injection
+
+Use a DI container to manage service dependencies, promoting loose coupling and easier testing.
+
+### 3. Domain Models
+
+Use immutable Pydantic models for core business entities to ensure data integrity and prevent accidental modifications. Use `.model_copy()` for modifications.
+
+### 4. Command Pattern
+
+Use command handlers for processing interactive commands.
+
+### 5. Middleware Pipeline
+
+Use middleware for cross-cutting concerns like response processing.
+
+### 6. Repository Pattern
+
+Use repositories for data access operations.
+
+### 7. Factory Pattern
+
+Use factories for creating complex objects, such as backend instances.
+
+## Testing Guidelines
+
+### 1. Unit Testing
+
+Test individual components in isolation, using mock dependencies where necessary.
+
+### 2. Integration Testing
+
+Test how components work together, focusing on request-to-response flows.
+
+### 3. End-to-End Testing
+
+Test complete request flows to ensure overall system functionality.
+
+### Testing with Dependency Injection Architecture
+
+- **Integration Tests**: Use `setup_test_command_registry()` from `tests/conftest.py` to set up the DI command registry with mock dependencies.
+- **Unit Tests**: Create mock dependencies and instantiate commands directly. For `CommandParser` tests, use mock commands from `tests/unit/mock_commands.py`.
+- **Stateful Commands**: Create mock dependencies for `ISecureStateAccess` and `ISecureStateModification` and pass them to the command constructor.
+- **Skipped Tests**: Update previously skipped tests to use the new DI-based commands.
+
+## Code Quality
+
+- **Code Style**: Follow PEP 8 with type hints, use Ruff for linting, and Black for formatting.
+- **SOLID Principles**: Adhere to SRP, OCP, LSP, ISP, and DIP.
+- **DRY**: Avoid code duplication.
+- **Test-Driven Development (TDD)**: Write tests first.
+- **Error Handling**: Use specific exceptions and meaningful error messages.
+
+## Contribution Process
+
+1. **Create a feature branch**: `git checkout -b feature/your-feature`
+2. **Write tests** for new functionality.
+3. **Ensure all tests pass**: `pytest`
+4. **Update documentation** as needed.
+5. **Submit a Pull Request** with a clear description following the Conventional Commits format (`type(scope): subject`).
+6. **Address review comments**.
+7. **Merge after approval**.
+
+## Additional Resources
+
+- `docs/API_REFERENCE.md`: Detailed API documentation.
+- `docs/ARCHITECTURE_GUIDE.md`: Comprehensive architecture guide.
+- `docs/CONFIGURATION.md`: Configuration options.
+- `docs/FAILOVER_ROUTES.md`: Failover routing information.
+- `docs/TOOL_CALL_LOOP_DETECTION.md`: Tool call loop detection details.

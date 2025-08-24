@@ -20,6 +20,7 @@ from src.core.domain.chat import (
 from src.core.domain.responses import ResponseEnvelope, StreamingResponseEnvelope
 from src.core.interfaces.configuration_interface import IAppIdentityConfig
 from src.core.interfaces.model_bases import DomainModel, InternalDTO
+from src.core.interfaces.response_processor_interface import ProcessedResponse
 from src.core.services.backend_registry import backend_registry
 
 # Legacy ChatCompletionRequest removed from connector signatures; use domain ChatRequest
@@ -268,7 +269,7 @@ class GeminiBackend(LLMBackend):
                     status_code=response.status_code,
                 )
 
-            async def stream_generator() -> AsyncGenerator[bytes, None]:
+            async def stream_generator() -> AsyncGenerator[ProcessedResponse, None]:
                 decoder = json.JSONDecoder()
                 buffer = ""
                 try:
@@ -450,9 +451,9 @@ class GeminiBackend(LLMBackend):
 
         # thinking budget
         if getattr(request_data, "thinking_budget", None):
-            generation_config.setdefault("thinkingConfig", {})["thinkingBudget"] = (
-                request_data.thinking_budget
-            )  # type: ignore[index]
+            generation_config.setdefault("thinkingConfig", {})[
+                "thinkingBudget"
+            ] = request_data.thinking_budget  # type: ignore[index]
 
         # generation config blob - merge with existing config
         if getattr(request_data, "generation_config", None):

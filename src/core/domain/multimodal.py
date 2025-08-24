@@ -238,9 +238,20 @@ class MultimodalMessage(ValueObject):
 
         # Extract text from content parts
         text_parts = []
-        for part in self.content:
-            if part.type == ContentType.TEXT:
-                text_parts.append(part.data)
+        try:
+            for part in self.content:
+                if hasattr(part, "type") and part.type == ContentType.TEXT:
+                    text_parts.append(part.data)
+                elif isinstance(part, dict) and part.get("type") == "text":
+                    # Handle raw dict format that might be passed directly
+                    text_parts.append(part.get("text", ""))
+        except Exception as e:
+            import logging
+
+            logging.getLogger(__name__).warning(
+                f"Error extracting text from multimodal content: {e}"
+            )
+            return "[Error processing multimodal content]"
 
         return " ".join(text_parts) if text_parts else "[Multimodal content]"
 
@@ -253,7 +264,32 @@ class MultimodalMessage(ValueObject):
             if isinstance(self.content, str):
                 result["content"] = self.content
             else:
-                result["content"] = [part.to_dict() for part in self.content]
+                try:
+                    # Safely convert parts to dict
+                    content_parts = []
+                    for part in self.content:
+                        if hasattr(part, "to_dict") and callable(part.to_dict):
+                            content_parts.append(part.to_dict())
+                        elif isinstance(part, dict):
+                            # Already a dict, pass through
+                            content_parts.append(part)
+                        else:
+                            # Fallback for unexpected types
+                            import logging
+
+                            logging.getLogger(__name__).warning(
+                                f"Unexpected content part type: {type(part)}"
+                            )
+                            content_parts.append({"type": "text", "text": str(part)})
+                    result["content"] = content_parts
+                except Exception as e:
+                    import logging
+
+                    logging.getLogger(__name__).error(
+                        f"Error converting multimodal content to dict: {e}"
+                    )
+                    # Fallback to safe representation
+                    result["content"] = "[Error processing multimodal content]"
 
         # Add other fields
         if self.name:
@@ -290,7 +326,34 @@ class MultimodalMessage(ValueObject):
             if isinstance(self.content, str):
                 result["content"] = self.content
             else:
-                result["content"] = [part.to_openai_format() for part in self.content]
+                try:
+                    # Safely convert parts to OpenAI format
+                    content_parts = []
+                    for part in self.content:
+                        if hasattr(part, "to_openai_format") and callable(
+                            part.to_openai_format
+                        ):
+                            content_parts.append(part.to_openai_format())
+                        elif isinstance(part, dict) and "type" in part:
+                            # Already in OpenAI-like format, pass through
+                            content_parts.append(part)
+                        else:
+                            # Fallback for unexpected types
+                            import logging
+
+                            logging.getLogger(__name__).warning(
+                                f"Unexpected content part type for OpenAI format: {type(part)}"
+                            )
+                            content_parts.append({"type": "text", "text": str(part)})
+                    result["content"] = content_parts
+                except Exception as e:
+                    import logging
+
+                    logging.getLogger(__name__).error(
+                        f"Error converting multimodal content to OpenAI format: {e}"
+                    )
+                    # Fallback to safe representation
+                    result["content"] = "[Error processing multimodal content]"
 
         # Handle tool calls
         if self.tool_calls:
@@ -319,9 +382,39 @@ class MultimodalMessage(ValueObject):
             if isinstance(self.content, str):
                 result["content"] = [{"type": "text", "text": self.content}]
             else:
-                result["content"] = [
-                    part.to_anthropic_format() for part in self.content
-                ]
+                try:
+                    # Safely convert parts to Anthropic format
+                    content_parts = []
+                    for part in self.content:
+                        if hasattr(part, "to_anthropic_format") and callable(
+                            part.to_anthropic_format
+                        ):
+                            content_parts.append(part.to_anthropic_format())
+                        elif isinstance(part, dict) and "type" in part:
+                            # Already in Anthropic-like format, pass through
+                            content_parts.append(part)
+                        else:
+                            # Fallback for unexpected types
+                            import logging
+
+                            logging.getLogger(__name__).warning(
+                                f"Unexpected content part type for Anthropic format: {type(part)}"
+                            )
+                            content_parts.append({"type": "text", "text": str(part)})
+                    result["content"] = content_parts
+                except Exception as e:
+                    import logging
+
+                    logging.getLogger(__name__).error(
+                        f"Error converting multimodal content to Anthropic format: {e}"
+                    )
+                    # Fallback to safe representation
+                    result["content"] = [
+                        {
+                            "type": "text",
+                            "text": "[Error processing multimodal content]",
+                        }
+                    ]
         else:
             result["content"] = []
 
@@ -344,7 +437,38 @@ class MultimodalMessage(ValueObject):
             if isinstance(self.content, str):
                 result["parts"] = [{"text": self.content}]
             else:
-                result["parts"] = [part.to_gemini_format() for part in self.content]
+                try:
+                    # Safely convert parts to Gemini format
+                    content_parts = []
+                    for part in self.content:
+                        if hasattr(part, "to_gemini_format") and callable(
+                            part.to_gemini_format
+                        ):
+                            content_parts.append(part.to_gemini_format())
+                        elif isinstance(part, dict) and (
+                            "text" in part or "inline_data" in part
+                        ):
+                            # Already in Gemini-like format, pass through
+                            content_parts.append(part)
+                        else:
+                            # Fallback for unexpected types
+                            import logging
+
+                            logging.getLogger(__name__).warning(
+                                f"Unexpected content part type for Gemini format: {type(part)}"
+                            )
+                            content_parts.append({"text": str(part)})
+                    result["parts"] = content_parts
+                except Exception as e:
+                    import logging
+
+                    logging.getLogger(__name__).error(
+                        f"Error converting multimodal content to Gemini format: {e}"
+                    )
+                    # Fallback to safe representation
+                    result["parts"] = [
+                        {"text": "[Error processing multimodal content]"}
+                    ]
         else:
             result["parts"] = []
 

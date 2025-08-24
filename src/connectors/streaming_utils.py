@@ -10,7 +10,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-from collections.abc import AsyncGenerator, AsyncIterator
+from collections.abc import AsyncIterator
 from typing import Any
 
 from src.core.domain.responses import StreamingResponseEnvelope
@@ -111,7 +111,7 @@ def normalize_streaming_response(
         A StreamingResponseEnvelope containing the normalized stream
     """
 
-    async def create_normalized_stream() -> AsyncGenerator[bytes, None]:
+    async def create_normalized_stream() -> AsyncIterator[bytes]:
         if normalize:
             # Use StreamNormalizer to get a consistent format
             normalizer = StreamNormalizer()
@@ -119,15 +119,23 @@ def normalize_streaming_response(
                 iterator, output_format="bytes"
             )
             async for chunk in processed_stream:
+                # StreamNormalizer with output_format="bytes" should already yield bytes
                 if isinstance(chunk, bytes):
                     yield chunk
                 else:
-                    # This shouldn't happen with output_format="bytes", but just in case
-                    yield chunk.to_bytes()
+                    # Fallback: convert to bytes conservatively
+                    yield str(chunk).encode("utf-8")
         else:
             # Just ensure we have bytes output
-            async for chunk in _ensure_async_iterator(iterator):
-                yield chunk
+            try:
+                async for chunk in _ensure_async_iterator(iterator):
+                    # _ensure_async_iterator guarantees bytes
+                    yield chunk
+            except Exception as e:
+                logger.error(f"Error in non-normalized streaming path: {e}")
+                # Fallback to empty response with error message
+                yield f'data: {{"error": "Streaming error: {e!s}"}}\\n\\n'.encode()
+                yield b"data: [DONE]\n\n"
 
     return StreamingResponseEnvelope(
         content=create_normalized_stream(), media_type=media_type, headers=headers or {}

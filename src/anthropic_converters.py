@@ -326,7 +326,7 @@ def get_anthropic_models() -> dict[str, Any]:
 
 
 # Backwards-compat alias so existing imports still resolve
-openai_to_anthropic_stream = openai_stream_to_anthropic_stream  # type: ignore
+# openai_to_anthropic_stream = openai_stream_to_anthropic_stream  # type: ignore
 
 # Re-export commonly used pydantic models for convenience so that tests and
 # Re-export for convenience

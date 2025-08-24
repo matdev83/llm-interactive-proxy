@@ -18,6 +18,8 @@ class ResponseEnvelope(InternalDTO):
     headers: dict[str, str] | None = None
     status_code: int = 200
     media_type: str = "application/json"
+    usage: dict[str, Any] | None = None
+    metadata: dict[str, Any] | None = None
 
 
 @dataclass
@@ -29,6 +31,7 @@ class StreamingResponseEnvelope(InternalDTO):
     appropriate transport-specific response types.
     """
 
+    # Iterator of raw bytes to be sent to clients. Tests expect bytes.
     content: AsyncIterator[bytes]
     media_type: str = "text/event-stream"
     headers: dict[str, str] | None = None
@@ -38,7 +41,13 @@ class StreamingResponseEnvelope(InternalDTO):
         """Backward-compatible alias used by tests and adapters for the
         streaming iterator (previously provided by Starlette's
         StreamingResponse.body_iterator)."""
-        return self.content
+
+        async def _byte_iterator() -> AsyncIterator[bytes]:
+            async for item in self.content:
+                # self.content already yields bytes
+                yield item
+
+        return _byte_iterator()
 
 
 # Export envelope classes to builtins for tests that reference them without

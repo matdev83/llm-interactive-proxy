@@ -249,14 +249,6 @@ def build_test_app(config: AppConfig) -> FastAPI:
     return asyncio.run(builder.build(config))
 
 
-def main_dev() -> None:
-    """Development entry point with dev-specific app builder."""
-    main(build_app_fn=build_development_app)
-
-
-def main_test() -> None:
-    """Test entry point with test-specific app builder."""
-    main(build_app_fn=build_test_app)
 
 
 """

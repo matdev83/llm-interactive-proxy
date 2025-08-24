@@ -311,7 +311,7 @@ class TestQwenOAuthConnectorUnit:
                     return_value=ResponseEnvelope(
                         content=mock_response.json.return_value,
                         headers=mock_response.headers,
-                        status_code=mock_response.status_code
+                        status_code=mock_response.status_code,
                     )
                 ),
             ),
@@ -359,11 +359,12 @@ class TestQwenOAuthConnectorUnit:
 
         # Create a mock for the parent class method
         from src.core.domain.responses import ResponseEnvelope
+
         parent_mock = AsyncMock(
             return_value=ResponseEnvelope(
                 content=mock_response.json.return_value,
                 headers=mock_response.headers,
-                status_code=mock_response.status_code
+                status_code=mock_response.status_code,
             )
         )
 
@@ -476,7 +477,7 @@ class TestQwenOAuthConnectorUnit:
                 "src.connectors.openai.OpenAIConnector.chat_completions",
                 AsyncMock(side_effect=Exception("Test error")),
             ),
-            pytest.raises(BackendError) as exc_info
+            pytest.raises(BackendError) as exc_info,
         ):
             # The exception should be caught and wrapped in a BackendError
             await connector.chat_completions(
@@ -484,7 +485,7 @@ class TestQwenOAuthConnectorUnit:
                 processed_messages=[test_message],
                 effective_model="qwen3-coder-plus",
             )
-            
+
         # Verify the BackendError contains the original error message
         assert "Test error" in str(exc_info.value)
         assert "Qwen OAuth chat completion failed" in str(exc_info.value)

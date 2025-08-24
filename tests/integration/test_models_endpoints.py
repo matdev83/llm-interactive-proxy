@@ -29,7 +29,9 @@ class TestModelsEndpoints:
     def app_with_auth_enabled(self, monkeypatch):
         """Create app with authentication enabled."""
         monkeypatch.setenv("API_KEYS", "test-key-123")
-        monkeypatch.delenv("AUTH_TOKEN", raising=False)  # Remove auth token to prevent AuthMiddleware interference
+        monkeypatch.delenv(
+            "AUTH_TOKEN", raising=False
+        )  # Remove auth token to prevent AuthMiddleware interference
         return build_app()
 
     def test_models_endpoint_no_auth(self, app_with_auth_disabled):
@@ -227,7 +229,9 @@ class TestModelsDiscovery:
         mock_session_service = MagicMock(spec=ISessionService)
 
         # Create backend service
-        service = BackendService(mock_backend_factory, mock_rate_limiter, mock_config, mock_session_service)
+        service = BackendService(
+            mock_backend_factory, mock_rate_limiter, mock_config, mock_session_service
+        )
 
         # Mock OpenAI backend
         mock_openai = MagicMock()
@@ -269,7 +273,9 @@ class TestModelsDiscovery:
         mock_session_service = MagicMock(spec=ISessionService)
 
         # Create backend service
-        service = BackendService(mock_backend_factory, mock_rate_limiter, mock_config, mock_session_service)
+        service = BackendService(
+            mock_backend_factory, mock_rate_limiter, mock_config, mock_session_service
+        )
 
         # Mock Anthropic backend
         mock_anthropic = MagicMock()

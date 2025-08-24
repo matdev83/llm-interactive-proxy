@@ -86,7 +86,7 @@ class TestQwenOAuthEnhancedErrorHandling:
                 "src.connectors.openai.OpenAIConnector.chat_completions",
                 side_effect=Exception("Test error"),
             ),
-            pytest.raises(BackendError) as exc_info
+            pytest.raises(BackendError) as exc_info,
         ):
             # Execute and verify the exception is wrapped in BackendError
             await connector.chat_completions(
@@ -94,7 +94,7 @@ class TestQwenOAuthEnhancedErrorHandling:
                 processed_messages=processed_messages,
                 effective_model="qwen3-coder-plus",
             )
-        
+
         # Verify the BackendError contains the original error message
         assert "Test error" in str(exc_info.value)
         assert "Qwen OAuth chat completion failed" in str(exc_info.value)
@@ -114,7 +114,9 @@ class TestQwenOAuthEnhancedErrorHandling:
             patch.object(connector, "_refresh_token_if_needed", return_value=True),
             patch(
                 "src.connectors.openai.OpenAIConnector.chat_completions",
-                AsyncMock(return_value=ResponseEnvelope(content={"id": "test"}, headers={})),
+                AsyncMock(
+                    return_value=ResponseEnvelope(content={"id": "test"}, headers={})
+                ),
             ) as mock_parent,
         ):
 

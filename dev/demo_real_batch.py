@@ -3,6 +3,7 @@ Requires:
   • gemini CLI installed and on PATH
   • GOOGLE_CLOUD_PROJECT env var set (Vertex AI mode)
 """
+
 import json
 import os
 import pathlib
@@ -24,11 +25,13 @@ os.environ.setdefault("GOOGLE_CLOUD_PROJECT", "project1-465615")
 project_dir = tempfile.mkdtemp(prefix="gemini_batch_real_")
 print("Project dir:", project_dir)
 
-app = build_app({
-    "backend": "gemini-cli-batch",
-    "disable_auth": True,
-    "disable_accounting": True,
-})
+app = build_app(
+    {
+        "backend": "gemini-cli-batch",
+        "disable_auth": True,
+        "disable_accounting": True,
+    }
+)
 
 with TestClient(app) as client:
     # 1️⃣ set project dir
@@ -37,7 +40,7 @@ with TestClient(app) as client:
         json={
             "model": "gemini-2.5-pro",
             "messages": [
-                {"role": "user", "content": f"!/set(project-dir=\"{project_dir}\")"}
+                {"role": "user", "content": f'!/set(project-dir="{project_dir}")'}
             ],
         },
     )

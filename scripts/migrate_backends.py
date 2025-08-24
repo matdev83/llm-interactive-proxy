@@ -30,23 +30,25 @@ for fp in files:
     replacements = []
 
     def repl(m: re.Match) -> str:
-        var = m.group('var')
-        attr = m.group('attr')
-        backend_name = attr.replace('_', '-')
-        replacements.append((m.group(0), f'get_backend_instance({var}.app, "{backend_name}")'))
+        var = m.group("var")
+        attr = m.group("attr")
+        backend_name = attr.replace("_", "-")
+        replacements.append(
+            (m.group(0), f'get_backend_instance({var}.app, "{backend_name}")')
+        )
         return f'get_backend_instance({var}.app, "{backend_name}")'
 
     new_text = pattern.sub(repl, text)
 
     if new_text != text:
         # ensure import exists
-        import_line = 'from tests.conftest import get_backend_instance'
+        import_line = "from tests.conftest import get_backend_instance"
         if import_line not in new_text:
             # insert after imports block - naive: put at top after first 5 lines
             lines = new_text.splitlines()
             insert_at = 0
             for i, l in enumerate(lines[:50]):
-                if l.strip().startswith('import') or l.strip().startswith('from'):
+                if l.strip().startswith("import") or l.strip().startswith("from"):
                     insert_at = i + 1
             lines.insert(insert_at, import_line)
             new_text = "\n".join(lines)
@@ -56,5 +58,3 @@ for fp in files:
         print(f"Modified {fp} -> {len(replacements)} replacements")
 
 print(f"Done. Modified {modified} files.")
-
-

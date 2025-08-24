@@ -65,24 +65,27 @@ def create_backend_service():
     rate_limiter = Mock()
     rate_limiter.check_limit = AsyncMock(return_value=Mock(is_limited=False))
     rate_limiter.record_usage = AsyncMock()
-    
+
     mock_config = Mock()
     mock_config.get.return_value = None
     mock_config.backends = Mock()
     mock_config.backends.default_backend = "openai"
-    
+
     session_service = Mock(spec=ISessionService)
-    
+
     # Create concrete implementation
     class ConcreteBackendService(BackendService):
-        async def chat_completions(self, request: ChatRequest, **kwargs: Any) -> ResponseEnvelope:
+        async def chat_completions(
+            self, request: ChatRequest, **kwargs: Any
+        ) -> ResponseEnvelope:
             stream = kwargs.get("stream", False)
             from src.core.domain.responses import StreamingResponseEnvelope
+
             result = await self.call_completion(request, stream=stream)
             if isinstance(result, StreamingResponseEnvelope):
                 return ResponseEnvelope(content={}, headers={})
             return result
-    
+
     return ConcreteBackendService(factory, rate_limiter, mock_config, session_service)
 
 
@@ -126,12 +129,10 @@ class TestBackendServiceTargeted:
         """Test error handling in _get_or_create_backend method."""
         # Arrange
         service = create_backend_service()
-        
+
         # Mock the factory to raise an exception
         with patch.object(
-            service._factory, 
-            "ensure_backend", 
-            side_effect=Exception("Factory error")
+            service._factory, "ensure_backend", side_effect=Exception("Factory error")
         ):
             # Act & Assert
             with pytest.raises(BackendError) as exc_info:
@@ -170,10 +171,12 @@ class TestBackendServiceTargeted:
         mock_session.state = Mock()
         mock_session.state.backend_config = Mock()
         mock_session.state.backend_config.backend_type = BackendType.OPENAI
-        
+
         with (
-            patch.object(service._session_service, "get_session", return_value=mock_session),
-            patch.object(service, "_get_or_create_backend", return_value=mock_backend)
+            patch.object(
+                service._session_service, "get_session", return_value=mock_session
+            ),
+            patch.object(service, "_get_or_create_backend", return_value=mock_backend),
         ):
             # Act
             response = await service.call_completion(chat_request)

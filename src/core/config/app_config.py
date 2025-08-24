@@ -106,6 +106,16 @@ class SessionConfig(DomainModel):
     default_interactive_mode: bool = True
     force_set_project: bool = False
     disable_interactive_commands: bool = False
+    tool_call_repair_enabled: bool = True
+    # Max per-session buffer for tool-call repair streaming (bytes)
+    tool_call_repair_buffer_cap_bytes: int = 64 * 1024
+
+
+class EmptyResponseConfig(DomainModel):
+    """Configuration for empty response handling."""
+
+    enabled: bool = True
+    max_retries: int = 1
 
 
 from src.core.services.backend_registry import (
@@ -243,6 +253,9 @@ class AppConfig(DomainModel, IConfig):
     # Logging settings
     logging: LoggingConfig = Field(default_factory=LoggingConfig)
 
+    # Empty response handling settings
+    empty_response: EmptyResponseConfig = Field(default_factory=EmptyResponseConfig)
+
     def save(self, path: str | Path) -> None:
         """Save the current configuration to a file."""
         with open(path, "w") as f:
@@ -288,6 +301,16 @@ class AppConfig(DomainModel, IConfig):
             == "true",
             "force_set_project": os.environ.get("FORCE_SET_PROJECT", "").lower()
             == "true",
+            "tool_call_repair_enabled": os.environ.get(
+                "TOOL_CALL_REPAIR_ENABLED", "true"
+            ).lower()
+            == "true",
+            # Optional cap for streaming repair buffer
+            "tool_call_repair_buffer_cap_bytes": (
+                int(os.environ.get("TOOL_CALL_REPAIR_BUFFER_CAP_BYTES", "65536"))
+                if os.environ.get("TOOL_CALL_REPAIR_BUFFER_CAP_BYTES")
+                else 65536
+            ),
         }
 
         config["logging"] = {
@@ -296,6 +319,12 @@ class AppConfig(DomainModel, IConfig):
             "response_logging": os.environ.get("RESPONSE_LOGGING", "").lower()
             == "true",
             "log_file": os.environ.get("LOG_FILE"),
+        }
+
+        config["empty_response"] = {
+            "enabled": os.environ.get("EMPTY_RESPONSE_HANDLING_ENABLED", "true").lower()
+            == "true",
+            "max_retries": int(os.environ.get("EMPTY_RESPONSE_MAX_RETRIES", "1")),
         }
 
         config["backends"] = {

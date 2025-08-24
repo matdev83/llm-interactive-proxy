@@ -130,9 +130,11 @@ class LoopDetectionHandler(BaseCommandHandler):
 
         return CommandHandlerResult(
             success=True,
-            message=LOOP_DETECTION_ENABLED_MESSAGE
-            if bool_value
-            else LOOP_DETECTION_DISABLED_MESSAGE,
+            message=(
+                LOOP_DETECTION_ENABLED_MESSAGE
+                if bool_value
+                else LOOP_DETECTION_DISABLED_MESSAGE
+            ),
             new_state=new_state,
         )
 
@@ -226,9 +228,11 @@ class ToolLoopDetectionHandler(BaseCommandHandler):
 
         return CommandHandlerResult(
             success=True,
-            message=TOOL_LOOP_DETECTION_ENABLED_MESSAGE
-            if bool_value
-            else TOOL_LOOP_DETECTION_DISABLED_MESSAGE,
+            message=(
+                TOOL_LOOP_DETECTION_ENABLED_MESSAGE
+                if bool_value
+                else TOOL_LOOP_DETECTION_DISABLED_MESSAGE
+            ),
             new_state=new_state,
         )
 

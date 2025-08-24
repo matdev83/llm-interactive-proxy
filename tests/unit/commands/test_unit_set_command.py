@@ -15,18 +15,18 @@ def command() -> SetCommand:
     """Returns a new instance of the SetCommand for each test."""
     from src.core.services.application_state_service import ApplicationStateService
     from src.core.services.secure_state_service import SecureStateService
-    
+
     # Create mock state services for testing
     app_state = ApplicationStateService()
     secure_state = SecureStateService(app_state)
-    
+
     return SetCommand(state_reader=secure_state, state_modifier=secure_state)
 
 
 @pytest.fixture
 def mock_session() -> Mock:
     """Creates a mock session object with a default state.
-    
+
     This fixture demonstrates the traditional approach. For new tests,
     consider using the safe_session_service fixture to prevent coroutine warnings.
     """
@@ -173,14 +173,16 @@ async def test_handle_temperature_with_safe_session(
     """Demonstrates using the safe session service to prevent coroutine warnings."""
     # Arrange
     value = "0.9"
-    
+
     # Act
-    result, new_state = await command._handle_temperature(value, safe_mock_session.state, {})
-    
+    result, new_state = await command._handle_temperature(
+        value, safe_mock_session.state, {}
+    )
+
     # Assert
     assert result.success is True
     assert result.message == "Temperature set to 0.9"
     assert new_state.reasoning_config.temperature == 0.9
-    
+
     # This test demonstrates using the standard mock_session fixture
     # which provides consistent behavior without coroutine warnings

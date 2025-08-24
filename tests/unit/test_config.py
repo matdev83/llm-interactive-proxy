@@ -2,7 +2,7 @@ import os
 from unittest.mock import patch
 
 import pytest
-from src.core.config.config_loader import _collect_api_keys, ConfigLoader
+from src.core.config.config_loader import ConfigLoader, _collect_api_keys
 
 
 def test_collect_api_keys_single() -> None:

@@ -45,6 +45,7 @@ class SessionService(ISessionService):
         session = await self.get_session(session_id)
         # SessionState is immutable, so with_backend_config returns a new instance
         from src.core.domain.configuration.backend_config import BackendConfiguration
+
         new_state = session.state.with_backend_config(
             cast(BackendConfiguration, session.state.backend_config).model_copy(
                 update={"backend_type": backend_type, "model": model}

@@ -109,7 +109,11 @@ class TestQwenOAuthToolCallingEnhanced:
             ),
             patch(
                 "src.connectors.openai.OpenAIConnector.chat_completions",
-                AsyncMock(return_value=ResponseEnvelope(content=mock_response_data, headers=mock_headers)),
+                AsyncMock(
+                    return_value=ResponseEnvelope(
+                        content=mock_response_data, headers=mock_headers
+                    )
+                ),
             ),
         ):
             # Act

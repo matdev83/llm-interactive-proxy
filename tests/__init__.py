@@ -19,16 +19,16 @@ from .testing_framework import (
 
 __all__ = [
     # Core functionality
-    'AsyncOnlyService',
-    'CoroutineWarningDetector',
-    'EnforcedMockFactory',
-    'MockBackendTestStage',
-    'MockValidationError',
-    'RealBackendTestStage',
-    'SafeSessionService',
-    'SafeTestSession',
-    'SyncOnlyService',
-    'ValidatedTestStage',
+    "AsyncOnlyService",
+    "CoroutineWarningDetector",
+    "EnforcedMockFactory",
+    "MockBackendTestStage",
+    "MockValidationError",
+    "RealBackendTestStage",
+    "SafeSessionService",
+    "SafeTestSession",
+    "SyncOnlyService",
+    "ValidatedTestStage",
 ]
 
 # This file makes tests a Python package

@@ -26,9 +26,16 @@ class ResponseProcessor(IResponseProcessor):
     ) -> None:
         self._loop_detector = loop_detector
         self._middleware: list[tuple[int, IResponseMiddleware]] = []
+        self._background_tasks: list[asyncio.Task[Any]] = (
+            []
+        )  # To hold references to background tasks
         if middleware:
             for mw in middleware:
                 self._middleware.append((0, mw))
+
+    def add_background_task(self, task: asyncio.Task[Any]) -> None:
+        """Add a background task to be managed by the processor."""
+        self._background_tasks.append(task)
 
     async def register_middleware(
         self, middleware: IResponseMiddleware, priority: int = 0
@@ -164,21 +171,27 @@ class ResponseProcessor(IResponseProcessor):
 
             if response.choices:
                 choice = response.choices[0]
-                # Support both dict-style and model-style choices
-                if isinstance(choice, dict) and "message" in choice:
-                    message = choice["message"]
-                    if isinstance(message, dict) and "content" in message:
-                        content = message["content"] or ""
-                elif hasattr(choice, "message"):
-                    msg = choice.message
-                    if isinstance(msg, dict) and "content" in msg:
-                        content = msg.get("content") or ""
-                    elif hasattr(msg, "content"):
-                        content = msg.content or ""
-
+                # Directly access message and content from ChatCompletionChoice
+                if hasattr(choice, "message"):
+                    if hasattr(choice.message, "content"):
+                        content = choice.message.content or ""
+                    # Handle tool_calls if present
+                    if (
+                        hasattr(choice.message, "tool_calls")
+                        and choice.message.tool_calls
+                    ):
+                        metadata["tool_calls"] = [
+                            tc.model_dump() for tc in choice.message.tool_calls
+                        ]
             if response.usage:
-                if hasattr(response.usage, "model_dump"):
+                from src.core.interfaces.model_bases import DomainModel
+
+                if isinstance(
+                    response.usage, DomainModel
+                ):  # Check if it's a Pydantic model
                     usage = response.usage.model_dump()
+                elif isinstance(response.usage, dict):
+                    usage = response.usage
                 else:
                     try:
                         usage = dict(response.usage)
@@ -230,15 +243,9 @@ class ResponseProcessor(IResponseProcessor):
 
             # Extract content directly from StreamingChatResponse
             content = chunk.content or ""
-
-            if hasattr(chunk, "choices") and chunk.choices:
-                choice = chunk.choices[0]
-                if isinstance(choice, dict) and "delta" in choice:
-                    delta = choice["delta"]
-                    if isinstance(delta, dict) and "content" in delta:
-                        delta_content = delta.get("content")
-                        if delta_content:
-                            content = delta_content
+            if chunk.tool_calls:
+                # StreamingChatResponse.tool_calls is already list[dict[str, Any]]
+                metadata["tool_calls"] = chunk.tool_calls
 
         # Handle dictionary (for legacy support)
         elif isinstance(chunk, dict):

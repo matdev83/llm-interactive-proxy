@@ -12,7 +12,7 @@ from src.core.domain.session import Session, SessionStateAdapter
 
 
 def update_session_state(
-    session: Session, 
+    session: Session,
     backend_type: str | None = None,
     model: str | None = None,
     project: str | None = None,
@@ -20,10 +20,10 @@ def update_session_state(
     interactive_mode: bool | None = None,
 ) -> None:
     """Update the session state with the given values.
-    
+
     This function updates the session state with the given values,
     ensuring that the session state is properly updated in the session object.
-    
+
     Args:
         session: The session to update
         backend_type: The backend type to set
@@ -34,53 +34,57 @@ def update_session_state(
     """
     # Get the current state
     current_state = session.state
-    
+
     # Update the backend configuration if needed
     if backend_type is not None or model is not None:
         new_backend_config = current_state.backend_config
-        
+
         if backend_type is not None:
             new_backend_config = new_backend_config.with_backend(backend_type)
-        
+
         if model is not None:
             new_backend_config = new_backend_config.with_model(model)
-        
-        current_state = current_state.with_backend_config(cast(BackendConfiguration, new_backend_config))
-    
+
+        current_state = current_state.with_backend_config(
+            cast(BackendConfiguration, new_backend_config)
+        )
+
     # Update the project if needed
     if project is not None:
         current_state = current_state.with_project(project)
-    
+
     # Update hello_requested if needed
     if hello_requested is not None:
         current_state = current_state.with_hello_requested(hello_requested)
-    
+
     # Update interactive_mode if needed
     if interactive_mode is not None:
         new_backend_config = current_state.backend_config
         new_backend_config = new_backend_config.with_interactive_mode(interactive_mode)
-        current_state = current_state.with_backend_config(cast(BackendConfiguration, new_backend_config))
-    
+        current_state = current_state.with_backend_config(
+            cast(BackendConfiguration, new_backend_config)
+        )
+
     # Update the session state
     session.state = current_state
 
 
 def find_session_by_state(state: SessionStateAdapter) -> Session | None:
     """Find the session that contains the given state.
-    
+
     This function searches for a session that contains the given state,
     which is useful for updating the session state when only the state is available.
-    
+
     Args:
         state: The state to search for
-        
+
     Returns:
         The session that contains the given state, or None if not found
     """
     for session_obj in [obj for obj in gc.get_objects() if isinstance(obj, Session)]:
         if session_obj.state is state:
             return session_obj
-    
+
     return None
 
 
@@ -93,10 +97,10 @@ def update_state_in_session(
     interactive_mode: bool | None = None,
 ) -> None:
     """Update the session state with the given values.
-    
+
     This function updates the session state with the given values,
     finding the session that contains the given state and updating it.
-    
+
     Args:
         state: The state to update
         backend_type: The backend type to set
@@ -107,7 +111,7 @@ def update_state_in_session(
     """
     # Find the session that contains the given state
     session = find_session_by_state(state)
-    
+
     if session:
         # Update the session state
         update_session_state(
@@ -122,6 +126,3 @@ def update_state_in_session(
         # If the session was not found, we can't update the state
         # This is a no-op
         pass
-
-
-

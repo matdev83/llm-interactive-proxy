@@ -78,15 +78,19 @@ def test_get_openrouter_headers_no_api_key(client: Any) -> None:
 @pytest.mark.no_global_mock
 def test_invalid_model_noninteractive(client: Any) -> None:
     from src.core.common.exceptions import InvalidRequestError
-    
+
     # Get the backend service from the app's service provider
     from src.core.interfaces.backend_service_interface import IBackendService
-    backend_service = client.app.state.service_provider.get_required_service(IBackendService)
-    
+
+    backend_service = client.app.state.service_provider.get_required_service(
+        IBackendService
+    )
+
     # Mock the call_completion method directly
     from unittest.mock import AsyncMock
+
     original_call_completion = backend_service.call_completion
-    
+
     # Create a mock that returns the expected responses
     mock_responses = [
         ResponseEnvelope(
@@ -106,8 +110,9 @@ def test_invalid_model_noninteractive(client: Any) -> None:
         # For the second call, raise an error
         InvalidRequestError(message="Model 'bad' not found for backend 'openrouter'"),
     ]
-    
+
     call_count = 0
+
     async def mock_call_completion(*args, **kwargs):
         nonlocal call_count
         if call_count < len(mock_responses):
@@ -119,7 +124,7 @@ def test_invalid_model_noninteractive(client: Any) -> None:
         else:
             # Fall back to original for any additional calls
             return await original_call_completion(*args, **kwargs)
-    
+
     backend_service.call_completion = AsyncMock(side_effect=mock_call_completion)
 
     # First request: set an invalid model

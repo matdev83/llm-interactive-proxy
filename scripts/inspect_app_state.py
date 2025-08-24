@@ -3,6 +3,7 @@
 Run with the project's virtualenv python to print whether key attributes
 (`service_provider`, `app_config`, backend-related attrs) exist on app.state.
 """
+
 from __future__ import annotations
 
 from src.core.app.application_builder import build_app
@@ -23,18 +24,28 @@ def main() -> None:
         print("  has auth:", hasattr(conf, "auth"))
         if hasattr(conf, "auth"):
             print("  auth.api_keys:", getattr(conf.auth, "api_keys", None))
-        print("  default_backend:", getattr(getattr(conf, "backends", None), "default_backend", None))
-        print("  functional_backends:", getattr(getattr(conf, "backends", None), "functional_backends", None))
+        print(
+            "  default_backend:",
+            getattr(getattr(conf, "backends", None), "default_backend", None),
+        )
+        print(
+            "  functional_backends:",
+            getattr(getattr(conf, "backends", None), "functional_backends", None),
+        )
 
-    print("app.state.functional_backends:", getattr(app.state, "functional_backends", None))
+    print(
+        "app.state.functional_backends:",
+        getattr(app.state, "functional_backends", None),
+    )
     print("app.state.backend_type:", getattr(app.state, "backend_type", None))
-    print("app.state.openrouter_backend:", getattr(app.state, "openrouter_backend", None))
-    print("app.state.service_provider methods:", None if sp is None else [m for m in dir(sp) if not m.startswith("_")][:20])
+    print(
+        "app.state.openrouter_backend:", getattr(app.state, "openrouter_backend", None)
+    )
+    print(
+        "app.state.service_provider methods:",
+        None if sp is None else [m for m in dir(sp) if not m.startswith("_")][:20],
+    )
 
 
 if __name__ == "__main__":
     main()
-
-
-
-

@@ -89,15 +89,15 @@ class TestEnsureAsyncIterator:
     @pytest.mark.asyncio
     async def test_ensure_async_iterator_with_various_data_types(self, data) -> None:
         """Test _ensure_async_iterator with various data types using Hypothesis."""
-        
+
         result = _ensure_async_iterator(data)
         chunks = []
         async for chunk in result:
             chunks.append(chunk)
-        
+
         # For simple data types, we expect one chunk
         assert len(chunks) >= 0  # Could be empty for some cases
-        
+
         # All chunks should be bytes
         for chunk in chunks:
             assert isinstance(chunk, bytes)
@@ -109,23 +109,23 @@ class TestNormalizeStreamingResponse:
     @pytest.mark.asyncio
     async def test_normalize_streaming_response_basic(self) -> None:
         """Test normalize_streaming_response with basic async iterator."""
-        
+
         async def mock_stream():
             yield {"choices": [{"delta": {"content": "chunk1"}}]}
             yield {"choices": [{"delta": {"content": "chunk2"}}]}
-            
+
         envelope = normalize_streaming_response(mock_stream())
         assert isinstance(envelope, StreamingResponseEnvelope)
         assert envelope.media_type == "text/event-stream"
         assert envelope.headers == {}
-        
+
         # Check content - should be normalized to SSE format
         chunks = []
         async for chunk in envelope.content:
             chunks.append(chunk)
-        
+
         # Convert to strings for easier comparison
-        chunk_strings = [chunk.decode('utf-8') for chunk in chunks]
+        chunk_strings = [chunk.decode("utf-8") for chunk in chunks]
         assert "chunk1" in chunk_strings[0]
         assert "chunk2" in chunk_strings[1]
 
@@ -170,35 +170,34 @@ class TestNormalizeStreamingResponse:
 
     @given(
         data_list=st.lists(streaming_data(), min_size=1, max_size=5),
-        media_type=st.sampled_from(["text/event-stream", "application/json", "text/plain"]),
-        normalize=st.booleans()
+        media_type=st.sampled_from(
+            ["text/event-stream", "application/json", "text/plain"]
+        ),
+        normalize=st.booleans(),
     )
     @pytest.mark.asyncio
     async def test_normalize_streaming_response_property_based(
         self, data_list, media_type, normalize
     ) -> None:
         """Property-based test for normalize_streaming_response."""
-        
+
         async def mock_stream():
             for data in data_list:
                 yield data
-                
+
         headers = {"X-Test": "value"}
         envelope = normalize_streaming_response(
-            mock_stream(), 
-            normalize=normalize, 
-            media_type=media_type,
-            headers=headers
+            mock_stream(), normalize=normalize, media_type=media_type, headers=headers
         )
-        
+
         assert isinstance(envelope, StreamingResponseEnvelope)
         assert envelope.media_type == media_type
         assert envelope.headers == headers
-        
+
         # Collect content
         chunks = []
         async for chunk in envelope.content:
             chunks.append(chunk)
-        
+
         # Should have some chunks (exact count depends on data processing)
         assert len(chunks) >= 0

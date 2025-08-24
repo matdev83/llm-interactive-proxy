@@ -104,7 +104,6 @@ class TestMultimodalIntegration:
         assert gemini_format["parts"][0]["text"] == "Describe this image:"
         assert "inline_data" in gemini_format["parts"][1]
 
-
     def test_complex_multimodal_message(self):
         """Test a complex multimodal message with multiple content parts."""
         # Create a complex multimodal message
@@ -132,7 +131,6 @@ class TestMultimodalIntegration:
         # Get text content
         text_content = message.get_text_content()
         assert text_content == "Here are some images: Please describe them."
-
 
         # Convert to OpenAI format
         openai_format = message.to_backend_format("openai")
@@ -181,4 +179,3 @@ class TestMultimodalIntegration:
         # Get text content
         text_content = message.get_text_content()
         assert text_content == "Here's an audio file: And here's a video:"
-

@@ -22,4 +22,5 @@ class RequestContext(InternalDTO):
     app_state: Any
     client_host: str | None = None
     session_id: str | None = None
+    agent: str | None = None  # Add agent field
     original_request: Any | None = None

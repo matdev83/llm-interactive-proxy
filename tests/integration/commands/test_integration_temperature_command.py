@@ -1,4 +1,3 @@
-
 import pytest
 from src.core.domain.session import ReasoningConfiguration, SessionState
 
@@ -18,6 +17,7 @@ async def run_command(command_string: str) -> str:
             args[key.strip()] = value.strip()
 
     cmd = TemperatureCommand()
+
     # TemperatureCommand expects a Session-like object; build minimal
     class _Session:
         def __init__(self, state: SessionState) -> None:

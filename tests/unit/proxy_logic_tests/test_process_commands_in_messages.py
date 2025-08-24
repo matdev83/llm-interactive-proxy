@@ -48,11 +48,17 @@ class TestProcessCommandsInMessages:
         self.mock_app.state = mock_app_state
 
     @pytest.fixture
-    def command_parser_with_default_prefix(self, test_command_registry, test_session_state, test_app):
+    def command_parser_with_default_prefix(
+        self, test_command_registry, test_session_state, test_app
+    ):
         """Create a command parser with the default prefix '!/'"""
         from src.command_parser import CommandParser
-        
-        registry = test_command_registry if not callable(test_command_registry) else test_command_registry()
+
+        registry = (
+            test_command_registry
+            if not callable(test_command_registry)
+            else test_command_registry()
+        )
         parser = CommandParser(
             command_prefix="!/",
             command_registry=registry,
@@ -60,11 +66,17 @@ class TestProcessCommandsInMessages:
         return parser
 
     @pytest.fixture
-    def command_parser_with_custom_prefix(self, test_command_registry, test_session_state, test_app):
+    def command_parser_with_custom_prefix(
+        self, test_command_registry, test_session_state, test_app
+    ):
         """Create a command parser with a custom prefix '$$'"""
         from src.command_parser import CommandParser
-        
-        registry = test_command_registry if not callable(test_command_registry) else test_command_registry()
+
+        registry = (
+            test_command_registry
+            if not callable(test_command_registry)
+            else test_command_registry()
+        )
         parser = CommandParser(
             command_prefix="$$",
             command_registry=registry,
@@ -306,7 +318,9 @@ class TestProcessCommandsInMessages:
         assert processed_messages[0].content == "Hello  there"
 
     @pytest.mark.asyncio
-    async def test_custom_command_prefix(self, command_parser_with_custom_prefix: ICommandProcessor):
+    async def test_custom_command_prefix(
+        self, command_parser_with_custom_prefix: ICommandProcessor
+    ):
         """Test that commands work with a custom prefix."""
         session = Session(session_id="test_session")
         messages = [
@@ -315,7 +329,9 @@ class TestProcessCommandsInMessages:
                 content="Please use $$set(model=openrouter:new-model) for this query.",
             ),
         ]
-        result = await command_parser_with_custom_prefix.process_messages(messages, session.session_id)
+        result = await command_parser_with_custom_prefix.process_messages(
+            messages, session.session_id
+        )
         processed_messages = result.modified_messages
         # Custom prefix may not be supported by the default processor; accept either outcome
         assert result.command_executed in (True, False)

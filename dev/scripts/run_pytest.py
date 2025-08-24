@@ -16,5 +16,3 @@ def run_pytest() -> int:
 
 if __name__ == "__main__":
     sys.exit(run_pytest())
-
-

@@ -67,24 +67,27 @@ def create_backend_service():
     rate_limiter = Mock()
     rate_limiter.check_limit = AsyncMock(return_value=Mock(is_limited=False))
     rate_limiter.record_usage = AsyncMock()
-    
+
     mock_config = Mock()
     mock_config.get.return_value = None
     mock_config.backends = Mock()
     mock_config.backends.default_backend = "openai"
-    
+
     session_service = Mock(spec=ISessionService)
-    
+
     # Create concrete implementation
     class ConcreteBackendService(BackendService):
-        async def chat_completions(self, request: ChatRequest, **kwargs: Any) -> ResponseEnvelope:
+        async def chat_completions(
+            self, request: ChatRequest, **kwargs: Any
+        ) -> ResponseEnvelope:
             stream = kwargs.get("stream", False)
             from src.core.domain.responses import StreamingResponseEnvelope
+
             result = await self.call_completion(request, stream=stream)
             if isinstance(result, StreamingResponseEnvelope):
                 return ResponseEnvelope(content={}, headers={})
             return result
-    
+
     return ConcreteBackendService(factory, rate_limiter, mock_config, session_service)
 
 
@@ -93,9 +96,11 @@ class TestBackendServiceHypothesis:
 
     @given(
         model_name=st.text(min_size=1, max_size=50).filter(lambda x: x.isalnum()),
-        message_content=st.text(min_size=1, max_size=100)
+        message_content=st.text(min_size=1, max_size=100),
     )
-    @settings(suppress_health_check=[HealthCheck.function_scoped_fixture], max_examples=5)
+    @settings(
+        suppress_health_check=[HealthCheck.function_scoped_fixture], max_examples=5
+    )
     @pytest.mark.asyncio
     async def test_call_completion_with_various_models_and_messages(
         self, model_name, message_content
@@ -131,10 +136,14 @@ class TestBackendServiceHypothesis:
             assert "resp-123" in str(response.content)
 
     @given(
-        backend_type=st.sampled_from([BackendType.OPENAI, BackendType.ANTHROPIC, BackendType.GEMINI]),
-        model_name=st.text(min_size=1, max_size=50).filter(lambda x: x.isalnum())
+        backend_type=st.sampled_from(
+            [BackendType.OPENAI, BackendType.ANTHROPIC, BackendType.GEMINI]
+        ),
+        model_name=st.text(min_size=1, max_size=50).filter(lambda x: x.isalnum()),
     )
-    @settings(suppress_health_check=[HealthCheck.function_scoped_fixture], max_examples=5)
+    @settings(
+        suppress_health_check=[HealthCheck.function_scoped_fixture], max_examples=5
+    )
     @pytest.mark.asyncio
     async def test_validate_backend_and_model_with_various_backends(
         self, backend_type, model_name
@@ -143,9 +152,7 @@ class TestBackendServiceHypothesis:
         # Arrange
         service = create_backend_service()
         client = httpx.AsyncClient()
-        mock_backend = MockBackend(
-            client, available_models=[model_name, "other-model"]
-        )
+        mock_backend = MockBackend(client, available_models=[model_name, "other-model"])
 
         with patch.object(service, "_get_or_create_backend", return_value=mock_backend):
             # Act
@@ -170,16 +177,18 @@ class TestBackendServiceHypothesis:
 
         # Test with different rate limit configurations
         for remaining in [0, -1, -5]:
-            with patch.object(
-                service._rate_limiter, 
-                "check_limit", 
-                AsyncMock(return_value=Mock(
-                    is_limited=True, 
-                    remaining=remaining, 
-                    reset_at=123, 
-                    limit=10
-                ))
-            ), pytest.raises(RateLimitExceededError):
+            with (
+                patch.object(
+                    service._rate_limiter,
+                    "check_limit",
+                    AsyncMock(
+                        return_value=Mock(
+                            is_limited=True, remaining=remaining, reset_at=123, limit=10
+                        )
+                    ),
+                ),
+                pytest.raises(RateLimitExceededError),
+            ):
                 # Act & Assert
                 await service.call_completion(chat_request)
 
@@ -189,22 +198,21 @@ class TestBackendServiceHypothesis:
         # Arrange
         service = create_backend_service()
         client = httpx.AsyncClient()
-        
+
         # Test with different error messages
         error_messages = [
             "API error",
             "Network timeout",
             "Invalid API key",
-            "Rate limit exceeded on backend"
+            "Rate limit exceeded on backend",
         ]
-        
+
         for error_msg in error_messages:
             # Create a new mock for each iteration to avoid shared state
             mock_backend = MockBackend(client)
             # Use BackendError instead of generic Exception to match what the backend would throw
             mock_backend.chat_completions_mock.side_effect = BackendError(
-                message=error_msg, 
-                backend_name="test-backend"
+                message=error_msg, backend_name="test-backend"
             )
             chat_request = ChatRequest(
                 messages=[ChatMessage(role="user", content="Hello")],
@@ -212,7 +220,9 @@ class TestBackendServiceHypothesis:
                 extra_body={"backend_type": BackendType.OPENAI},
             )
 
-            with patch.object(service, "_get_or_create_backend", return_value=mock_backend):
+            with patch.object(
+                service, "_get_or_create_backend", return_value=mock_backend
+            ):
                 # Act & Assert
                 # We need to explicitly set allow_failover=False to prevent the service from
                 # attempting to use fallback backends, which would catch the exception

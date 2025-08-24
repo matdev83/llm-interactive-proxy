@@ -41,9 +41,15 @@ def mock_session() -> Mock:
 
 
 @pytest.mark.asyncio
-async def test_create_failover_route(mock_session: Mock, mock_state_reader: ISecureStateAccess, mock_state_modifier: ISecureStateModification):
+async def test_create_failover_route(
+    mock_session: Mock,
+    mock_state_reader: ISecureStateAccess,
+    mock_state_modifier: ISecureStateModification,
+):
     # Arrange
-    command = CreateFailoverRouteCommand(state_reader=mock_state_reader, state_modifier=mock_state_modifier)
+    command = CreateFailoverRouteCommand(
+        state_reader=mock_state_reader, state_modifier=mock_state_modifier
+    )
     args = {"name": "myroute", "policy": "k"}
 
     # Act
@@ -57,11 +63,19 @@ async def test_create_failover_route(mock_session: Mock, mock_state_reader: ISec
 
 
 @pytest.mark.asyncio
-async def test_delete_failover_route(mock_session: Mock, mock_state_reader: ISecureStateAccess, mock_state_modifier: ISecureStateModification):
+async def test_delete_failover_route(
+    mock_session: Mock,
+    mock_state_reader: ISecureStateAccess,
+    mock_state_modifier: ISecureStateModification,
+):
     # Arrange
-    command = DeleteFailoverRouteCommand(state_reader=mock_state_reader, state_modifier=mock_state_modifier)
+    command = DeleteFailoverRouteCommand(
+        state_reader=mock_state_reader, state_modifier=mock_state_modifier
+    )
     # First, create a route to delete
-    create_command = CreateFailoverRouteCommand(state_reader=mock_state_reader, state_modifier=mock_state_modifier)
+    create_command = CreateFailoverRouteCommand(
+        state_reader=mock_state_reader, state_modifier=mock_state_modifier
+    )
     await create_command.execute({"name": "myroute", "policy": "k"}, mock_session)
     assert "myroute" in mock_session.state.backend_config.failover_routes
 
@@ -76,10 +90,18 @@ async def test_delete_failover_route(mock_session: Mock, mock_state_reader: ISec
 
 
 @pytest.mark.asyncio
-async def test_list_failover_routes(mock_session: Mock, mock_state_reader: ISecureStateAccess, mock_state_modifier: ISecureStateModification):
+async def test_list_failover_routes(
+    mock_session: Mock,
+    mock_state_reader: ISecureStateAccess,
+    mock_state_modifier: ISecureStateModification,
+):
     # Arrange
-    command = ListFailoverRoutesCommand(state_reader=mock_state_reader, state_modifier=mock_state_modifier)
-    create_command = CreateFailoverRouteCommand(state_reader=mock_state_reader, state_modifier=mock_state_modifier)
+    command = ListFailoverRoutesCommand(
+        state_reader=mock_state_reader, state_modifier=mock_state_modifier
+    )
+    create_command = CreateFailoverRouteCommand(
+        state_reader=mock_state_reader, state_modifier=mock_state_modifier
+    )
     await create_command.execute({"name": "route1", "policy": "k"}, mock_session)
     await create_command.execute({"name": "route2", "policy": "m"}, mock_session)
 

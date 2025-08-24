@@ -52,18 +52,20 @@ class TestFailoverRoutes:
         #     preserve_unknown=True,
         # )
         # parser = CommandParser(config, command_prefix="!/")
-        
+
         # Manually create a failover route directly in the state
-        
+
         # Get the concrete backend config
         backend_config = cast(BackendConfiguration, state_adapter._state.backend_config)
         # Create new backend config with failover route
         new_backend_config = backend_config.with_failover_route("foo", "k")
         # Create new state with updated backend config
-        new_state = state_adapter._state.with_backend_config(cast(BackendConfiguration, new_backend_config))
+        new_state = state_adapter._state.with_backend_config(
+            cast(BackendConfiguration, new_backend_config)
+        )
         # Update the adapter's internal state
         state_adapter._state = new_state
-        
+
         # For this test, we'll directly set the interactive_just_enabled flag
         # since the command handler has been updated to handle it properly
         state_adapter.interactive_just_enabled = True
@@ -83,14 +85,16 @@ class TestFailoverRoutes:
         # Create initial session and route
         session = Session(session_id="test_session")
         state_adapter = SessionStateAdapter(cast(SessionState, session.state))
-        
+
         # Manually create the route in the state
         # Get the concrete backend config
         backend_config = cast(BackendConfiguration, state_adapter._state.backend_config)
         # Create new backend config with failover route
         new_backend_config = backend_config.with_failover_route("foo", "k")
         # Create new state with updated backend config
-        new_state = state_adapter._state.with_backend_config(cast(BackendConfiguration, new_backend_config))
+        new_state = state_adapter._state.with_backend_config(
+            cast(BackendConfiguration, new_backend_config)
+        )
         # Update the adapter's internal state
         state_adapter._state = new_state
 
@@ -104,7 +108,9 @@ class TestFailoverRoutes:
         # Create new backend config with appended route element
         new_backend_config = backend_config.with_appended_route_element("foo", "bar")
         # Create new state with updated backend config
-        new_state = state_adapter._state.with_backend_config(cast(BackendConfiguration, new_backend_config))
+        new_state = state_adapter._state.with_backend_config(
+            cast(BackendConfiguration, new_backend_config)
+        )
         # Update the adapter's internal state
         state_adapter._state = new_state
 
@@ -119,9 +125,13 @@ class TestFailoverRoutes:
         # Get the concrete backend config
         backend_config = cast(BackendConfiguration, state_adapter._state.backend_config)
         # Create new backend config with appended route element
-        new_backend_config = backend_config.with_appended_route_element("foo", "openai:gpt-4")
+        new_backend_config = backend_config.with_appended_route_element(
+            "foo", "openai:gpt-4"
+        )
         # Create new state with updated backend config
-        new_state = state_adapter._state.with_backend_config(cast(BackendConfiguration, new_backend_config))
+        new_state = state_adapter._state.with_backend_config(
+            cast(BackendConfiguration, new_backend_config)
+        )
         # Update the adapter's internal state
         state_adapter._state = new_state
 
@@ -138,17 +148,21 @@ class TestFailoverRoutes:
     async def test_routes_are_server_wide(self) -> None:
         session1 = Session(session_id="session1")
         state_adapter1 = SessionStateAdapter(cast(SessionState, session1.state))
-        
+
         # Manually create a route in session1
         # Get the concrete backend config
-        backend_config = cast(BackendConfiguration, state_adapter1._state.backend_config)
+        backend_config = cast(
+            BackendConfiguration, state_adapter1._state.backend_config
+        )
         # Create new backend config with failover route
         new_backend_config = backend_config.with_failover_route("test", "m")
         # Create new state with updated backend config
-        new_state = state_adapter1._state.with_backend_config(cast(BackendConfiguration, new_backend_config))
+        new_state = state_adapter1._state.with_backend_config(
+            cast(BackendConfiguration, new_backend_config)
+        )
         # Update the adapter's internal state
         state_adapter1._state = new_state
-        
+
         session2 = Session(session_id="session2")
         state_adapter2 = SessionStateAdapter(cast(SessionState, session2.state))
 

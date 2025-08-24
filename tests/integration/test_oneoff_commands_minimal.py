@@ -18,9 +18,7 @@ async def test_oneoff_command_parsing():
     session = Session(session_id="test-session")
 
     # Test message with oneoff command
-    messages = [
-        ChatMessage(role="user", content="!/oneoff(openai/gpt-4)\nWhat is AI?")
-    ]
+    messages = [ChatMessage(role="user", content="!/oneoff(openai/gpt-4)\nWhat is AI?")]
 
     # This should process the command and return modified messages
     processed_messages, commands_processed = await process_commands_in_messages(

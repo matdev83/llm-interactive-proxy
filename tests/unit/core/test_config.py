@@ -36,8 +36,6 @@ def test_app_config_validation() -> None:
         AppConfig(backends={"openai": {"api_url": "invalid-url"}})
 
 
-
-
 def test_app_config_from_env(mock_env_vars: dict[str, str]) -> None:
     """Test creation from environment variables."""
     # Arrange & Act

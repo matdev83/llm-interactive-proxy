@@ -36,5 +36,3 @@ class TestParseArguments:
         args_str = "model=claude/opus, debug_mode"
         expected = {"model": "claude/opus", "debug_mode": True}
         assert parse_arguments(args_str) == expected
-
-

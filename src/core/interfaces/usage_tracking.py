@@ -28,8 +28,6 @@ class IUsageTrackingService(abc.ABC):
         username: str | None = None,
         project: str | None = None,
         session_id: str | None = None,
-        reasoning_tokens: int = 0,
-        cached_tokens: int = 0,
     ) -> UsageData:
         """Track usage metrics for an LLM request.
 
@@ -44,8 +42,6 @@ class IUsageTrackingService(abc.ABC):
             username: Username
             project: Project name
             session_id: Session ID
-            reasoning_tokens: Number of reasoning tokens
-            cached_tokens: Number of cached tokens
 
         Returns:
             The created usage data entity

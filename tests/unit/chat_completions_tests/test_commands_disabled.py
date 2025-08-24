@@ -3,10 +3,11 @@ from unittest.mock import AsyncMock, patch
 import pytest
 from src.core.interfaces.backend_service_interface import IBackendService
 from src.core.interfaces.session_service_interface import ISessionService
+from starlette.testclient import TestClient
 
 
 @pytest.mark.asyncio
-async def test_commands_ignored(commands_disabled_client):
+async def test_commands_ignored(commands_disabled_client: TestClient) -> None:
     # Configure the mock response using the backend service pattern (like the working tests)
     from src.core.domain.responses import ResponseEnvelope
 
@@ -56,4 +57,4 @@ async def test_commands_ignored(commands_disabled_client):
         )
     )
     session = await session_service.get_session("default")
-    assert session.state.override_model is None
+    assert session.state.backend_config.model is None

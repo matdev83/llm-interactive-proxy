@@ -62,7 +62,7 @@ def get_command_pattern(command_prefix: str) -> re.Pattern:
     # Escape special regex characters in the prefix
     escaped_prefix = re.escape(command_prefix)
     # Pattern to match commands with optional arguments in parentheses
-    return re.compile(rf"{escaped_prefix}(\w+)(?:$$(.*?)$$)?")
+    return re.compile(rf"{escaped_prefix}(\w+)(?:\((.*?)\))?")
 
 
 class CommandRegistry:
@@ -220,30 +220,47 @@ class CommandService(ICommandService):
             if message.role == "user":
                 content = message.content or ""
                 if isinstance(content, str):
-                    if content.startswith("!/"):
-                        match = re.match(r"!/(\w+)\(([^)]*)\)", content)
+                    logger.debug(f"Checking message content for commands: '{content}'")
+
+                    # Search for command patterns anywhere in the content
+                    cmd_match = None
+                    match_start = 0
+
+                    # First try to match command with arguments: !/command(args)
+                    args_pattern = r"!/(\w+)\(([^)]*)\)"
+                    match = re.search(args_pattern, content)
+                    if match:
+                        logger.debug(f"Matched command with args: {match.groups()}")
+                        cmd_name = match.group(1)
+                        args_str = match.group(2)
+                        match_start = match.start()
+                        match_end = match.end()
+                        cmd_match = match
+                    else:
+                        # Try to match command without arguments: !/command
+                        simple_pattern = r"!/(\w+)"
+                        match = re.search(simple_pattern, content)
                         if match:
+                            logger.debug(
+                                f"Matched command without args: {match.groups()}"
+                            )
                             cmd_name = match.group(1)
-                            args_str = match.group(2)
-                            paren_start = content.find("(")
-                            if paren_start != -1:
-                                paren_end = content.find(")", paren_start)
-                                if paren_end != -1:
-                                    match_end = paren_end + 1
-                                else:
-                                    match_end = len(content)
-                            else:
-                                match_end = len(content)
-                            remaining = content[match_end:]
-                        else:
-                            match = re.match(r"!/(\w+)", content)
-                            if match:
-                                cmd_name = match.group(1)
-                                args_str = None
-                                match_end = match.end()
-                                remaining = content[match_end:]
-                            else:
-                                continue
+                            args_str = None
+                            match_start = match.start()
+                            match_end = match.end()
+                            cmd_match = match
+
+                    if cmd_match:
+                        # Extract remaining content after the command
+                        remaining = content[match_end:]
+                        logger.debug(
+                            f"Command name: {cmd_name}, remaining: '{remaining}'"
+                        )
+
+                        # Remove the command from the current message content
+                        before_command = content[:match_start]
+                        message.content = before_command + remaining
+                        logger.debug(f"Updated message content: '{message.content}'")
 
                         cmd = self._registry.get(cmd_name)
 
@@ -328,7 +345,9 @@ class CommandService(ICommandService):
                             if remaining:
                                 modified_messages[i].content = " " + remaining.strip()
                             else:
-                                modified_messages[i].content = ""
+                                # Command was fully executed with no remaining content
+                                # Set modified_messages to empty list to signal no backend call needed
+                                modified_messages = []
                         elif not self._preserve_unknown:
                             modified_messages[i].content = " "
                     break

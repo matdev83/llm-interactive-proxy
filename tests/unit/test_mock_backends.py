@@ -195,7 +195,9 @@ def test_chat_completion_api_with_mock(test_app: FastAPI, test_client: TestClien
     )
 
     # Set up the backend in the existing service provider
-    backend_service = test_app.state.service_provider.get_required_service(IBackendService)
+    backend_service = test_app.state.service_provider.get_required_service(
+        IBackendService
+    )
     backend_service._backends = {"openai": backend}
 
     # Make a request to the API

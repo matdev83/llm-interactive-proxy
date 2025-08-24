@@ -1,8 +1,9 @@
 """Debug script: reproduce Gemini generationConfig merge behavior.
 
 Run from project root with the venv interpreter:
-./.venv/Scripts/python.exe dev/scripts/debug_gemini_merge.py      
+./.venv/Scripts/python.exe dev/scripts/debug_gemini_merge.py
 """
+
 import asyncio
 import sys
 from pathlib import Path
@@ -33,9 +34,7 @@ async def main() -> None:
     mock_response = Mock()
     mock_response.status_code = 200
     mock_response.json.return_value = {
-        "candidates": [
-            {"content": {"parts": [{"text": "ok"}]}, "finishReason": "STOP"}
-        ]
+        "candidates": [{"content": {"parts": [{"text": "ok"}]}, "finishReason": "STOP"}]
     }
     mock_response.headers = {}
 
@@ -59,5 +58,3 @@ async def main() -> None:
 
 if __name__ == "__main__":
     asyncio.run(main())
-
-

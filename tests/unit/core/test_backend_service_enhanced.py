@@ -177,7 +177,9 @@ class TestBackendServiceBasic:
         factory = BackendFactory(client, registry)
         rate_limiter = MockRateLimiter()
         session_service = Mock(spec=ISessionService)
-        return ConcreteBackendService(factory, rate_limiter, mock_config, session_service)
+        return ConcreteBackendService(
+            factory, rate_limiter, mock_config, session_service
+        )
 
     @pytest.mark.asyncio
     async def test_get_or_create_backend_cached(self, service):
@@ -261,7 +263,9 @@ class TestBackendServiceCompletions:
         factory = BackendFactory(client, registry)
         rate_limiter = MockRateLimiter()
         session_service = Mock(spec=ISessionService)
-        return ConcreteBackendService(factory, rate_limiter, mock_config, session_service)
+        return ConcreteBackendService(
+            factory, rate_limiter, mock_config, session_service
+        )
 
     @pytest.fixture
     def chat_request(self):
@@ -347,7 +351,9 @@ class TestBackendServiceCompletions:
         with patch.object(service, "_get_or_create_backend", return_value=mock_backend):
             # Act & Assert
             with pytest.raises(BackendError) as exc_info:
-                await service.call_completion(chat_request, stream=True, allow_failover=False)
+                await service.call_completion(
+                    chat_request, stream=True, allow_failover=False
+                )
 
             # Verify the error was caught and wrapped in BackendError
             assert "Streaming error" in str(exc_info.value) or "ValueError" in str(
@@ -383,7 +389,6 @@ class TestBackendServiceCompletions:
         # so we're only checking for the essential message
 
     @pytest.mark.asyncio
-
     async def test_call_completion_backend_error(self, service, chat_request):
         """Test error handling when backend calls fail."""
         # Arrange
@@ -402,7 +407,6 @@ class TestBackendServiceCompletions:
             # Note: The backend type may not be included in the error message in all implementations
 
     @pytest.mark.asyncio
-
     async def test_call_completion_invalid_response(self, service, chat_request):
         """Test error handling for invalid response format."""
         # Arrange
@@ -424,7 +428,6 @@ class TestBackendServiceCompletions:
             ) or "Backend call failed" in str(exc_info.value)
 
     @pytest.mark.asyncio
-
     async def test_call_completion_invalid_streaming_response(
         self,
         service,
@@ -442,7 +445,9 @@ class TestBackendServiceCompletions:
         with patch.object(service, "_get_or_create_backend", return_value=mock_backend):
             # Act & Assert
             with pytest.raises(BackendError) as exc_info:
-                await service.call_completion(chat_request, stream=True, allow_failover=False)
+                await service.call_completion(
+                    chat_request, stream=True, allow_failover=False
+                )
 
             # Don't check for specific error message as it may vary across implementations
             assert "Invalid streaming response" in str(
@@ -464,7 +469,9 @@ class TestBackendServiceValidation:
         rate_limiter = MockRateLimiter()
         mock_config = Mock()
         session_service = Mock(spec=ISessionService)
-        return ConcreteBackendService(factory, rate_limiter, mock_config, session_service)
+        return ConcreteBackendService(
+            factory, rate_limiter, mock_config, session_service
+        )
 
     @pytest.mark.asyncio
     async def test_validate_backend_and_model_valid(self, service):
@@ -608,7 +615,6 @@ class TestBackendServiceFailover:
         )
 
     @pytest.mark.asyncio
-
     async def test_simple_failover(self, service_with_simple_failover, chat_request):
         """Test simple backend failover when primary fails."""
         # Arrange

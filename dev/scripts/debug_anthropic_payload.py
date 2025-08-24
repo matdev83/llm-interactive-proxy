@@ -1,4 +1,5 @@
 """Debug Anthropic payload builder."""
+
 import sys
 from pathlib import Path
 
@@ -25,7 +26,11 @@ async def main():
             function=FunctionDefinition(
                 name="get_weather",
                 description="desc",
-                parameters={"type":"object","properties":{"location":{"type":"string"}},"required":["location"]},
+                parameters={
+                    "type": "object",
+                    "properties": {"location": {"type": "string"}},
+                    "required": ["location"],
+                },
             ),
         )
     ]
@@ -39,11 +44,12 @@ async def main():
         tool_choice="auto",
     )
     processed = [ChatMessage(role="user", content="What's the weather like?")]
-    payload = backend._prepare_anthropic_payload(req, processed, "claude-3-haiku-20240307", None)
+    payload = backend._prepare_anthropic_payload(
+        req, processed, "claude-3-haiku-20240307", None
+    )
     print(payload)
+
 
 import asyncio
 
 asyncio.run(main())
-
-

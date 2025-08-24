@@ -8,7 +8,7 @@ from src.core.interfaces.configuration_interface import IAppIdentityConfig
 from src.core.interfaces.model_bases import DomainModel, InternalDTO
 
 if TYPE_CHECKING:
-    pass
+    from src.core.interfaces.response_processor_interface import IResponseProcessor
 
 
 class LLMBackend(abc.ABC):
@@ -18,6 +18,9 @@ class LLMBackend(abc.ABC):
     """
 
     backend_type: str
+
+    def __init__(self, response_processor: IResponseProcessor | None = None) -> None:
+        self._response_processor = response_processor
 
     @abc.abstractmethod
     async def chat_completions(

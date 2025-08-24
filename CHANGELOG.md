@@ -1,155 +1,99 @@
-# CHANGELOG.md
+# Changelog
 
-## Unreleased
-- **Security**: Add automatic API key redaction to logging
-  - Install a global logging filter at application startup that redacts discovered API keys from all log records to prevent secret leaks.
-  - Automatically discovers API keys from `AppConfig` (auth and backend configs) and environment variables, including numbered variants (e.g. `OPENROUTER_API_KEY_1..20`) and comma-separated lists.
-  - Supports common formats (OpenAI, Gemini, Anthropic, OpenRouter, ZAI, Bearer tokens) and adds defensive default patterns.
-  - Includes unit tests and a demo script `dev/test_api_key_redaction.py` to validate discovery and redaction behavior.
+This document outlines significant changes and updates to the LLM Interactive Proxy.
 
-## 2025-08-19 (Migration Cleanup Complete)
-- **MIGRATION CLEANUP COMPLETED**: Finalized cleanup of legacy code after successful staged initialization migration
-  - Removed deprecated ApplicationBuilder class from application_factory.py
-  - Deleted migration_wrapper.py as transition period is complete
-  - Cleaned up compatibility shims in test configuration
-  - Simplified application_factory.py to contain only essential compatibility functions
-  - Updated integration tests to use clean new architecture patterns
-  - All legacy fallback code removed - new staged architecture is now the only implementation
-  - Achieved complete separation: ~90% code reduction in application factory complexity
+## 2025-08-24 – Tool Call Repair and Streaming Safeguards
 
-## 2025-08-26
-- **Refactored Command Testing**: Overhauled the entire testing architecture for interactive commands. Replaced fragile legacy tests with a robust suite of unit and snapshot tests, and implemented command auto-discovery.
-- **SOLID ARCHITECTURE MIGRATION FINALIZED**: Completely finalized migration to new SOLID architecture
-  - Removed all legacy code files (proxy_logic.py, session.py, main.py)
-  - Removed all legacy adapters and compatibility layers
-  - Removed legacy state compatibility layer
-  - Migrated all command implementations to new architecture
-  - Completed session management migration
-  - Updated all tests to use new architecture directly
-  - Cleaned up all imports referencing legacy modules
-  - Refactored application_factory.py to use new configuration system
-  - Created comprehensive domain models for commands and configuration
-  - Updated documentation to reflect new architecture
+- Added automated Tool Call Repair mechanism to detect and convert plain-text tool/function call instructions into OpenAI-compatible `tool_calls` in responses.
+  - Supports common patterns: inline JSON objects (e.g., `{"function_call":{...}}`), JSON in code fences, and textual forms like `TOOL CALL: name {...}`.
+  - Non-streaming responses: repairs are applied before returning to the client; `finish_reason` set to `tool_calls` and conflicting `content` cleared.
+  - Streaming responses: introduced a streaming repair processor that accumulates minimal context, detects tool calls, and emits repaired chunks. Trailing free text after a repaired tool call is intentionally not emitted to avoid ambiguity.
+- Configuration:
+  - `session.tool_call_repair_enabled` (default: `true`)
+  - `session.tool_call_repair_buffer_cap_bytes` (default: `65536`)
+  - Env vars: `TOOL_CALL_REPAIR_ENABLED`, `TOOL_CALL_REPAIR_BUFFER_CAP_BYTES`
+- Safety/performance:
+  - Added a per-session buffer cap (default 64 KB) in the repair service to guard against pathological streams and reduce scanning overhead.
+  - Optimized detection using fast-path guards and a balanced JSON extractor to avoid heavy regex backtracking on large buffers.
 
-## 2025-08-25
-- **SOLID ARCHITECTURE MIGRATION COMPLETED**: Major progress on migration to new SOLID architecture
-  - Removed most legacy code (proxy_logic.py, proxy_logic_deprecated.py)
-  - Removed legacy state compatibility layer
-  - Migrated legacy command implementations to new architecture
-  - Completed session management migration
-  - Updated tests to remove dependencies on legacy code
-  - Cleaned up imports referencing legacy modules
-  - Refactored chat_service.py to remove ProxyState dependencies
-  - Created comprehensive final migration report
+## API Versioning and Deprecation
 
-## 2025-08-24
-- **SOLID ARCHITECTURE MIGRATION PROGRESS**: Major progress on migration to new SOLID architecture
-  - Removed all legacy adapters (config, session, command, backend)
-  - Removed backward compatibility layers
-  - Removed legacy main.py entry point
-  - Updated CLI to use new architecture directly
-  - Cleaned up integration bridge and hybrid controllers
-  - Updated test fixtures to use new architecture
-  - Fixed authentication in tests
-  - Fixed loop detection and tool call tests
-  - Fixed indentation issues in OpenAI connector
-  - Created comprehensive verification report
+- **API Versioning**: The API is now versioned using URL path prefixes:
+  - `/v1/` - Legacy API (compatible with OpenAI/Anthropic) - **DEPRECATED**
+  - `/v2/` - New SOLID architecture API (recommended)
+- **Deprecation Notice**: Legacy endpoints (`/v1/*`) are deprecated and will return deprecation headers (`Deprecation: true`, `Sunset: 2023-12-31`). It is recommended to migrate to the `/v2/` endpoints as soon as possible.
 
-## 2025-08-23
-- **SOLID REFACTORING PROGRESS**: Made significant progress on SOLID refactoring
-  - Conducted thorough code review focusing on SOLID principles
-  - Extracted failover logic into dedicated service
-  - Improved separation of concerns across the codebase
-  - Created comprehensive verification report
-  - Identified and documented remaining issues
+## Migration Timeline
 
-## 2025-08-22
-- **ENHANCED LOGGING AND OBSERVABILITY**: Improved logging and observability
-  - Conducted comprehensive audit of logging implementation
-  - Created logging utilities for consistent log level usage
-  - Added performance guards for expensive log operations
-  - Implemented redaction for sensitive information
-  - Added context management for enhanced logging
-  - Created comprehensive unit tests for logging utilities
+- **July 2024**: Legacy endpoints marked as deprecated in code and documentation.
+- **September 2024**: Legacy endpoints will begin returning deprecation warnings in headers and responses.
+- **October 2024**: Legacy endpoints will log warnings for each use.
+- **November 2024**: Legacy code will be completely removed from the codebase.
+- **December 2024**: Only the new architecture endpoints will be available.
 
-## 2025-08-21
-- **MULTIMODAL CONTENT SUPPORT**: Added enhanced multimodal content support
-  - Implemented ContentPart model for representing different content types (text, image, audio, video)
-  - Created MultimodalMessage model with full multimodal content support
-  - Added backend-specific format conversions for OpenAI, Anthropic, and Gemini
-  - Implemented comprehensive unit and integration tests for multimodal content
-  - Ensured backward compatibility with legacy message format
+### Legacy Code Deprecation Timeline
 
-## 2025-08-20
-- **REGRESSION TESTING FRAMEWORK**: Designed and implemented regression testing framework
-  - Created comprehensive regression test plan covering all critical paths
-  - Implemented example regression tests for chat completion functionality
-  - Developed side-by-side testing approach for comparing legacy and new implementations
-  - Added structure comparison utilities for response equivalence checking
-  - Implemented streaming response comparison for regression testing
+| Component | Deprecation Date | Removal Date |
+|---|---|---|
+| `src/proxy_logic.py` | July 2024 | November 2024 |
+| `src/main.py` endpoints | July 2024 | November 2024 |
+| Legacy adapters (`src/core/adapters/`) | July 2024 | October 2024 |
+| Feature flags | July 2024 | September 2024 |
 
-## 2025-08-19
-- **ENHANCED INTEGRATION TESTING**: Added comprehensive integration tests for Qwen OAuth authentication
-  - Implemented tests for token refresh during sessions
-  - Added tests for authentication error recovery
-  - Created tests for session persistence with token refresh
-  - Verified authentication headers in proxy requests
-  - Added tests for real token refresh integration
+## Key Architectural Improvements
 
-## 2025-08-18
-- **ENHANCED TEST COVERAGE**: Significantly improved test coverage for core SOLID architecture components
-  - Implemented comprehensive authentication tests for API key and token-based auth
-  - Created extensive backend service tests with 95% coverage
-  - Added comprehensive Qwen OAuth connector tests with 98% coverage
-  - Improved test isolation through better mocking strategies
-  - Created detailed test implementation summary and next steps plan
+### Improved Application Factory
 
-## 2025-08-17
-- **SPECIALIZED COMMANDS IMPLEMENTATION**: Completed implementation of specialized commands in new SOLID architecture
-  - Added OneOff command for setting one-time backend/model overrides
-  - Added PWD command for displaying current project directory
-  - Added Hello command for displaying welcome banner
-  - Created comprehensive test suite for all commands
-  - Updated API reference documentation
+- The application factory has been redesigned following SOLID principles to address critical architectural issues.
+- **ApplicationBuilder**: Main orchestrator for the build process.
+- **ServiceConfigurator**: Responsible for registering and configuring services in the DI container.
+- **MiddlewareConfigurator**: Handles all middleware setup and configuration.
+- **RouteConfigurator**: Manages route registration and endpoint configuration.
+- Proper service registration with factories for dependencies.
+- New `ModelsController` added to handle the `/models` endpoint.
+- Separation of concerns into distinct configurator classes.
 
-## 2025-08-15
-- **MAJOR ARCHITECTURE UPDATE**: Completed migration to new SOLID architecture
-  - Removed feature flags - new architecture is now the default and only implementation
-  - Deprecated legacy code paths with clear warnings and migration timeline
-  - Improved integration of ResponseProcessor with RequestProcessor
-  - Enhanced loop detection through middleware pipeline
-  - Added comprehensive verification tests
-- **API Changes**:
-  - Added new versioned endpoints: `/v2/chat/completions` and `/v2/messages`
-  - Marked legacy endpoints as deprecated (to be removed in November 2024)
-- **Documentation**:
-  - Added API reference documentation
-  - Created architecture diagrams
-  - Updated developer guide
-  - Added migration guide with clear deprecation timeline
+### Command DI Implementation Fixes
 
-## 2025-08-16
-- Added SOLID architecture implementation
-  - New dependency injection container
-  - Interface-based service design
-  - Immutable domain models
-  - Middleware pipeline for response processing
-  - Feature flags for gradual migration
+- Implemented a consistent Dependency Injection (DI) architecture for the command system.
+- **CommandRegistry**: Enhanced to serve as a bridge between the DI container and the command system, with static methods for global access.
+- **CommandParser**: Modified to prioritize DI-registered commands.
+- **BaseCommand**: Added `_validate_di_usage()` method to enforce DI instantiation.
+- **Centralized Command Registration**: New utility file `src/core/services/command_registration.py` centralizes command registration.
+- Enhanced test helpers to work with the DI system.
+- Removed duplicate legacy command implementations.
+- New DI-based implementation for the OpenAI URL command.
 
-## 2025-08-13
-- Removal of Gemini CLI backends (gemini-cli-direct, gemini-cli-batch, gemini-cli-interactive) due to changes in CLI architecture
-- Added new qwen-oauth backend for Qwen models authentication via OAuth tokens.
+### Dependency Injection Container Fixes
 
-## 2025-08-14
-- Separated OpenRouter and OpenAI backends into two distinct connectors. 
-- Added support for custom OpenAI API URLs via the `!set(openai_url=...)` command and the `OPENAI_API_BASE_URL` environment variable.
-- Loop detection algorithm replaced with fast hash-based implementation
-- Improved tiered architecture for loop detection settings
-- Add new `zai` backend (OpenAI compatibile)
-- Added tool call loop detection feature to prevent repetitive tool call patterns
-  - Supports "break" and "chance_then_break" modes
-  - Configurable via environment variables, model defaults, and session commands
-  - TTL-based pruning to avoid false positives
-- Performance improvements:
-  - Added isEnabledFor() guards to all logging calls to prevent unnecessary string serialization
-  - Replaced f-strings with %-style formatting in logging calls for better performance
+- Ensured `BackendRegistry` is registered as a singleton instance before `BackendFactory`.
+- Registered interfaces (`IBackendService`, `IResponseProcessor`) using the same factory functions as their concrete implementations.
+- Added explicit registration for controllers (`ChatController`, `AnthropicController`) with proper dependency injection.
+- Improved service resolution with `get_required_service_or_default` and enhanced error handling.
+- Fixed backend selection and registration, including default backend logic.
+- Enhanced test infrastructure with improved fixtures and isolation.
+- Fixed ZAI connector URL normalization and model loading.
+- Improved command handling regex and updated tests.
+
+## New Features
+
+### Enhanced Empty Response Handling
+
+- Implements automated detection and recovery for empty responses from remote LLMs.
+- **Detection Criteria**: HTTP 200 OK, empty/whitespace content, no tool calls.
+- **Recovery Mechanism**: Reads recovery prompt from `config/prompts/empty_response_auto_retry_prompt.md`, retries the request, or generates HTTP error if retry fails.
+- Configurable via `EMPTY_RESPONSE_HANDLING_ENABLED` and `EMPTY_RESPONSE_MAX_RETRIES` environment variables.
+
+### Tool Call Loop Detection
+
+- Identifies and mitigates repetitive tool calls in LLM responses to prevent infinite loops.
+- **Detection Mechanism**: Tracks tool calls, compares similarity, uses time windows.
+- **Configuration Options**: `enabled`, `max_repeats`, `ttl_seconds`, `mode` (block, warn, chance_then_block), `similarity_threshold`.
+- Supports session-level configuration using `!/set` commands.
+- **Interactive Mitigation**: In `chance_then_block` mode, provides guidance to the LLM before blocking.
+
+## Minor Improvements and Fixes
+
+- **HTTP Status Constants**: Introduced `src/core/constants/http_status_constants.py` for standardized HTTP status messages, reducing test fragility and improving maintainability.
+- **Test Suite Optimization**: Significant improvements in test suite performance by optimizing fixtures, simplifying mocks, and reducing debug logging.
+- **Test Suite Status**: All tests are now passing, with improved test isolation, fixtures, and categorization using pytest markers.

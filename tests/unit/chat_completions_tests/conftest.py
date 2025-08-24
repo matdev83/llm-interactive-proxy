@@ -18,8 +18,7 @@ def mock_openai_backend():
     backend = MagicMock()
     backend.chat_completions = AsyncMock(
         return_value=ResponseEnvelope(
-            content={"choices": [{"message": {"content": "ok"}}]},
-            headers={}
+            content={"choices": [{"message": {"content": "ok"}}]}, headers={}
         )
     )
     backend.get_available_models = lambda: ["gpt-3.5-turbo", "gpt-4"]
@@ -32,8 +31,7 @@ def mock_openrouter_backend():
     backend = MagicMock()
     backend.chat_completions = AsyncMock(
         return_value=ResponseEnvelope(
-            content={"choices": [{"message": {"content": "ok"}}]},
-            headers={}
+            content={"choices": [{"message": {"content": "ok"}}]}, headers={}
         )
     )
     backend.get_available_models = lambda: ["m1", "m2", "model-a"]
@@ -46,8 +44,7 @@ def mock_gemini_backend():
     backend = MagicMock()
     backend.chat_completions = AsyncMock(
         return_value=ResponseEnvelope(
-            content={"choices": [{"message": {"content": "ok"}}]},
-            headers={}
+            content={"choices": [{"message": {"content": "ok"}}]}, headers={}
         )
     )
     backend.get_available_models = lambda: ["gemini-pro", "gemini-ultra"]
@@ -60,8 +57,7 @@ def mock_anthropic_backend():
     backend = MagicMock()
     backend.chat_completions = AsyncMock(
         return_value=ResponseEnvelope(
-            content={"choices": [{"message": {"content": "ok"}}]},
-            headers={}
+            content={"choices": [{"message": {"content": "ok"}}]}, headers={}
         )
     )
     backend.get_available_models = lambda: ["claude-2", "claude-3-opus"]
@@ -74,8 +70,7 @@ def mock_qwen_oauth_backend():
     backend = MagicMock()
     backend.chat_completions = AsyncMock(
         return_value=ResponseEnvelope(
-            content={"choices": [{"message": {"content": "ok"}}]},
-            headers={}
+            content={"choices": [{"message": {"content": "ok"}}]}, headers={}
         )
     )
     backend.get_available_models = lambda: ["qwen-turbo", "qwen-max"]
@@ -88,8 +83,7 @@ def mock_zai_backend():
     backend = MagicMock()
     backend.chat_completions = AsyncMock(
         return_value=ResponseEnvelope(
-            content={"choices": [{"message": {"content": "ok"}}]},
-            headers={}
+            content={"choices": [{"message": {"content": "ok"}}]}, headers={}
         )
     )
     backend.get_available_models = lambda: ["zai-model-1", "zai-model-2"]
@@ -239,6 +233,12 @@ def commands_disabled_client(
         commands_enabled=False,
     )
     app = build_app(config)
+
+    # Set disable_commands on the app state to match commands_enabled=False config
+    from src.core.services.application_state_service import get_default_application_state
+    app_state_service = get_default_application_state()
+    app_state_service.set_state_provider(app.state)
+    app_state_service.set_disable_commands(True)
 
     with (
         TestClient(app) as client,

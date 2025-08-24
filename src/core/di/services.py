@@ -264,23 +264,43 @@ def register_core_services(
             pass
 
         # Create response processor with loop detector and middleware
+        logger = logging.getLogger(__name__)
         try:
             # Import the LoopDetectionMiddleware
             # Create middleware list with explicit interface typing
             from src.core.interfaces.response_processor_interface import (
                 IResponseMiddleware,
             )
+            from src.core.services.empty_response_middleware import (
+                EmptyResponseMiddleware,
+            )
             from src.core.services.response_middleware import LoopDetectionMiddleware
 
             middleware: list[IResponseMiddleware] = []
+
+            # Add empty response middleware
+            try:
+                app_config = provider.get_service(AppConfig)
+                if app_config and hasattr(app_config, "empty_response"):
+                    empty_response_config = app_config.empty_response
+                    middleware.append(
+                        EmptyResponseMiddleware(
+                            enabled=empty_response_config.enabled,
+                            max_retries=empty_response_config.max_retries,
+                        )
+                    )
+                else:
+                    # Default configuration if not available
+                    middleware.append(EmptyResponseMiddleware())
+                logger.debug("Added empty response middleware")
+            except Exception as e:
+                logger.warning(f"Empty response middleware not available: {e}")
+
             if detector:
                 middleware.append(LoopDetectionMiddleware(detector))
 
-            return ResponseProcessor(loop_detector=detector, middleware=middleware)
+                return ResponseProcessor(loop_detector=detector, middleware=middleware)
         except Exception as e:  # type: ignore[misc]
-            import logging
-
-            logger = logging.getLogger(__name__)
             logger.exception("Failed to create ResponseProcessor: %s", e)
             raise
 

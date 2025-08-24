@@ -51,32 +51,29 @@ class DeadCodeDetector:
         self.exclude_patterns = exclude_patterns or []
         self.verbose = verbose
         self.quiet = quiet
-        
+
         # Add default excludes for this project
-        self.exclude_patterns.extend([
-            # Numba-related false positives
-            "**/numba*",
-            "**/*_numba*",
-            
-            # Test files
-            "**/test_*.py",
-            "**/conftest.py",
-            
-            # Build artifacts
-            "**/build/**",
-            "**/dist/**",
-            "**/*.egg-info/**",
-            
-            # Virtual environment
-            "**/.venv/**",
-            "**/venv/**",
-            
-            # Documentation
-            "**/docs/**",
-            
-            # Examples
-            "**/examples/**",
-        ])
+        self.exclude_patterns.extend(
+            [
+                # Numba-related false positives
+                "**/numba*",
+                "**/*_numba*",
+                # Test files
+                "**/test_*.py",
+                "**/conftest.py",
+                # Build artifacts
+                "**/build/**",
+                "**/dist/**",
+                "**/*.egg-info/**",
+                # Virtual environment
+                "**/.venv/**",
+                "**/venv/**",
+                # Documentation
+                "**/docs/**",
+                # Examples
+                "**/examples/**",
+            ]
+        )
 
     def detect(self, paths: list[str]) -> list[dict]:
         """Run the detection on the given paths.
@@ -88,40 +85,42 @@ class DeadCodeDetector:
             List of dead code items found
         """
         v = vulture.Vulture(verbose=self.verbose)
-        
+
         # Set minimum confidence
         v.confidence_default = self.min_confidence
-        
+
         # Add paths to scan
         for path in paths:
             if os.path.isdir(path):
                 v.scavenge([path])
             else:
                 v.scavenge_file(path)
-        
+
         # Filter results by confidence and exclude patterns
         results = []
         for item in v.get_unused_code():
             # Skip if confidence is too low
             if item.confidence < self.min_confidence:
                 continue
-                
+
             # Skip if path matches exclude pattern
             if self._is_excluded(item.filename):
                 continue
-                
+
             # Add to results
-            results.append({
-                "type": item.typ,
-                "name": item.name,
-                "filename": item.filename,
-                "line": item.first_lineno,
-                "size": item.size,
-                "confidence": item.confidence,
-            })
-            
+            results.append(
+                {
+                    "type": item.typ,
+                    "name": item.name,
+                    "filename": item.filename,
+                    "line": item.first_lineno,
+                    "size": item.size,
+                    "confidence": item.confidence,
+                }
+            )
+
         return results
-    
+
     def _is_excluded(self, path: str) -> bool:
         """Check if a path matches any exclude pattern.
 
@@ -132,12 +131,12 @@ class DeadCodeDetector:
             True if path should be excluded
         """
         from fnmatch import fnmatch
-        
+
         for pattern in self.exclude_patterns:
             if fnmatch(path, pattern):
                 return True
         return False
-    
+
     def print_results(self, results: list[dict]) -> None:
         """Print the results in a human-readable format.
 
@@ -147,9 +146,9 @@ class DeadCodeDetector:
         if not results:
             print("No dead code found!")
             return
-            
+
         print(f"Found {len(results)} potentially dead code items:")
-        
+
         # Group by file
         files: dict[str, list[dict]] = {}
         for item in results:
@@ -157,17 +156,19 @@ class DeadCodeDetector:
             if filename not in files:
                 files[filename] = []
             files[filename].append(item)
-            
+
         # Print results by file
         for filename, items in files.items():
             if self.quiet:
                 print(filename)
                 continue
-                
+
             print(f"\n{filename}:")
             for item in sorted(items, key=lambda x: x["line"]):
-                print(f"  Line {item['line']}: {item['type']} '{item['name']}' (confidence: {item['confidence']}%)")
-    
+                print(
+                    f"  Line {item['line']}: {item['type']} '{item['name']}' (confidence: {item['confidence']}%)"
+                )
+
     def print_json(self, results: list[dict]) -> None:
         """Print the results in JSON format.
 
@@ -185,12 +186,12 @@ def get_project_root() -> Path:
     """
     # Start from the script directory and go up until we find pyproject.toml
     current = Path(__file__).parent
-    
+
     while current != current.parent:
         if (current / "pyproject.toml").exists():
             return current
         current = current.parent
-        
+
     # If we can't find it, use the script directory's parent
     return Path(__file__).parent.parent
 
@@ -234,22 +235,22 @@ def parse_args() -> argparse.Namespace:
         nargs="*",
         help="Paths to analyze (default: src)",
     )
-    
+
     return parser.parse_args()
 
 
 def main() -> None:
     """Run the script."""
     args = parse_args()
-    
+
     # Get project root
     root = get_project_root()
-    
+
     # Default to src directory if no paths provided
     paths = args.paths
     if not paths:
         paths = [str(root / "src")]
-    
+
     # Create detector
     detector = DeadCodeDetector(
         min_confidence=args.min_confidence,
@@ -257,16 +258,16 @@ def main() -> None:
         verbose=args.verbose,
         quiet=args.quiet,
     )
-    
+
     # Run detection
     results = detector.detect(paths)
-    
+
     # Print results
     if args.json:
         detector.print_json(results)
     else:
         detector.print_results(results)
-    
+
     # Exit with error code if dead code found
     sys.exit(1 if results else 0)
 

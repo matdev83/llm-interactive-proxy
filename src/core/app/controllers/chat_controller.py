@@ -6,14 +6,12 @@ Handles all chat completion related API endpoints.
 
 import asyncio
 import logging
-from typing import Any
 
 from fastapi import HTTPException, Request, Response
 
 from src.core.common.exceptions import LLMProxyError
 from src.core.domain.chat import ChatRequest
 from src.core.interfaces.di_interface import IServiceProvider
-from src.core.interfaces.model_bases import DomainModel, InternalDTO
 from src.core.interfaces.request_processor_interface import IRequestProcessor
 from src.core.services.backend_processor import BackendProcessor
 from src.core.services.command_processor import CommandProcessor
@@ -54,12 +52,14 @@ class ChatController:
             An HTTP response
         """
         try:
-            # Use the ChatRequest directly
-            domain_request = request_data
+            # Parse the request body as JSON
+            domain_request = ChatRequest(**await request.json())
 
             logger.info(
-                f"Handling chat completion request: model={domain_request.model}"
+                f"Handling chat completion request: model={domain_request.model}, processor_type={type(self._processor).__name__}, processor_id={id(self._processor)}"
             )
+            if self._processor is None:
+                raise HTTPException(status_code=500, detail="Processor is None")
 
             # Convert FastAPI Request to RequestContext and process via core processor
             ctx = fastapi_to_domain_request_context(request, attach_original=True)
@@ -72,7 +72,53 @@ class ChatController:
             if asyncio.iscoroutine(response):
                 response = await response
 
-            return domain_response_to_fastapi(response)
+            # Ensure OpenAI Chat Completions JSON schema for non-streaming responses
+            def _ensure_openai_chat_schema(content: object) -> object:
+                try:
+                    # If already in expected schema, return as-is
+                    if isinstance(content, dict) and "choices" in content:
+                        return content
+
+                    import json as _json
+                    import time
+                    import uuid
+
+                    # Normalize simple string into OpenAI-like response
+                    if isinstance(content, str):
+                        text = content
+                    elif isinstance(content, bytes):
+                        text = content.decode("utf-8", errors="ignore")
+                    else:
+                        # Best-effort stringify for non-dict/list types
+                        try:
+                            text = _json.dumps(content)
+                        except Exception:
+                            text = str(content)
+
+                    return {
+                        "id": f"chatcmpl-{uuid.uuid4().hex[:16]}",
+                        "object": "chat.completion",
+                        "created": int(time.time()),
+                        "model": getattr(domain_request, "model", "gpt-4"),
+                        "choices": [
+                            {
+                                "index": 0,
+                                "message": {"role": "assistant", "content": text},
+                                "finish_reason": "stop",
+                            }
+                        ],
+                        "usage": {
+                            "prompt_tokens": 0,
+                            "completion_tokens": 0,
+                            "total_tokens": 0,
+                        },
+                    }
+                except Exception:
+                    return content
+
+            return domain_response_to_fastapi(
+                response, content_converter=_ensure_openai_chat_schema
+            )
 
         except LLMProxyError as e:
             # Map domain exceptions to HTTP exceptions

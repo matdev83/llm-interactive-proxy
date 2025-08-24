@@ -51,13 +51,13 @@ async def run_command(command_string: str, initial_state: SessionState = None) -
     """Run a command and return the result message."""
     # Import required modules
     from tests.unit.mock_commands import MockUnsetCommand
-    
+
     # Create a Session object to hold the state
     initial_state = initial_state or SessionState()
-    
+
     # Create an unset command instance
     unset_command = MockUnsetCommand()
-    
+
     # Execute the command directly
     if "!/unset" in command_string:
         # Extract any arguments from the command
@@ -72,14 +72,14 @@ async def run_command(command_string: str, initial_state: SessionState = None) -
                         args[part] = True
             elif arg_part:
                 args[arg_part.strip()] = True
-        
+
         # Execute the unset command directly
         result = await unset_command.execute(args, initial_state)
-        
+
         # Return the message from the result
-        if result and hasattr(result, 'message'):
+        if result and hasattr(result, "message"):
             return result.message
-    
+
     # Return empty string if no command was found or executed
     return ""
 

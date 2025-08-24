@@ -4,23 +4,25 @@ Tests the FastAPI endpoints for /v1/messages and /v1/models.
 This test has been updated to use AnthropicController instead of the legacy anthropic_router.
 """
 
-import json
 from unittest.mock import AsyncMock, patch
 
 import pytest
-from fastapi import FastAPI, Request, Response
-from fastapi.testclient import TestClient
-from src.anthropic_converters import AnthropicMessage, AnthropicMessagesRequest
-from src.core.app.controllers.anthropic_controller import AnthropicController
 
 # Create a router for testing
-from fastapi import APIRouter
+from fastapi import APIRouter, FastAPI, Request, Response
+from fastapi.testclient import TestClient
+from src.anthropic_converters import AnthropicMessage, AnthropicMessagesRequest
+
 router = APIRouter(prefix="/anthropic", tags=["anthropic"])
 
+
 # Mock the anthropic_messages and anthropic_models functions
-async def anthropic_messages(request_body: AnthropicMessagesRequest, http_request: Request) -> Response:
+async def anthropic_messages(
+    request_body: AnthropicMessagesRequest, http_request: Request
+) -> Response:
     """Mock for anthropic_messages endpoint."""
     return Response(content="Not implemented", status_code=501)
+
 
 async def anthropic_models() -> dict:
     """Mock for anthropic_models endpoint."""
@@ -30,14 +32,14 @@ async def anthropic_models() -> dict:
             {
                 "id": "claude-3-opus-20240229",
                 "object": "model",
-                "owned_by": "anthropic"
+                "owned_by": "anthropic",
             },
             {
                 "id": "claude-3-sonnet-20240229",
                 "object": "model",
-                "owned_by": "anthropic"
-            }
-        ]
+                "owned_by": "anthropic",
+            },
+        ],
     }
 
 
@@ -47,12 +49,12 @@ class TestAnthropicRouter:
     def setup_method(self):
         """Set up test fixtures."""
         self.app = FastAPI()
-        
+
         # Add endpoints to the router for testing
         @router.get("/health")
         async def health():
             return {"status": "healthy", "service": "anthropic-proxy"}
-            
+
         @router.get("/v1/info")
         async def info():
             return {
@@ -65,17 +67,17 @@ class TestAnthropicRouter:
                     "claude-3-opus-20240229",
                     "claude-3-sonnet-20240229",
                     "claude-3-haiku-20240307",
-                ]
+                ],
             }
-            
+
         @router.get("/v1/models")
         async def models():
             return await anthropic_models()
-            
+
         @router.post("/v1/messages")
         async def messages(request_body: AnthropicMessagesRequest, request: Request):
             return await anthropic_messages(request_body, request)
-            
+
         self.app.include_router(router)
         self.client = TestClient(self.app)
 
@@ -146,7 +148,9 @@ class TestAnthropicRouter:
         assert response.status_code in [501, 404, 422]
 
     @pytest.mark.asyncio
-    @pytest.mark.skip(reason="Our implementation doesn't use process_request in the same way")
+    @pytest.mark.skip(
+        reason="Our implementation doesn't use process_request in the same way"
+    )
     async def test_anthropic_messages_function_validation(self):
         """Test the anthropic_messages function with valid input."""
         # Create a proper mock request that behaves like a FastAPI Request
@@ -196,8 +200,6 @@ class TestAnthropicRouter:
         assert isinstance(response, Response)
 
         # Assert the response is a Response object
-        from fastapi import Response
-
         assert isinstance(response, Response)
 
     def test_messages_endpoint_validation_errors(self):
@@ -341,7 +343,7 @@ class TestAnthropicRouter:
         # In our new implementation, we need to update the router to handle exceptions
         # For now, we'll skip this test until we implement proper error handling
         mock_get_models.side_effect = Exception("Database error")
-        
+
         # This test expects the router to catch exceptions and return a 500 response
         # but our current implementation doesn't have this error handling yet
         response = self.client.get("/anthropic/v1/models")

@@ -274,7 +274,9 @@ class TestBackendIntegration:
         with patch.object(
             get_backend_instance(proxy_server.app, "openrouter"),
             "chat_completions",
-            new=AsyncMock(return_value=ResponseEnvelope(content=mock_response, headers={})),
+            new=AsyncMock(
+                return_value=ResponseEnvelope(content=mock_response, headers={})
+            ),
         ):
 
             # Use Gemini client to make request
@@ -302,7 +304,9 @@ class TestBackendIntegration:
         with patch.object(
             get_backend_instance(proxy_server.app, "gemini"),
             "chat_completions",
-            new=AsyncMock(return_value=ResponseEnvelope(content=gemini_mock_response, headers={})),
+            new=AsyncMock(
+                return_value=ResponseEnvelope(content=gemini_mock_response, headers={})
+            ),
         ):
 
             # Use Gemini client with system instruction
@@ -345,7 +349,9 @@ class TestBackendIntegration:
         with patch.object(
             get_backend_instance(proxy_server.app, "gemini-cli-direct"),
             "chat_completions",
-            new=AsyncMock(return_value=ResponseEnvelope(content=cli_response, headers={})),
+            new=AsyncMock(
+                return_value=ResponseEnvelope(content=cli_response, headers={})
+            ),
         ):
 
             response = gemini_client.generate_content(contents="Test message")
@@ -379,7 +385,9 @@ class TestComplexConversions:
         with patch.object(
             get_backend_instance(proxy_server.app, "openrouter"),
             "chat_completions",
-            new=AsyncMock(return_value=ResponseEnvelope(content=mock_response, headers={})),
+            new=AsyncMock(
+                return_value=ResponseEnvelope(content=mock_response, headers={})
+            ),
         ):
 
             # Create multipart content using Gemini client format
@@ -426,7 +434,9 @@ class TestComplexConversions:
         with patch.object(
             get_backend_instance(proxy_server.app, "openrouter"),
             "chat_completions",
-            new=AsyncMock(return_value=ResponseEnvelope(content=mock_response, headers={})),
+            new=AsyncMock(
+                return_value=ResponseEnvelope(content=mock_response, headers={})
+            ),
         ):
 
             # Create conversation history
@@ -475,7 +485,11 @@ class TestStreamingIntegration:
         with patch.object(
             get_backend_instance(proxy_server.app, "openrouter"),
             "chat_completions",
-            new=AsyncMock(return_value=ResponseEnvelope(content=mock_streaming_response, headers={})),
+            new=AsyncMock(
+                return_value=ResponseEnvelope(
+                    content=mock_streaming_response, headers={}
+                )
+            ),
         ):
 
             # Test streaming with Gemini client
@@ -561,7 +575,9 @@ class TestPerformanceAndReliability:
         with patch.object(
             get_backend_instance(proxy_server.app, "openrouter"),
             "chat_completions",
-            new=AsyncMock(return_value=ResponseEnvelope(content=mock_response, headers={})),
+            new=AsyncMock(
+                return_value=ResponseEnvelope(content=mock_response, headers={})
+            ),
         ):
 
             # Make multiple concurrent requests
@@ -609,7 +625,9 @@ class TestPerformanceAndReliability:
         with patch.object(
             get_backend_instance(proxy_server.app, "openrouter"),
             "chat_completions",
-            new=AsyncMock(return_value=ResponseEnvelope(content=mock_response, headers={})),
+            new=AsyncMock(
+                return_value=ResponseEnvelope(content=mock_response, headers={})
+            ),
         ):
 
             # Create large content

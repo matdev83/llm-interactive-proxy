@@ -59,11 +59,11 @@ def test_command_output_constants():
     """Test that command output constants have expected format."""
     assert BACKEND_SET_MESSAGE == "Backend set to {backend}"
     assert MODEL_SET_MESSAGE == "Model set to {model}"
-    
+
     # Test formatting
     formatted_backend = BACKEND_SET_MESSAGE.format(backend="openai")
     assert formatted_backend == "Backend set to openai"
-    
+
     formatted_model = MODEL_SET_MESSAGE.format(model="gpt-4")
     assert formatted_model == "Model set to gpt-4"
 

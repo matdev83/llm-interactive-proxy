@@ -71,7 +71,7 @@ def test_openai_frontend_to_gemini_backend_multimodal(client):
     # Mock at the backend processor level instead to avoid global mock interference
     with patch(
         "src.core.services.backend_processor.BackendProcessor.process_backend_request",
-        new_callable=AsyncMock
+        new_callable=AsyncMock,
     ) as mock_process_backend:
         from src.core.domain.responses import ResponseEnvelope
 
@@ -88,7 +88,11 @@ def test_openai_frontend_to_gemini_backend_multimodal(client):
                         "finish_reason": "stop",
                     }
                 ],
-                "usage": {"prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2},
+                "usage": {
+                    "prompt_tokens": 1,
+                    "completion_tokens": 1,
+                    "total_tokens": 2,
+                },
             }
         )
 
@@ -178,7 +182,12 @@ def test_gemini_frontend_to_openai_backend_multimodal(client):
                     {
                         "parts": [
                             {"text": "What is in this image?"},
-                            {"inline_data": {"mime_type": "image/png", "data": "aGVsbG8="}},
+                            {
+                                "inline_data": {
+                                    "mime_type": "image/png",
+                                    "data": "aGVsbG8=",
+                                }
+                            },
                         ],
                         "role": "user",
                     }

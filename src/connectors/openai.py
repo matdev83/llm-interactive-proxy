@@ -20,6 +20,9 @@ from src.core.interfaces.configuration_interface import (
     IAppIdentityConfig,  # Import IAppIdentityConfig
 )
 from src.core.interfaces.model_bases import DomainModel, InternalDTO
+from src.core.interfaces.response_processor_interface import (
+    IResponseProcessor,  # Import IResponseProcessor
+)
 from src.core.services.backend_registry import backend_registry
 
 # Legacy ChatCompletionRequest removed from connector signatures; use domain ChatRequest
@@ -35,7 +38,12 @@ class OpenAIConnector(LLMBackend):
 
     backend_type: str = "openai"
 
-    def __init__(self, client: httpx.AsyncClient) -> None:
+    def __init__(
+        self,
+        client: httpx.AsyncClient,
+        response_processor: IResponseProcessor | None = None,
+    ) -> None:
+        super().__init__(response_processor)
         self.client = client
         self.available_models: list[str] = []
         self.api_key: str | None = None
@@ -89,6 +97,34 @@ class OpenAIConnector(LLMBackend):
             payload.update(extra)
         return payload
 
+    def _ensure_string_keys_and_values(self, data: Any) -> Any:
+        """Recursively ensures all dictionary keys and values (if bytes) are strings."""
+        if isinstance(data, dict):
+            return {
+                self._ensure_string_keys_and_values(
+                    k
+                ): self._ensure_string_keys_and_values(v)
+                for k, v in data.items()
+            }
+        elif isinstance(data, list):
+            return [self._ensure_string_keys_and_values(elem) for elem in data]
+        elif isinstance(data, bytes | bytearray):  # Handle bytes and bytearray directly
+            try:
+                return data.decode("utf-8")
+            except UnicodeDecodeError:
+                logger.warning(f"Could not decode bytes to utf-8: {data!r}")
+                return str(data)  # Fallback to string representation
+        elif isinstance(
+            data, memoryview
+        ):  # Convert memoryview to bytes before decoding
+            try:
+                return bytes(data).decode("utf-8")
+            except UnicodeDecodeError:
+                logger.warning(f"Could not decode memoryview to utf-8: {data!r}")
+                return str(data)  # Fallback to string representation
+        else:
+            return data
+
     async def chat_completions(
         self,
         request_data: DomainModel | InternalDTO | dict[str, Any],
@@ -99,7 +135,9 @@ class OpenAIConnector(LLMBackend):
     ) -> ResponseEnvelope | StreamingResponseEnvelope:
         # Normalize incoming request to domain ChatRequest
         if isinstance(request_data, dict):
-            request_data = dict_to_domain_chat_request(request_data)
+            request_data = dict_to_domain_chat_request(
+                self._ensure_string_keys_and_values(request_data)
+            )
         elif not isinstance(request_data, ChatRequest):
             # Convert to dict first
             if hasattr(request_data, "model_dump"):
@@ -108,7 +146,9 @@ class OpenAIConnector(LLMBackend):
                 request_dict = request_data.dict()  # type: ignore
             else:
                 request_dict = dict(request_data)  # type: ignore
-            request_data = dict_to_domain_chat_request(request_dict)
+            request_data = dict_to_domain_chat_request(
+                self._ensure_string_keys_and_values(request_dict)
+            )
         request_data = cast(ChatRequest, request_data)
 
         payload = self._prepare_payload(
@@ -127,22 +167,30 @@ class OpenAIConnector(LLMBackend):
         url = f"{api_base.rstrip('/')}/chat/completions"
 
         if request_data.stream:
-            # Return a domain-level streaming envelope
+            # Return a domain-level streaming envelope (raw bytes iterator)
             try:
                 content_iterator = await self._handle_streaming_response(
-                    url, payload, headers
+                    url, payload, headers, request_data.session_id or ""
                 )
             except AuthenticationError as e:
                 raise HTTPException(status_code=401, detail=str(e))
             return StreamingResponseEnvelope(
-                content=content_iterator, media_type="text/event-stream", headers={}
+                content=content_iterator,
+                media_type="text/event-stream",
+                headers={},
             )
         else:
             # Return a domain ResponseEnvelope for non-streaming
-            return await self._handle_non_streaming_response(url, payload, headers)
+            return await self._handle_non_streaming_response(
+                url, payload, headers, request_data.session_id or ""
+            )
 
     async def _handle_non_streaming_response(
-        self, url: str, payload: dict[str, Any], headers: dict[str, str] | None
+        self,
+        url: str,
+        payload: dict[str, Any],
+        headers: dict[str, str] | None,
+        session_id: str,
     ) -> ResponseEnvelope:
         if not headers or not headers.get("Authorization"):
             raise AuthenticationError(message="No auth credentials found")
@@ -165,16 +213,32 @@ class OpenAIConnector(LLMBackend):
                 err = response.text
             raise HTTPException(status_code=response.status_code, detail=err)
 
-        return ResponseEnvelope(
-            content=response.json(),
-            status_code=response.status_code,
-            headers=dict(response.headers),
-        )
+        if self._response_processor:
+            processed_response = await self._response_processor.process_response(
+                response.json(), session_id=session_id
+            )
+            return ResponseEnvelope(
+                content=processed_response.content,
+                status_code=response.status_code,
+                headers=dict(response.headers),
+                usage=processed_response.usage,
+                metadata=processed_response.metadata,
+            )
+        else:
+            return ResponseEnvelope(
+                content=response.json(),
+                status_code=response.status_code,
+                headers=dict(response.headers),
+            )
 
     async def _handle_streaming_response(
-        self, url: str, payload: dict[str, Any], headers: dict[str, str] | None
+        self,
+        url: str,
+        payload: dict[str, Any],
+        headers: dict[str, str] | None,
+        session_id: str,
     ) -> AsyncIterator[bytes]:
-        """Return an AsyncIterator of bytes directly (transport-agnostic)"""
+        """Return an AsyncIterator of raw bytes (transport-agnostic)"""
 
         if not headers or not headers.get("Authorization"):
             raise AuthenticationError(message="No auth credentials found")
@@ -231,7 +295,8 @@ class OpenAIConnector(LLMBackend):
                 with contextlib.suppress(Exception):
                     await response.aclose()
 
-        # Return the generator directly without StreamingResponse wrapper
+        # For streaming responses, return raw bytes; response processing is
+        # handled at the adapter layer if needed.
         return gen()
 
     async def list_models(self, api_base_url: str | None = None) -> dict[str, Any]:

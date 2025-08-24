@@ -213,7 +213,9 @@ def services() -> ServiceCollection:
                 in messages[0].content
             ):
                 modified_messages = messages.copy()
-                if hasattr(messages[0], "model_copy") and callable(messages[0].model_copy):
+                if hasattr(messages[0], "model_copy") and callable(
+                    messages[0].model_copy
+                ):
                     new_msg = messages[0].model_copy()
                     new_msg.content = " Then,  and some text."
                     modified_messages[0] = new_msg
@@ -236,12 +238,16 @@ def services() -> ServiceCollection:
             ):
                 # Create modified messages with commands removed from both
                 modified_messages = messages.copy()
-                if hasattr(messages[0], "model_copy") and callable(messages[0].model_copy):
+                if hasattr(messages[0], "model_copy") and callable(
+                    messages[0].model_copy
+                ):
                     new_first = messages[0].model_copy()
                     new_first.content = "First message "
                     modified_messages[0] = new_first
 
-                if hasattr(messages[1], "model_copy") and callable(messages[1].model_copy):
+                if hasattr(messages[1], "model_copy") and callable(
+                    messages[1].model_copy
+                ):
                     new_second = messages[1].model_copy()
                     new_second.content = "Second message "
                     modified_messages[1] = new_second
@@ -335,7 +341,9 @@ def services() -> ServiceCollection:
             if isinstance(getattr(last_message, "content", None), str):
                 modified_content = last_message.content.replace(command_str, "")
 
-                if hasattr(last_message, "model_copy") and callable(last_message.model_copy):
+                if hasattr(last_message, "model_copy") and callable(
+                    last_message.model_copy
+                ):
                     new_last_message = last_message.model_copy()
                     new_last_message.content = modified_content
                     modified_messages[-1] = new_last_message
@@ -384,7 +392,9 @@ def services() -> ServiceCollection:
 
                     # Just keep the image part
                     new_content = [last_message.content[1]]
-                    if hasattr(last_message, "model_copy") and callable(last_message.model_copy):
+                    if hasattr(last_message, "model_copy") and callable(
+                        last_message.model_copy
+                    ):
                         new_last_message = last_message.model_copy()
                         new_last_message.content = new_content
                         modified_messages[-1] = new_last_message
@@ -399,7 +409,9 @@ def services() -> ServiceCollection:
                     if hasattr(part, "type") and part.type == "text":
                         if hasattr(part, "text") and command_str in part.text:
                             # Create new text part with command removed
-                            if hasattr(part, "model_copy") and callable(part.model_copy):
+                            if hasattr(part, "model_copy") and callable(
+                                part.model_copy
+                            ):
                                 new_part = part.model_copy()
                                 new_part.text = part.text.replace(command_str, "")
                                 # Only add if there's content left
@@ -419,7 +431,9 @@ def services() -> ServiceCollection:
                         # Keep non-text parts as is
                         new_content.append(part)
 
-                if hasattr(last_message, "model_copy") and callable(last_message.model_copy):
+                if hasattr(last_message, "model_copy") and callable(
+                    last_message.model_copy
+                ):
                     new_last_message = last_message.model_copy()
                     new_last_message.content = new_content
                     modified_messages[-1] = new_last_message

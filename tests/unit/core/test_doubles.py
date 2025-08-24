@@ -27,7 +27,12 @@ from src.core.domain.configuration import (
 )
 from src.core.domain.request_context import RequestContext
 from src.core.domain.responses import ResponseEnvelope, StreamingResponseEnvelope
-from src.core.domain.session import Session, SessionInteraction, SessionState
+from src.core.domain.session import (
+    Session,
+    SessionInteraction,
+    SessionState,
+    SessionStateAdapter,
+)
 from src.core.interfaces.backend_processor_interface import IBackendProcessor
 from src.core.interfaces.backend_service_interface import BackendError, IBackendService
 from src.core.interfaces.command_processor_interface import ICommandProcessor
@@ -254,12 +259,14 @@ class MockSessionService(ISessionService):
         if session_id not in self.sessions:
             self.sessions[session_id] = Session(
                 session_id=session_id,
-                state=SessionState(
-                    backend_config=BackendConfig(
-                        backend_type_value="mock", model_value="mock-model"
-                    ),  # type: ignore
-                    reasoning_config=ReasoningConfig(temperature=0.7),  # type: ignore
-                    loop_config=LoopDetectionConfig(loop_detection_enabled=True),  # type: ignore
+                state=SessionStateAdapter(
+                    SessionState(
+                        backend_config=BackendConfig(
+                            backend_type="mock", model="mock-model"
+                        ),
+                        reasoning_config=ReasoningConfig(temperature=0.7),  # type: ignore
+                        loop_config=LoopDetectionConfig(loop_detection_enabled=True),  # type: ignore
+                    )
                 ),
                 created_at=datetime.now(timezone.utc),
                 last_active_at=datetime.now(timezone.utc),
@@ -275,12 +282,14 @@ class MockSessionService(ISessionService):
             raise ValueError(f"Session with ID {session_id} already exists.")
         session = Session(
             session_id=session_id,
-            state=SessionState(
-                backend_config=BackendConfig(
-                    backend_type_value="mock", model_value="mock-model"
-                ),  # type: ignore
-                reasoning_config=ReasoningConfig(temperature=0.7),  # type: ignore
-                loop_config=LoopDetectionConfig(loop_detection_enabled=True),  # type: ignore
+            state=SessionStateAdapter(
+                SessionState(
+                    backend_config=BackendConfig(
+                        backend_type="mock", model="mock-model"
+                    ),
+                    reasoning_config=ReasoningConfig(temperature=0.7),  # type: ignore
+                    loop_config=LoopDetectionConfig(loop_detection_enabled=True),  # type: ignore
+                )
             ),
             created_at=datetime.now(timezone.utc),
             last_active_at=datetime.now(timezone.utc),
@@ -302,9 +311,7 @@ class MockSessionService(ISessionService):
     ) -> None:
         session = await self.get_session(session_id)
         # Use the new field names for BackendConfig
-        new_backend_config = BackendConfig(
-            backend_type_value=backend_type, model_value=model
-        )  # type: ignore
+        new_backend_config = BackendConfig(backend_type=backend_type, model=model)
         session.state = session.state.with_backend_config(new_backend_config)
         self.sessions[session_id] = session
 
@@ -528,12 +535,12 @@ class TestDataBuilder:
         """Create a test session."""
         return Session(
             session_id=session_id,
-            state=SessionState(
-                backend_config=BackendConfig(
-                    backend_type_value="openai", model_value="gpt-4"
-                ),  # type: ignore
-                reasoning_config=ReasoningConfig(temperature=0.7),  # type: ignore
-                loop_config=LoopDetectionConfig(loop_detection_enabled=True),  # type: ignore
+            state=SessionStateAdapter(
+                SessionState(
+                    backend_config=BackendConfig(backend_type="openai", model="gpt-4"),
+                    reasoning_config=ReasoningConfig(temperature=0.7),  # type: ignore
+                    loop_config=LoopDetectionConfig(loop_detection_enabled=True),  # type: ignore
+                )
             ),
             created_at=datetime.now(timezone.utc),
             last_active_at=datetime.now(timezone.utc),
