@@ -2,7 +2,7 @@ import os
 from unittest.mock import patch
 
 import pytest
-from src.core.config.config_loader import _collect_api_keys, _load_config
+from src.core.config.config_loader import _collect_api_keys, ConfigLoader
 
 
 def test_collect_api_keys_single() -> None:
@@ -40,7 +40,8 @@ def test_collect_api_keys_prioritizes_numbered() -> None:
 async def test_load_config_basic() -> None:
     """Test basic configuration loading."""
     with patch.dict(os.environ, {}, clear=True):
-        config = _load_config()
+        loader = ConfigLoader()
+        config = loader.load_config()
         assert config["proxy_host"] == "127.0.0.1"
         assert config["proxy_port"] == 8000
         assert config["disable_auth"] is False
@@ -54,7 +55,8 @@ async def test_load_config_custom_values() -> None:
         {"PROXY_HOST": "0.0.0.0", "PROXY_PORT": "9000", "DISABLE_AUTH": "false"},
         clear=True,
     ):
-        config = _load_config()
+        loader = ConfigLoader()
+        config = loader.load_config()
         assert config["proxy_host"] == "0.0.0.0"
         assert config["proxy_port"] == 9000
         assert config["disable_auth"] is False
@@ -68,7 +70,8 @@ def test_load_config_disable_auth_forces_localhost() -> None:
         ),
         patch("src.core.config.config_loader.logger") as mock_logger,
     ):
-        config = _load_config()
+        loader = ConfigLoader()
+        config = loader.load_config()
         assert config["proxy_host"] == "127.0.0.1"
         assert config["disable_auth"] is True
         # Should log a warning about forcing localhost
@@ -85,7 +88,8 @@ def test_load_config_disable_auth_with_localhost_no_warning() -> None:
         ),
         patch("src.core.config.config_loader.logger") as mock_logger,
     ):
-        config = _load_config()
+        loader = ConfigLoader()
+        config = loader.load_config()
         assert config["proxy_host"] == "127.0.0.1"
         assert config["disable_auth"] is True
         # Should not log a warning since host is already localhost
@@ -100,7 +104,8 @@ def test_load_config_auth_enabled_allows_custom_host() -> None:
         ),
         patch("src.core.config.config_loader.logger") as mock_logger,
     ):
-        config = _load_config()
+        loader = ConfigLoader()
+        config = loader.load_config()
         assert config["proxy_host"] == "0.0.0.0"
         assert config["disable_auth"] is False
         # Should not log any warnings
@@ -125,5 +130,6 @@ def test_load_config_str_to_bool_variations() -> None:
 
     for value, expected in test_cases:
         with patch.dict(os.environ, {"DISABLE_AUTH": value}, clear=True):
-            config = _load_config()
+            loader = ConfigLoader()
+            config = loader.load_config()
             assert config["disable_auth"] is expected

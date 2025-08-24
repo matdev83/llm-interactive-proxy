@@ -1,8 +1,7 @@
 """
 Usage tracking service that integrates with the existing llm_accounting_utils functionality.
 
-This service provides a bridge between the new SOLID architecture and the legacy
-usage tracking system.
+This service integrates usage tracking with the new SOLID architecture.
 """
 
 from __future__ import annotations
@@ -34,9 +33,9 @@ from src.core.domain.usage_data import UsageData
 from src.core.interfaces.repositories_interface import IUsageRepository
 from src.core.interfaces.usage_tracking_interface import IUsageTrackingService
 from src.llm_accounting_utils import (
+    extract_billing_info_from_headers,
+    extract_billing_info_from_response,
     is_accounting_disabled,
-    track_llm_request,
-    track_usage_metrics,
 )
 
 logger = logging.getLogger(__name__)
@@ -91,22 +90,13 @@ class UsageTrackingService(IUsageTrackingService):
         Returns:
             The created usage data entity
         """
-        # Use legacy tracking system
-        if not is_accounting_disabled():
-            track_usage_metrics(
-                model=model,
-                prompt_tokens=prompt_tokens,
-                completion_tokens=completion_tokens,
-                total_tokens=total_tokens,
-                cost=cost,
-                execution_time=execution_time,
-                backend=backend,
-                username=username,
-                project=project,
-                session=session_id,
-                reasoning_tokens=reasoning_tokens,
-                cached_tokens=cached_tokens,
-            )
+        # Compute totals if missing
+        if (
+            total_tokens is None
+            and prompt_tokens is not None
+            and completion_tokens is not None
+        ):
+            total_tokens = prompt_tokens + completion_tokens
 
         # Create usage data entity
         usage_data = UsageData(
@@ -196,66 +186,51 @@ class UsageTrackingService(IUsageTrackingService):
                 pass
             return
 
-        # Use legacy tracking system
-        async with track_llm_request(
-            model=model,
-            backend=backend,
-            messages=messages,
-            username=username,
-            project=project,
-            session=session_id,
-            **kwargs,
-        ) as legacy_tracker:
-            try:
-                # Yield our tracker
-                yield tracker
+        # DI-managed accounting (no legacy context manager)
+        try:
+            # Yield our tracker to allow the caller to set response info
+            yield tracker
+        finally:
+            # Calculate execution time
+            execution_time = time.time() - start_time
 
-                # Copy data from our tracker to legacy tracker
-                if tracker.response:
-                    legacy_tracker.set_response(tracker.response)
-                if tracker.response_headers:
-                    legacy_tracker.set_response_headers(tracker.response_headers)
-                if tracker.cost:
-                    legacy_tracker.set_cost(tracker.cost)
-                if tracker.remote_completion_id:
-                    legacy_tracker.set_completion_id(tracker.remote_completion_id)
-            finally:
-                # Calculate execution time
-                execution_time = time.time() - start_time
+            prompt_tokens = None
+            completion_tokens = None
+            total_tokens = None
+            cost = tracker.cost
 
-                # Extract information from response
-                # response_text = ""
-                prompt_tokens = None
-                completion_tokens = None
-                total_tokens = None
-                cost = tracker.cost
-
-                if tracker.response and isinstance(tracker.response, dict):
-                    # Extract usage from non-streaming response
-                    usage = tracker.response.get("usage", {})
-                    prompt_tokens = usage.get("prompt_tokens")
-                    completion_tokens = usage.get("completion_tokens")
-                    total_tokens = usage.get("total_tokens")
-
-                    # Extract response text
-                    # response_text = extract_response_text(tracker.response)
-
-                # Create usage data entity
-                usage_data = await self.track_usage(
-                    model=model,
-                    prompt_tokens=prompt_tokens,
-                    completion_tokens=completion_tokens,
-                    total_tokens=total_tokens,
-                    cost=cost,
-                    execution_time=execution_time,
-                    backend=backend,
-                    username=username,
-                    project=project,
-                    session_id=session_id,
+            # Extract from headers first if available
+            if tracker.response_headers:
+                billing = extract_billing_info_from_headers(
+                    tracker.response_headers, backend
                 )
+                u = billing.get("usage", {})
+                prompt_tokens = prompt_tokens or u.get("prompt_tokens")
+                completion_tokens = completion_tokens or u.get("completion_tokens")
+                total_tokens = total_tokens or u.get("total_tokens")
 
-                # Set usage data in tracker
-                tracker.set_usage_data(usage_data)
+            # Extract from response body
+            if tracker.response is not None:
+                billing = extract_billing_info_from_response(tracker.response, backend)
+                u = billing.get("usage", {})
+                prompt_tokens = prompt_tokens or u.get("prompt_tokens")
+                completion_tokens = completion_tokens or u.get("completion_tokens")
+                total_tokens = total_tokens or u.get("total_tokens")
+
+            # Persist usage data
+            usage_data = await self.track_usage(
+                model=model,
+                prompt_tokens=prompt_tokens,
+                completion_tokens=completion_tokens,
+                total_tokens=total_tokens,
+                cost=cost,
+                execution_time=execution_time,
+                backend=backend,
+                username=username,
+                project=project,
+                session_id=session_id,
+            )
+            tracker.set_usage_data(usage_data)
 
     async def get_usage_stats(
         self, project: str | None = None, days: int = 30

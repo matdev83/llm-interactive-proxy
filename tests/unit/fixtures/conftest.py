@@ -54,8 +54,8 @@ async def session_with_model(
     )
 
     new_config = BackendConfiguration(
-        model="test-model",
-        backend_type="openrouter",
+        model_value="test-model",
+        backend_type_value="openrouter",
     )
     await session_service.update_session_backend_config(
         session_id=test_session.id,
@@ -186,6 +186,7 @@ def command_parser(
                     has_set_command = False
             if has_set_command:
                 from src.core.domain.processed_result import ProcessedResult
+
                 # Do not mutate frozen models; just report execution success for this test
                 return ProcessedResult(
                     modified_messages=messages,

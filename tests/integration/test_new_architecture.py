@@ -299,9 +299,12 @@ def test_anthropic_endpoint(client: TestClient) -> None:
     response_data = response.json()
 
     # Check the response data
-    # The mock returns an OpenAI-formatted response directly (not wrapped)
+    # The mock returns an Anthropic-formatted response
     assert "id" in response_data
-    assert "choices" in response_data
-    assert len(response_data["choices"]) > 0
-    assert "message" in response_data["choices"][0]
-    assert "content" in response_data["choices"][0]["message"]
+    assert "role" in response_data
+    assert response_data["role"] == "assistant"
+    assert "content" in response_data
+    assert isinstance(response_data["content"], list)
+    assert len(response_data["content"]) > 0
+    assert "type" in response_data["content"][0]
+    assert response_data["content"][0]["type"] == "text"

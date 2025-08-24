@@ -42,28 +42,20 @@ class ChatController:
     async def handle_chat_completion(
         self,
         request: Request,
-        request_data: ChatRequest | DomainModel | InternalDTO | dict[str, Any],
+        request_data: ChatRequest,
     ) -> Response:
         """Handle chat completion requests.
 
         Args:
             request: The HTTP request
-            request_data: The parsed request data
+            request_data: The parsed request data as a ChatRequest
 
         Returns:
             An HTTP response
         """
         try:
-            # Convert legacy request to domain model if needed
+            # Use the ChatRequest directly
             domain_request = request_data
-            if not isinstance(domain_request, ChatRequest):
-                # This should not happen with the new architecture
-                raise LLMProxyError("Invalid request data format", status_code=400)
-
-            # Narrow type for mypy
-            from typing import cast
-
-            domain_request = cast(ChatRequest, domain_request)
 
             logger.info(
                 f"Handling chat completion request: model={domain_request.model}"

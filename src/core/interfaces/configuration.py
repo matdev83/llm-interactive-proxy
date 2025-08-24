@@ -35,6 +35,32 @@ class IConfig(abc.ABC):
         """
 
 
+class IAppIdentityConfig(abc.ABC):
+    """Interface for application identity configuration."""
+
+    @property
+    @abc.abstractmethod
+    def title(self) -> str:
+        """The title of the application."""
+        ...
+
+    @property
+    @abc.abstractmethod
+    def url(self) -> str:
+        """The URL of the application."""
+        ...
+
+    @abc.abstractmethod
+    def with_title(self, title: str) -> IAppIdentityConfig:
+        """Create a new config with an updated title."""
+        ...
+
+    @abc.abstractmethod
+    def with_url(self, url: str) -> IAppIdentityConfig:
+        """Create a new config with an updated URL."""
+        ...
+
+
 class IBackendConfig(abc.ABC):
     """Interface for backend configuration."""
 
@@ -193,6 +219,10 @@ class ILoopDetectionConfig(abc.ABC):
     @abc.abstractmethod
     def with_tool_loop_ttl(self, ttl: int | None) -> ILoopDetectionConfig:
         """Create a new config with updated tool loop TTL."""
+
+    @abc.abstractmethod
+    def with_tool_loop_ttl_seconds(self, ttl_seconds: int) -> ILoopDetectionConfig:
+        """Create a new config with updated tool loop TTL seconds."""
 
     @abc.abstractmethod
     def with_tool_loop_mode(self, mode: str | None) -> ILoopDetectionConfig:

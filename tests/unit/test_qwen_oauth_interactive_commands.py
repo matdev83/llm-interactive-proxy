@@ -7,9 +7,10 @@ from src.core.app.test_builder import build_test_app as build_app
 
 def _load_config():
     """Helper to load config from environment variables."""
-    from src.core.config.config_loader import _load_config
+    from src.core.config.config_loader import ConfigLoader
 
-    return _load_config()
+    loader = ConfigLoader()
+    return loader.load_config()
 
 
 class TestQwenOAuthInteractiveCommands:

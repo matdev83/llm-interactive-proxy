@@ -31,27 +31,15 @@ def _process_api_keys(keys_string: str) -> list[str]:
 
 
 def _get_api_keys_from_env() -> list[str]:
-    """Get API keys from environment variables with legacy support."""
+    """Get API keys from environment variables."""
     result: list[str] = []
 
-    # Try modern API_KEYS first
+    # Get API keys from API_KEYS environment variable
     api_keys_raw: str | None = os.environ.get("API_KEYS")
     if api_keys_raw and isinstance(api_keys_raw, str):
         result.extend(_process_api_keys(api_keys_raw))
 
-    # Try legacy LLM_INTERACTIVE_PROXY_API_KEY if no API_KEYS found
-    if not result:
-        legacy_key: str | None = os.environ.get("LLM_INTERACTIVE_PROXY_API_KEY")
-        if legacy_key and isinstance(legacy_key, str):
-            result.append(legacy_key)
-
-    # Also check other legacy variants if still no keys found
-    if not result:
-        proxy_api_keys: str | None = os.environ.get("PROXY_API_KEYS")
-        if proxy_api_keys and isinstance(proxy_api_keys, str):
-            result.extend(_process_api_keys(proxy_api_keys))
-
-    return result  # type: ignore
+    return result
 
 
 class LogLevel(str, Enum):
@@ -241,11 +229,7 @@ class AppConfig(DomainModel, IConfig):
     model_defaults: dict[str, dict[str, Any]] = Field(default_factory=dict)
     failover_routes: dict[str, dict[str, Any]] = Field(default_factory=dict)
 
-    # Nested class references for backward compatibility are removed to avoid Pydantic issues.
-    # BackendSettings: TypeAlias = BackendSettings
-    # BackendConfig: TypeAlias = BackendConfig
-    # LogLevel: TypeAlias = LogLevel
-    # AppIdentityConfig: TypeAlias = AppIdentityConfig
+    # No nested class references - use direct imports instead
 
     # Identity settings
     identity: AppIdentityConfig = Field(default_factory=AppIdentityConfig)

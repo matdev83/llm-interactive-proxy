@@ -107,104 +107,13 @@ class SecureCommandFactory:
         self._created_commands.clear()
 
 
-class LegacyCommandAdapter:
-    """Adapter to wrap legacy commands that don't use secure base classes."""
+class LegacyCommandAdapter:  # Deprecated; retained as no-op shim for compatibility
+    """Deprecated shim; no longer used. Kept to avoid import errors."""
 
-    def __init__(
-        self,
-        legacy_command: Any,
-        state_reader: ISecureStateAccess,
-        state_modifier: ISecureStateModification,
-    ):
-        """Initialize the adapter.
+    def __init__(self, *args: Any, **kwargs: Any) -> None:  # pragma: no cover
+        logger.warning("LegacyCommandAdapter is deprecated and a no-op.")
 
-        Args:
-            legacy_command: The legacy command to wrap
-            state_reader: State reading service
-            state_modifier: State modification service
-        """
-        self._legacy_command = legacy_command
-        self._state_reader = state_reader
-        self._state_modifier = state_modifier
-
-    def __getattr__(self, name: str) -> Any:
-        """Delegate attribute access to the legacy command."""
-        return getattr(self._legacy_command, name)
-
-    async def execute(self, args: Any, session: Any, context: Any = None) -> Any:
-        """Execute the legacy command with state access protection.
-
-        Args:
-            args: Command arguments
-            session: Session object
-            context: Context object (will be protected)
-
-        Returns:
-            Command result
-        """
-        # Protect the context from direct state access
-        if context:
-            self._protect_context(context)
-
-        # Execute the legacy command
-        return await self._legacy_command.execute(args, session, context)
-
-    def _protect_context(self, context: Any) -> None:
-        """Protect context from direct state access."""
-        if hasattr(context, "app") and hasattr(context.app, "state"):
-            # Log a warning about legacy usage
-            logger.warning(
-                f"Legacy command {self._legacy_command.__class__.__name__} "
-                f"is using context.app.state - consider migrating to SecureCommandBase"
-            )
-
-            # In strict mode, we could block this access entirely
-            # For now, just log the violation
-
-    def get_state_setting(self, setting_name: str) -> Any:
-        """Provide state access through secure interface."""
-        if self._state_reader is None:
-            raise StateAccessViolationError(
-                f"Cannot read state setting '{setting_name}' - no state reader injected",
-                "Inject ISecureStateAccess through constructor",
-            )
-
-        setting_methods = {
-            "command_prefix": self._state_reader.get_command_prefix,
-            "api_key_redaction_enabled": self._state_reader.get_api_key_redaction_enabled,
-            "disable_interactive_commands": self._state_reader.get_disable_interactive_commands,
-            "failover_routes": self._state_reader.get_failover_routes,
-        }
-
-        method = setting_methods.get(setting_name)
-        if method:
-            return method()  # type: ignore
-
-        raise StateAccessViolationError(
-            f"Unknown state setting: {setting_name}",
-            "Use one of: " + ", ".join(setting_methods.keys()),
+    def __getattr__(self, name: str) -> Any:  # pragma: no cover
+        raise AttributeError(
+            "LegacyCommandAdapter is deprecated; remove usages and migrate to SecureCommandBase"
         )
-
-    def update_state_setting(self, setting_name: str, value: Any) -> None:
-        """Provide state modification through secure interface."""
-        if self._state_modifier is None:
-            raise StateAccessViolationError(
-                f"Cannot update state setting '{setting_name}' - no state modifier injected",
-                "Inject ISecureStateModification through constructor",
-            )
-
-        setting_methods = {
-            "command_prefix": self._state_modifier.update_command_prefix,
-            "api_key_redaction_enabled": self._state_modifier.update_api_key_redaction,
-            "disable_interactive_commands": self._state_modifier.update_interactive_commands,
-            "failover_routes": self._state_modifier.update_failover_routes,
-        }
-
-        method = setting_methods.get(setting_name)
-        if method:
-            method(value)  # type: ignore
-        else:
-            raise StateAccessViolationError(
-                f"Unknown state setting: {setting_name}",
-                "Use one of: " + ", ".join(setting_methods.keys()),
-            )

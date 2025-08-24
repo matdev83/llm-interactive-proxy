@@ -28,9 +28,7 @@ class TestModelsEndpoints:
     @pytest.fixture
     def app_with_auth_enabled(self, monkeypatch):
         """Create app with authentication enabled."""
-        monkeypatch.setenv("PROXY_API_KEYS", "test-key-123")
-        monkeypatch.delenv("API_KEYS", raising=False)  # Remove any conflicting API_KEYS
-        monkeypatch.delenv("LLM_INTERACTIVE_PROXY_API_KEY", raising=False)  # Remove any conflicting legacy keys
+        monkeypatch.setenv("API_KEYS", "test-key-123")
         monkeypatch.delenv("AUTH_TOKEN", raising=False)  # Remove auth token to prevent AuthMiddleware interference
         return build_app()
 

@@ -36,6 +36,12 @@ def _collect_api_keys(base_name: str) -> dict[str, str]:
     return numbered_keys
 
 
+def _keys_for(backend_name: str, cfg: dict[str, Any]) -> list[str]:
+    """Get API keys for a given backend from config."""
+    key_name: str = f"{backend_name.lower()}_api_keys"
+    return list(cfg.get(key_name, {}).values())
+
+
 def get_openrouter_headers(cfg: dict[str, Any], api_key: str) -> dict[str, str]:
     """Construct headers for OpenRouter requests.
 
@@ -52,19 +58,7 @@ def get_openrouter_headers(cfg: dict[str, Any], api_key: str) -> dict[str, str]:
     }
 
 
-def _keys_for(cfg: dict[str, Any], b_type: str) -> list[tuple[str, str]]:
-    if b_type == "gemini":
-        return list(cfg["gemini_api_keys"].items())
-    if b_type == "openrouter":
-        return list(cfg["openrouter_api_keys"].items())
-    if b_type == "anthropic":
-        return list(cfg["anthropic_api_keys"].items())
-    if b_type == "zai":
-        return list(cfg["zai_api_keys"].items())
-    if b_type == "qwen-oauth":
-        # Qwen OAuth backend uses OAuth tokens, not API keys
-        return [(b_type, "oauth-token")]
-    return []
+# Function removed - no longer used
 
 
 def _str_to_bool(val: str | None, default: bool = False) -> bool:
@@ -78,20 +72,7 @@ def _str_to_bool(val: str | None, default: bool = False) -> bool:
     return default
 
 
-def _load_config(config_file: str | None = None) -> dict[str, Any]:
-    """Legacy wrapper function for backward compatibility.
-
-    This function provides the same interface as the old _load_config function
-    but uses the new ConfigLoader implementation.
-
-    Args:
-        config_file: Optional path to configuration file
-
-    Returns:
-        Dictionary containing all configuration values
-    """
-    loader: ConfigLoader = ConfigLoader()
-    return loader.load_config(config_file)
+# Legacy wrapper function removed
 
 
 class ConfigLoader:
@@ -164,17 +145,14 @@ class ConfigLoader:
         backend_type: str = os.getenv("LLM_BACKEND", "openai")
 
         config_data: dict[str, Any] = {
-            "backend": backend_type,  # Add backend key for compatibility with tests
-            "openrouter_api_key": next(iter(openrouter_keys.values()), None),
+            # Backend configuration
+            "backend": backend_type,
             "openrouter_api_keys": openrouter_keys,
             "openrouter_api_base_url": os.getenv(
                 "OPENROUTER_API_BASE_URL", "https://openrouter.ai/api/v1"
             ),
-            "gemini_api_key": next(iter(gemini_keys.values()), None),
-            "anthropic_api_key": next(iter(anthropic_keys.values()), None),
             "gemini_api_keys": gemini_keys,
             "anthropic_api_keys": anthropic_keys,
-            "zai_api_key": next(iter(zai_keys.values()), None),
             "zai_api_keys": zai_keys,
             "gemini_api_base_url": os.getenv(
                 "GEMINI_API_BASE_URL", "https://generativelanguage.googleapis.com"
@@ -183,13 +161,13 @@ class ConfigLoader:
                 "ANTHROPIC_API_BASE_URL", "https://api.anthropic.com/v1"
             ),
             "google_cloud_project": os.getenv("GOOGLE_CLOUD_PROJECT"),
+            
+            # Application configuration
             "app_site_url": os.getenv("APP_SITE_URL", "http://localhost:8000"),
             "app_x_title": os.getenv("APP_X_TITLE", "InterceptorProxy"),
             "proxy_port": int(os.getenv("PROXY_PORT", "8000")),
             "proxy_host": proxy_host,
-            "proxy_timeout": int(
-                os.getenv("PROXY_TIMEOUT", os.getenv("OPENROUTER_TIMEOUT", "300"))
-            ),
+            "proxy_timeout": int(os.getenv("PROXY_TIMEOUT", "300")),
             "command_prefix": prefix,
             "interactive_mode": not _str_to_bool(
                 os.getenv("DISABLE_INTERACTIVE_MODE"), False
@@ -203,6 +181,7 @@ class ConfigLoader:
                 os.getenv("DISABLE_INTERACTIVE_COMMANDS"), False
             ),
             "disable_accounting": _str_to_bool(os.getenv("DISABLE_ACCOUNTING"), False),
+            
             # Loop detection configuration
             "loop_detection_enabled": _str_to_bool(
                 os.getenv("LOOP_DETECTION_ENABLED"), True
@@ -213,13 +192,13 @@ class ConfigLoader:
             "loop_detection_max_pattern_length": int(
                 os.getenv("LOOP_DETECTION_MAX_PATTERN_LENGTH", "500")
             ),
+            
             # Tool call loop detection configuration
             "tool_loop_detection_enabled": _str_to_bool(
                 os.getenv("TOOL_LOOP_DETECTION_ENABLED"), True
             ),
             "tool_loop_max_repeats": int(os.getenv("TOOL_LOOP_MAX_REPEATS", "4")),
             "tool_loop_ttl_seconds": int(os.getenv("TOOL_LOOP_TTL_SECONDS", "120")),
-            # Normalize mode; accept shorthand 'chance'
             "tool_loop_mode": (
                 lambda m: (
                     "chance_then_break"

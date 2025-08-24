@@ -6,7 +6,7 @@ from typing import Any
 from pydantic import Field, field_validator
 
 from src.core.domain.base import ValueObject
-from src.core.interfaces.configuration_interface import IBackendConfig
+from src.core.interfaces.configuration import IBackendConfig
 
 logger = logging.getLogger(__name__)
 
@@ -18,11 +18,33 @@ class BackendConfiguration(ValueObject, IBackendConfig):
     It replaces the backend-related functionality of ProxyState.
     """
 
-    backend_type: str | None = None
-    model: str | None = None
-    api_url: str | None = None
-    interactive_mode_value: bool = True
+    # Primary fields with aliases for interface compatibility
+    backend_type_value: str | None = Field(default=None, alias="backend_type")
+    model_value: str | None = Field(default=None, alias="model")
+    api_url_value: str | None = Field(default=None, alias="api_url")
+    interactive_mode_value: bool = Field(default=True, alias="interactive_mode")
     failover_routes_data: dict[str, dict[str, Any]] = Field(default_factory=dict)
+    openai_url_value: str | None = Field(default=None, alias="openai_url")
+
+    @property
+    def backend_type(self) -> str | None:
+        """Get the backend type."""
+        return self.backend_type_value
+
+    @property
+    def model(self) -> str | None:
+        """Get the model name."""
+        return self.model_value
+
+    @property
+    def api_url(self) -> str | None:
+        """Get the API URL."""
+        return self.api_url_value
+
+    @property
+    def openai_url(self) -> str | None:
+        """Get the OpenAI URL."""
+        return self.openai_url_value
 
     @property
     def interactive_mode(self) -> bool:
@@ -34,6 +56,21 @@ class BackendConfiguration(ValueObject, IBackendConfig):
         """Get the failover routes."""
         return self.failover_routes_data
 
+    def model_dump(self, **kwargs: Any) -> dict[str, Any]:
+        """Override model_dump to include property values.
+
+        This ensures that tests using model_dump() to access properties work correctly.
+        """
+        result = super().model_dump(**kwargs)
+        # Add property values to the result
+        result["backend_type"] = self.backend_type
+        result["model"] = self.model
+        result["api_url"] = self.api_url
+        result["openai_url"] = self.openai_url
+        result["interactive_mode"] = self.interactive_mode
+        result["failover_routes"] = self.failover_routes
+        return result
+
     # One-time override for next request
     oneoff_backend: str | None = None
     oneoff_model: str | None = None
@@ -41,11 +78,8 @@ class BackendConfiguration(ValueObject, IBackendConfig):
     # Override validation
     invalid_override: bool = False
 
-    # OpenAI-specific settings
-    openai_url: str | None = None
-
     @classmethod
-    @field_validator("openai_url")
+    @field_validator("openai_url_value")
     def validate_openai_url(cls, v: str | None) -> str | None:
         """Validate that the OpenAI URL is properly formatted."""
         if v is not None and not v.startswith(("http://", "https://")):
@@ -56,7 +90,7 @@ class BackendConfiguration(ValueObject, IBackendConfig):
         """Create a new config with updated backend type."""
         return self.model_copy(
             update={
-                "backend_type": backend_type,
+                "backend_type_value": backend_type,
                 # Keep existing model when changing backend
                 "invalid_override": False,
             }
@@ -64,15 +98,15 @@ class BackendConfiguration(ValueObject, IBackendConfig):
 
     def with_model(self, model: str | None) -> IBackendConfig:
         """Create a new config with updated model."""
-        return self.model_copy(update={"model": model})
+        return self.model_copy(update={"model_value": model})
 
     def with_api_url(self, api_url: str | None) -> IBackendConfig:
         """Create a new config with updated API URL."""
-        return self.model_copy(update={"api_url": api_url})
+        return self.model_copy(update={"api_url_value": api_url})
 
     def with_openai_url(self, url: str | None) -> IBackendConfig:
         """Create a new config with updated OpenAI URL."""
-        return self.model_copy(update={"openai_url": url})
+        return self.model_copy(update={"openai_url_value": url})
 
     def with_interactive_mode(self, enabled: bool) -> IBackendConfig:
         """Create a new config with updated interactive mode."""
@@ -84,8 +118,8 @@ class BackendConfiguration(ValueObject, IBackendConfig):
         """Create a new config with updated backend and model."""
         return self.model_copy(
             update={
-                "backend_type": backend,
-                "model": model,
+                "backend_type_value": backend,
+                "model_value": model,
                 "invalid_override": invalid,
             }
         )
@@ -104,9 +138,9 @@ class BackendConfiguration(ValueObject, IBackendConfig):
         """Create a new config with cleared override settings."""
         return self.model_copy(
             update={
-                "backend_type": None,
-                "model": None,
-                "api_url": None,
+                "backend_type_value": None,
+                "model_value": None,
+                "api_url_value": None,
                 "oneoff_backend": None,
                 "oneoff_model": None,
                 "invalid_override": False,

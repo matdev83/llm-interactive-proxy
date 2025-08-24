@@ -50,14 +50,10 @@ class TestProcessCommandsInMessages:
     @pytest.fixture
     def command_parser_with_default_prefix(self, test_command_registry, test_session_state, test_app):
         """Create a command parser with the default prefix '!/'"""
-        from src.command_config import CommandParserConfig
         from src.command_parser import CommandParser
         
         registry = test_command_registry if not callable(test_command_registry) else test_command_registry()
         parser = CommandParser(
-            config=CommandParserConfig(
-                proxy_state=test_session_state, app=test_app, preserve_unknown=False
-            ),
             command_prefix="!/",
             command_registry=registry,
         )
@@ -66,14 +62,10 @@ class TestProcessCommandsInMessages:
     @pytest.fixture
     def command_parser_with_custom_prefix(self, test_command_registry, test_session_state, test_app):
         """Create a command parser with a custom prefix '$$'"""
-        from src.command_config import CommandParserConfig
         from src.command_parser import CommandParser
         
         registry = test_command_registry if not callable(test_command_registry) else test_command_registry()
         parser = CommandParser(
-            config=CommandParserConfig(
-                proxy_state=test_session_state, app=test_app, preserve_unknown=False
-            ),
             command_prefix="$$",
             command_registry=registry,
         )

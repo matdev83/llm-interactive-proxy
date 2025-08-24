@@ -14,7 +14,7 @@ from typing import (
 import httpx
 from fastapi import HTTPException
 
-from src.core.adapters.api_adapters import legacy_to_domain_chat_request
+from src.core.adapters.api_adapters import dict_to_domain_chat_request
 from src.core.common.exceptions import (
     AuthenticationError,
     BackendError,
@@ -291,7 +291,17 @@ class QwenOAuthConnector(OpenAIConnector):
         **kwargs: Any,
     ) -> ResponseEnvelope | StreamingResponseEnvelope:
         # Normalize incoming request to ChatRequest
-        request_data = legacy_to_domain_chat_request(request_data)
+        if isinstance(request_data, dict):
+            request_data = dict_to_domain_chat_request(request_data)
+        elif not isinstance(request_data, ChatRequest):
+            # Convert to dict first
+            if hasattr(request_data, "model_dump"):
+                request_dict = request_data.model_dump()  # type: ignore
+            elif hasattr(request_data, "dict"):
+                request_dict = request_data.dict()  # type: ignore
+            else:
+                request_dict = dict(request_data)  # type: ignore
+            request_data = dict_to_domain_chat_request(request_dict)
         request_data = cast(ChatRequest, request_data)
         """Handle chat completions using Qwen OAuth API.
 

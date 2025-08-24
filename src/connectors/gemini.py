@@ -10,7 +10,7 @@ import httpx
 from fastapi import HTTPException
 
 from src.connectors.base import LLMBackend
-from src.core.adapters.api_adapters import legacy_to_domain_chat_request
+from src.core.adapters.api_adapters import dict_to_domain_chat_request
 from src.core.common.exceptions import BackendError, ServiceUnavailableError
 from src.core.domain.chat import (
     ChatRequest,
@@ -349,7 +349,17 @@ class GeminiBackend(LLMBackend):
                 headers["X-Title"] = identity.title
 
         # Normalize incoming request to ChatRequest
-        request_data = legacy_to_domain_chat_request(request_data)
+        if isinstance(request_data, dict):
+            request_data = dict_to_domain_chat_request(request_data)
+        elif not isinstance(request_data, ChatRequest):
+            # Convert to dict first
+            if hasattr(request_data, "model_dump"):
+                request_dict = request_data.model_dump()  # type: ignore
+            elif hasattr(request_data, "dict"):
+                request_dict = request_data.dict()  # type: ignore
+            else:
+                request_dict = dict(request_data)  # type: ignore
+            request_data = dict_to_domain_chat_request(request_dict)
         request_data = cast(ChatRequest, request_data)
 
         # Build payload

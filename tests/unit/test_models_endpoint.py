@@ -1,5 +1,5 @@
 from fastapi.testclient import TestClient
-from src.core.app.test_builder import build_test_app as build_app_compat
+from src.core.app.test_builder import build_test_app
 
 
 def test_models_endpoint_lists_all(monkeypatch) -> None:
@@ -22,7 +22,7 @@ def test_models_endpoint_lists_all(monkeypatch) -> None:
         monkeypatch.setenv("LLM_BACKEND", "openrouter")
         monkeypatch.setenv("DISABLE_AUTH", "true")  # Disable auth for the test
 
-        app = build_app_compat()
+        app = build_test_app()
         with TestClient(
             app, headers={"Authorization": "Bearer test-proxy-key"}
         ) as client:
@@ -59,7 +59,7 @@ def test_v1_models_endpoint_lists_all(monkeypatch) -> None:
         monkeypatch.setenv("LLM_BACKEND", "openrouter")
         monkeypatch.setenv("DISABLE_AUTH", "true")  # Disable auth for the test
 
-        app = build_app_compat()
+        app = build_test_app()
         with TestClient(
             app, headers={"Authorization": "Bearer test-proxy-key"}
         ) as client:

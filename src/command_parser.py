@@ -5,8 +5,8 @@ from typing import Any, cast
 
 from fastapi import FastAPI
 
+from src.command_config import CommandProcessorConfig as NewCommandProcessorConfig
 from src.command_processor import CommandProcessor, get_command_pattern
-from src.constants import DEFAULT_COMMAND_PREFIX
 from src.command_utils import (
     extract_feedback_from_tool_result,
     get_text_for_command_check,
@@ -14,6 +14,7 @@ from src.command_utils import (
     is_original_purely_command,
     is_tool_call_result,
 )
+from src.constants import DEFAULT_COMMAND_PREFIX
 from src.core.domain.chat import ChatMessage, MessageContentPart
 from src.core.domain.command_results import CommandResult
 from src.core.domain.commands.base_command import BaseCommand
@@ -23,12 +24,9 @@ from src.core.domain.request_context import RequestContext
 from src.core.interfaces.command_processor_interface import ICommandProcessor
 from src.core.interfaces.domain_entities_interface import ISessionState
 from src.core.services.command_service import CommandRegistry
-from src.command_config import CommandProcessorConfig as NewCommandProcessorConfig
-import logging
-import inspect
-import re
-from typing import Any, cast
-from fastapi import FastAPI # Needed for RequestContext.app type
+
+# Compatibility alias for legacy tests importing CommandParserConfig from this module
+CommandParserConfig = NewCommandProcessorConfig
 
 
 logger = logging.getLogger(__name__)
@@ -39,9 +37,11 @@ class CommandParser(ICommandProcessor):
 
     def __init__(
         self,
+        config: Any | None = None,
         command_prefix: str = DEFAULT_COMMAND_PREFIX,
         command_registry: CommandRegistry | None = None,
     ) -> None:
+        self.config = config
         self.command_pattern = get_command_pattern(command_prefix)
         self.command_results: list[CommandResult] = []
 
@@ -78,9 +78,11 @@ class CommandParser(ICommandProcessor):
                 logger.warning("Test environment detected, using mock command handlers")
                 try:
                     from tests.unit.mock_commands import get_mock_commands
+
                     self.handlers = cast(dict[str, BaseCommand], get_mock_commands())
                 except ImportError:
                     from src.core.domain.commands.help_command import HelpCommand
+
                     self.handlers = cast(
                         dict[str, BaseCommand], {"help": HelpCommand()}
                     )
@@ -91,6 +93,37 @@ class CommandParser(ICommandProcessor):
                 )
 
         self.command_processor: CommandProcessor | None = None
+        if self.config is not None:
+            try:
+                # Normalize incoming config (may be a Mock/spec in tests)
+                preserve_unknown = bool(getattr(self.config, "preserve_unknown", True))
+                proxy_state = getattr(self.config, "proxy_state", None)
+                if proxy_state is None:
+                    from src.core.domain.session import (
+                        SessionState,
+                        SessionStateAdapter,
+                    )
+
+                    proxy_state = SessionStateAdapter(SessionState())
+
+                app_obj = getattr(self.config, "app", None)
+                if app_obj is None:
+                    app_obj = FastAPI()
+
+                processor_config = NewCommandProcessorConfig(
+                    proxy_state=cast(ISessionState, proxy_state),
+                    app=cast(FastAPI, app_obj),
+                    command_pattern=self.command_pattern,
+                    handlers=self.handlers,
+                    preserve_unknown=preserve_unknown,
+                    command_results=self.command_results,
+                )
+                self.command_processor = CommandProcessor(processor_config)
+            except Exception:
+                logger.debug(
+                    "Deferred CommandProcessor initialization due to config error",
+                    exc_info=True,
+                )
 
     def register_command(self, command: BaseCommand) -> None:
         self.handlers[command.name.lower()] = command
@@ -128,20 +161,61 @@ class CommandParser(ICommandProcessor):
         original_content = msg_to_process.content
 
         if self.command_processor is None:
-            if context is None or context.app is None or context.session is None:
-                logger.error("CommandProcessor cannot be initialized without a valid context (app and session).")
-                return False
+            # Try to use provided config first
+            if self.config is not None:
+                try:
+                    preserve_unknown = bool(
+                        getattr(self.config, "preserve_unknown", True)
+                    )
+                    proxy_state = getattr(self.config, "proxy_state", None)
+                    if proxy_state is None:
+                        from src.core.domain.session import (
+                            SessionState,
+                            SessionStateAdapter,
+                        )
 
-            processor_config = NewCommandProcessorConfig(
-                proxy_state=context.session.state,
-                app=context.app,
-                command_pattern=self.command_pattern,
-                handlers=self.handlers,
-                preserve_unknown=True,
-                command_results=self.command_results,
-            )
-            self.command_processor = CommandProcessor(processor_config)
+                        proxy_state = SessionStateAdapter(SessionState())
+                    app_obj = getattr(self.config, "app", None)
+                    if app_obj is None:
+                        app_obj = FastAPI()
 
+                    processor_config = NewCommandProcessorConfig(
+                        proxy_state=cast(ISessionState, proxy_state),
+                        app=cast(FastAPI, app_obj),
+                        command_pattern=self.command_pattern,
+                        handlers=self.handlers,
+                        preserve_unknown=preserve_unknown,
+                        command_results=self.command_results,
+                    )
+                    self.command_processor = CommandProcessor(processor_config)
+                except Exception:
+                    logger.debug(
+                        "Failed to initialize CommandProcessor from provided config; will try context",
+                        exc_info=True,
+                    )
+
+            if self.command_processor is None:
+                if context is None:
+                    logger.error(
+                        "CommandProcessor cannot be initialized without a valid context."
+                    )
+                    return False
+
+                # Create a mock app state for the processor config
+                mock_app_state = type("MockAppState", (), {})()
+                mock_app_state.service_provider = None
+                mock_app_state.functional_backends = set()
+                mock_app_state.command_prefix = "!/"
+
+                processor_config = NewCommandProcessorConfig(
+                    proxy_state=mock_app_state,  # fallback state
+                    app=mock_app_state,
+                    command_pattern=self.command_pattern,
+                    handlers=self.handlers,
+                    preserve_unknown=True,
+                    command_results=self.command_results,
+                )
+                self.command_processor = CommandProcessor(processor_config)
 
         processed_content, found, modified = await self._process_content(msg_to_process)
         if not found:
@@ -152,6 +226,7 @@ class CommandParser(ICommandProcessor):
             for cr in self.command_results:
                 if inspect.isawaitable(cr):
                     import asyncio
+
                     loop = asyncio.new_event_loop()
                     try:
                         result = loop.run_until_complete(cr)
@@ -343,14 +418,21 @@ async def _process_text_for_commands(
     # To avoid circular imports, CommandParserConfig is not used here.
     # Instead, we pass the necessary components directly.
     # This function will be removed once CommandParser is fully integrated.
-    
+
     # Create a mock context for the temporary CommandParser instance
     from src.core.domain.session import Session
-    mock_session = Session(session_id="temp-session", state=current_proxy_state)
-    mock_context = RequestContext(app=app, session=mock_session)
+
+    _ = Session(session_id="temp-session", state=current_proxy_state)
+    _ = RequestContext(
+        headers={},
+        cookies={},
+        state=current_proxy_state,
+        app_state=app,
+        session_id="temp-session",
+    )
 
     parser = CommandParser(command_prefix="")
-    parser.command_pattern = command_pattern # Override the command_pattern as it's passed directly for this helper
+    parser.command_pattern = command_pattern  # Override the command_pattern as it's passed directly for this helper
 
     # Manually initialize the internal command_processor for this temporary parser
     # This is a hack for legacy function _process_text_for_commands
@@ -358,12 +440,12 @@ async def _process_text_for_commands(
         proxy_state=current_proxy_state,
         app=app,
         command_pattern=command_pattern,
-        handlers=parser.handlers, # Use the handlers discovered by the temporary parser
+        handlers=parser.handlers,  # Use the handlers discovered by the temporary parser
         preserve_unknown=True,
         command_results=parser.command_results,
     )
     parser.command_processor = CommandProcessor(processor_config)
-    
+
     (
         processed_text,
         commands_found,
@@ -397,15 +479,17 @@ async def process_commands_in_messages(
 
     if context is None:
         from src.core.domain.session import Session, SessionState
-        
+
         # Create a minimal context if not provided
         mock_session_state = SessionState()
-        mock_session = Session(session_id="default-session-id", state=mock_session_state)
-        context = RequestContext(app=app, session=mock_session)
-    
-    # Ensure app is in context if provided directly to this function
-    if app and context.app is None:
-        context.app = app
+        _ = Session(session_id="default-session-id", state=mock_session_state)
+        context = RequestContext(
+            headers={},
+            cookies={},
+            state=mock_session_state,
+            app_state=app,
+            session_id="default-session-id",
+        )
 
     result = await parser.process_messages(messages, "unused_session_id", context)
 

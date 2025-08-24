@@ -168,12 +168,14 @@ class SessionStateAdapter(ISessionState):
     @property
     def override_model(self) -> str | None:
         """Get the override model from backend configuration."""
-        return cast(BackendConfiguration, self._state.backend_config).model
+        # Use the property to ensure we get the value from model_value
+        return self._state.backend_config.model
 
     @property
     def override_backend(self) -> str | None:
         """Get the override backend from backend configuration."""
-        return cast(BackendConfiguration, self._state.backend_config).backend_type
+        # Use the property to ensure we get the value from backend_type_value
+        return self._state.backend_config.backend_type
 
     def equals(self, other: Any) -> bool:
         """Check if this value object equals another."""

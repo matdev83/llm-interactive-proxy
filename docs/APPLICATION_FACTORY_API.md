@@ -40,7 +40,7 @@ app, config = build_app(config=custom_config)
 app, config = build_app(config={"host": "localhost", "port": 9000})
 ```
 
-### `build_app_compat`
+### `build_app_compat` (deprecated)
 
 ```python
 def build_app_compat(
@@ -48,7 +48,7 @@ def build_app_compat(
 ) -> FastAPI:
 ```
 
-Backward compatibility wrapper for `build_app` that returns only the FastAPI app. This function exists to support legacy code that expects `build_app` to return only the app, not the (app, config) tuple.
+**DEPRECATED**: Backward compatibility wrapper for legacy tests that expect only the FastAPI app. This function is maintained only for backward compatibility with existing tests and should not be used in new code. Prefer `build_app()` or `build_app_with_config()` in all new code.
 
 #### Parameters:
 - `config`: The application configuration (same as `build_app`)
@@ -58,10 +58,10 @@ Backward compatibility wrapper for `build_app` that returns only the FastAPI app
 
 #### Example:
 ```python
-from src.core.app.application_factory import build_app_compat
+from src.core.app.application_factory import build_app_compat  # deprecated
 
 # Build app with default configuration (from environment)
-app = build_app_compat()
+app = build_app_compat()  # discouraged; prefer build_app()
 ```
 
 ## ApplicationBuilder Class
@@ -151,7 +151,8 @@ app = build_app()
 app, config = build_app()
 ```
 
-### Or use the compatibility function:
+### For legacy code only (not recommended):
 ```python
+# DEPRECATED: Only for backward compatibility with existing tests
 app = build_app_compat()
 ```

@@ -92,8 +92,5 @@ def build_app_with_config(
 
 # Backward compatibility wrapper for tests that expect only the app
 def build_app_compat(config: AppConfig | dict[str, Any] | None = None) -> FastAPI:
-    """Backward compatibility wrapper that returns only the app.
-
-    Uses the new staged initialization approach.
-    """
+    """Deprecated compatibility wrapper; prefer build_app()."""
     return build_app(config)

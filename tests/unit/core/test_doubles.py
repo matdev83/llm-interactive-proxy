@@ -255,7 +255,9 @@ class MockSessionService(ISessionService):
             self.sessions[session_id] = Session(
                 session_id=session_id,
                 state=SessionState(
-                    backend_config=BackendConfig(backend_type="mock", model="mock-model"),  # type: ignore
+                    backend_config=BackendConfig(
+                        backend_type_value="mock", model_value="mock-model"
+                    ),  # type: ignore
                     reasoning_config=ReasoningConfig(temperature=0.7),  # type: ignore
                     loop_config=LoopDetectionConfig(loop_detection_enabled=True),  # type: ignore
                 ),
@@ -274,7 +276,9 @@ class MockSessionService(ISessionService):
         session = Session(
             session_id=session_id,
             state=SessionState(
-                backend_config=BackendConfig(backend_type="mock", model="mock-model"),  # type: ignore
+                backend_config=BackendConfig(
+                    backend_type_value="mock", model_value="mock-model"
+                ),  # type: ignore
                 reasoning_config=ReasoningConfig(temperature=0.7),  # type: ignore
                 loop_config=LoopDetectionConfig(loop_detection_enabled=True),  # type: ignore
             ),
@@ -297,7 +301,10 @@ class MockSessionService(ISessionService):
         self, session_id: str, backend_type: str, model: str
     ) -> None:
         session = await self.get_session(session_id)
-        new_backend_config = BackendConfig(backend_type=backend_type, model=model)  # type: ignore
+        # Use the new field names for BackendConfig
+        new_backend_config = BackendConfig(
+            backend_type_value=backend_type, model_value=model
+        )  # type: ignore
         session.state = session.state.with_backend_config(new_backend_config)
         self.sessions[session_id] = session
 
@@ -522,7 +529,9 @@ class TestDataBuilder:
         return Session(
             session_id=session_id,
             state=SessionState(
-                backend_config=BackendConfig(backend_type="openai", model="gpt-4"),  # type: ignore
+                backend_config=BackendConfig(
+                    backend_type_value="openai", model_value="gpt-4"
+                ),  # type: ignore
                 reasoning_config=ReasoningConfig(temperature=0.7),  # type: ignore
                 loop_config=LoopDetectionConfig(loop_detection_enabled=True),  # type: ignore
             ),

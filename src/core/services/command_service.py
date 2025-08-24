@@ -71,7 +71,7 @@ class CommandRegistry:
     def __init__(self) -> None:
         """Initialize the command registry."""
         self._commands: dict[str, BaseCommand] = {}
-        # Static instance for bridging to non-DI code
+        # Maintain internal-only test hook; avoid bridging in production
         CommandRegistry._instance = self
 
     def register(self, command: BaseCommand) -> None:
@@ -129,46 +129,27 @@ class CommandRegistry:
 
     @staticmethod
     def get_instance() -> "CommandRegistry | None":
-        """Get the global instance of the registry.
+        """Internal-only hook for tests to access a registry instance.
 
-        This is a bridge for non-DI code to access the DI-registered commands.
-
-        Returns:
-            The global command registry instance or None if not initialized
+        Use DI to obtain the registry in application code.
         """
         return CommandRegistry._instance
 
     @staticmethod
     def set_instance(registry: "CommandRegistry") -> None:
-        """Set the global instance of the registry.
-
-        This is primarily for testing purposes to inject a specific registry instance.
-
-        Args:
-            registry: The registry instance to set as global
-        """
+        """Set the global instance (test-only)."""
         CommandRegistry._instance = registry
 
     @staticmethod
     def clear_instance() -> None:
-        """Clear the global instance.
-
-        This is primarily for testing purposes to reset the global state.
-        """
+        """Clear the global instance (test-only)."""
         CommandRegistry._instance = None
 
     @staticmethod
     def ensure_instance() -> "CommandRegistry":
-        """Ensure a global instance exists, creating one if necessary.
-
-        This is useful for test scenarios where no DI container is available
-        but we still need command functionality.
-
-        Returns:
-            The global command registry instance
-        """
+        """Ensure a global instance exists (test-only)."""
         if CommandRegistry._instance is None:
-            logger.debug("Creating new command registry instance for testing")
+            logger.debug("Creating new CommandRegistry instance for tests")
             CommandRegistry._instance = CommandRegistry()
         return CommandRegistry._instance
 

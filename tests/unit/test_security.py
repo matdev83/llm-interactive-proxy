@@ -89,7 +89,7 @@ def test_auth_enabled_allows_custom_host():
 
 def test_config_disable_auth_forces_localhost():
     """Test that config loading enforces localhost when disable_auth is true."""
-    from src.core.config.config_loader import _load_config
+    from src.core.config.config_loader import ConfigLoader
 
     with (
         patch.dict(
@@ -99,9 +99,8 @@ def test_config_disable_auth_forces_localhost():
         ),
         patch("src.core.config.config_loader.logger") as mock_logger,
     ):
-        from src.core.config.config_loader import _load_config
-
-        config = _load_config()
+        loader = ConfigLoader()
+        config = loader.load_config()
         assert config["proxy_host"] == "127.0.0.1"
         assert config["disable_auth"]
         mock_logger.warning.assert_called_once()
