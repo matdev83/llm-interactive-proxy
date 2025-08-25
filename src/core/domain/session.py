@@ -309,10 +309,12 @@ class Session(ISession):
             self._state = SessionStateAdapter(SessionState())
         elif isinstance(state, SessionStateAdapter):
             self._state = state
-        elif isinstance(state, SessionState): # Handle raw SessionState directly
+        elif isinstance(state, SessionState):  # Handle raw SessionState directly
             self._state = SessionStateAdapter(state)
-        else: # Handle other ISessionState implementations by attempting conversion
-            self._state = SessionStateAdapter(cast(SessionState, SessionState.from_dict(state.to_dict())))
+        else:  # Handle other ISessionState implementations by attempting conversion
+            self._state = SessionStateAdapter(
+                cast(SessionState, SessionState.from_dict(state.to_dict()))
+            )
 
         self._history: list[SessionInteraction] = history or []
         self._created_at: datetime = created_at or datetime.now(timezone.utc)
@@ -339,10 +341,12 @@ class Session(ISession):
         """Set the session state."""
         if isinstance(value, SessionStateAdapter):
             self._state = value
-        elif isinstance(value, SessionState): # Handle raw SessionState directly
+        elif isinstance(value, SessionState):  # Handle raw SessionState directly
             self._state = SessionStateAdapter(value)
-        else: # Handle other ISessionState implementations by attempting conversion
-            self._state = SessionStateAdapter(cast(SessionState, SessionState.from_dict(value.to_dict())))
+        else:  # Handle other ISessionState implementations by attempting conversion
+            self._state = SessionStateAdapter(
+                cast(SessionState, SessionState.from_dict(value.to_dict()))
+            )
         self._last_active_at = datetime.now(timezone.utc)
 
     @property
@@ -405,7 +409,9 @@ class Session(ISession):
         elif isinstance(state, SessionState):
             self._state = SessionStateAdapter(state)
         else:
-            self._state = SessionStateAdapter(cast(SessionState, SessionState.from_dict(state.to_dict())))
+            self._state = SessionStateAdapter(
+                cast(SessionState, SessionState.from_dict(state.to_dict()))
+            )
         self._last_active_at = datetime.now(timezone.utc)
 
     def equals(self, other: Any) -> bool:

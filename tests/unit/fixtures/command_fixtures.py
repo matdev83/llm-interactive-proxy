@@ -3,13 +3,15 @@
 This module provides fixtures for setting up command handling tests.
 """
 
+import re as re_module
 from collections.abc import Callable, Coroutine
 from typing import Any, cast
 from unittest.mock import Mock, PropertyMock
 
 import pytest
 from fastapi import FastAPI
-from src.command_parser import CommandParserConfig
+from src.command_config import CommandProcessorConfig
+from src.constants import DEFAULT_COMMAND_PREFIX
 from src.core.domain.chat import ChatMessage
 from src.core.domain.configuration.backend_config import BackendConfiguration
 from src.core.domain.multimodal import ContentPart, ContentType
@@ -20,7 +22,7 @@ from src.core.interfaces.command_processor_interface import ICommandProcessor
 @pytest.fixture
 def command_parser_config(
     test_session_state: SessionStateAdapter, app: FastAPI
-) -> CommandParserConfig:
+) -> CommandProcessorConfig:
     """Create a CommandParserConfig for testing.
 
     Args:
@@ -30,11 +32,13 @@ def command_parser_config(
     Returns:
         CommandParserConfig: A command parser config
     """
-    return CommandParserConfig(
+    return CommandProcessorConfig(
         proxy_state=test_session_state,
         app=app,
         preserve_unknown=False,
-        functional_backends=app.state.functional_backends,
+        command_pattern=re_module.compile(DEFAULT_COMMAND_PREFIX),
+        handlers={},  # Assuming no commands are registered in this fixture by default
+        command_results=[],
     )
 
 
@@ -202,5 +206,4 @@ def session_with_hello(test_session: Session) -> Session:
     """
     current_state = test_session.state
     test_session.state = current_state.with_hello_requested(True)
-    return test_session
     return test_session

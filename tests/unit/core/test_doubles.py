@@ -553,7 +553,7 @@ class TestDataBuilder:
         """Create a test interaction."""
         return SessionInteraction(
             prompt=prompt,
-            handler="backend",
+            handler="proxy",
             backend="openai",
             model="gpt-4",
             response=response,

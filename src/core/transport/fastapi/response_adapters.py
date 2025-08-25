@@ -17,11 +17,10 @@ from fastapi.responses import JSONResponse, Response
 from starlette.responses import StreamingResponse
 
 from src.core.domain.chat import ChatResponse, StreamingChatResponse
-from src.core.interfaces.model_bases import InternalDTO
-from src.core.interfaces.response_processor_interface import ProcessedResponse
 
 # Some environments may fail mypy import resolution for local packages; silence here
 from src.core.domain.responses import ResponseEnvelope, StreamingResponseEnvelope
+from src.core.interfaces.response_processor_interface import ProcessedResponse
 
 logger = logging.getLogger(__name__)
 
@@ -128,20 +127,24 @@ def to_fastapi_response(
         # Ensure headers is a proper dict, not a coroutine/mock
         safe_headers = {}
         if headers is not None:
-            if hasattr(headers, 'items') and not hasattr(headers, '__call__'):
+            if hasattr(headers, "items") and not callable(headers):
                 # It's likely a dict-like object
                 try:
                     safe_headers = dict(headers)
                 except (TypeError, ValueError):
                     safe_headers = {}
-            elif hasattr(headers, '_mock_name') or hasattr(headers, '_execute_mock_call'):
+            elif hasattr(headers, "_mock_name") or hasattr(
+                headers, "_execute_mock_call"
+            ):
                 # It's a mock object, ignore it
                 safe_headers = {}
 
         # Ensure status_code is a proper integer, not a mock
         safe_status_code = 200
         if status_code is not None:
-            if hasattr(status_code, '_mock_name') or hasattr(status_code, '_execute_mock_call'):
+            if hasattr(status_code, "_mock_name") or hasattr(
+                status_code, "_execute_mock_call"
+            ):
                 # It's a mock object, use default 200
                 safe_status_code = 200
             else:

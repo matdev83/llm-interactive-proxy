@@ -10,6 +10,7 @@ This stage registers fundamental services that have minimal dependencies:
 
 from __future__ import annotations
 
+import contextlib
 import logging
 
 from src.core.app.middleware.tool_call_repair_middleware import ToolCallRepairMiddleware
@@ -55,13 +56,13 @@ class CoreServicesStage(InitializationStage):
         # Register ToolCallRepairService as a singleton with configured buffer cap
         def _tool_repair_factory(_: IServiceProvider) -> ToolCallRepairService:
             cap = 64 * 1024
-            try:
+            with contextlib.suppress(Exception):
                 cap = int(config.session.tool_call_repair_buffer_cap_bytes)
-            except Exception:
-                pass
             return ToolCallRepairService(max_buffer_bytes=cap)
 
-        services.add_singleton(ToolCallRepairService, implementation_factory=_tool_repair_factory)
+        services.add_singleton(
+            ToolCallRepairService, implementation_factory=_tool_repair_factory
+        )
         logger.debug(
             "Registered ToolCallRepairService with cap=%d bytes",
             int(getattr(config.session, "tool_call_repair_buffer_cap_bytes", 65536)),
@@ -201,6 +202,7 @@ class CoreServicesStage(InitializationStage):
         # Register core services from DI services module
         try:
             from src.core.di.services import register_core_services
+
             register_core_services(services, config)
             logger.debug("Registered core services from DI module")
         except Exception as e:

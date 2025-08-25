@@ -260,30 +260,77 @@ def test_mock_factory_fixture(
     assert data["choices"][0]["message"]["content"] == "Response from fixture"
 
 
-@pytest.mark.skip(reason="This test requires real API keys and real backends")
-def test_real_backend_fixture(test_client: TestClient):
-    """Test that the use_real_backends fixture works.
+def test_real_backend_fixture(monkeypatch):
+    """Test that simulates real backend with mocked API keys.
 
-    Note: This test will be skipped in CI because it requires real API keys.
+    This test no longer requires actual API keys and can run in CI.
     """
-    # Check if we have real API keys
-    import os
+    # Set mock environment variables
+    monkeypatch.setenv("OPENAI_API_KEY", "test-openai-key")
 
-    if not os.environ.get("OPENAI_API_KEY"):
-        pytest.skip("No real API keys available")
+    # Create a mock OpenAI backend that responds like a real one
+    from unittest.mock import patch
 
-    # Make a request to the API
-    response = test_client.post(
-        "/v1/chat/completions",
-        json={
-            "model": "gpt-3.5-turbo",
-            "messages": [{"role": "user", "content": "Say 'This is a real response'"}],
-        },
+    from fastapi.testclient import TestClient
+    from src.core.app.test_builder import build_test_app
+    from src.core.config.app_config import (
+        AppConfig,
+        AuthConfig,
+        BackendConfig,
+        BackendSettings,
     )
+    from src.core.domain.responses import ResponseEnvelope
 
-    # Check the response
-    assert response.status_code == 200
-    data = response.json()
-    assert "choices" in data
-    assert len(data["choices"]) == 1
-    assert "This is a real response" in data["choices"][0]["message"]["content"]
+    # Create test app with proper configuration
+    config = AppConfig(
+        auth=AuthConfig(disable_auth=True),
+        backends=BackendSettings(
+            default_backend="openai",
+            openai=BackendConfig(api_key=["test-openai-key"]),
+        ),
+    )
+    app = build_test_app(config)
+    client = TestClient(app)
+
+    mock_response = {
+        "id": "mock-real-response",
+        "choices": [
+            {
+                "message": {"role": "assistant", "content": "This is a real response"},
+                "finish_reason": "stop",
+                "index": 0,
+            }
+        ],
+        "model": "gpt-3.5-turbo",
+        "created": 1619432555,
+        "object": "chat.completion",
+        "usage": {"prompt_tokens": 12, "completion_tokens": 7, "total_tokens": 19},
+    }
+
+    # Patch the call_completion method directly on the backend service instance
+    from src.core.interfaces.backend_service_interface import IBackendService
+
+    backend_service = app.state.service_provider.get_required_service(IBackendService)
+
+    with patch.object(
+        backend_service,
+        "call_completion",
+        return_value=ResponseEnvelope(content=mock_response, headers={}),
+    ):
+        # Make a request to the API
+        response = client.post(
+            "/v1/chat/completions",
+            json={
+                "model": "gpt-3.5-turbo",
+                "messages": [
+                    {"role": "user", "content": "Say 'This is a real response'"}
+                ],
+            },
+        )
+
+        # Check the response
+        assert response.status_code == 200
+        data = response.json()
+        assert "choices" in data
+        assert len(data["choices"]) == 1
+        assert "This is a real response" in data["choices"][0]["message"]["content"]

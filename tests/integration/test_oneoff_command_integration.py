@@ -10,7 +10,6 @@ import pytest
 import pytest_asyncio
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
-from src.core.app.test_builder import build_test_app as build_app
 from src.core.config.app_config import AppConfig
 from src.core.domain.commands.oneoff_command import OneoffCommand
 from src.core.interfaces.backend_service_interface import IBackendService
@@ -22,17 +21,13 @@ async def app() -> AsyncGenerator[FastAPI, None]:
     # Create app with test config
     config = AppConfig()
     config.auth.disable_auth = True
-    app = build_app(config)
+    # Use the modern staged initialization approach instead of deprecated methods
+    from src.core.app.test_builder import build_test_app_async
 
-    # Manually trigger startup to initialize service provider
-    from src.core.app.test_builder import TestApplicationBuilder as ApplicationBuilder
+    # Build test app using the modern async approach - this handles all initialization automatically
+    app = await build_test_app_async(config)
 
-    builder = ApplicationBuilder()
-    service_provider = await builder._initialize_services(app, config)
-    app.state.service_provider = service_provider
-
-    # Initialize minimal state attributes that tests expect
-    app.state.app_config = config
+    # The config is already available from the test_app
     app.state.functional_backends = {"openrouter"}
 
     # Ensure OneoffCommand is registered in the command registry
@@ -97,8 +92,8 @@ async def test_oneoff_command_integration(app: FastAPI) -> None:
             # It should extract the content inside the parentheses
             import re
 
-            match = re.search(r"!/oneoff\((.*?)\)", command_content)
-            extracted_arg = match.group(1) if match else ""
+            # Note: We don't actually use the extracted argument in this test
+            re.search(r"!/oneoff\((.*?)\)", command_content)
 
             # Always return success for the test
             command_result = CommandResult(

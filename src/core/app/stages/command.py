@@ -95,8 +95,9 @@ class CommandStage(InitializationStage):
                 registry = existing_registry
             else:
                 # Get the registry from the services collection directly
-                registry = CommandRegistry()
-                services.add_instance(CommandRegistry, registry)
+                registry = services.build_service_provider().get_required_service(
+                    CommandRegistry
+                )
 
             # Register all commands using the centralized registration utility
             # This will register both stateless and stateful commands

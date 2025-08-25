@@ -1,3 +1,5 @@
+from collections.abc import Generator
+from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -8,12 +10,13 @@ from src.core.config.app_config import (
     AuthConfig,
     BackendConfig,
     BackendSettings,
+    SessionConfig,  # Import SessionConfig
 )
 from src.core.domain.responses import ResponseEnvelope
 
 
 @pytest.fixture
-def mock_openai_backend():
+def mock_openai_backend() -> MagicMock:
     """Mock OpenAI backend."""
     backend = MagicMock()
     backend.chat_completions = AsyncMock(
@@ -26,7 +29,7 @@ def mock_openai_backend():
 
 
 @pytest.fixture
-def mock_openrouter_backend():
+def mock_openrouter_backend() -> MagicMock:
     """Mock OpenRouter backend."""
     backend = MagicMock()
     backend.chat_completions = AsyncMock(
@@ -39,7 +42,7 @@ def mock_openrouter_backend():
 
 
 @pytest.fixture
-def mock_gemini_backend():
+def mock_gemini_backend() -> MagicMock:
     """Mock Gemini backend."""
     backend = MagicMock()
     backend.chat_completions = AsyncMock(
@@ -52,7 +55,7 @@ def mock_gemini_backend():
 
 
 @pytest.fixture
-def mock_anthropic_backend():
+def mock_anthropic_backend() -> MagicMock:
     """Mock Anthropic backend."""
     backend = MagicMock()
     backend.chat_completions = AsyncMock(
@@ -65,7 +68,7 @@ def mock_anthropic_backend():
 
 
 @pytest.fixture
-def mock_qwen_oauth_backend():
+def mock_qwen_oauth_backend() -> MagicMock:
     """Mock Qwen OAuth backend."""
     backend = MagicMock()
     backend.chat_completions = AsyncMock(
@@ -78,7 +81,7 @@ def mock_qwen_oauth_backend():
 
 
 @pytest.fixture
-def mock_zai_backend():
+def mock_zai_backend() -> MagicMock:
     """Mock ZAI backend."""
     backend = MagicMock()
     backend.chat_completions = AsyncMock(
@@ -91,7 +94,7 @@ def mock_zai_backend():
 
 
 @pytest.fixture
-def mock_model_discovery():
+def mock_model_discovery() -> dict[str, list[str]]:
     """Mock model discovery."""
     return {
         "openai": ["gpt-3.5-turbo", "gpt-4"],
@@ -105,14 +108,14 @@ def mock_model_discovery():
 
 @pytest.fixture
 def client(
-    mock_openai_backend,
-    mock_openrouter_backend,
-    mock_gemini_backend,
-    mock_anthropic_backend,
-    mock_qwen_oauth_backend,
-    mock_zai_backend,
-    mock_model_discovery,
-):
+    mock_openai_backend: MagicMock,
+    mock_openrouter_backend: MagicMock,
+    mock_gemini_backend: MagicMock,
+    mock_anthropic_backend: MagicMock,
+    mock_qwen_oauth_backend: MagicMock,
+    mock_zai_backend: MagicMock,
+    mock_model_discovery: dict[str, list[str]],
+) -> Generator[TestClient, Any, None]:
     """Create a test client with mocked backends."""
     config = AppConfig(
         auth=AuthConfig(disable_auth=True),
@@ -135,7 +138,7 @@ def client(
         ) as mock_create_backend,
     ):
 
-        def side_effect(self, name, *args, **kwargs):
+        def side_effect(self, name: str, *args: Any, **kwargs: Any) -> MagicMock:
             if name == "openai":
                 return mock_openai_backend
             if name == "openrouter":
@@ -157,14 +160,14 @@ def client(
 
 @pytest.fixture
 def interactive_client(
-    mock_openai_backend,
-    mock_openrouter_backend,
-    mock_gemini_backend,
-    mock_anthropic_backend,
-    mock_qwen_oauth_backend,
-    mock_zai_backend,
-    mock_model_discovery,
-):
+    mock_openai_backend: MagicMock,
+    mock_openrouter_backend: MagicMock,
+    mock_gemini_backend: MagicMock,
+    mock_anthropic_backend: MagicMock,
+    mock_qwen_oauth_backend: MagicMock,
+    mock_zai_backend: MagicMock,
+    mock_model_discovery: dict[str, list[str]],
+) -> Generator[TestClient, Any, None]:
     """Create a test client with interactive mode enabled."""
     config = AppConfig(
         auth=AuthConfig(disable_auth=True),
@@ -177,9 +180,22 @@ def interactive_client(
             qwen_oauth=BackendConfig(api_key=["test_key"]),
             zai=BackendConfig(api_key=["test_key"]),
         ),
-        session={"default_interactive_mode": True},
+        session=SessionConfig(default_interactive_mode=True),  # Use SessionConfig
     )
     app = build_app(config)
+
+    # After the app is built, get the CommandRegistry from its service provider
+    # and register the mock commands.
+    from src.core.services.command_service import CommandRegistry
+
+    from tests.unit.mock_commands import (  # Import necessary mock commands
+        MockAnotherCommand,
+        MockHelloCommand,
+    )
+
+    command_registry = app.state.service_provider.get_required_service(CommandRegistry)
+    command_registry.register(MockHelloCommand())
+    command_registry.register(MockAnotherCommand())
 
     with (
         TestClient(app) as client,
@@ -188,7 +204,7 @@ def interactive_client(
         ) as mock_create_backend,
     ):
 
-        def side_effect(self, name, *args, **kwargs):
+        def side_effect(self, name: str, *args: Any, **kwargs: Any) -> MagicMock:
             if name == "openai":
                 return mock_openai_backend
             if name == "openrouter":
@@ -210,14 +226,14 @@ def interactive_client(
 
 @pytest.fixture
 def commands_disabled_client(
-    mock_openai_backend,
-    mock_openrouter_backend,
-    mock_gemini_backend,
-    mock_anthropic_backend,
-    mock_qwen_oauth_backend,
-    mock_zai_backend,
-    mock_model_discovery,
-):
+    mock_openai_backend: MagicMock,
+    mock_openrouter_backend: MagicMock,
+    mock_gemini_backend: MagicMock,
+    mock_anthropic_backend: MagicMock,
+    mock_qwen_oauth_backend: MagicMock,
+    mock_zai_backend: MagicMock,
+    mock_model_discovery: dict[str, list[str]],
+) -> Generator[TestClient, Any, None]:
     """Create a test client with commands disabled."""
     config = AppConfig(
         auth=AuthConfig(disable_auth=True),
@@ -230,12 +246,17 @@ def commands_disabled_client(
             qwen_oauth=BackendConfig(api_key=["test_key"]),
             zai=BackendConfig(api_key=["test_key"]),
         ),
-        commands_enabled=False,
+        session=SessionConfig(
+            disable_interactive_commands=True
+        ),  # Use SessionConfig for commands_enabled
     )
     app = build_app(config)
 
     # Set disable_commands on the app state to match commands_enabled=False config
-    from src.core.services.application_state_service import get_default_application_state
+    from src.core.services.application_state_service import (
+        get_default_application_state,
+    )
+
     app_state_service = get_default_application_state()
     app_state_service.set_state_provider(app.state)
     app_state_service.set_disable_commands(True)
@@ -247,7 +268,7 @@ def commands_disabled_client(
         ) as mock_create_backend,
     ):
 
-        def side_effect(self, name, *args, **kwargs):
+        def side_effect(self, name: str, *args: Any, **kwargs: Any) -> MagicMock:
             if name == "openai":
                 return mock_openai_backend
             if name == "openrouter":

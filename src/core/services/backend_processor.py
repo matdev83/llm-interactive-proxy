@@ -13,6 +13,7 @@ from src.core.domain.chat import ChatRequest
 from src.core.domain.request_context import RequestContext
 from src.core.domain.responses import ResponseEnvelope, StreamingResponseEnvelope
 from src.core.domain.session import SessionInteraction
+from src.core.interfaces.application_state_interface import IApplicationState
 from src.core.interfaces.backend_processor_interface import IBackendProcessor
 from src.core.interfaces.backend_service_interface import IBackendService
 from src.core.interfaces.session_service_interface import ISessionService
@@ -24,7 +25,10 @@ class BackendProcessor(IBackendProcessor):
     """Implementation of the backend processor interface."""
 
     def __init__(
-        self, backend_service: IBackendService, session_service: ISessionService
+        self,
+        backend_service: IBackendService,
+        session_service: ISessionService,
+        application_state: IApplicationState | None = None,
     ) -> None:
         """Initialize the backend processor.
 
@@ -34,6 +38,7 @@ class BackendProcessor(IBackendProcessor):
         """
         self._backend_service = backend_service
         self._session_service = session_service
+        self._app_state: IApplicationState | None = application_state
 
     async def process_backend_request(
         self,
@@ -75,13 +80,23 @@ class BackendProcessor(IBackendProcessor):
             # Get failover routes from session and add them to extra_body
             failover_routes: list[dict[str, Any]] | None = None
             if context:
-                # Use application state service instead of direct state access
-                from src.core.services.application_state_service import (
-                    get_default_application_state,
-                )
+                # Use injected application state when available; otherwise warn and fallback
+                if self._app_state is None:
+                    try:
+                        from src.core.services.application_state_service import (
+                            get_default_application_state,
+                        )
 
-                app_state_service = get_default_application_state()
-                failover_routes = app_state_service.get_failover_routes()
+                        logger.warning(
+                            "BackendProcessor: No IApplicationState provided; using global default. "
+                            "Prefer injecting IApplicationState via DI to adhere to DIP."
+                        )
+                        self._app_state = get_default_application_state()
+                    except Exception:
+                        self._app_state = None
+
+                if self._app_state is not None:
+                    failover_routes = self._app_state.get_failover_routes()
             elif hasattr(session.state.backend_config, "failover_routes"):
                 _failover_routes = session.state.backend_config.failover_routes
                 if isinstance(_failover_routes, list):

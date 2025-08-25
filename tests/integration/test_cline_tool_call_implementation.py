@@ -26,7 +26,9 @@ from src.core.app.stages import (  # Added imports
     ProcessorStage,
 )
 from src.core.app.test_builder import ApplicationTestBuilder  # Changed import
-from src.core.domain.chat import ChatMessage, ChatRequest  # Added import for ChatRequest
+from src.core.domain.chat import (  # Added import for ChatRequest
+    ChatRequest,
+)
 from src.core.interfaces.backend_service_interface import (
     IBackendService,  # Added import
 )

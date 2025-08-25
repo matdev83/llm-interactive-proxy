@@ -160,7 +160,13 @@ def get_chat_controller(service_provider: IServiceProvider) -> ChatController:
             # If still not found, try to create one on the fly
             from typing import cast
 
+            from src.core.interfaces.backend_processor_interface import (
+                IBackendProcessor,
+            )
             from src.core.interfaces.backend_service_interface import IBackendService
+            from src.core.interfaces.command_processor_interface import (
+                ICommandProcessor,
+            )
             from src.core.interfaces.command_service_interface import ICommandService
             from src.core.interfaces.response_processor_interface import (
                 IResponseProcessor,
@@ -181,15 +187,34 @@ def get_chat_controller(service_provider: IServiceProvider) -> ChatController:
                 concrete_backend = cast(IBackendService, backend)
                 concrete_session = cast(ISessionService, session)
                 concrete_response_proc = cast(IResponseProcessor, response_proc)
-                command_processor = CommandProcessor(concrete_cmd)
-                backend_processor = BackendProcessor(concrete_backend, concrete_session)
+                # Prefer DI-provided processors if available
+                di_cmd_proc = service_provider.get_service(ICommandProcessor)  # type: ignore[type-abstract]
+                di_backend_proc = service_provider.get_service(IBackendProcessor)  # type: ignore[type-abstract]
+                if di_cmd_proc and di_backend_proc:
+                    request_processor = RequestProcessor(
+                        cast(ICommandProcessor, di_cmd_proc),
+                        cast(IBackendProcessor, di_backend_proc),
+                        concrete_session,
+                        concrete_response_proc,
+                    )
+                else:
+                    # Fallback to constructing processors; inject app state where appropriate
+                    from src.core.services.application_state_service import (
+                        ApplicationStateService,
+                    )
 
-                request_processor = RequestProcessor(
-                    command_processor,
-                    backend_processor,
-                    concrete_session,
-                    concrete_response_proc,
-                )
+                    app_state = service_provider.get_service(ApplicationStateService)
+                    command_processor = CommandProcessor(concrete_cmd)
+                    backend_processor = BackendProcessor(
+                        concrete_backend, concrete_session, app_state
+                    )
+
+                    request_processor = RequestProcessor(
+                        command_processor,
+                        backend_processor,
+                        concrete_session,
+                        concrete_response_proc,
+                    )
 
                 # Register it for future use
                 # Only try to register if the service provider is a ServiceProvider instance

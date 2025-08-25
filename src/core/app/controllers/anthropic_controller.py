@@ -6,7 +6,7 @@ Handles Anthropic API endpoints.
 
 import json
 import logging
-from typing import Any
+from typing import Any, cast
 
 from fastapi import HTTPException, Request, Response
 
@@ -259,7 +259,13 @@ def get_anthropic_controller(service_provider: IServiceProvider) -> AnthropicCon
 
         if request_processor is None:
             # If still not found, try to create one on the fly
+            from src.core.interfaces.backend_processor_interface import (
+                IBackendProcessor,
+            )
             from src.core.interfaces.backend_service_interface import IBackendService
+            from src.core.interfaces.command_processor_interface import (
+                ICommandProcessor,
+            )
             from src.core.interfaces.command_service_interface import ICommandService
             from src.core.interfaces.response_processor_interface import (
                 IResponseProcessor,
@@ -282,12 +288,31 @@ def get_anthropic_controller(service_provider: IServiceProvider) -> AnthropicCon
                 from src.core.services.command_processor import CommandProcessor
                 from src.core.services.request_processor_service import RequestProcessor
 
-                command_processor: CommandProcessor = CommandProcessor(cmd)
-                backend_processor: BackendProcessor = BackendProcessor(backend, session)
+                # Prefer DI-provided processors when available
+                di_cmd_proc = service_provider.get_service(ICommandProcessor)  # type: ignore[type-abstract]
+                di_backend_proc = service_provider.get_service(IBackendProcessor)  # type: ignore[type-abstract]
+                if di_cmd_proc and di_backend_proc:
+                    request_processor = RequestProcessor(
+                        cast(ICommandProcessor, di_cmd_proc),
+                        cast(IBackendProcessor, di_backend_proc),
+                        session,
+                        response_proc,
+                    )
+                else:
+                    # Fallback construct; inject ApplicationState when constructing backend processor
+                    from src.core.services.application_state_service import (
+                        ApplicationStateService,
+                    )
 
-                request_processor = RequestProcessor(
-                    command_processor, backend_processor, session, response_proc
-                )
+                    app_state = service_provider.get_service(ApplicationStateService)
+                    command_processor: CommandProcessor = CommandProcessor(cmd)
+                    backend_processor: BackendProcessor = BackendProcessor(
+                        backend, session, app_state
+                    )
+
+                    request_processor = RequestProcessor(
+                        command_processor, backend_processor, session, response_proc
+                    )
 
                 # Register it for future use
                 from src.core.di.container import ServiceProvider

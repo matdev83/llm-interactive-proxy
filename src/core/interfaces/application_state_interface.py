@@ -114,3 +114,35 @@ class IApplicationState(ABC):
             key: The setting key
             value: The setting value
         """
+
+    @abstractmethod
+    def get_use_failover_strategy(self) -> bool:
+        """Get whether to use the extracted failover strategy.
+
+        Returns:
+            True if the extracted failover strategy should be used, False otherwise
+        """
+
+    @abstractmethod
+    def set_use_failover_strategy(self, enabled: bool) -> None:
+        """Set whether to use the extracted failover strategy.
+
+        Args:
+            enabled: Whether the extracted failover strategy should be used
+        """
+
+    @abstractmethod
+    def get_use_streaming_pipeline(self) -> bool:
+        """Get whether to use the streaming pipeline.
+
+        Returns:
+            True if the streaming pipeline should be used, False otherwise
+        """
+
+    @abstractmethod
+    def set_use_streaming_pipeline(self, enabled: bool) -> None:
+        """Set whether to use the streaming pipeline.
+
+        Args:
+            enabled: Whether the streaming pipeline should be used
+        """

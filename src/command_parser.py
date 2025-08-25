@@ -96,7 +96,7 @@ class CommandParser(ICommandProcessor):
         if self.config is not None:
             try:
                 # Normalize incoming config (may be a Mock/spec in tests)
-                preserve_unknown = bool(getattr(self.config, "preserve_unknown", True))
+                preserve_unknown = bool(getattr(self.config, "preserve_unknown", False))
                 proxy_state = getattr(self.config, "proxy_state", None)
                 if proxy_state is None:
                     from src.core.domain.session import (
@@ -148,6 +148,36 @@ class CommandParser(ICommandProcessor):
         """Extracts and prepares text from message content for command checking."""
         return get_text_for_command_check(content)
 
+    def _strip_commands_in_text(self, text: str) -> str:
+        """Remove all command occurrences from a text, preserving surrounding whitespace."""
+        result = text
+        while True:
+            m = self.command_pattern.search(result)
+            if not m:
+                break
+            result = result[: m.start()] + result[m.end() :]
+        return result
+
+    def _strip_commands_in_content(self, content: Any) -> Any:
+        """Remove command tokens from string or list content without executing them."""
+        if isinstance(content, str):
+            return self._strip_commands_in_text(content)
+        if isinstance(content, list):
+            from src.core.domain.chat import MessageContentPartText
+
+            new_parts: list[MessageContentPart] = []
+            for part in content:
+                if isinstance(part, MessageContentPartText):
+                    new_text = self._strip_commands_in_text(part.text)
+                    if new_text != "":
+                        new_parts.append(
+                            MessageContentPartText(type="text", text=new_text)
+                        )
+                else:
+                    new_parts.append(part)
+            return new_parts
+        return content
+
     async def _execute_commands_in_target_message(
         self,
         target_idx: int,
@@ -165,7 +195,7 @@ class CommandParser(ICommandProcessor):
             if self.config is not None:
                 try:
                     preserve_unknown = bool(
-                        getattr(self.config, "preserve_unknown", True)
+                        getattr(self.config, "preserve_unknown", False)
                     )
                     proxy_state = getattr(self.config, "proxy_state", None)
                     if proxy_state is None:
@@ -212,7 +242,7 @@ class CommandParser(ICommandProcessor):
                     app=mock_app_state,
                     command_pattern=self.command_pattern,
                     handlers=self.handlers,
-                    preserve_unknown=True,
+                    preserve_unknown=False,
                     command_results=self.command_results,
                 )
                 self.command_processor = CommandProcessor(processor_config)
@@ -384,6 +414,40 @@ class CommandParser(ICommandProcessor):
             command_message_idx, modified_messages, context
         )
 
+        # Strip command tokens from other messages without executing them
+        if overall_commands_processed:
+            for idx, msg in enumerate(modified_messages):
+                if idx == command_message_idx:
+                    continue
+                # Skip stripping if the original message was a pure command-only message
+                try:
+                    original_msg_content = messages[idx].content
+                except Exception:
+                    original_msg_content = None
+                if (
+                    original_msg_content is not None
+                    and self._is_original_purely_command(original_msg_content)
+                ):
+                    continue
+                # Work on a deep copy to avoid mutating the originals used for emptiness checks
+                if hasattr(msg, "model_copy"):
+                    msg_copy = msg.model_copy(deep=True)
+                    current = msg_copy.content
+                    stripped = self._strip_commands_in_content(current)
+                    if stripped != current:
+                        msg_copy.content = stripped
+                        modified_messages[idx] = msg_copy
+                else:
+                    current = (
+                        msg.get("content") if isinstance(msg, dict) else msg.content
+                    )
+                    stripped = self._strip_commands_in_content(current)
+                    if stripped != current:
+                        if isinstance(msg, dict):
+                            msg["content"] = stripped
+                        else:
+                            msg.content = stripped
+
         final_messages = self._filter_empty_messages(modified_messages, messages)
 
         if not final_messages and overall_commands_processed:
@@ -441,7 +505,7 @@ async def _process_text_for_commands(
         app=app,
         command_pattern=command_pattern,
         handlers=parser.handlers,  # Use the handlers discovered by the temporary parser
-        preserve_unknown=True,
+        preserve_unknown=False,
         command_results=parser.command_results,
     )
     parser.command_processor = CommandProcessor(processor_config)

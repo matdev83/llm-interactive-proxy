@@ -14,7 +14,6 @@ async def app(monkeypatch: pytest.MonkeyPatch):
     app = build_app()
 
     # Manually set up services for testing since lifespan isn't called in tests
-    from src.core.app.test_builder import TestApplicationBuilder as ApplicationBuilder
     from src.core.config.app_config import AppConfig, BackendConfig
     from src.core.di.services import set_service_provider
 
@@ -31,15 +30,14 @@ async def app(monkeypatch: pytest.MonkeyPatch):
     # Store minimal config in app.state
     app.state.app_config = app_config
 
-    # The httpx client should be managed by the DI container, not directly in app.state
+    # Use the modern staged initialization approach instead of deprecated methods
+    from src.core.app.test_builder import build_test_app_async
 
-    # Create service provider using ApplicationBuilder's method
-    builder = ApplicationBuilder()
-    service_provider = await builder._initialize_services(app, app_config)
+    # Build test app using the modern async approach - this handles all initialization automatically
+    app = await build_test_app_async(app_config)
 
     # Store the service provider
-    set_service_provider(service_provider)
-    app.state.service_provider = service_provider
+    set_service_provider(app.state.service_provider)
 
     # No integration bridge needed - using SOLID architecture directly
 
@@ -109,6 +107,9 @@ async def app(monkeypatch: pytest.MonkeyPatch):
 
     # We need to patch the get_service and get_required_service methods
     from src.core.interfaces.backend_service_interface import IBackendService
+
+    # Get the service provider from app state
+    service_provider = app.state.service_provider
 
     # Save the original methods
     original_get_service = service_provider.get_service

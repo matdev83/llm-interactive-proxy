@@ -82,7 +82,6 @@ async def initialized_app(app: FastAPI):
     """
     # Ensure the app has all required services properly initialized
     from src.core.app.controllers.chat_controller import ChatController
-    from src.core.app.test_builder import TestApplicationBuilder as ApplicationBuilder
     from src.core.config.app_config import AppConfig
     from src.core.di.services import set_service_provider
     from src.core.interfaces.request_processor_interface import IRequestProcessor
@@ -101,12 +100,14 @@ async def initialized_app(app: FastAPI):
             config = AppConfig()
             app.state.app_config = config
 
-        # Create builder and initialize services
-        builder = ApplicationBuilder()
-        # Use await directly since we're already in an async context
-        provider = await builder._initialize_services(app, config)
+        # Use the modern staged initialization approach instead of deprecated methods
+        from src.core.app.test_builder import build_test_app_async
 
-        # Set service provider
+        # Build test app using the modern async approach - this handles all initialization automatically
+        test_app = await build_test_app_async(config)
+
+        # Copy the service provider from the properly initialized test app
+        provider = test_app.state.service_provider
         set_service_provider(provider)
         app.state.service_provider = provider
 

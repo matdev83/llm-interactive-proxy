@@ -1,10 +1,8 @@
 import asyncio
 import logging
 from collections.abc import Generator
-from typing import Any, cast
+from typing import Any
 from unittest.mock import AsyncMock, MagicMock, Mock
-
-from pytest_mock import MockFixture
 
 # Targeted fix for specific AsyncMock coroutine warning patterns
 # Store original AsyncMock for safe usage
@@ -155,7 +153,6 @@ from src.core.app.test_builder import (
 from src.core.config.app_config import (
     AppConfig,
     AuthConfig,
-    BackendConfig,
     BackendSettings,
     LoggingConfig,
     LogLevel,
@@ -166,8 +163,10 @@ from src.core.domain.responses import (
     StreamingResponseEnvelope,  # Added for AsyncIterBytes in global mock
 )
 from src.core.interfaces.backend_service_interface import IBackendService
+from src.core.interfaces.domain_entities_interface import (
+    ISessionState,  # Added missing import
+)
 from src.core.interfaces.session_service_interface import ISessionService
-from src.core.interfaces.domain_entities_interface import ISessionState # Added missing import
 
 from tests.unit.openai_connector_tests.test_streaming_response import (
     AsyncIterBytes,  # Added for AsyncIterBytes in global mock
@@ -454,7 +453,7 @@ def test_service_provider(test_service_collection) -> Generator[Any, None, None]
     Returns:
         Generator: A test service provider
     """
-    from src.core.di.provider import ServiceProvider # Added missing import
+    from src.core.di.provider import ServiceProvider  # Added missing import
 
     provider = ServiceProvider(test_service_collection)
     yield provider
@@ -472,7 +471,9 @@ def test_session_service(test_service_provider) -> Generator[Any, None, None]:
     """
     from unittest.mock import MagicMock
 
-    from src.core.interfaces.session_repository_interface import ISessionRepository # Added missing import
+    from src.core.interfaces.session_repository_interface import (
+        ISessionRepository,  # Added missing import
+    )
     from src.core.services.session_service import SessionService
 
     mock_session_repository = MagicMock(spec=ISessionRepository)

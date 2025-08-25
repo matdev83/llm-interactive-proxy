@@ -33,22 +33,42 @@ def is_content_effectively_empty(content: Any) -> bool:
 def is_original_purely_command(
     original_content: Any, command_pattern: re.Pattern
 ) -> bool:
-    """Checks if the original message content was purely a command, ignoring comments."""
-    if not isinstance(original_content, str):
-        # Assuming commands can only be in string content for "purely command" messages
+    """Checks if the original message content was purely a command.
+
+    Rules:
+    - For string content: consider the message purely a command only if the
+      stripped text matches the command pattern exactly. Do NOT ignore
+      comment lines (e.g., lines starting with '#'): their presence means the
+      message is not purely a command.
+    - For list content: consider it purely a command if there is exactly one
+      text part and that text part's stripped text matches the command pattern
+      exactly. Any additional parts (e.g., images) make it not purely a command.
+    """
+    # String content case
+    if isinstance(original_content, str):
+        text = original_content.strip()
+        if not text:
+            return False
+        match = command_pattern.match(text)
+        return bool(match and text == match.group(0))
+
+    # List content case (multimodal)
+    if isinstance(original_content, list):
+        from src.core.domain.chat import MessageContentPartText
+
+        text_parts = [
+            p for p in original_content if isinstance(p, MessageContentPartText)
+        ]
+        # Exactly one part and it's a text part that is a pure command
+        if len(text_parts) == 1 and len(original_content) == 1:
+            text = text_parts[0].text.strip()
+            if not text:
+                return False
+            match = command_pattern.match(text)
+            return bool(match and text == match.group(0))
         return False
 
-    # Remove comment lines first
-    content_without_comments = COMMENT_LINE_PATTERN.sub("", original_content).strip()
-
-    if (
-        not content_without_comments
-    ):  # If only comments or empty after stripping comments
-        return False
-
-    match = command_pattern.match(content_without_comments)
-    # Check if the entire content (after comment removal and stripping) is the command
-    return bool(match and content_without_comments == match.group(0))
+    return False
 
 
 def is_tool_call_result(text: str) -> bool:

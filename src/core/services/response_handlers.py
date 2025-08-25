@@ -16,6 +16,7 @@ from src.core.interfaces.response_handler_interface import (
     INonStreamingResponseHandler,
     IStreamingResponseHandler,
 )
+from src.core.interfaces.response_processor_interface import ProcessedResponse
 
 logger = logging.getLogger(__name__)
 

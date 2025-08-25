@@ -191,51 +191,51 @@ def test_invalid_command_prefix_cli(
     monkeypatch.delenv("COMMAND_PREFIX", raising=False)
 
 
-@pytest.mark.skipif(os.name == "nt", reason="Test for non-Windows systems")
 def test_check_privileges_root(monkeypatch: pytest.MonkeyPatch) -> None:
     from src.core.cli import _check_privileges
 
+    # Force Unix/Linux path by mocking os.name
+    monkeypatch.setattr(os, "name", "posix")
     monkeypatch.setattr(os, "geteuid", lambda: 0, raising=False)
+
     with pytest.raises(SystemExit):
         _check_privileges()
 
 
-@pytest.mark.skipif(os.name == "nt", reason="Test for non-Windows systems")
 def test_check_privileges_non_root(monkeypatch: pytest.MonkeyPatch) -> None:
     from src.core.cli import _check_privileges
 
+    # Mock Unix/Linux non-root check
     monkeypatch.setattr(os, "geteuid", lambda: 1000, raising=False)
     _check_privileges()
 
 
-@pytest.mark.skipif(os.name != "nt", reason="Test for Windows systems")
 def test_check_privileges_admin_windows(monkeypatch: pytest.MonkeyPatch) -> None:
     import ctypes
 
     from src.core.cli import _check_privileges
 
-    monkeypatch.setattr(
-        ctypes.windll.shell32,  # type: ignore
-        "IsUserAnAdmin",
-        lambda: 1,
-        raising=False,
-    )
+    # Mock Windows admin check
+    mock_shell32 = MagicMock()
+    mock_shell32.IsUserAnAdmin.return_value = 1
+    monkeypatch.setattr(ctypes, "windll", MagicMock())
+    monkeypatch.setattr(ctypes.windll, "shell32", mock_shell32)
+
     with pytest.raises(SystemExit):
         _check_privileges()
 
 
-@pytest.mark.skipif(os.name != "nt", reason="Test for Windows systems")
 def test_check_privileges_non_admin_windows(monkeypatch: pytest.MonkeyPatch) -> None:
     import ctypes
 
     from src.core.cli import _check_privileges
 
-    monkeypatch.setattr(
-        ctypes.windll.shell32,  # type: ignore
-        "IsUserAnAdmin",
-        lambda: 0,
-        raising=False,
-    )
+    # Mock Windows non-admin check
+    mock_shell32 = MagicMock()
+    mock_shell32.IsUserAnAdmin.return_value = 0
+    monkeypatch.setattr(ctypes, "windll", MagicMock())
+    monkeypatch.setattr(ctypes.windll, "shell32", mock_shell32)
+
     _check_privileges()
 
 

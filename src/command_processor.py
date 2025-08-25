@@ -5,6 +5,9 @@ from typing import Any, cast
 from src.command_config import CommandProcessorConfig
 from src.core.domain.chat import MessageContentPart, MessageContentPartText
 from src.core.domain.command_results import CommandResult
+from src.core.domain.processed_result import ProcessedResult
+from src.core.domain.session import SessionState  # Import SessionState
+from src.core.interfaces.command_processor_interface import ICommandProcessor
 
 logger = logging.getLogger(__name__)
 
@@ -44,14 +47,123 @@ def get_command_pattern(command_prefix: str) -> re.Pattern:
     return re.compile(pattern_string, re.VERBOSE)
 
 
-class CommandProcessor:
+class CommandProcessor(ICommandProcessor):
     """Handles the parsing and execution of a single command."""
 
     def __init__(self, config: "CommandProcessorConfig") -> None:
         self.config = config
 
+    async def process_messages(
+        self, messages: list[Any], session_id: str, context: Any | None = None
+    ) -> ProcessedResult:
+        """Processes a list of messages, identifies and executes commands, and returns the modified messages."""
+        if not messages:
+            return ProcessedResult(
+                modified_messages=[], command_executed=False, command_results=[]
+            )
+
+        # Create a mutable copy of the messages to avoid changing the original list
+        # Ensure we are copying dictionaries if messages are dicts, or other objects if they are Pydantic models
+        modified_messages = [
+            msg.model_copy(deep=True) if hasattr(msg, "model_copy") else msg.copy()
+            for msg in messages
+        ]
+        any_command_executed = False
+        all_command_results: list[CommandResult] = []
+
+        # Process the last message first
+        last_message = modified_messages[-1]
+        content = getattr(last_message, "content", None)
+
+        if isinstance(content, str):
+            (
+                processed_content,
+                command_found,
+                content_modified,
+            ) = await self.handle_string_content(content)
+            if command_found:
+                any_command_executed = True
+                all_command_results.extend(self.config.command_results)
+                self.config.command_results.clear()  # Clear after collecting
+
+            if content_modified:
+                if hasattr(last_message, "model_copy"):
+                    modified_messages[-1] = last_message.model_copy(
+                        update={"content": processed_content}
+                    )
+                else:
+                    last_message["content"] = processed_content
+        elif isinstance(content, list):
+            (
+                processed_list,
+                command_found,
+                content_modified,
+            ) = await self.handle_list_content(content)
+            if command_found:
+                any_command_executed = True
+                all_command_results.extend(self.config.command_results)
+                self.config.command_results.clear()  # Clear after collecting
+
+            if content_modified:
+                if hasattr(last_message, "model_copy"):
+                    modified_messages[-1] = last_message.model_copy(
+                        update={"content": processed_list}
+                    )
+                else:
+                    last_message["content"] = processed_list
+
+        # If a command was executed in the last message, we are done.
+        # Otherwise, check previous messages.
+        if not any_command_executed:
+            for i in range(len(modified_messages) - 2, -1, -1):
+                message = modified_messages[i]
+                content = getattr(message, "content", None)
+                if isinstance(content, str):
+                    (
+                        processed_content,
+                        command_found,
+                        content_modified,
+                    ) = await self.handle_string_content(content)
+                    if command_found:
+                        any_command_executed = True
+                        all_command_results.extend(self.config.command_results)
+                        self.config.command_results.clear()  # Clear after collecting
+                        if content_modified:
+                            if hasattr(message, "model_copy"):
+                                modified_messages[i] = message.model_copy(
+                                    update={"content": processed_content}
+                                )
+                            else:
+                                message["content"] = processed_content
+                        # Stop after the first command from the end is found and processed.
+                        break
+                elif isinstance(content, list):
+                    (
+                        processed_list,
+                        command_found,
+                        content_modified,
+                    ) = await self.handle_list_content(content)
+                    if command_found:
+                        any_command_executed = True
+                        all_command_results.extend(self.config.command_results)
+                        self.config.command_results.clear()
+                        if content_modified:
+                            if hasattr(message, "model_copy"):
+                                modified_messages[i] = message.model_copy(
+                                    update={"content": processed_list}
+                                )
+                            else:
+                                message["content"] = processed_list
+                        break
+
+        return ProcessedResult(
+            modified_messages=modified_messages,
+            command_executed=any_command_executed,
+            command_results=all_command_results,
+        )
+
     async def process_text_and_execute_command(
-        self, text_content: str
+        self, text_content: str, *, normalize_whitespace: bool = True
     ) -> tuple[str, bool]:
         """Processes text for a single command and executes it."""
         commands_found = False
@@ -60,104 +172,131 @@ class CommandProcessor:
         match = self.config.command_pattern.search(text_content)
         if match:
             commands_found = True
-            command_full = match.group(0)
-            command_name = match.group("cmd").lower()
-            args_str = match.group("args") or ""
-            logger.debug(
-                "Regex match: Full='%s', Command='%s', ArgsStr='%s'",
-                command_full,
-                command_name,
-                args_str,
-            )
-            args = parse_arguments(args_str)
-
-            replacement = ""
-            command_handler = self.config.handlers.get(command_name)
-            if command_handler:
-                # Get the result from the command handler
-                # New BaseCommand classes have async execute methods
-                import asyncio
-
-                # Create a temporary session for the command execution
-                from src.core.domain.session import Session
-
-                # Always create a proper Session object
-                # Type ignore because we're ensuring temp_session is always a Session
-                if hasattr(self.config.proxy_state, "session_id"):
-                    # It's already a proper session object
-                    temp_session: Session = self.config.proxy_state  # type: ignore
-                else:
-                    # It's a state object, wrap it in a session
-                    temp_session = Session(
-                        session_id="temp", state=self.config.proxy_state
-                    )
-
-                # Handle both async and sync execute methods
-                execution_result: CommandResult
-                try:
-                    # Provide context as a dict to support domain command expectations
-                    context = {"app": self.config.app, "handlers": self.config.handlers}
-                    coro_result = command_handler.execute(args, temp_session, context)  # type: ignore
-                    if asyncio.iscoroutine(coro_result):
-                        execution_result = await coro_result
-                    else:
-                        execution_result = coro_result
-                except Exception:
-                    # Fallback - try calling again with context dict but suppress errors
-                    import contextlib
-
-                    with contextlib.suppress(Exception):
-                        execution_result = await command_handler.execute(
-                            args, temp_session, {"app": self.config.app}
-                        )  # type: ignore
-                    if "execution_result" not in locals():
-                        # Re-raise original exception to surface the error
-                        raise
-
-                # No need to convert legacy CommandResult anymore since we removed the imports
-                self.config.command_results.append(execution_result)
-                # If the command returned a new_state, apply it to the original proxy_state
-                new_state = getattr(execution_result, "new_state", None)
-                if new_state is not None:
-                    # Debug
-                    logger.debug(
-                        f"execution_result: success={getattr(execution_result, 'success', None)} message={getattr(execution_result, 'message', None)} new_state_type={type(new_state)}"
-                    )
-                    try:
-                        self._apply_new_state(new_state)
-                        logger.debug("_apply_new_state completed")
-                    except Exception as e:
-                        logger.debug(f"_apply_new_state failed: {e}")
-                        logger.debug(
-                            "Could not apply new_state to proxy_state: %s",
-                            type(self.config.proxy_state),
-                        )
-                # If this is a pure command (the entire text is just the command),
-                # return empty string to clear the content
-                if text_content.strip() == command_full.strip():
-                    return "", True
-            else:
-                logger.warning("Unknown command: %s.", command_name)
-                error_message = f"cmd not found: {command_name}"
-                unknown_cmd_result = CommandResult(
-                    name=command_name, success=False, message=error_message
+            executed_first = False
+            # Work on a moving window to remove additional commands when asked
+            while match is not None:
+                command_full = match.group(0)
+                command_name = match.group("cmd").lower()
+                args_str = match.group("args") or ""
+                logger.debug(
+                    "Regex match: Full='%s', Command='%s', ArgsStr='%s'",
+                    command_full,
+                    command_name,
+                    args_str,
                 )
-                self.config.command_results.append(unknown_cmd_result)
-                if self.config.preserve_unknown:
-                    replacement = command_full
+                args = parse_arguments(args_str)
 
-            modified_text = (
-                modified_text[: match.start()]
-                + replacement
-                + modified_text[match.end() :]
+                replacement = ""
+                command_handler = self.config.handlers.get(command_name)
+                if command_handler and not executed_first:
+                    # Get the result from the command handler
+                    # New BaseCommand classes have async execute methods
+                    import asyncio
+
+                    # Create a temporary session for the command execution
+                    from src.core.domain.session import Session
+
+                    # Always create a proper Session object
+                    # Type ignore because we're ensuring temp_session is always a Session
+                    if hasattr(self.config.proxy_state, "session_id"):
+                        # It's already a proper session object
+                        temp_session: Session = self.config.proxy_state  # type: ignore
+                    else:
+                        # It's a state object, wrap it in a session
+                        temp_session = Session(
+                            session_id="temp", state=self.config.proxy_state
+                        )
+
+                    # Handle both async and sync execute methods
+                    execution_result: CommandResult | None = None
+                    try:
+                        # Provide context as a dict to support domain command expectations
+                        context = {
+                            "app": self.config.app,
+                            "handlers": self.config.handlers,
+                        }
+                        coro_result = command_handler.execute(args, temp_session, context)  # type: ignore
+                        if asyncio.iscoroutine(coro_result):
+                            execution_result = await coro_result
+                    except Exception:
+                        # Fallback - try calling again with context dict but suppress errors
+                        import contextlib
+
+                        with contextlib.suppress(Exception):
+                            execution_result = await command_handler.execute(
+                                args, temp_session, {"app": self.config.app}
+                            )  # type: ignore
+
+                        # If we still don't have a result, we'll handle the error later
+                        if execution_result is None:  # type: ignore[unreachable]
+                            execution_result = await command_handler.execute(
+                                args, temp_session, {"app": self.config.app}
+                            )  # type: ignore
+
+                    if execution_result:
+                        self.config.command_results.append(execution_result)
+                    new_state = getattr(execution_result, "new_state", None)
+                    if new_state is not None:
+                        logger.debug(
+                            f"execution_result: success={getattr(execution_result, 'success', None)} message={getattr(execution_result, 'message', None)} new_state_type={type(new_state)}"
+                        )
+                        try:
+                            self._apply_new_state(new_state)
+                            logger.debug("_apply_new_state completed")
+                        except Exception as e:
+                            logger.debug(f"_apply_new_state failed: {e}")
+                            logger.debug(
+                                "Could not apply new_state to proxy_state: %s",
+                                type(self.config.proxy_state),
+                            )
+                    # If this is a pure command (the entire text is just the command),
+                    # return empty string to clear the content
+                    if text_content.strip() == command_full.strip():
+                        return "", True
+                    executed_first = True
+                else:
+                    # Unknown command or subsequent commands when normalize_whitespace is False
+                    if not command_handler:
+                        logger.warning("Unknown command: %s.", command_name)
+                        error_message = f"cmd not found: {command_name}"
+                        unknown_cmd_result = CommandResult(
+                            name=command_name, success=False, message=error_message
+                        )
+                        self.config.command_results.append(unknown_cmd_result)
+                    # For CommandParser path (normalize_whitespace=False), always remove unknown and subsequent commands.
+                    # For direct calls (normalize_whitespace=True), respect preserve_unknown on the first (and only) pass.
+                    if (
+                        normalize_whitespace
+                        and self.config.preserve_unknown
+                        and not executed_first
+                        and not command_handler
+                    ):
+                        replacement = command_full
+                    else:
+                        replacement = ""
+
+                # Remove the command text without altering surrounding whitespace.
+                before_command = modified_text[: match.start()]
+                after_command = modified_text[match.end() :]
+                modified_text = before_command + replacement + after_command
+
+                # Continue scanning only when preserving whitespace (CommandParser path)
+                if normalize_whitespace:
+                    break
+                else:
+                    match = self.config.command_pattern.search(modified_text)
+
+        # Optionally normalize: collapse internal whitespace and trim ends
+        if normalize_whitespace:
+            final_text = re.sub(r"\s+", " ", modified_text).strip()
+            logger.debug("Text after command processing (normalized): '%s'", final_text)
+            return final_text, commands_found
+        else:
+            logger.debug(
+                "Text after command processing (whitespace preserved): '%s'",
+                modified_text,
             )
-
-        final_text = re.sub(r"\s+", " ", modified_text).strip()
-        final_text = self._clean_remaining_text(final_text)
-        logger.debug(
-            "Text after command processing and normalization: '%s'", final_text
-        )
-        return final_text, commands_found
+            return modified_text, commands_found
 
     def _apply_new_state(self, new_state: Any) -> None:
         """Normalize and apply a new_state returned by a command to the parser proxy_state.
@@ -194,117 +333,119 @@ class CommandProcessor:
 
         # If new_state is an adapter, unwrap repeatedly to get concrete SessionState
         concrete_state = new_state
-        try:
-            while hasattr(concrete_state, "_state"):
-                concrete_state = concrete_state._state
-        except Exception:
-            # If unwrapping fails, keep original
-            concrete_state = new_state
+        # Only unwrap if it's an adapter that actually *wraps* another state
+        # Check if concrete_state has _state and that _state is not concrete_state itself to avoid infinite loop
+        while (
+            hasattr(concrete_state, "_state")
+            and concrete_state._state is not concrete_state
+        ):
+            concrete_state = concrete_state._state
 
         # Case 1: Session-like with update_state
-        # Use isinstance check to appease static typing when possible
-        from src.core.domain.session import Session as _Session
+        from src.core.domain.session import SessionStateAdapter
+        from src.core.interfaces.domain_entities_interface import ISessionState
 
-        if (
-            isinstance(proxy, _Session)
-            and hasattr(proxy, "update_state")
-            and callable(proxy.update_state)
-        ):
-            logger.debug("Applying new_state via proxy.update_state")
-            logger.debug(
-                f"before update_state: proxy._state id={(getattr(proxy, '_state', None) and id(proxy._state))}"
-            )
-            # mypy: proxy may be an ISessionState adapter or concrete Session with update_state
-            proxy.update_state(concrete_state)  # type: ignore[arg-type]
-            logger.debug(
-                f"after update_state: proxy._state id={(getattr(proxy, '_state', None) and id(proxy._state))}"
-            )
-            return
-
-        # Case 2: Adapter with internal _state
-        if hasattr(proxy, "_state"):
+        # Case 2: Adapter with internal _state (e.g., SessionStateAdapter)
+        # Explicitly check if proxy is SessionStateAdapter to safely access _state
+        if isinstance(proxy, SessionStateAdapter):
             try:
-                logger.debug(
-                    f"before set proxy._state id={(getattr(proxy, '_state', None) and id(proxy._state))}"
-                )
                 # If concrete_state is adapter (already unwrapped, unlikely here)
                 if hasattr(concrete_state, "_state"):
                     # concrete_state._state should be SessionState
-                    try:
-                        logger.debug(
-                            "concrete_state._state.backend_config.model=",
-                            concrete_state._state.backend_config.model,
+                    # Cast the result of getattr to SessionState to satisfy type checker
+                    inner_state = concrete_state._state
+                    if isinstance(inner_state, SessionState):
+                        proxy._state = inner_state
+                    else:
+                        # If it's not a SessionState, log a warning and don't assign
+                        logger.warning(
+                            f"Inner state is not a SessionState: {type(inner_state)}"
                         )
-                    except Exception:
-                        logger.debug(
-                            "concrete_state._state.backend_config.model=<unavailable>"
-                        )
-                    proxy._state = concrete_state._state
                 else:
-                    try:
-                        logger.debug(
-                            "concrete_state.backend_config.model=",
-                            concrete_state.backend_config.model,
+                    # concrete_state is the final state. It should be SessionState.
+                    # Cast the concrete_state to SessionState to satisfy type checker
+                    if isinstance(concrete_state, SessionState):
+                        proxy._state = concrete_state
+                    else:
+                        # If it's not a SessionState, log a warning and don't assign
+                        logger.warning(
+                            f"Concrete state is not a SessionState: {type(concrete_state)}"
                         )
-                    except Exception:
-                        logger.debug(
-                            "concrete_state.backend_config.model=<unavailable>"
-                        )
-                    proxy._state = concrete_state
-                logger.debug(
-                    f"after set proxy._state id={(getattr(proxy, '_state', None) and id(proxy._state))}"
-                )
-                try:
-                    logger.debug(
-                        "proxy._state.backend_config.model(after)=",
-                        proxy._state.backend_config.model,
-                    )
-                except Exception:
-                    logger.debug(
-                        "proxy._state.backend_config.model(after)=<unavailable>"
-                    )
                 logger.debug(
                     "Applied new_state to proxy._state; proxy._state type=%s",
                     type(proxy._state),
                 )
                 return
-            except Exception:
-                pass
+            except Exception as e:
+                logger.warning(f"Failed to apply new_state to SessionStateAdapter: {e}")
+        # If proxy is an ISessionState (but not SessionStateAdapter) and concrete_state is also ISessionState
+        # We can't directly assign _state, but we can try to update fields if they exist and are mutable.
+        # This is a more generic approach, though less reliable than the SessionStateAdapter path.
+        # Note: This check is after the SessionStateAdapter check, so we're dealing with other ISessionState implementations
+        elif isinstance(proxy, ISessionState) and isinstance(
+            concrete_state, ISessionState
+        ):
+            # This is a fallback for other ISessionState implementations.
+            # It's not as robust as the SessionStateAdapter path.
+            # For now, we'll just log and return, as direct field assignment is complex and error-prone
+            # without knowing the exact implementation details of the ISessionState.
+            logger.debug(
+                "Proxy and concrete_state are both ISessionState, but not SessionStateAdapter. Cannot directly assign _state."
+            )
+            return
 
         # Case 3: Fallback try dict conversion
         try:
-            if hasattr(proxy, "to_dict") and hasattr(concrete_state, "to_dict"):
-                # attempt to set via from_dict -> adapter
-                from src.core.domain.session import SessionState
+            if (
+                hasattr(proxy, "to_dict")
+                and hasattr(concrete_state, "to_dict")
+                and isinstance(concrete_state, dict)
+            ):
+                # SessionState.from_dict returns IValueObject, so we need to cast it.
+                new_session_state_value = SessionState.from_dict(concrete_state)
+                # Ensure the returned object is indeed a SessionState
+                if not isinstance(new_session_state_value, SessionState):
+                    logger.warning(
+                        f"SessionState.from_dict did not return a SessionState: {type(new_session_state_value)}"
+                    )
+                    return
+                # Cast to SessionState to satisfy type checker
+                new_session_state = cast(SessionState, new_session_state_value)
 
-                if isinstance(concrete_state, dict):
-                    new_session_state = SessionState.from_dict(concrete_state)
-                    if hasattr(proxy, "_state"):
-                        # proxy._state may be an IValueObject adapter; assign carefully
-                        import contextlib
+                # If proxy is SessionStateAdapter, we can assign to _state
+                if isinstance(proxy, SessionStateAdapter):
+                    try:
+                        proxy._state = new_session_state
+                        logger.debug(
+                            "Applied new_state to SessionStateAdapter._state via dict conversion."
+                        )
+                        return
+                    except Exception as e:
+                        logger.warning(
+                            f"Failed to assign to SessionStateAdapter._state: {e}"
+                        )
 
-                        with contextlib.suppress(Exception):
-                            proxy._state = new_session_state  # type: ignore[attr-defined]
-                    else:
-                        # last resort
+                # If proxy is not SessionStateAdapter, try to update the config.proxy_state
+                # This is a last resort and might not always work as expected.
+                else:
+                    try:
                         from src.core.domain.session import SessionStateAdapter
 
-                        # Prefer replacing the configured proxy_state with a new adapter
-                        try:
-                            # cast new_session_state to concrete SessionState for adapter ctor
-                            from src.core.domain.session import SessionState
+                        self.config.proxy_state = SessionStateAdapter(new_session_state)
+                        logger.debug(
+                            "Replaced config.proxy_state with new SessionStateAdapter via dict conversion."
+                        )
+                        return
+                    except Exception as e:
+                        logger.warning(
+                            f"Failed to replace config.proxy_state with new SessionStateAdapter: {e}"
+                        )
 
-                            self.config.proxy_state = SessionStateAdapter(
-                                cast(SessionState, new_session_state)
-                            )  # type: ignore[attr-defined]
-                        except Exception:
-                            import contextlib
-
-                            with contextlib.suppress(Exception):
-                                # assign via dynamic attribute to avoid mypy attribute errors
-                                cast(Any, proxy).state = new_session_state
+            # If we can't do dict conversion, log and return
+            logger.debug("Could not apply new_state via dict conversion.")
             return
-        except Exception:
+        except Exception as e:
+            logger.warning(f"Exception during dict conversion attempt: {e}")
             return
 
     def _clean_remaining_text(self, text: str) -> str:
@@ -315,7 +456,7 @@ class CommandProcessor:
     async def handle_string_content(self, msg_content: str) -> tuple[str, bool, bool]:
         original_content = msg_content
         processed_text, command_found = await self.process_text_and_execute_command(
-            original_content
+            original_content, normalize_whitespace=False
         )
         content_modified = command_found or processed_text != original_content
 
@@ -356,7 +497,7 @@ class CommandProcessor:
             return part.model_copy(deep=True), False
 
         processed_text, found_in_part = await self.process_text_and_execute_command(
-            part.text
+            part.text, normalize_whitespace=False
         )
 
         if found_in_part:

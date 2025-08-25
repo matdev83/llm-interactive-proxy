@@ -23,6 +23,7 @@ from src.core.domain.chat import ChatRequest
 from src.core.domain.responses import ResponseEnvelope, StreamingResponseEnvelope
 from src.core.interfaces.configuration_interface import IAppIdentityConfig
 from src.core.interfaces.model_bases import DomainModel, InternalDTO
+from src.core.interfaces.response_processor_interface import ProcessedResponse
 
 # Legacy ChatCompletionRequest removed from connector signatures; use domain ChatRequest
 

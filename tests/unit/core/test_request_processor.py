@@ -137,7 +137,7 @@ async def test_process_request_basic(session_service: MockSessionService) -> Non
     session = session_service.sessions["test-session"]
     assert len(session.history) == 1
     assert session.history[0].prompt == "Hello"
-    assert session.history[0].handler == "backend"
+    assert session.history[0].handler == "proxy"
 
 
 @pytest.mark.asyncio
@@ -205,7 +205,7 @@ async def test_process_request_with_commands(
     session = session_service.sessions["test-session"]
     assert len(session.history) == 1
     assert session.history[0].prompt == "!/set(project=test) How are you?"
-    assert session.history[0].handler == "backend"
+    assert session.history[0].handler == "proxy"
 
 
 @pytest.mark.asyncio

@@ -33,6 +33,9 @@ from src.core.interfaces.state_provider_interface import (
     ISecureStateAccess,
     ISecureStateModification,
 )
+from src.core.interfaces.streaming_response_processor_interface import (
+    IStreamingResponseProcessor,
+)
 from src.core.services.app_settings_service import AppSettings
 from src.core.services.application_state_service import ApplicationStateService
 from src.core.services.backend_processor import BackendProcessor
@@ -49,6 +52,9 @@ from src.core.services.secure_command_factory import SecureCommandFactory
 from src.core.services.secure_state_service import SecureStateService
 from src.core.services.session_resolver_service import DefaultSessionResolver
 from src.core.services.session_service_impl import SessionService
+from src.core.services.streaming_response_processor_service import (
+    StreamingResponseProcessorService,
+)
 
 T = TypeVar("T")
 
@@ -228,8 +234,13 @@ def register_core_services(
             ISessionService
         )  # type: ignore[type-abstract]
 
-        # Return backend processor
-        return BackendProcessor(backend_service, session_service)
+        # Return backend processor (inject application state to adhere to DIP)
+        app_state = provider.get_required_service(ApplicationStateService)
+        return BackendProcessor(
+            backend_service=backend_service,
+            session_service=session_service,
+            application_state=app_state,
+        )
 
     # Register backend processor and bind to interface
     _add_singleton(BackendProcessor, implementation_factory=_backend_processor_factory)
@@ -300,6 +311,7 @@ def register_core_services(
                 middleware.append(LoopDetectionMiddleware(detector))
 
                 return ResponseProcessor(loop_detector=detector, middleware=middleware)
+            return ResponseProcessor(middleware=middleware)
         except Exception as e:  # type: ignore[misc]
             logger.exception("Failed to create ResponseProcessor: %s", e)
             raise
@@ -341,6 +353,17 @@ def register_core_services(
     def _application_state_factory(
         provider: IServiceProvider,
     ) -> ApplicationStateService:
+        # Prefer injected state provider; create with no state provider for backward compatibility
+        try:
+            # Try to get a state provider from the service provider
+            state_provider = provider.get_service(
+                object
+            )  # Generic object as we don't know the exact type
+            if state_provider is not None:
+                return ApplicationStateService(state_provider)
+        except Exception:
+            # If we can't get a state provider, fall back to creating without one
+            pass
         return ApplicationStateService()
 
     _add_singleton(
@@ -401,12 +424,14 @@ def register_core_services(
         # Create rate limiter
         rate_limiter: RateLimiter = RateLimiter()
 
+        app_state = provider.get_required_service(ApplicationStateService)
         # Return backend service
         return BackendService(
             backend_factory,
             rate_limiter,
             app_config,
             session_service=provider.get_required_service(SessionService),
+            app_state=app_state,
         )
 
     # Register backend service and bind to interface
@@ -456,6 +481,25 @@ def register_core_services(
         _add_singleton(
             cast(type, IRequestProcessor),
             implementation_factory=_request_processor_factory,
+        )  # type: ignore[type-abstract]
+
+    # Register streaming response processor service
+    def _streaming_response_processor_factory(
+        provider: IServiceProvider,
+    ) -> StreamingResponseProcessorService:
+        # Create streaming response processor service
+        return StreamingResponseProcessorService()
+
+    # Register streaming response processor service and bind to interface
+    _add_singleton(
+        StreamingResponseProcessorService,
+        implementation_factory=_streaming_response_processor_factory,
+    )
+
+    with contextlib.suppress(Exception):
+        services.add_singleton(
+            cast(type, IStreamingResponseProcessor),
+            implementation_factory=_streaming_response_processor_factory,
         )  # type: ignore[type-abstract]
 
 

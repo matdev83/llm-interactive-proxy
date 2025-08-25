@@ -2,11 +2,10 @@ import json
 from typing import Any
 from unittest.mock import AsyncMock, patch
 
-from tests.conftest import get_backend_instance
-
 # Ensure no module-level skips are applied - DEBUG TEST
-import pytest
 from starlette.testclient import TestClient
+
+from tests.conftest import get_backend_instance
 
 pytestmark: list[Any] = []
 

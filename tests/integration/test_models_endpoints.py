@@ -147,18 +147,17 @@ class TestModelsEndpoints:
         # Patch the backend service's internal method to simulate an error
         with TestClient(app) as client:
             # Ensure the service provider is available
-            from src.core.app.test_builder import (
-                TestApplicationBuilder as ApplicationBuilder,
-            )
             from src.core.di.services import set_service_provider
             from src.core.interfaces.backend_service_interface import IBackendService
 
-            # Initialize services if needed
+            # Initialize services if needed using the modern staged approach
             if (
                 not hasattr(app.state, "service_provider")
                 or app.state.service_provider is None
             ):
                 import asyncio
+
+                from src.core.app.test_builder import build_test_app_async
 
                 # Get or create a basic config
                 config = getattr(app.state, "app_config", None)
@@ -168,15 +167,12 @@ class TestModelsEndpoints:
                     config = AppConfig()
                     app.state.app_config = config
 
-                # Initialize services synchronously in test context
-                builder = ApplicationBuilder()
-                service_provider = asyncio.run(
-                    builder._initialize_services(app, config)
-                )
+                # Use the modern staged initialization approach instead of deprecated methods
+                test_app = asyncio.run(build_test_app_async(config))
 
-                # Set as global provider and on app.state
-                set_service_provider(service_provider)
-                app.state.service_provider = service_provider
+                # Copy the service provider from the properly initialized test app
+                set_service_provider(test_app.state.service_provider)
+                app.state.service_provider = test_app.state.service_provider
 
             # Get the backend service from DI
             backend_service = app.state.service_provider.get_required_service(

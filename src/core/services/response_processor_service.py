@@ -8,6 +8,11 @@ from typing import Any
 
 from src.core.common.exceptions import BackendError, LoopDetectionError
 from src.core.domain.chat import ChatResponse, StreamingChatResponse
+from src.core.domain.streaming_response_processor import (
+    StreamingContent,
+    StreamNormalizer,
+)
+from src.core.interfaces.application_state_interface import IApplicationState
 from src.core.interfaces.loop_detector_interface import ILoopDetector
 from src.core.interfaces.response_processor_interface import (
     IResponseMiddleware,
@@ -21,11 +26,15 @@ logger = logging.getLogger(__name__)
 class ResponseProcessor(IResponseProcessor):
     def __init__(
         self,
+        app_state: IApplicationState,
         loop_detector: ILoopDetector | None = None,
         middleware: list[IResponseMiddleware] | None = None,
+        stream_normalizer: StreamNormalizer | None = None,
     ) -> None:
+        self._app_state = app_state
         self._loop_detector = loop_detector
         self._middleware: list[tuple[int, IResponseMiddleware]] = []
+        self._stream_normalizer = stream_normalizer
         self._background_tasks: list[asyncio.Task[Any]] = (
             []
         )  # To hold references to background tasks
@@ -93,60 +102,103 @@ class ResponseProcessor(IResponseProcessor):
     def process_streaming_response(
         self, response_iterator: AsyncIterator[Any], session_id: str
     ) -> AsyncIterator[ProcessedResponse]:
-        async def _process_stream() -> AsyncIterator[ProcessedResponse]:
-            accumulated_content = ""
-            try:
-                sorted_middleware = sorted(
-                    self._middleware, key=lambda m: m[0], reverse=True
-                )
-                async for chunk in response_iterator:
-                    try:
-                        content, usage, metadata = self._extract_chunk_data(chunk)
-                        if content:
-                            accumulated_content += content
-                            if self._loop_detector and len(accumulated_content) > 100:
-                                loop_result = await self._loop_detector.check_for_loops(
-                                    accumulated_content
-                                )
-                                if loop_result.has_loop:
-                                    raise LoopDetectionError(
-                                        message=f"Response loop detected in stream ({loop_result.repetitions} repetitions)",
-                                        pattern=loop_result.pattern,
-                                        repetitions=loop_result.repetitions,
-                                        details=loop_result.details,
-                                    )
+        if self._app_state.get_use_streaming_pipeline() and self._stream_normalizer:
+            logger.debug("Using streaming pipeline for response processing.")
 
-                        processed = ProcessedResponse(
-                            content=content, usage=usage, metadata=metadata
-                        )
-                        context = {"session_id": session_id, "response_type": "stream"}
-                        for _, middleware in sorted_middleware:
-                            processed = await middleware.process(
-                                processed, session_id, context
-                            )
-                        yield processed
+            async def _stream_pipeline_processor() -> AsyncIterator[ProcessedResponse]:
+                # Ensure _stream_normalizer is not None before using it
+                if self._stream_normalizer is None:
+                    logger.error(
+                        "Stream normalizer is None when streaming pipeline is enabled."
+                    )
+                    yield ProcessedResponse(
+                        content="ERROR: Stream normalizer not initialized.",
+                        metadata={"error_type": "StreamNormalizerError"},
+                    )
+                    return
 
-                    except LoopDetectionError:
-                        raise
-                    except Exception as e:
-                        logger.error(
-                            f"Error processing stream chunk: {e!s}", exc_info=True
-                        )
+                async for content in self._stream_normalizer.process_stream(
+                    response_iterator, output_format="objects"
+                ):
+                    # Convert StreamingContent back to ProcessedResponse if needed, or adapt ProcessedResponse to StreamingContent
+                    # For now, assuming direct conversion is acceptable or ProcessedResponse can be replaced by StreamingContent
+                    if isinstance(content, StreamingContent):
                         yield ProcessedResponse(
-                            content=f"ERROR: {e!s}",
-                            metadata={"error_type": "ChunkProcessingError"},
+                            content=content.content,
+                            usage=content.usage,
+                            metadata=content.metadata,
                         )
+                    else:
+                        yield ProcessedResponse(
+                            content=str(content)
+                        )  # Fallback for unexpected types
 
-                    await asyncio.sleep(0.01)
+            return _stream_pipeline_processor()
+        else:
+            logger.debug("Using traditional streaming response processing.")
 
-            except Exception as e:
-                logger.error(f"Error in stream processing: {e!s}", exc_info=True)
-                yield ProcessedResponse(
-                    content=f"ERROR: Stream processing failed: {e!s}",
-                    metadata={"error_type": "StreamProcessingError"},
-                )
+            async def _process_stream() -> AsyncIterator[ProcessedResponse]:
+                accumulated_content = ""
+                try:
+                    sorted_middleware = sorted(
+                        self._middleware, key=lambda m: m[0], reverse=True
+                    )
+                    async for chunk in response_iterator:
+                        try:
+                            content, usage, metadata = self._extract_chunk_data(chunk)
+                            if content:
+                                accumulated_content += content
+                                if (
+                                    self._loop_detector
+                                    and len(accumulated_content) > 100
+                                ):
+                                    loop_result = (
+                                        await self._loop_detector.check_for_loops(
+                                            accumulated_content
+                                        )
+                                    )
+                                    if loop_result.has_loop:
+                                        raise LoopDetectionError(
+                                            message=f"Response loop detected in stream ({loop_result.repetitions} repetitions)",
+                                            pattern=loop_result.pattern,
+                                            repetitions=loop_result.repetitions,
+                                            details=loop_result.details,
+                                        )
 
-        return _process_stream()
+                            processed = ProcessedResponse(
+                                content=content, usage=usage, metadata=metadata
+                            )
+                            context = {
+                                "session_id": session_id,
+                                "response_type": "stream",
+                            }
+                            for _, middleware in sorted_middleware:
+                                processed = await middleware.process(
+                                    processed, session_id, context
+                                )
+                            yield processed
+
+                        except LoopDetectionError:
+                            raise
+                        except Exception as e:
+                            logger.error(
+                                f"Error processing stream chunk: {e!s}", exc_info=True
+                            )
+                            yield ProcessedResponse(
+                                content=f"ERROR: {e!s}",
+                                metadata={"error_type": "ChunkProcessingError"},
+                            )
+
+                        await asyncio.sleep(0.01)
+
+                except Exception as e:
+                    logger.error(f"Error in stream processing: {e!s}", exc_info=True)
+                    yield ProcessedResponse(
+                        content=f"ERROR: Stream processing failed: {e!s}",
+                        metadata={"error_type": "StreamProcessingError"},
+                    )
+
+            return _process_stream()
 
     def _extract_response_data(
         self, response: Any

@@ -141,23 +141,32 @@ class ProcessorStage(InitializationStage):
             logger.warning(f"Could not register backend processor: {e}")
 
     def _register_response_processor(self, services: ServiceCollection) -> None:
-        """Register response processor with middleware and loop detector."""
+        """Register response processor with middleware, loop detector, and streaming pipeline."""
         try:
+            from src.core.domain.streaming_response_processor import StreamNormalizer
+            from src.core.interfaces.application_state_interface import (
+                IApplicationState,
+            )
             from src.core.interfaces.response_processor_interface import (
                 IResponseMiddleware,
                 IResponseProcessor,
             )
             from src.core.services.loop_detector_service import LoopDetector
             from src.core.services.response_processor_service import ResponseProcessor
+            from src.core.services.streaming.tool_call_repair_processor import (
+                ToolCallRepairProcessor,
+            )
+            from src.core.services.tool_call_repair_service import ToolCallRepairService
 
             def response_processor_factory(
                 provider: IServiceProvider,
             ) -> ResponseProcessor:
-                """Factory function for creating ResponseProcessor with middleware."""
-                # Get loop detector if available
+                """Factory function for creating ResponseProcessor with middleware and streaming pipeline."""
+                app_state: IApplicationState = provider.get_required_service(
+                    cast(type, IApplicationState)
+                )
                 loop_detector: LoopDetector | None = provider.get_service(LoopDetector)
 
-                # Create middleware list
                 middleware: list[IResponseMiddleware] = []
                 if loop_detector:
                     try:
@@ -170,24 +179,45 @@ class ProcessorStage(InitializationStage):
                     except ImportError:
                         logger.warning("Loop detection middleware not available")
 
+                stream_normalizer: StreamNormalizer | None = None
+                if app_state.get_use_streaming_pipeline():
+                    logger.debug("Streaming pipeline enabled. Registering processors.")
+                    tool_call_repair_service: ToolCallRepairService = (
+                        provider.get_required_service(ToolCallRepairService)
+                    )
+                    tool_call_processor = ToolCallRepairProcessor(
+                        tool_call_repair_service
+                    )
+
+                    # You can add other IStreamProcessor instances here if needed
+                    stream_normalizer = StreamNormalizer(
+                        processors=[tool_call_processor]
+                    )
+                    logger.debug(
+                        "StreamNormalizer configured with ToolCallRepairProcessor."
+                    )
+                else:
+                    logger.debug("Streaming pipeline disabled.")
+
                 return ResponseProcessor(
+                    app_state=app_state,
                     loop_detector=loop_detector,
                     middleware=cast(list[IResponseMiddleware], middleware),
+                    stream_normalizer=stream_normalizer,
                 )
 
-            # Register concrete implementation
             services.add_singleton(
                 ResponseProcessor, implementation_factory=response_processor_factory
             )
-
-            # Register interface binding
             services.add_singleton(
                 cast(type, IResponseProcessor),
                 implementation_factory=response_processor_factory,
             )
 
-            logger.debug("Registered response processor with middleware")
-        except ImportError as e:  # type: ignore[misc]
+            logger.debug(
+                "Registered response processor with middleware and optional streaming pipeline"
+            )
+        except ImportError as e:
             logger.warning(f"Could not register response processor: {e}")
 
     def _register_request_processor(self, services: ServiceCollection) -> None:

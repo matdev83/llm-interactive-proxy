@@ -249,8 +249,6 @@ def build_test_app(config: AppConfig) -> FastAPI:
     return asyncio.run(builder.build(config))
 
 
-
-
 """
 COMPARISON: Original vs New CLI
 

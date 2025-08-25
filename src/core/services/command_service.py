@@ -222,134 +222,34 @@ class CommandService(ICommandService):
                 if isinstance(content, str):
                     logger.debug(f"Checking message content for commands: '{content}'")
 
-                    # Search for command patterns anywhere in the content
-                    cmd_match = None
-                    match_start = 0
+                    # Parse command from message content
+                    parsed_command = self._parse_command_from_message(content)
 
-                    # First try to match command with arguments: !/command(args)
-                    args_pattern = r"!/(\w+)\(([^)]*)\)"
-                    match = re.search(args_pattern, content)
-                    if match:
-                        logger.debug(f"Matched command with args: {match.groups()}")
-                        cmd_name = match.group(1)
-                        args_str = match.group(2)
-                        match_start = match.start()
-                        match_end = match.end()
-                        cmd_match = match
-                    else:
-                        # Try to match command without arguments: !/command
-                        simple_pattern = r"!/(\w+)"
-                        match = re.search(simple_pattern, content)
-                        if match:
-                            logger.debug(
-                                f"Matched command without args: {match.groups()}"
-                            )
-                            cmd_name = match.group(1)
-                            args_str = None
-                            match_start = match.start()
-                            match_end = match.end()
-                            cmd_match = match
-
-                    if cmd_match:
-                        # Extract remaining content after the command
-                        remaining = content[match_end:]
-                        logger.debug(
-                            f"Command name: {cmd_name}, remaining: '{remaining}'"
-                        )
-
-                        # Remove the command from the current message content
-                        before_command = content[:match_start]
-                        message.content = before_command + remaining
+                    if parsed_command:
+                        # Update message content by removing the command
+                        message.content = parsed_command["updated_content"]
                         logger.debug(f"Updated message content: '{message.content}'")
 
-                        cmd = self._registry.get(cmd_name)
+                        # Execute the parsed command
+                        execution_result = await self._execute_parsed_command(
+                            parsed_command, session, modified_messages, i
+                        )
 
-                        if cmd:
-                            args = {}
-                            if args_str:
-                                try:
-                                    args = json.loads(args_str)
-                                    if not isinstance(args, dict):
-                                        args = {"value": args}
-                                except Exception:
-                                    for arg in args_str.split(","):
-                                        arg = arg.strip()
-                                        if "=" in arg:
-                                            key, value = arg.split("=", 1)
-                                            val = value.strip()
-                                            if (
-                                                val.startswith('"')
-                                                and val.endswith('"')
-                                            ) or (
-                                                val.startswith("'")
-                                                and val.endswith("'")
-                                            ):
-                                                val = val[1:-1]
-                                            args[key.strip()] = val
-                                        elif arg:
-                                            if ":" in arg or "/" in arg:
-                                                args["element"] = arg
-                                            else:
-                                                args[arg] = True
-
-                            if session is None:
-                                logger.warning(
-                                    f"Cannot execute command {cmd_name} without a session"
-                                )
-                                continue
-
-                            logger.info(
-                                f"Executing command: {cmd_name} with session: {session.session_id if session else 'N/A'}"
-                            )
-
-                            context = type(
-                                "CommandContext",
-                                (),
-                                {"command_registry": self._registry},
-                            )()
-
-                            result: CommandResult
-                            try:
-                                coro_result = cmd.execute(args, session, context)
-                                if asyncio.iscoroutine(coro_result):
-                                    result = await coro_result
-                                else:
-                                    result = coro_result
-                            except Exception:
-                                result = await cmd.execute(args, session, context)
-
-                            if (
-                                (result.success or getattr(result, "new_state", None))
-                                and self._session_service
-                                and session
-                            ):
-                                if hasattr(result, "new_state") and result.new_state:
-                                    logger.info(
-                                        f"Updating session state with new_state from command: {result.new_state}"
-                                    )
-                                    try:
-                                        session.update_state(result.new_state)
-                                    except Exception:
-                                        session.state = result.new_state
-                                else:
-                                    logger.info(
-                                        "No new_state in command result, not updating session state"
-                                    )
-                                await self._session_service.update_session(session)
-                                logger.info("Session updated in repository")
-
-                            wrapped_result = CommandResultWrapper(result)
-                            command_results.append(wrapped_result)
+                        if execution_result:
+                            command_results.append(execution_result["wrapped_result"])
                             command_executed = True
 
-                            if remaining:
-                                modified_messages[i].content = " " + remaining.strip()
+                            # Handle remaining content
+                            if parsed_command["remaining"]:
+                                modified_messages[i].content = (
+                                    " " + parsed_command["remaining"].strip()
+                                )
                             else:
                                 # Command was fully executed with no remaining content
-                                # Set modified_messages to empty list to signal no backend call needed
-                                modified_messages = []
-                        elif not self._preserve_unknown:
-                            modified_messages[i].content = " "
+                                modified_messages.clear()
+                    elif not self._preserve_unknown and "!/" in content:
+                        # Unknown command found but not preserved
+                        modified_messages[i].content = " "
                     break
 
         return ProcessedResult(
@@ -357,3 +257,162 @@ class CommandService(ICommandService):
             command_executed=command_executed,
             command_results=command_results,
         )
+
+    def _parse_command_from_message(self, content: str) -> dict[str, Any] | None:
+        """Parse command from message content and return command details."""
+        # Search for command patterns anywhere in the content
+        cmd_match = None
+        match_start = 0
+        match_end = 0  # Initialize to prevent unbound error
+        cmd_name = "unknown"  # Initialize
+        args_str = None  # Initialize
+        remaining = ""  # Initialize
+
+        # First try to match command with arguments: !/command(args)
+        args_pattern = r"!/(\w+)\(([^)]*)\)"
+        match = re.search(args_pattern, content)
+        if match:
+            logger.debug(f"Matched command with args: {match.groups()}")
+            cmd_name = match.group(1)
+            args_str = match.group(2)
+            match_start = match.start()
+            match_end = match.end()
+            cmd_match = match
+        else:
+            # Try to match command without arguments: !/command
+            simple_pattern = r"!/(\w+)"
+            match = re.search(simple_pattern, content)
+            if match:
+                logger.debug(f"Matched command without args: {match.groups()}")
+                cmd_name = match.group(1)
+                args_str = None
+                match_start = match.start()
+                match_end = match.end()
+                cmd_match = match
+
+        if not cmd_match:
+            return None
+
+        # Extract remaining content after the command
+        remaining = content[match_end:]
+        logger.debug(f"Command name: {cmd_name}, remaining: '{remaining}'")
+
+        # Remove the command from the current message content
+        before_command = content[:match_start]
+        updated_content = before_command + remaining
+
+        return {
+            "cmd_name": cmd_name,
+            "args_str": args_str,
+            "remaining": remaining,
+            "updated_content": updated_content,
+            "command_handler": self._registry.get(cmd_name),
+        }
+
+    def _parse_command_arguments(self, args_str: str | None) -> dict[str, Any]:
+        """Parse command arguments from argument string."""
+        args: dict[str, Any] = {}
+        if not args_str:
+            return args
+
+        # Attempt to parse as JSON first
+        try:
+            parsed_json = json.loads(args_str)
+            if isinstance(parsed_json, dict):
+                return parsed_json
+            else:
+                # If it's a valid JSON but not a dict (e.g., "true", 123), wrap it
+                return {"value": parsed_json}
+        except json.JSONDecodeError:
+            # If JSON parsing fails, fall back to custom parsing
+            for arg in args_str.split(","):
+                arg = arg.strip()
+                if "=" in arg:
+                    key, value = arg.split("=", 1)
+                    val = value.strip()
+                    # Remove quotes if present
+                    if (val.startswith('"') and val.endswith('"')) or (
+                        val.startswith("'") and val.endswith("'")
+                    ):
+                        val = val[1:-1]
+                    args[key.strip()] = val
+                elif arg:
+                    # Heuristic for element or boolean flag
+                    if ":" in arg or "/" in arg:
+                        args["element"] = arg
+                    else:
+                        args[arg] = True
+
+        return args
+
+    async def _execute_parsed_command(
+        self,
+        parsed_command: dict[str, Any],
+        session: Any,
+        modified_messages: list[ChatMessage],
+        message_index: int,
+    ) -> dict[str, Any] | None:
+        """Execute a parsed command and return execution result."""
+        cmd_name = parsed_command["cmd_name"]
+        cmd = parsed_command["command_handler"]
+
+        logger.debug(f"Attempting to retrieve command: '{cmd_name}'")
+        logger.debug(
+            f"CommandRegistry contents: {list(self._registry.get_all().keys())}"
+        )
+        if not cmd:
+            logger.warning(f"Command '{cmd_name}' not found in registry.")
+            return None
+
+        if session is None:
+            logger.warning(f"Cannot execute command {cmd_name} without a session")
+            return None
+
+        # Parse arguments
+        args = self._parse_command_arguments(parsed_command["args_str"])
+
+        logger.info(
+            f"Executing command: {cmd_name} with session: {session.session_id if session else 'N/A'}"
+        )
+
+        # Create command context
+        context = type(
+            "CommandContext",
+            (),
+            {"command_registry": self._registry},
+        )()
+
+        # Execute command
+        result: CommandResult
+        try:
+            coro_result = cmd.execute(args, session, context)
+            if asyncio.iscoroutine(coro_result):
+                result = await coro_result
+            else:
+                result = coro_result
+        except Exception:
+            result = await cmd.execute(args, session, context)
+
+        # Update session state if needed
+        if (
+            (result.success or getattr(result, "new_state", None))
+            and self._session_service
+            and session
+        ):
+            if hasattr(result, "new_state") and result.new_state:
+                logger.info(
+                    f"Updating session state with new_state from command: {result.new_state}"
+                )
+                try:
+                    session.update_state(result.new_state)
+                except Exception:
+                    session.state = result.new_state
+            else:
+                logger.info(
+                    "No new_state in command result, not updating session state"
+                )
+            await self._session_service.update_session(session)
+            logger.info("Session updated in repository")
+
+        wrapped_result = CommandResultWrapper(result)
+        return {"wrapped_result": wrapped_result}

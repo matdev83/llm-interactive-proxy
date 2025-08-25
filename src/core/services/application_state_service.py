@@ -115,6 +115,24 @@ class ApplicationStateService(IApplicationState):
             setattr(self._state_provider, key, value)
         self._local_state[key] = value
 
+    # --- Feature flags (scaffold) ---
+    def get_use_failover_strategy(self) -> bool:
+        """Get whether to use the extracted failover strategy (default: False)."""
+        # Prefer explicit state; avoid env reads in hot paths for determinism
+        return bool(self.get_setting("PROXY_USE_FAILOVER_STRATEGY", False))
+
+    def set_use_failover_strategy(self, enabled: bool) -> None:
+        """Enable or disable the failover strategy usage."""
+        self.set_setting("PROXY_USE_FAILOVER_STRATEGY", enabled)
+
+    def get_use_streaming_pipeline(self) -> bool:
+        """Whether to use the streaming pipeline (default: False)."""
+        return bool(self.get_setting("PROXY_USE_STREAMING_PIPELINE", False))
+
+    def set_use_streaming_pipeline(self, enabled: bool) -> None:
+        """Enable or disable the streaming pipeline usage."""
+        self.set_setting("PROXY_USE_STREAMING_PIPELINE", enabled)
+
 
 # Global instance for backward compatibility
 _default_instance: ApplicationStateService | None = None
