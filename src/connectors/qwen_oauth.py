@@ -1,9 +1,11 @@
 """
-Qwen OAuth connector that uses OAuth tokens from qwen-code CLI
+Qwen OAuth connector that uses refresh_token from qwen-cli oauth_creds.json file
 """
 
 import json
 import logging
+import os
+import time
 from pathlib import Path
 from typing import (
     TYPE_CHECKING,
@@ -36,10 +38,10 @@ logger = logging.getLogger(__name__)
 
 
 class QwenOAuthConnector(OpenAIConnector):
-    """Connector that uses OAuth tokens from qwen-code CLI.
+    """Connector that uses refresh_token from qwen-cli oauth_creds.json file.
 
-    This is a specialized OpenAI-compatible connector that uses OAuth tokens
-    instead of API keys for authentication.
+    This is a specialized OpenAI-compatible connector that reads the refresh_token
+    from the qwen-cli generated oauth_creds.json file and uses it as the API key.
     """
 
     backend_type: str = "qwen-oauth"
@@ -50,32 +52,35 @@ class QwenOAuthConnector(OpenAIConnector):
         self._default_endpoint = "https://dashscope.aliyuncs.com/compatible-mode/v1"
         self.api_base_url = self._default_endpoint
         self.is_functional = False
-        self._oauth_credentials: dict[str, Any] | None = None
+        self._refresh_token: str | None = None
+        self._credentials_path: Path | None = None
+        self._last_modified: float = 0
+        self._token_cache: dict[str, Any] | None = None
 
     def get_headers(self) -> dict[str, str]:
-        """Override to use OAuth access token instead of API key."""
-        access_token = self._get_access_token()
-        if not access_token:
+        """Override to use refresh_token as API key."""
+        refresh_token = self._get_refresh_token()
+        if not refresh_token:
             raise HTTPException(
                 status_code=401,
-                detail="No valid Qwen OAuth access token available. Please authenticate using qwen-code CLI.",
+                detail="No valid Qwen OAuth refresh token available. Please authenticate using qwen-cli.",
             )
         return {
-            "Authorization": f"Bearer {access_token}",
+            "Authorization": f"Bearer {refresh_token}",
             "Content-Type": "application/json",
             "Accept": "application/json",
         }
 
     async def initialize(self, **kwargs: Any) -> None:
-        """Initialize backend by loading OAuth credentials.
+        """Initialize backend by loading refresh token from oauth_creds.json.
 
-        This overrides the parent class method to load OAuth credentials from a file
-        instead of requiring an API key to be passed in.
+        This overrides the parent class method to load the refresh token from
+        the qwen-cli generated oauth_creds.json file.
         """
         logger.info("Initializing Qwen OAuth backend")
 
-        # Load OAuth credentials from qwen-code CLI
-        if await self._load_oauth_credentials():
+        # Load refresh token from qwen-cli oauth_creds.json
+        if await self._load_refresh_token():
             # Set the actual models available via Qwen OAuth API
             self.available_models = [
                 "qwen3-coder-plus",  # Default model (confirmed working)
@@ -96,38 +101,50 @@ class QwenOAuthConnector(OpenAIConnector):
                 f"Qwen OAuth backend initialized with {len(self.available_models)} models"
             )
         else:
-            logger.warning("Failed to load Qwen OAuth credentials")
+            logger.warning("Failed to load Qwen OAuth refresh token")
             self.is_functional = False
 
-    async def _load_oauth_credentials(self) -> bool:
-        """Load OAuth credentials from qwen-code CLI storage"""
+    async def _load_refresh_token(self) -> bool:
+        """Load refresh token from qwen-cli oauth_creds.json file"""
         try:
-            # Path where qwen-code stores OAuth credentials
+            # Path where qwen-cli stores OAuth credentials
             home_dir = Path.home()
             creds_path = home_dir / ".qwen" / "oauth_creds.json"
+            self._credentials_path = creds_path
 
             if not creds_path.exists():
                 logger.warning(f"Qwen OAuth credentials not found at {creds_path}")
                 return False
 
-            with open(creds_path, encoding="utf-8") as f:
-                self._oauth_credentials = json.load(f)
+            # Check if file has been modified
+            try:
+                stat = creds_path.stat()
+                current_modified = stat.st_mtime
+                if current_modified == self._last_modified:
+                    # File hasn't changed, use cached token
+                    return self._refresh_token is not None
+                self._last_modified = current_modified
+            except OSError:
+                # If we can't get file stats, proceed with reading
+                pass
 
-            # Validate required fields
-            if self._oauth_credentials and not self._oauth_credentials.get(
-                "access_token"
-            ):
-                logger.warning("No access token found in Qwen OAuth credentials")
+            with open(creds_path, encoding="utf-8") as f:
+                credentials = json.load(f)
+
+            # Extract refresh token
+            refresh_token = credentials.get("refresh_token")
+            if not refresh_token:
+                logger.warning("No refresh_token found in Qwen OAuth credentials")
                 return False
 
-            # Update the API base URL from the OAuth credentials
-            self.api_base_url = self._get_endpoint_url()
+            self._refresh_token = refresh_token
+            self._token_cache = credentials
 
-            logger.info("Successfully loaded Qwen OAuth credentials")
+            logger.info("Successfully loaded Qwen OAuth refresh token")
             return True
 
         except Exception as e:
-            logger.error(f"Error loading Qwen OAuth credentials: {e}")
+            logger.error(f"Error loading Qwen OAuth refresh token: {e}")
             return False
 
     def _get_access_token(self) -> str | None:

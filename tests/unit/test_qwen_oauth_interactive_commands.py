@@ -32,14 +32,8 @@ class TestQwenOAuthInteractiveCommands:
     def test_backend_attribute_name_conversion(self):
         """Test that backend names with hyphens are correctly converted to attribute names."""
         with patch.dict(
-            os.environ,
-            {
-                "DISABLE_AUTH": "true",
-                "DISABLE_ACCOUNTING": "true",
-            },
+            os.environ, {"DISABLE_AUTH": "true", "DISABLE_ACCOUNTING": "true"}
         ):
-            app = build_app()
-
             # Test the backend name conversion logic directly
             backend_name = "qwen-oauth"
             backend_attr = backend_name.replace("-", "_")
@@ -47,19 +41,13 @@ class TestQwenOAuthInteractiveCommands:
             # The backend attribute should exist (even if the backend is mocked)
             # This tests the naming convention used in the application
             assert backend_attr == "qwen_oauth"
-            assert "qwen_oauth" == backend_attr
+            assert backend_attr == "qwen_oauth"
 
     def test_backend_object_accessibility(self):
         """Test that the qwen-oauth backend object can be accessed correctly."""
         with patch.dict(
-            os.environ,
-            {
-                "DISABLE_AUTH": "true",
-                "DISABLE_ACCOUNTING": "true",
-            },
+            os.environ, {"DISABLE_AUTH": "true", "DISABLE_ACCOUNTING": "true"}
         ):
-            app = build_app()
-
             # Test the correct way to access the backend using the naming convention
             backend_name = "qwen-oauth"
             backend_attr = backend_name.replace("-", "_")
@@ -139,11 +127,7 @@ class TestQwenOAuthConfigurationMethods:
     def test_all_backend_access_methods(self):
         """Test all methods of accessing qwen-oauth backend."""
         with patch.dict(
-            os.environ,
-            {
-                "DISABLE_AUTH": "true",
-                "DISABLE_ACCOUNTING": "true",
-            },
+            os.environ, {"DISABLE_AUTH": "true", "DISABLE_ACCOUNTING": "true"}
         ):
             # Test the backend access methods without requiring actual backend objects
             backend_name = "qwen-oauth"
@@ -154,6 +138,7 @@ class TestQwenOAuthConfigurationMethods:
 
             # Method 2: Using the constants pattern
             from src.core.domain.backend_type import BackendType
+
             expected_attr_2 = f"{BackendType.QWEN_OAUTH.replace('-', '_')}_backend"
 
             # Both methods should produce the same attribute name

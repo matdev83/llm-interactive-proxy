@@ -1,11 +1,15 @@
-import pytest
 import re
+
+import pytest
 from fastapi import FastAPI
-from src.command_parser import CommandParser
 from src.command_config import CommandProcessorConfig
+from src.command_parser import CommandParser
 from src.core.domain.session import SessionState, SessionStateAdapter
 from src.core.services.command_service import CommandRegistry
-from tests.unit.mock_commands import MockAnotherCommand, MockHelloCommand, get_mock_commands
+
+from tests.unit.mock_commands import (
+    get_mock_commands,
+)
 
 
 @pytest.fixture

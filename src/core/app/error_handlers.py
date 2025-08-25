@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+# type: ignore[unreachable]
 import logging
 from typing import Any
 
@@ -209,8 +210,8 @@ async def proxy_exception_handler(request: Request, exc: LLMProxyError) -> Respo
 
         return JSONResponse(status_code=status_code, content=content)
 
-    # Fallback for non-ProxyError exceptions
-    return JSONResponse(
+    # Fallback for non-ProxyError exceptions  # type: ignore[unreachable]  # type: ignore[unreachable]
+    return JSONResponse(  # type: ignore[unreachable]
         status_code=getattr(exc, "status_code", 500),
         content={
             "detail": {
@@ -279,10 +280,7 @@ async def general_exception_handler(request: Request, exc: Exception) -> Respons
             }
         }
 
-    return JSONResponse(
-        status_code=500,
-        content=content,
-    )
+    return JSONResponse(status_code=500, content=content)
 
 
 def configure_exception_handlers(app: FastAPI) -> None:

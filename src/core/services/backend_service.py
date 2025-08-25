@@ -332,51 +332,74 @@ class BackendService(IBackendService):
                 effective_model, backend_type
             )
 
-            last_error: Exception | None = None
-            if not plan:
-                raise BackendError(
-                    message="all backends failed", backend_name=backend_type
-                )
-
-            for backend_attempt, model_attempt in plan:
-                try:
-                    attempt_extra_body: dict[str, Any] = (
-                        request.extra_body.copy() if request.extra_body else {}
-                    )
-                    attempt_extra_body["backend_type"] = backend_attempt
-
-                    attempt_request: ChatRequest = request.model_copy(
-                        update={
-                            "extra_body": attempt_extra_body,
-                            "model": model_attempt,
-                        }
-                    )
-
-                    return await self.call_completion(
-                        attempt_request, stream=stream, allow_failover=False
-                    )
-                except Exception as attempt_error:
-                    logger.warning(
-                        f"Failover attempt failed for {backend_attempt}:{model_attempt}: {attempt_error!s}"
-                    )
-                    last_error = attempt_error
-                    continue
-
-            if last_error:
-                raise BackendError(
-                    message=f"All failover attempts failed. Last error: {last_error!s}",
-                    backend_name=backend_type,
-                )
-            else:
-                raise BackendError(
-                    message="All failover attempts failed. No error details available.",
-                    backend_name=backend_type,
-                )
+            return await self._attempt_failover_plan(
+                request, plan, stream, backend_type
+            )
         except BackendError:
             raise
         except Exception as failover_error:
             logger.error(f"Failover processing failed: {failover_error!s}")
             raise BackendError(message="all backends failed", backend_name=backend_type)
+
+    async def _attempt_failover_plan(
+        self,
+        request: ChatRequest,
+        plan: list[tuple[str, str]],
+        stream: bool,
+        backend_type: str,
+    ) -> ResponseEnvelope | StreamingResponseEnvelope:
+        """Attempt failover using the provided plan.
+
+        Args:
+            request: The original request
+            plan: List of (backend, model) tuples to attempt
+            stream: Whether the request is a streaming request
+            backend_type: The original backend type
+
+        Returns:
+            Response from the first successful attempt
+
+        Raises:
+            BackendError: If all attempts fail
+        """
+        last_error: Exception | None = None
+        if not plan:
+            raise BackendError(message="all backends failed", backend_name=backend_type)
+
+        for backend_attempt, model_attempt in plan:
+            try:
+                attempt_extra_body: dict[str, Any] = (
+                    request.extra_body.copy() if request.extra_body else {}
+                )
+                attempt_extra_body["backend_type"] = backend_attempt
+
+                attempt_request: ChatRequest = request.model_copy(
+                    update={
+                        "extra_body": attempt_extra_body,
+                        "model": model_attempt,
+                    }
+                )
+
+                return await self.call_completion(
+                    attempt_request, stream=stream, allow_failover=False
+                )
+            except Exception as attempt_error:
+                logger.warning(
+                    f"Failover attempt failed for {backend_attempt}:{model_attempt}: {attempt_error!s}"
+                )
+                last_error = attempt_error
+                continue
+
+        if last_error:
+            raise BackendError(
+                message=f"All failover attempts failed. Last error: {last_error!s}",
+                backend_name=backend_type,
+            )
+        else:
+            raise BackendError(
+                message="All failover attempts failed. No error details available.",
+                backend_name=backend_type,
+            )
 
     async def _handle_backend_call_failover(
         self,
@@ -398,81 +421,14 @@ class BackendService(IBackendService):
 
         if request.model in effective_failover_routes_nested:
             try:
-                from src.core.domain.configuration.backend_config import (
-                    BackendConfiguration,
+                # Get the failover plan using the consolidated approach
+                plan_nested: list[tuple[str, str]] = self._get_failover_plan(
+                    request.model, backend_type
                 )
 
-                backend_config_nested: BackendConfiguration = BackendConfiguration(
-                    backend_type=backend_type,
-                    model=request.model,
-                    failover_routes_data=effective_failover_routes_nested,
+                return await self._attempt_failover_plan(
+                    request, plan_nested, stream, backend_type
                 )
-
-                # Prefer strategy plan if enabled
-                plan_nested: list[tuple[str, str]] = []
-                try:
-                    if (
-                        self._app_state.get_use_failover_strategy()
-                        and self._failover_strategy is not None
-                    ):
-                        plan_nested = self._failover_strategy.get_failover_plan(
-                            request.model, backend_type
-                        )
-                except Exception:
-                    plan_nested = []
-
-                attempts_nested: list[Any] | None = None
-                if not plan_nested:
-                    attempts_nested = self._failover_service.get_failover_attempts(
-                        backend_config_nested, request.model, backend_type
-                    )
-
-                if not plan_nested and not attempts_nested:
-                    raise BackendError(
-                        message=f"No failover attempts available for model {request.model}",
-                        backend_name=backend_type,
-                    )
-
-                last_error_nested: Exception | None = None
-                # Iterate either plan or coordinator attempts
-                if plan_nested:
-                    iter_attempts = [(b, m) for (b, m) in plan_nested]
-                else:
-                    iter_attempts = [
-                        (a.backend, a.model) for a in cast(list[Any], attempts_nested)
-                    ]
-
-                for backend_attempt, model_attempt in iter_attempts:
-                    try:
-                        attempt_extra_body_nested: dict[str, Any] = (
-                            request.extra_body.copy() if request.extra_body else {}
-                        )
-                        attempt_extra_body_nested["backend_type"] = backend_attempt
-
-                        attempt_request_nested: ChatRequest = request.model_copy(
-                            update={
-                                "extra_body": attempt_extra_body_nested,
-                                "model": model_attempt,
-                            }
-                        )
-
-                        return await self.call_completion(
-                            attempt_request_nested,
-                            stream=stream,
-                            allow_failover=False,
-                        )
-                    except Exception as attempt_error:
-                        logger.warning(
-                            f"Failover attempt failed for {backend_attempt}:{model_attempt}: {attempt_error!s}"
-                        )
-                        last_error_nested = attempt_error
-                        continue
-
-                if last_error_nested:
-                    raise BackendError(
-                        message=f"All failover attempts failed: {last_error_nested!s}",
-                        backend_name=backend_type,
-                    )
             except Exception as failover_error:
                 logger.error(f"Failover processing failed: {failover_error!s}")
                 raise BackendError(

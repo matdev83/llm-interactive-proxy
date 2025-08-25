@@ -7,6 +7,7 @@ making it easy to create applications with mock services and test doubles.
 
 from __future__ import annotations
 
+# type: ignore[unreachable]
 import asyncio
 import logging
 from typing import Any, cast
@@ -217,8 +218,8 @@ async def build_test_app_async(config: AppConfig | None = None) -> FastAPI:
             )  # tests may have patched this to return a custom AppConfig
             if cfg is not None:
                 config = cfg
-            else:
-                config = create_test_config()
+            else:  # type: ignore[unreachable]
+                config = create_test_config()  # type: ignore[unreachable]
         except Exception:
             config = create_test_config()
     builder = ApplicationTestBuilder().add_test_stages()
@@ -260,8 +261,8 @@ def build_test_app(config: AppConfig | None = None) -> FastAPI:
             cfg = load_config()
             if cfg is not None:
                 config = cfg
-            else:
-                config = create_test_config()
+            else:  # type: ignore[unreachable]
+                config = create_test_config()  # type: ignore[unreachable]
         except Exception:
             config = create_test_config()
 

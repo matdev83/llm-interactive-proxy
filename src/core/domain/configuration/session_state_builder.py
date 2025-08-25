@@ -278,6 +278,23 @@ class SessionStateBuilder:
         self._loop_config = self._loop_config.with_tool_loop_detection_enabled(enabled)
         return self
 
+    def with_pattern_length_range(
+        self, min_length: int, max_length: int
+    ) -> SessionStateBuilder:
+        """Set the pattern length range for loop detection.
+
+        Args:
+            min_length: Minimum pattern length
+            max_length: Maximum pattern length
+
+        Returns:
+            The builder instance for chaining
+        """
+        self._loop_config = self._loop_config.with_pattern_length_range(  # type: ignore[union-attr]
+            min_length, max_length
+        )
+        return self
+
     def build(self) -> SessionState:
         """Build the SessionState.
 

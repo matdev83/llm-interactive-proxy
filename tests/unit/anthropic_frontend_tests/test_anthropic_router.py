@@ -4,7 +4,6 @@ Tests the FastAPI endpoints for /v1/messages and /v1/models.
 This test has been updated to use AnthropicController instead of the legacy anthropic_router.
 """
 
-from unittest.mock import AsyncMock, patch
 
 import pytest
 
@@ -152,6 +151,7 @@ class TestAnthropicRouter:
         """Test the anthropic_messages function with valid input."""
         # Test the current implementation which returns a 501 Not Implemented response
         from unittest.mock import MagicMock
+
         from fastapi import Request
 
         # Create a minimal mock request

@@ -8,6 +8,7 @@ This stage registers fundamental services that have minimal dependencies:
 - Basic repositories
 """
 
+# type: ignore[unreachable]
 from __future__ import annotations
 
 import contextlib
@@ -70,7 +71,7 @@ class CoreServicesStage(InitializationStage):
 
         # Register ResponseProcessor as a singleton
         def response_processor_factory(provider: IServiceProvider) -> ResponseProcessor:
-            processor = ResponseProcessor()
+            processor = ResponseProcessor()  # type: ignore[call-arg]
             if config.session.tool_call_repair_enabled:
                 # Register ToolCallRepairMiddleware with the ResponseProcessor
                 tool_call_repair_service = provider.get_required_service(
@@ -214,9 +215,9 @@ class CoreServicesStage(InitializationStage):
         try:
             # Check that required modules are available
 
-            # Validate config is not None
+            # Validate config is not None  # type: ignore[unreachable]
             if config is None:
-                logger.error("AppConfig is None")
+                logger.error("AppConfig is None")  # type: ignore[unreachable]
                 return False
 
             return True

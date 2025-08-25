@@ -3,11 +3,8 @@ from __future__ import annotations
 import json
 import logging
 import re
-from collections.abc import AsyncGenerator
 from typing import Any
 from uuid import uuid4
-
-from src.core.interfaces.response_processor_interface import ProcessedResponse
 
 logger = logging.getLogger(__name__)
 
@@ -192,113 +189,3 @@ class ToolCallRepairService:
                 "arguments": arguments,
             },
         }
-
-    async def process_chunk_for_streaming(
-        self, chunk_content: str, session_id: str, is_final_chunk: bool = False
-    ) -> AsyncGenerator[ProcessedResponse, None]:
-        """
-        Processes a single chunk of streaming text, attempting to extract and repair tool calls.
-        Maintains an internal buffer per session.
-        """
-        current_buffer = self._tool_call_buffers.get(session_id, "")
-        current_buffer += chunk_content
-        # Apply buffer cap (keep last N bytes)
-        if len(current_buffer) > self._max_buffer_bytes:
-            current_buffer = current_buffer[-self._max_buffer_bytes :]
-
-        while True:
-            tool_call_match = None
-            extracted_tool_call_str = None
-
-            # Prioritize code block, then JSON, then text patterns with quick guards
-            match = None
-            if "```" in current_buffer:
-                match = self.code_block_pattern.search(current_buffer)
-            if not match and (
-                '"function_call"' in current_buffer or '"tool"' in current_buffer
-            ):
-                # Try fast balanced-object extraction first
-                extracted_obj = self._extract_json_object_near_key(current_buffer)
-                if extracted_obj is not None:
-                    # Synthesize a match-like behavior by locating this slice
-                    start_idx = current_buffer.find(extracted_obj)
-                    if start_idx != -1:
-
-                        class _M:
-                            def __init__(self, s: int, e: int, g: str) -> None:
-                                self._s = s
-                                self._e = e
-                                self._g = g
-
-                            def start(self) -> int:
-                                return self._s
-
-                            def end(self) -> int:
-                                return self._e
-
-                            def group(
-                                self, _: int
-                            ) -> str:  # pragma: no cover - simple shim
-                                return self._g
-
-                        match = _M(
-                            start_idx, start_idx + len(extracted_obj), extracted_obj
-                        )
-                # Fallback to regex if needed
-                if not match:
-                    match = self.json_pattern.search(current_buffer)
-            if not match and (
-                "TOOL CALL" in current_buffer
-                or "Function call" in current_buffer
-                or "Call:" in current_buffer
-            ):
-                match = self.text_pattern.search(current_buffer)
-
-            if match:
-                tool_call_match = match
-                extracted_tool_call_str = match.group(0)  # The full matched string
-
-            if tool_call_match:
-                # Found a potential tool call
-                pre_match = current_buffer[: tool_call_match.start()]
-                post_match = current_buffer[tool_call_match.end() :]
-
-                # Yield any text before the tool call
-                if pre_match:
-                    yield ProcessedResponse(content=pre_match)
-
-                # Try to repair the extracted tool call
-                repaired = (
-                    self.repair_tool_calls(extracted_tool_call_str)
-                    if extracted_tool_call_str
-                    else None
-                )
-                if repaired:
-                    yield ProcessedResponse(content=json.dumps(repaired))
-                else:
-                    # If repair fails, yield the original extracted string
-                    yield ProcessedResponse(
-                        content=str(extracted_tool_call_str)
-                    )  # Explicit cast to handle mypy
-
-                current_buffer = post_match  # Update buffer to remaining text
-                # Do not emit trailing text after a tool call; clear buffer
-                current_buffer = ""
-                break
-            else:
-                # No tool call found in current buffer
-                if is_final_chunk:
-                    # If it's the final chunk, yield everything remaining once
-                    if current_buffer:
-                        yield ProcessedResponse(content=current_buffer)
-                    current_buffer = ""  # Clear buffer
-                    # Important: break to avoid an infinite loop when buffer is empty
-                    break
-                else:
-                    # If not final, keep the buffer for the next chunk
-                    break  # Break from while loop, await next chunk
-
-        # Final cap and persist per-session buffer
-        if len(current_buffer) > self._max_buffer_bytes:
-            current_buffer = current_buffer[-self._max_buffer_bytes :]
-        self._tool_call_buffers[session_id] = current_buffer

@@ -296,34 +296,84 @@ class StreamNormalizer:
                 yield content
 
 
+from src.loop_detection.detector import (  # Import LoopDetector
+    LoopDetectionEvent,
+    LoopDetector,
+)
+
+
 class LoopDetectionProcessor(IStreamProcessor):
     """Stream processor that checks for repetitive patterns in the content.
 
-    NOTE: This loop detection implementation has been DISABLED due to legacy/invalid implementation.
-    TODO: Implement a `gemini-cli` inspired fast hash-based loop detection.
+    This implementation uses a hash-based loop detection mechanism.
     """
 
-    def __init__(self, loop_detector: Any, *args: Any, **kwargs: Any) -> None:
+    def __init__(self, loop_detector: LoopDetector) -> None:
         """Initialize the loop detection processor.
 
         Args:
-            loop_detector: The loop detector service to use
-            *args: Additional positional arguments (accumulated_threshold would be args[0] if provided)
-            **kwargs: Additional keyword arguments
+            loop_detector: The loop detector instance to use.
         """
-        # No-op implementation - loop detection is disabled
-        # accumulated_threshold would be args[0] if provided or kwargs.get('accumulated_threshold')
+        self.loop_detector = loop_detector
+        self._buffer: str = ""  # Internal buffer to accumulate content
 
     async def process(self, content: StreamingContent) -> StreamingContent:
         """Process a streaming content chunk and check for loops.
 
         Args:
-            content: The content to process
+            content: The content to process.
 
         Returns:
-            The processed content
+            The processed content, potentially with a cancellation message
+            if a loop is detected.
         """
-        # No-op implementation - loop detection is disabled
-        # NOTE: This loop detection implementation has been DISABLED due to legacy/invalid implementation.
-        # TODO: Implement a `gemini-cli` inspired fast hash-based loop detection.
-        return content
+        if content.is_empty and not content.is_done:
+            return content
+
+        # Accumulate content in the buffer
+        self._buffer += content.content
+
+        # Process the accumulated buffer for loop detection
+        detection_event = self.loop_detector.process_chunk(self._buffer)
+
+        if detection_event:
+            logger.warning(
+                f"Loop detected in streaming response by LoopDetectionProcessor: {detection_event.pattern[:50]}..."
+            )
+            # Reset buffer after detection
+            self._buffer = ""
+            return self._create_cancellation_content(detection_event)
+        elif content.is_done and self._buffer:
+            # If it's the final chunk and there's remaining content in buffer,
+            # clear the buffer and return original content.
+            # No loop was detected, so just pass through.
+            final_content = self._buffer
+            self._buffer = ""
+            return StreamingContent(
+                content=final_content,
+                is_done=content.is_done,
+                metadata=content.metadata,
+                usage=content.usage,
+                raw_data=content.raw_data,
+            )
+        else:
+            # No loop detected yet, and not the final chunk.
+            # Return an empty content for now, as we are buffering.
+            # The actual content will be yielded when a loop is detected or stream ends.
+            return StreamingContent(content="")
+
+    def _create_cancellation_content(
+        self, detection_event: LoopDetectionEvent
+    ) -> StreamingContent:
+        """Create a StreamingContent object with a cancellation message."""
+        payload = (
+            f"[Response cancelled: Loop detected - Pattern "
+            f"'{detection_event.pattern[:30]}...' repeated "
+            f"{detection_event.repetition_count} times]"
+        )
+        # Return as a final chunk with the cancellation message
+        return StreamingContent(
+            content=f"data: {json.dumps({'content': payload})}\n\n",
+            is_done=True,
+            metadata={"loop_detected": True, "pattern": detection_event.pattern},
+        )

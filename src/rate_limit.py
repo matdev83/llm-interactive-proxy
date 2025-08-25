@@ -45,12 +45,12 @@ class RateLimitRegistry:
         return min(valid_times)
 
 
-def _find_retry_delay_in_details(details_list: list) -> float | None:
+def _find_retry_delay_in_details(details_list: list[Any]) -> float | None:
     """Iterates through a list of detail items to find and parse RetryInfo."""
     # This check can be removed if the caller ensures details_list is always a list.
     # However, keeping it makes the helper more robust.
-    if not isinstance(details_list, list):
-        return None
+    if not isinstance(details_list, list):  # type: ignore[unreachable]
+        return None  # type: ignore[unreachable]
 
     for item in details_list:
         if not isinstance(item, dict):

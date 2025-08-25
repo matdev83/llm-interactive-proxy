@@ -27,10 +27,12 @@ class LoopDetectionStreamingResponse(StreamingResponse):
         content: AsyncIterator[Any],
         loop_detector: LoopDetector | None = None,
         on_loop_detected: Callable[[LoopDetectionEvent], None] | None = None,
+        cancel_upstream: Callable[[], Awaitable[None]] | None = None,
         **kwargs: Any,
     ):
         self.loop_detector = loop_detector
         self.on_loop_detected = on_loop_detected
+        self.cancel_upstream = cancel_upstream
         self._cancelled = False
 
         # Wrap the content iterator with loop detection
@@ -68,21 +70,32 @@ class LoopDetectionStreamingResponse(StreamingResponse):
                         continue
 
                     # Process the buffered content
-                    cancellation_message = self._analyze_buffer_and_maybe_cancel(
-                        chunk_buffer
-                    )
+                    # If loop_detector is None, it means it's not enabled, and this method
+                    # should not have been called to wrap the content.
+                    # Adding assert to satisfy type checker.
+                    assert self.loop_detector is not None
+                    detection_event = self.loop_detector.process_chunk(chunk_buffer)
                     chunk_buffer = ""  # Clear buffer after processing
-                    if cancellation_message is not None:
+
+                    if detection_event:
+                        logger.warning(
+                            f"Loop detected in streaming response: {detection_event.pattern[:50]}..."
+                        )
+                        self._trigger_callback_safely(detection_event)
+                        self._cancelled = True
                         # Best-effort upstream cancellation: try to close the
                         # underlying async iterator if supported to stop token burn.
+                        # Also call the provided cancel_upstream callable if available.
                         try:
+                            if self.cancel_upstream:
+                                await self.cancel_upstream()
                             aclose = getattr(content, "aclose", None)
                             if callable(aclose):
                                 await aclose()  # type: ignore[misc]
                         except Exception:
                             # Swallow errors from upstream close attempts
                             pass
-                        yield cancellation_message
+                        yield self._create_cancellation_message(detection_event)
                         break
 
                 # Yield the original chunk
@@ -90,11 +103,15 @@ class LoopDetectionStreamingResponse(StreamingResponse):
 
             # Process any remaining buffered content
             if not self._cancelled and chunk_buffer:
-                cancellation_message = self._analyze_buffer_and_maybe_cancel(
-                    chunk_buffer
-                )
-                if cancellation_message is not None:
-                    yield cancellation_message
+                assert self.loop_detector is not None
+                detection_event = self.loop_detector.process_chunk(chunk_buffer)
+                if detection_event:
+                    logger.warning(
+                        f"Loop detected in streaming response (end of stream): {detection_event.pattern[:50]}..."
+                    )
+                    self._trigger_callback_safely(detection_event)
+                    self._cancelled = True
+                    yield self._create_cancellation_message(detection_event)
 
         except asyncio.CancelledError:
             logger.info("Streaming response cancelled")
@@ -104,20 +121,6 @@ class LoopDetectionStreamingResponse(StreamingResponse):
             # Continue streaming on error to avoid breaking the response
             async for chunk in content:
                 yield chunk
-
-    def _analyze_buffer_and_maybe_cancel(self, buffer_text: str) -> str | None:
-        """Analyze buffered text and, if a loop is detected, cancel and return a cancellation message."""
-        if self.loop_detector is None:
-            return None
-        detection_event = self.loop_detector.process_chunk(buffer_text)
-        if not detection_event:
-            return None
-        logger.warning(
-            f"Loop detected in streaming response: {detection_event.pattern[:50]}..."
-        )
-        self._trigger_callback_safely(detection_event)
-        self._cancelled = True
-        return self._create_cancellation_message(detection_event)
 
     def _trigger_callback_safely(self, detection_event: LoopDetectionEvent) -> None:
         """Invoke the callback safely if provided."""
@@ -161,154 +164,18 @@ async def wrap_streaming_content_with_loop_detection(
     This is a standalone function that can be used to wrap any async iterator
     with loop detection capabilities.
     """
-    if not loop_detector or not loop_detector.is_enabled():
-        # No loop detection, pass through unchanged
-        async for chunk in content:
-            yield chunk
-        return
-
-    cancelled = False
-    # Buffer for aggregating small chunks to reduce analysis overhead
-    chunk_buffer = ""
-    min_chunk_size = 64  # Minimum size before processing
-
-    try:
-        async for chunk in content:
-            if cancelled:
-                break
-
-            # Process chunk for loop detection
-            if isinstance(chunk, str | bytes):
-                chunk_text = (
-                    chunk.decode("utf-8") if isinstance(chunk, bytes) else chunk
-                )
-
-                # Aggregate small chunks to reduce analysis overhead
-                chunk_buffer += chunk_text
-                if len(chunk_buffer) < min_chunk_size:
-                    # Yield the original chunk and continue buffering
-                    yield chunk
-                    continue
-
-                # Process the buffered content
-                detection_event = loop_detector.process_chunk(chunk_buffer)
-                chunk_buffer = ""  # Clear buffer after processing
-
-                if detection_event:
-                    logger.warning(f"Loop detected: {detection_event.pattern[:50]}...")
-
-                    # Trigger callback
-                    if on_loop_detected:
-                        try:
-                            on_loop_detected(detection_event)
-                        except Exception as e:
-                            logger.error(f"Error in loop detection callback: {e}")
-
-                    # Cancel the stream and attempt to stop upstream immediately
-                    cancelled = True
-                    try:
-                        if cancel_upstream is not None:
-                            await cancel_upstream()
-                        else:
-                            aclose = getattr(content, "aclose", None)
-                            if callable(aclose):
-                                await aclose()  # type: ignore[misc]
-                    except Exception:
-                        # Ignore cancellation errors
-                        pass
-
-                    # Yield a final cancellation message
-                    cancellation_message = (
-                        f"data: [Response cancelled: Loop detected - Pattern "
-                        f"'{detection_event.pattern[:30]}...' repeated "
-                        f"{detection_event.repetition_count} times]\n\n"
-                    )
-                    yield cancellation_message
-                    break
-                else:
-                    # Fallback heuristic: detect obvious short-pattern repetitions
-                    pattern, count = _detect_simple_repetition(chunk_text)
-                    if pattern is not None and count >= 3:
-                        cancelled = True
-                        try:
-                            if cancel_upstream is not None:
-                                await cancel_upstream()
-                            else:
-                                aclose = getattr(content, "aclose", None)
-                                if callable(aclose):
-                                    await aclose()  # type: ignore[misc]
-                        except Exception:
-                            pass
-                        cancellation_message = (
-                            f"data: [Response cancelled: Loop detected - Pattern "
-                            f"'{pattern[:30]}...' repeated {count} times]\n\n"
-                        )
-                        yield cancellation_message
-                        break
-
-            # Yield the original chunk
-            yield chunk
-
-        # Process any remaining buffered content
-        if not cancelled and chunk_buffer:
-            detection_event = loop_detector.process_chunk(chunk_buffer)
-            if detection_event:
-                logger.warning(f"Loop detected: {detection_event.pattern[:50]}...")
-
-                # Trigger callback
-                if on_loop_detected:
-                    try:
-                        on_loop_detected(detection_event)
-                    except Exception as e:
-                        logger.error(f"Error in loop detection callback: {e}")
-
-                # Cancel the stream and attempt upstream cancellation
-                cancelled = True
-                try:
-                    if cancel_upstream is not None:
-                        await cancel_upstream()
-                    else:
-                        aclose = getattr(content, "aclose", None)
-                        if callable(aclose):
-                            await aclose()  # type: ignore[misc]
-                except Exception:
-                    pass
-
-                # Yield a final cancellation message
-                cancellation_message = (
-                    f"data: [Response cancelled: Loop detected - Pattern "
-                    f"'{detection_event.pattern[:30]}...' repeated "
-                    f"{detection_event.repetition_count} times]\n\n"
-                )
-                yield cancellation_message
-            else:
-                # Fallback heuristic on remaining buffer
-                pattern, count = _detect_simple_repetition(chunk_buffer)
-                if pattern is not None and count >= 3:
-                    cancelled = True
-                    try:
-                        if cancel_upstream is not None:
-                            await cancel_upstream()
-                        else:
-                            aclose = getattr(content, "aclose", None)
-                            if callable(aclose):
-                                await aclose()  # type: ignore[misc]
-                    except Exception:
-                        pass
-                    cancellation_message = (
-                        f"data: [Response cancelled: Loop detected - Pattern "
-                        f"'{pattern[:30]}...' repeated {count} times]\n\n"
-                    )
-                    yield cancellation_message
-
-    except asyncio.CancelledError:
-        logger.info("Streaming content cancelled")
-        raise
-    except Exception as e:
-        logger.error(f"Error in loop detection wrapper: {e}")
-        # Continue streaming on error
-        async for chunk in content:
-            yield chunk
+    # Simply delegate to the LoopDetectionStreamingResponse class
+    # The class handles all the complexity of wrapping and loop detection.
+    response_wrapper = LoopDetectionStreamingResponse(
+        content=content,
+        loop_detector=loop_detector,
+        on_loop_detected=on_loop_detected,
+        cancel_upstream=cancel_upstream,
+    )
+    # The _wrap_content_with_detection method of the class already returns an async iterator
+    # that handles the streaming logic.
+    async for chunk in response_wrapper._wrap_content_with_detection(content):
+        yield chunk
 
 
 def _detect_simple_repetition(text: str) -> tuple[str | None, int]:

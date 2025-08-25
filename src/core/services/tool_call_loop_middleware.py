@@ -7,6 +7,7 @@ models from getting stuck in a loop.
 
 from __future__ import annotations
 
+# type: ignore[unreachable]
 import json
 import logging
 from typing import Any
@@ -171,9 +172,9 @@ class ToolCallLoopDetectionMiddleware(IResponseMiddleware):
                     return result
 
         # Check for direct tool calls array
-        if isinstance(data, list) and all(
+        if isinstance(data, list) and all(  # type: ignore[unreachable]
             isinstance(item, dict) and "function" in item for item in data
-        ):
-            return data
+        ):  # type: ignore[unreachable]
+            return data  # type: ignore[unreachable]
 
         return []

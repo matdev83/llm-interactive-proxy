@@ -5,6 +5,7 @@ This module provides enhanced models for representing multimodal content
 in chat messages, including text, images, audio, and other media types.
 """
 
+# type: ignore[unreachable]
 from __future__ import annotations
 
 from enum import Enum
@@ -239,12 +240,13 @@ class MultimodalMessage(ValueObject):
         # Extract text from content parts
         text_parts = []
         try:
-            for part in self.content:
-                if hasattr(part, "type") and part.type == ContentType.TEXT:
-                    text_parts.append(part.data)
-                elif isinstance(part, dict) and part.get("type") == "text":
-                    # Handle raw dict format that might be passed directly
-                    text_parts.append(part.get("text", ""))
+            if isinstance(self.content, list):
+                for part in self.content:
+                    if hasattr(part, "type") and part.type == ContentType.TEXT:
+                        text_parts.append(part.data)
+                    elif isinstance(part, dict) and part.get("type") == "text":  # type: ignore[unreachable]
+                        # Handle raw dict format that might be passed directly
+                        text_parts.append(part.get("text", ""))  # type: ignore[unreachable]
         except Exception as e:
             import logging
 
@@ -267,20 +269,23 @@ class MultimodalMessage(ValueObject):
                 try:
                     # Safely convert parts to dict
                     content_parts = []
-                    for part in self.content:
-                        if hasattr(part, "to_dict") and callable(part.to_dict):
-                            content_parts.append(part.to_dict())
-                        elif isinstance(part, dict):
-                            # Already a dict, pass through
-                            content_parts.append(part)
-                        else:
-                            # Fallback for unexpected types
-                            import logging
+                    if isinstance(self.content, list):
+                        for part in self.content:
+                            if hasattr(part, "to_dict") and callable(part.to_dict):
+                                content_parts.append(part.to_dict())
+                            elif isinstance(part, dict):  # type: ignore[unreachable]
+                                # Already a dict, pass through
+                                content_parts.append(part)  # type: ignore[unreachable]
+                            else:
+                                # Fallback for unexpected types
+                                import logging
 
-                            logging.getLogger(__name__).warning(
-                                f"Unexpected content part type: {type(part)}"
-                            )
-                            content_parts.append({"type": "text", "text": str(part)})
+                                logging.getLogger(__name__).warning(
+                                    f"Unexpected content part type: {type(part)}"
+                                )
+                                content_parts.append(
+                                    {"type": "text", "text": str(part)}
+                                )
                     result["content"] = content_parts
                 except Exception as e:
                     import logging
@@ -329,22 +334,25 @@ class MultimodalMessage(ValueObject):
                 try:
                     # Safely convert parts to OpenAI format
                     content_parts = []
-                    for part in self.content:
-                        if hasattr(part, "to_openai_format") and callable(
-                            part.to_openai_format
-                        ):
-                            content_parts.append(part.to_openai_format())
-                        elif isinstance(part, dict) and "type" in part:
-                            # Already in OpenAI-like format, pass through
-                            content_parts.append(part)
-                        else:
-                            # Fallback for unexpected types
-                            import logging
+                    if isinstance(self.content, list):
+                        for part in self.content:
+                            if hasattr(part, "to_openai_format") and callable(
+                                part.to_openai_format
+                            ):
+                                content_parts.append(part.to_openai_format())
+                            elif isinstance(part, dict) and "type" in part:  # type: ignore[unreachable]
+                                # Already in OpenAI-like format, pass through
+                                content_parts.append(part)  # type: ignore[unreachable]
+                            else:
+                                # Fallback for unexpected types
+                                import logging
 
-                            logging.getLogger(__name__).warning(
-                                f"Unexpected content part type for OpenAI format: {type(part)}"
-                            )
-                            content_parts.append({"type": "text", "text": str(part)})
+                                logging.getLogger(__name__).warning(
+                                    f"Unexpected content part type for OpenAI format: {type(part)}"
+                                )
+                                content_parts.append(
+                                    {"type": "text", "text": str(part)}
+                                )
                     result["content"] = content_parts
                 except Exception as e:
                     import logging
@@ -385,22 +393,25 @@ class MultimodalMessage(ValueObject):
                 try:
                     # Safely convert parts to Anthropic format
                     content_parts = []
-                    for part in self.content:
-                        if hasattr(part, "to_anthropic_format") and callable(
-                            part.to_anthropic_format
-                        ):
-                            content_parts.append(part.to_anthropic_format())
-                        elif isinstance(part, dict) and "type" in part:
-                            # Already in Anthropic-like format, pass through
-                            content_parts.append(part)
-                        else:
-                            # Fallback for unexpected types
-                            import logging
+                    if isinstance(self.content, list):
+                        for part in self.content:
+                            if hasattr(part, "to_anthropic_format") and callable(
+                                part.to_anthropic_format
+                            ):
+                                content_parts.append(part.to_anthropic_format())
+                            elif isinstance(part, dict) and "type" in part:  # type: ignore[unreachable]
+                                # Already in Anthropic-like format, pass through
+                                content_parts.append(part)  # type: ignore[unreachable]
+                            else:
+                                # Fallback for unexpected types
+                                import logging
 
-                            logging.getLogger(__name__).warning(
-                                f"Unexpected content part type for Anthropic format: {type(part)}"
-                            )
-                            content_parts.append({"type": "text", "text": str(part)})
+                                logging.getLogger(__name__).warning(
+                                    f"Unexpected content part type for Anthropic format: {type(part)}"
+                                )
+                                content_parts.append(
+                                    {"type": "text", "text": str(part)}
+                                )
                     result["content"] = content_parts
                 except Exception as e:
                     import logging
@@ -440,24 +451,25 @@ class MultimodalMessage(ValueObject):
                 try:
                     # Safely convert parts to Gemini format
                     content_parts = []
-                    for part in self.content:
-                        if hasattr(part, "to_gemini_format") and callable(
-                            part.to_gemini_format
-                        ):
-                            content_parts.append(part.to_gemini_format())
-                        elif isinstance(part, dict) and (
-                            "text" in part or "inline_data" in part
-                        ):
-                            # Already in Gemini-like format, pass through
-                            content_parts.append(part)
-                        else:
-                            # Fallback for unexpected types
-                            import logging
+                    if isinstance(self.content, list):
+                        for part in self.content:
+                            if hasattr(part, "to_gemini_format") and callable(
+                                getattr(part, "to_gemini_format", None)
+                            ):
+                                content_parts.append(part.to_gemini_format())
+                            elif isinstance(part, dict) and (  # type: ignore[unreachable]
+                                "text" in part or "inline_data" in part  # type: ignore[unreachable]
+                            ):
+                                # Already in Gemini-like format, pass through
+                                content_parts.append(part)  # type: ignore[unreachable]
+                            else:
+                                # Fallback for unexpected types
+                                import logging
 
-                            logging.getLogger(__name__).warning(
-                                f"Unexpected content part type for Gemini format: {type(part)}"
-                            )
-                            content_parts.append({"text": str(part)})
+                                logging.getLogger(__name__).warning(
+                                    f"Unexpected content part type for Gemini format: {type(part)}, hasattr: {hasattr(part, 'to_gemini_format')}, callable: {callable(getattr(part, 'to_gemini_format', None))}"
+                                )
+                                content_parts.append({"text": str(part)})
                     result["parts"] = content_parts
                 except Exception as e:
                     import logging

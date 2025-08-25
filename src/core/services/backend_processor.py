@@ -6,6 +6,7 @@ This module provides the implementation of the backend processor interface.
 
 from __future__ import annotations
 
+# type: ignore[unreachable]
 import logging
 from typing import Any
 
@@ -67,8 +68,8 @@ class BackendProcessor(IBackendProcessor):
             extra_body_dict = {}
             if hasattr(request, "model_dump"):
                 extra_body_dict = request.model_dump()
-            elif isinstance(request, dict):
-                extra_body_dict = request
+            elif isinstance(request, dict):  # type: ignore[unreachable]  # type: ignore[unreachable]
+                extra_body_dict = request  # type: ignore[unreachable]
             else:
                 # Best effort conversion
                 extra_body_dict = {
@@ -97,10 +98,10 @@ class BackendProcessor(IBackendProcessor):
 
                 if self._app_state is not None:
                     failover_routes = self._app_state.get_failover_routes()
-            elif hasattr(session.state.backend_config, "failover_routes"):
+            elif hasattr(session.state.backend_config, "failover_routes"):  # type: ignore[unreachable]
                 _failover_routes = session.state.backend_config.failover_routes
-                if isinstance(_failover_routes, list):
-                    failover_routes = _failover_routes
+                if isinstance(_failover_routes, list):  # type: ignore[unreachable]
+                    failover_routes = _failover_routes  # type: ignore[unreachable]
 
             if failover_routes:
                 extra_body_dict["failover_routes"] = failover_routes

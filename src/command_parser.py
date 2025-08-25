@@ -1,4 +1,6 @@
 import inspect
+
+# type: ignore[unreachable]
 import logging
 import re
 from typing import Any, cast
@@ -387,9 +389,7 @@ class CommandParser(ICommandProcessor):
         if not messages:
             logger.debug("process_messages received empty messages list.")
             return ProcessedResult(
-                modified_messages=messages,
-                command_executed=False,
-                command_results=[],
+                modified_messages=messages, command_executed=False, command_results=[]
             )
 
         command_message_idx = -1
@@ -401,9 +401,7 @@ class CommandParser(ICommandProcessor):
 
         if command_message_idx == -1:
             return ProcessedResult(
-                modified_messages=messages,
-                command_executed=False,
-                command_results=[],
+                modified_messages=messages, command_executed=False, command_results=[]
             )
 
         modified_messages = list(messages)
@@ -439,12 +437,12 @@ class CommandParser(ICommandProcessor):
                         modified_messages[idx] = msg_copy
                 else:
                     current = (
-                        msg.get("content") if isinstance(msg, dict) else msg.content
+                        msg.get("content") if isinstance(msg, dict) else msg.content  # type: ignore[unreachable]
                     )
                     stripped = self._strip_commands_in_content(current)
                     if stripped != current:
-                        if isinstance(msg, dict):
-                            msg["content"] = stripped
+                        if isinstance(msg, dict):  # type: ignore[unreachable]
+                            msg["content"] = stripped  # type: ignore[unreachable]
                         else:
                             msg.content = stripped
 

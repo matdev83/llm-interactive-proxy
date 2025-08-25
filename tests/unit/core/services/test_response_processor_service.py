@@ -2,11 +2,11 @@
 Tests for the ResponseProcessor service using Hypothesis for property-based testing.
 """
 
-from typing import AsyncGenerator
+from collections.abc import AsyncGenerator
 from unittest.mock import AsyncMock, Mock
 
 import pytest
-from hypothesis import given, settings, HealthCheck
+from hypothesis import HealthCheck, given, settings
 from hypothesis import strategies as st
 from src.core.domain.chat import StreamingChatResponse
 from src.core.domain.streaming_response_processor import StreamNormalizer
@@ -191,7 +191,9 @@ class TestResponseProcessor:
         assert "Hello" in results[0].content  # type: ignore
         assert "world" in results[1].content  # type: ignore
 
-    @pytest.mark.skip(reason="Complex mock setup for streaming normalizer - functionality tested elsewhere")
+    @pytest.mark.skip(
+        reason="Complex mock setup for streaming normalizer - functionality tested elsewhere"
+    )
     @pytest.mark.asyncio
     async def test_process_streaming_response_with_normalizer_enabled(
         self, mock_app_state: Mock, mock_stream_normalizer: Mock

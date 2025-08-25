@@ -36,6 +36,7 @@ from src.core.interfaces.state_provider_interface import (
 from src.core.interfaces.streaming_response_processor_interface import (
     IStreamingResponseProcessor,
 )
+from src.core.domain.streaming_response_processor import IStreamProcessor, LoopDetectionProcessor, StreamNormalizer
 from src.core.services.app_settings_service import AppSettings
 from src.core.services.application_state_service import ApplicationStateService
 from src.core.services.backend_processor import BackendProcessor
@@ -52,9 +53,14 @@ from src.core.services.secure_command_factory import SecureCommandFactory
 from src.core.services.secure_state_service import SecureStateService
 from src.core.services.session_resolver_service import DefaultSessionResolver
 from src.core.services.session_service_impl import SessionService
+from src.core.services.streaming.tool_call_repair_processor import (
+    ToolCallRepairProcessor,
+)
 from src.core.services.streaming_response_processor_service import (
     StreamingResponseProcessorService,
 )
+from src.core.services.tool_call_repair_service import ToolCallRepairService
+from src.loop_detection.detector import LoopDetector # Added import
 
 T = TypeVar("T")
 
@@ -178,7 +184,6 @@ def register_core_services(
     # Register CommandService and bind to interface
     _add_singleton(CommandService, implementation_factory=_command_service_factory)
 
-    # Register ICommandService interface
     with contextlib.suppress(Exception):
         services.add_singleton(
             cast(type, ICommandService), implementation_factory=_command_service_factory
@@ -263,9 +268,38 @@ def register_core_services(
             cast(type, IStreamingResponseHandler), DefaultStreamingResponseHandler
         )
 
+    # Register tool call repair service
+    _add_singleton(ToolCallRepairService)
+
     # Register response processor
     def _response_processor_factory(provider: IServiceProvider) -> ResponseProcessor:
-        # Get loop detector if available
+        app_state: IApplicationState = provider.get_required_service(IApplicationState)
+
+        stream_normalizer: StreamNormalizer | None = None
+        if app_state.get_use_streaming_pipeline():
+            logger.info("Streaming pipeline enabled. Registering stream processors.")
+            processors: list[IStreamProcessor] = []
+
+            # Add ToolCallRepairProcessor
+            tool_call_repair_service = provider.get_required_service(
+                ToolCallRepairService
+            )
+            processors.append(ToolCallRepairProcessor(tool_call_repair_service))
+
+            # Add LoopDetectionProcessor (the existing no-op one for now)
+            # When a proper LoopDetector is implemented and wired via DI,
+            # this will need to be updated to inject it.
+            # For now, it satisfies the pipeline requirement.
+            # We explicitly pass None for loop_detector to the constructor,
+            # as the current LoopDetectionProcessor expects it.
+            processors.append(LoopDetectionProcessor(loop_detector=LoopDetector())) # Pass concrete LoopDetector instance
+
+            stream_normalizer = StreamNormalizer(processors=processors)
+            logger.debug(f"StreamNormalizer initialized with {len(processors)} processors.")
+        else:
+            logger.info("Streaming pipeline disabled.")
+
+        # Get loop detector if available (for non-streaming processing and middleware)
         detector: Any | None = None
         try:
             from src.core.interfaces.loop_detector_interface import ILoopDetector
@@ -275,10 +309,8 @@ def register_core_services(
             pass
 
         # Create response processor with loop detector and middleware
-        logger = logging.getLogger(__name__)
+        logger_rp = logging.getLogger(__name__)  # Use a different logger name to avoid conflict
         try:
-            # Import the LoopDetectionMiddleware
-            # Create middleware list with explicit interface typing
             from src.core.interfaces.response_processor_interface import (
                 IResponseMiddleware,
             )
@@ -303,17 +335,21 @@ def register_core_services(
                 else:
                     # Default configuration if not available
                     middleware.append(EmptyResponseMiddleware())
-                logger.debug("Added empty response middleware")
+                logger_rp.debug("Added empty response middleware")
             except Exception as e:
-                logger.warning(f"Empty response middleware not available: {e}")
+                logger_rp.warning(f"Empty response middleware not available: {e}")
 
             if detector:
                 middleware.append(LoopDetectionMiddleware(detector))
 
-                return ResponseProcessor(loop_detector=detector, middleware=middleware)
-            return ResponseProcessor(middleware=middleware)
+            return ResponseProcessor(
+                app_state=app_state,
+                loop_detector=detector,
+                middleware=middleware,
+                stream_normalizer=stream_normalizer,
+            )
         except Exception as e:  # type: ignore[misc]
-            logger.exception("Failed to create ResponseProcessor: %s", e)
+            logger_rp.exception("Failed to create ResponseProcessor: %s", e)
             raise
 
     # Register response processor and bind to interface
@@ -524,9 +560,6 @@ def get_required_service(service_type: type[T]) -> T:
 
     Returns:
         The service instance
-
-    Raises:
-        Exception: If the service is not registered
     """
     provider = get_or_build_service_provider()
     return provider.get_required_service(service_type)  # type: ignore

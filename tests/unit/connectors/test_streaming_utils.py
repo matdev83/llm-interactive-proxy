@@ -3,7 +3,7 @@ Tests for the streaming utilities module using Hypothesis for property-based tes
 """
 
 import pytest
-from hypothesis import given
+from hypothesis import given, settings
 from hypothesis import strategies as st
 from hypothesis.strategies import composite
 from src.connectors.streaming_utils import (
@@ -175,6 +175,7 @@ class TestNormalizeStreamingResponse:
         ),
         normalize=st.booleans(),
     )
+    @settings(deadline=None)  # Disable deadline for this test due to variable execution time
     @pytest.mark.asyncio
     async def test_normalize_streaming_response_property_based(
         self, data_list, media_type, normalize

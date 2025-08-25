@@ -8,6 +8,7 @@ This module provides utilities for logging, including:
 - Enhanced context information
 """
 
+# type: ignore[unreachable]
 import contextlib
 import logging
 import os
@@ -210,8 +211,6 @@ class ApiKeyRedactionFilter(logging.Filter):
                     record.args = self._sanitize(record.args)  # type: ignore[assignment]
                 elif isinstance(record.args, tuple):
                     record.args = tuple(self._sanitize(a) for a in record.args)
-                elif isinstance(record.args, str):
-                    record.args = self._sanitize(record.args)  # type: ignore[assignment]
 
             # Also attempt to sanitize other common record attributes
             for attr in ("message", "exc_text", "stack_info"):

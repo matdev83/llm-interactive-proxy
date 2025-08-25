@@ -147,9 +147,7 @@ except Exception:
     pass
 
 from src.connectors.base import LLMBackend
-from src.core.app.test_builder import (
-    build_test_app,
-)
+from src.core.app.test_builder import build_test_app
 from src.core.config.app_config import (
     AppConfig,
     AuthConfig,
@@ -280,9 +278,7 @@ def _global_mock_backend_init(monkeypatch, request):
 
     # Ensure async methods exist and return sensible test envelopes
     async def _mock_chat_completions(*args, **kwargs):
-        from src.core.domain.responses import (
-            ResponseEnvelope,
-        )
+        from src.core.domain.responses import ResponseEnvelope
 
         # Determine request object from kwargs or positional args (unused but kept for future use)
         _ = kwargs.get("request_data") or (args[0] if args else None)
@@ -315,7 +311,6 @@ def _global_mock_backend_init(monkeypatch, request):
 
     # Mock streaming response
     async def _mock_chat_completions_stream(*args, **kwargs):
-
         # Create a simple streaming response for compatibility
         return StreamingResponseEnvelope(
             content=AsyncIterBytes([]),  # Use AsyncIterBytes
@@ -345,9 +340,7 @@ def _global_mock_backend_init(monkeypatch, request):
 
     # Patch BackendFactory.ensure_backend to return our mock
     monkeypatch.setattr(
-        BackendFactory,
-        "ensure_backend",
-        AsyncMock(return_value=mock_backend_instance),
+        BackendFactory, "ensure_backend", AsyncMock(return_value=mock_backend_instance)
     )
 
     # Also patch BackendFactory.initialize_backend to do nothing
@@ -427,13 +420,11 @@ def test_app_config() -> AppConfig:
     Returns:
         AppConfig: A test app config
     """
-    return AppConfig(
+    app_config = AppConfig(
         logging=LoggingConfig(level=LogLevel.INFO),
         session=SessionConfig(),
-        backends=BackendSettings(), # Initialize BackendSettings without direct API keys in constructor
-        auth=AuthConfig(
-            api_keys=["test-key"],
-        ),
+        backends=BackendSettings(),  # Initialize BackendSettings without direct API keys in constructor
+        auth=AuthConfig(api_keys=["test-key"]),
     )
     # Set API keys directly on the backends object after initialization
     app_config.backends.openai.api_key = ["test-key"]

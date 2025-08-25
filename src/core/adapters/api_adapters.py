@@ -365,7 +365,7 @@ def _convert_gemini_contents(request_dict: dict[str, Any]) -> list[dict[str, Any
             # Extract text from parts
             text_parts = []
             for part in parts:
-                if part.get("type") == "text":
+                if part.get("type") == "text" or "text" in part:
                     text_parts.append(part.get("text", ""))
 
             # Join text parts

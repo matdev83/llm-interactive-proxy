@@ -18,12 +18,14 @@ import pytest
 import requests
 import uvicorn
 from fastapi import HTTPException
+from src.core.app.application_builder import build_app
 from src.core.domain.responses import ResponseEnvelope
 
 # De-networked: no longer need get_backend_instance
 
 # De-networked: tests now use mocked Gemini client instead of real network calls
 # pytestmark = pytest.mark.skip("Google Gemini API client not available or incompatible")
+
 
 # Mock Gemini client for testing without real network calls
 class MockGeminiClient:
@@ -34,12 +36,11 @@ class MockGeminiClient:
 
     def configure(self, api_key, base_url):
         """Mock configure method."""
-        pass
 
     def generate_content(self, contents=None, **kwargs):
         """Mock generate_content method."""
         # For error handling tests, we need to actually call the backend
-        if hasattr(self, '_should_call_backend') and self._should_call_backend:
+        if hasattr(self, "_should_call_backend") and self._should_call_backend:
             # This would normally make a real call, but we'll let the backend service mock handle it
             raise HTTPException(status_code=404, detail="Model not found")
         return MockGeminiResponse()
@@ -47,6 +48,7 @@ class MockGeminiClient:
     def stream_generate_content(self, contents=None, **kwargs):
         """Mock streaming generate_content method."""
         return [MockGeminiResponse()]
+
 
 class MockGeminiModels:
     """Mock models API."""
@@ -56,7 +58,7 @@ class MockGeminiModels:
         return [
             MockGeminiModel("gemini-pro"),
             MockGeminiModel("gemini-pro-vision"),
-            MockGeminiModel("gemini-1.5-pro")
+            MockGeminiModel("gemini-1.5-pro"),
         ]
 
     def generate_content(self, model=None, contents=None, **kwargs):
@@ -67,11 +69,13 @@ class MockGeminiModels:
         """Mock streaming generate_content method."""
         return [MockGeminiResponse()]
 
+
 class MockGeminiModel:
     """Mock Gemini model."""
 
     def __init__(self, name):
         self.name = name
+
 
 class MockGeminiResponse:
     """Mock Gemini response."""
@@ -79,17 +83,20 @@ class MockGeminiResponse:
     def __init__(self):
         self.candidates = [MockGeminiCandidate()]
 
+
 class MockGeminiCandidate:
     """Mock Gemini candidate."""
 
     def __init__(self):
         self.content = MockGeminiContent()
 
+
 class MockGeminiContent:
     """Mock Gemini content."""
 
     def __init__(self):
         self.parts = [MockGeminiPart()]
+
 
 class MockGeminiPart:
     """Mock Gemini part."""
@@ -120,6 +127,7 @@ class Blob:
     def __init__(self, data=b"", mime_type=""):
         self.data = data
         self.mime_type = mime_type
+
 
 # Use mock client instead of real one
 genai = MockGeminiClient()
@@ -197,7 +205,6 @@ class ProxyServer:
         time.sleep(2)
 
         # Test if server is running
-        import requests
 
         try:
             response = requests.get(f"http://127.0.0.1:{self.port}/", timeout=5)
@@ -224,7 +231,12 @@ class ProxyServer:
 def test_app():
     """Create a test app with mocked backends."""
     from src.core.app.test_builder import build_test_app
-    from src.core.config.app_config import AppConfig, BackendSettings, BackendConfig, AuthConfig
+    from src.core.config.app_config import (
+        AppConfig,
+        AuthConfig,
+        BackendConfig,
+        BackendSettings,
+    )
 
     # Create test app configuration
     config = AppConfig(
@@ -340,10 +352,11 @@ class TestBackendIntegration:
         }
 
         from src.core.interfaces.backend_service_interface import IBackendService
-        from unittest.mock import AsyncMock
 
         # Get backend service from test app and patch it
-        backend_service = test_app.state.service_provider.get_required_service(IBackendService)
+        backend_service = test_app.state.service_provider.get_required_service(
+            IBackendService
+        )
 
         with patch.object(
             backend_service,
@@ -352,7 +365,6 @@ class TestBackendIntegration:
                 return_value=ResponseEnvelope(content=mock_response, headers={})
             ),
         ):
-
             # Use Gemini client to make request
             response = gemini_client.models.generate_content(
                 model="openrouter:gpt-4",
@@ -375,10 +387,11 @@ class TestBackendIntegration:
     ):
         """Test Gemini backend through Gemini client."""
         from src.core.interfaces.backend_service_interface import IBackendService
-        from unittest.mock import AsyncMock
 
         # Get backend service from test app and patch it
-        backend_service = test_app.state.service_provider.get_required_service(IBackendService)
+        backend_service = test_app.state.service_provider.get_required_service(
+            IBackendService
+        )
 
         with patch.object(
             backend_service,
@@ -387,7 +400,6 @@ class TestBackendIntegration:
                 return_value=ResponseEnvelope(content=gemini_mock_response, headers={})
             ),
         ):
-
             # Use Gemini client with system instruction
             response = gemini_client.models.generate_content(
                 model="gemini:gemini-pro", contents="What is quantum computing?"
@@ -403,9 +415,7 @@ class TestBackendIntegration:
 
     @pytest.mark.integration
     # De-networked: uses mocked backend instead of real network
-    def test_gemini_cli_direct_backend_via_gemini_client(
-        self, gemini_client, test_app
-    ):
+    def test_gemini_cli_direct_backend_via_gemini_client(self, gemini_client, test_app):
         """Test Gemini CLI Direct backend through Gemini client."""
         cli_response = {
             "id": "cli-test",
@@ -426,10 +436,11 @@ class TestBackendIntegration:
         }
 
         from src.core.interfaces.backend_service_interface import IBackendService
-        from unittest.mock import AsyncMock
 
         # Get backend service from test app and patch it
-        backend_service = test_app.state.service_provider.get_required_service(IBackendService)
+        backend_service = test_app.state.service_provider.get_required_service(
+            IBackendService
+        )
 
         with patch.object(
             backend_service,
@@ -438,7 +449,6 @@ class TestBackendIntegration:
                 return_value=ResponseEnvelope(content=cli_response, headers={})
             ),
         ):
-
             response = gemini_client.generate_content(contents="Test message")
 
             # Verify response format
@@ -468,10 +478,11 @@ class TestComplexConversions:
         }
 
         from src.core.interfaces.backend_service_interface import IBackendService
-        from unittest.mock import AsyncMock
 
         # Get backend service from test app and patch it
-        backend_service = test_app.state.service_provider.get_required_service(IBackendService)
+        backend_service = test_app.state.service_provider.get_required_service(
+            IBackendService
+        )
 
         with patch.object(
             backend_service,
@@ -480,7 +491,6 @@ class TestComplexConversions:
                 return_value=ResponseEnvelope(content=mock_response, headers={})
             ),
         ):
-
             # Create multipart content using Gemini client format
             response = gemini_client.models.generate_content(
                 model="test-model",
@@ -523,10 +533,11 @@ class TestComplexConversions:
         }
 
         from src.core.interfaces.backend_service_interface import IBackendService
-        from unittest.mock import AsyncMock
 
         # Get backend service from test app and patch it
-        backend_service = test_app.state.service_provider.get_required_service(IBackendService)
+        backend_service = test_app.state.service_provider.get_required_service(
+            IBackendService
+        )
 
         with patch.object(
             backend_service,
@@ -535,7 +546,6 @@ class TestComplexConversions:
                 return_value=ResponseEnvelope(content=mock_response, headers={})
             ),
         ):
-
             # Create conversation history
             conversation = [
                 Content(parts=[Part(text="What is AI?")], role="user"),
@@ -580,10 +590,11 @@ class TestStreamingIntegration:
         )
 
         from src.core.interfaces.backend_service_interface import IBackendService
-        from unittest.mock import AsyncMock
 
         # Get backend service from test app and patch it
-        backend_service = test_app.state.service_provider.get_required_service(IBackendService)
+        backend_service = test_app.state.service_provider.get_required_service(
+            IBackendService
+        )
 
         with patch.object(
             backend_service,
@@ -594,7 +605,6 @@ class TestStreamingIntegration:
                 )
             ),
         ):
-
             # Test streaming with Gemini client
             stream = gemini_client.stream_generate_content(contents="Tell me a story")
 
@@ -622,21 +632,28 @@ class TestErrorHandling:
 
         # Mock the backend to return an authentication error
         from src.core.interfaces.backend_service_interface import IBackendService
-        from unittest.mock import AsyncMock
 
-        backend_service = test_app.state.service_provider.get_required_service(IBackendService)
+        backend_service = test_app.state.service_provider.get_required_service(
+            IBackendService
+        )
 
         with patch.object(
             backend_service,
             "call_completion",
             new=AsyncMock(
-                side_effect=HTTPException(status_code=401, detail="Authentication failed")
+                side_effect=HTTPException(
+                    status_code=401, detail="Authentication failed"
+                )
             ),
         ):
             # This should raise an authentication error
             # Directly call the backend service that will raise the exception
             from src.core.domain.chat import ChatRequest
-            request = ChatRequest(model="test-model", messages=[{"role": "user", "content": "Test message"}])
+
+            request = ChatRequest(
+                model="test-model",
+                messages=[{"role": "user", "content": "Test message"}],
+            )
             with pytest.raises(HTTPException):
                 await backend_service.call_completion(request)
 
@@ -645,10 +662,11 @@ class TestErrorHandling:
     async def test_model_not_found_error(self, gemini_client, test_app):
         """Test model not found error handling."""
         from src.core.interfaces.backend_service_interface import IBackendService
-        from unittest.mock import AsyncMock
 
         # Get backend service from test app and patch it
-        backend_service = test_app.state.service_provider.get_required_service(IBackendService)
+        backend_service = test_app.state.service_provider.get_required_service(
+            IBackendService
+        )
 
         with (
             patch.object(
@@ -662,7 +680,11 @@ class TestErrorHandling:
         ):
             # Directly call the backend service that will raise the exception
             from src.core.domain.chat import ChatRequest
-            request = ChatRequest(model="test-model", messages=[{"role": "user", "content": "Test message"}])
+
+            request = ChatRequest(
+                model="test-model",
+                messages=[{"role": "user", "content": "Test message"}],
+            )
             await backend_service.call_completion(request)
 
 
@@ -686,10 +708,11 @@ class TestPerformanceAndReliability:
         }
 
         from src.core.interfaces.backend_service_interface import IBackendService
-        from unittest.mock import AsyncMock
 
         # Get backend service from test app and patch it
-        backend_service = test_app.state.service_provider.get_required_service(IBackendService)
+        backend_service = test_app.state.service_provider.get_required_service(
+            IBackendService
+        )
 
         with patch.object(
             backend_service,
@@ -698,7 +721,6 @@ class TestPerformanceAndReliability:
                 return_value=ResponseEnvelope(content=mock_response, headers={})
             ),
         ):
-
             # Make multiple concurrent requests
             def make_request(i):
                 try:
@@ -742,10 +764,11 @@ class TestPerformanceAndReliability:
         }
 
         from src.core.interfaces.backend_service_interface import IBackendService
-        from unittest.mock import AsyncMock
 
         # Get backend service from test app and patch it
-        backend_service = test_app.state.service_provider.get_required_service(IBackendService)
+        backend_service = test_app.state.service_provider.get_required_service(
+            IBackendService
+        )
 
         with patch.object(
             backend_service,
@@ -754,7 +777,6 @@ class TestPerformanceAndReliability:
                 return_value=ResponseEnvelope(content=mock_response, headers={})
             ),
         ):
-
             # Create large content
             large_content = "This is a test message. " * 1000  # Large content
 

@@ -54,8 +54,7 @@ async def test_loop_detection_with_mocked_backend():
     from src.core.config.app_config import AppConfig, AuthConfig
 
     test_config = AppConfig(
-        auth=AuthConfig(disable_auth=True),
-        session={"default_interactive_mode": True},
+        auth=AuthConfig(disable_auth=True), session={"default_interactive_mode": True}
     )
 
     # Create the app - this will handle all the SOLID architecture setup
@@ -126,8 +125,7 @@ async def test_loop_detection_in_streaming_response():
     from src.core.config.app_config import AppConfig, AuthConfig
 
     test_config = AppConfig(
-        auth=AuthConfig(disable_auth=True),
-        session={"default_interactive_mode": True},
+        auth=AuthConfig(disable_auth=True), session={"default_interactive_mode": True}
     )
 
     # Create the app - this will handle all the SOLID architecture setup
@@ -142,8 +140,7 @@ async def test_loop_detection_in_streaming_response():
     async def generate_repeating_chunks():
         for _ in range(30):
             yield StreamingChatResponse(
-                model="test-model",
-                content="I will repeat myself. ",
+                model="test-model", content="I will repeat myself. "
             )
             await asyncio.sleep(0.01)
 
@@ -194,7 +191,6 @@ async def test_loop_detection_integration_with_middleware_chain():
     loop_detection_middleware = LoopDetectionMiddleware(loop_detector)
 
     # Create a mock app state for the ResponseProcessor
-    from unittest.mock import MagicMock
     from src.core.services.application_state_service import ApplicationStateService
 
     mock_app_state = ApplicationStateService()
@@ -291,17 +287,17 @@ async def test_request_processor_uses_response_processor():
     request = AsyncMock()
     request.headers = {}
 
-    from src.core.domain.chat import ChatRequest, ChatMessage
+    from src.core.domain.chat import ChatMessage, ChatRequest
 
-    request_data = ChatRequest(
+    ChatRequest(
         model="test-model",
         messages=[ChatMessage(role="user", content="Hello")],
-        stream=False
+        stream=False,
     )
 
     # Test that the RequestProcessor can be created with all services
     assert request_processor is not None
-    assert hasattr(request_processor, 'process_request')
+    assert hasattr(request_processor, "process_request")
 
     # Note: The complex async flow testing requires more setup
     # This test serves as a baseline for RequestProcessor integration
