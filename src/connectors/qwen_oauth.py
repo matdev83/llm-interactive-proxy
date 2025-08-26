@@ -238,6 +238,38 @@ class QwenOAuthConnector(OpenAIConnector):
             "Accept": "application/json",
         }
 
+    async def _perform_health_check(self) -> bool:
+        """Override parent health check to use Qwen-specific API endpoint."""
+        try:
+            # Use the Qwen API endpoint instead of OpenAI's
+            if not self._oauth_credentials or not self._oauth_credentials.get(
+                "access_token"
+            ):
+                logger.warning("Health check failed - no access token available")
+                return False
+
+            headers = self.get_headers()
+            base_url = self._get_endpoint_url()
+            url = f"{base_url}/models"
+
+            response = await self.client.get(url, headers=headers)
+
+            if response.status_code == 200:
+                logger.info(
+                    "Qwen OAuth health check passed - API connectivity verified"
+                )
+                self._health_checked = True
+                return True
+            else:
+                logger.warning(
+                    f"Qwen OAuth health check failed - API returned status {response.status_code}"
+                )
+                return False
+
+        except Exception as e:
+            logger.error(f"Qwen OAuth health check failed - unexpected error: {e}")
+            return False
+
     async def initialize(self, **kwargs: Any) -> None:
         """Initialize backend by loading and potentially refreshing token."""
         logger.info("Initializing Qwen OAuth backend.")
@@ -267,9 +299,10 @@ class QwenOAuthConnector(OpenAIConnector):
             "qwen2.5-1.5b-instruct",
             "qwen2.5-0.5b-instruct",
         ]
+
         self.is_functional = True
         logger.info(
-            f"Qwen OAuth backend initialized with {len(self.available_models)} models."
+            f"Qwen OAuth backend initialized with {len(self.available_models)} models and health check enabled."
         )
 
     def _get_endpoint_url(self) -> str:

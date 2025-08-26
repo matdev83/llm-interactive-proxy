@@ -227,8 +227,7 @@ class TestSessionStateBuilder:
 
         # Chain multiple method calls
         result = (
-            builder
-            .with_backend_type("openai")
+            builder.with_backend_type("openai")
             .with_model("gpt-4")
             .with_temperature(0.3)
             .with_reasoning_effort("high")
@@ -300,7 +299,9 @@ class TestSessionStateBuilder:
         assert session_state.project_dir == "/workspace/complex-app"
 
         # Verify flags
-        assert session_state.interactive_just_enabled is False  # Already True by default, so not "just enabled"
+        assert (
+            session_state.interactive_just_enabled is False
+        )  # Already True by default, so not "just enabled"
         assert session_state.hello_requested is True
 
     def test_immutability_of_configurations(self) -> None:

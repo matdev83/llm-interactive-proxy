@@ -6,7 +6,7 @@ This module provides test implementations of interfaces for use in unit tests.
 
 from __future__ import annotations
 
-from collections.abc import AsyncIterator, Mapping
+from collections.abc import Mapping
 from datetime import datetime, timezone
 from typing import Any
 
@@ -25,6 +25,7 @@ from src.core.domain.configuration import (
     LoopDetectionConfig,
     ReasoningConfig,
 )
+from src.core.domain.processed_result import ProcessedResult
 from src.core.domain.request_context import RequestContext
 from src.core.domain.responses import ResponseEnvelope, StreamingResponseEnvelope
 from src.core.domain.session import (
@@ -36,28 +37,12 @@ from src.core.domain.session import (
 from src.core.interfaces.backend_processor_interface import IBackendProcessor
 from src.core.interfaces.backend_service_interface import BackendError, IBackendService
 from src.core.interfaces.command_processor_interface import ICommandProcessor
-from src.core.interfaces.command_service_interface import (
-    ProcessedResult,
-)
 from src.core.interfaces.di_interface import (
     IServiceProvider,
     IServiceScope,
 )
 from src.core.interfaces.domain_entities_interface import ISession
-from src.core.interfaces.loop_detector_interface import (
-    ILoopDetector,
-    LoopDetectionResult,
-)
 from src.core.interfaces.rate_limiter_interface import IRateLimiter, RateLimitInfo
-from src.core.interfaces.repositories_interface import ISessionRepository
-from src.core.interfaces.response_handler_interface import (
-    INonStreamingResponseHandler,
-    IStreamingResponseHandler,
-)
-from src.core.interfaces.response_processor_interface import (
-    IResponseProcessor,
-    ProcessedResponse,
-)
 from src.core.interfaces.session_service_interface import ISessionService
 
 
@@ -155,7 +140,6 @@ class MockBackendService(IBackendService, IBackendProcessor):
     def add_response(
         self, response: ResponseEnvelope | StreamingResponseEnvelope | Exception
     ) -> None:
-        # If the response is an async generator, wrap it in a StreamingResponseEnvelope
         self.responses.append(response)
 
     async def call_completion(
@@ -172,19 +156,17 @@ class MockBackendService(IBackendService, IBackendProcessor):
 
         # Normalize domain-level ChatResponse into ResponseEnvelope for tests
         from src.core.domain.chat import ChatResponse
-        from src.core.domain.responses import ResponseEnvelope
+        from src.core.domain.responses import ResponseEnvelope as _ResponseEnvelope
 
         if hasattr(response, "__aiter__"):
             return response
 
         if isinstance(response, ChatResponse):
-            # Convert ChatResponse dataclass to legacy dict shape expected by tests
             choices_list = []
             for ch in getattr(response, "choices", []) or []:
                 msg = getattr(ch, "message", None)
-                msg_dict = {}
+                msg_dict: dict[str, Any] = {}
                 if msg is not None:
-                    # msg may be dataclass or dict
                     role = getattr(msg, "role", None)
                     content = getattr(msg, "content", None)
                     if isinstance(role, str):
@@ -208,7 +190,7 @@ class MockBackendService(IBackendService, IBackendProcessor):
                 "usage": getattr(response, "usage", None),
             }
 
-            return ResponseEnvelope(
+            return _ResponseEnvelope(
                 content=content,
                 headers={"content-type": "application/json"},
                 status_code=200,
@@ -217,14 +199,10 @@ class MockBackendService(IBackendService, IBackendProcessor):
         return response
 
     async def chat_completions(
-        self,
-        request: ChatRequest,
-        **kwargs: Any,
+        self, request: ChatRequest, **kwargs: Any
     ) -> ResponseEnvelope | StreamingResponseEnvelope:
         return await self.call_completion(request, stream=bool(request.stream))
 
-    # Backwards-compatible helper used by RequestProcessor which expects an
-    # IBackendProcessor-like API in some tests. Delegate to call_completion.
     async def process_backend_request(
         self, request: ChatRequest, session_id: str | None = None, context: Any = None
     ) -> ResponseEnvelope | StreamingResponseEnvelope:
@@ -237,10 +215,8 @@ class MockBackendService(IBackendService, IBackendProcessor):
     ) -> tuple[bool, str | None]:
         if backend not in self.validations:
             return False, f"Backend {backend} not supported"
-
         if model not in self.validations[backend]:
             return False, f"Model {model} not supported on backend {backend}"
-
         is_valid = self.validations[backend][model]
         error = None if is_valid else f"Invalid model {model} for backend {backend}"
         return is_valid, error
@@ -274,7 +250,6 @@ class MockSessionService(ISessionService):
         return self.sessions[session_id]
 
     async def get_session_async(self, session_id: str) -> Session:
-        """Legacy compatibility method, identical to get_session."""
         return await self.get_session(session_id)
 
     async def create_session(self, session_id: str) -> Session:
@@ -299,7 +274,6 @@ class MockSessionService(ISessionService):
 
     async def get_or_create_session(self, session_id: str | None = None) -> Session:
         if session_id is None:
-            # Generate a new session ID if not provided
             session_id = f"test-session-{len(self.sessions) + 1}"
         return await self.get_session(session_id)
 
@@ -310,7 +284,6 @@ class MockSessionService(ISessionService):
         self, session_id: str, backend_type: str, model: str
     ) -> None:
         session = await self.get_session(session_id)
-        # Use the new field names for BackendConfig
         new_backend_config = BackendConfig(backend_type=backend_type, model=model)
         session.state = session.state.with_backend_config(new_backend_config)
         self.sessions[session_id] = session
@@ -339,12 +312,10 @@ class MockCommandProcessor(ICommandProcessor):
         context: RequestContext | None = None,
     ) -> ProcessedResult:
         self.processed.append(messages)
-
         if not self.results:
             return ProcessedResult(
                 modified_messages=messages, command_executed=False, command_results=[]
             )
-
         return self.results.pop(0)
 
     def add_result(self, result: ProcessedResult) -> None:
@@ -390,141 +361,6 @@ class MockRateLimiter(IRateLimiter):
 
 
 #
-# Mock Loop Detector
-#
-class MockLoopDetector(ILoopDetector):
-    """A mock loop detector for testing."""
-
-    def __init__(self) -> None:
-        self.tool_calls: list[dict[str, Any]] = []
-        self.results: list[LoopDetectionResult] = []
-
-    async def check_for_loops(self, content: str) -> LoopDetectionResult:
-        if not self.results:
-            return LoopDetectionResult(has_loop=False)
-        return self.results.pop(0)
-
-    async def register_tool_call(
-        self, tool_name: str, arguments: dict[str, Any]
-    ) -> None:
-        self.tool_calls.append({"name": tool_name, "arguments": arguments})
-
-    async def clear_history(self) -> None:
-        self.tool_calls.clear()
-
-    async def configure(
-        self,
-        min_pattern_length: int = 100,
-        max_pattern_length: int = 8000,
-        min_repetitions: int = 2,
-    ) -> None:
-        pass
-
-    def add_result(self, result: LoopDetectionResult) -> None:
-        self.results.append(result)
-
-
-class MockResponseProcessor(IResponseProcessor):
-    """A mock response processor for testing."""
-
-    def __init__(self) -> None:
-        self.processed: list[Any] = []
-        self.non_streaming_handler = MockNonStreamingResponseHandler()
-        self.streaming_handler = MockStreamingResponseHandler()
-
-    async def process_response(
-        self, response: Any, session_id: str
-    ) -> ProcessedResponse:
-        self.processed.append(response)
-        processed_response = await self.non_streaming_handler.process_response(response)
-        return ProcessedResponse(
-            content=processed_response.content,
-        )
-
-    async def register_middleware(self, middleware: Any, priority: int = 0) -> None:
-        """Register a response middleware (mock implementation)."""
-
-    def process_streaming_response(
-        self, response_iterator: AsyncIterator[Any], session_id: str
-    ) -> AsyncIterator[ProcessedResponse]:
-        async def mock_iterator() -> AsyncIterator[ProcessedResponse]:
-            async for chunk in response_iterator:
-                yield ProcessedResponse(content=chunk.decode("utf-8"))
-
-        return mock_iterator()
-
-
-class MockNonStreamingResponseHandler(INonStreamingResponseHandler):
-    """A mock non-streaming response handler for testing."""
-
-    async def process_response(self, response: dict[str, Any]) -> ResponseEnvelope:
-        return ResponseEnvelope(
-            content=response,
-            status_code=200,
-            headers={"content-type": "application/json"},
-        )
-
-
-class MockStreamingResponseHandler(IStreamingResponseHandler):
-    """A mock streaming response handler for testing."""
-
-    async def process_response(
-        self, response: AsyncIterator[bytes]
-    ) -> StreamingResponseEnvelope:
-        return StreamingResponseEnvelope(content=response)
-
-
-#
-# Mock Session Repository
-#
-class MockSessionRepository(ISessionRepository):
-    """A mock session repository for testing."""
-
-    def __init__(self) -> None:
-        self.sessions: dict[str, Session] = {}
-        self.user_sessions: dict[str, list[Session]] = {}
-
-    async def get_by_id(self, id: str) -> Session | None:
-        return self.sessions.get(id)
-
-    async def get_all(self) -> list[Session]:
-        return list(self.sessions.values())
-
-    async def add(self, entity: Session) -> Session:
-        self.sessions[entity.session_id] = entity
-        return entity
-
-    async def update(self, entity: Session) -> Session:
-        self.sessions[entity.session_id] = entity
-        return entity
-
-    async def delete(self, id: str) -> bool:
-        if id in self.sessions:
-            del self.sessions[id]
-            return True
-        return False
-
-    async def get_by_user_id(self, user_id: str) -> list[Session]:
-        return self.user_sessions.get(user_id, [])
-
-    async def cleanup_expired(self, max_age_seconds: int) -> int:
-        count = 0
-        current_time = datetime.now(timezone.utc)
-
-        expired_ids = [
-            session_id
-            for session_id, session in self.sessions.items()
-            if (current_time - session.last_active_at).total_seconds() > max_age_seconds
-        ]
-
-        for session_id in expired_ids:
-            del self.sessions[session_id]
-            count += 1
-
-        return count
-
-
-#
 # Test Data Builder
 #
 class TestDataBuilder:
@@ -532,7 +368,6 @@ class TestDataBuilder:
 
     @staticmethod
     def create_session(session_id: str = "test-session") -> Session:
-        """Create a test session."""
         return Session(
             session_id=session_id,
             state=SessionStateAdapter(
@@ -550,7 +385,6 @@ class TestDataBuilder:
     def create_interaction(
         prompt: str = "Hello", response: str = "Hi there!"
     ) -> SessionInteraction:
-        """Create a test interaction."""
         return SessionInteraction(
             prompt=prompt,
             handler="proxy",
@@ -560,24 +394,13 @@ class TestDataBuilder:
         )
 
     @staticmethod
-    def create_chat_request(
-        messages: list[ChatMessage] | None = None,
-    ) -> ChatRequest:
-        """Create a test chat request."""
+    def create_chat_request(messages: list[ChatMessage] | None = None) -> ChatRequest:
         if messages is None:
             messages = [ChatMessage(role="user", content="Hello")]
-
-        return ChatRequest(
-            messages=messages,
-            model="gpt-4",
-            stream=False,
-        )
+        return ChatRequest(messages=messages, model="gpt-4", stream=False)
 
     @staticmethod
-    def create_chat_response(
-        content: str = "Hello there!",
-    ) -> ResponseEnvelope:
-        """Create a test chat response envelope."""
+    def create_chat_response(content: str = "Hello there!") -> ResponseEnvelope:
         chat_response = ChatResponse(
             id="resp-123",
             created=int(datetime.now(timezone.utc).timestamp()),

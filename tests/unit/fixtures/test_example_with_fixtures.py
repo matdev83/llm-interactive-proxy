@@ -45,9 +45,7 @@ def test_session_with_model_fixture() -> None:
     from src.core.domain.session import Session, SessionState
 
     # Create a backend configuration with the desired values
-    backend_config = BackendConfiguration(
-        backend_type="openrouter", model="test-model"
-    )
+    backend_config = BackendConfiguration(backend_type="openrouter", model="test-model")
 
     # Create a session state with the backend configuration
     state = SessionState(backend_config=backend_config)
@@ -58,23 +56,15 @@ def test_session_with_model_fixture() -> None:
     # Print the values to debug
     print(f"Backend config model: {backend_config.model}")
     print(f"Backend config backend_type: {backend_config.backend_type}")
-    print(f"Backend config model_value: {backend_config.model_value}")
-    print(f"Backend config backend_type_value: {backend_config.backend_type_value}")
 
     print(f"Session state backend config model: {session.state.backend_config.model}")
     print(
         f"Session state backend config backend_type: {session.state.backend_config.backend_type}"
     )
-    print(
-        f"Session state backend config model_value: {session.state.backend_config.model_value}"
-    )
-    print(
-        f"Session state backend config backend_type_value: {session.state.backend_config.backend_type_value}"
-    )
 
-    # Verify the model and backend are set correctly using the value fields directly
-    assert session.state.backend_config.model_value == "test-model"
-    assert session.state.backend_config.backend_type_value == "openrouter"
+    # Verify the model and backend are set correctly using the public properties
+    assert session.state.backend_config.model == "test-model"
+    assert session.state.backend_config.backend_type == "openrouter"
 
 
 @pytest.mark.session
@@ -123,7 +113,6 @@ async def test_command_parser_fixture(
 
     # Verify the command parser is properly initialized
     assert hasattr(command_parser, "command_pattern")
-    assert hasattr(command_parser, "config")
 
 
 @pytest.mark.di

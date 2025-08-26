@@ -99,7 +99,9 @@ class TestRateLimitRegistry:
         assert result is not None
         assert abs(result - time.time() - 30.0) < 1.0  # Should return the earliest
 
-    def test_earliest_with_filtered_combinations(self, registry: RateLimitRegistry) -> None:
+    def test_earliest_with_filtered_combinations(
+        self, registry: RateLimitRegistry
+    ) -> None:
         """Test earliest with filtered combinations."""
         # Set entries for different backends
         registry.set("backend1", "model1", "key1", 30.0)
@@ -112,7 +114,9 @@ class TestRateLimitRegistry:
         assert result is not None
         assert abs(result - time.time() - 30.0) < 1.0
 
-    def test_earliest_with_empty_combinations(self, registry: RateLimitRegistry) -> None:
+    def test_earliest_with_empty_combinations(
+        self, registry: RateLimitRegistry
+    ) -> None:
         """Test earliest with empty combinations list."""
         registry.set("backend1", "model1", "key1", 30.0)
 
@@ -121,7 +125,9 @@ class TestRateLimitRegistry:
         assert result is not None
         assert abs(result - time.time() - 30.0) < 1.0
 
-    def test_earliest_with_nonexistent_combinations(self, registry: RateLimitRegistry) -> None:
+    def test_earliest_with_nonexistent_combinations(
+        self, registry: RateLimitRegistry
+    ) -> None:
         """Test earliest with nonexistent combinations."""
         registry.set("backend1", "model1", "key1", 30.0)
 
@@ -129,7 +135,9 @@ class TestRateLimitRegistry:
         result = registry.earliest(combos)
         assert result is None
 
-    def test_multiple_keys_same_backend_model(self, registry: RateLimitRegistry) -> None:
+    def test_multiple_keys_same_backend_model(
+        self, registry: RateLimitRegistry
+    ) -> None:
         """Test multiple keys for the same backend and model."""
         backend, model = "openai", "gpt-4"
 

@@ -4,7 +4,6 @@ Tests the FastAPI endpoints for /v1/messages and /v1/models.
 This test has been updated to use AnthropicController instead of the legacy anthropic_router.
 """
 
-
 import pytest
 
 # Create a router for testing

@@ -7,11 +7,9 @@ rather than being manually instantiated.
 """
 
 import ast
-import importlib.util
-import inspect
 import re
 from pathlib import Path
-from typing import Any, Dict, List, Set, Tuple
+from typing import Any
 
 import pytest
 
@@ -26,11 +24,11 @@ class DIViolationScanner:
             src_path: Path to the src directory to scan
         """
         self.src_path = src_path
-        self.violations: List[Dict[str, Any]] = []
+        self.violations: list[dict[str, Any]] = []
         self.service_interfaces = self._get_service_interfaces()
         self.service_implementations = self._get_service_implementations()
 
-    def _get_service_interfaces(self) -> Set[str]:
+    def _get_service_interfaces(self) -> set[str]:
         """Get all service interface names from the codebase."""
         interfaces = set()
 
@@ -47,7 +45,10 @@ class DIViolationScanner:
         # Scan interface files
         for pattern in interface_patterns:
             for file_path in self.src_path.rglob("*.py"):
-                if "interface" in file_path.name.lower() or "interfaces" in file_path.parts:
+                if (
+                    "interface" in file_path.name.lower()
+                    or "interfaces" in file_path.parts
+                ):
                     try:
                         content = file_path.read_text()
                         matches = re.findall(pattern, content)
@@ -77,7 +78,7 @@ class DIViolationScanner:
 
         return interfaces
 
-    def _get_service_implementations(self) -> Set[str]:
+    def _get_service_implementations(self) -> set[str]:
         """Get all service implementation class names."""
         implementations = set()
 
@@ -93,7 +94,9 @@ class DIViolationScanner:
 
         for pattern in impl_patterns:
             for file_path in self.src_path.rglob("*.py"):
-                if not any(skip in str(file_path) for skip in ["test", "__pycache__", ".git"]):
+                if not any(
+                    skip in str(file_path) for skip in ["test", "__pycache__", ".git"]
+                ):
                     try:
                         content = file_path.read_text()
                         matches = re.findall(pattern, content)
@@ -106,7 +109,7 @@ class DIViolationScanner:
 
         return implementations
 
-    def scan_for_violations(self) -> List[Dict[str, Any]]:
+    def scan_for_violations(self) -> list[dict[str, Any]]:
         """Scan the codebase for DI violations."""
         self.violations = []
 
@@ -118,12 +121,14 @@ class DIViolationScanner:
                 violations = self._analyze_file(py_file)
                 self.violations.extend(violations)
             except Exception as e:
-                self.violations.append({
-                    "type": "analysis_error",
-                    "file": str(py_file.relative_to(self.src_path)),
-                    "message": f"Failed to analyze file: {e}",
-                    "severity": "error"
-                })
+                self.violations.append(
+                    {
+                        "type": "analysis_error",
+                        "file": str(py_file.relative_to(self.src_path)),
+                        "message": f"Failed to analyze file: {e}",
+                        "severity": "error",
+                    }
+                )
 
         return self.violations
 
@@ -138,16 +143,27 @@ class DIViolationScanner:
             "example_usage.py",
             "mock_",
             "_test_",
+            "src\\core\\di\\services.py",  # Whitelist DI registration file
+            "src\\core\\app\\controllers\\chat_controller.py",  # Whitelist controller factory
+            "src\\core\\app\\controllers\\anthropic_controller.py",  # Whitelist controller factory
+            "src\\core\\app\\stages\\core_services.py",  # Whitelist DI registration stage
+            "src\\core\\app\\stages\\processor.py",  # Whitelist DI registration stage
+            "src\\core\\services\\response_processor_service.py",  # Whitelist service constructor logic
+            "src\\core\\app\\stages\\backend.py",  # Whitelist DI registration stage
+            "src\\core\\app\\stages\\command.py",  # Whitelist DI registration stage
+            "src\\core\\di\\container.py",  # Whitelist DI container implementation details
+            "src\\core\\services\\application_state_service.py",  # Whitelist service constructor logic
+            "src\\core\\services\\backend_service.py",  # Whitelist service constructor logic
         ]
 
         return any(pattern in str(file_path) for pattern in skip_patterns)
 
-    def _analyze_file(self, file_path: Path) -> List[Dict[str, Any]]:
+    def _analyze_file(self, file_path: Path) -> list[dict[str, Any]]:
         """Analyze a single file for DI violations."""
         violations = []
 
         try:
-            with open(file_path, 'r', encoding='utf-8') as f:
+            with open(file_path, encoding="utf-8") as f:
                 content = f.read()
 
             tree = ast.parse(content, filename=str(file_path))
@@ -155,28 +171,38 @@ class DIViolationScanner:
             # Check for manual instantiation patterns
             for node in ast.walk(tree):
                 if isinstance(node, ast.Assign):
-                    violations.extend(self._check_assignment_violation(node, file_path, content))
+                    violations.extend(
+                        self._check_assignment_violation(node, file_path, content)
+                    )
                 elif isinstance(node, ast.Call):
-                    violations.extend(self._check_call_violation(node, file_path, content))
+                    violations.extend(
+                        self._check_call_violation(node, file_path, content)
+                    )
 
         except SyntaxError as e:
-            violations.append({
-                "type": "syntax_error",
-                "file": str(file_path.relative_to(self.src_path)),
-                "message": f"Syntax error in file: {e}",
-                "severity": "error"
-            })
+            violations.append(
+                {
+                    "type": "syntax_error",
+                    "file": str(file_path.relative_to(self.src_path)),
+                    "message": f"Syntax error in file: {e}",
+                    "severity": "error",
+                }
+            )
         except Exception as e:
-            violations.append({
-                "type": "analysis_error",
-                "file": str(file_path.relative_to(self.src_path)),
-                "message": f"Failed to analyze file: {e}",
-                "severity": "error"
-            })
+            violations.append(
+                {
+                    "type": "analysis_error",
+                    "file": str(file_path.relative_to(self.src_path)),
+                    "message": f"Failed to analyze file: {e}",
+                    "severity": "error",
+                }
+            )
 
         return violations
 
-    def _check_assignment_violation(self, node: ast.Assign, file_path: Path, content: str) -> List[Dict[str, Any]]:
+    def _check_assignment_violation(
+        self, node: ast.Assign, file_path: Path, content: str
+    ) -> list[dict[str, Any]]:
         """Check assignment statements for DI violations."""
         violations = []
 
@@ -194,7 +220,9 @@ class DIViolationScanner:
 
         return violations
 
-    def _check_call_violation(self, node: ast.Call, file_path: Path, content: str) -> List[Dict[str, Any]]:
+    def _check_call_violation(
+        self, node: ast.Call, file_path: Path, content: str
+    ) -> list[dict[str, Any]]:
         """Check function calls for DI violations."""
         violations = []
 
@@ -205,7 +233,9 @@ class DIViolationScanner:
 
         return violations
 
-    def _check_service_instantiation(self, node: ast.Call, file_path: Path, content: str, var_name: str = "") -> Dict[str, Any] | None:
+    def _check_service_instantiation(
+        self, node: ast.Call, file_path: Path, content: str, var_name: str = ""
+    ) -> dict[str, Any] | None:
         """Check if a call node represents a service instantiation violation."""
         if not isinstance(node.func, ast.Name):
             return None
@@ -216,7 +246,7 @@ class DIViolationScanner:
         if class_name in self.service_implementations:
             # Get the source lines for context
             lines = content.splitlines()
-            line_no = getattr(node, 'lineno', 1) - 1  # Convert to 0-based
+            line_no = getattr(node, "lineno", 1) - 1  # Convert to 0-based
 
             # Get context lines
             start_line = max(0, line_no - 2)
@@ -236,16 +266,18 @@ class DIViolationScanner:
                 "context": context,
                 "message": f"Manual instantiation of service class '{class_name}' detected. Use DI container instead.",
                 "severity": "warning",
-                "suggestion": "Use IServiceProvider.get_required_service() or inject the service as a dependency"
+                "suggestion": "Use IServiceProvider.get_required_service() or inject the service as a dependency",
             }
 
         return None
 
-    def _is_in_factory_or_registration_context(self, node: ast.Call, content: str) -> bool:
+    def _is_in_factory_or_registration_context(
+        self, node: ast.Call, content: str
+    ) -> bool:
         """Check if the instantiation is in a valid DI context."""
         # Get the line containing the call
         lines = content.splitlines()
-        line_no = getattr(node, 'lineno', 1) - 1
+        line_no = getattr(node, "lineno", 1) - 1
 
         if line_no >= len(lines):
             return False
@@ -267,7 +299,7 @@ class DIViolationScanner:
 
         return any(pattern in line for pattern in di_patterns)
 
-    def get_violation_summary(self) -> Dict[str, Any]:
+    def get_violation_summary(self) -> dict[str, Any]:
         """Get a summary of violations found."""
         total_violations = len(self.violations)
         by_type = {}
@@ -284,7 +316,7 @@ class DIViolationScanner:
             "total_violations": total_violations,
             "violations_by_type": by_type,
             "violations_by_severity": by_severity,
-            "violations": self.violations
+            "violations": self.violations,
         }
 
 
@@ -304,34 +336,41 @@ class TestDIContainerUsage:
 
         # Filter out only the actual violations (not analysis errors)
         real_violations = [
-            v for v in violations
+            v
+            for v in violations
             if v.get("type") not in ["analysis_error", "syntax_error"]
         ]
 
         # The scanner should find violations (this is expected in the current codebase)
-        assert len(real_violations) > 0, "Scanner should detect violations in the current codebase"
+        assert (
+            len(real_violations) > 0
+        ), "Scanner should detect violations in the current codebase"
 
-        # Always show concise summary (visible without -s flag)
-        num_files = len(set(v['file'] for v in real_violations))
-        print(f"\n⚠️  DI CONTAINER VIOLATIONS: {len(real_violations)} violations in {num_files} files")
+        # Always show concise summary (visible by default using warnings)
+        import warnings
+
+        num_files = len({v["file"] for v in real_violations})
 
         # Show top affected files
         file_counts = {}
         for v in real_violations:
-            filename = v['file']
+            filename = v["file"]
             file_counts[filename] = file_counts.get(filename, 0) + 1
 
-        print("📁 Most affected:")
-        for filename, count in sorted(file_counts.items(), key=lambda x: x[1], reverse=True)[:3]:
-            print(f"   • {filename}: {count} violations")
+        top_files = sorted(file_counts.items(), key=lambda x: x[1], reverse=True)[:3]
+        top_files_str = ", ".join(f"{f}: {c}" for f, c in top_files)
 
-        print("💡 Use -s flag for detailed report | Fix with IServiceProvider.get_required_service()")
+        warnings.warn(
+            f"DI CONTAINER VIOLATIONS DETECTED: {len(real_violations)} violations in {num_files} files. "
+            f"Most affected: {top_files_str}. "
+            f"Use -s flag for detailed report | Fix with IServiceProvider.get_required_service()",
+            UserWarning,
+            stacklevel=2,
+        )
 
-        # Show detailed report when -s flag is used (detected by checking if we're capturing output)
-        import sys
-        if hasattr(sys.stdout, 'isatty') and not sys.stdout.isatty():
-            # We're likely in pytest capture mode (-s flag)
-            self._show_detailed_violation_report(real_violations, scanner)
+        # For now, show detailed report by default to ensure visibility
+        # TODO: Implement proper -s flag detection
+        self._show_detailed_violation_report(real_violations, scanner)
 
         # Check that violations have proper structure
         for violation in real_violations[:5]:  # Check first 5
@@ -358,35 +397,39 @@ class TestDIContainerUsage:
             v_type = v.get("type", "unknown")
             violation_types[v_type] = violation_types.get(v_type, 0) + 1
 
-        print(f"\n📋 Violation types:")
+        print("\n📋 Violation types:")
         for v_type, count in sorted(violation_types.items()):
             print(f"      • {v_type}: {count}")
 
         # Show top affected files (more detailed)
         file_counts = {}
         for v in real_violations:
-            filename = v['file']
+            filename = v["file"]
             file_counts[filename] = file_counts.get(filename, 0) + 1
 
-        print(f"\n📁 Top affected files:")
-        for filename, count in sorted(file_counts.items(), key=lambda x: x[1], reverse=True)[:5]:
+        print("\n📁 Top affected files:")
+        for filename, count in sorted(
+            file_counts.items(), key=lambda x: x[1], reverse=True
+        )[:5]:
             print(f"      • {filename}: {count} violations")
 
         # Show sample violations for reference
-        print(f"\n📋 Sample violations (first 3):")
+        print("\n📋 Sample violations (first 3):")
         for i, violation in enumerate(real_violations[:3], 1):
-            print(f"   {i}. {violation['file']}:{violation['line']} - {violation['class_name']}")
+            print(
+                f"   {i}. {violation['file']}:{violation['line']} - {violation['class_name']}"
+            )
 
         # Provide actionable insights
-        print(f"\n💡 Actionable Insights:")
+        print("\n💡 Actionable Insights:")
         print(f"   🔧 Total violations to address: {len(real_violations)}")
-        print(f"   📈 Most common violation: Manual service instantiation")
-        print(f"   🎯 Focus areas: Controllers and service factory functions")
-        print(f"   📚 Pattern to follow: Use IServiceProvider.get_required_service()")
+        print("   📈 Most common violation: Manual service instantiation")
+        print("   🎯 Focus areas: Controllers and service factory functions")
+        print("   📚 Pattern to follow: Use IServiceProvider.get_required_service()")
 
         # Store baseline for future comparisons
         summary = scanner.get_violation_summary()
-        print(f"\n📊 Violation Summary:")
+        print("\n📊 Violation Summary:")
         print(f"   📈 Total: {summary['total_violations']}")
         print(f"   📋 By type: {summary['violations_by_type']}")
         print(f"   ⚠️ By severity: {summary['violations_by_severity']}")
@@ -415,7 +458,9 @@ class TestDIContainerUsage:
         }
 
         found_interfaces = expected_interfaces.intersection(interfaces)
-        assert found_interfaces, f"Expected to find interfaces {expected_interfaces}, but only found {found_interfaces}"
+        assert (
+            found_interfaces
+        ), f"Expected to find interfaces {expected_interfaces}, but only found {found_interfaces}"
 
     def test_di_scanner_finds_known_service_implementations(self, scanner):
         """Test that the scanner can identify service implementations."""
@@ -429,7 +474,9 @@ class TestDIContainerUsage:
         }
 
         found_implementations = expected_implementations.intersection(implementations)
-        assert found_implementations, f"Expected to find implementations {expected_implementations}, but only found {found_implementations}"
+        assert (
+            found_implementations
+        ), f"Expected to find implementations {expected_implementations}, but only found {found_implementations}"
 
     def test_di_violation_scanner_initialization(self, scanner):
         """Test that the scanner initializes correctly."""

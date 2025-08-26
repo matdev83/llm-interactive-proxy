@@ -49,7 +49,17 @@ class HelpCommand(StatelessCommandBase, BaseCommand):
         Returns:
             The command result.
         """
-        handlers = context.get("handlers", {}) if context else {}
+        # Prefer registry if provided; otherwise accept legacy 'handlers' mapping
+        handlers: dict[str, Any] = {}
+        if context:
+            registry = context.get("command_registry")
+            if registry is not None and hasattr(registry, "get_all"):
+                try:
+                    handlers = registry.get_all()
+                except Exception:
+                    handlers = {}
+            if not handlers:
+                handlers = context.get("handlers", {})
 
         # Case 1: Help for a specific command, e.g., !/help(set)
         if args:

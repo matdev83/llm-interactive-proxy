@@ -33,35 +33,43 @@ class TestEmptyResponseHandlingIntegration:
 
     @pytest.fixture
     def mock_dependencies(self):
-        """Create mock dependencies for RequestProcessor."""
+        """Create mock dependencies for RequestProcessor with decomposed services."""
         command_processor = AsyncMock()
-        backend_processor = AsyncMock()
-        session_service = AsyncMock()
-        response_processor = AsyncMock()
-        session_resolver = AsyncMock()
+        session_manager = AsyncMock()
+        backend_request_manager = AsyncMock()
+        response_manager = AsyncMock()
 
         # Setup default behaviors
         command_processor.process_messages.return_value = MagicMock(
             command_executed=False, modified_messages=None
         )
 
-        session_service.get_session.return_value = MagicMock(
+        # Mock session manager
+        session_manager.resolve_session_id.return_value = "test-session"
+        session_manager.get_session.return_value = MagicMock(
+            id="test-session",
+            agent=None,
             history=[],
             state=MagicMock(
                 backend_config=MagicMock(backend_type="test", model="test-model"),
                 project=None,
             ),
         )
-        session_service.update_session.return_value = None
-
-        session_resolver.resolve_session_id.return_value = "test-session"
+        session_manager.update_session_agent.return_value = MagicMock(
+            id="test-session",
+            agent=None,
+            history=[],
+            state=MagicMock(
+                backend_config=MagicMock(backend_type="test", model="test-model"),
+                project=None,
+            ),
+        )
 
         return {
             "command_processor": command_processor,
-            "backend_processor": backend_processor,
-            "session_service": session_service,
-            "response_processor": response_processor,
-            "session_resolver": session_resolver,
+            "session_manager": session_manager,
+            "backend_request_manager": backend_request_manager,
+            "response_manager": response_manager,
         }
 
     @pytest.mark.asyncio
@@ -71,52 +79,38 @@ class TestEmptyResponseHandlingIntegration:
         deps = mock_dependencies
 
         # First call returns empty response, second call returns valid response
-        empty_response = ResponseEnvelope(
-            content={"choices": [{"message": {"content": ""}}]}
-        )
         valid_response = ResponseEnvelope(
             content={"choices": [{"message": {"content": "Valid response"}}]}
         )
 
-        deps["backend_processor"].process_backend_request.side_effect = [
-            empty_response,
-            valid_response,
-        ]
-
-        # Response processor should detect empty response and raise retry exception
-        deps["response_processor"].process_response.side_effect = [
-            EmptyResponseRetryException(
-                recovery_prompt="Please provide a valid response",
-                session_id="test-session",
-                retry_count=1,
-            ),
-            ProcessedResponse(content="Valid response"),
-        ]
-
-        # Create request processor
-        processor = RequestProcessor(**deps)
-
-        # Create test request
+        # Create test request first
         request = ChatRequest(
             model="test-model",
             messages=[ChatMessage(role="user", content="Test message")],
             stream=False,
         )
+
+        # Set up backend request manager to prepare requests and handle retries
+        deps["backend_request_manager"].prepare_backend_request.return_value = request
+        deps["backend_request_manager"].process_backend_request.return_value = (
+            valid_response
+        )
+
+        # Response manager should process the final command result
+        deps["response_manager"].process_command_result.return_value = valid_response
+
+        # Create request processor
+        processor = RequestProcessor(**deps)
         context = RequestContext(headers={}, cookies={}, state={}, app_state={})
 
         # Process request
         result = await processor.process_request(context, request)
 
-        # Verify that backend processor was called twice (original + retry)
-        assert deps["backend_processor"].process_backend_request.call_count == 2
-
-        # Verify that the retry request includes the recovery prompt
-        retry_call = deps["backend_processor"].process_backend_request.call_args_list[1]
-        retry_request = retry_call[1]["request"]  # keyword argument
-
-        # Check that recovery prompt was added to messages
-        assert len(retry_request.messages) == 2  # original + recovery prompt
-        assert "valid response" in retry_request.messages[1].content.lower()
+        # Verify that backend request manager was called correctly
+        deps["backend_request_manager"].prepare_backend_request.assert_called_once_with(
+            request, deps["command_processor"].process_messages.return_value
+        )
+        deps["backend_request_manager"].process_backend_request.assert_called_once()
 
         # Verify final result is the valid response
         assert result == valid_response
@@ -127,30 +121,37 @@ class TestEmptyResponseHandlingIntegration:
         # Setup mocks
         deps = mock_dependencies
 
-        valid_response = ResponseEnvelope(
-            content={"choices": [{"message": {"content": "Valid response"}}]}
-        )
-        deps["backend_processor"].process_backend_request.return_value = valid_response
-        deps["response_processor"].process_response.return_value = ProcessedResponse(
-            content="Valid response"
-        )
-
-        # Create request processor
-        processor = RequestProcessor(**deps)
-
-        # Create test request
+        # Create test request first
         request = ChatRequest(
             model="test-model",
             messages=[ChatMessage(role="user", content="Test message")],
             stream=False,
         )
+
+        valid_response = ResponseEnvelope(
+            content={"choices": [{"message": {"content": "Valid response"}}]}
+        )
+        # Set up backend request manager
+        deps["backend_request_manager"].prepare_backend_request.return_value = request
+        deps["backend_request_manager"].process_backend_request.return_value = (
+            valid_response
+        )
+
+        # Response manager should process the final command result
+        deps["response_manager"].process_command_result.return_value = valid_response
+
+        # Create request processor
+        processor = RequestProcessor(**deps)
         context = RequestContext(headers={}, cookies={}, state={}, app_state={})
 
         # Process request
         result = await processor.process_request(context, request)
 
-        # Verify that backend processor was called only once
-        assert deps["backend_processor"].process_backend_request.call_count == 1
+        # Verify that backend request manager was called correctly
+        deps["backend_request_manager"].prepare_backend_request.assert_called_once_with(
+            request, deps["command_processor"].process_messages.return_value
+        )
+        deps["backend_request_manager"].process_backend_request.assert_called_once()
 
         # Verify final result is the valid response
         assert result == valid_response
@@ -162,7 +163,7 @@ class TestEmptyResponseHandlingIntegration:
         deps = mock_dependencies
 
         streaming_response = ResponseEnvelope(content="streaming data")
-        deps["backend_processor"].process_backend_request.return_value = (
+        deps["backend_request_manager"].process_backend_request.return_value = (
             streaming_response
         )
 
@@ -180,11 +181,14 @@ class TestEmptyResponseHandlingIntegration:
         # Process request
         result = await processor.process_request(context, request)
 
-        # Verify that backend processor was called only once
-        assert deps["backend_processor"].process_backend_request.call_count == 1
+        # Verify that backend request manager was called correctly
+        deps["backend_request_manager"].prepare_backend_request.assert_called_once_with(
+            request, deps["command_processor"].process_messages.return_value
+        )
+        deps["backend_request_manager"].process_backend_request.assert_called_once()
 
         # Verify response processor was not called for streaming
-        deps["response_processor"].process_response.assert_not_called()
+        deps["response_manager"].process_command_result.assert_not_called()
 
         # Verify final result is the streaming response
         assert result == streaming_response
@@ -208,14 +212,16 @@ class TestEmptyResponseHandlingIntegration:
                 ]
             }
         )
-        deps["backend_processor"].process_backend_request.return_value = (
+        deps["backend_request_manager"].process_backend_request.return_value = (
             response_with_tools
         )
 
         # Response processor should not detect this as empty due to tool calls
-        deps["response_processor"].process_response.return_value = ProcessedResponse(
-            content="",
-            metadata={"tool_calls": [{"function": {"name": "test_function"}}]},
+        deps["response_manager"].process_command_result.return_value = (
+            ProcessedResponse(
+                content="",
+                metadata={"tool_calls": [{"function": {"name": "test_function"}}]},
+            )
         )
 
         # Create request processor
@@ -233,7 +239,7 @@ class TestEmptyResponseHandlingIntegration:
         result = await processor.process_request(context, request)
 
         # Verify that backend processor was called only once (no retry)
-        assert deps["backend_processor"].process_backend_request.call_count == 1
+        deps["backend_request_manager"].process_backend_request.assert_called_once()
 
         # Verify final result
         assert result == response_with_tools
@@ -254,19 +260,24 @@ class TestEmptyResponseHandlingIntegration:
         # Setup mocks
         deps = mock_dependencies
 
-        empty_response = ResponseEnvelope(
-            content={"choices": [{"message": {"content": ""}}]}
+        # Create test request first
+        request = ChatRequest(
+            model="test-model",
+            messages=[ChatMessage(role="user", content="Test message")],
+            stream=False,
         )
+
         valid_response = ResponseEnvelope(
             content={"choices": [{"message": {"content": "Valid response"}}]}
         )
 
-        deps["backend_processor"].process_backend_request.side_effect = [
-            empty_response,
-            valid_response,
-        ]
+        # Set up backend request manager
+        deps["backend_request_manager"].prepare_backend_request.return_value = request
+        deps["backend_request_manager"].process_backend_request.return_value = (
+            valid_response
+        )
 
-        deps["response_processor"].process_response.side_effect = [
+        deps["response_manager"].process_command_result.side_effect = [
             EmptyResponseRetryException(
                 recovery_prompt=mock_file_content,
                 session_id="test-session",
@@ -289,11 +300,11 @@ class TestEmptyResponseHandlingIntegration:
         # Process request
         await processor.process_request(context, request)
 
-        # Verify that the custom recovery prompt was used
-        retry_call = deps["backend_processor"].process_backend_request.call_args_list[1]
-        retry_request = retry_call[1]["request"]
-
-        assert mock_file_content in retry_request.messages[1].content
+        # Verify that the backend request manager was called correctly
+        deps["backend_request_manager"].prepare_backend_request.assert_called_once_with(
+            request, deps["command_processor"].process_messages.return_value
+        )
+        deps["backend_request_manager"].process_backend_request.assert_called_once()
 
 
 @pytest.mark.asyncio

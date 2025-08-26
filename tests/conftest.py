@@ -22,7 +22,7 @@ _PROBLEMATIC_TEST_MODULES = {
 }
 
 
-class SmartAsyncMock(AsyncMock): # Inherit directly from AsyncMock
+class SmartAsyncMock(AsyncMock):  # Inherit directly from AsyncMock
     """AsyncMock that converts to regular Mock for problematic patterns.
 
     This implementation uses a cached module check for better performance.
@@ -56,7 +56,9 @@ class SmartAsyncMock(AsyncMock): # Inherit directly from AsyncMock
                 pass
 
         # Default to real AsyncMock for legitimate async testing
-        return super().__new__(cls, *args, **kwargs) # Pass args and kwargs to super().__new__
+        return super().__new__(
+            cls, *args, **kwargs
+        )  # Pass args and kwargs to super().__new__
 
     # __init__ is implicitly called by __new__ for AsyncMock, no need to override if no extra init logic
     # def __init__(self, *args, **kwargs):
@@ -68,9 +70,8 @@ class SmartAsyncMock(AsyncMock): # Inherit directly from AsyncMock
 from unittest.mock import AsyncMock  # Explicitly import AsyncMock for SmartAsyncMock
 
 from src.connectors.base import LLMBackend
-from src.core.app.test_builder import (
-    build_test_app,
-)
+
+# Delay heavy app builder import to fixture time to avoid startup cycles
 from src.core.config.app_config import (
     AppConfig,
     AuthConfig,
@@ -121,15 +122,15 @@ try:
 
         _original_httpx_iter_lines = httpx.Response.iter_lines
 
-        def _httpx_iter_lines_force_str(self, *args, **kwargs): # Renamed function
+        def _httpx_iter_lines_force_str(self, *args, **kwargs):  # Renamed function
             """Ensure httpx.Response.iter_lines always yields str."""
             for line in _original_httpx_iter_lines(self, *args, **kwargs):
-                if isinstance(line, bytes): # Decode bytes to str
+                if isinstance(line, bytes):  # Decode bytes to str
                     yield line.decode("utf-8")
                 else:
                     yield line
 
-        httpx.Response.iter_lines = _httpx_iter_lines_force_str # Use renamed function
+        httpx.Response.iter_lines = _httpx_iter_lines_force_str  # Use renamed function
     except (ImportError, AttributeError):
         pass
 except Exception as e:
@@ -164,7 +165,8 @@ def _global_mock_backend_init(monkeypatch, request):
         or ("create_backend" in test_name)
         or
         # Tests that explicitly manage their own backend mocks
-        ("multimodal_cross_protocol" in test_module) or (
+        ("multimodal_cross_protocol" in test_module)
+        or (
             "anthropic_frontend_integration" in test_module
         )  # These tests have specific mocking needs
         or
@@ -538,6 +540,8 @@ def test_app_with_auth(test_app_config) -> Generator[FastAPI, None, None]:
     Returns:
         Generator: A test app with authentication
     """
+    from src.core.app.test_builder import build_test_app
+
     app = build_test_app(test_app_config)
     yield app
 
@@ -555,6 +559,8 @@ def test_app_without_auth(test_app_config) -> Generator[FastAPI, None, None]:
     # Disable auth for this app
     config = test_app_config.model_copy(deep=True)
     config.auth.disable_auth = True
+    from src.core.app.test_builder import build_test_app
+
     app = build_test_app(config)
     yield app
 

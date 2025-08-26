@@ -3,43 +3,37 @@
 This module provides fixtures for setting up command handling tests.
 """
 
-import re as re_module
 from collections.abc import Callable, Coroutine
 from typing import Any, cast
 from unittest.mock import Mock, PropertyMock
 
 import pytest
 from fastapi import FastAPI
-from src.command_config import CommandProcessorConfig
-from src.constants import DEFAULT_COMMAND_PREFIX
 from src.core.domain.chat import ChatMessage
 from src.core.domain.configuration.backend_config import BackendConfiguration
 from src.core.domain.multimodal import ContentPart, ContentType
 from src.core.domain.session import Session, SessionStateAdapter
 from src.core.interfaces.command_processor_interface import ICommandProcessor
+from src.core.services.command_service import CommandRegistry, CommandService
 
 
 @pytest.fixture
 def command_parser_config(
     test_session_state: SessionStateAdapter, app: FastAPI
-) -> CommandProcessorConfig:
-    """Create a CommandParserConfig for testing.
+) -> CommandService:
+    """Return a DI-based CommandService for testing (replacement for legacy config)."""
 
-    Args:
-        test_session_state: A test session state
-        app: The FastAPI test application
+    # Provide a minimal session service for DI
+    class _SessionSvc:
+        async def get_session(self, session_id: str) -> Session:
+            return Session(session_id=session_id, state=test_session_state)
 
-    Returns:
-        CommandParserConfig: A command parser config
-    """
-    return CommandProcessorConfig(
-        proxy_state=test_session_state,
-        app=app,
-        preserve_unknown=False,
-        command_pattern=re_module.compile(DEFAULT_COMMAND_PREFIX),
-        handlers={},  # Assuming no commands are registered in this fixture by default
-        command_results=[],
-    )
+        async def update_session(self, session: Session) -> None:  # type: ignore[override]
+            return None
+
+    # Empty registry by default; tests can register commands as needed
+    registry = CommandRegistry()
+    return CommandService(registry, session_service=_SessionSvc())
 
 
 @pytest.fixture

@@ -1,4 +1,4 @@
-from src.command_processor import parse_arguments
+from src.core.common.command_args import parse_command_arguments as parse_arguments
 
 
 def test_parse_arguments_empty():

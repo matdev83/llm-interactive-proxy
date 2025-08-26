@@ -39,7 +39,9 @@ class TestProjectDirCommandHandler:
             "!/project-dir(C:\\Users\\username\\projects\\myproject)",
         ]
 
-    def test_can_handle_project_dir_variations(self, handler: ProjectDirCommandHandler) -> None:
+    def test_can_handle_project_dir_variations(
+        self, handler: ProjectDirCommandHandler
+    ) -> None:
         """Test can_handle with various project directory parameter names."""
         # Exact matches
         assert handler.can_handle("project-dir") is True
@@ -61,7 +63,10 @@ class TestProjectDirCommandHandler:
 
     @pytest.mark.asyncio
     async def test_handle_with_valid_directory(
-        self, handler: ProjectDirCommandHandler, mock_state: ISessionState, tmp_path: Path
+        self,
+        handler: ProjectDirCommandHandler,
+        mock_state: ISessionState,
+        tmp_path: Path,
     ) -> None:
         """Test handle with a valid directory path."""
         test_dir = tmp_path / "test_project"
@@ -96,7 +101,10 @@ class TestProjectDirCommandHandler:
 
     @pytest.mark.asyncio
     async def test_handle_with_file_path(
-        self, handler: ProjectDirCommandHandler, mock_state: ISessionState, tmp_path: Path
+        self,
+        handler: ProjectDirCommandHandler,
+        mock_state: ISessionState,
+        tmp_path: Path,
     ) -> None:
         """Test handle with a file path instead of directory."""
         test_file = tmp_path / "test_file.txt"
@@ -144,7 +152,10 @@ class TestProjectDirCommandHandler:
 
     @pytest.mark.asyncio
     async def test_handle_with_relative_path(
-        self, handler: ProjectDirCommandHandler, mock_state: ISessionState, tmp_path: Path
+        self,
+        handler: ProjectDirCommandHandler,
+        mock_state: ISessionState,
+        tmp_path: Path,
     ) -> None:
         """Test handle with relative path."""
         # Create a subdirectory
@@ -170,7 +181,10 @@ class TestProjectDirCommandHandler:
 
     @pytest.mark.asyncio
     async def test_handle_with_current_directory(
-        self, handler: ProjectDirCommandHandler, mock_state: ISessionState, tmp_path: Path
+        self,
+        handler: ProjectDirCommandHandler,
+        mock_state: ISessionState,
+        tmp_path: Path,
     ) -> None:
         """Test handle with current directory (dot)."""
         result = handler.handle(".", mock_state)
@@ -186,7 +200,10 @@ class TestProjectDirCommandHandler:
 
     @pytest.mark.asyncio
     async def test_handle_with_parent_directory(
-        self, handler: ProjectDirCommandHandler, mock_state: ISessionState, tmp_path: Path
+        self,
+        handler: ProjectDirCommandHandler,
+        mock_state: ISessionState,
+        tmp_path: Path,
     ) -> None:
         """Test handle with parent directory."""
         # Create a nested directory structure
@@ -205,7 +222,10 @@ class TestProjectDirCommandHandler:
 
     @pytest.mark.asyncio
     async def test_handle_with_none_context(
-        self, handler: ProjectDirCommandHandler, mock_state: ISessionState, tmp_path: Path
+        self,
+        handler: ProjectDirCommandHandler,
+        mock_state: ISessionState,
+        tmp_path: Path,
     ) -> None:
         """Test handle with None context."""
         test_dir = tmp_path / "test_project"
@@ -223,7 +243,10 @@ class TestProjectDirCommandHandler:
 
     @pytest.mark.asyncio
     async def test_handle_with_nested_directory_path(
-        self, handler: ProjectDirCommandHandler, mock_state: ISessionState, tmp_path: Path
+        self,
+        handler: ProjectDirCommandHandler,
+        mock_state: ISessionState,
+        tmp_path: Path,
     ) -> None:
         """Test handle with deeply nested directory path."""
         # Create a deeply nested directory

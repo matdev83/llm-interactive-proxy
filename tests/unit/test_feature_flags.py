@@ -1,4 +1,3 @@
-
 from src.core.services.application_state_service import ApplicationStateService
 
 
@@ -27,4 +26,3 @@ def test_feature_flags_state_provider_bridge() -> None:
     svc.set_use_streaming_pipeline(False)
     assert getattr(provider, "PROXY_USE_FAILOVER_STRATEGY", None) is True
     assert getattr(provider, "PROXY_USE_STREAMING_PIPELINE", None) is False
-

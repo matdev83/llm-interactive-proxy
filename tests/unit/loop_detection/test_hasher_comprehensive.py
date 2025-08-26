@@ -118,8 +118,8 @@ class TestContentHasher:
 
         content1 = "hello world"
         content2 = "hello  world"  # extra space
-        content3 = "helloworld"    # no space
-        content4 = " hello world " # leading/trailing spaces
+        content3 = "helloworld"  # no space
+        content4 = " hello world "  # leading/trailing spaces
 
         result1 = hasher.hash(content1)
         result2 = hasher.hash(content2)
@@ -271,12 +271,12 @@ class TestContentHasher:
 
         # Test various Unicode characters
         unicode_chars = [
-            "café",      # Latin with accent
-            "naïve",     # Latin with diaeresis
-            "北京",       # Chinese
-            "العربية",   # Arabic
-            "русский",   # Cyrillic
-            "🌟⭐",      # Emoji
+            "café",  # Latin with accent
+            "naïve",  # Latin with diaeresis
+            "北京",  # Chinese
+            "العربية",  # Arabic
+            "русский",  # Cyrillic
+            "🌟⭐",  # Emoji
         ]
 
         for content in unicode_chars:
@@ -315,7 +315,7 @@ class TestContentHasher:
         tab = "\t"
         newline = "\n"
         multiple_spaces = "   "
-        zero_width = "\u200B"  # Zero-width space
+        zero_width = "\u200b"  # Zero-width space
 
         contents = [empty, space, tab, newline, multiple_spaces, zero_width]
         results = [hasher.hash(content) for content in contents]

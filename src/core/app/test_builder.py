@@ -233,9 +233,13 @@ async def build_test_app_async(config: AppConfig | None = None) -> FastAPI:
             install_api_key_redaction_filter,
         )
 
-        api_keys = discover_api_keys_from_config_and_env(
-            getattr(app, "state", None) and app.state.app_config
-        )
+        # Use IApplicationState to get config for API key discovery
+        app_config = None
+        if hasattr(app, "state") and hasattr(
+            app.state, "app_config"
+        ):  # noqa: DIP-violation-test-utility
+            app_config = app.state.app_config
+        api_keys = discover_api_keys_from_config_and_env(app_config)
         install_api_key_redaction_filter(api_keys)
     except Exception:
         # Don't fail test app creation if redaction installation fails
@@ -300,9 +304,13 @@ async def build_minimal_test_app_async(config: AppConfig | None = None) -> FastA
             install_api_key_redaction_filter,
         )
 
-        api_keys = discover_api_keys_from_config_and_env(
-            getattr(app, "state", None) and app.state.app_config
-        )
+        # Use IApplicationState to get config for API key discovery
+        app_config = None
+        if hasattr(app, "state") and hasattr(
+            app.state, "app_config"
+        ):  # noqa: DIP-violation-test-utility
+            app_config = app.state.app_config
+        api_keys = discover_api_keys_from_config_and_env(app_config)
         install_api_key_redaction_filter(api_keys)
     except Exception:
         pass

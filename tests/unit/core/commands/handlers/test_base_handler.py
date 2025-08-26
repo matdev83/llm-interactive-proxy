@@ -65,12 +65,18 @@ class TestBaseCommandHandler:
 
     def test_initialization(self) -> None:
         """Test BaseCommandHandler initialization."""
+
         # Create a concrete implementation for testing
         class ConcreteHandler(BaseCommandHandler):
             def __init__(self) -> None:
                 super().__init__("test-handler", ["alias1", "alias2"])
 
-            def handle(self, param_value: Any, current_state: ISessionState, context: CommandContext | None = None) -> CommandHandlerResult:
+            def handle(
+                self,
+                param_value: Any,
+                current_state: ISessionState,
+                context: CommandContext | None = None,
+            ) -> CommandHandlerResult:
                 return CommandHandlerResult(success=True, message="test")
 
         handler = ConcreteHandler()
@@ -82,12 +88,18 @@ class TestBaseCommandHandler:
 
     def test_initialization_without_aliases(self) -> None:
         """Test BaseCommandHandler initialization without aliases."""
+
         # Create a concrete implementation for testing
         class ConcreteHandler(BaseCommandHandler):
             def __init__(self) -> None:
                 super().__init__("test-handler")
 
-            def handle(self, param_value: Any, current_state: ISessionState, context: CommandContext | None = None) -> CommandHandlerResult:
+            def handle(
+                self,
+                param_value: Any,
+                current_state: ISessionState,
+                context: CommandContext | None = None,
+            ) -> CommandHandlerResult:
                 return CommandHandlerResult(success=True, message="test")
 
         handler = ConcreteHandler()
@@ -97,34 +109,56 @@ class TestBaseCommandHandler:
 
     def test_can_handle_exact_match(self) -> None:
         """Test can_handle with exact parameter name match."""
+
         class ConcreteHandler(BaseCommandHandler):
-            def handle(self, param_value: Any, current_state: ISessionState, context: CommandContext | None = None) -> CommandHandlerResult:
+            def handle(
+                self,
+                param_value: Any,
+                current_state: ISessionState,
+                context: CommandContext | None = None,
+            ) -> CommandHandlerResult:
                 return CommandHandlerResult(success=True, message="test")
 
         handler = ConcreteHandler("test-param", ["alias1"])
 
         assert handler.can_handle("test-param") is True
         assert handler.can_handle("test_param") is True
-        assert handler.can_handle("test param") is False  # spaces are not converted to dashes
+        assert (
+            handler.can_handle("test param") is False
+        )  # spaces are not converted to dashes
 
     def test_can_handle_alias_match(self) -> None:
         """Test can_handle with alias match."""
+
         class ConcreteHandler(BaseCommandHandler):
-            def handle(self, param_value: Any, current_state: ISessionState, context: CommandContext | None = None) -> CommandHandlerResult:
+            def handle(
+                self,
+                param_value: Any,
+                current_state: ISessionState,
+                context: CommandContext | None = None,
+            ) -> CommandHandlerResult:
                 return CommandHandlerResult(success=True, message="test")
 
         handler = ConcreteHandler("test-param", ["alias1", "alias2"])
 
         assert handler.can_handle("alias1") is True
-        assert handler.can_handle("alias_1") is False  # underscore not replaced with dash
+        assert (
+            handler.can_handle("alias_1") is False
+        )  # underscore not replaced with dash
         assert handler.can_handle("alias 1") is False  # space not replaced with dash
 
         assert handler.can_handle("alias2") is True
 
     def test_can_handle_case_insensitive(self) -> None:
         """Test can_handle is case insensitive."""
+
         class ConcreteHandler(BaseCommandHandler):
-            def handle(self, param_value: Any, current_state: ISessionState, context: CommandContext | None = None) -> CommandHandlerResult:
+            def handle(
+                self,
+                param_value: Any,
+                current_state: ISessionState,
+                context: CommandContext | None = None,
+            ) -> CommandHandlerResult:
                 return CommandHandlerResult(success=True, message="test")
 
         handler = ConcreteHandler("Test-Param", ["Alias-One"])
@@ -138,8 +172,14 @@ class TestBaseCommandHandler:
 
     def test_can_handle_no_match(self) -> None:
         """Test can_handle returns False for no match."""
+
         class ConcreteHandler(BaseCommandHandler):
-            def handle(self, param_value: Any, current_state: ISessionState, context: CommandContext | None = None) -> CommandHandlerResult:
+            def handle(
+                self,
+                param_value: Any,
+                current_state: ISessionState,
+                context: CommandContext | None = None,
+            ) -> CommandHandlerResult:
                 return CommandHandlerResult(success=True, message="test")
 
         handler = ConcreteHandler("test-param", ["alias1"])
@@ -150,8 +190,14 @@ class TestBaseCommandHandler:
 
     def test_convert_to_legacy_result_success(self) -> None:
         """Test convert_to_legacy_result for successful result."""
+
         class ConcreteHandler(BaseCommandHandler):
-            def handle(self, param_value: Any, current_state: ISessionState, context: CommandContext | None = None) -> CommandHandlerResult:
+            def handle(
+                self,
+                param_value: Any,
+                current_state: ISessionState,
+                context: CommandContext | None = None,
+            ) -> CommandHandlerResult:
                 return CommandHandlerResult(success=True, message="test")
 
         handler = ConcreteHandler("test-handler")
@@ -161,7 +207,9 @@ class TestBaseCommandHandler:
             message="Success message",
         )
 
-        handled, message_or_result, requires_auth = handler.convert_to_legacy_result(result)
+        handled, message_or_result, requires_auth = handler.convert_to_legacy_result(
+            result
+        )
 
         assert handled is True
         assert message_or_result == "Success message"
@@ -169,8 +217,14 @@ class TestBaseCommandHandler:
 
     def test_convert_to_legacy_result_failure(self) -> None:
         """Test convert_to_legacy_result for failed result."""
+
         class ConcreteHandler(BaseCommandHandler):
-            def handle(self, param_value: Any, current_state: ISessionState, context: CommandContext | None = None) -> CommandHandlerResult:
+            def handle(
+                self,
+                param_value: Any,
+                current_state: ISessionState,
+                context: CommandContext | None = None,
+            ) -> CommandHandlerResult:
                 return CommandHandlerResult(success=True, message="test")
 
         handler = ConcreteHandler("test-handler")
@@ -180,7 +234,9 @@ class TestBaseCommandHandler:
             message="Error message",
         )
 
-        handled, message_or_result, requires_auth = handler.convert_to_legacy_result(result)
+        handled, message_or_result, requires_auth = handler.convert_to_legacy_result(
+            result
+        )
 
         assert handled is True
         assert isinstance(message_or_result, CommandResult)
@@ -191,8 +247,14 @@ class TestBaseCommandHandler:
 
     def test_convert_to_legacy_result_with_command_name(self) -> None:
         """Test convert_to_legacy_result with custom command name."""
+
         class ConcreteHandler(BaseCommandHandler):
-            def handle(self, param_value: Any, current_state: ISessionState, context: CommandContext | None = None) -> CommandHandlerResult:
+            def handle(
+                self,
+                param_value: Any,
+                current_state: ISessionState,
+                context: CommandContext | None = None,
+            ) -> CommandHandlerResult:
                 return CommandHandlerResult(success=True, message="test")
 
         handler = ConcreteHandler("test-handler")
@@ -202,7 +264,9 @@ class TestBaseCommandHandler:
             message="Error message",
         )
 
-        handled, message_or_result, requires_auth = handler.convert_to_legacy_result(result, "custom")
+        handled, message_or_result, requires_auth = handler.convert_to_legacy_result(
+            result, "custom"
+        )
 
         assert handled is True
         assert isinstance(message_or_result, CommandResult)
@@ -217,8 +281,14 @@ class TestICommandHandlerInterface:
 
     def test_base_command_handler_implements_interface(self) -> None:
         """Test that BaseCommandHandler implements ICommandHandler."""
+
         class ConcreteHandler(BaseCommandHandler):
-            def handle(self, param_value: Any, current_state: ISessionState, context: CommandContext | None = None) -> CommandHandlerResult:
+            def handle(
+                self,
+                param_value: Any,
+                current_state: ISessionState,
+                context: CommandContext | None = None,
+            ) -> CommandHandlerResult:
                 return CommandHandlerResult(success=True, message="test")
 
         handler = ConcreteHandler("test-handler")

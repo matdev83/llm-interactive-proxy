@@ -175,7 +175,9 @@ class TestNormalizeStreamingResponse:
         ),
         normalize=st.booleans(),
     )
-    @settings(deadline=None)  # Disable deadline for this test due to variable execution time
+    @settings(
+        deadline=None
+    )  # Disable deadline for this test due to variable execution time
     @pytest.mark.asyncio
     async def test_normalize_streaming_response_property_based(
         self, data_list, media_type, normalize

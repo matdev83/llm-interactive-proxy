@@ -9,7 +9,7 @@ import pytest
 from hypothesis import HealthCheck, given, settings
 from hypothesis import strategies as st
 from src.core.domain.chat import StreamingChatResponse
-from src.core.domain.streaming_response_processor import StreamNormalizer
+from src.core.domain.streaming_response_processor import StreamingContent
 from src.core.interfaces.application_state_interface import IApplicationState
 from src.core.interfaces.loop_detector_interface import ILoopDetector
 from src.core.interfaces.response_processor_interface import (
@@ -17,6 +17,7 @@ from src.core.interfaces.response_processor_interface import (
     ProcessedResponse,
 )
 from src.core.services.response_processor_service import ResponseProcessor
+from src.core.services.streaming.stream_normalizer import StreamNormalizer
 
 
 class TestResponseProcessor:
@@ -33,16 +34,25 @@ class TestResponseProcessor:
     def mock_stream_normalizer(self) -> Mock:
         """Create a mock StreamNormalizer."""
         normalizer = Mock(spec=StreamNormalizer)
-        normalizer.normalize_streaming_response = AsyncMock(side_effect=lambda x: x)
 
-        # Create an async generator that will be returned by process_stream
-        async def mock_generator():
-            yield StreamingChatResponse(model="test-model", content="Hello")
-            yield StreamingChatResponse(model="test-model", content=" world")
+        # The new StreamNormalizer only has process_stream, not normalize_streaming_response
+        # We need to mock process_stream to return an async generator of StreamingContent
+        async def mock_generator(
+            *args, **kwargs
+        ) -> AsyncGenerator[StreamingContent, None]:
+            yield StreamingContent(
+                content="Hello",
+                metadata={"model": "test-model", "session_id": "test-session"},
+            )
+            yield StreamingContent(
+                content=" world",
+                metadata={"model": "test-model", "session_id": "test-session"},
+            )
 
-        # Call mock_generator() to get the actual async generator
-        mock_async_gen = mock_generator()
-        normalizer.process_stream = AsyncMock(return_value=mock_async_gen)
+        # Create an AsyncMock that returns the generator
+        mock_process_stream = AsyncMock()
+        mock_process_stream.return_value = mock_generator()
+        normalizer.process_stream = mock_process_stream
         return normalizer
 
     @pytest.fixture
@@ -137,7 +147,25 @@ class TestResponseProcessor:
             yield {"choices": [{"delta": {"content": " world"}}]}
             yield {"choices": [{"delta": {"content": "!"}}]}
 
-        processor = ResponseProcessor(app_state=mock_app_state)
+        # Create a custom stream normalizer for this test
+        from src.core.domain.streaming_response_processor import StreamingContent
+
+        async def mock_process_stream(*args, **kwargs):
+            yield StreamingContent(
+                content="Hello", metadata={"session_id": "test-session"}
+            )
+            yield StreamingContent(
+                content=" world", metadata={"session_id": "test-session"}
+            )
+            yield StreamingContent(content="!", metadata={"session_id": "test-session"})
+
+        # Create a mock stream normalizer
+        mock_normalizer = Mock()
+        mock_normalizer.process_stream = mock_process_stream
+
+        processor = ResponseProcessor(
+            app_state=mock_app_state, stream_normalizer=mock_normalizer
+        )
         stream = processor.process_streaming_response(mock_stream(), "test-session")  # type: ignore
 
         results = []
@@ -159,7 +187,26 @@ class TestResponseProcessor:
             yield StreamingChatResponse(content="Hello", model="test-model")
             yield StreamingChatResponse(content=" world", model="test-model")
 
-        processor = ResponseProcessor(app_state=mock_app_state)
+        # Create a custom stream normalizer for this test
+        from src.core.domain.streaming_response_processor import StreamingContent
+
+        async def mock_process_stream(*args, **kwargs):
+            yield StreamingContent(
+                content="Hello",
+                metadata={"model": "test-model", "session_id": "test-session"},
+            )
+            yield StreamingContent(
+                content=" world",
+                metadata={"model": "test-model", "session_id": "test-session"},
+            )
+
+        # Create a mock stream normalizer
+        mock_normalizer = Mock()
+        mock_normalizer.process_stream = mock_process_stream
+
+        processor = ResponseProcessor(
+            app_state=mock_app_state, stream_normalizer=mock_normalizer
+        )
         stream = processor.process_streaming_response(mock_stream(), "test-session")  # type: ignore
 
         results = []
@@ -180,7 +227,24 @@ class TestResponseProcessor:
             yield b'data: {"choices": [{"delta": {"content": "Hello"}}]}\n\n'
             yield b'data: {"choices": [{"delta": {"content": " world"}}]}\n\n'
 
-        processor = ResponseProcessor(app_state=mock_app_state)
+        # Create a custom stream normalizer for this test
+        from src.core.domain.streaming_response_processor import StreamingContent
+
+        async def mock_process_stream(*args, **kwargs):
+            yield StreamingContent(
+                content="Hello", metadata={"session_id": "test-session"}
+            )
+            yield StreamingContent(
+                content=" world", metadata={"session_id": "test-session"}
+            )
+
+        # Create a mock stream normalizer
+        mock_normalizer = Mock()
+        mock_normalizer.process_stream = mock_process_stream
+
+        processor = ResponseProcessor(
+            app_state=mock_app_state, stream_normalizer=mock_normalizer
+        )
         stream = processor.process_streaming_response(mock_stream(), "test-session")  # type: ignore
 
         results = []
@@ -188,34 +252,58 @@ class TestResponseProcessor:
             results.append(result)
 
         assert len(results) == 2
-        assert "Hello" in results[0].content  # type: ignore
-        assert "world" in results[1].content  # type: ignore
+        assert results[0].content == "Hello"
+        assert results[1].content == " world"
 
-    @pytest.mark.skip(
-        reason="Complex mock setup for streaming normalizer - functionality tested elsewhere"
-    )
     @pytest.mark.asyncio
     async def test_process_streaming_response_with_normalizer_enabled(
-        self, mock_app_state: Mock, mock_stream_normalizer: Mock
+        self, mock_app_state: Mock
     ) -> None:
         """Test processing a streaming response with stream normalizer enabled."""
         mock_app_state.get_use_streaming_pipeline.return_value = True
 
         # Create a simple async generator for testing
-        async def test_stream():
-            yield StreamingChatResponse(model="test-model", content="Hello")
-            yield StreamingChatResponse(model="test-model", content=" world")
+        async def test_stream() -> (
+            AsyncGenerator[dict[str, list[dict[str, dict[str, str]]]], None]
+        ):
+            yield {"choices": [{"delta": {"content": "Hello"}}]}
+            yield {"choices": [{"delta": {"content": " world"}}]}
+
+        # Create a custom stream normalizer for this test
+        from src.core.domain.streaming_response_processor import StreamingContent
+
+        async def mock_process_stream(*args, **kwargs):
+            yield StreamingContent(
+                content="Hello", metadata={"session_id": "test-session"}
+            )
+            yield StreamingContent(
+                content=" world", metadata={"session_id": "test-session"}
+            )
+
+        # Create a mock stream normalizer with process_stream method
+        mock_normalizer = Mock()
+        mock_process_stream_mock = AsyncMock()
+        mock_process_stream_mock.return_value = mock_process_stream()
+        mock_normalizer.process_stream = mock_process_stream_mock
+
+        # Create a simple async generator for testing
+        test_stream_instance = test_stream()
 
         processor = ResponseProcessor(
-            app_state=mock_app_state, stream_normalizer=mock_stream_normalizer
+            app_state=mock_app_state, stream_normalizer=mock_normalizer
         )
-        stream = processor.process_streaming_response(test_stream(), "test-session")
+        stream = processor.process_streaming_response(
+            test_stream_instance, "test-session"
+        )
 
         results = []
         async for result in stream:
             results.append(result)
 
-        mock_stream_normalizer.normalize_streaming_response.assert_called_once()
+        # Verify process_stream was called with the correct arguments
+        mock_normalizer.process_stream.assert_called_once_with(
+            test_stream_instance, output_format="objects"
+        )
         assert len(results) == 2
         assert results[0].content == "Hello"
         assert results[1].content == " world"

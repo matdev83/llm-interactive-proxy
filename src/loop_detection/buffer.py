@@ -9,7 +9,7 @@ class ResponseBuffer:
 
     def __init__(self, max_size: int = 2048):
         self.max_size = max_size
-        self.buffer: deque[str] = deque()
+        self.buffer: deque[str | bytes] = deque()
         self.total_length = 0
         self.stored_length = 0
 
@@ -40,7 +40,10 @@ class ResponseBuffer:
     def get_content(self) -> str:
         """Get the current buffer content as a string."""
         # Convert bytes to string for joining
-        return "".join(item.decode('utf-8') if isinstance(item, bytes) else str(item) for item in self.buffer)
+        return "".join(
+            item.decode("utf-8") if isinstance(item, bytes) else str(item)
+            for item in self.buffer
+        )
 
     def get_recent_content(self, length: int) -> str:
         """Get the most recent content up to specified length."""
@@ -56,7 +59,3 @@ class ResponseBuffer:
         self.buffer.clear()
         self.total_length = 0
         self.stored_length = 0
-
-    def size(self) -> int:
-        """Get current buffer size."""
-        return self.stored_length

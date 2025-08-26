@@ -42,7 +42,9 @@ class TestCreateExceptionHandler:
         return create_exception_handler()
 
     @pytest.mark.asyncio
-    async def test_handle_llm_proxy_error(self, mock_request: Mock, exception_handler) -> None:
+    async def test_handle_llm_proxy_error(
+        self, mock_request: Mock, exception_handler
+    ) -> None:
         """Test handling LLMProxyError."""
         error = LLMProxyError(
             message="Test error",
@@ -59,7 +61,9 @@ class TestCreateExceptionHandler:
         assert "test_error" in content
 
     @pytest.mark.asyncio
-    async def test_handle_rate_limit_error_with_reset(self, mock_request: Mock, exception_handler) -> None:
+    async def test_handle_rate_limit_error_with_reset(
+        self, mock_request: Mock, exception_handler
+    ) -> None:
         """Test handling RateLimitExceededError with reset time."""
         error = RateLimitExceededError(
             message="Rate limit exceeded",
@@ -74,7 +78,9 @@ class TestCreateExceptionHandler:
         assert response.headers["Retry-After"] == "60"
 
     @pytest.mark.asyncio
-    async def test_handle_rate_limit_error_without_reset(self, mock_request: Mock, exception_handler) -> None:
+    async def test_handle_rate_limit_error_without_reset(
+        self, mock_request: Mock, exception_handler
+    ) -> None:
         """Test handling RateLimitExceededError without reset time."""
         error = RateLimitExceededError(
             message="Rate limit exceeded",
@@ -88,7 +94,9 @@ class TestCreateExceptionHandler:
         assert "Retry-After" not in response.headers
 
     @pytest.mark.asyncio
-    async def test_handle_authentication_error(self, mock_request: Mock, exception_handler) -> None:
+    async def test_handle_authentication_error(
+        self, mock_request: Mock, exception_handler
+    ) -> None:
         """Test handling AuthenticationError."""
         error = AuthenticationError(
             message="Authentication failed",
@@ -103,7 +111,9 @@ class TestCreateExceptionHandler:
         assert "Authentication failed" in content
 
     @pytest.mark.asyncio
-    async def test_handle_backend_error(self, mock_request: Mock, exception_handler) -> None:
+    async def test_handle_backend_error(
+        self, mock_request: Mock, exception_handler
+    ) -> None:
         """Test handling BackendError."""
         error = BackendError(
             message="Backend unavailable",
@@ -119,7 +129,9 @@ class TestCreateExceptionHandler:
         assert "Backend unavailable" in content
 
     @pytest.mark.asyncio
-    async def test_handle_configuration_error(self, mock_request: Mock, exception_handler) -> None:
+    async def test_handle_configuration_error(
+        self, mock_request: Mock, exception_handler
+    ) -> None:
         """Test handling ConfigurationError."""
         error = ConfigurationError(
             message="Configuration invalid",
@@ -134,7 +146,9 @@ class TestCreateExceptionHandler:
         assert "Configuration invalid" in content
 
     @pytest.mark.asyncio
-    async def test_handle_service_unavailable_error(self, mock_request: Mock, exception_handler) -> None:
+    async def test_handle_service_unavailable_error(
+        self, mock_request: Mock, exception_handler
+    ) -> None:
         """Test handling ServiceUnavailableError."""
         error = ServiceUnavailableError(
             message="Service unavailable",
@@ -149,7 +163,9 @@ class TestCreateExceptionHandler:
         assert "Service unavailable" in content
 
     @pytest.mark.asyncio
-    async def test_handle_loop_detection_error(self, mock_request: Mock, exception_handler) -> None:
+    async def test_handle_loop_detection_error(
+        self, mock_request: Mock, exception_handler
+    ) -> None:
         """Test handling LoopDetectionError."""
         error = LoopDetectionError(
             message="Loop detected",
@@ -165,7 +181,9 @@ class TestCreateExceptionHandler:
         assert "Loop detected" in content
 
     @pytest.mark.asyncio
-    async def test_handle_fastapi_http_exception(self, mock_request: Mock, exception_handler) -> None:
+    async def test_handle_fastapi_http_exception(
+        self, mock_request: Mock, exception_handler
+    ) -> None:
         """Test handling FastAPI HTTPException."""
         error = StarletteHTTPException(
             status_code=404,
@@ -180,7 +198,9 @@ class TestCreateExceptionHandler:
         assert "Not found" in content
 
     @pytest.mark.asyncio
-    async def test_handle_generic_exception(self, mock_request: Mock, exception_handler) -> None:
+    async def test_handle_generic_exception(
+        self, mock_request: Mock, exception_handler
+    ) -> None:
         """Test handling generic Exception."""
         error = ValueError("Something went wrong")
 

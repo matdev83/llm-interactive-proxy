@@ -1,5 +1,5 @@
-from src.command_parser import get_command_pattern
 from src.constants import DEFAULT_COMMAND_PREFIX
+from src.core.services.command_service import get_command_pattern
 
 # --- Tests for get_command_pattern ---
 

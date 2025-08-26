@@ -5,7 +5,6 @@ This module tests the backend configuration functionality including
 backend/model selection, API URLs, failover routes, and validation.
 """
 
-
 from src.core.domain.configuration.backend_config import BackendConfiguration
 from src.core.interfaces.configuration import IBackendConfig
 
@@ -189,7 +188,11 @@ class TestBackendConfiguration:
 
         # Test with_prepended_route_element
         config = config.with_prepended_route_element("route1", "backend0")
-        assert config.failover_routes["route1"]["elements"] == ["backend0", "backend1", "backend2"]
+        assert config.failover_routes["route1"]["elements"] == [
+            "backend0",
+            "backend1",
+            "backend2",
+        ]
 
         # Test with_cleared_route
         config = config.with_cleared_route("route1")

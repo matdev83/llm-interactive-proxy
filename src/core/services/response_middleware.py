@@ -65,9 +65,14 @@ class ContentFilterMiddleware(IResponseMiddleware):
 class LoopDetectionMiddleware(IResponseMiddleware):
     """Middleware to detect response loops."""
 
-    def __init__(self, loop_detector: ILoopDetector) -> None:
+    def __init__(self, loop_detector: ILoopDetector, priority: int = 0) -> None:
         self._loop_detector = loop_detector
         self._accumulated_content: dict[str, str] = {}
+        self._priority = priority
+
+    @property
+    def priority(self) -> int:
+        return self._priority
 
     async def process(
         self,
@@ -90,7 +95,13 @@ class LoopDetectionMiddleware(IResponseMiddleware):
                 logger.warning(
                     f"Loop detected in session {session_id}: {loop_result.repetitions} repetitions"
                 )
-                raise LoopDetectionError(message=error_message)
+                raise LoopDetectionError(
+                    message=error_message,
+                    details={
+                        "repetitions": loop_result.repetitions,
+                        "pattern": loop_result.pattern,
+                    },
+                )
 
         return response
 

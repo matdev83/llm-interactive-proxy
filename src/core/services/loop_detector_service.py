@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from src.core.interfaces.loop_detector_interface import (
+from src.core.interfaces.loop_detector import (
     ILoopDetector,
     LoopDetectionResult,
 )
@@ -132,3 +132,52 @@ class LoopDetector(ILoopDetector):
 
     async def clear_history(self) -> None:
         return None
+
+    def is_enabled(self) -> bool:
+        """
+        Checks if loop detection is currently enabled.
+
+        Returns:
+            True if enabled, False otherwise.
+        """
+        return True
+
+    def process_chunk(self, chunk: str) -> Any:
+        """
+        Processes a single chunk of text for loop detection.
+
+        Args:
+            chunk: The text chunk to process.
+
+        Returns:
+            A LoopDetectionEvent if a loop is detected, otherwise None.
+        """
+        return None
+
+    def reset(self) -> None:
+        """
+        Resets the internal state of the loop detector.
+        This should be called before processing a new sequence of chunks.
+        """
+
+    def get_loop_history(self) -> list[Any]:
+        """
+        Retrieves the history of detected loops.
+
+        Returns:
+            A list of historical loop detection data.
+        """
+        return []
+
+    def get_current_state(self) -> dict[str, Any]:
+        """
+        Retrieves the current internal state of the loop detector.
+
+        Returns:
+            A dictionary representing the current state.
+        """
+        return {
+            "min_pattern_length": self._min_pattern_length,
+            "max_pattern_length": self._max_pattern_length,
+            "min_repetitions": self._min_repetitions,
+        }

@@ -87,7 +87,7 @@ class InfrastructureStage(InitializationStage):
     def _register_loop_detector(self, services: ServiceCollection) -> None:
         """Register loop detector service."""
         try:
-            from src.core.interfaces.loop_detector_interface import ILoopDetector
+            from src.core.interfaces.loop_detector import ILoopDetector
             from src.core.services.loop_detector_service import LoopDetector
 
             # Register concrete implementation

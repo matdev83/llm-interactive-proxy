@@ -72,26 +72,28 @@ class SOLIDViolationDetector(ast.NodeVisitor):
         """Visit attribute access."""
         # Check for direct app.state access
         if self._is_app_state_access(node):
-            if self.is_domain_layer:
-                self.violations.append(
-                    ArchitecturalViolation(
-                        self.file_path,
-                        node.lineno,
-                        node.col_offset,
-                        "Domain layer should not directly access app.state. Use IApplicationState through DI.",
-                        "error",
+            # Check if there's a noqa comment for DIP violations
+            if not self._has_dip_noqa_comment(node):
+                if self.is_domain_layer:
+                    self.violations.append(
+                        ArchitecturalViolation(
+                            self.file_path,
+                            node.lineno,
+                            node.col_offset,
+                            "Domain layer should not directly access app.state. Use IApplicationState through DI.",
+                            "error",
+                        )
                     )
-                )
-            elif self.is_service_layer:
-                self.violations.append(
-                    ArchitecturalViolation(
-                        self.file_path,
-                        node.lineno,
-                        node.col_offset,
-                        "Service layer should use IApplicationState abstraction instead of direct app.state access.",
-                        "warning",
+                elif self.is_service_layer:
+                    self.violations.append(
+                        ArchitecturalViolation(
+                            self.file_path,
+                            node.lineno,
+                            node.col_offset,
+                            "Service layer should use IApplicationState abstraction instead of direct app.state access.",
+                            "warning",
+                        )
                     )
-                )
 
         # Check for context.app_state access
         if self._is_context_app_state_access(node):
@@ -126,15 +128,17 @@ class SOLIDViolationDetector(ast.NodeVisitor):
                 ):
 
                     if self._references_app_object(first_arg):
-                        self.violations.append(
-                            ArchitecturalViolation(
-                                self.file_path,
-                                node.lineno,
-                                node.col_offset,
-                                f"Avoid {node.func.id}() on app.state. Use IApplicationState service.",
-                                "warning",
+                        # Check if there's a noqa comment for DIP violations
+                        if not self._has_dip_noqa_comment_for_call(node):
+                            self.violations.append(
+                                ArchitecturalViolation(
+                                    self.file_path,
+                                    node.lineno,
+                                    node.col_offset,
+                                    f"Avoid {node.func.id}() on app.state. Use IApplicationState service.",
+                                    "warning",
+                                )
                             )
-                        )
 
         self.generic_visit(node)
 
@@ -160,6 +164,34 @@ class SOLIDViolationDetector(ast.NodeVisitor):
             return node.attr == "app" or self._references_app_object(node.value)
         if isinstance(node, ast.Name):
             return "app" in node.id.lower()
+        return False
+
+    def _has_dip_noqa_comment(self, node: ast.Attribute) -> bool:
+        """Check if the node has a DIP noqa comment."""
+        # This is a simplified check - in a real implementation you'd need to parse comments
+        # For now, we'll check if the line contains specific noqa patterns
+        try:
+            with open(self.file_path, 'r', encoding='utf-8') as f:
+                lines = f.readlines()
+                if node.lineno - 1 < len(lines):
+                    line = lines[node.lineno - 1]
+                    return 'noqa: DIP-violation' in line or 'DIP-violation-' in line
+        except Exception:
+            pass
+        return False
+
+    def _has_dip_noqa_comment_for_call(self, node: ast.Call) -> bool:
+        """Check if the call node has a DIP noqa comment."""
+        # This is a simplified check - in a real implementation you'd need to parse comments
+        # For now, we'll check if the line contains specific noqa patterns
+        try:
+            with open(self.file_path, 'r', encoding='utf-8') as f:
+                lines = f.readlines()
+                if node.lineno - 1 < len(lines):
+                    line = lines[node.lineno - 1]
+                    return 'noqa: DIP-violation' in line or 'DIP-violation-' in line
+        except Exception:
+            pass
         return False
 
     def _check_domain_class_violations(self, node: ast.ClassDef):

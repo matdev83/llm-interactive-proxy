@@ -42,6 +42,7 @@ python -m src.core.cli --config path/to/config.yaml
 # Run with different backends
 python -m src.core.cli --default-backend openrouter
 python -m src.core.cli --default-backend gemini
+python -m src.core.cli --default-backend gemini-cli-oauth-personal
 python -m src.core.cli --default-backend anthropic
 ```
 
@@ -78,10 +79,10 @@ The project includes a comprehensive DI container usage scanner that analyzes th
 #### Running the DI Scanner
 
 ```bash
-# Run the full DI violation test suite
+# Run the full DI violation test suite (shows concise warnings by default)
 python -m pytest tests/unit/test_di_container_usage.py -v
 
-# Run just the violation detection (shows detailed report)
+# Run just the violation detection (shows concise warning + detailed report)
 python -m pytest tests/unit/test_di_container_usage.py::TestDIContainerUsage::test_di_container_violations_are_detected -v -s
 
 # Run with coverage to see scanner effectiveness
@@ -99,6 +100,14 @@ The scanner identifies violations where services are manually instantiated inste
 
 #### Understanding Scanner Output
 
+**Concise Summary (Default - Always Visible):**
+```
+⚠️  DI CONTAINER VIOLATIONS DETECTED: 61 violations in 14 files.
+Most affected: core\di\services.py: 15, core\app\controllers\chat_controller.py: 8, core\app\controllers\anthropic_controller.py: 6.
+Use -s flag for detailed report | Fix with IServiceProvider.get_required_service()
+```
+
+**Detailed Report (With -s Flag):**
 ```
 🎯 DI Container Scanner Results:
    📊 Total violations found: 61
@@ -204,6 +213,27 @@ Test complete request flows to ensure overall system functionality.
 - **Unit Tests**: Create mock dependencies and instantiate commands directly. For `CommandParser` tests, use mock commands from `tests/unit/mock_commands.py`.
 - **Stateful Commands**: Create mock dependencies for `ISecureStateAccess` and `ISecureStateModification` and pass them to the command constructor.
 - **Skipped Tests**: Update previously skipped tests to use the new DI-based commands.
+
+### Testing OAuth Backends
+
+OAuth backends like `gemini-cli-oauth-personal` have specific testing considerations:
+
+- **Credential Mocking**: Use `pathlib.Path.home` patches to mock `~/.gemini/oauth_creds.json` location
+- **Token Refresh**: Mock `_refresh_token_if_needed()` to test refresh behavior
+- **Health Checks**: Test both successful and failed health check scenarios
+- **File Operations**: Mock file I/O operations for credential loading/saving
+- **Error Scenarios**: Test authentication errors, connectivity issues, and token expiration
+
+Example OAuth backend test pattern:
+
+```python
+@patch('pathlib.Path.home')
+@patch.object(OAuthConnector, '_refresh_token_if_needed', new_callable=AsyncMock)
+async def test_oauth_backend_health_check(self, mock_refresh, mock_home):
+    # Setup mock credentials file
+    mock_home.return_value = Path("/tmp")
+    # ... test implementation
+```
 
 ## Code Quality
 

@@ -87,7 +87,9 @@ class TestInMemoryUsageRepository:
 
     @pytest.mark.asyncio
     async def test_add_usage_data_without_session_id(
-        self, repository: InMemoryUsageRepository, sample_usage_data_no_session: UsageData
+        self,
+        repository: InMemoryUsageRepository,
+        sample_usage_data_no_session: UsageData,
     ) -> None:
         """Test adding usage data without session ID."""
         result = await repository.add(sample_usage_data_no_session)
@@ -110,7 +112,10 @@ class TestInMemoryUsageRepository:
 
     @pytest.mark.asyncio
     async def test_get_all_with_usage_data(
-        self, repository: InMemoryUsageRepository, sample_usage_data: UsageData, sample_usage_data_no_session: UsageData
+        self,
+        repository: InMemoryUsageRepository,
+        sample_usage_data: UsageData,
+        sample_usage_data_no_session: UsageData,
     ) -> None:
         """Test get_all with multiple usage data entries."""
         await repository.add(sample_usage_data)
@@ -198,18 +203,18 @@ class TestInMemoryUsageRepository:
         assert result == []
 
     @pytest.mark.asyncio
-    async def test_get_stats_no_data(
-        self, repository: InMemoryUsageRepository
-    ) -> None:
+    async def test_get_stats_no_data(self, repository: InMemoryUsageRepository) -> None:
         """Test get_stats with no data."""
         result = await repository.get_stats()
-        expected = defaultdict(lambda: {
-            "total_tokens": 0,
-            "prompt_tokens": 0,
-            "completion_tokens": 0,
-            "cost": 0.0,
-            "requests": 0,
-        })
+        expected = defaultdict(
+            lambda: {
+                "total_tokens": 0,
+                "prompt_tokens": 0,
+                "completion_tokens": 0,
+                "cost": 0.0,
+                "requests": 0,
+            }
+        )
         assert result == dict(expected)
 
     @pytest.mark.asyncio
@@ -310,7 +315,7 @@ class TestInMemoryUsageRepository:
                 "completion_tokens": 250,
                 "cost": 0.08,
                 "requests": 1,
-            }
+            },
         }
 
         assert result == expected
@@ -361,14 +366,19 @@ class TestInMemoryUsageRepository:
 
     @pytest.mark.asyncio
     async def test_usage_data_without_session_not_tracked(
-        self, repository: InMemoryUsageRepository, sample_usage_data_no_session: UsageData
+        self,
+        repository: InMemoryUsageRepository,
+        sample_usage_data_no_session: UsageData,
     ) -> None:
         """Test that usage data without session_id is not tracked by session."""
         await repository.add(sample_usage_data_no_session)
 
         # Should not appear in any session queries
         for session_id in repository._session_usage:
-            assert sample_usage_data_no_session.id not in repository._session_usage[session_id]
+            assert (
+                sample_usage_data_no_session.id
+                not in repository._session_usage[session_id]
+            )
 
         # Should still be retrievable by ID
         result = await repository.get_by_session_id("any-session")
@@ -416,13 +426,15 @@ class TestInMemoryUsageRepository:
         assert await repository.get_by_id("any") is None
         assert await repository.delete("any") is False
         assert await repository.get_by_session_id("any") == []
-        assert await repository.get_stats() == defaultdict(lambda: {
-            "total_tokens": 0,
-            "prompt_tokens": 0,
-            "completion_tokens": 0,
-            "cost": 0.0,
-            "requests": 0,
-        })
+        assert await repository.get_stats() == defaultdict(
+            lambda: {
+                "total_tokens": 0,
+                "prompt_tokens": 0,
+                "completion_tokens": 0,
+                "cost": 0.0,
+                "requests": 0,
+            }
+        )
 
     @pytest.mark.asyncio
     async def test_usage_data_with_none_cost(

@@ -298,8 +298,10 @@ def test_cline_non_command_message(interactive_client: TestClient) -> None:
     # Patch the backend service instead of the backend instance
     from src.core.interfaces.backend_service_interface import IBackendService
 
-    backend_service = interactive_client.app.state.service_provider.get_required_service(
-        IBackendService
+    backend_service = (
+        interactive_client.app.state.service_provider.get_required_service(
+            IBackendService
+        )
     )
     with patch.object(
         backend_service,

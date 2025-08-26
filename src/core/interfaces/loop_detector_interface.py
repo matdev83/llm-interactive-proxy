@@ -1,43 +1,89 @@
 from __future__ import annotations
 
-from abc import ABC, abstractmethod
-from typing import Any
+import abc
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from src.loop_detection.event import LoopDetectionEvent
+
+from dataclasses import dataclass
 
 
+@dataclass
 class LoopDetectionResult:
-    def __init__(
-        self,
-        has_loop: bool,
-        pattern: str | None = None,
-        repetitions: int = 0,
-        details: dict[str, Any] | None = None,
-        modified_content: str | None = None,
-    ):
-        self.has_loop = has_loop
-        self.pattern = pattern
-        self.repetitions = repetitions
-        self.details = details or {}
-        self.modified_content = modified_content
+    """Result of a loop detection check."""
+
+    has_loop: bool
+    pattern: str | None = None
+    repetitions: int | None = None
+    details: dict[str, Any] | None = None
 
 
-class ILoopDetector(ABC):
-    @abstractmethod
+class ILoopDetector(abc.ABC):
+    """
+    Interface for a service that detects repetitive patterns or "loops" in text.
+    """
+
+    @abc.abstractmethod
+    def is_enabled(self) -> bool:
+        """
+        Checks if loop detection is currently enabled.
+
+        Returns:
+            True if enabled, False otherwise.
+        """
+        raise NotImplementedError
+
+    @abc.abstractmethod
+    def process_chunk(self, chunk: str) -> LoopDetectionEvent | None:
+        """
+        Processes a single chunk of text for loop detection.
+
+        Args:
+            chunk: The text chunk to process.
+
+        Returns:
+            A LoopDetectionEvent if a loop is detected, otherwise None.
+        """
+        raise NotImplementedError
+
+    @abc.abstractmethod
+    def reset(self) -> None:
+        """
+        Resets the internal state of the loop detector.
+        This should be called before processing a new sequence of chunks.
+        """
+        raise NotImplementedError
+
+    @abc.abstractmethod
+    def get_loop_history(self) -> list[LoopDetectionEvent]:
+        """
+        Retrieves the history of detected loops.
+
+        Returns:
+            A list of historical loop detection data.
+        """
+        raise NotImplementedError
+
+    @abc.abstractmethod
+    def get_current_state(self) -> dict[str, Any]:
+        """
+        Retrieves the current internal state of the loop detector.
+
+        Returns:
+            A dictionary representing the current state.
+        """
+        raise NotImplementedError
+
+    @abc.abstractmethod
     async def check_for_loops(self, content: str) -> LoopDetectionResult:
-        pass
+        """
+        Checks for repetitive patterns (loops) in the given content.
 
-    async def register_tool_call(
-        self, tool_name: str, arguments: dict[str, Any]
-    ) -> None:
-        return None
+        Args:
+            content: The content string to check for loops.
 
-    async def clear_history(self) -> None:
-        return None
-
-    @abstractmethod
-    async def configure(
-        self,
-        min_pattern_length: int = 100,
-        max_pattern_length: int = 8000,
-        min_repetitions: int = 2,
-    ) -> None:
-        pass
+        Returns:
+            A LoopDetectionResult indicating whether a loop was found and details.
+        """
+        raise NotImplementedError

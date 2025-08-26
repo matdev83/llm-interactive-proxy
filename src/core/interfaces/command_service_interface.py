@@ -14,3 +14,7 @@ class ICommandService(ABC):
     @abstractmethod
     async def register_command(self, command_name: str, command_handler: Any) -> None:
         pass
+
+    @abstractmethod
+    def get_command_handlers(self) -> dict[str, Any]:
+        """Get all registered command handlers."""

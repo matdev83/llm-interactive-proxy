@@ -21,6 +21,8 @@ dependencies = [
     "anthropic",
     "structlog",
     "pyyaml",
+    "google-auth>=2.27.0",
+    "google-auth-oauthlib>=1.2.0",
 ]
 requires-python = ">=3.10"
 readme = "README.md"

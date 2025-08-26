@@ -215,7 +215,8 @@ def apply_cli_args(args: argparse.Namespace) -> AppConfig:
     _apply_security_flags(cfg)
     return cfg
 
-  # type: ignore[unreachable]
+
+# type: ignore[unreachable]
 def _validate_and_apply_prefix(cfg: AppConfig) -> None:
     if cfg.command_prefix is None:
         return  # type: ignore[unreachable]

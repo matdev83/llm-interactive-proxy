@@ -105,7 +105,7 @@ class TestStreamingToolCallRepairProcessor:
             ProcessedResponse(content="Hello, "),
             ProcessedResponse(
                 content='{"function_call": {"name": "tool1", "arguments": {"param": "value"}}}'
-            ), # This is the input to the processor, not its output
+            ),  # This is the input to the processor, not its output
             ProcessedResponse(content="World."),
         ]
 
@@ -133,14 +133,20 @@ class TestStreamingToolCallRepairProcessor:
         assert results[1].content is not None
         repaired_tool_call = json.loads(results[1].content)
         assert repaired_tool_call["function"]["name"] == "tool1"
-        assert json.loads(repaired_tool_call["function"]["arguments"]) == {"param": "value"}
+        assert json.loads(repaired_tool_call["function"]["arguments"]) == {
+            "param": "value"
+        }
         assert results[2].content == "World."
 
         # Verify calls to the ToolCallRepairProcessor's process method
-        actual_calls = [c.args[0] for c in mock_tool_call_repair_processor_process.call_args_list]
+        actual_calls = [
+            c.args[0] for c in mock_tool_call_repair_processor_process.call_args_list
+        ]
 
         assert len(actual_calls) == 4
         assert actual_calls[0].content == "Hello, "
-        assert json.loads(actual_calls[1].content) == json.loads(mock_chunks_data[1].content)
+        assert json.loads(actual_calls[1].content) == json.loads(
+            mock_chunks_data[1].content
+        )
         assert actual_calls[2].content == "World."
         assert actual_calls[3].is_done is True and actual_calls[3].content == ""

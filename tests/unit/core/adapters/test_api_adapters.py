@@ -87,7 +87,10 @@ class TestLegacyToDomainChatRequest:
                         {
                             "id": "call_123",
                             "type": "function",
-                            "function": {"name": "get_weather", "arguments": '{"location": "NYC"}'},
+                            "function": {
+                                "name": "get_weather",
+                                "arguments": '{"location": "NYC"}',
+                            },
                         }
                     ],
                 },
@@ -106,6 +109,7 @@ class TestLegacyToDomainChatRequest:
 
     def test_convert_pydantic_model(self) -> None:
         """Test converting a Pydantic model."""
+
         class MockLegacyRequest:
             def __init__(self) -> None:
                 self.model = "gpt-4"
@@ -183,6 +187,7 @@ class TestDictToDomainChatRequest:
 
     def test_convert_legacy_message_objects(self) -> None:
         """Test conversion with legacy message objects."""
+
         class MockMessage:
             def __init__(self) -> None:
                 self.role = "user"
@@ -384,11 +389,15 @@ class TestConvertToolCalls:
 
     def test_convert_legacy_model_tool_calls(self) -> None:
         """Test conversion from legacy model objects."""
+
         class MockToolCall:
             def __init__(self) -> None:
                 self.id = "call_123"
                 self.type = "function"
-                self.function = {"name": "get_weather", "arguments": '{"location": "NYC"}'}
+                self.function = {
+                    "name": "get_weather",
+                    "arguments": '{"location": "NYC"}',
+                }
 
             def model_dump(self) -> dict[str, Any]:
                 return {
@@ -462,6 +471,7 @@ class TestConvertTools:
 
     def test_convert_legacy_model_tools(self) -> None:
         """Test conversion from legacy model objects."""
+
         class MockTool:
             def __init__(self) -> None:
                 self.type = "function"

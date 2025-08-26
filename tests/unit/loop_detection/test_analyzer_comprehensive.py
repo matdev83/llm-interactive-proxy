@@ -5,10 +5,7 @@ This module provides comprehensive test coverage for the PatternAnalyzer class.
 """
 
 import pytest
-import re
-from unittest.mock import Mock
-
-from src.loop_detection.analyzer import PatternAnalyzer, LoopDetectionEvent
+from src.loop_detection.analyzer import LoopDetectionEvent, PatternAnalyzer
 from src.loop_detection.config import LoopDetectionConfig
 from src.loop_detection.hasher import ContentHasher
 
@@ -31,11 +28,15 @@ class TestPatternAnalyzer:
         return ContentHasher()
 
     @pytest.fixture
-    def analyzer(self, config: LoopDetectionConfig, hasher: ContentHasher) -> PatternAnalyzer:
+    def analyzer(
+        self, config: LoopDetectionConfig, hasher: ContentHasher
+    ) -> PatternAnalyzer:
         """Create a fresh PatternAnalyzer for each test."""
         return PatternAnalyzer(config, hasher)
 
-    def test_analyzer_initialization(self, analyzer: PatternAnalyzer, config: LoopDetectionConfig) -> None:
+    def test_analyzer_initialization(
+        self, analyzer: PatternAnalyzer, config: LoopDetectionConfig
+    ) -> None:
         """Test analyzer initialization."""
         assert analyzer.config == config
         assert analyzer.hasher is not None
@@ -78,14 +79,16 @@ class TestPatternAnalyzer:
         # Process the pattern multiple times
         # Note: The exact detection behavior depends on the algorithm implementation
         result = None
-        for i in range(analyzer.config.content_loop_threshold + 1):
+        for _i in range(analyzer.config.content_loop_threshold + 1):
             result = analyzer.analyze_chunk(pattern, pattern)
 
         # The test may or may not detect a loop depending on the algorithm
         # The important thing is that it processes without errors
         assert result is None or isinstance(result, LoopDetectionEvent)
 
-    def test_analyze_chunk_code_block_detection(self, analyzer: PatternAnalyzer) -> None:
+    def test_analyze_chunk_code_block_detection(
+        self, analyzer: PatternAnalyzer
+    ) -> None:
         """Test that code blocks are handled correctly."""
         # Start of code block
         chunk1 = "```python\n"
@@ -105,7 +108,9 @@ class TestPatternAnalyzer:
         assert result3 is None
         assert analyzer._in_code_block is False
 
-    def test_analyze_chunk_markdown_elements_reset(self, analyzer: PatternAnalyzer) -> None:
+    def test_analyze_chunk_markdown_elements_reset(
+        self, analyzer: PatternAnalyzer
+    ) -> None:
         """Test that markdown elements trigger reset."""
         markdown_elements = [
             "# Header",
@@ -139,7 +144,9 @@ class TestPatternAnalyzer:
         assert result is None
         assert len(analyzer._stream_history) <= analyzer.config.max_history_length
 
-    def test_analyze_chunk_multiple_chunks_processing(self, analyzer: PatternAnalyzer) -> None:
+    def test_analyze_chunk_multiple_chunks_processing(
+        self, analyzer: PatternAnalyzer
+    ) -> None:
         """Test processing multiple chunks in stream history."""
         # Build up stream history with multiple chunks
         chunks = ["chunk1", "chunk2", "chunk3", "chunk4", "chunk5"]
@@ -150,7 +157,9 @@ class TestPatternAnalyzer:
         # Should have processed multiple chunks
         assert analyzer._last_chunk_index > 0
 
-    def test_analyze_chunk_empty_and_whitespace(self, analyzer: PatternAnalyzer) -> None:
+    def test_analyze_chunk_empty_and_whitespace(
+        self, analyzer: PatternAnalyzer
+    ) -> None:
         """Test handling of empty and whitespace chunks."""
         test_chunks = ["", "   ", "\n", "\t", "content"]
 
@@ -173,7 +182,9 @@ class TestPatternAnalyzer:
 
         assert result is None  # Should handle long content without errors
 
-    def test_analyze_chunk_edge_case_boundaries(self, analyzer: PatternAnalyzer) -> None:
+    def test_analyze_chunk_edge_case_boundaries(
+        self, analyzer: PatternAnalyzer
+    ) -> None:
         """Test edge cases at chunk boundaries."""
         # Content exactly at chunk size
         chunk_size_content = "a" * analyzer.config.content_chunk_size
@@ -187,7 +198,9 @@ class TestPatternAnalyzer:
 
         assert result is None
 
-    def test_analyze_chunk_repeating_pattern_detection(self, analyzer: PatternAnalyzer) -> None:
+    def test_analyze_chunk_repeating_pattern_detection(
+        self, analyzer: PatternAnalyzer
+    ) -> None:
         """Test detection of repeating patterns."""
         # Create a pattern that repeats
         base_pattern = "abcde"
@@ -200,7 +213,7 @@ class TestPatternAnalyzer:
         assert result is None
 
         # Process the same content multiple times
-        for i in range(analyzer.config.content_loop_threshold):
+        for _i in range(analyzer.config.content_loop_threshold):
             result = analyzer.analyze_chunk(repeating_content, repeating_content)
 
         # Should eventually detect if pattern repeats enough
@@ -219,16 +232,21 @@ class TestPatternAnalyzer:
         analyzer.analyze_chunk("test content", "test content")
 
         # State should have changed appropriately
-        assert analyzer._stream_history != initial_state[0] or analyzer._last_chunk_index != initial_state[2]
+        assert (
+            analyzer._stream_history != initial_state[0]
+            or analyzer._last_chunk_index != initial_state[2]
+        )
 
-    def test_analyze_chunk_buffer_content_parameter(self, analyzer: PatternAnalyzer) -> None:
+    def test_analyze_chunk_buffer_content_parameter(
+        self, analyzer: PatternAnalyzer
+    ) -> None:
         """Test that buffer_content parameter affects detection event."""
         chunk = "test chunk"
         buffer_content = "full buffer content"
 
         # Process chunk multiple times to potentially trigger detection
         result = None
-        for i in range(10):  # Multiple attempts
+        for _i in range(10):  # Multiple attempts
             result = analyzer.analyze_chunk(chunk, buffer_content)
             if result:
                 break
@@ -242,7 +260,7 @@ class TestPatternAnalyzer:
         pattern = "repeat" * 10
 
         result = None
-        for i in range(analyzer.config.content_loop_threshold + 2):
+        for _i in range(analyzer.config.content_loop_threshold + 2):
             result = analyzer.analyze_chunk(pattern, pattern)
             if result:
                 break
@@ -257,7 +275,7 @@ class TestPatternAnalyzer:
         pattern = "repeat" * 10
 
         result = None
-        for i in range(analyzer.config.content_loop_threshold + 2):
+        for _i in range(analyzer.config.content_loop_threshold + 2):
             result = analyzer.analyze_chunk(pattern, pattern)
             if result:
                 break
@@ -266,7 +284,9 @@ class TestPatternAnalyzer:
             assert isinstance(result.confidence, float)
             assert 0.0 <= result.confidence <= 1.0
 
-    def test_analyze_chunk_multiple_different_patterns(self, analyzer: PatternAnalyzer) -> None:
+    def test_analyze_chunk_multiple_different_patterns(
+        self, analyzer: PatternAnalyzer
+    ) -> None:
         """Test processing multiple different patterns."""
         patterns = ["pattern1", "pattern2", "pattern3", "pattern4", "pattern5"]
 
@@ -279,9 +299,9 @@ class TestPatternAnalyzer:
         base_chunk = "abc"
 
         # Build up the pattern incrementally
-        for i in range(analyzer.config.content_loop_threshold + 2):
-            chunk = base_chunk * (i + 1)
-            result = analyzer.analyze_chunk(chunk, chunk)
+        for _i in range(analyzer.config.content_loop_threshold + 2):
+            chunk = base_chunk * (_i + 1)
+            analyzer.analyze_chunk(chunk, chunk)
             # May or may not detect depending on algorithm
 
     def test_analyze_chunk_reset_behavior(self, analyzer: PatternAnalyzer) -> None:
@@ -298,7 +318,9 @@ class TestPatternAnalyzer:
         assert result is None
         assert analyzer._stream_history == "new content"
 
-    def test_analyze_chunk_empty_buffer_content(self, analyzer: PatternAnalyzer) -> None:
+    def test_analyze_chunk_empty_buffer_content(
+        self, analyzer: PatternAnalyzer
+    ) -> None:
         """Test handling of empty buffer content."""
         chunk = "test chunk"
         buffer_content = ""
@@ -317,7 +339,9 @@ class TestPatternAnalyzer:
 
         assert result is None
 
-    def test_analyze_chunk_special_characters_in_pattern(self, analyzer: PatternAnalyzer) -> None:
+    def test_analyze_chunk_special_characters_in_pattern(
+        self, analyzer: PatternAnalyzer
+    ) -> None:
         """Test patterns with special characters."""
         special_patterns = [
             "!@#$%^&*()",
@@ -331,7 +355,9 @@ class TestPatternAnalyzer:
             result = analyzer.analyze_chunk(pattern, pattern)
             assert result is None  # Should handle special chars without errors
 
-    def test_analyze_chunk_performance_with_large_content(self, analyzer: PatternAnalyzer) -> None:
+    def test_analyze_chunk_performance_with_large_content(
+        self, analyzer: PatternAnalyzer
+    ) -> None:
         """Test performance with large content chunks."""
         large_chunk = "a" * 10000
         large_buffer = "b" * 50000
@@ -378,7 +404,9 @@ class TestPatternAnalyzer:
         # State should have evolved logically
         assert second_state[0] >= first_state[0]  # History should grow or stay same
         assert second_state[1] >= first_state[1]  # Index should increase or stay same
-        assert second_state[2] == first_state[2]  # Code block state should be consistent
+        assert (
+            second_state[2] == first_state[2]
+        )  # Code block state should be consistent
 
 
 class TestLoopDetectionEvent:
@@ -509,7 +537,7 @@ class TestLoopDetectionEvent:
 
         # Should not be hashable (mutable dataclass)
         with pytest.raises(TypeError):
-            event_set = {event}
+            _ = {event}
 
         with pytest.raises(TypeError):
-            event_dict = {event: "value"}
+            _ = {event: "value"}

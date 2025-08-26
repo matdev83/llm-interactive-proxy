@@ -4,11 +4,7 @@ Tests for LoopDetector.
 This module provides comprehensive test coverage for the LoopDetector class.
 """
 
-import time
-from unittest.mock import Mock
-
 import pytest
-
 from src.loop_detection.analyzer import LoopDetectionEvent
 from src.loop_detection.config import LoopDetectionConfig
 from src.loop_detection.detector import LoopDetector
@@ -32,7 +28,9 @@ class TestLoopDetector:
         """Create a fresh LoopDetector for each test."""
         return LoopDetector(config=config)
 
-    def test_detector_initialization(self, detector: LoopDetector, config: LoopDetectionConfig) -> None:
+    def test_detector_initialization(
+        self, detector: LoopDetector, config: LoopDetectionConfig
+    ) -> None:
         """Test detector initialization."""
         assert detector.config == config
         assert detector.is_enabled() is True
@@ -157,13 +155,14 @@ class TestLoopDetector:
 
         # Process content that might trigger detection
         # (This depends on the analyzer implementation)
-        result = detector.process_chunk("test content")
+        detector.process_chunk("test content")
 
         # The callback may or may not be called depending on content
         # The important thing is that processing works
 
     def test_process_chunk_error_in_callback(self, detector: LoopDetector) -> None:
         """Test handling errors in callback."""
+
         def failing_callback(event: LoopDetectionEvent) -> None:
             raise RuntimeError("Callback error")
 
@@ -236,7 +235,6 @@ class TestLoopDetector:
         """Test that updating config resizes buffer when needed."""
         # Add content to current buffer
         detector.process_chunk("x" * 100)
-        original_content_length = len(detector.buffer.get_content())
 
         # Update with smaller buffer size
         new_config = LoopDetectionConfig(buffer_size=50)
@@ -255,7 +253,9 @@ class TestLoopDetector:
 
         assert detector.total_processed == expected_total
 
-    def test_process_chunk_updates_detection_position(self, detector: LoopDetector) -> None:
+    def test_process_chunk_updates_detection_position(
+        self, detector: LoopDetector
+    ) -> None:
         """Test that detection position is updated when loop is detected."""
         # This test depends on the analyzer actually detecting a loop
         # For now, we just verify the position starts at -1
@@ -375,7 +375,9 @@ class TestLoopDetector:
         assert result is None
         assert detector.total_processed == len(large_chunk)
 
-    def test_process_chunk_edge_case_empty_after_content(self, detector: LoopDetector) -> None:
+    def test_process_chunk_edge_case_empty_after_content(
+        self, detector: LoopDetector
+    ) -> None:
         """Test processing empty chunk after content."""
         # Add content first
         detector.process_chunk("initial content")
@@ -386,7 +388,9 @@ class TestLoopDetector:
         assert result is None
         assert detector.total_processed == len("initial content")
 
-    def test_process_chunk_edge_case_none_after_content(self, detector: LoopDetector) -> None:
+    def test_process_chunk_edge_case_none_after_content(
+        self, detector: LoopDetector
+    ) -> None:
         """Test processing None chunk after content."""
         # Add content first
         detector.process_chunk("initial content")

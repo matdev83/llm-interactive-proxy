@@ -1,12 +1,14 @@
-"""Mock implementation of CommandProcessor for tests."""
+"""Mock implementation of DI CommandProcessor for tests."""
 
-from src.command_processor import CommandProcessor
 from src.core.domain.request_context import RequestContext
+from src.core.services.command_processor import (
+    CommandProcessor as CoreCommandProcessor,
+)
 
 from tests.unit.core.test_doubles import MockSuccessCommand
 
 
-class MockCommandProcessorTest(CommandProcessor):
+class MockCommandProcessorTest(CoreCommandProcessor):
     """Special mock implementation for tests of command processing functions."""
 
     def __init__(self) -> None:

@@ -182,7 +182,9 @@ async def test_configure_error_response():
     assert excinfo.value.detail == {"error": "Invalid API key"}
 
 
-def _test_chat_completion_api_with_mock(test_app_with_auth: FastAPI, test_client: TestClient):
+def _test_chat_completion_api_with_mock(
+    test_app_with_auth: FastAPI, test_client: TestClient
+):
     """Test that the chat completion API works with mock backends."""
     # Create mock backend
     backend = MockOpenAI()
@@ -210,7 +212,7 @@ def _test_chat_completion_api_with_mock(test_app_with_auth: FastAPI, test_client
             "model": "gpt-3.5-turbo",
             "messages": [{"role": "user", "content": "Hello, world!"}],
         },
-        headers={"Authorization": "Bearer test-key"}
+        headers={"Authorization": "Bearer test-key"},
     )
 
     print(f"Response status: {response.status_code}")
@@ -248,7 +250,7 @@ def _test_mock_factory_fixture(
 
     # Build the provider and attach to app
     provider = services.build_provider()
-    test_app.state.service_provider = provider
+    test_app_with_auth.state.service_provider = provider
 
     # Make a request to the API
     response = test_client.post(

@@ -19,8 +19,18 @@ from src.core.config.app_config import AppConfig
 from src.core.di.container import ServiceCollection
 from src.core.interfaces.application_state_interface import IApplicationState
 from src.core.interfaces.di_interface import IServiceProvider
+from src.core.interfaces.loop_detector_interface import ILoopDetector
+from src.core.interfaces.response_processor_interface import (
+    IResponseMiddleware,
+)
+from src.core.interfaces.session_resolver_interface import ISessionResolver
+from src.core.interfaces.streaming_response_processor_interface import IStreamNormalizer
+
+# from src.core.interfaces.secure_state_interface import ISecureStateService # Removed unresolved import
 from src.core.services.application_state_service import ApplicationStateService
 from src.core.services.response_processor_service import ResponseProcessor
+from src.core.services.secure_state_service import SecureStateService
+from src.core.services.session_resolver_service import DefaultSessionResolver
 from src.core.services.tool_call_repair_service import ToolCallRepairService
 
 from .base import InitializationStage
@@ -55,10 +65,15 @@ class CoreServicesStage(InitializationStage):
         logger.debug("Registered AppConfig instance")
 
         # Register ToolCallRepairService as a singleton with configured buffer cap
-        def _tool_repair_factory(_: IServiceProvider) -> ToolCallRepairService:
+        def _tool_repair_factory(
+            provider: IServiceProvider,
+        ) -> ToolCallRepairService:  # Modified to accept provider for consistency
+            _config: AppConfig = provider.get_required_service(
+                AppConfig
+            )  # Resolve config from provider
             cap = 64 * 1024
             with contextlib.suppress(Exception):
-                cap = int(config.session.tool_call_repair_buffer_cap_bytes)
+                cap = int(_config.session.tool_call_repair_buffer_cap_bytes)
             return ToolCallRepairService(max_buffer_bytes=cap)
 
         services.add_singleton(
@@ -71,23 +86,34 @@ class CoreServicesStage(InitializationStage):
 
         # Register ResponseProcessor as a singleton
         def response_processor_factory(provider: IServiceProvider) -> ResponseProcessor:
-            processor = ResponseProcessor()  # type: ignore[call-arg]
+            app_state: IApplicationState = provider.get_required_service(
+                IApplicationState  # type: ignore[type-abstract]
+            )
+            # Fetch optional loop detector
+            loop_detector = provider.get_service(  # type: ignore[assignment]
+                ILoopDetector  # type: ignore[type-abstract]
+            )
+            stream_normalizer: IStreamNormalizer | None = provider.get_service(
+                IStreamNormalizer  # type: ignore[type-abstract]
+            )
+
+            middleware_list: list[IResponseMiddleware] = []
+
             if config.session.tool_call_repair_enabled:
-                # Register ToolCallRepairMiddleware with the ResponseProcessor
                 tool_call_repair_service = provider.get_required_service(
                     ToolCallRepairService
                 )
                 tool_call_middleware = ToolCallRepairMiddleware(
                     config, tool_call_repair_service
                 )
-                # Since register_middleware is async, we create a task for it.
-                # The DI container does not directly support async factories for add_singleton.
-                import asyncio
+                middleware_list.append(tool_call_middleware)
 
-                task = asyncio.create_task(
-                    processor.register_middleware(tool_call_middleware)
-                )
-                processor.add_background_task(task)  # Store the task
+            processor = ResponseProcessor(
+                app_state=app_state,
+                loop_detector=loop_detector,
+                middleware=middleware_list,
+                stream_normalizer=stream_normalizer,
+            )
             return processor
 
         services.add_singleton(
@@ -102,7 +128,7 @@ class CoreServicesStage(InitializationStage):
         self._register_session_service(services)
 
         # Register session resolver
-        self._register_session_resolver(services, config)
+        self._register_session_resolver(services, config)  # Re-added config parameter
 
         logger.info("Core services initialized successfully")
 
@@ -162,27 +188,37 @@ class CoreServicesStage(InitializationStage):
             logger.warning(f"Could not register session service: {e}")
 
     def _register_session_resolver(
-        self, services: ServiceCollection, config: AppConfig
+        self,
+        services: ServiceCollection,
+        config: AppConfig,  # Re-added config parameter
     ) -> None:
         """Register session resolver as singleton instance."""
         try:
-            from src.core.interfaces.session_resolver_interface import ISessionResolver
-            from src.core.services.session_resolver_service import (
-                DefaultSessionResolver,
+            # from src.core.interfaces.session_resolver_interface import ISessionResolver # Already imported
+            # from src.core.services.session_resolver_service import ( # Already imported
+            #     DefaultSessionResolver,
+            # )
+
+            def session_resolver_factory(
+                provider: IServiceProvider,
+            ) -> DefaultSessionResolver:
+                cfg: AppConfig = provider.get_required_service(AppConfig)
+                return DefaultSessionResolver(cfg)
+
+            # Register as singleton instance using factory
+            services.add_singleton(
+                DefaultSessionResolver, implementation_factory=session_resolver_factory
             )
+            from typing import cast  # Already imported at top
 
-            # Create instance with config
-            session_resolver: DefaultSessionResolver = DefaultSessionResolver(config)
-
-            # Register as singleton instance
-            services.add_instance(DefaultSessionResolver, session_resolver)
-            from typing import cast
-
-            services.add_instance(cast(type, ISessionResolver), session_resolver)
+            services.add_singleton(
+                cast(type, ISessionResolver),
+                implementation_factory=session_resolver_factory,
+            )
 
             logger.debug("Registered session resolver instance")
 
-            from src.core.services.secure_state_service import SecureStateService
+            # from src.core.services.secure_state_service import SecureStateService # Already imported
 
             # Register SecureStateService with a factory
             def secure_state_factory(provider: IServiceProvider) -> SecureStateService:

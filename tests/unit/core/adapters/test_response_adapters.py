@@ -4,7 +4,6 @@ Tests for Response Adapters module.
 This module tests the response conversion functions between domain models and FastAPI responses.
 """
 
-
 import pytest
 from src.core.adapters.response_adapters import (
     adapt_response,
@@ -69,6 +68,7 @@ class TestToFastapiStreamingResponse:
 
     def test_basic_streaming_response_conversion(self) -> None:
         """Test basic StreamingResponseEnvelope to FastAPI response conversion."""
+
         async def mock_iterator():
             yield b"chunk1"
             yield b"chunk2"
@@ -87,6 +87,7 @@ class TestToFastapiStreamingResponse:
 
     def test_streaming_response_with_default_media_type(self) -> None:
         """Test streaming response with default media type."""
+
         async def mock_iterator():
             yield b"data"
 
@@ -117,6 +118,7 @@ class TestAdaptResponse:
 
     def test_adapt_streaming_response_envelope(self) -> None:
         """Test adapting a StreamingResponseEnvelope."""
+
         async def mock_iterator():
             yield b"data"
 
@@ -154,6 +156,7 @@ class TestWrapAsyncIterator:
     @pytest.mark.asyncio
     async def test_wrap_without_mapper(self) -> None:
         """Test wrapping async iterator without mapper function."""
+
         async def source():
             yield b"chunk1"
             yield b"chunk2"
@@ -170,6 +173,7 @@ class TestWrapAsyncIterator:
     @pytest.mark.asyncio
     async def test_wrap_with_mapper(self) -> None:
         """Test wrapping async iterator with mapper function."""
+
         async def source():
             yield b"chunk1"
             yield b"chunk2"
@@ -188,6 +192,7 @@ class TestWrapAsyncIterator:
     @pytest.mark.asyncio
     async def test_wrap_empty_iterator(self) -> None:
         """Test wrapping empty async iterator."""
+
         async def empty_source():
             # Empty async generator function
             for _ in []:  # This creates an empty generator
@@ -204,6 +209,7 @@ class TestWrapAsyncIterator:
     @pytest.mark.asyncio
     async def test_wrap_single_chunk(self) -> None:
         """Test wrapping async iterator with single chunk."""
+
         async def single_source():
             yield b"single"
 
@@ -218,6 +224,7 @@ class TestWrapAsyncIterator:
     @pytest.mark.asyncio
     async def test_mapper_modifies_chunks(self) -> None:
         """Test that mapper function properly modifies each chunk."""
+
         async def source():
             yield b"hello"
             yield b"world"

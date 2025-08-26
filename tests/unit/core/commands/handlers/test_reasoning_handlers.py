@@ -38,7 +38,10 @@ class TestReasoningEffortHandler:
         """Test handler properties."""
         assert handler.name == "reasoning-effort"
         assert handler.aliases == ["reasoning_effort", "reasoning"]
-        assert handler.description == "Set the reasoning effort level (low, medium, high, maximum)"
+        assert (
+            handler.description
+            == "Set the reasoning effort level (low, medium, high, maximum)"
+        )
         assert handler.examples == [
             "!/set(reasoning-effort=low)",
             "!/set(reasoning-effort=medium)",
@@ -46,7 +49,9 @@ class TestReasoningEffortHandler:
             "!/set(reasoning-effort=maximum)",
         ]
 
-    def test_can_handle_reasoning_effort_variations(self, handler: ReasoningEffortHandler) -> None:
+    def test_can_handle_reasoning_effort_variations(
+        self, handler: ReasoningEffortHandler
+    ) -> None:
         """Test can_handle with various reasoning effort parameter names."""
         # Exact matches
         assert handler.can_handle("reasoning-effort") is True
@@ -70,7 +75,9 @@ class TestReasoningEffortHandler:
         self, handler: ReasoningEffortHandler, mock_state: ISessionState
     ) -> None:
         """Test handle with valid reasoning effort level."""
-        mock_state.reasoning_config.with_reasoning_effort = Mock(return_value=mock_state.reasoning_config)
+        mock_state.reasoning_config.with_reasoning_effort = Mock(
+            return_value=mock_state.reasoning_config
+        )
 
         result = handler.handle("high", mock_state)
 
@@ -80,7 +87,9 @@ class TestReasoningEffortHandler:
         assert result.new_state is mock_state
 
         # Verify the reasoning config was updated
-        mock_state.reasoning_config.with_reasoning_effort.assert_called_once_with("high")
+        mock_state.reasoning_config.with_reasoning_effort.assert_called_once_with(
+            "high"
+        )
         mock_state.with_reasoning_config.assert_called_once()
 
     @pytest.mark.asyncio
@@ -92,7 +101,10 @@ class TestReasoningEffortHandler:
 
         assert isinstance(result, CommandHandlerResult)
         assert result.success is False
-        assert result.message == "Invalid reasoning effort: invalid. Use low, medium, high, or maximum."
+        assert (
+            result.message
+            == "Invalid reasoning effort: invalid. Use low, medium, high, or maximum."
+        )
         assert result.new_state is None
 
         # Verify the state was not updated
@@ -131,7 +143,9 @@ class TestReasoningEffortHandler:
         valid_levels = ["low", "medium", "high", "maximum"]
 
         for level in valid_levels:
-            mock_state.reasoning_config.with_reasoning_effort = Mock(return_value=mock_state.reasoning_config)
+            mock_state.reasoning_config.with_reasoning_effort = Mock(
+                return_value=mock_state.reasoning_config
+            )
             mock_state.with_reasoning_config = Mock(return_value=mock_state)
 
             result = handler.handle(level, mock_state)
@@ -146,7 +160,9 @@ class TestReasoningEffortHandler:
         self, handler: ReasoningEffortHandler, mock_state: ISessionState
     ) -> None:
         """Test handle with case insensitive effort levels."""
-        mock_state.reasoning_config.with_reasoning_effort = Mock(return_value=mock_state.reasoning_config)
+        mock_state.reasoning_config.with_reasoning_effort = Mock(
+            return_value=mock_state.reasoning_config
+        )
 
         result = handler.handle("HIGH", mock_state)
 
@@ -177,9 +193,14 @@ class TestThinkingBudgetHandler:
         assert handler.name == "thinking-budget"
         assert handler.aliases == ["thinking_budget", "budget"]
         assert handler.description == "Set the thinking budget in tokens (128-32768)"
-        assert handler.examples == ["!/set(thinking-budget=1024)", "!/set(thinking-budget=2048)"]
+        assert handler.examples == [
+            "!/set(thinking-budget=1024)",
+            "!/set(thinking-budget=2048)",
+        ]
 
-    def test_can_handle_thinking_budget_variations(self, handler: ThinkingBudgetHandler) -> None:
+    def test_can_handle_thinking_budget_variations(
+        self, handler: ThinkingBudgetHandler
+    ) -> None:
         """Test can_handle with various thinking budget parameter names."""
         # Exact matches
         assert handler.can_handle("thinking-budget") is True
@@ -203,7 +224,9 @@ class TestThinkingBudgetHandler:
         self, handler: ThinkingBudgetHandler, mock_state: ISessionState
     ) -> None:
         """Test handle with valid thinking budget."""
-        mock_state.reasoning_config.with_thinking_budget = Mock(return_value=mock_state.reasoning_config)
+        mock_state.reasoning_config.with_thinking_budget = Mock(
+            return_value=mock_state.reasoning_config
+        )
 
         result = handler.handle("1024", mock_state)
 
@@ -221,7 +244,9 @@ class TestThinkingBudgetHandler:
         self, handler: ThinkingBudgetHandler, mock_state: ISessionState
     ) -> None:
         """Test handle with boundary values."""
-        mock_state.reasoning_config.with_thinking_budget = Mock(return_value=mock_state.reasoning_config)
+        mock_state.reasoning_config.with_thinking_budget = Mock(
+            return_value=mock_state.reasoning_config
+        )
 
         # Test minimum valid value
         result = handler.handle("128", mock_state)
@@ -266,7 +291,10 @@ class TestThinkingBudgetHandler:
 
         assert isinstance(result, CommandHandlerResult)
         assert result.success is False
-        assert result.message == "Invalid thinking budget: not-a-number. Must be an integer."
+        assert (
+            result.message
+            == "Invalid thinking budget: not-a-number. Must be an integer."
+        )
         assert result.new_state is None
 
     @pytest.mark.asyncio
@@ -314,12 +342,16 @@ class TestGeminiGenerationConfigHandler:
         """Test handler properties."""
         assert handler.name == "gemini-generation-config"
         assert handler.aliases == ["gemini_generation_config", "gemini_config"]
-        assert handler.description == "Set the Gemini generation config as a JSON object"
+        assert (
+            handler.description == "Set the Gemini generation config as a JSON object"
+        )
         assert handler.examples == [
             "!/set(gemini-generation-config={'thinkingConfig': {'thinkingBudget': 1024}})"
         ]
 
-    def test_can_handle_gemini_config_variations(self, handler: GeminiGenerationConfigHandler) -> None:
+    def test_can_handle_gemini_config_variations(
+        self, handler: GeminiGenerationConfigHandler
+    ) -> None:
         """Test can_handle with various Gemini config parameter names."""
         # Exact matches
         assert handler.can_handle("gemini-generation-config") is True
@@ -344,18 +376,25 @@ class TestGeminiGenerationConfigHandler:
     ) -> None:
         """Test handle with valid JSON string."""
         config_json = '{"thinkingConfig": {"thinkingBudget": 1024}}'
-        mock_state.reasoning_config.with_gemini_generation_config = Mock(return_value=mock_state.reasoning_config)
+        mock_state.reasoning_config.with_gemini_generation_config = Mock(
+            return_value=mock_state.reasoning_config
+        )
 
         result = handler.handle(config_json, mock_state)
 
         assert isinstance(result, CommandHandlerResult)
         assert result.success is True
-        assert result.message == f"Gemini generation config set to {json.loads(config_json)}"
+        assert (
+            result.message
+            == f"Gemini generation config set to {json.loads(config_json)}"
+        )
         assert result.new_state is mock_state
 
         # Verify the reasoning config was updated
         expected_config = {"thinkingConfig": {"thinkingBudget": 1024}}
-        mock_state.reasoning_config.with_gemini_generation_config.assert_called_once_with(expected_config)
+        mock_state.reasoning_config.with_gemini_generation_config.assert_called_once_with(
+            expected_config
+        )
         mock_state.with_reasoning_config.assert_called_once()
 
     @pytest.mark.asyncio
@@ -364,7 +403,9 @@ class TestGeminiGenerationConfigHandler:
     ) -> None:
         """Test handle with valid dictionary."""
         config_dict = {"thinkingConfig": {"thinkingBudget": 1024}}
-        mock_state.reasoning_config.with_gemini_generation_config = Mock(return_value=mock_state.reasoning_config)
+        mock_state.reasoning_config.with_gemini_generation_config = Mock(
+            return_value=mock_state.reasoning_config
+        )
 
         result = handler.handle(config_dict, mock_state)
 
@@ -374,14 +415,18 @@ class TestGeminiGenerationConfigHandler:
         assert result.new_state is mock_state
 
         # Verify the reasoning config was updated
-        mock_state.reasoning_config.with_gemini_generation_config.assert_called_once_with(config_dict)
+        mock_state.reasoning_config.with_gemini_generation_config.assert_called_once_with(
+            config_dict
+        )
 
     @pytest.mark.asyncio
     async def test_handle_with_invalid_json_string(
         self, handler: GeminiGenerationConfigHandler, mock_state: ISessionState
     ) -> None:
         """Test handle with invalid JSON string."""
-        invalid_json = '{"thinkingConfig": {"thinkingBudget": 1024'  # Missing closing brace
+        invalid_json = (
+            '{"thinkingConfig": {"thinkingBudget": 1024'  # Missing closing brace
+        )
 
         result = handler.handle(invalid_json, mock_state)
 
@@ -401,7 +446,9 @@ class TestGeminiGenerationConfigHandler:
 
         assert isinstance(result, CommandHandlerResult)
         assert result.success is False
-        assert result.message == "Invalid Gemini generation config: must be a JSON object"
+        assert (
+            result.message == "Invalid Gemini generation config: must be a JSON object"
+        )
         assert result.new_state is None
 
     @pytest.mark.asyncio
@@ -434,18 +481,17 @@ class TestGeminiGenerationConfigHandler:
     ) -> None:
         """Test handle with complex Gemini configuration."""
         complex_config = {
-            "thinkingConfig": {
-                "thinkingBudget": 2048,
-                "includeThoughts": True
-            },
+            "thinkingConfig": {"thinkingBudget": 2048, "includeThoughts": True},
             "generationConfig": {
                 "temperature": 0.7,
                 "topP": 0.9,
                 "topK": 40,
-                "maxOutputTokens": 1024
-            }
+                "maxOutputTokens": 1024,
+            },
         }
-        mock_state.reasoning_config.with_gemini_generation_config = Mock(return_value=mock_state.reasoning_config)
+        mock_state.reasoning_config.with_gemini_generation_config = Mock(
+            return_value=mock_state.reasoning_config
+        )
 
         result = handler.handle(complex_config, mock_state)
 
@@ -455,4 +501,6 @@ class TestGeminiGenerationConfigHandler:
         assert result.new_state is mock_state
 
         # Verify the reasoning config was updated
-        mock_state.reasoning_config.with_gemini_generation_config.assert_called_once_with(complex_config)
+        mock_state.reasoning_config.with_gemini_generation_config.assert_called_once_with(
+            complex_config
+        )

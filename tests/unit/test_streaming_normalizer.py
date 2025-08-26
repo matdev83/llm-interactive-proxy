@@ -6,8 +6,8 @@ import pytest
 from src.core.domain.streaming_response_processor import (
     IStreamProcessor,
     StreamingContent,
-    StreamNormalizer,
 )
+from src.core.services.streaming.stream_normalizer import StreamNormalizer
 
 
 class TestStreamingContent:
@@ -100,7 +100,9 @@ class TestStreamNormalizer:
 
         # Normalize the stream
         results = []
-        async for content in normalizer.normalize_stream(mock_stream()):
+        async for content in normalizer.process_stream(
+            mock_stream(), output_format="objects"
+        ):
             results.append(content)
 
         # Check results
@@ -149,7 +151,9 @@ class TestStreamNormalizer:
 
         # Process the stream
         results = []
-        async for content in normalizer.normalize_stream(mock_stream()):
+        async for content in normalizer.process_stream(
+            mock_stream(), output_format="objects"
+        ):
             results.append(content)
 
         # Check results

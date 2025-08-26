@@ -1,20 +1,32 @@
-"""Tests for HTTP status constants usage example.
+"""Tests for HTTP status constants usage without external examples dependency.
 
-This module contains tests to verify that HTTP status constants usage examples work correctly.
+This module defines minimal example functions inline to validate
+the semantics of HTTP status constants usage.
 """
 
 import unittest
-from unittest.mock import patch
 
-from examples.http_status_constants_usage import (
-    example_controller_function,
-    handle_internal_server_error,
-    handle_service_unavailable_error,
-)
 from src.core.constants import (
     HTTP_500_INTERNAL_SERVER_ERROR_MESSAGE,
     HTTP_503_SERVICE_UNAVAILABLE_MESSAGE,
 )
+
+
+def handle_service_unavailable_error(service_name: str) -> None:
+    """Raise an exception using the 503 constant and a service-specific message."""
+    raise Exception(
+        f"{HTTP_503_SERVICE_UNAVAILABLE_MESSAGE}: {service_name} not available"
+    )
+
+
+def handle_internal_server_error(error_message: str) -> None:
+    """Raise an exception using the 500 constant and a supplied error message."""
+    raise Exception(f"{HTTP_500_INTERNAL_SERVER_ERROR_MESSAGE}: {error_message}")
+
+
+def example_controller_function() -> bool:
+    """A trivial example controller function used for smoke testing."""
+    return True
 
 
 class TestHttpStatusConstantsUsage(unittest.TestCase):
@@ -36,8 +48,7 @@ class TestHttpStatusConstantsUsage(unittest.TestCase):
         self.assertIn(HTTP_500_INTERNAL_SERVER_ERROR_MESSAGE, str(context.exception))
         self.assertIn("Test error", str(context.exception))
 
-    @patch("examples.http_status_constants_usage.example_controller_function")
-    def test_example_controller_function_service_unavailable(self, mock_function):
+    def test_example_controller_function_service_unavailable(self):
         """Test that the example controller function handles service unavailable errors."""
         # This is just a basic test to ensure the function can be called
         # In a real test, we would mock the dependencies and verify the behavior

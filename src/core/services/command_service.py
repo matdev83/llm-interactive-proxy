@@ -1,7 +1,6 @@
 """Fixed command service with correct indentation."""
 
 import asyncio
-import json
 import logging
 import re
 from typing import Any
@@ -61,8 +60,10 @@ def get_command_pattern(command_prefix: str) -> re.Pattern:
     """
     # Escape special regex characters in the prefix
     escaped_prefix = re.escape(command_prefix)
-    # Pattern to match commands with optional arguments in parentheses
-    return re.compile(rf"{escaped_prefix}(\w+)(?:\((.*?)\))?")
+    # Pattern to match commands with optional arguments in parentheses, using named groups
+    # to match the legacy semantics used in some tests.
+    # Allow command names with letters, digits, underscore, and hyphen
+    return re.compile(rf"{escaped_prefix}(?P<cmd>[\w-]+)(?:\((?P<args>[^)]*)\))?")
 
 
 class CommandRegistry:
@@ -186,6 +187,14 @@ class CommandService(ICommandService):
         """
         self._registry.register(command_handler)
 
+    def get_command_handlers(self) -> dict[str, BaseCommand]:
+        """Get all registered command handlers.
+
+        Returns:
+            A dictionary of command name to handler
+        """
+        return self._registry.get_all()
+
     async def process_commands(
         self, messages: list[ChatMessage], session_id: str
     ) -> ProcessedResult:
@@ -259,91 +268,45 @@ class CommandService(ICommandService):
         )
 
     def _parse_command_from_message(self, content: str) -> dict[str, Any] | None:
-        """Parse command from message content and return command details."""
-        # Search for command patterns anywhere in the content
-        cmd_match = None
-        match_start = 0
-        match_end = 0  # Initialize to prevent unbound error
-        cmd_name = "unknown"  # Initialize
-        args_str = None  # Initialize
-        remaining = ""  # Initialize
+        """Parse command from message content and return command details.
 
-        # First try to match command with arguments: !/command(args)
-        args_pattern = r"!/(\w+)\(([^)]*)\)"
-        match = re.search(args_pattern, content)
-        if match:
-            logger.debug(f"Matched command with args: {match.groups()}")
-            cmd_name = match.group(1)
-            args_str = match.group(2)
-            match_start = match.start()
-            match_end = match.end()
-            cmd_match = match
-        else:
-            # Try to match command without arguments: !/command
-            simple_pattern = r"!/(\w+)"
-            match = re.search(simple_pattern, content)
-            if match:
-                logger.debug(f"Matched command without args: {match.groups()}")
-                cmd_name = match.group(1)
-                args_str = None
-                match_start = match.start()
-                match_end = match.end()
-                cmd_match = match
-
-        if not cmd_match:
+        Uses the shared get_command_pattern with default prefix to ensure
+        consistent detection semantics across the codebase.
+        """
+        pattern = get_command_pattern("!/")
+        m = pattern.search(content)
+        if not m:
             return None
 
-        # Extract remaining content after the command
-        remaining = content[match_end:]
-        logger.debug(f"Command name: {cmd_name}, remaining: '{remaining}'")
+        cmd_name = (m.group("cmd") or "").strip()
+        args_str = (m.group("args") or "").strip() or None
+        match_start, match_end = m.start(), m.end()
 
-        # Remove the command from the current message content
-        before_command = content[:match_start]
-        updated_content = before_command + remaining
+        # Extract remaining content after the command and rebuild updated content
+        before = content[:match_start]
+        after = content[match_end:]
+        updated_content = before + after
+
+        logger.debug(
+            "Parsed command: name=%s, args=%r, updated_content=%r",
+            cmd_name,
+            args_str,
+            updated_content,
+        )
 
         return {
             "cmd_name": cmd_name,
             "args_str": args_str,
-            "remaining": remaining,
+            "remaining": after,
             "updated_content": updated_content,
             "command_handler": self._registry.get(cmd_name),
         }
 
     def _parse_command_arguments(self, args_str: str | None) -> dict[str, Any]:
-        """Parse command arguments from argument string."""
-        args: dict[str, Any] = {}
-        if not args_str:
-            return args
+        """Parse command arguments from argument string using shared logic."""
+        from src.core.common.command_args import parse_command_arguments
 
-        # Attempt to parse as JSON first
-        try:
-            parsed_json = json.loads(args_str)
-            if isinstance(parsed_json, dict):
-                return parsed_json
-            else:
-                # If it's a valid JSON but not a dict (e.g., "true", 123), wrap it
-                return {"value": parsed_json}
-        except json.JSONDecodeError:
-            # If JSON parsing fails, fall back to custom parsing
-            for arg in args_str.split(","):
-                arg = arg.strip()
-                if "=" in arg:
-                    key, value = arg.split("=", 1)
-                    val = value.strip()
-                    # Remove quotes if present
-                    if (val.startswith('"') and val.endswith('"')) or (
-                        val.startswith("'") and val.endswith("'")
-                    ):
-                        val = val[1:-1]
-                    args[key.strip()] = val
-                elif arg:
-                    # Heuristic for element or boolean flag
-                    if ":" in arg or "/" in arg:
-                        args["element"] = arg
-                    else:
-                        args[arg] = True
-
-        return args
+        return parse_command_arguments(args_str)
 
     async def _execute_parsed_command(
         self,

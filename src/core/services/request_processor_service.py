@@ -2,91 +2,68 @@
 Request processor implementation.
 
 This module provides the implementation of the request processor interface.
+Refactored to use decomposed services following SOLID principles.
 """
 
 from __future__ import annotations
 
 import copy
 import logging
-import time
 from typing import Any
 
-from src.core.domain.chat import ChatMessage, ChatRequest
-from src.core.domain.command_results import CommandResult
+from src.core.domain.chat import ChatRequest
 from src.core.domain.processed_result import ProcessedResult
 from src.core.domain.request_context import RequestContext
 from src.core.domain.responses import ResponseEnvelope, StreamingResponseEnvelope
-from src.core.domain.session import Session  # Added import for Session
-from src.core.interfaces.backend_processor_interface import IBackendProcessor
+from src.core.interfaces.backend_request_manager_interface import IBackendRequestManager
 from src.core.interfaces.command_processor_interface import ICommandProcessor
 from src.core.interfaces.request_processor_interface import IRequestProcessor
-from src.core.interfaces.response_processor_interface import IResponseProcessor
-from src.core.interfaces.session_resolver_interface import ISessionResolver
-from src.core.interfaces.session_service_interface import ISessionService
-from src.core.services.command_service import CommandResultWrapper
-from src.core.services.empty_response_middleware import EmptyResponseRetryError
-from src.core.services.session_resolver_service import DefaultSessionResolver
+from src.core.interfaces.response_manager_interface import IResponseManager
+from src.core.interfaces.session_manager_interface import ISessionManager
+from src.core.services.application_state_service import (
+    get_default_application_state,
+)
 
 logger = logging.getLogger(__name__)
 
 
 class RequestProcessor(IRequestProcessor):
-    """Implementation of the request processor."""
+    """Implementation of the request processor using decomposed services."""
 
     def __init__(
         self,
         command_processor: ICommandProcessor,
-        backend_processor: IBackendProcessor,
-        session_service: ISessionService,
-        response_processor: IResponseProcessor,
-        session_resolver: ISessionResolver | None = None,
+        session_manager: ISessionManager,
+        backend_request_manager: IBackendRequestManager,
+        response_manager: IResponseManager,
     ) -> None:
-        """Initialize the request processor."""
+        """Initialize the request processor with decomposed services."""
         self._command_processor = command_processor
-        self._backend_processor = backend_processor
-        self._session_service = session_service
-        self._response_processor = response_processor
-
-        if session_resolver is None:
-            logger.warning(
-                "RequestProcessor: No ISessionResolver provided; falling back to DefaultSessionResolver. "
-                "Prefer injecting an ISessionResolver via DI to adhere to DIP."
-            )
-            self._session_resolver = DefaultSessionResolver()
-        else:
-            self._session_resolver = session_resolver
+        self._session_manager = session_manager
+        self._backend_request_manager = backend_request_manager
+        self._response_manager = response_manager
 
     async def process_request(
         self, context: RequestContext, request_data: Any
     ) -> ResponseEnvelope | StreamingResponseEnvelope:
-        """Process an incoming chat completion request."""
+        """Process an incoming chat completion request using decomposed services."""
         logger.debug(
             f"RequestProcessor.process_request called with session_id: {getattr(context, 'session_id', 'unknown')}"
         )
         if not isinstance(request_data, ChatRequest):
             raise TypeError("request_data must be of type ChatRequest")
 
-        session_id: str = await self._session_resolver.resolve_session_id(context)
+        # Resolve session and update agent if needed
+        session_id = await self._session_manager.resolve_session_id(context)
+        session = await self._session_manager.get_session(session_id)
+        session = await self._session_manager.update_session_agent(
+            session, request_data.agent
+        )
+
         logger.debug(f"Resolved session_id: {session_id}")
         logger.debug(
             f"Request data type: {type(request_data)}, model: {getattr(request_data, 'model', 'unknown')}"
         )
-
-        session = await self._session_service.get_session(session_id)
-
-        # Set session agent from request_data if present
-        if request_data.agent is not None and request_data.agent != session.agent:
-            logger.debug(
-                f"Setting session agent from request_data: {request_data.agent}"
-            )
-            session.agent = request_data.agent
-            await self._session_service.update_session(session)
-            await self._session_service.update_session(session)
-            logger.debug(f"Session object ID after update_session: {id(session)}")
-            session = await self._session_service.get_session(
-                session_id
-            )  # Re-fetch to ensure latest state
-            logger.debug(f"Session object ID after re-fetch: {id(session)}")
 
         # Process commands in the request
         command_result = await self._handle_command_processing(
@@ -103,27 +80,21 @@ class RequestProcessor(IRequestProcessor):
             f"command_results={len(command_result.command_results) if hasattr(command_result.command_results, '__len__') else 0}"
         )
 
-        # For Cline non-command messages, we need to ensure we call the backend
-        # even when command processing was attempted but no command was found
-        logger.debug(
-            f"Checking command result path: command_executed={command_result.command_executed}, modified_messages={len(command_result.modified_messages) if hasattr(command_result.modified_messages, '__len__') else 0}"
-        )
-        logger.debug(f"Session ID: {session_id}")
-        if command_result.command_executed and not command_result.modified_messages:
+        # Check if we should take the command-only path
+        if self._should_process_command_only(command_result):
             logger.debug(f"Taking command result path for session {session_id}")
             logger.info(
                 "Command executed with no modified messages - returning command result without backend call"
             )
-            await self._record_command_in_session(request_data, session_id)
-            logger.debug(
-                f"Session object ID before _process_command_result (command only): {id(session)}"
+            await self._session_manager.record_command_in_session(
+                request_data, session_id
             )
-            return await self._process_command_result(command_result, session)
+            return await self._response_manager.process_command_result(
+                command_result, session
+            )
 
-        logger.debug(f"Command result messages: {command_result.modified_messages}")
-
-        # Determine if we need to make a backend request and prepare it
-        backend_request = await self._prepare_backend_request(
+        # Prepare backend request
+        backend_request = await self._backend_request_manager.prepare_backend_request(
             request_data, command_result
         )
 
@@ -135,321 +106,74 @@ class RequestProcessor(IRequestProcessor):
             logger.info(
                 f"Command executed without backend call, processing command result for session {session_id}"
             )
-            await self._record_command_in_session(request_data, session_id)
-            logger.debug(
-                f"Session object ID before _process_command_result (backend none): {id(session)}"
+            await self._session_manager.record_command_in_session(
+                request_data, session_id
             )
-            return await self._process_command_result(command_result, session)
+            return await self._response_manager.process_command_result(
+                command_result, session
+            )
 
-        extra_body = (
-            backend_request.extra_body.copy() if backend_request.extra_body else {}
+        # Add session_id to extra_body if not present
+        async def _resolve_extra_body(value: Any) -> dict[str, Any] | None:
+            v = value
+            try:
+                # If attribute is a function/mocked callable, call it
+                if callable(v):
+                    v = v()
+                # If result is awaitable/coroutine, await it
+                if hasattr(v, "__await__"):
+                    v = await v  # type: ignore[func-returns-value]
+                # Expect dict-like or None
+                if v is None:
+                    return None
+                if isinstance(v, dict):
+                    return v
+                # Some domain objects may have model_dump method
+                if hasattr(v, "model_dump"):
+                    dumped = v.model_dump()
+                    return dumped if isinstance(dumped, dict) else None
+            except Exception:
+                return None
+            return None
+
+        resolved_extra = await _resolve_extra_body(
+            getattr(backend_request, "extra_body", None)
         )
+        extra_body: dict[str, Any] = resolved_extra.copy() if resolved_extra else {}
         if "session_id" not in extra_body:
             extra_body["session_id"] = session_id
-
         backend_request = backend_request.model_copy(update={"extra_body": extra_body})
 
-        # Process backend request with empty response retry handling
+        # Process backend request with retry handling
         logger.info(
             f"Calling backend for session {session_id} with request: {backend_request}"
         )
-        backend_response = await self._process_backend_request_with_retry(
+        backend_response = await self._backend_request_manager.process_backend_request(
             backend_request, session_id, context
         )
         logger.info(f"Backend response for session {session_id}: {backend_response}")
 
-        # Empty response handling is already done in _process_backend_request_with_retry above
-
         # Update session history with the backend interaction
-        await self._update_session_history(
+        await self._session_manager.update_session_history(
             request_data, backend_request, backend_response, session_id
         )
 
         return backend_response
 
-    def _create_tool_calls_response(self, command_name: str, arguments: str) -> dict:
-        """Create a tool_calls response for Cline agents."""
-        logger.debug(
-            f"Creating tool calls response for command: {command_name}, arguments: {arguments}"
-        )
-        import time
-        import uuid
-
-        return {
-            "id": "proxy_cmd_processed",
-            "object": "chat.completion",
-            "created": int(time.time()),
-            "model": "gpt-4",  # Mock model
-            "choices": [
-                {
-                    "index": 0,
-                    "message": {
-                        "role": "assistant",
-                        "content": None,
-                        "tool_calls": [
-                            {
-                                "id": f"call_{uuid.uuid4().hex[:16]}",
-                                "type": "function",
-                                "function": {
-                                    "name": command_name,
-                                    "arguments": arguments,
-                                },
-                            }
-                        ],
-                    },
-                    "finish_reason": "tool_calls",
-                }
-            ],
-            "usage": {
-                "prompt_tokens": 0,
-                "completion_tokens": 0,
-                "total_tokens": 0,
-            },
-        }
-
     async def _process_command_result(
-        self, command_result: ProcessedResult, session: Session
+        self, command_result: ProcessedResult, session: Any
     ) -> ResponseEnvelope:
-        """Process a command-only result into a ResponseEnvelope."""
-        if not command_result.command_results:
-            return ResponseEnvelope(
-                content={},
-                headers={"content-type": "application/json"},
-                status_code=200,
-            )
+        """Compatibility wrapper used by legacy tests to process command-only results.
 
-        first_result = command_result.command_results[0]
-        logger.debug(
-            f"First command result: {first_result}, type: {type(first_result)}"
-        )
-        if isinstance(first_result, ResponseEnvelope):
-            return first_result
-
-        # Use the passed-in session object to ensure consistent state
-        is_cline_agent = session.agent == "cline"
-        logger.debug(
-            f"is_cline_agent value in _process_command_result: {is_cline_agent}"
+        Delegates to the injected response manager.
+        """
+        return await self._response_manager.process_command_result(
+            command_result, session
         )
 
-        content: dict[str, Any]
-        if is_cline_agent:
-            # For Cline, we expect a CommandResultWrapper
-            if isinstance(first_result, CommandResultWrapper):
-                command_name = first_result.command
-                import json
-
-                # For Cline, use the actual command name for the tool call
-                # The result message is passed directly
-                arguments = json.dumps(
-                    {
-                        "result": str(first_result.result.message or ""),
-                    }
-                )
-                logger.debug(
-                    f"Cline agent - creating '{command_name}' tool call for command: {command_name}, message: {first_result.result.message}"
-                )
-                content = self._create_tool_calls_response(command_name, arguments)
-            else:
-                # Fallback for unexpected types
-                logger.warning(
-                    f"Unexpected result type for Cline agent: {type(first_result)}. Returning unknown_command tool call."
-                )
-                content = self._create_tool_calls_response(
-                    "unknown_command",
-                    '{"result": "Unexpected result type for Cline agent"}',
-                )
-        else:
-            # For non-Cline agents, we have two options:
-            # 1. If this is a test expecting tool_calls with command name (test_process_command_only_request),
-            #    use the command name directly
-            # 2. Otherwise, return the message content
-            logger.debug(
-                f"Non-Cline agent - processing command result as message content: {first_result}"
-            )
-            message = ""
-            command_name = "unknown_command"
-
-            if isinstance(first_result, CommandResult):
-                message = first_result.message
-                command_name = first_result.name
-            elif hasattr(first_result, "result") and hasattr(
-                first_result.result, "message"
-            ):
-                message = first_result.result.message
-                if hasattr(first_result.result, "name"):
-                    command_name = first_result.result.name
-            elif hasattr(first_result, "message"):
-                message = first_result.message
-                if hasattr(first_result, "name"):
-                    command_name = first_result.name
-            else:
-                message = str(first_result)
-
-            logger.debug(f"Non-Cline agent - final message content: {message}")
-
-            # For unit test that expects tool calls
-            if command_name == "hello" and message == "Hello acknowledged":
-                import json
-
-                content = self._create_tool_calls_response(
-                    command_name, json.dumps({"result": message})
-                )
-            else:
-                content = {
-                    "id": "proxy_cmd_processed",
-                    "object": "chat.completion",
-                    "created": int(time.time()),
-                    "model": "gpt-4",
-                    "choices": [
-                        {
-                            "index": 0,
-                            "message": {"role": "assistant", "content": message},
-                            "finish_reason": "stop",
-                        }
-                    ],
-                    "usage": {
-                        "prompt_tokens": 0,
-                        "completion_tokens": 0,
-                        "total_tokens": 0,
-                    },
-                }
-
-        return ResponseEnvelope(
-            content=content,
-            headers={"content-type": "application/json"},
-            status_code=200,
-        )
-
-    async def _record_command_in_session(
-        self, request_data: ChatRequest, session_id: str
-    ) -> None:
-        """Record a command-only request in the session history."""
-        session = await self._session_service.get_session(session_id)
-
-        raw_prompt = ""
-        if request_data and getattr(request_data, "messages", None):
-            for message in reversed(request_data.messages):
-                role = (
-                    message.get("role")
-                    if isinstance(message, dict)
-                    else getattr(message, "role", None)
-                )
-                if role == "user":
-                    content = (
-                        message.get("content")
-                        if isinstance(message, dict)
-                        else getattr(message, "content", None)
-                    )
-                    raw_prompt = content if isinstance(content, str) else str(content)
-                    break
-
-        if raw_prompt:
-            try:
-                last = session.history[-1] if session.history else None
-                last_prompt = getattr(last, "prompt", None) if last else None
-            except Exception:
-                last_prompt = None
-
-            if last_prompt != raw_prompt:
-                from src.core.domain.session import SessionInteraction
-
-                session.add_interaction(
-                    SessionInteraction(
-                        prompt=raw_prompt,
-                        handler="proxy",
-                        backend=getattr(
-                            session.state.backend_config, "backend_type", None
-                        ),
-                        model=getattr(session.state.backend_config, "model", None),
-                        project=getattr(session.state, "project", None),
-                        parameters={
-                            "temperature": getattr(request_data, "temperature", None),
-                            "top_p": getattr(request_data, "top_p", None),
-                            "max_tokens": getattr(request_data, "max_tokens", None),
-                        },
-                    )
-                )
-                await self._session_service.update_session(session)
-
-    async def _process_backend_request_with_retry(
-        self, backend_request: ChatRequest, session_id: str, context: RequestContext
-    ) -> ResponseEnvelope | StreamingResponseEnvelope:
-        """Process backend request with empty response retry handling."""
-        try:
-            # First attempt
-            backend_response = await self._backend_processor.process_backend_request(
-                request=backend_request, session_id=session_id, context=context
-            )
-
-            # Process the response through middleware (including empty response detection)
-            # Only process non-streaming responses that have content
-            if (
-                hasattr(backend_response, "content")
-                and not backend_request.stream
-                and backend_response.content is not None
-            ):
-                # For non-streaming responses, process through response processor
-                try:
-                    # Process through response processor for empty response detection
-                    # This works for both real implementations and mocks in tests
-                    await self._response_processor.process_response(
-                        backend_response.content, session_id
-                    )
-                    # If we get here without exception, response was not empty
-                    # Return original response (don't replace with processed content)
-                    return backend_response
-                except EmptyResponseRetryError as e:
-                    logger.info(
-                        f"Empty response detected, retrying with recovery prompt: {e.recovery_prompt[:100]}..."
-                    )
-                    # Create retry request with recovery prompt
-                    retry_request = await self._create_retry_request(
-                        backend_request, e.recovery_prompt
-                    )
-                    # Retry the request
-                    return await self._backend_processor.process_backend_request(
-                        request=retry_request, session_id=session_id, context=context
-                    )
-            else:
-                # For streaming responses or responses without content, return as-is
-                # TODO: Implement streaming empty response detection if needed
-                return backend_response
-
-        except EmptyResponseRetryError as e:
-            # This shouldn't happen here since we catch it above, but just in case
-            logger.info(
-                f"Empty response detected, retrying with recovery prompt: {e.recovery_prompt[:100]}..."
-            )
-            retry_request = await self._create_retry_request(
-                backend_request, e.recovery_prompt
-            )
-            return await self._backend_processor.process_backend_request(
-                request=retry_request, session_id=session_id, context=context
-            )
-
-    async def _create_retry_request(
-        self, original_request: ChatRequest, recovery_prompt: str
-    ) -> ChatRequest:
-        """Create a retry request with the recovery prompt appended."""
-        # Copy the original messages
-        retry_messages = list(original_request.messages)
-
-        # Add the recovery prompt as a user message
-        recovery_message = ChatMessage(role="user", content=recovery_prompt)
-        retry_messages.append(recovery_message)
-
-        # Create new request with the recovery prompt
-        retry_request = ChatRequest(
-            model=original_request.model,
-            messages=retry_messages,
-            temperature=original_request.temperature,
-            top_p=original_request.top_p,
-            max_tokens=original_request.max_tokens,
-            stream=original_request.stream,
-            extra_body=original_request.extra_body,
-        )
-
-        return retry_request
+    def _should_process_command_only(self, command_result: ProcessedResult) -> bool:
+        """Determine if we should process command result without backend call."""
+        return command_result.command_executed and not command_result.modified_messages
 
     async def _handle_command_processing(
         self, request_data: ChatRequest, session_id: str, context: RequestContext
@@ -457,10 +181,6 @@ class RequestProcessor(IRequestProcessor):
         """Handle command processing with global disable check and fallback."""
         # If commands are globally disabled, skip command processing
         try:
-            from src.core.services.application_state_service import (
-                get_default_application_state,
-            )
-
             if get_default_application_state().get_disable_commands():
                 return ProcessedResult(
                     command_executed=False,
@@ -479,127 +199,3 @@ class RequestProcessor(IRequestProcessor):
             return await self._command_processor.process_messages(
                 messages_copy, session_id, context
             )
-
-    async def _prepare_backend_request(
-        self, request_data: ChatRequest, command_result: ProcessedResult
-    ) -> ChatRequest | None:
-        """Prepare backend request based on command processing results."""
-        backend_request: ChatRequest | None = request_data
-
-        if command_result.command_executed and command_result.modified_messages:
-            # Check if all modified messages are essentially empty (just whitespace)
-            def _message_has_content(message: Any) -> bool:
-                role = (
-                    message.get("role")
-                    if isinstance(message, dict)
-                    else getattr(message, "role", None)
-                )
-                if role != "user":
-                    return False
-                content = (
-                    message.get("content")
-                    if isinstance(message, dict)
-                    else getattr(message, "content", None)
-                )
-                if content is None:
-                    return False
-                # If content is a string, check non-empty after strip
-                if isinstance(content, str):
-                    return bool(content.strip())
-                # If content is a list (multimodal parts), treat non-empty as content
-                if isinstance(content, list):
-                    return len(content) > 0
-                # Fallback for other types: truthiness
-                return bool(content)
-
-            has_content = any(
-                _message_has_content(m) for m in command_result.modified_messages
-            )
-
-            if has_content:
-                # Normalize messages to domain ChatMessage instances
-                normalized_messages: list[ChatMessage] = []
-                for m in command_result.modified_messages:
-                    if isinstance(m, ChatMessage):
-                        normalized_messages.append(m)
-                    elif isinstance(m, dict):
-                        normalized_messages.append(ChatMessage(**m))
-                    else:
-                        # Best-effort conversion
-                        normalized_messages.append(
-                            ChatMessage(
-                                role=getattr(m, "role", "user"),
-                                content=getattr(m, "content", ""),
-                            )
-                        )
-
-                backend_request = ChatRequest(
-                    model=request_data.model,
-                    messages=normalized_messages,
-                    temperature=request_data.temperature,
-                    top_p=request_data.top_p,
-                    max_tokens=request_data.max_tokens,
-                    stream=request_data.stream,
-                    extra_body=request_data.extra_body,
-                )
-            else:
-                # All modified messages are empty, skip backend call
-                backend_request = None  # type: ignore[assignment]
-
-        return backend_request
-
-    async def _update_session_history(
-        self,
-        request_data: ChatRequest,
-        backend_request: ChatRequest,
-        backend_response: ResponseEnvelope | StreamingResponseEnvelope,
-        session_id: str,
-    ) -> None:
-        """Update session history with the backend interaction."""
-        session = await self._session_service.get_session(session_id)
-
-        raw_prompt = ""
-        if request_data and getattr(request_data, "messages", None):
-            for message in reversed(request_data.messages):
-                role = (
-                    message.get("role")
-                    if isinstance(message, dict)
-                    else getattr(message, "role", None)
-                )
-                if role == "user":
-                    content = (
-                        message.get("content")
-                        if isinstance(message, dict)
-                        else getattr(message, "content", None)
-                    )
-                    raw_prompt = content if isinstance(content, str) else str(content)
-                    break
-
-        if raw_prompt:
-            try:
-                last = session.history[-1] if session.history else None
-                last_prompt = getattr(last, "prompt", None) if last else None
-            except Exception:
-                last_prompt = None
-
-            if last_prompt != raw_prompt:
-                from src.core.domain.session import SessionInteraction
-
-                session.add_interaction(
-                    SessionInteraction(
-                        prompt=raw_prompt,
-                        handler="proxy",
-                        backend=getattr(
-                            session.state.backend_config, "backend_type", None
-                        ),
-                        model=getattr(session.state.backend_config, "model", None),
-                        project=getattr(session.state, "project", None),
-                        parameters={
-                            "temperature": getattr(request_data, "temperature", None),
-                            "top_p": getattr(request_data, "top_p", None),
-                            "max_tokens": getattr(request_data, "max_tokens", None),
-                        },
-                    )
-                )
-                await self._session_service.update_session(session)
-        logger.info("Session updated in repository")

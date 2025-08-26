@@ -70,11 +70,7 @@ class TestProjectConfiguration:
         config = ProjectConfiguration()
 
         # Chain multiple configuration updates
-        new_config = (
-            config
-            .with_project("my-app")
-            .with_project_dir("/workspace/my-app")
-        )
+        new_config = config.with_project("my-app").with_project_dir("/workspace/my-app")
 
         assert new_config.project == "my-app"
         assert new_config.project_dir == "/workspace/my-app"

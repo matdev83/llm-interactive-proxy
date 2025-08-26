@@ -4,11 +4,7 @@ Tests for Usage Tracking Interface.
 This module tests the usage tracking interface definitions and contract compliance.
 """
 
-import pytest
 from abc import ABC
-from collections.abc import AsyncGenerator
-from contextlib import asynccontextmanager
-from typing import Any
 
 from src.core.interfaces.usage_tracking_interface import IUsageTrackingService
 
@@ -67,7 +63,7 @@ class TestUsageTrackingInterfaceCompliance:
 
     def test_track_request_has_asynccontextmanager_decorator(self) -> None:
         """Test that track_request method has asynccontextmanager decorator."""
-        track_request_method = getattr(IUsageTrackingService, "track_request")
+        track_request_method = IUsageTrackingService.track_request
 
         # The method should be decorated with @asynccontextmanager
         # This is typically indicated by the presence of the decorator
@@ -75,18 +71,20 @@ class TestUsageTrackingInterfaceCompliance:
 
     def test_track_request_return_type_annotation(self) -> None:
         """Test that track_request has proper return type annotation."""
-        track_request_method = getattr(IUsageTrackingService, "track_request")
+        track_request_method = IUsageTrackingService.track_request
 
         # Check that the method has return type annotation
         assert "return" in track_request_method.__annotations__
 
         # The return type should indicate it's a context manager that yields
         return_annotation = track_request_method.__annotations__["return"]
-        assert "AsyncGenerator" in str(return_annotation) or "AsyncContextManager" in str(return_annotation)
+        assert "AsyncGenerator" in str(
+            return_annotation
+        ) or "AsyncContextManager" in str(return_annotation)
 
     def test_track_usage_parameter_annotations(self) -> None:
         """Test that track_usage method has proper parameter annotations."""
-        track_usage_method = getattr(IUsageTrackingService, "track_usage")
+        track_usage_method = IUsageTrackingService.track_usage
 
         annotations = track_usage_method.__annotations__
 
@@ -108,7 +106,9 @@ class TestUsageTrackingInterfaceCompliance:
         for param in optional_params:
             if param in annotations:
                 # Should be Optional types (Union with None)
-                assert "None" in str(annotations[param]) or "|" in str(annotations[param])
+                assert "None" in str(annotations[param]) or "|" in str(
+                    annotations[param]
+                )
 
         # Check parameters with default values
         if "cost" in annotations:
@@ -119,7 +119,7 @@ class TestUsageTrackingInterfaceCompliance:
 
     def test_get_usage_stats_parameter_annotations(self) -> None:
         """Test that get_usage_stats method has proper parameter annotations."""
-        get_usage_stats_method = getattr(IUsageTrackingService, "get_usage_stats")
+        get_usage_stats_method = IUsageTrackingService.get_usage_stats
 
         annotations = get_usage_stats_method.__annotations__
 
@@ -138,7 +138,7 @@ class TestUsageTrackingInterfaceCompliance:
 
     def test_get_recent_usage_parameter_annotations(self) -> None:
         """Test that get_recent_usage method has proper parameter annotations."""
-        get_recent_usage_method = getattr(IUsageTrackingService, "get_recent_usage")
+        get_recent_usage_method = IUsageTrackingService.get_recent_usage
 
         annotations = get_recent_usage_method.__annotations__
 
@@ -185,4 +185,6 @@ class TestUsageTrackingInterfaceDocumentation:
             method = getattr(IUsageTrackingService, method_name)
             # Abstract methods may not have docstrings, which is acceptable
             if method.__doc__ is not None:
-                assert len(method.__doc__.strip()) > 0, f"Method {method_name} docstring should not be empty"
+                assert (
+                    len(method.__doc__.strip()) > 0
+                ), f"Method {method_name} docstring should not be empty"

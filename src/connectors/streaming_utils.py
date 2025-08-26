@@ -14,7 +14,7 @@ from collections.abc import AsyncIterator
 from typing import Any
 
 from src.core.domain.responses import StreamingResponseEnvelope
-from src.core.domain.streaming_response_processor import StreamNormalizer
+from src.core.services.streaming.stream_normalizer import StreamNormalizer
 
 logger = logging.getLogger(__name__)
 

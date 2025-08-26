@@ -6,7 +6,8 @@ Handles Anthropic API endpoints.
 
 import json
 import logging
-from typing import Any, cast
+from collections.abc import AsyncIterator
+from typing import Any
 
 from fastapi import HTTPException, Request, Response
 
@@ -18,6 +19,7 @@ from src.anthropic_models import AnthropicMessagesRequest
 from src.core.common.exceptions import LLMProxyError
 from src.core.interfaces.di_interface import IServiceProvider
 from src.core.interfaces.request_processor_interface import IRequestProcessor
+from src.core.interfaces.session_resolver_interface import ISessionResolver
 from src.core.transport.fastapi.exception_adapters import (
     map_domain_exception_to_http_exception,
 )
@@ -134,18 +136,17 @@ class AnthropicController:
 
             if isinstance(adapted_response, StreamingResponse):
                 # For streaming responses, we'll handle them separately
-                openai_response_data = {}
-                anthropic_response_data = {}
+                openai_response_data: dict[str, Any] = {}
+                anthropic_response_data: dict[str, Any] = {}
             else:
                 # For regular responses, extract the body content
                 body_content: bytes | memoryview = adapted_response.body
                 if isinstance(body_content, memoryview):
                     body_content = body_content.tobytes()
-                openai_response_data: dict[str, Any] = json.loads(body_content.decode())
+                openai_response_data = json.loads(body_content.decode())
 
                 # Convert to Anthropic format if it has the expected OpenAI structure
                 # Otherwise, pass through the response as is
-                anthropic_response_data: dict[str, Any]
                 if "choices" in openai_response_data:
                     anthropic_response_data = openai_to_anthropic_response(
                         openai_response_data
@@ -172,14 +173,14 @@ class AnthropicController:
                 else:
                     # If somehow we got a non-streaming response but streaming was requested,
                     # convert it to a simple streaming response
-                    async def simple_stream():
+                    async def simple_stream() -> AsyncIterator[bytes]:
                         if hasattr(adapted_response, "body"):
                             yield adapted_response.body
                         else:
                             yield b'data: {"error": "Unable to stream response"}\n\n'
 
                     return StreamingResponse(
-                        simple_stream(),
+                        simple_stream(),  # type: ignore[arg-type]
                         media_type="text/event-stream",
                         headers=getattr(adapted_response, "headers", {}),
                     )
@@ -259,13 +260,7 @@ def get_anthropic_controller(service_provider: IServiceProvider) -> AnthropicCon
 
         if request_processor is None:
             # If still not found, try to create one on the fly
-            from src.core.interfaces.backend_processor_interface import (
-                IBackendProcessor,
-            )
             from src.core.interfaces.backend_service_interface import IBackendService
-            from src.core.interfaces.command_processor_interface import (
-                ICommandProcessor,
-            )
             from src.core.interfaces.command_service_interface import ICommandService
             from src.core.interfaces.response_processor_interface import (
                 IResponseProcessor,
@@ -288,31 +283,49 @@ def get_anthropic_controller(service_provider: IServiceProvider) -> AnthropicCon
                 from src.core.services.command_processor import CommandProcessor
                 from src.core.services.request_processor_service import RequestProcessor
 
-                # Prefer DI-provided processors when available
-                di_cmd_proc = service_provider.get_service(ICommandProcessor)  # type: ignore[type-abstract]
-                di_backend_proc = service_provider.get_service(IBackendProcessor)  # type: ignore[type-abstract]
-                if di_cmd_proc and di_backend_proc:
-                    request_processor = RequestProcessor(
-                        cast(ICommandProcessor, di_cmd_proc),
-                        cast(IBackendProcessor, di_backend_proc),
-                        session,
-                        response_proc,
-                    )
-                else:
-                    # Fallback construct; inject ApplicationState when constructing backend processor
-                    from src.core.services.application_state_service import (
-                        ApplicationStateService,
+                command_processor: CommandProcessor = CommandProcessor(cmd)
+                backend_processor: BackendProcessor = BackendProcessor(backend, session)
+
+                # Get the new decomposed services
+                from src.core.services.backend_request_manager_service import (
+                    BackendRequestManager,
+                )
+                from src.core.services.response_manager_service import ResponseManager
+                from src.core.services.session_manager_service import SessionManager
+
+                session_resolver = service_provider.get_service(ISessionResolver)  # type: ignore[type-abstract]
+                if session_resolver is None:
+                    from src.core.services.session_resolver_service import (
+                        DefaultSessionResolver,
                     )
 
-                    app_state = service_provider.get_service(ApplicationStateService)
-                    command_processor: CommandProcessor = CommandProcessor(cmd)
-                    backend_processor: BackendProcessor = BackendProcessor(
-                        backend, session, app_state
+                    session_resolver = DefaultSessionResolver(None)  # type: ignore[arg-type]
+
+                # Get agent response formatter for ResponseManager
+                from src.core.interfaces.agent_response_formatter_interface import (
+                    IAgentResponseFormatter,
+                )
+
+                agent_response_formatter = service_provider.get_service(IAgentResponseFormatter)  # type: ignore[type-abstract]
+                if agent_response_formatter is None:
+                    from src.core.services.response_manager_service import (
+                        AgentResponseFormatter,
                     )
 
-                    request_processor = RequestProcessor(
-                        command_processor, backend_processor, session, response_proc
-                    )
+                    agent_response_formatter = AgentResponseFormatter()
+
+                session_manager = SessionManager(session, session_resolver)
+                backend_request_manager = BackendRequestManager(
+                    backend_processor, response_proc
+                )
+                response_manager = ResponseManager(agent_response_formatter)
+
+                request_processor = RequestProcessor(
+                    command_processor,
+                    session_manager,
+                    backend_request_manager,
+                    response_manager,
+                )
 
                 # Register it for future use
                 from src.core.di.container import ServiceProvider

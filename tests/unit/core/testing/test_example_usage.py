@@ -7,24 +7,21 @@ that demonstrate proper testing framework usage.
 
 import tempfile
 from pathlib import Path
-from unittest.mock import AsyncMock, MagicMock
 
 import pytest
-
 from src.core.app.stages.base import InitializationStage
 from src.core.config.app_config import AppConfig
 from src.core.di.container import ServiceCollection
 from src.core.interfaces.backend_service_interface import IBackendService
 from src.core.interfaces.session_service_interface import ISessionService
-from src.core.testing.base_stage import ValidatedTestStage
-from src.core.testing.base_stage import BackendServiceTestStage
+from src.core.testing.base_stage import BackendServiceTestStage, ValidatedTestStage
 from src.core.testing.example_usage import (
     ProblematicTestStage,
     SafeTestStage,
+    SomeComplexService,
     create_test_config,
     create_validated_test_app,
     migrate_existing_test_stage,
-    SomeComplexService,
 )
 
 
@@ -209,7 +206,9 @@ class TestMigrateExistingTestStage:
 
         assert migrated_stage is not None
         assert isinstance(migrated_stage, ValidatedTestStage)
-        assert not isinstance(migrated_stage, InitializationStage) or isinstance(migrated_stage, ValidatedTestStage)
+        assert not isinstance(migrated_stage, InitializationStage) or isinstance(
+            migrated_stage, ValidatedTestStage
+        )
 
     def test_migrated_stage_properties(self) -> None:
         """Test migrated stage properties."""
@@ -375,7 +374,11 @@ class SafeTestStage(ValidatedTestStage):
             issues = checker.check_file(temp_path)
 
             # Should not find issues with safe patterns
-            safe_issues = [issue for issue in issues if "should inherit from ValidatedTestStage" not in issue]
+            safe_issues = [
+                issue
+                for issue in issues
+                if "should inherit from ValidatedTestStage" not in issue
+            ]
             assert len(safe_issues) == 0
         finally:
             temp_path.unlink()

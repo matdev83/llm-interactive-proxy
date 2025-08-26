@@ -7,10 +7,8 @@ responses in a consistent way, regardless of the source or format.
 
 from __future__ import annotations
 
-import asyncio
 import json
 import logging
-from collections.abc import AsyncGenerator, AsyncIterator
 from typing import Any
 
 logger = logging.getLogger(__name__)
@@ -27,6 +25,7 @@ class StreamingContent:
         self,
         content: str = "",
         is_done: bool = False,
+        is_cancellation: bool = False,
         metadata: dict[str, Any] | None = None,
         usage: dict[str, Any] | None = None,
         raw_data: Any | None = None,
@@ -36,12 +35,14 @@ class StreamingContent:
         Args:
             content: The text content of the chunk
             is_done: Whether this is the final chunk in the stream
+            is_cancellation: Whether this chunk represents a cancellation event
             metadata: Additional metadata about the chunk
             usage: Token usage information, if available
             raw_data: The original raw data from the stream
         """
         self.content = content
         self.is_done = is_done
+        self.is_cancellation = is_cancellation
         self.metadata = metadata or {}
         self.usage = usage
         self.raw_data = raw_data
@@ -202,9 +203,13 @@ class StreamingContent:
             )
 
 
-class IStreamProcessor:
+from abc import ABC, abstractmethod
+
+
+class IStreamProcessor(ABC):
     """Interface for processing streaming content."""
 
+    @abstractmethod
     async def process(self, content: StreamingContent) -> StreamingContent:
         """Process a streaming content chunk.
 
@@ -214,85 +219,10 @@ class IStreamProcessor:
         Returns:
             The processed content
         """
-        return content
 
 
-class StreamNormalizer:
-    """Converts various streaming formats to a consistent normalized stream.
-
-    This class handles converting streaming responses from different sources
-    and in different formats into a consistent stream of StreamingContent objects.
-    """
-
-    def __init__(self, processors: list[IStreamProcessor] | None = None) -> None:
-        """Initialize a stream normalizer.
-
-        Args:
-            processors: Optional list of processors to apply to each chunk
-        """
-        self.processors = processors or []
-
-    async def normalize_stream(
-        self, stream: AsyncIterator[Any]
-    ) -> AsyncGenerator[StreamingContent, None]:
-        """Normalize a raw stream into StreamingContent objects.
-
-        Args:
-            stream: The raw input stream
-
-        Yields:
-            Normalized StreamingContent objects
-        """
-        async for chunk in stream:
-            # Convert raw chunk to StreamingContent
-            content = StreamingContent.from_raw(chunk)
-
-            # Skip empty chunks
-            if content.is_empty and not content.is_done:
-                continue
-
-            # Apply processors in sequence
-            for processor in self.processors:
-                content = await processor.process(content)
-
-                # Skip if processor made it empty
-                if content.is_empty and not content.is_done:
-                    break
-
-            # Yield if still has content or is done marker
-            if not content.is_empty or content.is_done:
-                yield content
-
-            # Small delay to prevent overwhelming the client
-            await asyncio.sleep(0.01)
-
-    async def process_stream(
-        self, stream: AsyncIterator[Any], output_format: str = "bytes"
-    ) -> AsyncIterator[StreamingContent | bytes]:
-        """Process a stream and convert to the desired output format.
-
-        Args:
-            stream: The input stream to process
-            output_format: The desired output format ("bytes" or "objects")
-
-        Returns:
-            An async iterator of the processed stream in the requested format
-        """
-        normalized_stream = self.normalize_stream(stream)
-
-        if output_format == "bytes":
-            async for content in normalized_stream:
-                yield content.to_bytes()
-        else:
-            # Pass through the StreamingContent objects
-            async for content in normalized_stream:
-                yield content
-
-
-from src.loop_detection.detector import (  # Import LoopDetector
-    LoopDetectionEvent,
-    LoopDetector,
-)
+from src.core.interfaces.loop_detector_interface import ILoopDetector
+from src.loop_detection.event import LoopDetectionEvent
 
 
 class LoopDetectionProcessor(IStreamProcessor):
@@ -301,7 +231,7 @@ class LoopDetectionProcessor(IStreamProcessor):
     This implementation uses a hash-based loop detection mechanism.
     """
 
-    def __init__(self, loop_detector: LoopDetector) -> None:
+    def __init__(self, loop_detector: ILoopDetector) -> None:
         """Initialize the loop detection processor.
 
         Args:
@@ -324,7 +254,7 @@ class LoopDetectionProcessor(IStreamProcessor):
 
         # Process the content for loop detection
         # Ensure content is a string for the loop detector
-        content_str = content.content.decode('utf-8') if isinstance(content.content, bytes) else str(content.content)
+        content_str = content.content
         detection_event = self.loop_detector.process_chunk(content_str)
 
         if detection_event:
@@ -335,7 +265,6 @@ class LoopDetectionProcessor(IStreamProcessor):
         else:
             # No loop detected, pass through the content
             return content
-
 
     def _create_cancellation_content(
         self, detection_event: LoopDetectionEvent
@@ -350,5 +279,6 @@ class LoopDetectionProcessor(IStreamProcessor):
         return StreamingContent(
             content=f"data: {json.dumps({'content': payload})}\n\n",
             is_done=True,
+            is_cancellation=True,
             metadata={"loop_detected": True, "pattern": detection_event.pattern},
         )

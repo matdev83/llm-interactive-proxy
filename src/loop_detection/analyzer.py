@@ -3,26 +3,13 @@ from __future__ import annotations
 import logging
 import re
 import time
-from dataclasses import dataclass
-
-from src.core.interfaces.model_bases import InternalDTO
+from typing import Any
 
 from .config import LoopDetectionConfig
+from .event import LoopDetectionEvent
 from .hasher import ContentHasher
 
 logger = logging.getLogger(__name__)
-
-
-@dataclass
-class LoopDetectionEvent(InternalDTO):
-    """Event triggered when a loop is detected."""
-
-    pattern: str
-    repetition_count: int
-    total_length: int
-    confidence: float
-    buffer_content: str
-    timestamp: float
 
 
 class PatternAnalyzer:
@@ -36,6 +23,7 @@ class PatternAnalyzer:
     def __init__(self, config: LoopDetectionConfig, hasher: ContentHasher):
         self.config = config
         self.hasher = hasher
+        self.history: list[LoopDetectionEvent] = []  # To store detected events
         self.reset()
 
     def analyze_chunk(
@@ -76,17 +64,33 @@ class PatternAnalyzer:
             chunk_hash = self.hasher.hash(current_chunk)
 
             if self._is_loop_detected_for_chunk(current_chunk, chunk_hash):
-                return self._create_detection_event_from_chunk(
+                event = self._create_detection_event_from_chunk(
                     pattern=current_chunk,
                     repetition_count=len(self._content_stats[chunk_hash]),
                     total_length=len(self._stream_history),
                     confidence=1.0,
                     buffer_content=full_buffer_content,
                 )
+                self.history.append(event)
+                return event
 
             self._last_chunk_index += 1
 
         return None
+
+    def get_history(self) -> list[LoopDetectionEvent]:
+        """Returns the history of detected loop events."""
+        return self.history
+
+    def get_state(self) -> dict[str, Any]:
+        """Returns the current internal state of the analyzer."""
+        return {
+            "stream_history_len": len(self._stream_history),
+            "last_chunk_index": self._last_chunk_index,
+            "in_code_block": self._in_code_block,
+            "content_stats_keys": list(self._content_stats.keys()),
+            "history_len": len(self.history),
+        }
 
     def _truncate_and_update_indices(self) -> None:
         max_history = self.config.max_history_length
@@ -177,6 +181,7 @@ class PatternAnalyzer:
         self._stream_history = ""
         self._content_stats = {}
         self._last_chunk_index = 0
+        self.history = []  # Clear history on full reset
         if logger.isEnabledFor(logging.DEBUG):
             logger.debug("Pattern analyzer history reset")
 

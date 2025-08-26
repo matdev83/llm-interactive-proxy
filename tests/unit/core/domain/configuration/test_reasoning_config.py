@@ -5,7 +5,6 @@ This module tests the reasoning configuration functionality including
 reasoning effort, temperature, thinking budget, and validation.
 """
 
-
 from src.core.domain.configuration.reasoning_config import ReasoningConfiguration
 
 
@@ -142,8 +141,7 @@ class TestReasoningConfiguration:
 
         # Chain multiple configuration updates
         new_config = (
-            config
-            .with_reasoning_effort("high")
+            config.with_reasoning_effort("high")
             .with_thinking_budget(2048)
             .with_temperature(0.3)
             .with_reasoning_config({"max_tokens": 2000, "top_k": 40})

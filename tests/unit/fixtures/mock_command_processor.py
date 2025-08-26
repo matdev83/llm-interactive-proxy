@@ -1,14 +1,16 @@
-"""Mock implementation of CommandProcessor for fixture tests."""
+"""Mock implementation of DI CommandProcessor for fixture tests."""
 
 from typing import Any
 
-from src.command_processor import CommandProcessor
 from src.core.domain.multimodal import MultimodalMessage
 from src.core.domain.processed_result import ProcessedResult
 from src.core.domain.request_context import RequestContext
+from src.core.services.command_processor import (
+    CommandProcessor as CoreCommandProcessor,
+)
 
 
-class MockCommandProcessorFixtures(CommandProcessor):
+class MockCommandProcessorFixtures(CoreCommandProcessor):
     """Special mock implementation for fixture tests."""
 
     def __init__(self) -> None:
@@ -22,20 +24,10 @@ class MockCommandProcessorFixtures(CommandProcessor):
         context: RequestContext | None = None,
     ) -> ProcessedResult:
         """Process messages for fixture tests."""
-        # For debugging
-        import logging
-
-        logger = logging.getLogger(__name__)
-
-        # Log message type and content
-        if messages and len(messages) > 0:
-            logger.info(f"Message type: {type(messages[0])}")
-            logger.info(f"Content type: {type(getattr(messages[0], 'content', None))}")
-            logger.info(f"Content: {getattr(messages[0], 'content', None)}")
         # Special case for test_command_parser_fixture - always return success
         if len(messages) == 1 and isinstance(messages[0], MultimodalMessage):
             # Just return success for any MultimodalMessage in this test
-            logger.info("Processing MultimodalMessage for test_command_parser_fixture")
+            # No-op for test fixture
 
             # Create modified messages with command removed
             modified_messages = messages.copy()

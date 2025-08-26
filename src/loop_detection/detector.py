@@ -9,16 +9,27 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Callable
+from typing import TYPE_CHECKING, Any
 
-from .analyzer import LoopDetectionEvent, PatternAnalyzer
+from src.core.interfaces.loop_detector_interface import ILoopDetector
+
+if TYPE_CHECKING:
+    from src.core.interfaces.loop_detector_interface import LoopDetectionResult
+from src.loop_detection.event import (
+    LoopDetectionEvent,  # Added import for return type annotation
+)
+
+from .analyzer import PatternAnalyzer
 from .buffer import ResponseBuffer
 from .config import LoopDetectionConfig
+
+# from .event import LoopDetectionEvent # Already imported above
 from .hasher import ContentHasher
 
 logger = logging.getLogger(__name__)
 
 
-class LoopDetector:
+class LoopDetector(ILoopDetector):
     """Main loop detection class."""
 
     def __init__(
@@ -141,6 +152,24 @@ class LoopDetector:
             },
         }
 
+    def get_loop_history(self) -> list[LoopDetectionEvent]:
+        """
+        Retrieves the history of detected loops.
+        For LoopDetector, this is the analyzer's history.
+        """
+        return self.analyzer.get_history()
+
+    def get_current_state(self) -> dict[str, Any]:
+        """
+        Retrieves the current internal state of the loop detector.
+        """
+        return {
+            "buffer_content_length": len(self.buffer.get_content()),
+            "total_processed": self.total_processed,
+            "last_detection_position": self.last_detection_position,
+            "analyzer_state": self.analyzer.get_state(),
+        }
+
     def update_config(self, new_config: LoopDetectionConfig) -> None:
         """Update the detector configuration."""
         # Validate new configuration
@@ -172,7 +201,31 @@ class LoopDetector:
         self.analyzer.config = new_config  # Update analyzer with new config
         self.analyzer.reset()  # Reset analyzer state due to config change
 
-        if logger.isEnabledFor(logging.INFO):
-            logger.info(
-                "Loop detector configuration updated: enabled=%s", self.is_active
-            )
+    async def check_for_loops(self, content: str) -> LoopDetectionResult:
+        """Async interface required by ILoopDetector to check the entire content.
+
+        This uses the existing analyzer on the full content string and returns a
+        LoopDetectionResult compatible object.
+        """
+        from src.core.interfaces.loop_detector_interface import LoopDetectionResult
+
+        if not content:
+            return LoopDetectionResult(has_loop=False)
+
+        # Fast path: use analyzer on the whole content (non-streaming check)
+        event = self.analyzer.analyze_chunk(content, content)
+        if event is None:
+            return LoopDetectionResult(has_loop=False)
+
+        return LoopDetectionResult(
+            has_loop=True,
+            pattern=event.pattern,
+            repetitions=getattr(event, "repetitions", 0),
+            details={
+                "pattern_length": len(event.pattern) if event.pattern else 0,
+                "total_repeated_chars": (
+                    (len(event.pattern) if event.pattern else 0)
+                    * getattr(event, "repetitions", 0)
+                ),
+            },
+        )

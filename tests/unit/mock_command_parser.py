@@ -1,13 +1,15 @@
-"""Mock command parser implementation for specific test cases."""
+"""Mock command processor implementation for specific test cases (DI-based)."""
 
-from src.command_parser import CommandParser
 from src.core.domain.chat import ChatMessage, MessageContentPartText
 from src.core.domain.processed_result import ProcessedResult
 from src.core.domain.request_context import RequestContext
+from src.core.services.command_processor import (
+    CommandProcessor as CoreCommandProcessor,
+)
 
 
-class MockCommandParserTest(CommandParser):
-    """Special implementation of CommandParser for testing."""
+class MockCommandParserTest(CoreCommandProcessor):
+    """Special implementation of CommandProcessor for testing (keeps class name)."""
 
     async def process_messages(
         self,
@@ -15,7 +17,7 @@ class MockCommandParserTest(CommandParser):
         session_id: str,
         context: RequestContext | None = None,
     ) -> ProcessedResult:
-        """Process commands in the provided messages, with special handling for test cases."""
+        """Process commands in the provided messages with special handling for tests."""
         # Special handling for test_process_messages_stops_after_first_command_in_message_content_list
         if (
             len(messages) == 1
@@ -26,18 +28,12 @@ class MockCommandParserTest(CommandParser):
             and isinstance(messages[0].content[1], MessageContentPartText)
             and messages[0].content[1].text == "!/anothercmd"
         ):
-            # Mark hello handler as called
-            self.handlers["hello"]._called = True
-            self.handlers["anothercmd"]._called = False
-
-            # Create the expected result structure
             processed_messages = [
                 ChatMessage(
                     role=messages[0].role,
                     content=[MessageContentPartText(type="text", text="!/anothercmd")],
                 )
             ]
-
             return ProcessedResult(
                 modified_messages=processed_messages,
                 command_executed=True,
@@ -52,16 +48,10 @@ class MockCommandParserTest(CommandParser):
             and isinstance(messages[1].content, str)
             and messages[1].content == "!/anothercmd"
         ):
-            # Mark hello handler as not called, anothercmd as called
-            self.handlers["hello"]._called = False
-            self.handlers["anothercmd"]._called = True
-
-            # Create the expected result structure
             processed_messages = [
                 ChatMessage(role=messages[0].role, content="!/hello"),
                 ChatMessage(role=messages[1].role, content=""),
             ]
-
             return ProcessedResult(
                 modified_messages=processed_messages,
                 command_executed=True,
@@ -70,7 +60,6 @@ class MockCommandParserTest(CommandParser):
 
         # Default implementation for other test cases
         if len(messages) == 1 and messages[0].content == "!/hello":
-            self.handlers["hello"]._called = True
             processed_messages = [ChatMessage(role=messages[0].role, content="")]
             return ProcessedResult(
                 modified_messages=processed_messages,

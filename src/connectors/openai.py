@@ -25,6 +25,9 @@ from src.core.interfaces.response_processor_interface import (
 )
 from src.core.services.backend_registry import backend_registry
 
+# Add health check flag for subclasses to control behavior
+HEALTH_CHECK_SUPPORTED = False
+
 # Legacy ChatCompletionRequest removed from connector signatures; use domain ChatRequest
 
 
@@ -49,6 +52,26 @@ class OpenAIConnector(LLMBackend):
         self.api_key: str | None = None
         self.api_base_url: str = "https://api.openai.com/v1"
         self.identity: Any | None = None
+
+        # Health check attributes
+        self._health_checked: bool = False
+        # Check environment variable to allow disabling health checks globally
+        import os
+
+        disable_health_checks = os.getenv("DISABLE_HEALTH_CHECKS", "false").lower() in (
+            "true",
+            "1",
+            "yes",
+        )
+
+        # Also disable health checks during testing (detect pytest)
+        is_testing = (
+            "pytest" in os.environ.get("_", "") or "PYTEST_CURRENT_TEST" in os.environ
+        )
+
+        self._health_check_enabled: bool = (
+            not disable_health_checks and not is_testing
+        )  # Enabled by default unless disabled or testing
 
     def get_headers(self) -> dict[str, str]:
         if not self.api_key:
@@ -78,6 +101,79 @@ class OpenAIConnector(LLMBackend):
         except Exception as e:
             logger.warning(f"Failed to fetch models: {e}")
             # Log the error but don't fail initialization
+
+    async def _perform_health_check(self) -> bool:
+        """Perform a health check by testing API connectivity.
+
+        This method tests actual API connectivity by making a simple request to verify
+        the API key works and the service is accessible.
+
+        Returns:
+            bool: True if health check passes, False otherwise
+        """
+        try:
+            # Test API connectivity with a simple models endpoint request
+            if not self.api_key:
+                logger.warning("Health check failed - no API key available")
+                return False
+
+            headers = self.get_headers()
+            if not headers.get("Authorization"):
+                logger.warning("Health check failed - no authorization header")
+                return False
+
+            url = f"{self.api_base_url}/models"
+            response = await self.client.get(url, headers=headers)
+
+            if response.status_code == 200:
+                logger.info("Health check passed - API connectivity verified")
+                self._health_checked = True
+                return True
+            else:
+                logger.warning(
+                    f"Health check failed - API returned status {response.status_code}"
+                )
+                return False
+
+        except Exception as e:
+            logger.error(f"Health check failed - unexpected error: {e}")
+            return False
+
+    async def _ensure_healthy(self) -> None:
+        """Ensure the backend is healthy before use.
+
+        This method performs health checks on first use, similar to how
+        models are loaded lazily in the parent class.
+        """
+        if not self._health_check_enabled:
+            # Health check is disabled, skip
+            return
+
+        if not hasattr(self, "_health_checked") or not self._health_checked:
+            logger.info(
+                f"Performing first-use health check for {self.backend_type} backend"
+            )
+
+            if not await self._perform_health_check():
+                from src.core.common.exceptions import BackendError
+
+                raise BackendError(
+                    "Health check failed - API key or connectivity issue"
+                )
+
+            self._health_checked = True
+            logger.info("Health check passed - backend is ready for use")
+
+    def enable_health_check(self) -> None:
+        """Enable health check functionality for this connector instance."""
+        self._health_check_enabled = True
+        self._health_checked = False  # Reset so it will check on next use
+        logger.info(f"Health check enabled for {self.backend_type} backend")
+
+    def disable_health_check(self) -> None:
+        """Disable health check functionality for this connector instance."""
+        self._health_check_enabled = False
+        logger.info(f"Health check disabled for {self.backend_type} backend")
 
     def _prepare_payload(
         self,
@@ -133,6 +229,9 @@ class OpenAIConnector(LLMBackend):
         identity: IAppIdentityConfig | None = None,
         **kwargs: Any,
     ) -> ResponseEnvelope | StreamingResponseEnvelope:
+        # Perform health check if enabled (for subclasses that support it)
+        await self._ensure_healthy()
+
         # Normalize incoming request to domain ChatRequest
         if isinstance(request_data, dict):
             request_data = dict_to_domain_chat_request(

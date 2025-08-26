@@ -139,15 +139,6 @@ class BackendService(IBackendService):
                 stream,
             )
 
-        try:
-            backend = await self._get_or_create_backend(backend_type)
-        except Exception as e:
-            raise BackendError(
-                message=f"Failed to initialize backend {backend_type}",
-                backend_name=backend_type,
-                details={"error": str(e)},
-            )
-
         rate_key = f"backend:{backend_type}"
         limit_info = await self._rate_limiter.check_limit(rate_key)
         if limit_info.is_limited:
@@ -160,6 +151,16 @@ class BackendService(IBackendService):
 
         try:
             await self._rate_limiter.record_usage(rate_key)
+
+            # Initialize backend only after passing rate limiting checks
+            try:
+                backend = await self._get_or_create_backend(backend_type)
+            except Exception as e:
+                raise BackendError(
+                    message=f"Failed to initialize backend {backend_type}",
+                    backend_name=backend_type,
+                    details={"error": str(e)},
+                )
 
             domain_request: ChatRequest = request
 

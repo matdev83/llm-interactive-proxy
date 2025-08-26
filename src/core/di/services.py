@@ -14,9 +14,14 @@ from typing import Any, TypeVar, cast
 
 from src.core.config.app_config import AppConfig
 from src.core.di.container import ServiceCollection
+from src.core.domain.streaming_response_processor import LoopDetectionProcessor
+from src.core.interfaces.agent_response_formatter_interface import (
+    IAgentResponseFormatter,
+)
 from src.core.interfaces.app_settings_interface import IAppSettings
 from src.core.interfaces.application_state_interface import IApplicationState
 from src.core.interfaces.backend_processor_interface import IBackendProcessor
+from src.core.interfaces.backend_request_manager_interface import IBackendRequestManager
 from src.core.interfaces.backend_service_interface import IBackendService
 from src.core.interfaces.command_processor_interface import ICommandProcessor
 from src.core.interfaces.command_service_interface import ICommandService
@@ -26,20 +31,25 @@ from src.core.interfaces.response_handler_interface import (
     INonStreamingResponseHandler,
     IStreamingResponseHandler,
 )
-from src.core.interfaces.response_processor_interface import IResponseProcessor
+from src.core.interfaces.response_manager_interface import IResponseManager
+from src.core.interfaces.response_processor_interface import (
+    IResponseProcessor,
+)
+from src.core.interfaces.session_manager_interface import ISessionManager
 from src.core.interfaces.session_resolver_interface import ISessionResolver
 from src.core.interfaces.session_service_interface import ISessionService
 from src.core.interfaces.state_provider_interface import (
     ISecureStateAccess,
     ISecureStateModification,
 )
-from src.core.interfaces.streaming_response_processor_interface import (
-    IStreamingResponseProcessor,
+from src.core.interfaces.streaming_response_processor_interface import IStreamNormalizer
+from src.core.interfaces.tool_call_repair_service_interface import (
+    IToolCallRepairService,
 )
-from src.core.domain.streaming_response_processor import IStreamProcessor, LoopDetectionProcessor, StreamNormalizer
 from src.core.services.app_settings_service import AppSettings
 from src.core.services.application_state_service import ApplicationStateService
 from src.core.services.backend_processor import BackendProcessor
+from src.core.services.backend_request_manager_service import BackendRequestManager
 from src.core.services.backend_service import BackendService
 from src.core.services.command_processor import CommandProcessor
 from src.core.services.command_service import CommandService
@@ -48,19 +58,27 @@ from src.core.services.response_handlers import (
     DefaultNonStreamingResponseHandler,
     DefaultStreamingResponseHandler,
 )
+from src.core.services.response_manager_service import (
+    AgentResponseFormatter,
+    ResponseManager,
+)
 from src.core.services.response_processor_service import ResponseProcessor
 from src.core.services.secure_command_factory import SecureCommandFactory
 from src.core.services.secure_state_service import SecureStateService
+from src.core.services.session_manager_service import SessionManager
 from src.core.services.session_resolver_service import DefaultSessionResolver
 from src.core.services.session_service_impl import SessionService
+from src.core.services.streaming.content_accumulation_processor import (
+    ContentAccumulationProcessor,
+)
+from src.core.services.streaming.middleware_application_processor import (
+    MiddlewareApplicationProcessor,
+)
+from src.core.services.streaming.stream_normalizer import StreamNormalizer
 from src.core.services.streaming.tool_call_repair_processor import (
     ToolCallRepairProcessor,
 )
-from src.core.services.streaming_response_processor_service import (
-    StreamingResponseProcessorService,
-)
 from src.core.services.tool_call_repair_service import ToolCallRepairService
-from src.loop_detection.detector import LoopDetector # Added import
 
 T = TypeVar("T")
 
@@ -184,6 +202,7 @@ def register_core_services(
     # Register CommandService and bind to interface
     _add_singleton(CommandService, implementation_factory=_command_service_factory)
 
+    # Register ICommandService interface
     with contextlib.suppress(Exception):
         services.add_singleton(
             cast(type, ICommandService), implementation_factory=_command_service_factory
@@ -239,13 +258,8 @@ def register_core_services(
             ISessionService
         )  # type: ignore[type-abstract]
 
-        # Return backend processor (inject application state to adhere to DIP)
-        app_state = provider.get_required_service(ApplicationStateService)
-        return BackendProcessor(
-            backend_service=backend_service,
-            session_service=session_service,
-            application_state=app_state,
-        )
+        # Return backend processor
+        return BackendProcessor(backend_service, session_service)
 
     # Register backend processor and bind to interface
     _add_singleton(BackendProcessor, implementation_factory=_backend_processor_factory)
@@ -268,89 +282,17 @@ def register_core_services(
             cast(type, IStreamingResponseHandler), DefaultStreamingResponseHandler
         )
 
-    # Register tool call repair service
-    _add_singleton(ToolCallRepairService)
-
     # Register response processor
     def _response_processor_factory(provider: IServiceProvider) -> ResponseProcessor:
         app_state: IApplicationState = provider.get_required_service(IApplicationState)
+        stream_normalizer: IStreamNormalizer = provider.get_required_service(
+            IStreamNormalizer
+        )
 
-        stream_normalizer: StreamNormalizer | None = None
-        if app_state.get_use_streaming_pipeline():
-            logger.info("Streaming pipeline enabled. Registering stream processors.")
-            processors: list[IStreamProcessor] = []
-
-            # Add ToolCallRepairProcessor
-            tool_call_repair_service = provider.get_required_service(
-                ToolCallRepairService
-            )
-            processors.append(ToolCallRepairProcessor(tool_call_repair_service))
-
-            # Add LoopDetectionProcessor (the existing no-op one for now)
-            # When a proper LoopDetector is implemented and wired via DI,
-            # this will need to be updated to inject it.
-            # For now, it satisfies the pipeline requirement.
-            # We explicitly pass None for loop_detector to the constructor,
-            # as the current LoopDetectionProcessor expects it.
-            processors.append(LoopDetectionProcessor(loop_detector=LoopDetector())) # Pass concrete LoopDetector instance
-
-            stream_normalizer = StreamNormalizer(processors=processors)
-            logger.debug(f"StreamNormalizer initialized with {len(processors)} processors.")
-        else:
-            logger.info("Streaming pipeline disabled.")
-
-        # Get loop detector if available (for non-streaming processing and middleware)
-        detector: Any | None = None
-        try:
-            from src.core.interfaces.loop_detector_interface import ILoopDetector
-
-            detector = provider.get_service(cast(type, ILoopDetector))
-        except Exception:
-            pass
-
-        # Create response processor with loop detector and middleware
-        logger_rp = logging.getLogger(__name__)  # Use a different logger name to avoid conflict
-        try:
-            from src.core.interfaces.response_processor_interface import (
-                IResponseMiddleware,
-            )
-            from src.core.services.empty_response_middleware import (
-                EmptyResponseMiddleware,
-            )
-            from src.core.services.response_middleware import LoopDetectionMiddleware
-
-            middleware: list[IResponseMiddleware] = []
-
-            # Add empty response middleware
-            try:
-                app_config = provider.get_service(AppConfig)
-                if app_config and hasattr(app_config, "empty_response"):
-                    empty_response_config = app_config.empty_response
-                    middleware.append(
-                        EmptyResponseMiddleware(
-                            enabled=empty_response_config.enabled,
-                            max_retries=empty_response_config.max_retries,
-                        )
-                    )
-                else:
-                    # Default configuration if not available
-                    middleware.append(EmptyResponseMiddleware())
-                logger_rp.debug("Added empty response middleware")
-            except Exception as e:
-                logger_rp.warning(f"Empty response middleware not available: {e}")
-
-            if detector:
-                middleware.append(LoopDetectionMiddleware(detector))
-
-            return ResponseProcessor(
-                app_state=app_state,
-                loop_detector=detector,
-                middleware=middleware,
-                stream_normalizer=stream_normalizer,
-            )
-        except Exception as e:  # type: ignore[misc]
-            logger_rp.exception("Failed to create ResponseProcessor: %s", e)
-            raise
+        return ResponseProcessor(
+            app_state=app_state,
+            stream_normalizer=stream_normalizer,
+        )
 
     # Register response processor and bind to interface
     _add_singleton(
@@ -389,17 +331,6 @@ def register_core_services(
     def _application_state_factory(
         provider: IServiceProvider,
     ) -> ApplicationStateService:
-        # Prefer injected state provider; create with no state provider for backward compatibility
-        try:
-            # Try to get a state provider from the service provider
-            state_provider = provider.get_service(
-                object
-            )  # Generic object as we don't know the exact type
-            if state_provider is not None:
-                return ApplicationStateService(state_provider)
-        except Exception:
-            # If we can't get a state provider, fall back to creating without one
-            pass
         return ApplicationStateService()
 
     _add_singleton(
@@ -437,6 +368,141 @@ def register_core_services(
 
     _add_singleton(SecureCommandFactory, implementation_factory=_secure_command_factory)
 
+    # Register session manager
+    def _session_manager_factory(provider: IServiceProvider) -> SessionManager:
+        session_service = provider.get_required_service(ISessionService)  # type: ignore[type-abstract]
+        session_resolver = provider.get_required_service(ISessionResolver)  # type: ignore[type-abstract]
+        return SessionManager(session_service, session_resolver)
+
+    _add_singleton(SessionManager, implementation_factory=_session_manager_factory)
+
+    with contextlib.suppress(Exception):
+        services.add_singleton(
+            cast(type, ISessionManager), implementation_factory=_session_manager_factory
+        )  # type: ignore[type-abstract]
+
+    # Register agent response formatter
+    def _agent_response_formatter_factory(
+        provider: IServiceProvider,
+    ) -> AgentResponseFormatter:
+        return AgentResponseFormatter()
+
+    _add_singleton(
+        AgentResponseFormatter, implementation_factory=_agent_response_formatter_factory
+    )
+
+    with contextlib.suppress(Exception):
+        services.add_singleton(
+            cast(type, IAgentResponseFormatter),
+            implementation_factory=_agent_response_formatter_factory,
+        )  # type: ignore[type-abstract]
+
+    # Register response manager
+    def _response_manager_factory(provider: IServiceProvider) -> ResponseManager:
+        agent_response_formatter = provider.get_required_service(IAgentResponseFormatter)  # type: ignore[type-abstract]
+        return ResponseManager(agent_response_formatter)
+
+    _add_singleton(ResponseManager, implementation_factory=_response_manager_factory)
+
+    with contextlib.suppress(Exception):
+        services.add_singleton(
+            cast(type, IResponseManager),
+            implementation_factory=_response_manager_factory,
+        )  # type: ignore[type-abstract]
+
+    # Register backend request manager
+    def _backend_request_manager_factory(
+        provider: IServiceProvider,
+    ) -> BackendRequestManager:
+        backend_processor = provider.get_required_service(IBackendProcessor)  # type: ignore[type-abstract]
+        response_processor = provider.get_required_service(IResponseProcessor)  # type: ignore[type-abstract]
+        return BackendRequestManager(backend_processor, response_processor)
+
+    _add_singleton(
+        BackendRequestManager, implementation_factory=_backend_request_manager_factory
+    )
+
+    with contextlib.suppress(Exception):
+        services.add_singleton(
+            cast(type, IBackendRequestManager),
+            implementation_factory=_backend_request_manager_factory,
+        )  # type: ignore[type-abstract]
+
+    # Register stream normalizer
+    def _stream_normalizer_factory(provider: IServiceProvider) -> StreamNormalizer:
+        # Retrieve all stream processors in the correct order
+        try:
+            tool_call_repair_processor = provider.get_required_service(
+                ToolCallRepairProcessor
+            )
+            loop_detection_processor = provider.get_required_service(
+                LoopDetectionProcessor
+            )
+            middleware_application_processor = provider.get_required_service(
+                MiddlewareApplicationProcessor
+            )
+            content_accumulation_processor = provider.get_required_service(
+                ContentAccumulationProcessor
+            )
+
+            processors = [
+                tool_call_repair_processor,
+                loop_detection_processor,
+                middleware_application_processor,
+                content_accumulation_processor,
+            ]
+        except Exception as e:
+            logger.warning(
+                f"Error creating stream processors: {e}. Using default configuration."
+            )
+            # Create minimal configuration with just content accumulation
+            content_accumulation_processor = ContentAccumulationProcessor()
+            processors = [content_accumulation_processor]
+
+        return StreamNormalizer(processors)
+
+    _add_singleton(StreamNormalizer, implementation_factory=_stream_normalizer_factory)
+
+    with contextlib.suppress(Exception):
+        services.add_singleton(
+            cast(type, IStreamNormalizer),
+            implementation_factory=_stream_normalizer_factory,
+        )  # type: ignore[type-abstract]
+
+    # Register individual stream processors
+    _add_singleton(LoopDetectionProcessor)
+    _add_singleton(ToolCallRepairProcessor)
+    _add_singleton(ContentAccumulationProcessor)
+    _add_singleton(MiddlewareApplicationProcessor)
+
+    # Register tool call repair service (if not already registered elsewhere as a concrete type)
+    def _tool_call_repair_service_factory(
+        provider: IServiceProvider,
+    ) -> ToolCallRepairService:
+        return ToolCallRepairService()
+
+    _add_singleton(
+        ToolCallRepairService, implementation_factory=_tool_call_repair_service_factory
+    )
+
+    with contextlib.suppress(Exception):
+        services.add_singleton(
+            cast(type, IToolCallRepairService),
+            implementation_factory=_tool_call_repair_service_factory,
+        )  # type: ignore[type-abstract]
+
+    # Register tool call repair processor
+    def _tool_call_repair_processor_factory(
+        provider: IServiceProvider,
+    ) -> ToolCallRepairProcessor:
+        tool_call_repair_service = provider.get_required_service(IToolCallRepairService)  # type: ignore[type-abstract]
+        return ToolCallRepairProcessor(tool_call_repair_service)
+
+    _add_singleton(
+        ToolCallRepairProcessor,
+        implementation_factory=_tool_call_repair_processor_factory,
+    )
+
     # Register backend service
     def _backend_service_factory(provider: IServiceProvider) -> BackendService:
         # Import required modules
@@ -460,14 +526,12 @@ def register_core_services(
         # Create rate limiter
         rate_limiter: RateLimiter = RateLimiter()
 
-        app_state = provider.get_required_service(ApplicationStateService)
         # Return backend service
         return BackendService(
             backend_factory,
             rate_limiter,
             app_config,
             session_service=provider.get_required_service(SessionService),
-            app_state=app_state,
         )
 
     # Register backend service and bind to interface
@@ -480,35 +544,19 @@ def register_core_services(
 
     # Register request processor
     def _request_processor_factory(provider: IServiceProvider) -> RequestProcessor:
-        # Import interface types inside the factory to avoid runtime name errors
-        # if modules are imported in different orders during startup.
-        from src.core.interfaces.backend_processor_interface import IBackendProcessor
-        from src.core.interfaces.command_processor_interface import ICommandProcessor
-        from src.core.interfaces.response_processor_interface import IResponseProcessor
-        from src.core.interfaces.session_resolver_interface import ISessionResolver
-        from src.core.interfaces.session_service_interface import ISessionService
-
         # Get required services
-        command_proc: ICommandProcessor = provider.get_required_service(
-            ICommandProcessor
-        )  # type: ignore[type-abstract]
-        backend_proc: IBackendProcessor = provider.get_required_service(
-            IBackendProcessor
-        )  # type: ignore[type-abstract]
-        session_svc: ISessionService = provider.get_required_service(ISessionService)  # type: ignore[type-abstract]
-        response_proc: IResponseProcessor = provider.get_required_service(
-            IResponseProcessor
-        )  # type: ignore[type-abstract]
+        command_processor = provider.get_required_service(ICommandProcessor)  # type: ignore[type-abstract]
+        session_manager = provider.get_required_service(ISessionManager)  # type: ignore[type-abstract]
+        backend_request_manager = provider.get_required_service(IBackendRequestManager)  # type: ignore[type-abstract]
+        response_manager = provider.get_required_service(IResponseManager)  # type: ignore[type-abstract]
 
-        # Get session resolver if available
-        session_resolver: ISessionResolver | None = None
-        with contextlib.suppress(Exception):
-            session_resolver = provider.get_service(ISessionResolver)  # type: ignore[type-abstract]
-
-        # Return request processor
+        # Return request processor with decomposed services
         return RequestProcessor(
-            command_proc, backend_proc, session_svc, response_proc, session_resolver
-        )  # type: ignore[arg-type]
+            command_processor,
+            session_manager,
+            backend_request_manager,
+            response_manager,
+        )
 
     # Register request processor and bind to interface
     _add_singleton(RequestProcessor, implementation_factory=_request_processor_factory)
@@ -517,25 +565,6 @@ def register_core_services(
         _add_singleton(
             cast(type, IRequestProcessor),
             implementation_factory=_request_processor_factory,
-        )  # type: ignore[type-abstract]
-
-    # Register streaming response processor service
-    def _streaming_response_processor_factory(
-        provider: IServiceProvider,
-    ) -> StreamingResponseProcessorService:
-        # Create streaming response processor service
-        return StreamingResponseProcessorService()
-
-    # Register streaming response processor service and bind to interface
-    _add_singleton(
-        StreamingResponseProcessorService,
-        implementation_factory=_streaming_response_processor_factory,
-    )
-
-    with contextlib.suppress(Exception):
-        services.add_singleton(
-            cast(type, IStreamingResponseProcessor),
-            implementation_factory=_streaming_response_processor_factory,
         )  # type: ignore[type-abstract]
 
 
@@ -560,6 +589,9 @@ def get_required_service(service_type: type[T]) -> T:
 
     Returns:
         The service instance
+
+    Raises:
+        Exception: If the service is not registered
     """
     provider = get_or_build_service_provider()
     return provider.get_required_service(service_type)  # type: ignore

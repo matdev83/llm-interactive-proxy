@@ -9,7 +9,6 @@ import logging
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
-
 from src.core.app.stages.base import InitializationStage
 from src.core.config.app_config import AppConfig
 from src.core.di.container import ServiceCollection
@@ -42,7 +41,6 @@ class TestValidatedTestStage:
             self, services: ServiceCollection, config: AppConfig
         ) -> None:
             """Empty implementation for testing."""
-            pass
 
     @pytest.fixture
     def stage(self) -> ConcreteValidatedTestStage:
@@ -63,12 +61,12 @@ class TestValidatedTestStage:
             BackendConfig,
             BackendSettings,
         )
+
         return AppConfig(
             host="localhost",
             port=9000,
             backends=BackendSettings(
-                default_backend="openai",
-                openai=BackendConfig(api_key=["test_key"])
+                default_backend="openai", openai=BackendConfig(api_key=["test_key"])
             ),
             auth=AuthConfig(disable_auth=True, api_keys=["test-key"]),
         )
@@ -86,12 +84,19 @@ class TestValidatedTestStage:
         """Test default get_dependencies implementation."""
         assert stage.get_dependencies() == []
 
-    def test_get_description_implemented(self, stage: ConcreteValidatedTestStage) -> None:
+    def test_get_description_implemented(
+        self, stage: ConcreteValidatedTestStage
+    ) -> None:
         """Test that get_description returns the correct value."""
         assert stage.get_description() == "Test validated stage for unit testing"
 
     @pytest.mark.asyncio
-    async def test_execute_with_implemented_register_services(self, stage: ConcreteValidatedTestStage, services: ServiceCollection, config: AppConfig) -> None:
+    async def test_execute_with_implemented_register_services(
+        self,
+        stage: ConcreteValidatedTestStage,
+        services: ServiceCollection,
+        config: AppConfig,
+    ) -> None:
         """Test execute with implemented _register_services method."""
         # Should not raise any exception since _register_services is implemented
         await stage.execute(services, config)
@@ -99,7 +104,9 @@ class TestValidatedTestStage:
         # Should have logged the execution
         # (We can't easily test log output in this context, but we can verify no exception was raised)
 
-    def test_safe_register_instance_basic(self, stage: ConcreteValidatedTestStage, services: ServiceCollection) -> None:
+    def test_safe_register_instance_basic(
+        self, stage: ConcreteValidatedTestStage, services: ServiceCollection
+    ) -> None:
         """Test safe_register_instance with basic service."""
         mock_service = MagicMock()
 
@@ -110,7 +117,9 @@ class TestValidatedTestStage:
         assert object in stage._registered_services
         assert stage._registered_services[object] == mock_service
 
-    def test_safe_register_instance_with_validation_disabled(self, stage: ConcreteValidatedTestStage, services: ServiceCollection) -> None:
+    def test_safe_register_instance_with_validation_disabled(
+        self, stage: ConcreteValidatedTestStage, services: ServiceCollection
+    ) -> None:
         """Test safe_register_instance with validation disabled."""
         mock_service = MagicMock()
 
@@ -119,8 +128,11 @@ class TestValidatedTestStage:
         # Service should still be registered
         assert object in stage._registered_services
 
-    def test_safe_register_singleton_with_factory(self, stage: ConcreteValidatedTestStage, services: ServiceCollection) -> None:
+    def test_safe_register_singleton_with_factory(
+        self, stage: ConcreteValidatedTestStage, services: ServiceCollection
+    ) -> None:
         """Test safe_register_singleton with factory function."""
+
         def factory() -> object:
             return object()
 
@@ -129,35 +141,45 @@ class TestValidatedTestStage:
         # Should not raise any exception
         assert True
 
-    def test_safe_register_singleton_with_type(self, stage: ConcreteValidatedTestStage, services: ServiceCollection) -> None:
+    def test_safe_register_singleton_with_type(
+        self, stage: ConcreteValidatedTestStage, services: ServiceCollection
+    ) -> None:
         """Test safe_register_singleton with implementation type."""
         stage.safe_register_singleton(services, object, implementation_type=object)
 
         # Should not raise any exception
         assert True
 
-    def test_safe_register_singleton_no_args(self, stage: ConcreteValidatedTestStage, services: ServiceCollection) -> None:
+    def test_safe_register_singleton_no_args(
+        self, stage: ConcreteValidatedTestStage, services: ServiceCollection
+    ) -> None:
         """Test safe_register_singleton with no additional args."""
         stage.safe_register_singleton(services, object)
 
         # Should not raise any exception
         assert True
 
-    def test_create_safe_session_service_mock(self, stage: ConcreteValidatedTestStage) -> None:
+    def test_create_safe_session_service_mock(
+        self, stage: ConcreteValidatedTestStage
+    ) -> None:
         """Test create_safe_session_service_mock method."""
         mock_service = stage.create_safe_session_service_mock()
 
         assert mock_service is not None
         assert hasattr(mock_service, "get_session")
 
-    def test_create_safe_backend_service_mock(self, stage: ConcreteValidatedTestStage) -> None:
+    def test_create_safe_backend_service_mock(
+        self, stage: ConcreteValidatedTestStage
+    ) -> None:
         """Test create_safe_backend_service_mock method."""
         mock_service = stage.create_safe_backend_service_mock()
 
         assert mock_service is not None
         assert hasattr(mock_service, "call_completion")
 
-    def test_validate_service_instance_with_session_service(self, stage: ConcreteValidatedTestStage, caplog) -> None:
+    def test_validate_service_instance_with_session_service(
+        self, stage: ConcreteValidatedTestStage, caplog
+    ) -> None:
         """Test _validate_service_instance with session service."""
         mock_service = stage.create_safe_session_service_mock()
 
@@ -168,7 +190,9 @@ class TestValidatedTestStage:
         # Should not have any error logs
         assert not any("ERROR" in record.message for record in caplog.records)
 
-    def test_validate_service_instance_with_async_mock_session_service(self, stage: ConcreteValidatedTestStage, caplog) -> None:
+    def test_validate_service_instance_with_async_mock_session_service(
+        self, stage: ConcreteValidatedTestStage, caplog
+    ) -> None:
         """Test _validate_service_instance with problematic session service."""
         mock_service = AsyncMock(spec=ISessionService)
 
@@ -178,7 +202,9 @@ class TestValidatedTestStage:
         # Should log error about AsyncMock
         assert any("AsyncMock" in record.message for record in caplog.records)
 
-    def test_validate_service_instance_with_async_mock_sync_method(self, stage: ConcreteValidatedTestStage, caplog) -> None:
+    def test_validate_service_instance_with_async_mock_sync_method(
+        self, stage: ConcreteValidatedTestStage, caplog
+    ) -> None:
         """Test _validate_service_instance with AsyncMock sync method."""
         mock_service = MagicMock()
         mock_service.get_session = AsyncMock()  # This is problematic
@@ -214,12 +240,12 @@ class TestSessionServiceTestStage:
             BackendConfig,
             BackendSettings,
         )
+
         config = AppConfig(
             host="localhost",
             port=9000,
             backends=BackendSettings(
-                default_backend="openai",
-                openai=BackendConfig(api_key=["test_key"])
+                default_backend="openai", openai=BackendConfig(api_key=["test_key"])
             ),
             auth=AuthConfig(disable_auth=True, api_keys=["test-key"]),
         )
@@ -260,12 +286,12 @@ class TestBackendServiceTestStage:
             BackendConfig,
             BackendSettings,
         )
+
         config = AppConfig(
             host="localhost",
             port=9000,
             backends=BackendSettings(
-                default_backend="openai",
-                openai=BackendConfig(api_key=["test_key"])
+                default_backend="openai", openai=BackendConfig(api_key=["test_key"])
             ),
             auth=AuthConfig(disable_auth=True, api_keys=["test-key"]),
         )
@@ -274,6 +300,7 @@ class TestBackendServiceTestStage:
 
         # Should have registered backend service
         from src.core.interfaces.backend_service_interface import IBackendService
+
         assert IBackendService in stage._registered_services
         mock_service = stage._registered_services[IBackendService]
         assert mock_service is not None
@@ -287,7 +314,6 @@ class TestGuardedMockCreationMixin:
 
     class TestClass(GuardedMockCreationMixin):
         """Test class that uses the mixin."""
-        pass
 
     @pytest.fixture
     def test_instance(self) -> TestClass:
@@ -333,10 +359,13 @@ class TestGuardedMockCreationMixin:
         mock = test_instance.create_async_mock(return_value="async_test")
 
         import asyncio
+
         result = asyncio.run(mock())
         assert result == "async_test"
 
-    def test_create_mock_with_session_spec_warning(self, test_instance: TestClass, caplog) -> None:
+    def test_create_mock_with_session_spec_warning(
+        self, test_instance: TestClass, caplog
+    ) -> None:
         """Test create_mock with session spec generates warning."""
         with caplog.at_level(logging.WARNING):
             mock = test_instance.create_mock(spec=ISessionService)
@@ -345,7 +374,9 @@ class TestGuardedMockCreationMixin:
         # Should log warning about session service
         assert any("Session" in record.message for record in caplog.records)
 
-    def test_create_async_mock_logs_info(self, test_instance: TestClass, caplog) -> None:
+    def test_create_async_mock_logs_info(
+        self, test_instance: TestClass, caplog
+    ) -> None:
         """Test create_async_mock logs info message."""
         with caplog.at_level(logging.INFO):
             mock = test_instance.create_async_mock(spec=object)
@@ -369,12 +400,12 @@ class TestBaseStageIntegration:
             BackendConfig,
             BackendSettings,
         )
+
         config = AppConfig(
             host="localhost",
             port=9000,
             backends=BackendSettings(
-                default_backend="openai",
-                openai=BackendConfig(api_key=["test_key"])
+                default_backend="openai", openai=BackendConfig(api_key=["test_key"])
             ),
             auth=AuthConfig(disable_auth=True, api_keys=["test-key"]),
         )
@@ -402,12 +433,12 @@ class TestBaseStageIntegration:
             BackendConfig,
             BackendSettings,
         )
+
         config = AppConfig(
             host="localhost",
             port=9000,
             backends=BackendSettings(
-                default_backend="openai",
-                openai=BackendConfig(api_key=["test_key"])
+                default_backend="openai", openai=BackendConfig(api_key=["test_key"])
             ),
             auth=AuthConfig(disable_auth=True, api_keys=["test-key"]),
         )
@@ -419,6 +450,7 @@ class TestBaseStageIntegration:
         # Verify both services were registered
         assert ISessionService in session_stage._registered_services
         from src.core.interfaces.backend_service_interface import IBackendService
+
         assert IBackendService in backend_stage._registered_services
 
     def test_stage_inheritance_validation(self) -> None:
@@ -433,6 +465,7 @@ class TestBaseStageIntegration:
 
     def test_mixin_inheritance(self) -> None:
         """Test that mixin provides expected functionality."""
+
         class TestWithMixin(GuardedMockCreationMixin):
             pass
 

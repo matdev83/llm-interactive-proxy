@@ -143,20 +143,18 @@ class ProcessorStage(InitializationStage):
     def _register_response_processor(self, services: ServiceCollection) -> None:
         """Register response processor with middleware, loop detector, and streaming pipeline."""
         try:
-            from src.core.domain.streaming_response_processor import StreamNormalizer
             from src.core.interfaces.application_state_interface import (
                 IApplicationState,
             )
+            from src.core.interfaces.loop_detector_interface import ILoopDetector
             from src.core.interfaces.response_processor_interface import (
                 IResponseMiddleware,
                 IResponseProcessor,
             )
-            from src.core.services.loop_detector_service import LoopDetector
-            from src.core.services.response_processor_service import ResponseProcessor
-            from src.core.services.streaming.tool_call_repair_processor import (
-                ToolCallRepairProcessor,
+            from src.core.interfaces.streaming_response_processor_interface import (
+                IStreamNormalizer,
             )
-            from src.core.services.tool_call_repair_service import ToolCallRepairService
+            from src.core.services.response_processor_service import ResponseProcessor
 
             def response_processor_factory(
                 provider: IServiceProvider,
@@ -165,7 +163,9 @@ class ProcessorStage(InitializationStage):
                 app_state: IApplicationState = provider.get_required_service(
                     cast(type, IApplicationState)
                 )
-                loop_detector: LoopDetector | None = provider.get_service(LoopDetector)
+                loop_detector: ILoopDetector | None = provider.get_service(
+                    cast(type, ILoopDetector)
+                )
 
                 middleware: list[IResponseMiddleware] = []
                 if loop_detector:
@@ -174,27 +174,21 @@ class ProcessorStage(InitializationStage):
                             LoopDetectionMiddleware,
                         )
 
-                        middleware.append(LoopDetectionMiddleware(loop_detector))
+                        # Instantiate LoopDetectionMiddleware with the resolved ILoopDetector
+                        middleware.append(
+                            LoopDetectionMiddleware(loop_detector, priority=10)
+                        )
                         logger.debug("Added loop detection middleware")
                     except ImportError:
                         logger.warning("Loop detection middleware not available")
 
-                stream_normalizer: StreamNormalizer | None = None
+                stream_normalizer: IStreamNormalizer | None = None
                 if app_state.get_use_streaming_pipeline():
-                    logger.debug("Streaming pipeline enabled. Registering processors.")
-                    tool_call_repair_service: ToolCallRepairService = (
-                        provider.get_required_service(ToolCallRepairService)
-                    )
-                    tool_call_processor = ToolCallRepairProcessor(
-                        tool_call_repair_service
-                    )
-
-                    # You can add other IStreamProcessor instances here if needed
-                    stream_normalizer = StreamNormalizer(
-                        processors=[tool_call_processor]
-                    )
                     logger.debug(
-                        "StreamNormalizer configured with ToolCallRepairProcessor."
+                        "Streaming pipeline enabled. Resolving StreamNormalizer from DI."
+                    )
+                    stream_normalizer = provider.get_required_service(
+                        cast(type, IStreamNormalizer)
                     )
                 else:
                     logger.debug("Streaming pipeline disabled.")
@@ -202,7 +196,7 @@ class ProcessorStage(InitializationStage):
                 return ResponseProcessor(
                     app_state=app_state,
                     loop_detector=loop_detector,
-                    middleware=cast(list[IResponseMiddleware], middleware),
+                    middleware=middleware,
                     stream_normalizer=stream_normalizer,
                 )
 
@@ -223,52 +217,48 @@ class ProcessorStage(InitializationStage):
     def _register_request_processor(self, services: ServiceCollection) -> None:
         """Register request processor as the main orchestrator."""
         try:
-            from src.core.interfaces.backend_processor_interface import (
-                IBackendProcessor,
-            )
             from src.core.interfaces.command_processor_interface import (
                 ICommandProcessor,
             )
             from src.core.interfaces.request_processor_interface import (
                 IRequestProcessor,
             )
-            from src.core.interfaces.response_processor_interface import (
-                IResponseProcessor,
-            )
-            from src.core.interfaces.session_resolver_interface import ISessionResolver
-            from src.core.interfaces.session_service_interface import ISessionService
             from src.core.services.request_processor_service import RequestProcessor
 
             def request_processor_factory(
                 provider: IServiceProvider,
             ) -> RequestProcessor:
-                """Factory function for creating RequestProcessor with all dependencies."""
+                """Factory function for creating RequestProcessor with decomposed services."""
                 from typing import cast
+
+                from src.core.interfaces.backend_request_manager_interface import (
+                    IBackendRequestManager,
+                )
+                from src.core.interfaces.response_manager_interface import (
+                    IResponseManager,
+                )
+                from src.core.interfaces.session_manager_interface import (
+                    ISessionManager,
+                )
 
                 command_processor: ICommandProcessor = provider.get_required_service(
                     cast(type, ICommandProcessor)
                 )
-                backend_processor: IBackendProcessor = provider.get_required_service(
-                    cast(type, IBackendProcessor)
+                session_manager: ISessionManager = provider.get_required_service(
+                    cast(type, ISessionManager)
                 )
-                session_service: ISessionService = provider.get_required_service(
-                    cast(type, ISessionService)
+                backend_request_manager: IBackendRequestManager = (
+                    provider.get_required_service(cast(type, IBackendRequestManager))
                 )
-                response_processor: IResponseProcessor = provider.get_required_service(
-                    cast(type, IResponseProcessor)
-                )
-
-                # Session resolver is optional
-                session_resolver: ISessionResolver | None = provider.get_service(
-                    cast(type, ISessionResolver)
+                response_manager: IResponseManager = provider.get_required_service(
+                    cast(type, IResponseManager)
                 )
 
                 return RequestProcessor(
                     command_processor,
-                    backend_processor,
-                    session_service,
-                    response_processor,
-                    session_resolver,
+                    session_manager,
+                    backend_request_manager,
+                    response_manager,
                 )
 
             # Register concrete implementation

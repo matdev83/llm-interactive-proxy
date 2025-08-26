@@ -127,7 +127,10 @@ class TestPersistentSessionRepository:
         result = await repository.update(sample_session)
 
         assert result is sample_session
-        assert repository._memory_repo._sessions[sample_session.session_id] is sample_session
+        assert (
+            repository._memory_repo._sessions[sample_session.session_id]
+            is sample_session
+        )
 
     @pytest.mark.asyncio
     async def test_delete_delegates_to_memory_repo(
@@ -164,7 +167,9 @@ class TestPersistentSessionRepository:
             user_id="user-456",
             state=sample_session.state,
         )
-        expired_session.last_active_at = datetime.now(timezone.utc) - timedelta(seconds=1000)
+        expired_session.last_active_at = datetime.now(timezone.utc) - timedelta(
+            seconds=1000
+        )
         await repository._memory_repo.add(expired_session)
 
         # Clean up sessions older than 500 seconds
@@ -183,7 +188,9 @@ class TestPersistentSessionRepository:
         await repository.add(sample_session)
 
         # Should be available through memory repo
-        memory_result = await repository._memory_repo.get_by_id(sample_session.session_id)
+        memory_result = await repository._memory_repo.get_by_id(
+            sample_session.session_id
+        )
         assert memory_result is sample_session
 
         # Should also be available through persistent repo
@@ -228,9 +235,7 @@ class TestPersistentSessionRepository:
         assert await repository.cleanup_expired(0) == 0
 
     @pytest.mark.asyncio
-    async def test_storage_path_is_stored(
-        self, sample_session: Session
-    ) -> None:
+    async def test_storage_path_is_stored(self, sample_session: Session) -> None:
         """Test that storage path is properly stored."""
         storage_path = "/custom/storage/path"
         repository = PersistentSessionRepository(storage_path)
@@ -243,9 +248,7 @@ class TestPersistentSessionRepository:
         assert result is sample_session
 
     @pytest.mark.asyncio
-    async def test_none_storage_path_works(
-        self, sample_session: Session
-    ) -> None:
+    async def test_none_storage_path_works(self, sample_session: Session) -> None:
         """Test that None storage path works (no persistence)."""
         repository = PersistentSessionRepository(None)
 
@@ -287,7 +290,9 @@ class TestPersistentSessionRepository:
         self, repository: PersistentSessionRepository
     ) -> None:
         """Test that sessions without user_id are not tracked by user."""
-        backend_config = BackendConfiguration(backend_type="anthropic", model="claude-3")
+        backend_config = BackendConfiguration(
+            backend_type="anthropic", model="claude-3"
+        )
         reasoning_config = ReasoningConfiguration(temperature=0.5)
         loop_config = LoopDetectionConfiguration()
 

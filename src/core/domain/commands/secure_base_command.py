@@ -139,7 +139,7 @@ class SecureCommandBase(ABC):
                 "Use one of: " + ", ".join(setting_methods.keys()),
             )
 
-        return method()  # type: ignore
+        return method(value)  # type: ignore
 
     @final
     def _block_direct_state_access(self, context: Any) -> None:
@@ -155,7 +155,11 @@ class SecureCommandBase(ABC):
             # Replace the app object with a proxy that blocks state access
             from src.core.services.secure_state_service import StateAccessProxy
 
-            if hasattr(context.app, "state"):
+            # Security mechanism: Direct state access required to install proxy
+            # This is intentionally bypassing DIP for security enforcement
+            if hasattr(
+                context.app, "state"
+            ):  # noqa: DIP-violation-required-for-security
                 context.app.state = StateAccessProxy(
                     context.app.state, [ISecureStateAccess, ISecureStateModification]
                 )

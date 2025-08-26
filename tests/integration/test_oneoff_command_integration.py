@@ -60,7 +60,9 @@ async def test_oneoff_command_integration(app: FastAPI) -> None:
     client = TestClient(app)
 
     # Mock the command processor to handle oneoff commands
-    from src.command_parser import CommandParser
+    from src.core.services.command_processor import (
+        CommandProcessor as CoreCommandProcessor,
+    )
 
     async def mock_process_messages(
         self: Any, messages: list[dict[str, Any]], *args: Any, **kwargs: Any
@@ -185,7 +187,7 @@ async def test_oneoff_command_integration(app: FastAPI) -> None:
                 ]
             ),
         ),
-        patch.object(CommandParser, "process_messages", mock_process_messages),
+        patch.object(CoreCommandProcessor, "process_messages", mock_process_messages),
     ):
 
         # First request with the one-off command

@@ -207,7 +207,7 @@ async def app() -> AsyncGenerator[FastAPI, None]:
     )
 
     # Build the test app using ApplicationTestBuilder and inject our custom mock
-    builder = ( # Remove explicit type hint
+    builder = (  # Remove explicit type hint
         ApplicationTestBuilder()
         .add_stage(CoreServicesStage())
         .add_stage(InfrastructureStage())
@@ -557,7 +557,7 @@ class TestEndToEndScenarios:
             json={
                 "model": "gpt-4",
                 "messages": [
-                    {"role": "user", "content": "!/hello"} # No Cline pattern
+                    {"role": "user", "content": "!/hello"}  # No Cline pattern
                 ],
             },
             headers={"Authorization": "Bearer test-proxy-key"},

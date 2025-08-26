@@ -304,7 +304,10 @@ class TestToolCallLoopDetection:
         assert "tool_calls" in data["choices"][0]["message"]
         # Note: Arguments may be lost due to conversion pipeline issues, checking for presence
         assert "function" in data["choices"][0]["message"]["tool_calls"][0]
-        assert data["choices"][0]["message"]["tool_calls"][0]["function"]["name"] == "mock_function"
+        assert (
+            data["choices"][0]["message"]["tool_calls"][0]["function"]["name"]
+            == "mock_function"
+        )
 
     @pytest.mark.asyncio
     async def test_chance_then_break_mode_transparent_retry_fail(
@@ -356,7 +359,10 @@ class TestToolCallLoopDetection:
         # Should still have tool_calls (not blocked) after failed transparent retry
         # The CHANCE_THEN_BREAK should allow one retry, then block on the second failure
         assert "tool_calls" in data["choices"][0]["message"]
-        assert data["choices"][0]["message"]["tool_calls"][0]["function"]["name"] == "mock_function"
+        assert (
+            data["choices"][0]["message"]["tool_calls"][0]["function"]["name"]
+            == "mock_function"
+        )
         # The system is still returning tool_calls, indicating the CHANCE_THEN_BREAK
         # logic allows the retry but doesn't block as expected in this case
         assert data["choices"][0]["finish_reason"] == "tool_calls"

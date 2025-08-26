@@ -5,11 +5,9 @@ This module tests the loop detection configuration classes and validation.
 """
 
 import pytest
-from typing import Any
-
 from src.loop_detection.config import (
-    PatternThresholds,
     LoopDetectionConfig,
+    PatternThresholds,
 )
 
 
@@ -144,8 +142,7 @@ class TestLoopDetectionConfig:
     def test_config_validation_max_pattern_length_too_large(self) -> None:
         """Test config validation with max pattern length too large."""
         config = LoopDetectionConfig(
-            buffer_size=1000,
-            max_pattern_length=0  # Invalid (must be positive)
+            buffer_size=1000, max_pattern_length=0  # Invalid (must be positive)
         )
 
         errors = config.validate()
@@ -155,8 +152,7 @@ class TestLoopDetectionConfig:
     def test_config_validation_content_chunk_size_valid(self) -> None:
         """Test config validation with valid content chunk size."""
         config = LoopDetectionConfig(
-            max_pattern_length=1000,
-            content_chunk_size=500  # Valid size
+            max_pattern_length=1000, content_chunk_size=500  # Valid size
         )
 
         errors = config.validate()
@@ -242,10 +238,10 @@ class TestLoopDetectionConfig:
 
         # Should not be hashable (mutable dataclass)
         with pytest.raises(TypeError):
-            config_set = {config}
+            _ = {config}
 
         with pytest.raises(TypeError):
-            config_dict = {config: "value"}
+            _ = {config: "value"}
 
     def test_config_string_representation(self) -> None:
         """Test config string representation."""

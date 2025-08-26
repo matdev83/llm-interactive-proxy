@@ -164,8 +164,7 @@ class TestLoopDetectionConfiguration:
 
         # Chain multiple configuration updates
         new_config = (
-            config
-            .with_loop_detection_enabled(False)
+            config.with_loop_detection_enabled(False)
             .with_tool_loop_detection_enabled(False)
             .with_pattern_length_range(150, 6000)
             .with_tool_loop_max_repeats(3)

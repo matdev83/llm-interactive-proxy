@@ -39,7 +39,9 @@ class TestInMemoryRateLimiter:
         assert limiter._default_time_window == 60
 
     @pytest.mark.asyncio
-    async def test_check_limit_empty_key(self, rate_limiter: InMemoryRateLimiter) -> None:
+    async def test_check_limit_empty_key(
+        self, rate_limiter: InMemoryRateLimiter
+    ) -> None:
         """Test check_limit for a key with no usage."""
         info = await rate_limiter.check_limit("test-key")
 
@@ -51,7 +53,9 @@ class TestInMemoryRateLimiter:
         assert info.time_window == 60
 
     @pytest.mark.asyncio
-    async def test_check_limit_with_usage(self, rate_limiter: InMemoryRateLimiter) -> None:
+    async def test_check_limit_with_usage(
+        self, rate_limiter: InMemoryRateLimiter
+    ) -> None:
         """Test check_limit after recording usage."""
         key = "test-key"
 
@@ -66,7 +70,9 @@ class TestInMemoryRateLimiter:
         assert info.time_window == 60
 
     @pytest.mark.asyncio
-    async def test_check_limit_at_limit(self, rate_limiter: InMemoryRateLimiter) -> None:
+    async def test_check_limit_at_limit(
+        self, rate_limiter: InMemoryRateLimiter
+    ) -> None:
         """Test check_limit when at the limit."""
         key = "test-key"
 
@@ -81,7 +87,9 @@ class TestInMemoryRateLimiter:
         assert info.limit == 10
 
     @pytest.mark.asyncio
-    async def test_check_limit_over_limit(self, rate_limiter: InMemoryRateLimiter) -> None:
+    async def test_check_limit_over_limit(
+        self, rate_limiter: InMemoryRateLimiter
+    ) -> None:
         """Test check_limit when over the limit."""
         key = "test-key"
 
@@ -107,7 +115,9 @@ class TestInMemoryRateLimiter:
         assert len(rate_limiter._usage[key]) == 1
 
     @pytest.mark.asyncio
-    async def test_record_usage_multiple(self, rate_limiter: InMemoryRateLimiter) -> None:
+    async def test_record_usage_multiple(
+        self, rate_limiter: InMemoryRateLimiter
+    ) -> None:
         """Test recording multiple usage."""
         key = "test-key"
 
@@ -116,7 +126,9 @@ class TestInMemoryRateLimiter:
         assert len(rate_limiter._usage[key]) == 5
 
     @pytest.mark.asyncio
-    async def test_record_usage_zero_cost(self, rate_limiter: InMemoryRateLimiter) -> None:
+    async def test_record_usage_zero_cost(
+        self, rate_limiter: InMemoryRateLimiter
+    ) -> None:
         """Test recording usage with zero cost."""
         key = "test-key"
 
@@ -141,7 +153,9 @@ class TestInMemoryRateLimiter:
         assert key not in rate_limiter._usage or len(rate_limiter._usage[key]) == 0
 
     @pytest.mark.asyncio
-    async def test_reset_nonexistent_key(self, rate_limiter: InMemoryRateLimiter) -> None:
+    async def test_reset_nonexistent_key(
+        self, rate_limiter: InMemoryRateLimiter
+    ) -> None:
         """Test resetting a nonexistent key."""
         key = "nonexistent"
 
@@ -162,7 +176,9 @@ class TestInMemoryRateLimiter:
         assert rate_limiter._limits[key] == (100, 120)
 
     @pytest.mark.asyncio
-    async def test_set_limit_overwrites(self, rate_limiter: InMemoryRateLimiter) -> None:
+    async def test_set_limit_overwrites(
+        self, rate_limiter: InMemoryRateLimiter
+    ) -> None:
         """Test that set_limit overwrites existing limits."""
         key = "test-key"
 
@@ -175,7 +191,9 @@ class TestInMemoryRateLimiter:
         assert rate_limiter._limits[key] == (200, 300)
 
     @pytest.mark.asyncio
-    async def test_custom_limits_applied(self, rate_limiter: InMemoryRateLimiter) -> None:
+    async def test_custom_limits_applied(
+        self, rate_limiter: InMemoryRateLimiter
+    ) -> None:
         """Test that custom limits are applied in check_limit."""
         key = "test-key"
 
@@ -192,7 +210,9 @@ class TestInMemoryRateLimiter:
         assert info.time_window == 30
 
     @pytest.mark.asyncio
-    async def test_time_window_expiration(self, rate_limiter: InMemoryRateLimiter) -> None:
+    async def test_time_window_expiration(
+        self, rate_limiter: InMemoryRateLimiter
+    ) -> None:
         """Test that old timestamps are expired."""
         key = "test-key"
 
@@ -212,7 +232,9 @@ class TestInMemoryRateLimiter:
         assert info.remaining == 5  # 10 - 5
 
     @pytest.mark.asyncio
-    async def test_reset_at_calculation(self, rate_limiter: InMemoryRateLimiter) -> None:
+    async def test_reset_at_calculation(
+        self, rate_limiter: InMemoryRateLimiter
+    ) -> None:
         """Test reset_at time calculation."""
         key = "test-key"
 
@@ -229,10 +251,14 @@ class TestInMemoryRateLimiter:
 
         # Reset time should be the earliest timestamp + time window
         expected_reset = timestamps[0] + 60  # earliest + time window
-        assert abs(info.reset_at - expected_reset) < 0.1  # Allow small timing differences
+        assert (
+            abs(info.reset_at - expected_reset) < 0.1
+        )  # Allow small timing differences
 
     @pytest.mark.asyncio
-    async def test_multiple_keys_isolation(self, rate_limiter: InMemoryRateLimiter) -> None:
+    async def test_multiple_keys_isolation(
+        self, rate_limiter: InMemoryRateLimiter
+    ) -> None:
         """Test that different keys are isolated."""
         key1, key2 = "key1", "key2"
 
@@ -286,7 +312,9 @@ class TestInMemoryRateLimiter:
         assert info.limit == 0
 
     @pytest.mark.asyncio
-    async def test_edge_case_large_cost(self, rate_limiter: InMemoryRateLimiter) -> None:
+    async def test_edge_case_large_cost(
+        self, rate_limiter: InMemoryRateLimiter
+    ) -> None:
         """Test recording very large cost."""
         key = "test-key"
 
@@ -331,7 +359,9 @@ class TestConfigurableRateLimiter:
             }
         }
 
-    def test_initialization(self, base_limiter: InMemoryRateLimiter, config: dict[str, Any]) -> None:
+    def test_initialization(
+        self, base_limiter: InMemoryRateLimiter, config: dict[str, Any]
+    ) -> None:
         """Test ConfigurableRateLimiter initialization."""
         limiter = ConfigurableRateLimiter(base_limiter, config)
 
@@ -383,6 +413,7 @@ class TestCreateRateLimiter:
 
     def test_create_with_app_config_like_object(self) -> None:
         """Test creating rate limiter with AppConfig-like object."""
+
         class MockConfig:
             default_rate_limit = 100
             default_rate_window = 120
@@ -403,6 +434,7 @@ class TestCreateRateLimiter:
 
     def test_create_with_non_dict_config(self) -> None:
         """Test creating rate limiter with non-dict config."""
+
         class MockConfig:
             pass
 

@@ -84,6 +84,13 @@ class IResponseMiddleware(ABC):
     before they are returned to the client.
     """
 
+    def __init__(self, priority: int = 0) -> None:
+        self._priority = priority
+
+    @property
+    def priority(self) -> int:
+        return self._priority
+
     @abstractmethod
     async def process(
         self, response: Any, session_id: str, context: dict[str, Any]

@@ -29,7 +29,6 @@ GEMINI.md
 .agent.md
 .kiro/
 
-
 # Test and coverage artifacts
 .pytest_cache/
 htmlcov/
@@ -67,15 +66,14 @@ pip-log.txt
 #.dev/
 .cursor/
 data/
-venv/
-venv/*
-venv
-
-data/
 data/accounting.sqlite3
-build/
-uv.lock
-*.txt
+*.lock
+*.state
 WARP.md
+CLAUDE.md
 .hypothesis/
-.kiro/
+dev/
+dev/thrdparty/
+.coverage
+.claude/
+.kilocode/

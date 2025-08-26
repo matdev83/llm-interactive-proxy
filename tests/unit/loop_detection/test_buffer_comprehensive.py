@@ -4,9 +4,9 @@ Comprehensive Tests for ResponseBuffer.
 This module provides comprehensive test coverage for the ResponseBuffer class.
 """
 
-import pytest
 from collections import deque
 
+import pytest
 from src.loop_detection.buffer import ResponseBuffer
 
 
@@ -285,7 +285,7 @@ class TestResponseBuffer:
         buffer = ResponseBuffer(max_size=100)
 
         # Add many small chunks
-        for i in range(50):
+        for _i in range(50):
             buffer.append("x")
 
         content = buffer.get_content()
@@ -310,7 +310,7 @@ class TestResponseBuffer:
         buffer = ResponseBuffer(max_size=10)
 
         # Add content that will cause multiple evictions
-        for i in range(20):
+        for _i in range(20):
             buffer.append("abc")  # 3 chars each
 
         # Should maintain max size
@@ -421,11 +421,13 @@ class TestResponseBufferEdgeCases:
 
         # Add many chunks
         chunks_added = 100
-        for i in range(chunks_added):
-            buffer.append(f"chunk{i}")
+        for _i in range(chunks_added):
+            buffer.append(f"chunk{_i}")
 
         # Should handle the load
-        assert buffer.total_length == sum(len(f"chunk{i}") for i in range(chunks_added))
+        assert buffer.total_length == sum(
+            len(f"chunk{_i}") for _i in range(chunks_added)
+        )
         assert buffer.stored_length <= buffer.max_size
 
         # Content should end with most recent chunks

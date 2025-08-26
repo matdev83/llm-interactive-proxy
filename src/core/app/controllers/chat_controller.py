@@ -11,10 +11,11 @@ from fastapi import HTTPException, Request, Response
 
 from src.core.common.exceptions import LLMProxyError
 from src.core.domain.chat import ChatRequest
+from src.core.interfaces.backend_request_manager_interface import IBackendRequestManager
 from src.core.interfaces.di_interface import IServiceProvider
 from src.core.interfaces.request_processor_interface import IRequestProcessor
-from src.core.services.backend_processor import BackendProcessor
-from src.core.services.command_processor import CommandProcessor
+from src.core.interfaces.response_manager_interface import IResponseManager
+from src.core.interfaces.session_manager_interface import ISessionManager
 from src.core.transport.fastapi.exception_adapters import (
     map_domain_exception_to_http_exception,
 )
@@ -189,13 +190,22 @@ def get_chat_controller(service_provider: IServiceProvider) -> ChatController:
                 concrete_response_proc = cast(IResponseProcessor, response_proc)
                 # Prefer DI-provided processors if available
                 di_cmd_proc = service_provider.get_service(ICommandProcessor)  # type: ignore[type-abstract]
-                di_backend_proc = service_provider.get_service(IBackendProcessor)  # type: ignore[type-abstract]
-                if di_cmd_proc and di_backend_proc:
+                # Get the new decomposed services
+                di_session_manager = service_provider.get_service(ISessionManager)  # type: ignore[type-abstract]
+                di_backend_request_manager = service_provider.get_service(IBackendRequestManager)  # type: ignore[type-abstract]
+                di_response_manager = service_provider.get_service(IResponseManager)  # type: ignore[type-abstract]
+
+                if (
+                    di_cmd_proc
+                    and di_session_manager
+                    and di_backend_request_manager
+                    and di_response_manager
+                ):
                     request_processor = RequestProcessor(
                         cast(ICommandProcessor, di_cmd_proc),
-                        cast(IBackendProcessor, di_backend_proc),
-                        concrete_session,
-                        concrete_response_proc,
+                        cast(ISessionManager, di_session_manager),
+                        cast(IBackendRequestManager, di_backend_request_manager),
+                        cast(IResponseManager, di_response_manager),
                     )
                 else:
                     # Fallback to constructing processors; inject app state where appropriate
@@ -204,16 +214,134 @@ def get_chat_controller(service_provider: IServiceProvider) -> ChatController:
                     )
 
                     app_state = service_provider.get_service(ApplicationStateService)
-                    command_processor = CommandProcessor(concrete_cmd)
-                    backend_processor = BackendProcessor(
-                        concrete_backend, concrete_session, app_state
+                    # Instead of directly instantiating CommandProcessor and BackendProcessor,
+                    # we should try to get them from the service provider or register factories
+                    # for them in the service collection.
+                    # First, try to get them from the service provider
+                    command_processor = service_provider.get_service(ICommandProcessor)  # type: ignore[type-abstract]
+                    backend_processor = service_provider.get_service(IBackendProcessor)  # type: ignore[type-abstract]
+
+                    # If they are not available, we need to register factories for them
+                    if command_processor is None or backend_processor is None:
+                        from src.core.di.container import ServiceProvider
+
+                        if isinstance(service_provider, ServiceProvider):
+                            try:
+                                from src.core.di.services import get_service_collection
+                                from src.core.services.backend_processor import (
+                                    BackendProcessor,
+                                )
+                                from src.core.services.command_processor import (
+                                    CommandProcessor,
+                                )
+
+                                services = get_service_collection()
+
+                                # Register CommandProcessor factory if not already registered
+                                if command_processor is None:
+
+                                    def command_processor_factory(
+                                        provider: IServiceProvider,
+                                    ) -> CommandProcessor:
+                                        return CommandProcessor(concrete_cmd)
+
+                                    services.add_singleton(
+                                        ICommandProcessor,  # type: ignore[type-abstract]
+                                        implementation_factory=command_processor_factory,
+                                    )
+                                    command_processor = command_processor_factory(
+                                        service_provider
+                                    )
+
+                                # Register BackendProcessor factory if not already registered
+                                if backend_processor is None:
+
+                                    def backend_processor_factory(
+                                        provider: IServiceProvider,
+                                    ) -> BackendProcessor:
+                                        return BackendProcessor(
+                                            concrete_backend,
+                                            concrete_session,
+                                            app_state,
+                                        )
+
+                                    services.add_singleton(
+                                        IBackendProcessor,  # type: ignore[type-abstract]
+                                        implementation_factory=backend_processor_factory,
+                                    )
+                                    backend_processor = backend_processor_factory(
+                                        service_provider
+                                    )
+                            except Exception:
+                                # If we can't register factories, fall back to direct instantiation
+                                from src.core.services.backend_processor import (
+                                    BackendProcessor,
+                                )
+                                from src.core.services.command_processor import (
+                                    CommandProcessor,
+                                )
+
+                                command_processor = CommandProcessor(concrete_cmd)
+                                backend_processor = BackendProcessor(
+                                    concrete_backend, concrete_session, app_state
+                                )
+                    # Ensure we have instances
+                    if command_processor is None:
+                        from src.core.services.command_processor import CommandProcessor
+
+                        command_processor = CommandProcessor(concrete_cmd)
+                    if backend_processor is None:
+                        from src.core.services.backend_processor import BackendProcessor
+
+                        backend_processor = BackendProcessor(
+                            concrete_backend, concrete_session, app_state
+                        )
+
+                    # Get the new decomposed services
+                    # Get session resolver from service provider
+                    from src.core.interfaces.session_resolver_interface import (
+                        ISessionResolver,
                     )
+                    from src.core.services.backend_request_manager_service import (
+                        BackendRequestManager,
+                    )
+                    from src.core.services.response_manager_service import (
+                        ResponseManager,
+                    )
+                    from src.core.services.session_manager_service import SessionManager
+
+                    session_resolver = service_provider.get_service(ISessionResolver)  # type: ignore[type-abstract]
+                    if session_resolver is None:
+                        from src.core.services.session_resolver_service import (
+                            DefaultSessionResolver,
+                        )
+
+                        session_resolver = DefaultSessionResolver(None)  # type: ignore[arg-type]
+
+                    # Get agent response formatter for ResponseManager
+                    from src.core.interfaces.agent_response_formatter_interface import (
+                        IAgentResponseFormatter,
+                    )
+
+                    agent_response_formatter = service_provider.get_service(IAgentResponseFormatter)  # type: ignore[type-abstract]
+                    if agent_response_formatter is None:
+                        from src.core.services.response_manager_service import (
+                            AgentResponseFormatter,
+                        )
+
+                        agent_response_formatter = AgentResponseFormatter()
+
+                    session_manager = SessionManager(concrete_session, session_resolver)
+                    backend_request_manager = BackendRequestManager(
+                        backend_processor, concrete_response_proc
+                    )
+                    response_manager = ResponseManager(agent_response_formatter)
 
                     request_processor = RequestProcessor(
                         command_processor,
-                        backend_processor,
-                        concrete_session,
-                        concrete_response_proc,
+                        session_manager,
+                        backend_request_manager,
+                        response_manager,
                     )
 
                 # Register it for future use

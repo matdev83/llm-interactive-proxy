@@ -1,9 +1,12 @@
 from collections.abc import AsyncIterator
 
 import pytest
-from src.core.domain.streaming_response_processor import StreamNormalizer
+from src.core.domain.streaming_response_processor import (  # Added StreamingContent
+    LoopDetectionProcessor,
+    StreamingContent,
+)
+from src.core.services.streaming.stream_normalizer import StreamNormalizer
 from src.loop_detection.detector import LoopDetectionConfig, LoopDetector
-from src.core.domain.streaming_response_processor import LoopDetectionProcessor
 
 
 @pytest.mark.asyncio
@@ -32,40 +35,46 @@ async def test_stream_cancellation_on_loop() -> None:
     event = None
 
     # Send the same pattern multiple times
-    for i in range(5):
+    for _i in range(5):
         event = detector.process_chunk(loop_pattern)
         if event is not None:
-            print(f"Loop detected on iteration {i+1}: {event.pattern}")
+            print(f"Loop detected on iteration {_i+1}: {event.pattern}")
             break
 
     if event is None:
-        pytest.skip("Loop detector not detecting patterns in this test - skipping streaming test")
+        pytest.skip(
+            "Loop detector not detecting patterns in this test - skipping streaming test"
+        )
 
     # Create the processor
     processor = LoopDetectionProcessor(loop_detector=detector)
 
     # Mock the upstream stream that builds up content and then loops
-    async def mock_upstream_stream() -> AsyncIterator[str]:
+    async def mock_upstream_stream() -> AsyncIterator[StreamingContent]:
         # First build up some normal content
-        yield "This is some normal content that builds up the buffer."
-        yield "More normal content to establish a baseline."
+        yield StreamingContent(
+            content="This is some normal content that builds up the buffer."
+        )
+        yield StreamingContent(content="More normal content to establish a baseline.")
 
         # Then create a repeating pattern that should trigger detection
         loop_pattern = "ERROR ERROR ERROR"
 
         # Repeat the pattern multiple times to trigger detection
-        for i in range(5):
-            yield loop_pattern
+        for _i in range(5):
+            yield StreamingContent(content=loop_pattern)
 
         # This should not be reached if loop detection works
-        yield "Should not reach here"
+        yield StreamingContent(content="Should not reach here")
 
     # Use StreamNormalizer with the processor
     normalizer = StreamNormalizer(processors=[processor])
 
     collected = []
     cancellation_found = False
-    async for chunk in normalizer.normalize_stream(mock_upstream_stream()):
+    async for chunk in normalizer.process_stream(
+        mock_upstream_stream(), output_format="objects"
+    ):
         collected.append(chunk.content)
         # Check if this chunk contains cancellation message
         if "Response cancelled:" in chunk.content:
@@ -83,6 +92,5 @@ async def test_stream_cancellation_on_loop() -> None:
     # 1. Cancellation message is found, OR
     # 2. The stream was cut off before "Should not reach here"
     assert (
-        "Response cancelled:" in joined or
-        "Should not reach here" not in joined
+        "Response cancelled:" in joined or "Should not reach here" not in joined
     ), f"Neither cancellation message found nor stream stopped. Content: {joined}"

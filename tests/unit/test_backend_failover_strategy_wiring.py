@@ -24,18 +24,23 @@ class DummyFactory(BackendFactory):
         # Don't call super().__init__ since we don't need the real dependencies
         pass
 
-    async def ensure_backend(self, backend_type: str, backend_config: BackendConfig | None = None) -> LLMBackend:
+    async def ensure_backend(
+        self, backend_type: str, backend_config: BackendConfig | None = None
+    ) -> LLMBackend:
         # Minimal stub, adjust if more complex behavior needed for tests
         class DummyBackend(LLMBackend):
             async def initialize(self, **kwargs) -> None:
                 pass
-                
+
             def get_available_models(self) -> list[str]:
                 return ["modelA", "modelB"]
-                
-            async def chat_completions(self, *args, **kwargs) -> ResponseEnvelope | StreamingResponseEnvelope:
+
+            async def chat_completions(
+                self, *args, **kwargs
+            ) -> ResponseEnvelope | StreamingResponseEnvelope:
                 # Return a minimal response envelope for testing
                 from src.core.domain.responses import ResponseEnvelope
+
                 return ResponseEnvelope(
                     content={
                         "id": "test-id",
@@ -44,19 +49,17 @@ class DummyFactory(BackendFactory):
                         "model": "test-model",
                         "system_fingerprint": "test-fingerprint",
                         "object": "chat.completion",
-                        "usage": None
+                        "usage": None,
                     }
                 )
-                
+
         return DummyBackend()
+
+
 class DummyLimiter(IRateLimiter):
     async def check_limit(self, key: str) -> RateLimitInfo:
         return RateLimitInfo(
-            is_limited=False,
-            remaining=100,
-            reset_at=None,
-            limit=100,
-            time_window=60
+            is_limited=False, remaining=100, reset_at=None, limit=100, time_window=60
         )
 
     async def record_usage(self, key: str, cost: int = 1) -> None:
@@ -71,16 +74,18 @@ class DummyLimiter(IRateLimiter):
 
 class DummyConfig(IConfig):
     def __init__(self) -> None:
-        self.backends = type("B", (), {"default_backend": "openai", "get": lambda *a, **k: None})()
+        self.backends = type(
+            "B", (), {"default_backend": "openai", "get": lambda *a, **k: None}
+        )()
         self.identity = "test"
-    
+
     def get(self, key: str, default: Any = None) -> Any:
         if key == "backends":
             return self.backends
         if key == "identity":
             return self.identity
         return default
-        
+
     def set(self, key: str, value: Any) -> None:
         # Minimal implementation
         pass
@@ -102,7 +107,9 @@ class DummySessionService(ISessionService):
     async def update_session(self, session: Session) -> None:
         pass
 
-    async def update_session_backend_config(self, session_id: str, backend_type: str, model: str) -> None:
+    async def update_session_backend_config(
+        self, session_id: str, backend_type: str, model: str
+    ) -> None:
         pass
 
     async def delete_session(self, session_id: str) -> bool:
@@ -186,10 +193,14 @@ def test_failover_plan_uses_strategy_when_flag_enabled() -> None:
     state.set_use_failover_strategy(True)
     svc = make_service(strategy=DummyStrategy(), app_state=state)
     # Debug prints
-    print(f"use_failover_strategy setting: {state.get_setting('use_failover_strategy', False)}")
+    print(
+        f"use_failover_strategy setting: {state.get_setting('use_failover_strategy', False)}"
+    )
     print(f"failover_strategy is not None: {svc._failover_strategy is not None}")
     if svc._failover_strategy is not None:
-        print(f"failover_strategy.get_failover_plan result: {svc._failover_strategy.get_failover_plan('m1', 'openai')}")
+        print(
+            f"failover_strategy.get_failover_plan result: {svc._failover_strategy.get_failover_plan('m1', 'openai')}"
+        )
     plan = svc._get_failover_plan("m1", "openai")  # type: ignore[attr-defined]
     print(f"plan result: {plan}")
     assert plan == [("s1", "mA"), ("s2", "mB")]

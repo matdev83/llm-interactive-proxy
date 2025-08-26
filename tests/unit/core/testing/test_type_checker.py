@@ -5,13 +5,11 @@ This module provides comprehensive test coverage for the type checker
 that analyzes async/sync patterns in test files.
 """
 
-import ast
 import tempfile
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
-
 from src.core.testing.type_checker import (
     AsyncSyncPatternChecker,
     RuntimePatternChecker,
@@ -31,7 +29,9 @@ class TestAsyncSyncPatternChecker:
         """Test AsyncSyncPatternChecker initialization."""
         assert checker.issues == []
 
-    def test_check_file_nonexistent_file(self, checker: AsyncSyncPatternChecker) -> None:
+    def test_check_file_nonexistent_file(
+        self, checker: AsyncSyncPatternChecker
+    ) -> None:
         """Test checking a nonexistent file."""
         nonexistent_path = Path("nonexistent_file.py")
 
@@ -52,7 +52,9 @@ class TestAsyncSyncPatternChecker:
         finally:
             temp_path.unlink()
 
-    def test_check_file_with_async_mock_usage(self, checker: AsyncSyncPatternChecker) -> None:
+    def test_check_file_with_async_mock_usage(
+        self, checker: AsyncSyncPatternChecker
+    ) -> None:
         """Test checking a file with AsyncMock usage."""
         test_code = """
 import pytest
@@ -74,7 +76,9 @@ def test_something():
         finally:
             temp_path.unlink()
 
-    def test_check_file_with_problematic_stage_inheritance(self, checker: AsyncSyncPatternChecker) -> None:
+    def test_check_file_with_problematic_stage_inheritance(
+        self, checker: AsyncSyncPatternChecker
+    ) -> None:
         """Test checking a file with problematic stage inheritance."""
         test_code = """
 from src.core.app.stages.base import InitializationStage
@@ -91,11 +95,15 @@ class ProblematicTestStage(InitializationStage):
         try:
             issues = checker.check_file(temp_path)
             assert len(issues) > 0
-            assert any("should inherit from ValidatedTestStage" in issue for issue in issues)
+            assert any(
+                "should inherit from ValidatedTestStage" in issue for issue in issues
+            )
         finally:
             temp_path.unlink()
 
-    def test_check_file_with_safe_stage_inheritance(self, checker: AsyncSyncPatternChecker) -> None:
+    def test_check_file_with_safe_stage_inheritance(
+        self, checker: AsyncSyncPatternChecker
+    ) -> None:
         """Test checking a file with safe stage inheritance."""
         test_code = """
 from src.core.testing.base_stage import ValidatedTestStage
@@ -112,11 +120,15 @@ class SafeTestStage(ValidatedTestStage):
         try:
             issues = checker.check_file(temp_path)
             # Should not have issues about stage inheritance
-            assert not any("should inherit from ValidatedTestStage" in issue for issue in issues)
+            assert not any(
+                "should inherit from ValidatedTestStage" in issue for issue in issues
+            )
         finally:
             temp_path.unlink()
 
-    def test_check_file_with_async_mock_assignment(self, checker: AsyncSyncPatternChecker) -> None:
+    def test_check_file_with_async_mock_assignment(
+        self, checker: AsyncSyncPatternChecker
+    ) -> None:
         """Test checking a file with AsyncMock assignment to session service."""
         test_code = """
 from unittest.mock import AsyncMock
@@ -136,7 +148,9 @@ session_service = AsyncMock(spec=ISessionService)
         finally:
             temp_path.unlink()
 
-    def test_check_file_with_async_mock_add_instance(self, checker: AsyncSyncPatternChecker) -> None:
+    def test_check_file_with_async_mock_add_instance(
+        self, checker: AsyncSyncPatternChecker
+    ) -> None:
         """Test checking a file with AsyncMock in add_instance call."""
         test_code = """
 from unittest.mock import AsyncMock
@@ -160,24 +174,27 @@ def test_something():
         finally:
             temp_path.unlink()
 
-    def test_check_directory_with_test_files(self, checker: AsyncSyncPatternChecker) -> None:
+    def test_check_directory_with_test_files(
+        self, checker: AsyncSyncPatternChecker
+    ) -> None:
         """Test checking a directory with test files."""
         # Create a temporary directory with test files
         import tempfile
-        import os
 
         with tempfile.TemporaryDirectory() as temp_dir:
             temp_path = Path(temp_dir)
 
             # Create a test file with issues
             test_file = temp_path / "test_problematic.py"
-            test_file.write_text("""
+            test_file.write_text(
+                """
 from unittest.mock import AsyncMock
 from src.core.interfaces.session_service_interface import ISessionService
 
 def test_problem():
     mock = AsyncMock(spec=ISessionService)
-""")
+"""
+            )
 
             # Create a regular Python file (should be ignored)
             regular_file = temp_path / "regular.py"
@@ -189,7 +206,9 @@ def test_problem():
             assert len(results[str(test_file)]) > 0
             assert "regular.py" not in results
 
-    def test_check_directory_no_pattern_match(self, checker: AsyncSyncPatternChecker) -> None:
+    def test_check_directory_no_pattern_match(
+        self, checker: AsyncSyncPatternChecker
+    ) -> None:
         """Test checking a directory with no pattern matches."""
         with tempfile.TemporaryDirectory() as temp_dir:
             temp_path = Path(temp_dir)
@@ -208,13 +227,16 @@ class TestRuntimePatternChecker:
 
     def test_check_service_registration_with_session_service(self) -> None:
         """Test checking service registration with session service."""
-        from src.core.interfaces.session_service_interface import ISessionService
         from unittest.mock import AsyncMock
+
+        from src.core.interfaces.session_service_interface import ISessionService
 
         mock_service = AsyncMock(spec=ISessionService)
         mock_service.get_session = AsyncMock()
 
-        warnings = RuntimePatternChecker.check_service_registration(ISessionService, mock_service)
+        warnings = RuntimePatternChecker.check_service_registration(
+            ISessionService, mock_service
+        )
 
         assert len(warnings) > 0
         assert any("coroutine" in warning.lower() for warning in warnings)
@@ -226,7 +248,9 @@ class TestRuntimePatternChecker:
         mock_service = MagicMock(spec=ISessionService)
         mock_service.get_session = MagicMock()
 
-        warnings = RuntimePatternChecker.check_service_registration(ISessionService, mock_service)
+        warnings = RuntimePatternChecker.check_service_registration(
+            ISessionService, mock_service
+        )
 
         assert len(warnings) == 0
 
@@ -234,15 +258,19 @@ class TestRuntimePatternChecker:
         """Test checking service registration with AsyncMock."""
         mock_service = AsyncMock()
 
-        warnings = RuntimePatternChecker.check_service_registration(object, mock_service)
+        warnings = RuntimePatternChecker.check_service_registration(
+            object, mock_service
+        )
 
         assert len(warnings) > 0
 
     def test_validate_test_app_no_service_provider(self) -> None:
         """Test validating test app without service provider."""
+
         class MockApp:
             class State:
                 pass
+
             state = State()
 
         app = MockApp()
@@ -257,6 +285,7 @@ class TestRuntimePatternChecker:
         class MockApp:
             class State:
                 service_provider = MagicMock()
+
             state = State()
 
         # Mock the service provider to not have session service
@@ -436,28 +465,34 @@ def test_broken(
 
             # Test file with issues
             test_file = temp_path / "test_with_issues.py"
-            test_file.write_text("""
+            test_file.write_text(
+                """
 from unittest.mock import AsyncMock
 
 def test_problem():
     mock = AsyncMock()
-""")
+"""
+            )
 
             # Test file without issues
             clean_test_file = temp_path / "test_clean.py"
-            clean_test_file.write_text("""
+            clean_test_file.write_text(
+                """
 def test_clean():
     assert True
-""")
+"""
+            )
 
             # Non-test file (should be ignored)
             non_test_file = temp_path / "utils.py"
-            non_test_file.write_text("""
+            non_test_file.write_text(
+                """
 from unittest.mock import AsyncMock
 
 def helper():
     mock = AsyncMock()
-""")
+"""
+            )
 
             results = checker.check_directory(temp_path, "test_*.py")
 

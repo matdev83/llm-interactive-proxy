@@ -10,9 +10,7 @@ import logging
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
-
 from src.core.domain.session import Session, SessionInteraction
-from src.core.domain.usage_data import UsageData
 from src.core.interfaces.session_service_interface import ISessionService
 from src.core.testing.interfaces import (
     AsyncOnlyService,
@@ -32,8 +30,9 @@ class TestSyncOnlyService:
     def test_sync_only_service_is_protocol(self) -> None:
         """Test that SyncOnlyService is a protocol."""
         import typing
-        assert hasattr(typing, 'Protocol')
-        assert hasattr(SyncOnlyService, '__annotations__')
+
+        assert hasattr(typing, "Protocol")
+        assert hasattr(SyncOnlyService, "__annotations__")
 
 
 class TestAsyncOnlyService:
@@ -42,8 +41,9 @@ class TestAsyncOnlyService:
     def test_async_only_service_is_protocol(self) -> None:
         """Test that AsyncOnlyService is a protocol."""
         import typing
-        assert hasattr(typing, 'Protocol')
-        assert hasattr(AsyncOnlyService, '__annotations__')
+
+        assert hasattr(typing, "Protocol")
+        assert hasattr(AsyncOnlyService, "__annotations__")
 
 
 class TestTestServiceValidator:
@@ -238,6 +238,7 @@ class TestSafeAsyncMockWrapper:
 
     def test_initialization_with_spec(self) -> None:
         """Test SafeAsyncMockWrapper initialization with spec."""
+
         class TestService:
             def sync_method(self) -> str: ...
             async def async_method(self) -> str: ...
@@ -304,7 +305,9 @@ class TestTestStageValidator:
         # Should not raise any exception
         TestStageValidator.validate_stage_services(services)
 
-    def test_validate_stage_services_with_problematic_session_service(self, caplog) -> None:
+    def test_validate_stage_services_with_problematic_session_service(
+        self, caplog
+    ) -> None:
         """Test validation with problematic session service."""
         mock_service = AsyncMock(spec=ISessionService)
         services = {ISessionService: mock_service}
@@ -333,6 +336,7 @@ class TestEnforceAsyncSyncSeparation:
 
     def test_decorator_preserves_class_attributes(self) -> None:
         """Test that decorator preserves class attributes."""
+
         @enforce_async_sync_separation
         class TestClass:
             def __init__(self) -> None:
@@ -350,6 +354,7 @@ class TestEnforceAsyncSyncSeparation:
 
     def test_decorator_validates_async_mock_usage(self, caplog) -> None:
         """Test that decorator validates AsyncMock usage."""
+
         @enforce_async_sync_separation
         class TestClass:
             def __init__(self) -> None:
@@ -357,7 +362,7 @@ class TestEnforceAsyncSyncSeparation:
                 self.mock_attr = AsyncMock()
 
         with caplog.at_level(logging.WARNING):
-            instance = TestClass()
+            TestClass()
 
         # Should log warning about AsyncMock
         assert len(caplog.records) > 0
@@ -386,6 +391,7 @@ class TestInterfacesIntegration:
 
     def test_safe_async_mock_wrapper_complete_workflow(self) -> None:
         """Test complete workflow with SafeAsyncMockWrapper."""
+
         class MixedService:
             def get_config(self) -> dict[str, str]:
                 return {"key": "value"}

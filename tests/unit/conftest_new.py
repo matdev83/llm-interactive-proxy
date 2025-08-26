@@ -121,9 +121,7 @@ def services() -> ServiceCollection:
     # Use ApplicationStateService for SecureStateAccess and SecureStateModification
     services.add_singleton(
         ApplicationStateService,
-        implementation_factory=lambda service_provider: ApplicationStateService(
-            state_provider=service_provider.get_required_service(MockAppState).app.state
-        ),
+        implementation_factory=lambda service_provider: ApplicationStateService(),  # Initialize without state_provider
     )
 
     services.add_singleton(
@@ -465,33 +463,6 @@ def command_parser(
     request: pytest.FixtureRequest,
 ) -> ICommandProcessor:
     """Provides a command parser instance with mock commands registered."""
-    # Special handling for test_command_parser_process_messages.py which requires the legacy CommandParser
-    if request.module.__name__ == "tests.unit.test_command_parser_process_messages":
-        from src.command_config import CommandParserConfig
-        from src.command_parser import CommandParser
-        from src.constants import DEFAULT_COMMAND_PREFIX
-        from src.core.domain.session import SessionState, SessionStateAdapter
-
-        from tests.unit.core.test_doubles import MockSuccessCommand
-
-        # Create a mock SessionState
-        session_state = SessionStateAdapter(SessionState())
-
-        # Create a legacy CommandParser with mock handlers
-        cmd_parser = CommandParser(
-            config=CommandParserConfig(
-                proxy_state=session_state, app=mock_app, preserve_unknown=True
-            ),
-            command_prefix=DEFAULT_COMMAND_PREFIX,
-        )
-
-        # Add mock handlers that the test expects
-        cmd_parser.handlers = {
-            "hello": MockSuccessCommand(command_name="hello"),
-            "anothercmd": MockSuccessCommand(command_name="anothercmd"),
-        }
-        return cmd_parser
-
     # Default case: return the DI container's command processor
     parser = service_provider.get_required_service(ICommandProcessor)  # type: ignore[type-abstract]
     return parser
@@ -508,6 +479,11 @@ def mock_app(service_provider: IServiceProvider) -> FastAPI:
     mock_app_state.service_provider = service_provider
     mock_app_state.app = app  # Assign the created app to MockAppState
     app.state = mock_app_state  # type: ignore
+
+    # Ensure ApplicationStateService uses the mock_app_state
+    app_state_service = service_provider.get_required_service(ApplicationStateService)
+    app_state_service.set_state_provider(mock_app_state)
+
     return app
 
 

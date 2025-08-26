@@ -7,7 +7,9 @@ from src.core.domain.streaming_response_processor import (
     IStreamProcessor,
     StreamingContent,
 )
-from src.core.services.tool_call_repair_service import ToolCallRepairService
+from src.core.interfaces.tool_call_repair_service_interface import (
+    IToolCallRepairService,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -18,7 +20,7 @@ class ToolCallRepairProcessor(IStreamProcessor):
     tool calls within streaming content.
     """
 
-    def __init__(self, tool_call_repair_service: ToolCallRepairService) -> None:
+    def __init__(self, tool_call_repair_service: IToolCallRepairService) -> None:
         self.tool_call_repair_service = tool_call_repair_service
         self._buffer = ""  # Internal buffer for accumulating chunks
 

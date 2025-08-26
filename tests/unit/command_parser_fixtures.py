@@ -4,12 +4,13 @@ from typing import Any
 
 import pytest
 from fastapi import FastAPI
-from src.command_config import CommandParserConfig
-from src.command_parser import CommandParser
-from src.constants import DEFAULT_COMMAND_PREFIX
 from src.core.domain.command_results import CommandResult
 from src.core.domain.commands.base_command import BaseCommand
 from src.core.domain.session import Session, SessionStateAdapter
+from src.core.services.command_processor import (
+    CommandProcessor as CoreCommandProcessor,
+)
+from src.core.services.command_service import CommandRegistry, CommandService
 
 
 class MockSuccessCommand(BaseCommand):
@@ -46,9 +47,8 @@ class MockSuccessCommand(BaseCommand):
 @pytest.fixture
 def mock_app() -> FastAPI:
     app = FastAPI()
-    # Essential for CommandParser init if create_command_instances relies on it
     app.state.functional_backends = {"openrouter", "gemini"}
-    app.state.config_manager = None  # Mock this if it's used during command loading
+    app.state.config_manager = None
     return app
 
 
@@ -65,21 +65,24 @@ def proxy_state() -> SessionStateAdapter:
 )
 async def command_parser(
     request, mock_app: FastAPI, proxy_state: SessionStateAdapter
-) -> AsyncGenerator[CommandParser, None]:
-    preserve_unknown_val = request.param
-    parser_config = CommandParserConfig(
-        proxy_state=proxy_state,
-        app=mock_app,
-        preserve_unknown=preserve_unknown_val,
-        functional_backends=mock_app.state.functional_backends,
-    )
-    parser = CommandParser(parser_config, command_prefix=DEFAULT_COMMAND_PREFIX)
-    parser.handlers.clear()
+) -> AsyncGenerator[CoreCommandProcessor, None]:
+    _preserve_unknown = bool(request.param)
 
-    # Create fresh mocks for each parametrization to avoid state leakage
-    # Pass the mock_app to the command constructor if it needs it (optional here)
+    registry = CommandRegistry()
     hello_cmd = MockSuccessCommand("hello", app=mock_app)
     another_cmd = MockSuccessCommand("anothercmd", app=mock_app)
-    parser.register_command(hello_cmd)
-    parser.register_command(another_cmd)
-    yield parser
+    registry.register(hello_cmd)
+    registry.register(another_cmd)
+
+    class _SessionSvc:
+        async def get_session(self, session_id: str):
+            return Session(session_id=session_id, state=proxy_state)
+
+        async def update_session(self, session):
+            return None
+
+    service = CommandService(
+        registry, session_service=_SessionSvc(), preserve_unknown=_preserve_unknown
+    )
+    processor = CoreCommandProcessor(service)
+    yield processor

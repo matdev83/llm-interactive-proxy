@@ -10,10 +10,6 @@ import logging
 from collections.abc import AsyncIterator
 from typing import Any
 
-from src.core.domain.streaming_response_processor import (
-    IStreamProcessor,
-    StreamNormalizer,
-)
 from src.core.interfaces.response_processor_interface import (
     IResponseMiddleware,
     ProcessedResponse,
@@ -21,6 +17,7 @@ from src.core.interfaces.response_processor_interface import (
 from src.core.interfaces.streaming_response_processor_interface import (
     IStreamingResponseProcessor,
 )
+from src.core.services.streaming.stream_normalizer import StreamNormalizer
 
 logger = logging.getLogger(__name__)
 
@@ -52,7 +49,7 @@ class StreamingResponseProcessorService(IStreamingResponseProcessor):
 
     async def process_streaming_response(
         self, response_iterator: AsyncIterator[Any], session_id: str
-    ) -> AsyncIterator[ProcessedResponse]:
+    ) -> AsyncIterator[ProcessedResponse]:  # type: ignore
         """Process a streaming response.
 
         Args:
@@ -62,14 +59,18 @@ class StreamingResponseProcessorService(IStreamingResponseProcessor):
         Yields:
             Processed response chunks
         """
-        # Create a normalized stream from the raw response iterator
-        normalized_stream = self._stream_normalizer.normalize_stream(response_iterator)
+        # Create a normalized stream from the raw response iterator, ensuring objects are returned
+        normalized_stream = self._stream_normalizer.process_stream(
+            response_iterator, output_format="objects"
+        )
 
         # Process each normalized chunk
         async for content in normalized_stream:
             # Convert StreamingContent to ProcessedResponse
             processed_response = ProcessedResponse(
-                content=content.content, metadata=content.metadata, usage=content.usage
+                content=content.content,  # type: ignore
+                metadata=content.metadata,  # type: ignore
+                usage=content.usage,  # type: ignore
             )
 
             # Apply middleware
@@ -80,11 +81,3 @@ class StreamingResponseProcessorService(IStreamingResponseProcessor):
                 )
 
             yield processed_response
-
-    async def add_stream_processor(self, processor: IStreamProcessor) -> None:
-        """Add a stream processor to the normalizer.
-
-        Args:
-            processor: The stream processor to add
-        """
-        self._stream_normalizer.processors.append(processor)

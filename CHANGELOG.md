@@ -2,6 +2,34 @@
 
 This document outlines significant changes and updates to the LLM Interactive Proxy.
 
+## 2025-08-26 – Gemini CLI Cloud Project Backend
+
+- **New Feature**: Added `gemini-cli-cloud-project` backend for enterprise-grade integration with Google Cloud Platform
+  - **GCP Project Integration**: Uses user-specified Google Cloud Project ID for billing and quota management
+  - **Standard/Enterprise Tier**: Supports standard-tier and enterprise-tier subscriptions (not free-tier)
+  - **OAuth + Project ID**: Combines OAuth 2.0 authentication with GCP project context
+  - **Billing Control**: All API usage is billed directly to the user's GCP project
+  - **Higher Quotas**: Access to project-defined quotas and limits, not limited by free-tier restrictions
+  - **Enterprise Features**: Full access to Code Assist API features for production deployments
+  - **IAM Integration**: Requires proper IAM permissions (`roles/cloudaicompanion.user`)
+  - **Project Validation**: Validates project access, API enablement, and billing during initialization
+  - **Automatic Onboarding**: Handles project onboarding to standard-tier automatically
+  - **Configuration**: Supports environment variables (`GCP_PROJECT_ID`) or explicit configuration
+  - **Testing**: Comprehensive test suite covering project validation, onboarding, and billing context
+  - **Documentation**: Complete setup guide with GCP project requirements and troubleshooting
+
+## 2025-08-26 – Gemini CLI OAuth Personal Backend
+
+- **New Feature**: Added `gemini-cli-oauth-personal` backend for seamless integration with Google's Gemini API using OAuth 2.0 credentials
+  - **OAuth Integration**: Reads OAuth credentials from `~/.gemini/oauth_creds.json` (created by Gemini CLI tool)
+  - **Automatic Token Refresh**: Handles OAuth token expiration automatically using Google's token refresh endpoint
+  - **Health Checks**: Performs lightweight connectivity and authentication validation on first use
+  - **Cross-Platform Support**: Works on Windows, Linux, and macOS with proper path handling
+  - **Error Handling**: Comprehensive error handling for authentication failures, connectivity issues, and token refresh problems
+  - **Testing**: Complete test suite with 28 tests covering all functionality including health checks, token refresh, and error scenarios
+  - **Configuration**: Simple backend configuration requiring only `gemini_api_base_url` parameter
+  - **Usage**: Supports all standard proxy features including interactive commands (`!/backend(gemini-cli-oauth-personal)`, `!/oneoff(gemini-cli-oauth-personal:gemini-pro)`)
+
 ## 2025-08-24 – Tool Call Repair and Streaming Safeguards
 
 - Added automated Tool Call Repair mechanism to detect and convert plain-text tool/function call instructions into OpenAI-compatible `tool_calls` in responses.

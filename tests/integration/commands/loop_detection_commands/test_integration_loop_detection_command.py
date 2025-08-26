@@ -1,38 +1,49 @@
-from unittest.mock import Mock
-
 import pytest
-
-# Unskip: snapshot fixture is available in test suite
-from src.command_config import CommandParserConfig
-from src.command_parser import CommandParser
 from src.core.domain.chat import ChatMessage
 from src.core.domain.session import LoopDetectionConfiguration, SessionState
-from src.core.services.command_service import CommandRegistry
+from src.core.services.command_processor import (
+    CommandProcessor as CoreCommandProcessor,
+)
+from src.core.services.command_service import CommandRegistry, CommandService
 
 
 async def run_command(command_string: str) -> str:
-    parser_config = Mock(spec=CommandParserConfig)
-    parser_config.proxy_state = SessionState(loop_config=LoopDetectionConfiguration())
-    parser_config.app = Mock()
-    parser_config.preserve_unknown = True
-
+    # Build a minimal DI-driven command processor with the loop-detection command
     from src.core.domain.commands.loop_detection_commands.loop_detection_command import (
         LoopDetectionCommand,
     )
 
     registry = CommandRegistry()
-    registry._commands["loop-detection"] = LoopDetectionCommand()
-    parser = CommandParser(
-        parser_config, command_prefix="!/", command_registry=registry
+    registry.register(LoopDetectionCommand())
+
+    class _SessionSvc:
+        async def get_session(self, session_id: str):
+            # Provide a full Session with loop detection config
+            from src.core.domain.session import Session
+
+            return Session(
+                session_id=session_id,
+                state=SessionState(loop_config=LoopDetectionConfiguration()),
+            )
+
+        async def update_session(self, session):
+            return None
+
+    processor = CoreCommandProcessor(
+        CommandService(registry, session_service=_SessionSvc())
     )
 
-    await parser.process_messages(
+    result = await processor.process_messages(
         [ChatMessage(role="user", content=command_string)],
         session_id="snapshot-session",
     )
-
-    if parser.command_results:
-        return parser.command_results[-1].message
+    # Extract the last command result message (via CommandResultWrapper.message)
+    if result.command_results:
+        last = result.command_results[-1]
+        # Support both wrapper and direct CommandResult
+        return getattr(
+            last, "message", getattr(getattr(last, "result", None), "message", "")
+        )
     return ""
 
 

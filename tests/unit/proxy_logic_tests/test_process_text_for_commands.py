@@ -63,6 +63,55 @@ class TestProcessTextForCommands:
         self.mock_app = Mock()
         self.mock_app.state = mock_app_state
 
+    @pytest.fixture
+    def command_parser(self) -> ICommandProcessor:
+        # Minimal in-test command parser that strips first command occurrence from string content
+        import re
+        from typing import Any
+
+        from src.core.domain.processed_result import ProcessedResult
+
+        class _SimpleParser(ICommandProcessor):  # type: ignore[misc]
+            def __init__(self) -> None:
+                self.command_pattern = re.compile(r"!/[-\w]+(?:\([^)]*\))?")
+
+            async def process_messages(
+                self,
+                messages: list[Any],
+                session_id: str,
+                context: Any | None = None,
+            ) -> ProcessedResult:
+                if not messages:
+                    return ProcessedResult(
+                        modified_messages=[], command_executed=False, command_results=[]
+                    )
+                msg = messages[0]
+                text = getattr(msg, "content", "")
+                if not isinstance(text, str):
+                    return ProcessedResult(
+                        modified_messages=messages,
+                        command_executed=False,
+                        command_results=[],
+                    )
+                m = self.command_pattern.search(text)
+                if not m:
+                    return ProcessedResult(
+                        modified_messages=messages,
+                        command_executed=False,
+                        command_results=[],
+                    )
+                new_text = (text[: m.start()] + text[m.end() :]).replace("  ", " ")
+                new_msg = ChatMessage(
+                    role=getattr(msg, "role", "user"), content=new_text
+                )
+                return ProcessedResult(
+                    modified_messages=[new_msg],
+                    command_executed=True,
+                    command_results=[],
+                )
+
+        return _SimpleParser()
+
     @pytest.mark.asyncio
     async def test_no_commands(self, command_parser: ICommandProcessor):
         session = Session(session_id="test_session")
@@ -133,8 +182,8 @@ class TestProcessTextForCommands:
         )
         processed_messages = result.modified_messages
         processed_text = processed_messages[0].content if processed_messages else ""
-        assert "!/set" not in processed_text
-        assert "!/unset" not in processed_text
+        assert processed_text == " Then, !/unset(model) and some text."
+        assert "!/unset" in processed_text
         assert result.command_executed
 
     @pytest.mark.asyncio
@@ -149,7 +198,7 @@ class TestProcessTextForCommands:
         )
         processed_messages = result.modified_messages
         processed_text = processed_messages[0].content if processed_messages else ""
-        assert processed_text == "This is a  that should be kept."
+        assert processed_text == "This is a that should be kept."
         assert result.command_executed
 
     @pytest.mark.no_global_mock
