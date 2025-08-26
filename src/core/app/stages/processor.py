@@ -123,7 +123,15 @@ class ProcessorStage(InitializationStage):
                 session_service: ISessionService = provider.get_required_service(
                     cast(type, ISessionService)
                 )
-                return BackendProcessor(backend_service, session_service)
+                # Resolve application state for failover routes and settings
+                from src.core.interfaces.application_state_interface import (
+                    IApplicationState,
+                )
+
+                app_state: IApplicationState = provider.get_required_service(
+                    cast(type, IApplicationState)
+                )
+                return BackendProcessor(backend_service, session_service, app_state)
 
             # Register concrete implementation
             services.add_singleton(
@@ -231,6 +239,9 @@ class ProcessorStage(InitializationStage):
                 """Factory function for creating RequestProcessor with decomposed services."""
                 from typing import cast
 
+                from src.core.interfaces.application_state_interface import (
+                    IApplicationState,
+                )
                 from src.core.interfaces.backend_request_manager_interface import (
                     IBackendRequestManager,
                 )
@@ -253,12 +264,16 @@ class ProcessorStage(InitializationStage):
                 response_manager: IResponseManager = provider.get_required_service(
                     cast(type, IResponseManager)
                 )
+                app_state: IApplicationState | None = provider.get_service(
+                    cast(type, IApplicationState)
+                )
 
                 return RequestProcessor(
                     command_processor,
                     session_manager,
                     backend_request_manager,
                     response_manager,
+                    app_state=app_state,
                 )
 
             # Register concrete implementation

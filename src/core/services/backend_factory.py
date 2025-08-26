@@ -133,10 +133,6 @@ class BackendFactory:
         Returns:
             A new BackendFactory instance
         """
-        # Get the shared httpx client from the provider
-        client = service_provider.get_required_service(httpx.AsyncClient)
-
-        backend_registry_instance = service_provider.get_required_service(
-            BackendRegistry
-        )
-        return BackendFactory(client, backend_registry_instance)
+        # Resolve the registered BackendFactory from the DI container
+        # to avoid manual instantiation and adhere to DIP.
+        return service_provider.get_required_service(BackendFactory)

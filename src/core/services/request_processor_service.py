@@ -15,14 +15,12 @@ from src.core.domain.chat import ChatRequest
 from src.core.domain.processed_result import ProcessedResult
 from src.core.domain.request_context import RequestContext
 from src.core.domain.responses import ResponseEnvelope, StreamingResponseEnvelope
+from src.core.interfaces.application_state_interface import IApplicationState
 from src.core.interfaces.backend_request_manager_interface import IBackendRequestManager
 from src.core.interfaces.command_processor_interface import ICommandProcessor
 from src.core.interfaces.request_processor_interface import IRequestProcessor
 from src.core.interfaces.response_manager_interface import IResponseManager
 from src.core.interfaces.session_manager_interface import ISessionManager
-from src.core.services.application_state_service import (
-    get_default_application_state,
-)
 
 logger = logging.getLogger(__name__)
 
@@ -36,12 +34,14 @@ class RequestProcessor(IRequestProcessor):
         session_manager: ISessionManager,
         backend_request_manager: IBackendRequestManager,
         response_manager: IResponseManager,
+        app_state: IApplicationState | None = None,
     ) -> None:
         """Initialize the request processor with decomposed services."""
         self._command_processor = command_processor
         self._session_manager = session_manager
         self._backend_request_manager = backend_request_manager
         self._response_manager = response_manager
+        self._app_state = app_state
 
     async def process_request(
         self, context: RequestContext, request_data: Any
@@ -183,23 +183,25 @@ class RequestProcessor(IRequestProcessor):
         self, request_data: ChatRequest, session_id: str, context: RequestContext
     ) -> ProcessedResult:
         """Handle command processing with global disable check and fallback."""
-        # If commands are globally disabled, skip command processing
-        try:
-            if get_default_application_state().get_disable_commands():
-                return ProcessedResult(
-                    command_executed=False,
-                    modified_messages=[],
-                    command_results=[],
-                )
-            else:
-                # Work on a deep copy to avoid mutating the original request messages
-                messages_copy = copy.deepcopy(request_data.messages)
-                return await self._command_processor.process_messages(
-                    messages_copy, session_id, context
-                )
-        except Exception:
-            # Fallback to normal processing if state service is unavailable
-            messages_copy = copy.deepcopy(request_data.messages)
-            return await self._command_processor.process_messages(
-                messages_copy, session_id, context
+        # Respect global disable for interactive commands via injected application state
+        should_disable_commands = False
+        if self._app_state is not None:
+            try:
+                should_disable_commands = bool(self._app_state.get_disable_commands())
+            except Exception:
+                should_disable_commands = False
+
+        if should_disable_commands:
+            # When commands are disabled, return early without processing
+            # This prevents command execution and forces backend call path
+            return ProcessedResult(
+                command_executed=False,
+                modified_messages=[],
+                command_results=[],
             )
+
+        # Work on a deep copy to avoid mutating the original request messages
+        messages_copy = copy.deepcopy(request_data.messages)
+        return await self._command_processor.process_messages(
+            messages_copy, session_id, context
+        )

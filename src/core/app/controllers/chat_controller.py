@@ -201,19 +201,26 @@ def get_chat_controller(service_provider: IServiceProvider) -> ChatController:
                     and di_backend_request_manager
                     and di_response_manager
                 ):
+                    # Resolve optional app state for RequestProcessor
+                    from src.core.interfaces.application_state_interface import (
+                        IApplicationState as _IAppState,
+                    )
+
+                    app_state = service_provider.get_required_service(_IAppState)  # type: ignore[type-abstract]
                     request_processor = RequestProcessor(
                         cast(ICommandProcessor, di_cmd_proc),
                         cast(ISessionManager, di_session_manager),
                         cast(IBackendRequestManager, di_backend_request_manager),
                         cast(IResponseManager, di_response_manager),
+                        app_state=app_state,
                     )
                 else:
                     # Fallback to constructing processors; inject app state where appropriate
-                    from src.core.services.application_state_service import (
-                        ApplicationStateService,
+                    from src.core.interfaces.application_state_interface import (
+                        IApplicationState as _IAppState2,
                     )
 
-                    app_state = service_provider.get_service(ApplicationStateService)
+                    app_state = service_provider.get_required_service(_IAppState2)  # type: ignore[type-abstract]
                     # Instead of directly instantiating CommandProcessor and BackendProcessor,
                     # we should try to get them from the service provider or register factories
                     # for them in the service collection.
@@ -342,6 +349,7 @@ def get_chat_controller(service_provider: IServiceProvider) -> ChatController:
                         session_manager,
                         backend_request_manager,
                         response_manager,
+                        app_state=app_state,
                     )
 
                 # Register it for future use

@@ -302,8 +302,8 @@ class DIViolationScanner:
     def get_violation_summary(self) -> dict[str, Any]:
         """Get a summary of violations found."""
         total_violations = len(self.violations)
-        by_type = {}
-        by_severity = {}
+        by_type: dict[str, int] = {}
+        by_severity: dict[str, int] = {}
 
         for violation in self.violations:
             v_type = violation.get("type", "unknown")
@@ -325,12 +325,14 @@ class TestDIContainerUsage:
     """Test that the codebase follows DI container usage patterns."""
 
     @pytest.fixture
-    def scanner(self):
+    def scanner(self) -> "DIViolationScanner":
         """Create a DI violation scanner."""
         src_path = Path(__file__).parent.parent.parent / "src"
         return DIViolationScanner(src_path)
 
-    def test_di_container_violations_are_detected(self, scanner):
+    def test_di_container_violations_are_detected(
+        self, scanner: "DIViolationScanner"
+    ) -> None:
         """Test that the DI scanner can detect violations in the codebase."""
         violations = scanner.scan_for_violations()
 
@@ -341,10 +343,10 @@ class TestDIContainerUsage:
             if v.get("type") not in ["analysis_error", "syntax_error"]
         ]
 
-        # The scanner should find violations (this is expected in the current codebase)
+        # Expect no DI violations; if any appear, show a detailed report
         assert (
-            len(real_violations) > 0
-        ), "Scanner should detect violations in the current codebase"
+            len(real_violations) == 0
+        ), "DI container violations detected; expected none"
 
         # Always show concise summary (visible by default using warnings)
         import warnings
@@ -352,12 +354,14 @@ class TestDIContainerUsage:
         num_files = len({v["file"] for v in real_violations})
 
         # Show top affected files
-        file_counts = {}
+        file_counts: dict[str, int] = {}
         for v in real_violations:
             filename = v["file"]
             file_counts[filename] = file_counts.get(filename, 0) + 1
 
-        top_files = sorted(file_counts.items(), key=lambda x: x[1], reverse=True)[:3]
+        top_files: list[tuple[str, int]] = sorted(
+            file_counts.items(), key=lambda x: x[1], reverse=True
+        )[:3]
         top_files_str = ", ".join(f"{f}: {c}" for f, c in top_files)
 
         warnings.warn(
@@ -368,9 +372,10 @@ class TestDIContainerUsage:
             stacklevel=2,
         )
 
-        # For now, show detailed report by default to ensure visibility
-        # TODO: Implement proper -s flag detection
-        self._show_detailed_violation_report(real_violations, scanner)
+        # Show detailed report only when there are violations
+        if real_violations:
+            # TODO: Implement proper -s flag detection
+            self._show_detailed_violation_report(real_violations, scanner)
 
         # Check that violations have proper structure
         for violation in real_violations[:5]:  # Check first 5
@@ -385,14 +390,18 @@ class TestDIContainerUsage:
         # This test serves as a baseline - future runs can compare against this
         # The goal is to reduce violations over time, not eliminate them all at once
 
-    def _show_detailed_violation_report(self, real_violations, scanner):
+    def _show_detailed_violation_report(
+        self,
+        real_violations: list[dict[str, Any]],
+        scanner: "DIViolationScanner",
+    ) -> None:
         """Show detailed violation report when -s flag is used."""
         print(f"\n{'='*80}")
         print("DETAILED DI CONTAINER VIOLATION REPORT")
         print(f"{'='*80}")
 
         # Show violation types
-        violation_types = {}
+        violation_types: dict[str, int] = {}
         for v in real_violations:
             v_type = v.get("type", "unknown")
             violation_types[v_type] = violation_types.get(v_type, 0) + 1
@@ -402,7 +411,7 @@ class TestDIContainerUsage:
             print(f"      • {v_type}: {count}")
 
         # Show top affected files (more detailed)
-        file_counts = {}
+        file_counts: dict[str, int] = {}
         for v in real_violations:
             filename = v["file"]
             file_counts[filename] = file_counts.get(filename, 0) + 1
@@ -434,7 +443,9 @@ class TestDIContainerUsage:
         print(f"   📋 By type: {summary['violations_by_type']}")
         print(f"   ⚠️ By severity: {summary['violations_by_severity']}")
 
-    def test_di_scanner_can_analyze_codebase(self, scanner):
+    def test_di_scanner_can_analyze_codebase(
+        self, scanner: "DIViolationScanner"
+    ) -> None:
         """Test that the DI scanner can analyze the codebase without crashing."""
         violations = scanner.scan_for_violations()
 
@@ -446,7 +457,9 @@ class TestDIContainerUsage:
         assert len(analysis_errors) < 5, f"Too many analysis errors: {analysis_errors}"
         assert len(syntax_errors) < 3, f"Too many syntax errors: {syntax_errors}"
 
-    def test_di_scanner_finds_known_service_interfaces(self, scanner):
+    def test_di_scanner_finds_known_service_interfaces(
+        self, scanner: "DIViolationScanner"
+    ) -> None:
         """Test that the scanner can identify service interfaces."""
         interfaces = scanner.service_interfaces
 
@@ -462,7 +475,9 @@ class TestDIContainerUsage:
             found_interfaces
         ), f"Expected to find interfaces {expected_interfaces}, but only found {found_interfaces}"
 
-    def test_di_scanner_finds_known_service_implementations(self, scanner):
+    def test_di_scanner_finds_known_service_implementations(
+        self, scanner: "DIViolationScanner"
+    ) -> None:
         """Test that the scanner can identify service implementations."""
         implementations = scanner.service_implementations
 
@@ -478,7 +493,9 @@ class TestDIContainerUsage:
             found_implementations
         ), f"Expected to find implementations {expected_implementations}, but only found {found_implementations}"
 
-    def test_di_violation_scanner_initialization(self, scanner):
+    def test_di_violation_scanner_initialization(
+        self, scanner: "DIViolationScanner"
+    ) -> None:
         """Test that the scanner initializes correctly."""
         assert scanner.src_path.exists()
         assert scanner.src_path.name == "src"

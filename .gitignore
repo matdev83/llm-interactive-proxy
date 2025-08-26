@@ -72,6 +72,7 @@ data/accounting.sqlite3
 WARP.md
 CLAUDE.md
 .hypothesis/
+.dev/
 dev/
 dev/thrdparty/
 .coverage

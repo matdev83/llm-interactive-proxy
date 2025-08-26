@@ -29,7 +29,7 @@ class BackendProcessor(IBackendProcessor):
         self,
         backend_service: IBackendService,
         session_service: ISessionService,
-        application_state: IApplicationState | None = None,
+        application_state: IApplicationState,
     ) -> None:
         """Initialize the backend processor.
 
@@ -39,7 +39,7 @@ class BackendProcessor(IBackendProcessor):
         """
         self._backend_service = backend_service
         self._session_service = session_service
-        self._app_state: IApplicationState | None = application_state
+        self._app_state: IApplicationState = application_state
 
     async def process_backend_request(
         self,
@@ -81,23 +81,8 @@ class BackendProcessor(IBackendProcessor):
             # Get failover routes from session and add them to extra_body
             failover_routes: list[dict[str, Any]] | None = None
             if context:
-                # Use injected application state when available; otherwise warn and fallback
-                if self._app_state is None:
-                    try:
-                        from src.core.services.application_state_service import (
-                            get_default_application_state,
-                        )
-
-                        logger.warning(
-                            "BackendProcessor: No IApplicationState provided; using global default. "
-                            "Prefer injecting IApplicationState via DI to adhere to DIP."
-                        )
-                        self._app_state = get_default_application_state()
-                    except Exception:
-                        self._app_state = None
-
-                if self._app_state is not None:
-                    failover_routes = self._app_state.get_failover_routes()
+                # Always use injected application state
+                failover_routes = self._app_state.get_failover_routes()
             elif hasattr(session.state.backend_config, "failover_routes"):  # type: ignore[unreachable]
                 _failover_routes = session.state.backend_config.failover_routes
                 if isinstance(_failover_routes, list):  # type: ignore[unreachable]

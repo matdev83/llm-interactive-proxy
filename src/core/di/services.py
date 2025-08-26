@@ -188,6 +188,40 @@ def register_core_services(
     # Register both the concrete type and the interface
     _add_singleton(ISessionResolver, DefaultSessionResolver)  # type: ignore[type-abstract]
 
+    # Register application state service
+    def _application_state_factory(
+        provider: IServiceProvider,
+    ) -> ApplicationStateService:
+        # Check if we already have a cached singleton instance (e.g., from test setup)
+        descriptors = getattr(provider, "_descriptors", {})
+        descriptor = descriptors.get(ApplicationStateService)
+        if descriptor and descriptor.instance is not None:
+            return descriptor.instance
+
+        # Create a single ApplicationStateService and also sync it to the
+        # global default to maintain compatibility with tests that use
+        # get_default_application_state() to mutate flags.
+        instance = ApplicationStateService()
+        try:
+            from src.core.services.application_state_service import (
+                set_default_application_state,
+            )
+
+            set_default_application_state(instance)
+        except Exception:
+            pass
+        return instance
+
+    _add_singleton(
+        ApplicationStateService, implementation_factory=_application_state_factory
+    )
+
+    with contextlib.suppress(Exception):
+        services.add_singleton(
+            cast(type, IApplicationState),
+            implementation_factory=_application_state_factory,
+        )  # type: ignore[type-abstract]
+
     # Register CommandRegistry
     from src.core.services.command_service import CommandRegistry
 
@@ -257,9 +291,10 @@ def register_core_services(
         session_service: ISessionService = provider.get_required_service(
             ISessionService
         )  # type: ignore[type-abstract]
+        app_state: IApplicationState = provider.get_required_service(IApplicationState)
 
         # Return backend processor
-        return BackendProcessor(backend_service, session_service)
+        return BackendProcessor(backend_service, session_service, app_state)
 
     # Register backend processor and bind to interface
     _add_singleton(BackendProcessor, implementation_factory=_backend_processor_factory)
@@ -331,7 +366,25 @@ def register_core_services(
     def _application_state_factory(
         provider: IServiceProvider,
     ) -> ApplicationStateService:
-        return ApplicationStateService()
+        # Check if we already have a cached singleton instance (e.g., from test setup)
+        descriptors = getattr(provider, "_descriptors", {})
+        descriptor = descriptors.get(ApplicationStateService)
+        if descriptor and descriptor.instance is not None:
+            return descriptor.instance
+
+        # Create a single ApplicationStateService and also sync it to the
+        # global default to maintain compatibility with tests that use
+        # get_default_application_state() to mutate flags.
+        instance = ApplicationStateService()
+        try:
+            from src.core.services.application_state_service import (
+                set_default_application_state,
+            )
+
+            set_default_application_state(instance)
+        except Exception:
+            pass
+        return instance
 
     _add_singleton(
         ApplicationStateService, implementation_factory=_application_state_factory
@@ -549,6 +602,7 @@ def register_core_services(
         session_manager = provider.get_required_service(ISessionManager)  # type: ignore[type-abstract]
         backend_request_manager = provider.get_required_service(IBackendRequestManager)  # type: ignore[type-abstract]
         response_manager = provider.get_required_service(IResponseManager)  # type: ignore[type-abstract]
+        app_state = provider.get_service(IApplicationState)  # type: ignore[type-abstract]
 
         # Return request processor with decomposed services
         return RequestProcessor(
@@ -556,6 +610,7 @@ def register_core_services(
             session_manager,
             backend_request_manager,
             response_manager,
+            app_state=app_state,
         )
 
     # Register request processor and bind to interface

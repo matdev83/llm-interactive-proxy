@@ -144,21 +144,11 @@ class ApplicationTestBuilder(ApplicationBuilder):
         if hasattr(new_app.state, "service_provider"):
             app.state.service_provider = new_app.state.service_provider
 
-        # Copy other important state attributes using application state service
-        from src.core.services.application_state_service import (
-            get_default_application_state,
-        )
-
-        app_state_service = get_default_application_state()
-        app_state_service.set_state_provider(new_app.state)
-
-        # Copy important state attributes through the abstraction
+        # Copy important state attributes directly (test-only compatibility)
         for attr in ["app_config", "httpx_client", "disable_auth"]:
             if hasattr(new_app.state, attr):
                 value = getattr(new_app.state, attr)
                 setattr(app.state, attr, value)
-                # Also update the application state service
-                app_state_service.set_setting(attr, value)
 
         # Return the service provider for backward compatibility
         return app.state.service_provider
@@ -181,13 +171,6 @@ class ApplicationTestBuilder(ApplicationBuilder):
         )
 
         # First make sure services are initialized
-        from src.core.services.application_state_service import (
-            get_default_application_state,
-        )
-
-        app_state_service = get_default_application_state()
-        app_state_service.set_state_provider(app.state)
-
         if not hasattr(app.state, "service_provider") or not app.state.service_provider:
             await self._initialize_services(app, config)
 

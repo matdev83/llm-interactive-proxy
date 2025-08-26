@@ -76,21 +76,4 @@ class CommandSettingsService(ICommandSettingsService):
         logger.debug("Command settings reset to defaults")
 
 
-# Singleton instance for legacy compatibility during transition
-# This should be removed once DI is fully implemented
-_default_instance: CommandSettingsService | None = None
-
-
-def get_default_instance() -> CommandSettingsService:
-    """Get the default singleton instance of the CommandSettingsService.
-
-    This function is provided for legacy compatibility during the transition
-    to full dependency injection. New code should use proper DI instead.
-
-    Returns:
-        The default CommandSettingsService instance
-    """
-    global _default_instance
-    if _default_instance is None:
-        _default_instance = CommandSettingsService()
-    return _default_instance
+# Legacy singleton access removed. Use DI to resolve CommandSettingsService.

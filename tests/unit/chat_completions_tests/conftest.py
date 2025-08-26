@@ -252,14 +252,27 @@ def commands_disabled_client(
     )
     app = build_app(config)
 
-    # Set disable_commands on the app state to match commands_enabled=False config
-    from src.core.services.application_state_service import (
-        get_default_application_state,
-    )
+    # Create a test-specific ApplicationStateService instance to avoid interference from other tests
+    from src.core.services.application_state_service import ApplicationStateService
 
-    app_state_service = get_default_application_state()
-    app_state_service.set_state_provider(app.state)
-    app_state_service.set_disable_commands(True)
+    # Create a fresh instance for this test
+    test_app_state_service = ApplicationStateService()
+    test_app_state_service.set_state_provider(app.state)
+    test_app_state_service.set_disable_commands(True)
+
+    # Replace the DI container's ApplicationStateService instance with our test-specific one
+    try:
+        app.state.service_provider._descriptors[ApplicationStateService].instance = (
+            test_app_state_service
+        )
+    except Exception:
+        # If that doesn't work, try the singleton instances dict
+        from contextlib import suppress
+
+        with suppress(Exception):
+            app.state.service_provider._singleton_instances[ApplicationStateService] = (
+                test_app_state_service
+            )
 
     with (
         TestClient(app) as client,

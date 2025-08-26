@@ -12,6 +12,7 @@ from starlette.responses import JSONResponse
 
 # Import HTTP status constants
 from src.core.constants import HTTP_401_UNAUTHORIZED_MESSAGE
+from src.core.interfaces.application_state_interface import IApplicationState
 
 logger = logging.getLogger(__name__)
 
@@ -49,23 +50,40 @@ class APIKeyMiddleware(BaseHTTPMiddleware):
             response = await call_next(request)
             return response
 
-        # Check if auth is disabled for tests or development
-        from src.core.services.application_state_service import (
-            get_default_application_state,
-        )
+        # Check if auth is disabled for tests or development using DI when available
+        app_state_service: IApplicationState | None = None
+        # Prefer a test-injected app_state_service when present (unit tests stub this attribute)
+        injected_service = getattr(self, "app_state_service", None)
+        if injected_service is not None:
+            try:
+                # Basic duck-typing: ensure required method exists
+                if hasattr(injected_service, "get_setting"):
+                    app_state_service = injected_service  # type: ignore[assignment]
+            except Exception:
+                app_state_service = None
+        if app_state_service is None:
+            try:
+                provider = getattr(request.app.state, "service_provider", None)
+                if provider is not None:
+                    app_state_service = provider.get_service(IApplicationState)  # type: ignore[type-abstract]
+            except Exception:
+                app_state_service = None
 
-        app_state_service = get_default_application_state()
-        # Set the state provider to the current request's app state for this request
-        app_state_service.set_state_provider(request.app.state)
-
-        disable_auth = app_state_service.get_setting("disable_auth", False)
+        if app_state_service is not None:
+            disable_auth = app_state_service.get_setting("disable_auth", False)
+        else:
+            disable_auth = getattr(request.app.state, "disable_auth", False)
         if disable_auth:
             # Auth is disabled, skip validation
             response = await call_next(request)
             return response
 
         # Check if auth is disabled in the app config
-        app_config = app_state_service.get_setting("app_config")
+        app_config = (
+            app_state_service.get_setting("app_config")
+            if app_state_service is not None
+            else getattr(request.app.state, "app_config", None)
+        )
         if (
             app_config
             and hasattr(app_config, "auth")
@@ -100,7 +118,14 @@ class APIKeyMiddleware(BaseHTTPMiddleware):
 
         # Check for additional API keys in app.state (for tests)
         app_state_keys: set[str] = set()
-        client_api_key = app_state_service.get_setting("client_api_key")
+        client_api_key = None
+        if app_state_service is not None:
+            try:
+                client_api_key = app_state_service.get_setting("client_api_key")
+            except Exception:
+                client_api_key = None
+        if not client_api_key:
+            client_api_key = getattr(request.app.state, "client_api_key", None)
         if client_api_key:
             app_state_keys.add(client_api_key)
 

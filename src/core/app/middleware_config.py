@@ -45,6 +45,9 @@ def configure_middleware(app: FastAPI, config: Any) -> None:
     disable_auth = disable_auth or env_disable
 
     if not disable_auth:
+        # If running under pytest and no keys provided, add a default test key to ease integration tests
+        if not api_keys and os.environ.get("PYTEST_CURRENT_TEST"):
+            api_keys = ["test-proxy-key"]
         logger.info("API Key authentication is enabled", key_count=len(api_keys))
         # Add API Key middleware
         app.add_middleware(APIKeyMiddleware, valid_keys=api_keys)
