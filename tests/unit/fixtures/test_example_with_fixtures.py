@@ -38,7 +38,6 @@ async def test_process_command_with_fixtures(
 
 
 @pytest.mark.session
-@pytest.mark.skip("Skipping until BackendConfiguration property issues are resolved")
 def test_session_with_model_fixture() -> None:
     """Test creating a session with model and backend type."""
     # Create a session directly with the desired configuration
@@ -47,7 +46,7 @@ def test_session_with_model_fixture() -> None:
 
     # Create a backend configuration with the desired values
     backend_config = BackendConfiguration(
-        backend_type_value="openrouter", model_value="test-model"
+        backend_type="openrouter", model="test-model"
     )
 
     # Create a session state with the backend configuration

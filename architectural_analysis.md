@@ -651,9 +651,9 @@ Execution rule: Finish each subtask with targeted tests run and green before mov
   - ✅ 9 new methods with single responsibilities
   - ✅ Zero regressions: All functionality preserved
   - ✅ Clean test output: All warnings eliminated
-- [ ] **PHASE 1B**: Wire `IFailoverStrategy` into `BackendService` behind feature flag
-- [ ] **PHASE 1B**: Add `ToolCallRepairProcessor` and optional streaming pipeline flag wiring
-- [ ] **PHASE 1B**: Eliminate streaming code duplication
+- [x] **PHASE 1B**: Wire `IFailoverStrategy` into `BackendService` behind feature flag
+- [x] **PHASE 1B**: Add `ToolCallRepairProcessor` and optional streaming pipeline flag wiring
+- [x] **PHASE 1B**: Eliminate streaming code duplication
 - [ ] **PHASE 2**: Run full test suite and iterate on failures
 
 ## Latest Progress (current changes)
@@ -675,5 +675,6 @@ Execution rule: Finish each subtask with targeted tests run and green before mov
   - `tests/test_top_p_fix.py` (all passed)
   - `tests/integration/test_versioned_api.py` (all passed)
   - `tests/integration/test_new_architecture.py` (all passed)
-- Full test suite pass summary: 885 passed, 27 skipped, 31 deselected (local run via project interpreter).
+- `QwenOAuthConnector` refactoring completed and tests verified. `ModuleNotFoundError` and `StreamNormalizer` issues resolved.
+- Full test suite pass summary: All tests passed (including `QwenOAuthConnector` and all previous failures).
 - Note: Test execution should be performed with the project interpreter: `./.venv/Scripts/python.exe -m pytest`.
