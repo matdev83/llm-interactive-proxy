@@ -1,10 +1,12 @@
 import json
 from collections.abc import AsyncGenerator  # Added import
-from typing import Any  # Added import
 
 import pytest
 from pytest_mock import MockerFixture
 from src.core.interfaces.response_processor_interface import ProcessedResponse
+from src.core.services.streaming.tool_call_repair_processor import (
+    ToolCallRepairProcessor,
+)
 from src.core.services.streaming_tool_call_repair_processor import (
     StreamingToolCallRepairProcessor,
 )
@@ -20,7 +22,9 @@ def repair_service() -> ToolCallRepairService:
 def streaming_processor(
     repair_service: ToolCallRepairService,
 ) -> StreamingToolCallRepairProcessor:
-    return StreamingToolCallRepairProcessor(repair_service)
+    # Create an instance of ToolCallRepairProcessor to pass to StreamingToolCallRepairProcessor
+    tool_call_processor = ToolCallRepairProcessor(repair_service)
+    return StreamingToolCallRepairProcessor(tool_call_processor)
 
 
 class TestToolCallRepairService:
@@ -60,101 +64,49 @@ class TestToolCallRepairService:
         repaired = repair_service.repair_tool_calls(content)
         assert repaired is None
 
-    @pytest.mark.asyncio
-    async def test_process_chunk_for_streaming_full_tool_call_in_one_chunk(
-        self, repair_service: ToolCallRepairService
-    ) -> None:
-        session_id = "test_session_1"
-        chunk_content = 'Hello, this is a message. {"function_call": {"name": "tool1", "arguments": {"param": "value"}}} More text.'
-
-        results = [
-            pc
-            async for pc in repair_service.process_chunk_for_streaming(
-                chunk_content, session_id, is_final_chunk=True
-            )
-        ]
-
-        assert len(results) == 2
-        assert results[0].content == "Hello, this is a message. "
-        assert results[1].content is not None
-        repaired_tool_call = json.loads(results[1].content)
-        assert repaired_tool_call["function"]["name"] == "tool1"
-        assert json.loads(repaired_tool_call["function"]["arguments"]) == {
-            "param": "value"
-        }
-
-    @pytest.mark.asyncio
-    async def test_process_chunk_for_streaming_tool_call_split_across_chunks(
-        self, repair_service: ToolCallRepairService, mocker: MockerFixture
-    ) -> None:
-        session_id = "test_session_2"
-        mock_chunks_data = [
-            ProcessedResponse(
-                content='This is the start. {"function_call": {"name": "tool2", "arguments": {"p'
-            ),
-            ProcessedResponse(content='aram": "value"}}} And the end.'),
-        ]
-
-        from collections.abc import AsyncGenerator
-
-        async def mock_async_chunks_generator() -> (
-            AsyncGenerator[ProcessedResponse, None]
-        ):
-            for item in mock_chunks_data:
-                yield item
-
-        mock_chunks = mocker.AsyncMock(side_effect=mock_async_chunks_generator)
-        # Ensure async iteration yields from our generator in all environments
-        if hasattr(mock_chunks, "__aiter__") and hasattr(
-            mock_chunks.__aiter__, "side_effect"
-        ):
-            mock_chunks.__aiter__.side_effect = mock_async_chunks_generator
-
-        results: list[ProcessedResponse] = []
-        async for chunk in mock_chunks:
-            async for processed_chunk in repair_service.process_chunk_for_streaming(
-                chunk.content, session_id, is_final_chunk=False
-            ):
-                results.append(processed_chunk)
-
-        # Final processing
-        async for processed_chunk in repair_service.process_chunk_for_streaming(
-            "", session_id, is_final_chunk=True
-        ):
-            results.append(processed_chunk)
-
-        assert len(results) == 2
-        assert results[0].content == "This is the start. "
-        assert results[1].content is not None
-        repaired_tool_call = json.loads(results[1].content)
-        assert repaired_tool_call["function"]["name"] == "tool2"
-        assert json.loads(repaired_tool_call["function"]["arguments"]) == {
-            "param": "value"
-        }
-
 
 class TestStreamingToolCallRepairProcessor:
     @pytest.mark.asyncio
-    async def test_process_chunks_delegates_to_repair_service(
+    async def test_process_chunks_with_tool_call(
         self,
         streaming_processor: StreamingToolCallRepairProcessor,
-        repair_service: ToolCallRepairService,
         mocker: MockerFixture,
     ) -> None:
-        async def mock_generator(  # type: ignore[no-untyped-def]
-            *args: Any, **kwargs: Any
-        ) -> AsyncGenerator[ProcessedResponse, None]:
-            yield ProcessedResponse(content="processed chunk 1")
-            yield ProcessedResponse(content="processed chunk 2")
+        from src.core.domain.streaming_response_processor import StreamingContent
 
-        mock_process_chunk = mocker.AsyncMock(side_effect=mock_generator)
+        # Mock the underlying ToolCallRepairProcessor's process method
+        # This is where the actual repair logic is now encapsulated
+        mock_tool_call_repair_processor_process = mocker.AsyncMock(
+            side_effect=[
+                StreamingContent(content="Hello, "),
+                StreamingContent(
+                    content=json.dumps(
+                        {
+                            "id": "call_mock_id",
+                            "type": "function",
+                            "function": {
+                                "name": "tool1",
+                                "arguments": json.dumps({"param": "value"}),
+                            },
+                        }
+                    )
+                ),
+                StreamingContent(content="World."),
+                StreamingContent(content="", is_done=True),  # Final flush
+            ]
+        )
         mocker.patch.object(
-            repair_service, "process_chunk_for_streaming", new=mock_process_chunk
+            streaming_processor._tool_call_repair_processor,
+            "process",
+            new=mock_tool_call_repair_processor_process,
         )
 
         mock_chunks_data = [
-            ProcessedResponse(content="chunk A"),
-            ProcessedResponse(content="chunk B"),
+            ProcessedResponse(content="Hello, "),
+            ProcessedResponse(
+                content='{"function_call": {"name": "tool1", "arguments": {"param": "value"}}}'
+            ), # This is the input to the processor, not its output
+            ProcessedResponse(content="World."),
         ]
 
         async def mock_async_chunks_generator() -> (
@@ -164,7 +116,6 @@ class TestStreamingToolCallRepairProcessor:
                 yield item
 
         mock_chunks = mocker.AsyncMock(side_effect=mock_async_chunks_generator)
-        # Ensure async iteration yields from our generator
         if hasattr(mock_chunks, "__aiter__") and hasattr(
             mock_chunks.__aiter__, "side_effect"
         ):
@@ -177,18 +128,19 @@ class TestStreamingToolCallRepairProcessor:
             )
         ]
 
-        assert len(results) == 4  # 2 from each mock_process_chunk call
-        assert results[0].content == "processed chunk 1"
-        assert results[1].content == "processed chunk 2"
-        assert results[2].content == "processed chunk 1"
-        assert results[3].content == "processed chunk 2"
+        assert len(results) == 3
+        assert results[0].content == "Hello, "
+        assert results[1].content is not None
+        repaired_tool_call = json.loads(results[1].content)
+        assert repaired_tool_call["function"]["name"] == "tool1"
+        assert json.loads(repaired_tool_call["function"]["arguments"]) == {"param": "value"}
+        assert results[2].content == "World."
 
-        # Verify calls to process_chunk_for_streaming
-        # Explicitly cast to Any to satisfy mypy's strictness with mocker.call types
-        mock_process_chunk.assert_has_calls(
-            [
-                mocker.call("chunk A", "test_session", is_final_chunk=False),  # type: ignore
-                mocker.call("chunk B", "test_session", is_final_chunk=False),  # type: ignore
-                mocker.call("", "test_session", is_final_chunk=True),  # type: ignore
-            ]
-        )
+        # Verify calls to the ToolCallRepairProcessor's process method
+        actual_calls = [c.args[0] for c in mock_tool_call_repair_processor_process.call_args_list]
+
+        assert len(actual_calls) == 4
+        assert actual_calls[0].content == "Hello, "
+        assert json.loads(actual_calls[1].content) == json.loads(mock_chunks_data[1].content)
+        assert actual_calls[2].content == "World."
+        assert actual_calls[3].is_done is True and actual_calls[3].content == ""

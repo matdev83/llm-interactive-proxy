@@ -51,7 +51,8 @@ class SafeTestStage(ValidatedTestStage):
         return "safe_stage"
 
     def get_dependencies(self) -> list[str]:
-        return ["core_services"]
+        # Remove dependency for testing purposes to avoid complex setup
+        return []
 
     def get_description(self) -> str:
         return "Safe test stage with automatic validation"
@@ -114,16 +115,20 @@ class ExampleTestClass:
 class SomeComplexService:
     """Example service with mixed async/sync methods."""
 
-    def get_config(self) -> dict:
+    def get_config(self) -> dict[str, str]:
         """Synchronous method."""
-        return {}
+        return {"key": "value"}
 
     def is_enabled(self) -> bool:
         """Synchronous method."""
         return True
 
-    async def async_operation(self) -> str:
+    async def async_method(self) -> str:
         """Asynchronous method."""
+        return "async_result"
+
+    async def async_operation(self) -> str:
+        """Another asynchronous method."""
         return "result"
 
 

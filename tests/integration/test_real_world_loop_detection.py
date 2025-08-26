@@ -10,9 +10,10 @@ from collections.abc import AsyncIterator
 from pathlib import Path
 
 import pytest
+from src.core.domain.streaming_response_processor import StreamNormalizer
 from src.loop_detection.config import LoopDetectionConfig
 from src.loop_detection.detector import LoopDetector
-from src.loop_detection.streaming import wrap_streaming_content_with_loop_detection
+from src.core.domain.streaming_response_processor import LoopDetectionProcessor
 
 
 class TestRealWorldLoopDetection:
@@ -147,10 +148,12 @@ class TestRealWorldLoopDetection:
                 yield chunk
                 await asyncio.sleep(0.0001)  # Minimal delay for faster testing
 
-        # Wrap with loop detection
-        wrapped_stream = wrap_streaming_content_with_loop_detection(
-            mock_stream(), detector
-        )
+        # Create the processor
+        processor = LoopDetectionProcessor(loop_detector=detector)
+
+        # Use StreamNormalizer with the processor
+        normalizer = StreamNormalizer(processors=[processor])
+        wrapped_stream = normalizer.process_stream(mock_stream(), output_format="bytes")
 
         # Collect all chunks to ensure streaming works
         collected_chunks = []
@@ -186,20 +189,23 @@ class TestRealWorldLoopDetection:
                 yield chunk
                 await asyncio.sleep(0.001)  # Reduced delay for faster testing
 
-        # Wrap with loop detection
-        wrapped_stream = wrap_streaming_content_with_loop_detection(
-            mock_stream(), detector
-        )
+        # Create the processor
+        processor = LoopDetectionProcessor(loop_detector=detector)
+
+        # Use StreamNormalizer with the processor
+        normalizer = StreamNormalizer(processors=[processor])
 
         # Collect all chunks
         collected_chunks = []
-        async for chunk in wrapped_stream:
+        async for chunk in normalizer.normalize_stream(mock_stream()):
             collected_chunks.append(chunk)
             # Break if we see unexpected cancellation
-            if "Response cancelled" in chunk:
+            if "Response cancelled" in chunk.content:
                 break
 
-        full_content = "".join(collected_chunks)
+        # Extract content from StreamingContent objects
+        content_strings = [chunk.content for chunk in collected_chunks if chunk.content]
+        full_content = "".join(content_strings)
 
         # Should NOT have been cancelled
         assert (

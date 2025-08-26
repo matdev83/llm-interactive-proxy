@@ -166,6 +166,12 @@ class TestQwenOAuthAuthentication:
         mock_response.text = json.dumps(
             {"error": "invalid_grant", "error_description": "Invalid refresh token"}
         )
+        # Make raise_for_status actually raise an exception
+        mock_response.raise_for_status.side_effect = httpx.HTTPStatusError(
+            "400 Bad Request",
+            request=MagicMock(),
+            response=mock_response
+        )
         mock_client.post = AsyncMock(return_value=mock_response)
 
         # Execute refresh
@@ -299,7 +305,14 @@ class TestQwenOAuthAuthentication:
             mock_home.return_value = Path("/mock/home")
 
             # Save credentials
-            await connector._save_oauth_credentials()
+            test_credentials = {
+                "access_token": "test-access-token",
+                "refresh_token": "test-refresh-token",
+                "token_type": "Bearer",
+                "resource_url": "portal.qwen.ai",
+                "expiry_date": int(time.time() * 1000) + 3600000  # 1 hour from now
+            }
+            await connector._save_oauth_credentials(test_credentials)
 
             # Verify the directory was created
             mock_mkdir.assert_called_once_with(parents=True, exist_ok=True)
@@ -336,7 +349,14 @@ class TestQwenOAuthAuthentication:
             mock_home.return_value = Path("/mock/home")
 
             # Save credentials - should not raise an exception
-            await connector._save_oauth_credentials()
+            test_credentials = {
+                "access_token": "test-access-token",
+                "refresh_token": "test-refresh-token",
+                "token_type": "Bearer",
+                "resource_url": "portal.qwen.ai",
+                "expiry_date": int(time.time() * 1000) + 3600000  # 1 hour from now
+            }
+            await connector._save_oauth_credentials(test_credentials)
 
             # Function should gracefully handle the error and continue
 

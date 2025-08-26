@@ -24,11 +24,17 @@ class TestQwenOAuthEnhancedErrorHandling:
     @pytest.mark.asyncio
     async def test_initialize_success(self, connector):
         """Test successful initialization with credentials loading."""
-        with patch.object(
-            connector, "_load_oauth_credentials", return_value=True
-        ) as mock_load:
+        with (
+            patch.object(
+                connector, "_load_oauth_credentials", return_value=True
+            ) as mock_load,
+            patch.object(
+                connector, "_refresh_token_if_needed", return_value=True
+            ) as mock_refresh,
+        ):
             await connector.initialize()
             mock_load.assert_awaited_once()
+            mock_refresh.assert_awaited_once()
             assert connector.is_functional is True
             assert len(connector.available_models) > 0
             assert "qwen3-coder-plus" in connector.available_models

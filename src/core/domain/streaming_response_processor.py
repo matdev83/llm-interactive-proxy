@@ -188,6 +188,10 @@ class StreamingContent:
 
             return cls(content=content, metadata=metadata, usage=usage, raw_data=data)
 
+        # Handle StreamingContent objects directly
+        elif isinstance(data, StreamingContent):
+            return data
+
         # Fall back to empty content for unknown types
         else:
             logger.warning(
@@ -239,39 +243,28 @@ class StreamNormalizer:
         Yields:
             Normalized StreamingContent objects
         """
-        try:
-            async for chunk in stream:
-                # Convert raw chunk to StreamingContent
-                content = StreamingContent.from_raw(chunk)
+        async for chunk in stream:
+            # Convert raw chunk to StreamingContent
+            content = StreamingContent.from_raw(chunk)
 
-                # Skip empty chunks
+            # Skip empty chunks
+            if content.is_empty and not content.is_done:
+                continue
+
+            # Apply processors in sequence
+            for processor in self.processors:
+                content = await processor.process(content)
+
+                # Skip if processor made it empty
                 if content.is_empty and not content.is_done:
-                    continue
+                    break
 
-                # Apply processors in sequence
-                for processor in self.processors:
-                    content = await processor.process(content)
+            # Yield if still has content or is done marker
+            if not content.is_empty or content.is_done:
+                yield content
 
-                    # Skip if processor made it empty
-                    if content.is_empty and not content.is_done:
-                        break
-
-                # Yield if still has content or is done marker
-                if not content.is_empty or content.is_done:
-                    yield content
-
-                # Small delay to prevent overwhelming the client
-                await asyncio.sleep(0.01)
-
-        except Exception as e:
-            logger.error(f"Error in stream normalization: {e}", exc_info=True)
-            # Yield error content
-            yield StreamingContent(
-                content=f"ERROR: Stream processing failed: {e}",
-                metadata={"error_type": "StreamProcessingError"},
-            )
-            # Yield done marker
-            yield StreamingContent(is_done=True)
+            # Small delay to prevent overwhelming the client
+            await asyncio.sleep(0.01)
 
     async def process_stream(
         self, stream: AsyncIterator[Any], output_format: str = "bytes"
@@ -315,7 +308,6 @@ class LoopDetectionProcessor(IStreamProcessor):
             loop_detector: The loop detector instance to use.
         """
         self.loop_detector = loop_detector
-        self._buffer: str = ""  # Internal buffer to accumulate content
 
     async def process(self, content: StreamingContent) -> StreamingContent:
         """Process a streaming content chunk and check for loops.
@@ -330,37 +322,20 @@ class LoopDetectionProcessor(IStreamProcessor):
         if content.is_empty and not content.is_done:
             return content
 
-        # Accumulate content in the buffer
-        self._buffer += content.content
-
-        # Process the accumulated buffer for loop detection
-        detection_event = self.loop_detector.process_chunk(self._buffer)
+        # Process the content for loop detection
+        # Ensure content is a string for the loop detector
+        content_str = content.content.decode('utf-8') if isinstance(content.content, bytes) else str(content.content)
+        detection_event = self.loop_detector.process_chunk(content_str)
 
         if detection_event:
             logger.warning(
                 f"Loop detected in streaming response by LoopDetectionProcessor: {detection_event.pattern[:50]}..."
             )
-            # Reset buffer after detection
-            self._buffer = ""
             return self._create_cancellation_content(detection_event)
-        elif content.is_done and self._buffer:
-            # If it's the final chunk and there's remaining content in buffer,
-            # clear the buffer and return original content.
-            # No loop was detected, so just pass through.
-            final_content = self._buffer
-            self._buffer = ""
-            return StreamingContent(
-                content=final_content,
-                is_done=content.is_done,
-                metadata=content.metadata,
-                usage=content.usage,
-                raw_data=content.raw_data,
-            )
         else:
-            # No loop detected yet, and not the final chunk.
-            # Return an empty content for now, as we are buffering.
-            # The actual content will be yielded when a loop is detected or stream ends.
-            return StreamingContent(content="")
+            # No loop detected, pass through the content
+            return content
+
 
     def _create_cancellation_content(
         self, detection_event: LoopDetectionEvent

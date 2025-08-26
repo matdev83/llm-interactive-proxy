@@ -39,12 +39,17 @@ class ResponseBuffer:
 
     def get_content(self) -> str:
         """Get the current buffer content as a string."""
-        return "".join(self.buffer)
+        # Convert bytes to string for joining
+        return "".join(item.decode('utf-8') if isinstance(item, bytes) else str(item) for item in self.buffer)
 
     def get_recent_content(self, length: int) -> str:
         """Get the most recent content up to specified length."""
         content = self.get_content()
         return content[-length:] if len(content) > length else content
+
+    def size(self) -> int:
+        """Get the current size of the buffer in characters."""
+        return len(self.get_content())
 
     def clear(self) -> None:
         """Clear the buffer."""
