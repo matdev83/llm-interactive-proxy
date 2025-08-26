@@ -117,12 +117,16 @@ class RequestProcessor(IRequestProcessor):
         async def _resolve_extra_body(value: Any) -> dict[str, Any] | None:
             v = value
             try:
-                # If attribute is a function/mocked callable, call it
-                if callable(v):
-                    v = v()
-                # If result is awaitable/coroutine, await it
+                # If already awaitable (e.g., AsyncMock), await directly
                 if hasattr(v, "__await__"):
                     v = await v  # type: ignore[func-returns-value]
+                # If callable, call it; then await if needed
+                elif callable(v):
+                    rv = v()
+                    if hasattr(rv, "__await__"):
+                        v = await rv  # type: ignore[func-returns-value]
+                    else:
+                        v = rv
                 # Expect dict-like or None
                 if v is None:
                     return None
