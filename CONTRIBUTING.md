@@ -71,6 +71,71 @@ python -m black src
 python -m mypy src
 ```
 
+### Dependency Injection Container Usage Analysis
+
+The project includes a comprehensive DI container usage scanner that analyzes the codebase for violations of dependency injection principles.
+
+#### Running the DI Scanner
+
+```bash
+# Run the full DI violation test suite
+python -m pytest tests/unit/test_di_container_usage.py -v
+
+# Run just the violation detection (shows detailed report)
+python -m pytest tests/unit/test_di_container_usage.py::TestDIContainerUsage::test_di_container_violations_are_detected -v -s
+
+# Run with coverage to see scanner effectiveness
+python -m pytest tests/unit/test_di_container_usage.py --cov=src --cov-report=term-missing
+```
+
+#### What the DI Scanner Detects
+
+The scanner identifies violations where services are manually instantiated instead of using the DI container:
+
+- **Manual Service Instantiation**: Direct instantiation of service classes (e.g., `BackendService()`, `CommandProcessor()`)
+- **Controller Violations**: Controllers creating service instances directly
+- **Factory Function Issues**: Factory functions that don't use the DI container properly
+- **Business Logic Violations**: Business logic manually creating dependencies
+
+#### Understanding Scanner Output
+
+```
+🎯 DI Container Scanner Results:
+   📊 Total violations found: 61
+   📁 Files with violations: 14
+   📋 Violation types:
+      • manual_service_instantiation: 61
+   📁 Top affected files:
+      • core\di\services.py: 15 violations
+      • core\app\controllers\chat_controller.py: 8 violations
+```
+
+#### Fixing DI Violations
+
+**❌ Bad (Violation):**
+```python
+def handle_request(self, request):
+    processor = CommandProcessor(self.config)  # VIOLATION!
+    return processor.process(request)
+```
+
+**✅ Good (Fixed):**
+```python
+def __init__(self, command_processor: ICommandProcessor):
+    self.command_processor = command_processor
+
+def handle_request(self, request):
+    return self.command_processor.process(request)  # CORRECT
+```
+
+#### Scanner Best Practices
+
+- Run the DI scanner regularly during development
+- Address violations as part of code reviews
+- Use the scanner output to identify areas needing DI improvements
+- Focus on high-impact violations first (controllers, business logic)
+- Use `IServiceProvider.get_required_service()` for runtime resolution when needed
+
 ## Architecture Overview
 
 The LLM Interactive Proxy follows a clean architecture approach based on SOLID principles:

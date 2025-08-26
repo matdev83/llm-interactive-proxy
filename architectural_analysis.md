@@ -203,6 +203,58 @@ Based on the complexity analysis and a review of the code, the following archite
   - **Use Dependency Injection**: Consistently use dependency injection to provide dependencies to services. All services should depend on interfaces (abstract base classes) rather than concrete implementations. This will improve testability and make the system more modular.
   - **Introduce a DI Container**: Use a dependency injection container (like `dependency-injector`, which is already a dependency) to manage the lifecycle of services and their dependencies.
 
+#### DI Container Usage Analysis Tool
+
+The project includes a comprehensive **DI Container Usage Scanner** (`tests/unit/test_di_container_usage.py`) that automatically analyzes the codebase for DIP violations.
+
+**How to Use:**
+```bash
+# Run the DI violation scanner
+python -m pytest tests/unit/test_di_container_usage.py::TestDIContainerUsage::test_di_container_violations_are_detected -v -s
+
+# Run the full DI analysis suite
+python -m pytest tests/unit/test_di_container_usage.py -v
+```
+
+**What It Detects:**
+- Manual instantiation of service classes (e.g., `BackendService()`, `CommandProcessor()`)
+- Controllers creating service instances directly
+- Factory functions bypassing the DI container
+- Business logic manually creating dependencies
+
+**Scanner Output Example:**
+```
+🎯 DI Container Scanner Results:
+   📊 Total violations found: 61
+   📁 Files with violations: 14
+   📋 Violation types:
+      • manual_service_instantiation: 61
+   📁 Top affected files:
+      • core\di\services.py: 15 violations
+      • core\app\controllers\chat_controller.py: 8 violations
+```
+
+**Integration with Development Workflow:**
+- Run the DI scanner regularly during development
+- Use scanner output to identify DIP violations during code reviews
+- Address high-impact violations first (controllers, business logic)
+- Track progress over time with the scanner's baseline reporting
+
+**Recommended Fix Pattern:**
+```python
+# ❌ VIOLATION: Manual instantiation
+def handle_request(self, request):
+    processor = CommandProcessor(self.config)  # VIOLATION!
+    return processor.process(request)
+
+# ✅ CORRECT: Use dependency injection
+def __init__(self, command_processor: ICommandProcessor):
+    self.command_processor = command_processor
+
+def handle_request(self, request):
+    return self.command_processor.process(request)  # CORRECT
+```
+
 ### 3. Lack of Clear Separation of Concerns in Streaming and Repair Logic
 
 - **Problem**: The `ToolCallRepairService` and `loop_detection.streaming` modules mix concerns of data transformation, streaming logic, and business rules.
@@ -464,6 +516,7 @@ Phase 2 — Streaming and Repair:
 Phase 3 — DI and Error Handling:
 - `tests/integration/test_versioned_api.py` (DI wiring)
 - `tests/unit/test_http_error_streaming.py`, `tests/unit/openai_connector_tests/test_http_error_streaming.py`
+- `tests/unit/test_di_container_usage.py` (DI container usage scanner - run regularly to detect DIP violations)
 - Any tests touching exception surfaces in `connectors/*` and `response_processor_service.py`
 
 ## Migration Notes
@@ -480,6 +533,7 @@ Phase 3 — DI and Error Handling:
 3) Add `ToolCallRepairProcessor` and wire optional streaming pipeline behind `PROXY_USE_STREAMING_PIPELINE`.
 4) Incrementally update `BackendService` to consult `IFailoverStrategy` when the flag is enabled.
 5) Run the full test suite between each substep to catch regressions early.
+6) **Regularly run the DI container usage scanner**: Use `tests/unit/test_di_container_usage.py` to detect and track DIP violations during development and refactoring.
 
 ## Detailed Complexity Analysis
 
