@@ -23,7 +23,7 @@ from testing_framework import (
 )
 
 
-def demonstrate_safe_session_usage():
+def demonstrate_safe_session_usage() -> None:
     """Show how SafeSessionService prevents coroutine warnings."""
     print("🔧 Testing Safe Session Service...")
 
@@ -42,7 +42,7 @@ def demonstrate_safe_session_usage():
     print(f"   ✓ Authenticated: {session.is_authenticated}")
 
 
-def demonstrate_enforced_mock_factory():
+def demonstrate_enforced_mock_factory() -> None:
     """Show how EnforcedMockFactory creates proper mocks."""
     print("\n🏭 Testing Enforced Mock Factory...")
 
@@ -62,12 +62,12 @@ def demonstrate_enforced_mock_factory():
     print(f"   ✓ Session mock created: {type(session_mock).__name__}")
 
 
-def demonstrate_coroutine_warning_detection():
+def demonstrate_coroutine_warning_detection() -> None:
     """Show how the detector finds potential issues."""
     print("\n🕵️ Testing Coroutine Warning Detection...")
 
     class ProblematicTestClass:
-        def __init__(self):
+        def __init__(self) -> None:
             # This would be problematic
             self.bad_mock = AsyncMock()
             # This is safe
@@ -84,7 +84,7 @@ def demonstrate_coroutine_warning_detection():
         print(f"     - {warning}")
 
 
-def demonstrate_test_stages():
+def demonstrate_test_stages() -> None:
     """Show how test stages work for different testing scenarios."""
     print("\n🎭 Testing Test Stages...")
 
@@ -109,7 +109,7 @@ def demonstrate_test_stages():
     print(f"   ✓ Real stage HTTP client: {type(real_http).__name__}")
 
 
-def demonstrate_pytest_integration():
+def demonstrate_pytest_integration() -> None:
     """Show that the framework works with pytest fixtures."""
     print("\n🧪 Testing Pytest Integration...")
 
@@ -131,7 +131,7 @@ def demonstrate_pytest_integration():
     print("   ✓ All fixtures available through conftest.py integration")
 
 
-def main():
+def main() -> int:
     """Run all demonstrations."""
     print("🚀 LLM Interactive Proxy - Integrated Testing Framework Demo")
     print("=" * 60)

@@ -53,7 +53,9 @@ from src.core.services.application_state_service import ApplicationStateService
 from src.core.services.backend_processor import BackendProcessor
 from src.core.services.backend_request_manager_service import BackendRequestManager
 from src.core.services.backend_service import BackendService
+from src.core.services.command_argument_parser import CommandArgumentParser
 from src.core.services.command_processor import CommandProcessor
+from src.core.services.command_sanitizer import CommandSanitizer
 from src.core.services.command_service import CommandService
 from src.core.services.request_processor_service import RequestProcessor
 from src.core.services.response_handlers import (
@@ -270,7 +272,15 @@ def register_core_services(
     def _command_service_factory(provider: IServiceProvider) -> CommandService:
         registry: CommandRegistry = provider.get_required_service(CommandRegistry)
         session_svc: SessionService = provider.get_required_service(SessionService)
-        return CommandService(registry, session_svc)
+        # Inject new parser/sanitizer; keep service construction resilient
+        argument_parser = CommandArgumentParser()
+        command_sanitizer = CommandSanitizer()
+        return CommandService(
+            registry,
+            session_svc,
+            argument_parser=argument_parser,
+            command_sanitizer=command_sanitizer,
+        )
 
     # Register CommandService and bind to interface
     _add_singleton(CommandService, implementation_factory=_command_service_factory)

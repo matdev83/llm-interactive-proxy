@@ -6,9 +6,14 @@ import re
 from typing import Any
 
 from src.core.domain.chat import ChatMessage
+from src.core.domain.command_context import CommandContext
 from src.core.domain.command_results import CommandResult
 from src.core.domain.commands.base_command import BaseCommand
 from src.core.domain.processed_result import ProcessedResult
+from src.core.interfaces.command_argument_parser_interface import (
+    ICommandArgumentParser,
+)
+from src.core.interfaces.command_sanitizer_interface import ICommandSanitizer
 from src.core.interfaces.command_service_interface import ICommandService
 from src.core.interfaces.session_service_interface import ISessionService
 
@@ -165,6 +170,8 @@ class CommandService(ICommandService):
         command_registry: CommandRegistry,
         session_service: ISessionService,
         preserve_unknown: bool = False,
+        argument_parser: ICommandArgumentParser | None = None,
+        command_sanitizer: ICommandSanitizer | None = None,
     ) -> None:
         """
         Initialize the command service.
@@ -177,6 +184,8 @@ class CommandService(ICommandService):
         self._registry = command_registry
         self._session_service = session_service
         self._preserve_unknown = preserve_unknown
+        self._argument_parser = argument_parser
+        self._command_sanitizer = command_sanitizer
 
     async def register_command(self, command_name: str, command_handler: Any) -> None:
         """Register a command handler.
@@ -378,7 +387,13 @@ class CommandService(ICommandService):
         }
 
     def _parse_command_arguments(self, args_str: str | None) -> dict[str, Any]:
-        """Parse command arguments from argument string using shared logic."""
+        """Parse command arguments from argument string using injected parser.
+
+        Falls back to legacy function to maintain compatibility until DI wiring
+        is complete across the app.
+        """
+        if self._argument_parser is not None:
+            return self._argument_parser.parse(args_str)
         from src.core.common.command_args import parse_command_arguments
 
         return parse_command_arguments(args_str)
@@ -426,15 +441,11 @@ class CommandService(ICommandService):
             "BackendFactoryStub", (), {"_backend_types": backend_types}
         )()
 
-        context = type(
-            "CommandContext",
-            (),
-            {
-                "command_registry": self._registry,
-                "backend_factory": backend_factory_stub,
-                "backend_type": None,
-            },
-        )()
+        context = CommandContext(
+            command_registry=self._registry,
+            backend_factory=backend_factory_stub,
+            backend_type=None,
+        )
 
         # Execute command
         result: CommandResult
