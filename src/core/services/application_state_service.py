@@ -89,20 +89,6 @@ class ApplicationStateService(IApplicationState):
             self._state_provider.disable_commands = disabled
         self._local_state["disable_commands"] = disabled
 
-    def get_failover_routes(self) -> list[dict[str, Any]] | None:
-        """Get failover routes."""
-        if self._state_provider and hasattr(self._state_provider, "failover_routes"):
-            routes = self._state_provider.failover_routes
-            return routes if isinstance(routes, list) else None
-        local_routes = self._local_state.get("failover_routes")
-        return local_routes if isinstance(local_routes, list) else None
-
-    def set_failover_routes(self, routes: list[dict[str, Any]]) -> None:
-        """Set failover routes."""
-        if self._state_provider:
-            self._state_provider.failover_routes = routes
-        self._local_state["failover_routes"] = routes
-
     def get_setting(self, key: str, default: Any = None) -> Any:
         """Get a generic setting by key."""
         if self._state_provider and hasattr(self._state_provider, key):
@@ -132,6 +118,122 @@ class ApplicationStateService(IApplicationState):
     def set_use_streaming_pipeline(self, enabled: bool) -> None:
         """Enable or disable the streaming pipeline usage."""
         self.set_setting("PROXY_USE_STREAMING_PIPELINE", enabled)
+
+    def get_functional_backends(self) -> list[str]:
+        """Get list of functional backends."""
+        if self._state_provider and hasattr(
+            self._state_provider, "functional_backends"
+        ):
+            backends = self._state_provider.functional_backends
+            return backends if isinstance(backends, list) else []
+        local_backends = self._local_state.get("functional_backends", [])
+        return local_backends if isinstance(local_backends, list) else []
+
+    def set_functional_backends(self, backends: list[str]) -> None:
+        """Set list of functional backends."""
+        if self._state_provider:
+            self._state_provider.functional_backends = backends
+        self._local_state["functional_backends"] = backends
+
+    def get_backend_type(self) -> str | None:
+        """Get current backend type."""
+        if self._state_provider and hasattr(self._state_provider, "backend_type"):
+            backend_type = self._state_provider.backend_type
+            return backend_type if isinstance(backend_type, str) else None
+        local_backend_type = self._local_state.get("backend_type")
+        return local_backend_type if isinstance(local_backend_type, str) else None
+
+    def set_backend_type(self, backend_type: str | None) -> None:
+        """Set current backend type."""
+        if self._state_provider:
+            self._state_provider.backend_type = backend_type
+        self._local_state["backend_type"] = backend_type
+
+    def get_backend(self) -> Any:
+        """Get current backend instance."""
+        if self._state_provider and hasattr(self._state_provider, "backend"):
+            return self._state_provider.backend
+        return self._local_state.get("backend")
+
+    def set_backend(self, backend: Any) -> None:
+        """Set current backend instance."""
+        if self._state_provider:
+            self._state_provider.backend = backend
+        self._local_state["backend"] = backend
+
+    def get_model_defaults(self) -> dict[str, Any]:
+        """Get model defaults."""
+        if self._state_provider and hasattr(self._state_provider, "model_defaults"):
+            defaults = self._state_provider.model_defaults
+            return defaults if isinstance(defaults, dict) else {}
+        local_defaults = self._local_state.get("model_defaults", {})
+        return local_defaults if isinstance(local_defaults, dict) else {}
+
+    def set_model_defaults(self, defaults: dict[str, Any]) -> None:
+        """Set model defaults."""
+        if self._state_provider:
+            self._state_provider.model_defaults = defaults
+        self._local_state["model_defaults"] = defaults
+
+    def get_legacy_backend(self, backend_name: str) -> Any | None:
+        """Get legacy backend instance by name."""
+        if self._state_provider:
+            # Try to get backend using the legacy pattern
+            backend_attr = f"{backend_name}_backend"
+            if hasattr(self._state_provider, backend_attr):
+                return getattr(self._state_provider, backend_attr)
+        return self._local_state.get(f"legacy_backend_{backend_name}")
+
+    def set_legacy_backend(self, backend_name: str, backend_instance: Any) -> None:
+        """Set legacy backend instance by name."""
+        if self._state_provider:
+            # Set backend using the legacy pattern
+            backend_attr = f"{backend_name}_backend"
+            setattr(self._state_provider, backend_attr, backend_instance)
+        self._local_state[f"legacy_backend_{backend_name}"] = backend_instance
+
+    def get_failover_routes(self) -> list[dict[str, Any]] | None:
+        """Get failover routes."""
+        if self._state_provider and hasattr(self._state_provider, "failover_routes"):
+            routes = self._state_provider.failover_routes
+            if isinstance(routes, dict):
+                return list(routes.values()) if routes else None
+            elif isinstance(routes, list):
+                return routes
+        local_routes = self._local_state.get("failover_routes")
+        if isinstance(local_routes, dict):
+            return list(local_routes.values()) if local_routes else None
+        elif isinstance(local_routes, list):
+            return local_routes
+        return None
+
+    def set_failover_route(self, name: str, route_config: dict[str, Any]) -> None:
+        """Set a failover route."""
+        if self._state_provider:
+            if not hasattr(self._state_provider, "failover_routes"):
+                self._state_provider.failover_routes = {}
+            self._state_provider.failover_routes[name] = route_config
+        else:
+            if "failover_routes" not in self._local_state:
+                self._local_state["failover_routes"] = {}
+            self._local_state["failover_routes"][name] = route_config
+
+    def set_failover_routes(self, routes: list[dict[str, Any]]) -> None:
+        """Set multiple failover routes."""
+        if self._state_provider:
+            self._state_provider.failover_routes = {}
+            for route in routes:
+                if isinstance(route, dict) and "name" in route:
+                    name = route["name"]
+                    route_config = {k: v for k, v in route.items() if k != "name"}
+                    self._state_provider.failover_routes[name] = route_config
+        else:
+            self._local_state["failover_routes"] = {}
+            for route in routes:
+                if isinstance(route, dict) and "name" in route:
+                    name = route["name"]
+                    route_config = {k: v for k, v in route.items() if k != "name"}
+                    self._local_state["failover_routes"][name] = route_config
 
 
 # Global instance for backward compatibility

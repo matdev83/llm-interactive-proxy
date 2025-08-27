@@ -79,22 +79,6 @@ class IApplicationState(ABC):
         """
 
     @abstractmethod
-    def get_failover_routes(self) -> list[dict[str, Any]] | None:
-        """Get failover routes.
-
-        Returns:
-            A list of failover routes, or None if not set
-        """
-
-    @abstractmethod
-    def set_failover_routes(self, routes: list[dict[str, Any]]) -> None:
-        """Set failover routes.
-
-        Args:
-            routes: The failover routes
-        """
-
-    @abstractmethod
     def get_setting(self, key: str, default: Any = None) -> Any:
         """Get a generic setting by key.
 
@@ -145,4 +129,113 @@ class IApplicationState(ABC):
 
         Args:
             enabled: Whether the streaming pipeline should be used
+        """
+
+    @abstractmethod
+    def get_functional_backends(self) -> list[str]:
+        """Get list of functional backends.
+
+        Returns:
+            List of functional backend names
+        """
+
+    @abstractmethod
+    def set_functional_backends(self, backends: list[str]) -> None:
+        """Set list of functional backends.
+
+        Args:
+            backends: List of functional backend names
+        """
+
+    @abstractmethod
+    def get_backend_type(self) -> str | None:
+        """Get current backend type.
+
+        Returns:
+            Current backend type or None if not set
+        """
+
+    @abstractmethod
+    def set_backend_type(self, backend_type: str | None) -> None:
+        """Set current backend type.
+
+        Args:
+            backend_type: The backend type to set
+        """
+
+    @abstractmethod
+    def get_backend(self) -> Any:
+        """Get current backend instance.
+
+        Returns:
+            Current backend instance or None if not set
+        """
+
+    @abstractmethod
+    def set_backend(self, backend: Any) -> None:
+        """Set current backend instance.
+
+        Args:
+            backend: The backend instance to set
+        """
+
+    @abstractmethod
+    def get_model_defaults(self) -> dict[str, Any]:
+        """Get model defaults.
+
+        Returns:
+            Dictionary of model defaults
+        """
+
+    @abstractmethod
+    def set_model_defaults(self, defaults: dict[str, Any]) -> None:
+        """Set model defaults.
+
+        Args:
+            defaults: Dictionary of model defaults
+        """
+
+    @abstractmethod
+    def get_legacy_backend(self, backend_name: str) -> Any | None:
+        """Get legacy backend instance by name.
+
+        Args:
+            backend_name: Name of the backend
+
+        Returns:
+            Backend instance or None if not found
+        """
+
+    @abstractmethod
+    def set_legacy_backend(self, backend_name: str, backend_instance: Any) -> None:
+        """Set legacy backend instance by name.
+
+        Args:
+            backend_name: Name of the backend
+            backend_instance: The backend instance
+        """
+
+    @abstractmethod
+    def get_failover_routes(self) -> list[dict[str, Any]] | None:
+        """Get failover routes.
+
+        Returns:
+            List of failover routes, or None if not set
+        """
+
+    @abstractmethod
+    def set_failover_route(self, name: str, route_config: dict[str, Any]) -> None:
+        """Set a failover route.
+
+        Args:
+            name: Name of the failover route
+            route_config: Route configuration
+        """
+
+    @abstractmethod
+    def set_failover_routes(self, routes: list[dict[str, Any]]) -> None:
+        """Set multiple failover routes.
+
+        Args:
+            routes: List of failover routes
         """

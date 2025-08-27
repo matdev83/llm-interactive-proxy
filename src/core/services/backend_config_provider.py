@@ -3,6 +3,7 @@ from __future__ import annotations
 from collections.abc import Iterable
 
 from src.core.config.app_config import AppConfig, BackendConfig
+from src.core.domain.chat import ChatRequest
 from src.core.interfaces.backend_config_provider_interface import IBackendConfigProvider
 from src.core.services.backend_registry import backend_registry
 
@@ -111,6 +112,24 @@ class BackendConfigProvider(IBackendConfigProvider):
                 result.add(name)
 
         return result
+
+    def apply_backend_config(
+        self, request: ChatRequest, backend_type: str, config: AppConfig
+    ) -> ChatRequest:
+        """Apply backend-specific configuration to a request.
+
+        Args:
+            request: The chat completion request
+            backend_type: The backend type
+            config: The application configuration
+
+        Returns:
+            The updated request with backend-specific configuration applied
+        """
+        # For now, return the request unchanged
+        # This method can be extended to apply backend-specific configurations
+        # similar to the BackendConfigService.apply_backend_config method
+        return request
 
     # Alias for backward compatibility with the interface
     def functional_backends(self) -> set[str]:

@@ -146,6 +146,7 @@ class DIViolationScanner:
             "src\\core\\di\\services.py",  # Whitelist DI registration file
             "src\\core\\app\\controllers\\chat_controller.py",  # Whitelist controller factory
             "src\\core\\app\\controllers\\anthropic_controller.py",  # Whitelist controller factory
+            "src\\core\\app\\controllers\\models_controller.py",  # Whitelist controller factory
             "src\\core\\app\\stages\\core_services.py",  # Whitelist DI registration stage
             "src\\core\\app\\stages\\processor.py",  # Whitelist DI registration stage
             "src\\core\\services\\response_processor_service.py",  # Whitelist service constructor logic

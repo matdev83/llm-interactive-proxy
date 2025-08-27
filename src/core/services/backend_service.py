@@ -18,7 +18,6 @@ from src.core.interfaces.failover_interface import (
 )
 from src.core.interfaces.rate_limiter_interface import IRateLimiter
 from src.core.interfaces.session_service_interface import ISessionService
-from src.core.services.backend_config_service import BackendConfigService
 from src.core.services.backend_factory import BackendFactory
 from src.core.services.failover_service import FailoverService
 
@@ -65,8 +64,11 @@ class BackendService(IBackendService):
         self._backend_configs: dict[str, Any] = {}
         self._failover_routes: dict[str, dict[str, Any]] = failover_routes or {}
         self._backends: dict[str, LLMBackend] = {}
-        cast(AppConfig, config)
+        from src.core.config.app_config import AppConfig
         from src.core.services.failover_coordinator import FailoverCoordinator
+
+        # Ensure config is properly typed for type checking
+        _typed_config = cast(AppConfig, config)
 
         self._failover_service: FailoverService = FailoverService(failover_routes={})
         if failover_coordinator is None:
@@ -79,7 +81,19 @@ class BackendService(IBackendService):
             )
         else:
             self._failover_coordinator = failover_coordinator
-        self._backend_config_service: BackendConfigService = BackendConfigService()
+        # Use injected backend config provider or create default
+        if backend_config_provider is not None:
+            self._backend_config_service = backend_config_provider
+        else:
+            # Fallback for backward compatibility - create with app_config
+            from src.core.config.app_config import AppConfig
+            from src.core.services.backend_config_provider import BackendConfigProvider
+
+            if isinstance(config, AppConfig):
+                self._backend_config_service = BackendConfigProvider(config)
+            else:
+                # Create a minimal AppConfig for backward compatibility
+                self._backend_config_service = BackendConfigProvider(AppConfig())
         self._failover_strategy: IFailoverStrategy | None = failover_strategy
 
     def _get_failover_plan(

@@ -20,6 +20,7 @@ from src.core.interfaces.agent_response_formatter_interface import (
 )
 from src.core.interfaces.app_settings_interface import IAppSettings
 from src.core.interfaces.application_state_interface import IApplicationState
+from src.core.interfaces.backend_config_provider_interface import IBackendConfigProvider
 from src.core.interfaces.backend_processor_interface import IBackendProcessor
 from src.core.interfaces.backend_request_manager_interface import IBackendRequestManager
 from src.core.interfaces.backend_service_interface import IBackendService
@@ -626,6 +627,17 @@ def register_core_services(
         with contextlib.suppress(Exception):
             failover_coordinator = provider.get_service(IFailoverCoordinator)  # type: ignore[type-abstract]
 
+        # Get backend config provider or create one
+        backend_config_provider = None
+        with contextlib.suppress(Exception):
+            backend_config_provider = provider.get_service(IBackendConfigProvider)  # type: ignore[type-abstract]
+
+        # If not available, create one with the app config
+        if backend_config_provider is None:
+            from src.core.services.backend_config_provider import BackendConfigProvider
+
+            backend_config_provider = BackendConfigProvider(app_config)
+
         # Return backend service
         return BackendService(
             backend_factory,
@@ -633,6 +645,7 @@ def register_core_services(
             app_config,
             session_service=provider.get_required_service(SessionService),
             app_state=app_state,
+            backend_config_provider=backend_config_provider,
             failover_coordinator=failover_coordinator,
         )
 

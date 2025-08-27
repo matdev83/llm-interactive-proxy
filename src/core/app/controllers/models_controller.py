@@ -122,17 +122,21 @@ def get_config_service() -> IConfig:
 def get_backend_factory_service() -> BackendFactory:
     """Get the backend factory service.
 
+    This function follows DIP principles by attempting to resolve the service
+    through the DI container first, then falling back to direct creation
+    using the same factory pattern as the rest of the application.
+
     Returns:
         The backend factory service
     """
-    # Get the factory from the DI container
+    # First, try to get from global service provider
     try:
         from src.core.di.services import get_service_provider
         from src.core.services.backend_factory import BackendFactory
 
         service_provider = get_service_provider()
         return service_provider.get_required_service(BackendFactory)  # type: ignore[no-any-return]
-    except KeyError:
+    except (KeyError, Exception):
         # Try to get from current request context (for FastAPI dependency injection)
         try:
             from starlette.context import _request_context  # type: ignore[import]
@@ -146,11 +150,15 @@ def get_backend_factory_service() -> BackendFactory:
         except Exception:
             pass
 
-        # If we can't get the factory from DI, create a special factory for model discovery
-        # This is a DI-approved factory method that follows the pattern used in services.py
-        from src.core.di.services import _create_backend_factory
+        # Final fallback: create factory using the same pattern as BackendService
+        # This ensures consistency with the DI container's factory methods
+        import httpx
 
-        return _create_backend_factory()  # type: ignore[no-any-return,no-untyped-call]
+        from src.core.services.backend_factory import BackendFactory
+        from src.core.services.backend_registry import backend_registry
+
+        httpx_client = httpx.AsyncClient()
+        return BackendFactory(httpx_client, backend_registry)
 
 
 @router.get("/models")

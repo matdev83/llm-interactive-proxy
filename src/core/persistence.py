@@ -10,6 +10,7 @@ from src.command_prefix import validate_command_prefix
 from src.core.domain.model_utils import (
     ModelDefaults,  # Add import for model config classes
 )
+from src.core.interfaces.application_state_interface import IApplicationState
 from src.core.interfaces.di_interface import IServiceProvider
 
 logger = logging.getLogger(__name__)
@@ -17,11 +18,16 @@ logger = logging.getLogger(__name__)
 
 class ConfigManager:
     def __init__(
-        self, app: FastAPI, path: str, service_provider: IServiceProvider | None = None
+        self,
+        app: FastAPI,
+        path: str,
+        service_provider: IServiceProvider | None = None,
+        app_state: IApplicationState | None = None,
     ) -> None:
         self.app = app
         self.path = Path(path)
         self.service_provider = service_provider
+        self.app_state = app_state
 
     def load(self) -> None:
         if not self.path.is_file():
@@ -44,8 +50,11 @@ class ConfigManager:
                 )
                 return
 
-            if backend_value in self.app.state.functional_backends:
-                self.app.state.backend_type = backend_value
+            if (
+                self.app_state
+                and backend_value in self.app_state.get_functional_backends()
+            ):
+                self.app_state.set_backend_type(backend_value)
                 # Convert backend name to valid attribute name (replace hyphens with underscores)
                 # Resolve backend via DI-backed BackendService if available
                 if self.service_provider is not None:
@@ -60,9 +69,12 @@ class ConfigManager:
                         if backend_service and backend_value in getattr(
                             backend_service, "_backends", {}  # type: ignore[attr-defined]
                         ):
-                            self.app.state.backend = backend_service._backends[  # type: ignore[attr-defined]
-                                backend_value
-                            ]
+                            if self.app_state:
+                                self.app_state.set_backend(
+                                    backend_service._backends[  # type: ignore[attr-defined]
+                                        backend_value
+                                    ]
+                                )
                             return
                     except Exception:
                         # If DI resolution fails, do not fall back to legacy state
@@ -89,9 +101,18 @@ class ConfigManager:
                 logger.warning(f"Failed to set interactive mode: {e}")
 
     def _apply_redact_api_keys(self, redact_value: Any) -> None:
-        if isinstance(redact_value, bool):
-            self.app.state.api_key_redaction_enabled = redact_value
-            self.app.state.default_api_key_redaction_enabled = redact_value
+        if isinstance(redact_value, bool) and self.app_state:
+            self.app_state.set_api_key_redaction_enabled(redact_value)
+            # Note: default_api_key_redaction_enabled is not in the interface yet
+            # We'll need to add it or handle it differently
+            if (
+                self.app_state
+                and hasattr(self.app_state, "_state_provider")
+                and self.app_state._state_provider
+            ):
+                self.app_state._state_provider.default_api_key_redaction_enabled = (
+                    redact_value
+                )
 
     def _apply_command_prefix(self, prefix_value: Any) -> None:
         if isinstance(prefix_value, str):
@@ -99,7 +120,8 @@ class ConfigManager:
             if err:
                 logger.warning(f"Invalid command prefix in config: {err}")
             else:
-                self.app.state.command_prefix = prefix_value
+                if self.app_state:
+                    self.app_state.set_command_prefix(prefix_value)
 
     def _apply_model_defaults(self, model_defaults_value: Any) -> list[str]:
         """Apply model-specific default configurations."""
@@ -108,8 +130,8 @@ class ConfigManager:
             return warnings
 
         # Store model defaults in app state for later use
-        if not hasattr(self.app.state, "model_defaults"):
-            self.app.state.model_defaults = {}
+        if self.app_state and not hasattr(self.app_state, "model_defaults"):
+            self.app_state.set_model_defaults({})
 
         for model_name, defaults_config in model_defaults_value.items():
             if not isinstance(defaults_config, dict):
@@ -121,7 +143,10 @@ class ConfigManager:
             try:
                 # Validate the model defaults configuration
                 model_defaults = ModelDefaults(**defaults_config)
-                self.app.state.model_defaults[model_name] = model_defaults
+                if self.app_state:
+                    current_defaults = self.app_state.get_model_defaults()
+                    current_defaults[model_name] = model_defaults
+                    self.app_state.set_model_defaults(current_defaults)
                 logger.info(f"Loaded defaults for model: {model_name}")
             except Exception as e:
                 warnings.append(f"Invalid model defaults for '{model_name}': {e}")
@@ -155,13 +180,18 @@ class ConfigManager:
         # Convert to internal colon syntax
         internal_elem_str = f"{backend_name}:{model_name}"
 
-        if backend_name not in self.app.state.functional_backends:
+        if (
+            self.app_state
+            and backend_name not in self.app_state.get_functional_backends()
+        ):
             return (
                 None,
                 f"Backend '{backend_name}' in route '{route_name}' element '{elem_str}' is not functional, skipping.",
             )
 
-        backend_instance = getattr(self.app.state, f"{backend_name}_backend", None)
+        backend_instance = (
+            self.app_state.get_legacy_backend(backend_name) if self.app_state else None
+        )
         if (
             not backend_instance
             or model_name not in backend_instance.get_available_models()
@@ -203,10 +233,14 @@ class ConfigManager:
                     if valid_element:
                         valid_elements.append(valid_element)
 
-            self.app.state.failover_routes[name] = {
-                "policy": policy,
-                "elements": valid_elements,
-            }
+            if self.app_state:
+                self.app_state.set_failover_route(
+                    name,
+                    {
+                        "policy": policy,
+                        "elements": valid_elements,
+                    },
+                )
         return warnings
 
     def apply(self, data: dict[str, Any]) -> None:
@@ -244,23 +278,38 @@ class ConfigManager:
             except Exception as e:
                 logger.warning(f"Failed to get interactive mode: {e}")
 
-        config_data = {
-            "default_backend": self.app.state.backend_type,
+        config_data: dict[str, Any] = {
+            "default_backend": (
+                self.app_state.get_backend_type() if self.app_state else None
+            ),
             "interactive_mode": interactive_mode,
-            "failover_routes": self.app.state.failover_routes,
-            "redact_api_keys_in_prompts": self.app.state.api_key_redaction_enabled,
-            "command_prefix": self.app.state.command_prefix,
+            "failover_routes": (
+                self.app_state.get_failover_routes() if self.app_state else {}
+            ),
+            "redact_api_keys_in_prompts": (
+                self.app_state.get_api_key_redaction_enabled()
+                if self.app_state
+                else False
+            ),
+            "command_prefix": (
+                self.app_state.get_command_prefix() if self.app_state else None
+            ),
         }
 
         # Include model defaults if they exist
-        if hasattr(self.app.state, "model_defaults") and self.app.state.model_defaults:
-            # Convert ModelDefaults objects back to dict format for JSON serialization
-            model_defaults_dict = {}
-            for model_name, model_defaults in self.app.state.model_defaults.items():
-                model_defaults_dict[model_name] = model_defaults.model_dump(
-                    exclude_none=True
-                )
-            config_data["model_defaults"] = model_defaults_dict
+        if self.app_state:
+            model_defaults = self.app_state.get_model_defaults()
+            if model_defaults:
+                # Convert ModelDefaults objects back to dict format for JSON serialization
+                model_defaults_dict = {}
+                for model_name, model_defaults_obj in model_defaults.items():
+                    if hasattr(model_defaults_obj, "model_dump"):
+                        model_defaults_dict[model_name] = model_defaults_obj.model_dump(
+                            exclude_none=True
+                        )
+                    else:
+                        model_defaults_dict[model_name] = model_defaults_obj
+                config_data["model_defaults"] = model_defaults_dict
 
         return config_data
 
