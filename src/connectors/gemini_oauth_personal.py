@@ -69,24 +69,12 @@ import google.auth.transport.requests
 import google.oauth2.credentials
 import httpx
 from fastapi import HTTPException
-from google.auth.exceptions import RefreshError
 
 from src.core.common.exceptions import AuthenticationError, BackendError
 from src.core.domain.responses import ResponseEnvelope, StreamingResponseEnvelope
 from src.core.services.backend_registry import backend_registry
 
 from .gemini import GeminiBackend
-
-# Gemini CLI OAuth configuration (matching the CLI's settings)
-GEMINI_CLI_CLIENT_ID = (
-    "CLIENT_ID_REDACTED"
-)
-GEMINI_CLI_CLIENT_SECRET = "CLIENT_SECRET_REDACTED"
-GEMINI_CLI_OAUTH_SCOPES = [
-    "https://www.googleapis.com/auth/cloud-platform",
-    "https://www.googleapis.com/auth/userinfo.email",
-    "https://www.googleapis.com/auth/userinfo.profile",
-]
 
 # Code Assist API endpoint (matching the CLI's endpoint)
 CODE_ASSIST_ENDPOINT = "https://cloudcode-pa.googleapis.com"
@@ -164,73 +152,39 @@ class GeminiOAuthPersonalConnector(GeminiBackend):
         return None
 
     async def _refresh_token_if_needed(self) -> bool:
-        """Refresh the access token if it's expired or close to expiring."""
+        """Ensure we have a valid access token; reload from CLI cache if expired.
+
+        We intentionally avoid embedding OAuth client credentials. The official
+        gemini CLI persists credentials to ~/.gemini/oauth_creds.json and refreshes
+        them itself. Here we re-load that file if our token is stale.
+        """
         if not self._is_token_expired():
-            return True  # No refresh needed
+            return True
 
         async with self._token_refresh_lock:
-            # Re-check after acquiring lock in case another coroutine refreshed it
             if not self._is_token_expired():
                 return True
 
-            logger.info("Access token expired or near expiry, attempting to refresh...")
+            logger.info(
+                "Access token expired or near expiry; reloading CLI credentials..."
+            )
 
-            if not self._oauth_credentials:
-                logger.warning("No OAuth credentials available for refresh.")
-                return False
-
-            try:
-                # Use google-auth library to handle token refresh correctly
-                creds_dict = dict(self._oauth_credentials)
-                # Convert expiry_date from ms to seconds if present
-                if "expiry_date" in creds_dict:
-                    creds_dict["expiry"] = creds_dict.pop("expiry_date") / 1000
-
-                # Create google-auth credentials from json data
-                # type: ignore[no-untyped-call]
-                credentials = google.oauth2.credentials.Credentials(
-                    token=creds_dict.get("access_token"),
-                    refresh_token=creds_dict.get("refresh_token"),
-                    token_uri="https://oauth2.googleapis.com/token",
-                    client_id=GEMINI_CLI_CLIENT_ID,
-                    client_secret=GEMINI_CLI_CLIENT_SECRET,
-                    scopes=GEMINI_CLI_OAUTH_SCOPES,
+            # Attempt to reload the credentials file; the CLI should refresh it
+            reloaded = await self._load_oauth_credentials()
+            if not reloaded:
+                logger.warning(
+                    "Failed to reload Gemini OAuth credentials from ~/.gemini."
                 )
+                return False
 
-                # Refresh the token if expired
-                # type: ignore[no-untyped-call]
-                request = google.auth.transport.requests.Request()
-                credentials.refresh(request)
-
-                # Update our OAuth credentials with the refreshed data
-                new_credentials = {
-                    "access_token": credentials.token,
-                    "refresh_token": credentials.refresh_token,
-                    "token_type": "Bearer",
-                    "expiry_date": (
-                        int(credentials.expiry.timestamp() * 1000)
-                        if credentials.expiry
-                        else int(time.time() * 1000 + 3600 * 1000)
-                    ),  # Convert to ms or use default 1 hour
-                }
-
-                # Update our credentials with the refreshed data
-                self._oauth_credentials.update(new_credentials)
-
-                # Save updated credentials
-                await self._save_oauth_credentials(self._oauth_credentials)
-
-                logger.info(
-                    "Successfully refreshed Gemini OAuth token using google-auth."
+            # After reload, consider token valid if not expired
+            if self._is_token_expired():
+                logger.warning(
+                    "Reloaded credentials are still expired. Please run 'gemini auth' to refresh."
                 )
-                return True
+                return False
 
-            except RefreshError as e:
-                logger.error(f"Google Auth token refresh error: {e}")
-                return False
-            except Exception as e:
-                logger.error(f"An unexpected error occurred during token refresh: {e}")
-                return False
+            return True
 
     async def _save_oauth_credentials(self, credentials: dict[str, Any]) -> None:
         """Save OAuth credentials to oauth_creds.json file."""
@@ -317,6 +271,14 @@ class GeminiOAuthPersonalConnector(GeminiBackend):
             self.is_functional = False
             return
 
+        # If token still appears expired after reload attempts, auto-disable backend
+        if self._is_token_expired():
+            logger.warning(
+                "Gemini OAuth token is expired. Disabling backend until you run 'gemini auth' to refresh."
+            )
+            self.is_functional = False
+            return
+
         # If we reach here, credentials are loaded and potentially refreshed
         # Fetch available models using the OAuth token
         try:
@@ -363,8 +325,18 @@ class GeminiOAuthPersonalConnector(GeminiBackend):
                 status_code=500, detail="Gemini API base URL must be provided."
             )
 
-        # Use OAuth access token instead of API key
-        access_token = self._oauth_credentials["access_token"]
+        # Use OAuth access token instead of API key (reload if expired)
+        # Ensure token is fresh enough
+        await self._refresh_token_if_needed()
+        access_token = (
+            self._oauth_credentials.get("access_token")
+            if self._oauth_credentials
+            else None
+        )
+        if not access_token:
+            raise HTTPException(
+                status_code=401, detail="Missing access_token after refresh."
+            )
         return base.rstrip("/"), {"Authorization": f"Bearer {access_token}"}
 
     async def _perform_health_check(self) -> bool:
@@ -528,23 +500,27 @@ class GeminiOAuthPersonalConnector(GeminiBackend):
             if not await self._refresh_token_if_needed():
                 raise AuthenticationError("Failed to refresh OAuth token for API call")
 
-            # Create google-auth credentials from our OAuth data
+            # Create an authorized session using the access token directly
             if not self._oauth_credentials:
                 raise AuthenticationError("No OAuth credentials available for API call")
 
-            creds_dict = dict(self._oauth_credentials)
-            # type: ignore[no-untyped-call]
-            credentials = google.oauth2.credentials.Credentials(
-                token=creds_dict.get("access_token"),
-                refresh_token=creds_dict.get("refresh_token"),
-                token_uri="https://oauth2.googleapis.com/token",
-                client_id=GEMINI_CLI_CLIENT_ID,
-                client_secret=GEMINI_CLI_CLIENT_SECRET,
-                scopes=GEMINI_CLI_OAUTH_SCOPES,
-            )
+            access_token = self._oauth_credentials.get("access_token")
+            if not access_token:
+                raise AuthenticationError("Missing access_token in OAuth credentials")
 
-            # Create an authorized session using the OAuth2 credentials
-            auth_session = google.auth.transport.requests.AuthorizedSession(credentials)
+            # Build a simple authorized session wrapper using Requests
+            # We use AuthorizedSession with a bare Credentials-like shim
+            class _StaticTokenCreds:
+                def __init__(self, token: str) -> None:
+                    self.token = token
+
+                def refresh(self, request: Any) -> None:
+                    # No-op: token is managed by the CLI; we reload from file when needed
+                    return
+
+            auth_session = google.auth.transport.requests.AuthorizedSession(
+                _StaticTokenCreds(access_token)
+            )
 
             # Discover project ID (required for Code Assist API)
             project_id = await self._discover_project_id(auth_session)
@@ -684,25 +660,26 @@ class GeminiOAuthPersonalConnector(GeminiBackend):
                     "Failed to refresh OAuth token for streaming API call"
                 )
 
-            # Create google-auth credentials from our OAuth data
+            # Create an authorized session using the access token directly
             if not self._oauth_credentials:
                 raise AuthenticationError(
                     "No OAuth credentials available for streaming API call"
                 )
 
-            creds_dict = dict(self._oauth_credentials)
-            # type: ignore[no-untyped-call]
-            credentials = google.oauth2.credentials.Credentials(
-                token=creds_dict.get("access_token"),
-                refresh_token=creds_dict.get("refresh_token"),
-                token_uri="https://oauth2.googleapis.com/token",
-                client_id=GEMINI_CLI_CLIENT_ID,
-                client_secret=GEMINI_CLI_CLIENT_SECRET,
-                scopes=GEMINI_CLI_OAUTH_SCOPES,
-            )
+            access_token = self._oauth_credentials.get("access_token")
+            if not access_token:
+                raise AuthenticationError("Missing access_token in OAuth credentials")
 
-            # Create an authorized session using the OAuth2 credentials
-            auth_session = google.auth.transport.requests.AuthorizedSession(credentials)
+            class _StaticTokenCreds:
+                def __init__(self, token: str) -> None:
+                    self.token = token
+
+                def refresh(self, request: Any) -> None:
+                    return
+
+            auth_session = google.auth.transport.requests.AuthorizedSession(
+                _StaticTokenCreds(access_token)
+            )
 
             # Discover project ID (required for Code Assist API)
             project_id = await self._discover_project_id(auth_session)

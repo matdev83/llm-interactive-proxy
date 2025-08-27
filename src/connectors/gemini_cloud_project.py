@@ -54,6 +54,7 @@ from typing import Any
 import google.auth
 import google.auth.transport.requests
 import google.oauth2.credentials
+import google.oauth2.service_account
 import httpx
 from fastapi import HTTPException
 from google.auth.exceptions import RefreshError
@@ -64,20 +65,90 @@ from src.core.services.backend_registry import backend_registry
 
 from .gemini import GeminiBackend
 
-# Gemini CLI OAuth configuration (same as personal OAuth, but used with project context)
-GEMINI_CLI_CLIENT_ID = (
-    "CLIENT_ID_REDACTED"
-)
-GEMINI_CLI_CLIENT_SECRET = "CLIENT_SECRET_REDACTED"
-GEMINI_CLI_OAUTH_SCOPES = [
-    "https://www.googleapis.com/auth/cloud-platform",
-    "https://www.googleapis.com/auth/userinfo.email",
-    "https://www.googleapis.com/auth/userinfo.profile",
-]
+
+# Gemini CLI OAuth configuration loader (reads from ~/.gemini or env)
+def _load_gemini_oauth_client_config() -> tuple[str, str | None, list[str]]:
+    """Load OAuth client config from ~/.gemini files or environment.
+
+    Order of precedence:
+    1) ~/.gemini/oauth_client.json (fields: client_id, client_secret, scopes)
+    2) ~/.gemini/config.json (same fields if present)
+    3) Environment variables: GEMINI_CLI_CLIENT_ID, GEMINI_CLI_CLIENT_SECRET, GEMINI_CLI_OAUTH_SCOPES
+
+    Returns:
+        (client_id, client_secret, scopes)
+    """
+    home_dir = Path.home()
+    candidates = [
+        home_dir / ".gemini" / "oauth_client.json",
+        home_dir / ".gemini" / "config.json",
+    ]
+
+    for path in candidates:
+        try:
+            if path.exists():
+                with open(path, encoding="utf-8") as f:
+                    data = json.load(f)
+                client_id = data.get("client_id") or data.get("clientId")
+                client_secret = data.get("client_secret") or data.get("clientSecret")
+                scopes_val = data.get("scopes") or data.get("oauth_scopes")
+                loaded_scopes: list[str] = []
+                if isinstance(scopes_val, list):
+                    loaded_scopes = [str(s) for s in scopes_val]
+                elif isinstance(scopes_val, str):
+                    loaded_scopes = [
+                        s.strip() for s in scopes_val.split(",") if s.strip()
+                    ]
+                if client_id:
+                    return (
+                        str(client_id),
+                        (str(client_secret) if client_secret else None),
+                        (
+                            loaded_scopes
+                            if loaded_scopes
+                            else [
+                                "https://www.googleapis.com/auth/cloud-platform",
+                                "https://www.googleapis.com/auth/userinfo.email",
+                                "https://www.googleapis.com/auth/userinfo.profile",
+                            ]
+                        ),
+                    )
+        except Exception:
+            # Ignore parsing errors and continue to next source
+            pass
+
+    env_client_id = os.getenv("GEMINI_CLI_CLIENT_ID")
+    env_client_secret = os.getenv("GEMINI_CLI_CLIENT_SECRET")
+    env_scopes = os.getenv("GEMINI_CLI_OAUTH_SCOPES")
+    default_scopes: list[str] = [
+        "https://www.googleapis.com/auth/cloud-platform",
+        "https://www.googleapis.com/auth/userinfo.email",
+        "https://www.googleapis.com/auth/userinfo.profile",
+    ]
+    resolved_scopes: list[str] = default_scopes
+    if env_scopes:
+        resolved_scopes = [s.strip() for s in env_scopes.split(",") if s.strip()]
+
+    if env_client_id:
+        return env_client_id, env_client_secret, resolved_scopes
+
+    # As a last resort, raise a clear error to avoid embedding any client credentials in source
+    raise AuthenticationError(
+        "Gemini OAuth client configuration not found. Set GEMINI_CLI_CLIENT_ID (and optional GEMINI_CLI_CLIENT_SECRET) "
+        "or provide ~/.gemini/oauth_client.json with client_id/client_secret/scopes."
+    )
+
 
 # Code Assist API endpoint (same as personal OAuth)
 CODE_ASSIST_ENDPOINT = "https://cloudcode-pa.googleapis.com"
 CODE_ASSIST_API_VERSION = "v1internal"
+
+# Scopes for Code Assist API (used with Google ADC)
+CODE_ASSIST_SCOPES: list[str] = [
+    "https://www.googleapis.com/auth/cloud-platform",
+    "https://www.googleapis.com/auth/userinfo.email",
+    "https://www.googleapis.com/auth/userinfo.profile",
+]
 
 # Tier IDs for standard and enterprise
 STANDARD_TIER_ID = "standard-tier"
@@ -106,9 +177,11 @@ class GeminiCloudProjectConnector(GeminiBackend):
         self._refresh_token: str | None = None
         self._token_refresh_lock = asyncio.Lock()
 
-        # GCP Project ID is REQUIRED for this backend
-        self.gcp_project_id = kwargs.get("gcp_project_id") or os.getenv(
-            "GCP_PROJECT_ID"
+        # GCP Project ID is REQUIRED for this backend (CLI uses GOOGLE_CLOUD_PROJECT)
+        self.gcp_project_id = (
+            kwargs.get("gcp_project_id")
+            or os.getenv("GOOGLE_CLOUD_PROJECT")
+            or os.getenv("GCP_PROJECT_ID")
         )
         if not self.gcp_project_id:
             logger.warning(
@@ -129,6 +202,46 @@ class GeminiCloudProjectConnector(GeminiBackend):
             "yes",
         )
         self._health_checked: bool = disable_health_checks
+
+    def _get_adc_authorized_session(
+        self,
+    ) -> google.auth.transport.requests.AuthorizedSession:
+        """Create an AuthorizedSession using ADC, preferring service account file if provided.
+
+        Resolution order:
+        1) Explicit credentials_path (points to a service account JSON file)
+        2) GOOGLE_APPLICATION_CREDENTIALS env var (service account JSON)
+        3) Application Default Credentials (google.auth.default), supporting
+           workload identity, user credentials, or gcloud auth application-default
+        """
+        # Prefer explicit service account file path
+        sa_path: str | None = None
+        if self.credentials_path:
+            sa_path = str(self.credentials_path)
+        else:
+            sa_path = os.getenv("GOOGLE_APPLICATION_CREDENTIALS")
+
+        if sa_path and Path(sa_path).exists():
+            try:
+                credentials = (
+                    google.oauth2.service_account.Credentials.from_service_account_file(
+                        sa_path, scopes=CODE_ASSIST_SCOPES
+                    )
+                )
+                logger.info("Using service account credentials from %s", sa_path)
+                return google.auth.transport.requests.AuthorizedSession(credentials)
+            except Exception as e:
+                logger.warning(
+                    "Failed to load service account credentials from %s: %s", sa_path, e
+                )
+
+        # Fall back to ADC (supports gcloud ADC, workload identity, etc.)
+        credentials, adc_project = google.auth.default(scopes=CODE_ASSIST_SCOPES)
+        if adc_project and not self.gcp_project_id:
+            # If ADC provided a project and user didn't specify, adopt it
+            self.gcp_project_id = adc_project
+        logger.info("Using Application Default Credentials for Code Assist API")
+        return google.auth.transport.requests.AuthorizedSession(credentials)
 
     def _is_token_expired(self) -> bool:
         """Check if the current access token is expired or close to expiring."""
@@ -178,9 +291,9 @@ class GeminiCloudProjectConnector(GeminiBackend):
                     token=creds_dict.get("access_token"),
                     refresh_token=creds_dict.get("refresh_token"),
                     token_uri="https://oauth2.googleapis.com/token",
-                    client_id=GEMINI_CLI_CLIENT_ID,
-                    client_secret=GEMINI_CLI_CLIENT_SECRET,
-                    scopes=GEMINI_CLI_OAUTH_SCOPES,
+                    client_id=_load_gemini_oauth_client_config()[0],
+                    client_secret=_load_gemini_oauth_client_config()[1],
+                    scopes=_load_gemini_oauth_client_config()[2],
                 )
 
                 request = google.auth.transport.requests.Request()
@@ -291,15 +404,7 @@ class GeminiCloudProjectConnector(GeminiBackend):
             "gemini_api_base_url", CODE_ASSIST_ENDPOINT
         )
 
-        if not await self._load_oauth_credentials():
-            logger.warning("Failed to load OAuth credentials.")
-            self.is_functional = False
-            return
-
-        if not await self._refresh_token_if_needed():
-            logger.warning("Failed to refresh OAuth token during initialization.")
-            self.is_functional = False
-            return
+        # Using Google ADC; no need to load personal OAuth creds. Validate by making API calls below
 
         # Validate the project during initialization
         try:
@@ -316,20 +421,8 @@ class GeminiCloudProjectConnector(GeminiBackend):
 
     async def _validate_project_access(self) -> None:
         """Validate that we can access the specified GCP project."""
-        if not self._oauth_credentials:
-            raise AuthenticationError("No OAuth credentials available")
-
-        creds_dict = dict(self._oauth_credentials)
-        credentials = google.oauth2.credentials.Credentials(
-            token=creds_dict.get("access_token"),
-            refresh_token=creds_dict.get("refresh_token"),
-            token_uri="https://oauth2.googleapis.com/token",
-            client_id=GEMINI_CLI_CLIENT_ID,
-            client_secret=GEMINI_CLI_CLIENT_SECRET,
-            scopes=GEMINI_CLI_OAUTH_SCOPES,
-        )
-
-        auth_session = google.auth.transport.requests.AuthorizedSession(credentials)
+        # Acquire ADC authorized session
+        auth_session = self._get_adc_authorized_session()
 
         # Call loadCodeAssist with the user's project
         load_request = {
@@ -402,15 +495,7 @@ class GeminiCloudProjectConnector(GeminiBackend):
     async def _perform_health_check(self) -> bool:
         """Perform a health check by testing API connectivity with project."""
         try:
-            if not await self._refresh_token_if_needed():
-                logger.warning("Health check failed - couldn't refresh OAuth token")
-                return False
-
-            if not self._oauth_credentials or not self._oauth_credentials.get(
-                "access_token"
-            ):
-                logger.warning("Health check failed - no access token available")
-                return False
+            # With ADC, token handling is internal; proceed to simple request
 
             if not self.gcp_project_id:
                 logger.warning("Health check failed - no GCP project ID specified")
@@ -419,10 +504,12 @@ class GeminiCloudProjectConnector(GeminiBackend):
             # Test with a simple API call
             base_url = self.gemini_api_base_url or CODE_ASSIST_ENDPOINT
             url = f"{base_url}/v1internal/models"
-            headers = {
-                "Authorization": f"Bearer {self._oauth_credentials['access_token']}"
-            }
-
+            # Use ADC session to make a simple GET (httpx client requires headers; fetch token)
+            session = self._get_adc_authorized_session()
+            request = google.auth.transport.requests.Request()
+            # Refresh underlying credentials to ensure valid token
+            session.credentials.refresh(request)  # type: ignore[attr-defined]
+            headers = {"Authorization": f"Bearer {session.credentials.token}"}  # type: ignore[attr-defined]
             response = await self.client.get(url, headers=headers)
 
             if response.status_code == 200:
@@ -518,23 +605,8 @@ class GeminiCloudProjectConnector(GeminiBackend):
     ) -> ResponseEnvelope:
         """Handle non-streaming chat completions."""
         try:
-            if not await self._refresh_token_if_needed():
-                raise AuthenticationError("Failed to refresh OAuth token for API call")
-
-            if not self._oauth_credentials:
-                raise AuthenticationError("No OAuth credentials available for API call")
-
-            creds_dict = dict(self._oauth_credentials)
-            credentials = google.oauth2.credentials.Credentials(
-                token=creds_dict.get("access_token"),
-                refresh_token=creds_dict.get("refresh_token"),
-                token_uri="https://oauth2.googleapis.com/token",
-                client_id=GEMINI_CLI_CLIENT_ID,
-                client_secret=GEMINI_CLI_CLIENT_SECRET,
-                scopes=GEMINI_CLI_OAUTH_SCOPES,
-            )
-
-            auth_session = google.auth.transport.requests.AuthorizedSession(credentials)
+            # Use ADC for API calls (matches gemini CLI behavior for project-id auth)
+            auth_session = self._get_adc_authorized_session()
 
             # Ensure project is onboarded for standard-tier
             project_id = await self._ensure_project_onboarded(auth_session)
@@ -658,27 +730,8 @@ class GeminiCloudProjectConnector(GeminiBackend):
     ) -> StreamingResponseEnvelope:
         """Handle streaming chat completions."""
         try:
-            if not await self._refresh_token_if_needed():
-                raise AuthenticationError(
-                    "Failed to refresh OAuth token for streaming API call"
-                )
-
-            if not self._oauth_credentials:
-                raise AuthenticationError(
-                    "No OAuth credentials available for streaming API call"
-                )
-
-            creds_dict = dict(self._oauth_credentials)
-            credentials = google.oauth2.credentials.Credentials(
-                token=creds_dict.get("access_token"),
-                refresh_token=creds_dict.get("refresh_token"),
-                token_uri="https://oauth2.googleapis.com/token",
-                client_id=GEMINI_CLI_CLIENT_ID,
-                client_secret=GEMINI_CLI_CLIENT_SECRET,
-                scopes=GEMINI_CLI_OAUTH_SCOPES,
-            )
-
-            auth_session = google.auth.transport.requests.AuthorizedSession(credentials)
+            # Use ADC for streaming API calls
+            auth_session = self._get_adc_authorized_session()
 
             # Ensure project is onboarded for standard-tier
             project_id = await self._ensure_project_onboarded(auth_session)

@@ -133,72 +133,129 @@ The `gemini-cli-cloud-project` backend provides enterprise-grade integration wit
 - Integration with existing GCP infrastructure
 - Enterprise support and SLAs
 
-#### Prerequisites
+#### What you need (plain English)
 
-1. **Google Cloud Project**: Create or use an existing GCP project with billing enabled
-2. **Enable APIs**: Enable the Cloud AI Companion API in your GCP project
-3. **IAM Permissions**: Ensure you have `roles/cloudaicompanion.user` or equivalent
-4. **Authenticate**: Run `gemini auth` to obtain OAuth credentials (same as personal backend)
-5. **Project ID**: Note your GCP project ID (e.g., `my-project-123`)
+- A Google account (Gmail or Google Workspace).
+- A Google Cloud Project (a container for billing, APIs, and permissions).
+- Billing enabled on that project.
+- The Cloud AI Companion API enabled.
+- One of these two authentication methods:
+  - Option A: A Service Account key file (.json) with permissions on your project, or
+  - Option B: Your own user account authenticated locally via gcloud (ADC).
 
-#### How to Use
+Glossary:
+- Service Account: A non-human identity used by apps/servers. You can create keys for it (JSON file) and grant it roles on your project.
+- ADC (Application Default Credentials): A Google standard where tools pick credentials from your environment automatically (service account file, gcloud login, or workload identity).
+- GOOGLE_CLOUD_PROJECT: The environment variable that specifies which GCP project to use (e.g., `my-project-123`).
+- GOOGLE_APPLICATION_CREDENTIALS: The environment variable that points to a Service Account JSON file for ADC.
 
-1. **Set up your GCP Project**:
-   ```bash
-   # Enable Cloud AI Companion API in your project
-   gcloud services enable cloudaicompanion.googleapis.com --project=YOUR_PROJECT_ID
-   
-   # Verify billing is enabled
-   gcloud beta billing projects describe YOUR_PROJECT_ID
-   
-   # Grant yourself the necessary IAM role (if not already granted)
-   gcloud projects add-iam-policy-binding YOUR_PROJECT_ID \
-     --member="user:YOUR_EMAIL@gmail.com" \
-     --role="roles/cloudaicompanion.user"
-   ```
+#### Step-by-step setup
 
-2. **Authenticate with Gemini CLI**:
-   ```bash
-   # Install gemini CLI if not already installed
-   npm install -g @google/gemini-cli
-   
-   # Authenticate to get OAuth credentials
-   gemini auth
-   ```
+1) Create or choose a Google Cloud Project
 
-3. **Configure the backend**:
-   
-   Set environment variables:
-   ```bash
-   export GCP_PROJECT_ID=your-gcp-project-id
-   export GEMINI_CREDENTIALS_PATH=~/.gemini  # Optional
-   ```
-   
-   Or add to your `config.yaml`:
-   ```yaml
-   backends:
-     gemini-cli-cloud-project:
-       type: gemini-cli-cloud-project
-       gcp_project_id: your-gcp-project-id  # Your actual GCP project ID
-       credentials_path: ~/.gemini          # Optional: defaults to ~/.gemini
-       gemini_api_base_url: https://cloudcode-pa.googleapis.com
-   ```
+- Go to `https://console.cloud.google.com/`, create a project (note the Project ID, e.g., `my-project-123`).
+- Ensure billing is enabled for the project.
 
-4. **Test the setup**:
-   ```bash
-   # Run the test script to verify everything works
-   python test_cloud_project.py --project YOUR_PROJECT_ID
-   ```
+2) Enable required API
 
-5. **Use in your application**:
-   ```bash
-   # Set the backend for your session
-   !/backend(gemini-cli-cloud-project)
-   !/model(gemini-1.5-flash-002)
-   
-   # Or use as a one-off
-   !/oneoff(gemini-cli-cloud-project:gemini-1.5-flash-002)
-   ```
+```bash
+gcloud services enable cloudaicompanion.googleapis.com --project=YOUR_PROJECT_ID
+```
+
+3) Grant permissions (to your user or to a service account)
+
+Grant the role `roles/cloudaicompanion.user`.
+
+- If you will authenticate as your own user (Option B):
+```bash
+gcloud projects add-iam-policy-binding YOUR_PROJECT_ID \
+  --member="user:YOUR_EMAIL@gmail.com" \
+  --role="roles/cloudaicompanion.user"
+```
+
+- If you will use a Service Account (Option A):
+```bash
+# Create a service account (choose a name)
+gcloud iam service-accounts create gemini-agent --project=YOUR_PROJECT_ID
+
+# Grant it the required role
+gcloud projects add-iam-policy-binding YOUR_PROJECT_ID \
+  --member="serviceAccount:gemini-agent@YOUR_PROJECT_ID.iam.gserviceaccount.com" \
+  --role="roles/cloudaicompanion.user"
+```
+
+4) Choose your authentication method
+
+- Option A: Service Account (recommended for servers/CI)
+  1. Create a JSON key for the service account:
+  ```bash
+  gcloud iam service-accounts keys create sa-key.json \
+    --iam-account=gemini-agent@YOUR_PROJECT_ID.iam.gserviceaccount.com \
+    --project=YOUR_PROJECT_ID
+  ```
+  2. Set environment variables so the backend can find the key and your project:
+  - Windows PowerShell:
+    ```powershell
+    $env:GOOGLE_APPLICATION_CREDENTIALS = "C:\\path\\to\\sa-key.json"
+    $env:GOOGLE_CLOUD_PROJECT = "YOUR_PROJECT_ID"
+    ```
+  - Linux/macOS:
+    ```bash
+    export GOOGLE_APPLICATION_CREDENTIALS="/absolute/path/sa-key.json"
+    export GOOGLE_CLOUD_PROJECT="YOUR_PROJECT_ID"
+    ```
+
+- Option B: Your User account via gcloud (local development)
+  1. Install gcloud: `https://cloud.google.com/sdk/docs/install`
+  2. Authenticate for Application Default Credentials (ADC):
+  ```bash
+  gcloud auth application-default login
+  ```
+  3. Tell the backend which project to use:
+  - Windows PowerShell:
+    ```powershell
+    $env:GOOGLE_CLOUD_PROJECT = "YOUR_PROJECT_ID"
+    ```
+  - Linux/macOS:
+    ```bash
+    export GOOGLE_CLOUD_PROJECT="YOUR_PROJECT_ID"
+    ```
+
+Notes:
+- ADC means the backend will automatically pick credentials from either the service account file (`GOOGLE_APPLICATION_CREDENTIALS`) or your local gcloud login.
+- Do not commit the `sa-key.json` file to source control.
+
+5) Configure the backend (proxy)
+
+- Using environment variables only:
+  - Set `GOOGLE_CLOUD_PROJECT` as above.
+  - If using a service account key, set `GOOGLE_APPLICATION_CREDENTIALS` as above.
+
+- Using `config.yaml` (optional):
+```yaml
+backends:
+  gemini-cli-cloud-project:
+    type: gemini-cli-cloud-project
+    gcp_project_id: YOUR_PROJECT_ID            # Optional if GOOGLE_CLOUD_PROJECT is set
+    gemini_api_base_url: https://cloudcode-pa.googleapis.com
+    # credentials_path: C:/path/sa-key.json    # Optional; if set, the backend will try this SA file first
+```
+
+6) Verify your setup
+
+- Minimal check (env present):
+```bash
+echo $env:GOOGLE_CLOUD_PROJECT  # PowerShell
+echo $GOOGLE_CLOUD_PROJECT      # bash/zsh
+```
+
+- Run the proxy or a small test that uses the `gemini-cli-cloud-project` backend and requests a simple completion. Ensure the first call may trigger onboarding (standard-tier) and might take a few seconds.
+
+If you see 403 errors, double-check:
+- Cloud AI Companion API is enabled.
+- Billing is enabled.
+- The identity (user or service account) has `roles/cloudaicompanion.user` on the project.
+- `GOOGLE_CLOUD_PROJECT` matches your actual Project ID.
 
 #### Key Differences from Other Backends
 
@@ -216,6 +273,11 @@ The `gemini-cli-cloud-project` backend provides enterprise-grade integration wit
 - **Project Not Found**: Verify project ID (not name), ensure project is active
 - **Onboarding Fails**: Project must support standard-tier, billing must be enabled
 - **Wrong Tier**: Backend requires standard or enterprise tier, not free tier
+
+Additional tips:
+- If using a service account, ensure the path in `GOOGLE_APPLICATION_CREDENTIALS` is absolute and accessible by the process.
+- On Windows, use double backslashes in paths in PowerShell when setting env vars, or single backslashes inside quotes.
+- For local development, `gcloud auth application-default login` is usually the fastest path; remember to set `GOOGLE_CLOUD_PROJECT` as well.
 
 ## API Reference
 

@@ -34,8 +34,8 @@ Successfully implemented the `gemini-cli-oauth-personal` backend that uses OAuth
 
 #### 2. OAuth Configuration
 ```python
-CLIENT_ID = "CLIENT_ID_REDACTED"
-CLIENT_SECRET = "CLIENT_SECRET_REDACTED"
+CLIENT_ID = "XXXXXXX.apps.googleusercontent.com"
+CLIENT_SECRET = "XXXXXX-XXXX-XXXX-XXXXXXX"
 SCOPES = [
     "https://www.googleapis.com/auth/cloud-platform",
     "https://www.googleapis.com/auth/userinfo.email",
