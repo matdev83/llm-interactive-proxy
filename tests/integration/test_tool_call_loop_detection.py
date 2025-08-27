@@ -164,9 +164,6 @@ class TestToolCallLoopDetection:
     """Integration tests for tool call loop detection."""
 
     @pytest.mark.asyncio
-    @pytest.mark.skip(
-        reason="Complex tool call loop detection test with multiple scenarios - requires deeper integration testing"
-    )
     async def test_break_mode_blocks_repeated_tool_calls(
         self, test_client, mock_backend
     ):
@@ -368,9 +365,6 @@ class TestToolCallLoopDetection:
         assert data["choices"][0]["finish_reason"] == "tool_calls"
 
     @pytest.mark.asyncio
-    @pytest.mark.skip(
-        reason="Complex tool call loop detection test - requires specialized integration setup"
-    )
     async def test_different_tool_calls_not_blocked(self, test_client, mock_backend):
         """Test that different tool calls are not blocked."""
         # Configure the mock to return responses with different tool calls
@@ -418,9 +412,6 @@ class TestToolCallLoopDetection:
             )
 
     @pytest.mark.asyncio
-    @pytest.mark.skip(
-        reason="Complex tool call loop detection test - requires specialized integration setup"
-    )
     async def test_disabled_tool_call_loop_detection(self, test_client, mock_backend):
         """Test that disabled tool call loop detection doesn't block repeated tool calls."""
         # Update the app config to disable tool call loop detection
@@ -461,8 +452,8 @@ class TestToolCallLoopDetection:
                 == "get_weather"
             )
 
-    @pytest.mark.skip(reason="Needs proper test isolation for backend mocking")
-    def test_session_override_takes_precedence(self, test_client, monkeypatch):
+    @pytest.mark.asyncio
+    async def test_session_override_takes_precedence(self, test_client, mock_backend):
         """Test that session override takes precedence over server defaults."""
         # Configure the mock to return a response with tool calls
         tool_calls = [
@@ -494,24 +485,10 @@ class TestToolCallLoopDetection:
             "usage": {"prompt_tokens": 10, "completion_tokens": 10, "total_tokens": 20},
         }
 
-        # Use a custom mock class to handle the different responses
-        class CustomMock:
-            def __init__(self):
-                self.call_count = 0
-
-            async def __call__(self, *args, **kwargs):
-                self.call_count += 1
-                # For the last call, return the error response
-                if self.call_count >= 10:  # Last call after all the regular ones
-                    return error_response
-                return create_mock_response(tool_calls)
-
-        custom_mock = CustomMock()
-
-        # We need to patch the right function in the OpenRouterBackend class
-        from src.connectors.openrouter import OpenRouterBackend
-
-        monkeypatch.setattr(OpenRouterBackend, "chat_completions", custom_mock)
+        # Configure the mock backend to return tool calls for most requests
+        # and an error response for the final request
+        responses = [create_mock_response(tool_calls)] * 9 + [error_response]
+        mock_backend.side_effect = responses
 
         # First, set tool loop detection to disabled for the session
         response = test_client.post(
@@ -519,7 +496,7 @@ class TestToolCallLoopDetection:
             json={
                 "model": "gpt-4",
                 "messages": [
-                    {"role": "user", "content": "!/set(tool-loop-detection=false)"}
+                    {"role": "user", "content": "~/set(tool-loop-detection=false)"}
                 ],
             },
         )
@@ -547,8 +524,8 @@ class TestToolCallLoopDetection:
             json={
                 "model": "gpt-4",
                 "messages": [
-                    {"role": "user", "content": "!/set(tool-loop-detection=true)"},
-                    {"role": "user", "content": "!/set(tool-loop-max-repeats=2)"},
+                    {"role": "user", "content": "~/set(tool-loop-detection=true)"},
+                    {"role": "user", "content": "~/set(tool-loop-max-repeats=2)"},
                 ],
             },
         )

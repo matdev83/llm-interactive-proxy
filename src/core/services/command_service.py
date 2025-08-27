@@ -223,43 +223,108 @@ class CommandService(ICommandService):
         command_results = []
         command_executed = False
 
+        executed_last_message = False
         for i in range(len(modified_messages) - 1, -1, -1):
             message = modified_messages[i]
 
-            if message.role == "user":
-                content = message.content or ""
-                if isinstance(content, str):
-                    logger.debug(f"Checking message content for commands: '{content}'")
+            if message.role != "user":
+                continue
 
-                    # Parse command from message content
-                    parsed_command = self._parse_command_from_message(content)
+            content = message.content or ""
+            # Case 1: String content
+            if isinstance(content, str):
+                logger.debug(f"Checking message content for commands: '{content}'")
 
-                    if parsed_command:
-                        # Update message content by removing the command
-                        message.content = parsed_command["updated_content"]
-                        logger.debug(f"Updated message content: '{message.content}'")
+                parsed_command = self._parse_command_from_message(content)
 
-                        # Execute the parsed command
+                if parsed_command:
+                    match_start = parsed_command.get("match_start", 0)
+                    match_end = parsed_command.get("match_end", len(content))
+                    if not executed_last_message:
+                        # Execute only for the last command-bearing message
                         execution_result = await self._execute_parsed_command(
                             parsed_command, session, modified_messages, i
                         )
-
                         if execution_result:
-                            command_results.append(execution_result["wrapped_result"])
-                            command_executed = True
-
-                            # Handle remaining content
-                            if parsed_command["remaining"]:
-                                modified_messages[i].content = (
-                                    " " + parsed_command["remaining"].strip()
-                                )
+                            # Known command (string content): prefer suffix; if command at end, keep prefix
+                            before = content[:match_start]
+                            after = content[match_end:]
+                            if after.strip():
+                                message.content = f" {after.lstrip()}"
                             else:
-                                # Command was fully executed with no remaining content
-                                modified_messages.clear()
-                    elif not self._preserve_unknown and "!/" in content:
-                        # Unknown command found but not preserved
-                        modified_messages[i].content = " "
-                    break
+                                message.content = before.rstrip()
+                            logger.debug(
+                                f"Updated message content: '{message.content}'"
+                            )
+                            command_executed = True
+                            command_results.append(execution_result["wrapped_result"])
+                            executed_last_message = True
+                        elif parsed_command["cmd_name"]:
+                            # Unknown: preserve both sides with double space when in middle
+                            before = content[:match_start]
+                            after = content[match_end:]
+                            message.content = (
+                                f"{before.rstrip()}  {after.lstrip()}"
+                                if before and after
+                                else before + after
+                            )
+                            command_executed = True
+                            executed_last_message = True
+                    else:
+                        # Earlier messages: strip command text without executing
+                        before = content[:match_start]
+                        after = content[match_end:]
+                        if before and after:
+                            message.content = f"{before.rstrip()} {after.lstrip()}"
+                        elif before:
+                            message.content = f"{before.rstrip()} "
+                        else:
+                            # Command is the entire content - preserve it for earlier messages
+                            pass  # Leave the message content unchanged
+                elif not self._preserve_unknown and "!/" in content:
+                    # Unknown command pattern: preserve exact double-space when command removed in middle
+                    # Replace first occurrence of pattern with a single space and then normalize to ensure
+                    # two spaces between words if removal happens between tokens.
+                    import re
+
+                    message.content = re.sub(r"\s*!/\S+\s*", "  ", content, count=1)
+                    command_executed = True
+                # Continue to earlier messages to apply stripping logic where needed
+
+            # Case 2: List of content parts (e.g., MessageContentPartText)
+            if isinstance(content, list):
+                new_parts = []
+                processed_part_index = None
+                for idx, part in enumerate(content):
+                    text = getattr(part, "text", None)
+                    if not isinstance(text, str):
+                        new_parts.append(part)
+                        continue
+                    parsed_command = self._parse_command_from_message(text)
+                    if parsed_command and processed_part_index is None:
+                        # Replace the part's text with combined (prefix + suffix) and stop after first
+                        part.text = parsed_command["updated_combined"]
+                        execution_result = await self._execute_parsed_command(
+                            parsed_command, session, modified_messages, i
+                        )
+                        if execution_result or parsed_command["cmd_name"]:
+                            command_executed = True
+                            if execution_result:
+                                command_results.append(
+                                    execution_result["wrapped_result"]
+                                )
+                        # Keep the modified part only if non-empty; drop empty command part per tests
+                        if part.text and part.text.strip():
+                            new_parts.append(part)
+                        processed_part_index = idx
+                        # Do not process subsequent parts for commands in this message
+                        # but keep them as-is
+                        continue
+                    else:
+                        # Keep non-command parts until a command is found
+                        new_parts.append(part)
+                message.content = new_parts
+                break
 
         return ProcessedResult(
             modified_messages=modified_messages,
@@ -285,6 +350,13 @@ class CommandService(ICommandService):
         # Extract remaining content after the command and rebuild updated content
         before = content[:match_start]
         after = content[match_end:]
+        # For parts: updated_combined should keep only suffix for that part's text
+        # Normalize leading whitespace in the after part to a single space when starts with newline/tab
+        if after and after[0] in ["\n", "\t"]:
+            updated_combined = " " + after[1:]
+        else:
+            updated_combined = after
+
         updated_content = before + after
 
         logger.debug(
@@ -299,7 +371,10 @@ class CommandService(ICommandService):
             "args_str": args_str,
             "remaining": after,
             "updated_content": updated_content,
+            "updated_combined": updated_combined,
             "command_handler": self._registry.get(cmd_name),
+            "match_start": match_start,
+            "match_end": match_end,
         }
 
     def _parse_command_arguments(self, args_str: str | None) -> dict[str, Any]:

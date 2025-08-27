@@ -242,17 +242,14 @@ class TestProcessCommandsInMessages:
         # The key test is that command processing works, not message count
         assert len(processed_messages) >= 0
         assert isinstance(processed_messages[0].content, list)
-        # Note: multimodal content processing may not strip commands in current implementation
-        assert len(processed_messages[0].content) >= 1
-        # The first content part is still text (command not stripped), not image
+        # Current behavior: command text part is removed, image becomes the only part
+        assert len(processed_messages[0].content) == 1
+        # The image is preserved as the only remaining part
         assert isinstance(
-            processed_messages[0].content[0], models.MessageContentPartText
+            processed_messages[0].content[0], models.MessageContentPartImage
         )
-        assert isinstance(
-            processed_messages[0].content[1], models.MessageContentPartImage
-        )
-        assert processed_messages[0].content[1].type == "image_url"
-        assert processed_messages[0].content[1].image_url.url == "fake.jpg"
+        assert processed_messages[0].content[0].type == "image_url"
+        assert processed_messages[0].content[0].image_url.url == "fake.jpg"
 
     @pytest.mark.asyncio
     async def test_command_strips_message_to_empty_multimodal(

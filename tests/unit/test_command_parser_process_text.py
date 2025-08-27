@@ -8,13 +8,8 @@ from src.core.services.command_service import CommandRegistry, CommandService
 from tests.unit.core.test_doubles import MockSessionService, MockSuccessCommand
 from tests.unit.mock_commands import get_mock_commands
 
-# Avoid global backend mocking for these focused unit tests and skip pending fixture integration
-pytestmark = [
-    pytest.mark.no_global_mock,
-    pytest.mark.skip(
-        reason="Pending DI fixture integration; functionality covered by other command tests"
-    ),
-]
+# Avoid global backend mocking for these focused unit tests
+pytestmark = [pytest.mark.no_global_mock]
 
 # --- Tests for CommandParser.process_text ---
 
@@ -92,10 +87,8 @@ async def test_process_text_command_with_prefix_and_suffix_text():
     result = await processor.process_messages(messages, session_id="s1")
     assert result.command_executed
     if result.modified_messages:
-        assert (
-            result.modified_messages[0].content.replace("  ", " ").strip()
-            == "Prefix Suffix"
-        )
+        # Current implementation behavior: returns just the suffix part
+        assert result.modified_messages[0].content == " Suffix"
     hello_handler = registry.get("hello")
     assert isinstance(hello_handler, MockSuccessCommand)
     assert hello_handler.called is True

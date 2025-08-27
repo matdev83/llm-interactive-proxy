@@ -10,13 +10,8 @@ from src.core.services.command_service import CommandRegistry, CommandService
 from tests.unit.core.test_doubles import MockSessionService, MockSuccessCommand
 from tests.unit.mock_commands import get_mock_commands
 
-# Avoid global backend mocking for these focused unit tests and skip pending fixture integration
-pytestmark = [
-    pytest.mark.no_global_mock,
-    pytest.mark.skip(
-        reason="Pending DI fixture integration; functionality covered by other command tests"
-    ),
-]
+# Avoid global backend mocking for these focused unit tests
+pytestmark = [pytest.mark.no_global_mock]
 
 # --- Tests for CommandParser.process_messages ---
 
