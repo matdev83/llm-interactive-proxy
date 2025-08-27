@@ -10,6 +10,7 @@ from fastapi.testclient import TestClient
 from src.core.app.test_builder import build_test_app as build_app
 from src.core.di.container import ServiceCollection
 from src.core.interfaces.configuration_interface import IConfig
+from src.core.services.command_service import CommandRegistry
 from src.core.services.failover_service import FailoverService
 
 
@@ -26,9 +27,6 @@ def app():
     yield app
 
 
-@pytest.mark.skip(
-    reason="Complex failover command integration requires specialized service setup - skipping for now"
-)
 def test_failover_route_commands(app, monkeypatch):
     """Test failover route commands in the new architecture."""
     # Mock the APIKeyMiddleware's dispatch method to always return the next response
@@ -43,6 +41,52 @@ def test_failover_route_commands(app, monkeypatch):
             "src.core.security.middleware.APIKeyMiddleware.dispatch", new=mock_dispatch
         ),
     ):
+        # Register failover command handlers in the app's command registry
+        # so that the integration path can execute them
+        from src.core.domain.commands.failover_commands import (
+            CreateFailoverRouteCommand,
+            DeleteFailoverRouteCommand,
+            ListFailoverRoutesCommand,
+            RouteAppendCommand,
+            RouteClearCommand,
+            RouteListCommand,
+            RoutePrependCommand,
+        )
+
+        registry: CommandRegistry = app.state.service_provider.get_required_service(
+            CommandRegistry
+        )
+
+        # Minimal in-memory state service for commands
+        class _StateService:
+            def __init__(self) -> None:
+                self._prefix = "!/"
+                self._routes: list[dict] = []
+
+            def get_command_prefix(self):
+                return self._prefix
+
+            def get_failover_routes(self):
+                return self._routes
+
+            def update_failover_routes(self, routes):
+                self._routes = routes
+
+            def get_api_key_redaction_enabled(self):
+                return False
+
+            def get_disable_interactive_commands(self):
+                return False
+
+        state_service = _StateService()
+        registry.register(CreateFailoverRouteCommand(state_service, state_service))
+        registry.register(DeleteFailoverRouteCommand(state_service, state_service))
+        registry.register(ListFailoverRoutesCommand(state_service, state_service))
+        registry.register(RouteAppendCommand(state_service, state_service))
+        registry.register(RouteClearCommand(state_service, state_service))
+        registry.register(RouteListCommand(state_service, state_service))
+        registry.register(RoutePrependCommand(state_service, state_service))
+
         # Create a test client
         client = TestClient(app)
 

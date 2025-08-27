@@ -3,6 +3,8 @@ Integration tests for Anthropic front-end interface.
 Tests the complete flow using the official Anthropic SDK against the proxy.
 """
 
+import contextlib
+
 import pytest
 from fastapi.testclient import TestClient
 
@@ -23,20 +25,19 @@ from src.core.config.app_config import (
 )
 
 
-@pytest.mark.skipif(
-    True, reason="Anthropic tests require actual API connectivity and are skipped in CI"
-)
 class TestAnthropicFrontendIntegration:
     """Integration tests for Anthropic front-end using official SDK."""
 
     def setup_method(self):
         """Set up test fixtures."""
+        from unittest.mock import AsyncMock, MagicMock, patch
+
         # Build app with test configuration
         test_config = AppConfig(
             auth=AuthConfig(disable_auth=True),
             backends=BackendSettings(
-                openrouter=BackendConfig(api_key=["test-key"]),
-                default_backend="openrouter",
+                anthropic=BackendConfig(api_key=["test-key"]),
+                default_backend="anthropic",
             ),
         )
 
@@ -50,6 +51,89 @@ class TestAnthropicFrontendIntegration:
         self.test_api_key = "test-anthropic-key"
         self.proxy_base_url = "http://testserver/anthropic"
 
+        # Patch BackendFactory at class level to avoid real API calls
+        from src.core.services.backend_factory import BackendFactory
+
+        self._patchers = []
+
+        # Create a minimal mock Anthropic backend
+        self.mock_anthropic_backend = MagicMock()
+        # Non-streaming chat response
+        from src.core.domain.responses import ResponseEnvelope
+
+        self.mock_anthropic_backend.chat_completions = AsyncMock(
+            return_value=ResponseEnvelope(
+                content={
+                    "id": "test-response",
+                    "object": "chat.completion",
+                    "created": 1234567890,
+                    "model": "claude-3-sonnet-20240229",
+                    "choices": [
+                        {
+                            "index": 0,
+                            "message": {"role": "assistant", "content": "ok"},
+                            "finish_reason": "stop",
+                        }
+                    ],
+                },
+                headers={},
+            )
+        )
+        # Available models (synchronous like real connector's getter)
+        self.mock_anthropic_backend.get_available_models = lambda: [
+            "claude-3-5-sonnet-20241022",
+            "claude-3-5-haiku-20241022",
+            "claude-3-opus-20240229",
+            "claude-3-sonnet-20240229",
+            "claude-3-haiku-20240307",
+        ]
+        self.mock_anthropic_backend.available_models = (
+            self.mock_anthropic_backend.get_available_models()
+        )
+
+        def create_backend_side_effect(backend_type: str, *_args, **_kwargs):
+            if backend_type == "anthropic":
+                return self.mock_anthropic_backend
+            return MagicMock()
+
+        async def ensure_backend_side_effect(backend_type: str, *_args, **_kwargs):
+            return create_backend_side_effect(backend_type)
+
+        async def async_noop(*_args, **_kwargs):
+            return None
+
+        self._patchers.append(
+            patch.object(
+                BackendFactory,
+                "create_backend",
+                new=MagicMock(side_effect=create_backend_side_effect),
+            )
+        )
+        self._patchers.append(
+            patch.object(
+                BackendFactory,
+                "ensure_backend",
+                new=AsyncMock(side_effect=ensure_backend_side_effect),
+            )
+        )
+        self._patchers.append(
+            patch.object(
+                BackendFactory,
+                "initialize_backend",
+                new=AsyncMock(side_effect=async_noop),
+            )
+        )
+
+        for p in self._patchers:
+            p.start()
+
+    def teardown_method(self):
+        # Stop all patchers
+        for p in getattr(self, "_patchers", []):
+            with contextlib.suppress(Exception):
+                p.stop()
+
+    @pytest.mark.skipif(not ANTHROPIC_AVAILABLE, reason="Anthropic SDK not installed")
     def test_anthropic_sdk_client_creation(self):
         """Test that Anthropic SDK client can be created with proxy URL."""
         client = Anthropic(api_key=self.test_api_key, base_url=self.proxy_base_url)
@@ -58,6 +142,7 @@ class TestAnthropicFrontendIntegration:
         assert self.proxy_base_url in str(client._client.base_url)
 
     @pytest.mark.asyncio
+    @pytest.mark.skipif(not ANTHROPIC_AVAILABLE, reason="Anthropic SDK not installed")
     async def test_async_anthropic_sdk_client_creation(self):
         """Test that AsyncAnthropic SDK client can be created with proxy URL."""
         client = AsyncAnthropic(api_key=self.test_api_key, base_url=self.proxy_base_url)
@@ -350,21 +435,99 @@ class TestAnthropicFrontendIntegration:
         assert response.status_code == 405
 
 
-@pytest.mark.skipif(
-    ANTHROPIC_AVAILABLE, reason="Testing fallback when anthropic not available"
-)
 class TestAnthropicFrontendWithoutSDK:
     """Test Anthropic front-end when SDK is not available."""
 
     def setup_method(self):
         """Set up test fixtures."""
+        from unittest.mock import AsyncMock, MagicMock, patch
+
         test_config = AppConfig(
             auth=AuthConfig(disable_auth=True),
-            backends=BackendSettings(default_backend="openrouter"),
+            backends=BackendSettings(
+                anthropic=BackendConfig(api_key=["test-key"]),
+                default_backend="anthropic",
+            ),
         )
 
         self.app = build_app(test_config)
         self.client = TestClient(self.app)
+
+        # Patch BackendFactory to return a mock Anthropic backend
+        from src.core.services.backend_factory import BackendFactory
+        self._patchers = []
+
+        self.mock_anthropic_backend = MagicMock()
+        from src.core.domain.responses import ResponseEnvelope
+
+        self.mock_anthropic_backend.chat_completions = AsyncMock(
+            return_value=ResponseEnvelope(
+                content={
+                    "id": "test-response",
+                    "object": "chat.completion",
+                    "created": 1234567890,
+                    "model": "claude-3-sonnet-20240229",
+                    "choices": [
+                        {
+                            "index": 0,
+                            "message": {"role": "assistant", "content": "ok"},
+                            "finish_reason": "stop",
+                        }
+                    ],
+                },
+                headers={},
+            )
+        )
+        self.mock_anthropic_backend.get_available_models = lambda: [
+            "claude-3-5-sonnet-20241022",
+            "claude-3-5-haiku-20241022",
+            "claude-3-opus-20240229",
+            "claude-3-sonnet-20240229",
+            "claude-3-haiku-20240307",
+        ]
+
+        def create_backend_side_effect(backend_type: str, *_args, **_kwargs):
+            if backend_type == "anthropic":
+                return self.mock_anthropic_backend
+            return MagicMock()
+
+        async def ensure_backend_side_effect(backend_type: str, *_args, **_kwargs):
+            return create_backend_side_effect(backend_type)
+
+        async def async_noop(*_args, **_kwargs):
+            return None
+
+        self._patchers.append(
+            patch.object(
+                BackendFactory,
+                "create_backend",
+                new=MagicMock(side_effect=create_backend_side_effect),
+            )
+        )
+        self._patchers.append(
+            patch.object(
+                BackendFactory,
+                "ensure_backend",
+                new=AsyncMock(side_effect=ensure_backend_side_effect),
+            )
+        )
+        self._patchers.append(
+            patch.object(
+                BackendFactory,
+                "initialize_backend",
+                new=AsyncMock(side_effect=async_noop),
+            )
+        )
+
+        for p in self._patchers:
+            p.start()
+
+    def teardown_method(self):
+        import contextlib
+
+        for p in getattr(self, "_patchers", []):
+            with contextlib.suppress(Exception):
+                p.stop()
 
     def test_endpoints_work_without_sdk(self):
         """Test that endpoints work even without Anthropic SDK installed."""

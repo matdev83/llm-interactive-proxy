@@ -413,11 +413,27 @@ class CommandService(ICommandService):
             f"Executing command: {cmd_name} with session: {session.session_id if session else 'N/A'}"
         )
 
-        # Create command context
+        # Create command context with minimal attributes used by commands
+        backend_types = {
+            "openai",
+            "anthropic",
+            "openrouter",
+            "gemini",
+            "qwen-oauth",
+            "zai",
+        }
+        backend_factory_stub = type(
+            "BackendFactoryStub", (), {"_backend_types": backend_types}
+        )()
+
         context = type(
             "CommandContext",
             (),
-            {"command_registry": self._registry},
+            {
+                "command_registry": self._registry,
+                "backend_factory": backend_factory_stub,
+                "backend_type": None,
+            },
         )()
 
         # Execute command
