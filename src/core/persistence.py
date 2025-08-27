@@ -10,14 +10,18 @@ from src.command_prefix import validate_command_prefix
 from src.core.domain.model_utils import (
     ModelDefaults,  # Add import for model config classes
 )
+from src.core.interfaces.di_interface import IServiceProvider
 
 logger = logging.getLogger(__name__)
 
 
 class ConfigManager:
-    def __init__(self, app: FastAPI, path: str) -> None:
+    def __init__(
+        self, app: FastAPI, path: str, service_provider: IServiceProvider | None = None
+    ) -> None:
         self.app = app
         self.path = Path(path)
+        self.service_provider = service_provider
 
     def load(self) -> None:
         if not self.path.is_file():
@@ -44,21 +48,19 @@ class ConfigManager:
                 self.app.state.backend_type = backend_value
                 # Convert backend name to valid attribute name (replace hyphens with underscores)
                 # Resolve backend via DI-backed BackendService if available
-                if hasattr(self.app.state, "service_provider"):
+                if self.service_provider is not None:
                     try:
                         from src.core.interfaces.backend_service_interface import (
                             IBackendService,
                         )
 
-                        backend_service = (
-                            self.app.state.service_provider.get_required_service(
-                                IBackendService
-                            )
+                        backend_service = self.service_provider.get_required_service(
+                            IBackendService  # type: ignore[type-abstract]
                         )
                         if backend_service and backend_value in getattr(
-                            backend_service, "_backends", {}
+                            backend_service, "_backends", {}  # type: ignore[attr-defined]
                         ):
-                            self.app.state.backend = backend_service._backends[
+                            self.app.state.backend = backend_service._backends[  # type: ignore[attr-defined]
                                 backend_value
                             ]
                             return
@@ -72,17 +74,17 @@ class ConfigManager:
                 )
 
     def _apply_interactive_mode(self, mode_value: Any) -> None:
-        if isinstance(mode_value, bool) and hasattr(self.app.state, "service_provider"):
+        if isinstance(mode_value, bool) and self.service_provider is not None:
             # Get session service from DI
             try:
                 from src.core.interfaces.session_service_interface import (
                     ISessionService,
                 )
 
-                session_service = self.app.state.service_provider.get_required_service(
-                    ISessionService
+                session_service = self.service_provider.get_required_service(
+                    ISessionService  # type: ignore[type-abstract]
                 )
-                session_service.default_interactive_mode = mode_value
+                session_service.default_interactive_mode = mode_value  # type: ignore[attr-defined]
             except Exception as e:
                 logger.warning(f"Failed to set interactive mode: {e}")
 
@@ -227,14 +229,14 @@ class ConfigManager:
     def collect(self) -> dict[str, Any]:
         # Get interactive mode from session service
         interactive_mode = False
-        if hasattr(self.app.state, "service_provider"):
+        if self.service_provider is not None:
             try:
                 from src.core.interfaces.session_service_interface import (
                     ISessionService,
                 )
 
-                session_service = self.app.state.service_provider.get_required_service(
-                    ISessionService
+                session_service = self.service_provider.get_required_service(
+                    ISessionService  # type: ignore[type-abstract]
                 )
                 interactive_mode = getattr(
                     session_service, "default_interactive_mode", False

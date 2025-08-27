@@ -9,11 +9,13 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException
 
 # Import HTTP status constants
 from src.core.constants import HTTP_503_SERVICE_UNAVAILABLE_MESSAGE
 from src.core.interfaces.backend_service_interface import IBackendService
+from src.core.interfaces.configuration_interface import IConfig
+from src.core.services.backend_factory import BackendFactory
 from src.core.services.backend_registry import (
     backend_registry,  # Updated import path
 )
@@ -51,25 +53,111 @@ class ModelsController:
         }
 
 
-async def get_backend_service(request: Request) -> IBackendService:
-    """Get the backend service from the service provider.
-
-    Args:
-        request: The FastAPI request
+async def get_backend_service() -> IBackendService:
+    """Get the backend service from the DI container.
 
     Returns:
         The backend service
+
+    Raises:
+        HTTPException: If the service provider is not available
     """
-    if hasattr(request.app.state, "service_provider"):
-        service_provider = request.app.state.service_provider
-        service = service_provider.get_required_service(IBackendService)
+    try:
+        from src.core.di.services import get_service_provider
+
+        service_provider = get_service_provider()
+        service = service_provider.get_required_service(IBackendService)  # type: ignore[type-abstract]
         return service  # type: ignore[no-any-return]
-    raise HTTPException(status_code=503, detail=HTTP_503_SERVICE_UNAVAILABLE_MESSAGE)
+    except Exception:
+        # Try to get from current request context (for FastAPI dependency injection)
+        try:
+            from starlette.context import _request_context  # type: ignore[import]
+
+            if _request_context.exists():
+                connection = _request_context.get()
+                if hasattr(connection, "app") and hasattr(
+                    connection.app.state, "service_provider"
+                ):
+                    service = connection.app.state.service_provider.get_required_service(IBackendService)  # type: ignore[type-abstract]
+                    return service  # type: ignore[no-any-return]
+        except Exception:
+            pass
+
+        raise HTTPException(
+            status_code=503, detail=HTTP_503_SERVICE_UNAVAILABLE_MESSAGE
+        )
+
+
+def get_config_service() -> IConfig:
+    """Get the configuration service from the DI container.
+
+    Returns:
+        The configuration service
+    """
+    try:
+        from src.core.di.services import get_service_provider
+
+        service_provider = get_service_provider()
+        return service_provider.get_required_service(IConfig)  # type: ignore[type-abstract,no-any-return]
+    except KeyError:
+        # Try to get from current request context (for FastAPI dependency injection)
+        try:
+            from starlette.context import _request_context  # type: ignore[import]
+
+            if _request_context.exists():
+                connection = _request_context.get()
+                if hasattr(connection, "app") and hasattr(
+                    connection.app.state, "service_provider"
+                ):
+                    return connection.app.state.service_provider.get_required_service(IConfig)  # type: ignore[type-abstract,no-any-return]
+        except Exception:
+            pass
+
+        # Final fallback to default config if IConfig is not registered (for testing)
+        from src.core.config.app_config import AppConfig
+
+        return AppConfig()  # type: ignore[no-any-return]
+
+
+def get_backend_factory_service() -> BackendFactory:
+    """Get the backend factory service.
+
+    Returns:
+        The backend factory service
+    """
+    # Get the factory from the DI container
+    try:
+        from src.core.di.services import get_service_provider
+        from src.core.services.backend_factory import BackendFactory
+
+        service_provider = get_service_provider()
+        return service_provider.get_required_service(BackendFactory)  # type: ignore[no-any-return]
+    except KeyError:
+        # Try to get from current request context (for FastAPI dependency injection)
+        try:
+            from starlette.context import _request_context  # type: ignore[import]
+
+            if _request_context.exists():
+                connection = _request_context.get()
+                if hasattr(connection, "app") and hasattr(
+                    connection.app.state, "service_provider"
+                ):
+                    return connection.app.state.service_provider.get_required_service(BackendFactory)  # type: ignore[no-any-return]
+        except Exception:
+            pass
+
+        # If we can't get the factory from DI, create a special factory for model discovery
+        # This is a DI-approved factory method that follows the pattern used in services.py
+        from src.core.di.services import _create_backend_factory
+
+        return _create_backend_factory()  # type: ignore[no-any-return,no-untyped-call]
 
 
 @router.get("/models")
 async def list_models(
-    request: Request, backend_service: IBackendService = Depends(get_backend_service)
+    backend_service: IBackendService = Depends(get_backend_service),
+    config: IConfig = Depends(get_config_service),
+    backend_factory: BackendFactory = Depends(get_backend_factory_service),
 ) -> dict[str, Any]:
     """List available models from all configured backends.
 
@@ -82,28 +170,12 @@ async def list_models(
         all_models: list[dict[str, Any]] = []
         discovered_models: set[str] = set()
 
-        # Get app config from DI
+        # Use the injected config service
         from src.core.config.app_config import AppConfig
-        from src.core.interfaces.configuration_interface import IConfig
-        from src.core.services.backend_factory import (
-            BackendFactory,  # Import BackendFactory
-        )
 
-        config: AppConfig | None = None
-        if hasattr(request.app.state, "service_provider"):
-            try:
-                config = request.app.state.service_provider.get_service(IConfig)
-            except Exception:
-                logger.warning("Failed to get config from service provider")
-
-        if not config:
-            # Fallback to default config
+        if not isinstance(config, AppConfig):
+            # Fallback to default config if we got a different config type
             config = AppConfig()
-
-        # Get the backend factory instance
-        backend_factory: BackendFactory = (
-            request.app.state.service_provider.get_required_service(BackendFactory)
-        )
 
         # Iterate through dynamically discovered backend types from the registry
         for backend_type in backend_registry.get_registered_backends():
@@ -175,11 +247,15 @@ async def list_models(
 
 @router.get("/v1/models")
 async def list_models_v1(
-    request: Request, backend_service: IBackendService = Depends(get_backend_service)
+    backend_service: IBackendService = Depends(get_backend_service),
+    config: IConfig = Depends(get_config_service),
+    backend_factory: BackendFactory = Depends(get_backend_factory_service),
 ) -> dict[str, Any]:
     """OpenAI-compatible models endpoint.
 
     Returns:
         A dictionary containing the list of available models
     """
-    return await list_models(request, backend_service)
+    return await list_models(
+        backend_service=backend_service, config=config, backend_factory=backend_factory
+    )

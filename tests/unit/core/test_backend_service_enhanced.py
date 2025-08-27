@@ -1,3 +1,4 @@
+# mypy: disable-error-code=all
 """
 Enhanced tests for the BackendService implementation.
 """
@@ -15,6 +16,7 @@ from src.core.domain.chat import (
     ChatRequest,
 )
 from src.core.domain.responses import ResponseEnvelope, StreamingResponseEnvelope
+from src.core.interfaces.application_state_interface import IApplicationState
 from src.core.interfaces.rate_limiter_interface import RateLimitInfo
 from src.core.interfaces.session_service_interface import ISessionService
 from src.core.services.backend_factory import BackendFactory
@@ -177,8 +179,9 @@ class TestBackendServiceBasic:
         factory = BackendFactory(client, registry)
         rate_limiter = MockRateLimiter()
         session_service = Mock(spec=ISessionService)
+        app_state = Mock(spec=IApplicationState)
         return ConcreteBackendService(
-            factory, rate_limiter, mock_config, session_service
+            factory, rate_limiter, mock_config, session_service, app_state
         )
 
     @pytest.mark.asyncio
@@ -234,13 +237,9 @@ class TestBackendServiceBasic:
             assert "Failed to create backend" in str(exc_info.value)
             assert "Test error" in str(exc_info.value)
 
-    def test_prepare_messages(self, service):
-        """Test message preparation."""
-        # Skip this test since _prepare_messages was moved to backend implementations
-        # This functionality is now expected to be implemented by the specific backend connectors
-        pytest.skip(
-            "_prepare_messages is now implemented in each backend connector, not in BackendService"
-        )
+    def test_prepare_messages_removed(self, service):
+        """BackendService no longer implements _prepare_messages; handled by backends."""
+        assert not hasattr(service, "_prepare_messages")
 
 
 class TestBackendServiceCompletions:
@@ -263,8 +262,9 @@ class TestBackendServiceCompletions:
         factory = BackendFactory(client, registry)
         rate_limiter = MockRateLimiter()
         session_service = Mock(spec=ISessionService)
+        app_state = Mock(spec=IApplicationState)
         return ConcreteBackendService(
-            factory, rate_limiter, mock_config, session_service
+            factory, rate_limiter, mock_config, session_service, app_state
         )
 
     @pytest.fixture
@@ -469,8 +469,9 @@ class TestBackendServiceValidation:
         rate_limiter = MockRateLimiter()
         mock_config = Mock()
         session_service = Mock(spec=ISessionService)
+        app_state = Mock(spec=IApplicationState)
         return ConcreteBackendService(
-            factory, rate_limiter, mock_config, session_service
+            factory, rate_limiter, mock_config, session_service, app_state
         )
 
     @pytest.mark.asyncio
@@ -547,6 +548,7 @@ class TestBackendServiceFailover:
         factory = BackendFactory(client, registry)
         rate_limiter = MockRateLimiter()
         session_service = Mock(spec=ISessionService)
+        app_state = Mock(spec=IApplicationState)
 
         # Configure failover routes
         failover_routes: dict[str, dict[str, Any]] = {
@@ -561,6 +563,7 @@ class TestBackendServiceFailover:
             rate_limiter,
             mock_config,
             session_service,
+            app_state,
             failover_routes=failover_routes,
         )
 
@@ -574,6 +577,7 @@ class TestBackendServiceFailover:
         factory = BackendFactory(client, registry)
         rate_limiter = MockRateLimiter()
         session_service = Mock(spec=ISessionService)
+        app_state = Mock(spec=IApplicationState)
 
         # Configure complex failover routes by model
         failover_routes: dict[str, dict[str, Any]] = {
@@ -593,6 +597,7 @@ class TestBackendServiceFailover:
             rate_limiter,
             mock_config,
             session_service,
+            app_state,
             failover_routes=failover_routes,
         )
 

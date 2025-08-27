@@ -1,7 +1,10 @@
+from unittest.mock import Mock
+
 import pytest
 from src.core.config.app_config import AppConfig, BackendConfig, BackendSettings
 from src.core.domain.chat import ChatMessage, ChatRequest
 from src.core.domain.configuration.app_identity_config import AppIdentityConfig
+from src.core.interfaces.application_state_interface import IApplicationState
 from src.core.interfaces.rate_limiter_interface import IRateLimiter, RateLimitInfo
 from src.core.services.backend_service import BackendService
 
@@ -34,11 +37,13 @@ async def test_default_identity_headers():
         backends=BackendSettings(openai=BackendConfig(api_key=["test-key"])),
     )
     factory = MockBackendFactory()
+    app_state = Mock(spec=IApplicationState)
     service = BackendService(
         factory=factory,
         rate_limiter=MockRateLimiter(),
         config=app_config,
         session_service=MockSessionService(),
+        app_state=app_state,
     )
     request = ChatRequest(
         messages=[ChatMessage(role="user", content="Hello")],
@@ -70,11 +75,13 @@ async def test_backend_specific_identity_headers():
         ),
     )
     factory = MockBackendFactory()
+    app_state = Mock(spec=IApplicationState)
     service = BackendService(
         factory=factory,
         rate_limiter=MockRateLimiter(),
         config=app_config,
         session_service=MockSessionService(),
+        app_state=app_state,
     )
     request = ChatRequest(
         messages=[ChatMessage(role="user", content="Hello")],

@@ -13,6 +13,7 @@ from fastapi.testclient import TestClient
 
 # from src.constants import BackendType # Removed BackendType import
 from src.core.app.test_builder import build_test_app as build_app
+from src.core.interfaces.application_state_interface import IApplicationState
 from src.core.interfaces.session_service_interface import ISessionService
 
 
@@ -23,7 +24,22 @@ class TestModelsEndpoints:
     def app_with_auth_disabled(self, monkeypatch):
         """Create app with authentication disabled."""
         monkeypatch.setenv("DISABLE_AUTH", "true")
-        return build_app()
+        app = build_app()
+
+        # Patch the get_config_service function to return a default config
+        # This works around the IConfig DI registration issue for this test
+
+        from src.core.app.controllers import models_controller
+        from src.core.config.app_config import AppConfig
+
+        default_config = AppConfig()
+        original_get_config_service = models_controller.get_config_service
+        models_controller.get_config_service = lambda: default_config
+
+        yield app
+
+        # Restore original function
+        models_controller.get_config_service = original_get_config_service
 
     @pytest.fixture
     def app_with_auth_enabled(self, monkeypatch):
@@ -32,7 +48,21 @@ class TestModelsEndpoints:
         monkeypatch.delenv(
             "AUTH_TOKEN", raising=False
         )  # Remove auth token to prevent AuthMiddleware interference
-        return build_app()
+        app = build_app()
+
+        # Patch the get_config_service function to return a default config
+        # This works around the IConfig DI registration issue for this test
+        from src.core.app.controllers import models_controller
+        from src.core.config.app_config import AppConfig
+
+        default_config = AppConfig()
+        original_get_config_service = models_controller.get_config_service
+        models_controller.get_config_service = lambda: default_config
+
+        yield app
+
+        # Restore original function
+        models_controller.get_config_service = original_get_config_service
 
     def test_models_endpoint_no_auth(self, app_with_auth_disabled):
         """Test /models endpoint without authentication."""
@@ -225,8 +255,13 @@ class TestModelsDiscovery:
         mock_session_service = MagicMock(spec=ISessionService)
 
         # Create backend service
+        mock_app_state = MagicMock(spec=IApplicationState)
         service = BackendService(
-            mock_backend_factory, mock_rate_limiter, mock_config, mock_session_service
+            mock_backend_factory,
+            mock_rate_limiter,
+            mock_config,
+            mock_session_service,
+            mock_app_state,
         )
 
         # Mock OpenAI backend
@@ -269,8 +304,13 @@ class TestModelsDiscovery:
         mock_session_service = MagicMock(spec=ISessionService)
 
         # Create backend service
+        mock_app_state = MagicMock(spec=IApplicationState)
         service = BackendService(
-            mock_backend_factory, mock_rate_limiter, mock_config, mock_session_service
+            mock_backend_factory,
+            mock_rate_limiter,
+            mock_config,
+            mock_session_service,
+            mock_app_state,
         )
 
         # Mock Anthropic backend
@@ -322,11 +362,13 @@ class TestModelsDiscovery:
             }
         }
 
+        mock_app_state = MagicMock(spec=IApplicationState)
         service = BackendService(
             mock_backend_factory,
             mock_rate_limiter,
             mock_config,
             mock_session_service,
+            mock_app_state,
             failover_routes=failover_routes,
         )
 

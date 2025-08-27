@@ -17,6 +17,7 @@ import httpx
 
 from src.core.config.app_config import AppConfig
 from src.core.di.container import ServiceCollection
+from src.core.interfaces.application_state_interface import IApplicationState
 from src.core.interfaces.di_interface import IServiceProvider
 from src.core.interfaces.session_service_interface import ISessionService
 from src.core.services.backend_factory import BackendFactory
@@ -159,12 +160,16 @@ class BackendStage(InitializationStage):
                 session_service: ISessionService = provider.get_required_service(
                     cast(type, ISessionService)
                 )
+                app_state: IApplicationState = provider.get_required_service(
+                    cast(type, IApplicationState)
+                )
 
                 return BackendService(
                     backend_factory,
                     rate_limiter,
                     app_config,
                     session_service,
+                    app_state,
                     backend_config_provider=backend_config_provider,
                 )
 

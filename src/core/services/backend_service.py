@@ -37,11 +37,11 @@ class BackendService(IBackendService):
         rate_limiter: IRateLimiter,
         config: IConfig,
         session_service: ISessionService,  # Add session_service
+        app_state: IApplicationState,
         backend_config_provider: IBackendConfigProvider | None = None,
         failover_routes: dict[str, dict[str, Any]] | None = None,
         failover_strategy: IFailoverStrategy | None = None,
         failover_coordinator: IFailoverCoordinator | None = None,
-        app_state: IApplicationState | None = None,
     ):
         """Initialize the backend service.
 
@@ -50,6 +50,7 @@ class BackendService(IBackendService):
             rate_limiter: The rate limiter for API calls
             config: Application configuration
             session_service: The session service
+            app_state: Application state service
             backend_configs: Configurations for backends
             failover_routes: Routes for backend failover
         """
@@ -57,21 +58,13 @@ class BackendService(IBackendService):
         self._rate_limiter = rate_limiter
         self._config = config
         self._session_service = session_service  # Store session_service
+        self._app_state = app_state
         self._backend_config_provider: IBackendConfigProvider | None = (
             backend_config_provider
         )
         self._backend_configs: dict[str, Any] = {}
         self._failover_routes: dict[str, dict[str, Any]] = failover_routes or {}
         self._backends: dict[str, LLMBackend] = {}
-        if app_state is not None:
-            self._app_state: IApplicationState = app_state
-        else:
-            # Prefer injected IApplicationState; fall back to default instance for backward compatibility
-            from src.core.services.application_state_service import (
-                get_default_application_state,
-            )
-
-            self._app_state = get_default_application_state()
         cast(AppConfig, config)
         from src.core.services.failover_coordinator import FailoverCoordinator
 

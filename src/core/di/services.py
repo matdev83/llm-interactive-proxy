@@ -25,6 +25,7 @@ from src.core.interfaces.backend_request_manager_interface import IBackendReques
 from src.core.interfaces.backend_service_interface import IBackendService
 from src.core.interfaces.command_processor_interface import ICommandProcessor
 from src.core.interfaces.command_service_interface import ICommandService
+from src.core.interfaces.configuration_interface import IConfig
 from src.core.interfaces.di_interface import IServiceProvider
 from src.core.interfaces.request_processor_interface import IRequestProcessor
 from src.core.interfaces.response_handler_interface import (
@@ -139,6 +140,28 @@ def get_service_provider() -> IServiceProvider:
     return get_or_build_service_provider()
 
 
+# Define a function to create backend factory without DI
+def _create_backend_factory():  # type: ignore[name-defined]
+    """Create a backend factory instance without using DI.
+
+    This is a special factory method for use in controllers when the DI container
+    is not available but a BackendFactory is needed.
+
+    Returns:
+        BackendFactory instance
+    """
+    # Create HTTP client
+    import httpx
+
+    client = httpx.AsyncClient()
+
+    # Create backend factory
+    from src.core.services.backend_factory import BackendFactory
+    from src.core.services.backend_registry import backend_registry
+
+    return BackendFactory(client, backend_registry)
+
+
 def register_core_services(
     services: ServiceCollection, app_config: AppConfig | None = None
 ) -> None:
@@ -148,9 +171,24 @@ def register_core_services(
         services: The service collection to register services with
         app_config: Optional application configuration
     """
-    # Register AppConfig if provided
+    # Register AppConfig and IConfig
     if app_config is not None:
         services.add_instance(AppConfig, app_config)
+        # Also register it as IConfig for interface resolution
+        with contextlib.suppress(Exception):
+            services.add_instance(
+                cast(type, IConfig),
+                app_config,
+            )  # type: ignore[type-abstract]
+    else:
+        # Register default AppConfig as IConfig for testing and basic functionality
+        default_config = AppConfig()
+        services.add_instance(AppConfig, default_config)
+        with contextlib.suppress(Exception):
+            services.add_instance(
+                cast(type, IConfig),
+                default_config,
+            )  # type: ignore[type-abstract]
 
     # Helper wrappers to make registration idempotent and provide debug logging
     logger: logging.Logger = logging.getLogger(__name__)
@@ -573,11 +611,20 @@ def register_core_services(
         # Get app config
         app_config: AppConfig = provider.get_required_service(AppConfig)
 
-        # Create backend factory
+        # Create backend factory - always use real implementation, ignore any mocks
+        # This ensures BackendService uses real backends even in test environments
         backend_factory: BackendFactory = BackendFactory(httpx_client, backend_registry)
 
         # Create rate limiter
         rate_limiter: RateLimiter = RateLimiter()
+
+        # Get application state service
+        app_state: IApplicationState = provider.get_required_service(IApplicationState)  # type: ignore[type-abstract]
+
+        # Get failover coordinator (optional for test environments)
+        failover_coordinator = None
+        with contextlib.suppress(Exception):
+            failover_coordinator = provider.get_service(IFailoverCoordinator)  # type: ignore[type-abstract]
 
         # Return backend service
         return BackendService(
@@ -585,6 +632,8 @@ def register_core_services(
             rate_limiter,
             app_config,
             session_service=provider.get_required_service(SessionService),
+            app_state=app_state,
+            failover_coordinator=failover_coordinator,
         )
 
     # Register backend service and bind to interface
@@ -593,6 +642,28 @@ def register_core_services(
     with contextlib.suppress(Exception):
         services.add_singleton(
             cast(type, IBackendService), implementation_factory=_backend_service_factory
+        )  # type: ignore[type-abstract]
+
+    # Register failover coordinator
+    def _failover_coordinator_factory(
+        provider: IServiceProvider,
+    ) -> FailoverCoordinator:
+        from src.core.services.failover_coordinator import FailoverCoordinator
+
+        return FailoverCoordinator()
+
+    from src.core.services.failover_coordinator import FailoverCoordinator
+
+    _add_singleton(
+        FailoverCoordinator, implementation_factory=_failover_coordinator_factory
+    )
+
+    with contextlib.suppress(Exception):
+        from src.core.interfaces.failover_interface import IFailoverCoordinator
+
+        services.add_singleton(
+            cast(type, IFailoverCoordinator),
+            implementation_factory=_failover_coordinator_factory,
         )  # type: ignore[type-abstract]
 
     # Register request processor

@@ -47,7 +47,7 @@ class StreamingResponseProcessorService(IStreamingResponseProcessor):
         """
         self._middleware.append(middleware)
 
-    async def process_streaming_response(
+    async def process_streaming_response(  # type: ignore[misc]
         self, response_iterator: AsyncIterator[Any], session_id: str
     ) -> AsyncIterator[ProcessedResponse]:  # type: ignore
         """Process a streaming response.

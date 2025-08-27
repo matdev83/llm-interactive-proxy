@@ -13,6 +13,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 from src.core.config.app_config import AppConfig
 from src.core.di.container import ServiceCollection
+from src.core.interfaces.application_state_interface import IApplicationState
 from src.core.interfaces.di_interface import IServiceProvider
 
 from .base import InitializationStage
@@ -45,11 +46,31 @@ class MockBackendStage(InitializationStage):
         # Register mock backend config provider first
         self._register_backend_config_provider(services)
 
-        # Register mock backend factory
-        self._register_mock_backend_factory(services)
+        # Import required classes for service checks
+        from src.core.interfaces.backend_service_interface import IBackendService
+        from src.core.services.backend_factory import BackendFactory
 
-        # Register mock backend service
-        self._register_mock_backend_service(services)
+        # Only register mock services if real ones are not already registered
+        backend_factory_registered = BackendFactory in services._descriptors
+        backend_service_registered = IBackendService in services._descriptors
+
+        if not backend_factory_registered:
+            # Register mock backend factory
+            self._register_mock_backend_factory(services)
+            logger.debug("Registered mock backend factory")
+        else:
+            logger.debug(
+                "BackendFactory already registered, skipping mock registration"
+            )
+
+        if not backend_service_registered:
+            # Register mock backend service
+            self._register_mock_backend_service(services)
+            logger.debug("Registered mock backend service")
+        else:
+            logger.debug(
+                "IBackendService already registered, skipping mock registration"
+            )
 
         # Skip real backend service registration in test environment
         # The mock backend service should be sufficient for testing
@@ -163,7 +184,7 @@ class MockBackendStage(InitializationStage):
                     )
 
                     streaming_envelope = StreamingResponseEnvelope(
-                        content=content_generator,
+                        content=content_generator,  # type: ignore[arg-type]
                         media_type="text/event-stream",
                         headers={"content-type": "text/event-stream"},
                     )
@@ -308,10 +329,17 @@ class MockBackendStage(InitializationStage):
                 side_effect=mock_get_or_create_backend
             )
 
-            # Register the mock service
-            services.add_instance(IBackendService, mock_backend_service)
-
-            logger.debug("Registered mock backend service with full method coverage")
+            # Register the mock service only if not already registered
+            # This preserves real BackendService from CoreServicesStage
+            if IBackendService not in services._descriptors:
+                services.add_instance(IBackendService, mock_backend_service)
+                logger.debug(
+                    "Registered mock backend service with full method coverage"
+                )
+            else:
+                logger.debug(
+                    "IBackendService already registered, skipping mock registration"
+                )
         except ImportError as e:
             logger.warning(f"Could not register mock backend service: {e}")
 
@@ -343,10 +371,15 @@ class MockBackendStage(InitializationStage):
             httpx_client = httpx.AsyncClient()
             mock_factory._client = httpx_client
 
-            # Register the mock factory
-            services.add_instance(BackendFactory, mock_factory)
-
-            logger.debug("Registered mock backend factory")
+            # Register the mock factory only if not already registered
+            # This preserves real BackendFactory from CoreServicesStage
+            if BackendFactory not in services._descriptors:
+                services.add_instance(BackendFactory, mock_factory)
+                logger.debug("Registered mock backend factory")
+            else:
+                logger.debug(
+                    "BackendFactory already registered, skipping mock registration"
+                )
         except ImportError as e:
             logger.warning(f"Could not register mock backend factory: {e}")
 
@@ -378,13 +411,15 @@ class MockBackendStage(InitializationStage):
                     provider.get_required_service(cast(type, IBackendConfigProvider))
                 )
                 rate_limiter = provider.get_required_service(RateLimiter)
+                app_state = provider.get_required_service(cast(type, IApplicationState))
 
                 return BackendService(
                     backend_factory,
                     rate_limiter,
                     app_config,
+                    provider.get_required_service(SessionService),
+                    app_state,
                     backend_config_provider=backend_config_provider,
-                    session_service=provider.get_required_service(SessionService),
                 )
 
             # Register BackendService with factory

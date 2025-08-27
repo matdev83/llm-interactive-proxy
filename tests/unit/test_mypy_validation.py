@@ -26,6 +26,7 @@ class TestMypyValidation:
 
         The test uses the project's mypy.ini configuration file
         to ensure consistent type checking behavior.
+
         """
         # Get the path to the src directory
         src_path = Path(__file__).parent.parent.parent / "src"
@@ -53,12 +54,12 @@ class TestMypyValidation:
         if result.returncode != 0:
             # mypy found errors, create a detailed failure message
             error_msg = (
-                "mypy type checking failed on src directory!\n\n"
-                "Exit code: {result.returncode}\n\n"
-                "STDOUT:\n{result.stdout}\n\n"
-                "STDERR:\n{result.stderr}\n\n"
-                "This indicates there are type checking errors in the source code.\n"
-                "Please run 'mypy src' locally to see the specific errors and fix them."
+                f"mypy type checking failed on src directory!\n\n"
+                f"Exit code: {result.returncode}\n\n"
+                f"STDOUT:\n{result.stdout}\n\n"
+                f"STDERR:\n{result.stderr}\n\n"
+                f"This indicates there are type checking errors in the source code.\n"
+                f"Please run 'mypy src' locally to see the specific errors and fix them."
             )
 
             pytest.fail(error_msg)

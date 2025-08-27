@@ -12,6 +12,7 @@ from src.core.common.exceptions import BackendError
 from src.core.domain.backend_type import BackendType
 from src.core.domain.chat import ChatMessage, ChatRequest
 from src.core.domain.responses import ResponseEnvelope
+from src.core.interfaces.application_state_interface import IApplicationState
 from src.core.interfaces.session_service_interface import ISessionService
 from src.core.services.backend_factory import BackendFactory
 from src.core.services.backend_service import BackendService
@@ -72,6 +73,7 @@ def create_backend_service():
     mock_config.backends.default_backend = "openai"
 
     session_service = Mock(spec=ISessionService)
+    app_state = Mock(spec=IApplicationState)
 
     # Create concrete implementation
     class ConcreteBackendService(BackendService):
@@ -86,7 +88,9 @@ def create_backend_service():
                 return ResponseEnvelope(content={}, headers={})
             return result
 
-    return ConcreteBackendService(factory, rate_limiter, mock_config, session_service)
+    return ConcreteBackendService(
+        factory, rate_limiter, mock_config, session_service, app_state
+    )
 
 
 class TestBackendServiceTargeted:
