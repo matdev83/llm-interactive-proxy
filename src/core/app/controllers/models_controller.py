@@ -154,11 +154,13 @@ def get_backend_factory_service() -> BackendFactory:
         # This ensures consistency with the DI container's factory methods
         import httpx
 
+        from src.core.config.app_config import AppConfig
         from src.core.services.backend_factory import BackendFactory
         from src.core.services.backend_registry import backend_registry
 
         httpx_client = httpx.AsyncClient()
-        return BackendFactory(httpx_client, backend_registry)
+        config = AppConfig()  # Use default config as fallback
+        return BackendFactory(httpx_client, backend_registry, config)
 
 
 @router.get("/models")
@@ -195,7 +197,9 @@ async def list_models(
             if backend_config and backend_config.api_key:
                 try:
                     # Create backend instance
-                    backend_instance: Any = backend_factory.create_backend(backend_type)
+                    backend_instance: Any = backend_factory.create_backend(
+                        backend_type, config
+                    )
 
                     # Get available models from the backend
                     models: list[str] = backend_instance.get_available_models()

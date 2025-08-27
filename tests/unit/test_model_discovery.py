@@ -16,7 +16,10 @@ async def test_openrouter_models_cached() -> None:
     mock_client.get.return_value = mock_response
 
     # Create and configure backend
-    backend = OpenRouterBackend(mock_client)
+    from src.core.config.app_config import AppConfig
+
+    config = AppConfig()
+    backend = OpenRouterBackend(mock_client, config=config)
 
     # Mock headers provider
     def mock_headers_provider(_, api_key):
@@ -45,7 +48,10 @@ async def test_gemini_models_cached() -> None:
     mock_client.get.return_value = mock_response
 
     # Create and configure backend
-    backend = GeminiBackend(mock_client)
+    from src.core.config.app_config import AppConfig
+
+    config = AppConfig()
+    backend = GeminiBackend(mock_client, config=config)
 
     # Initialize the backend with test values
     await backend.initialize(

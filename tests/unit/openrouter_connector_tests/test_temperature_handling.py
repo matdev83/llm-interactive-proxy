@@ -30,8 +30,12 @@ class TestOpenRouterTemperatureHandling:
         from unittest.mock import AsyncMock
 
         import httpx
+        from src.core.config.app_config import AppConfig
 
-        backend = OpenRouterBackend(client=AsyncMock(spec=httpx.AsyncClient))
+        config = AppConfig()
+        backend = OpenRouterBackend(
+            client=AsyncMock(spec=httpx.AsyncClient), config=config
+        )
         # Call initialize with required arguments
         await backend.initialize(
             api_key="test_key",  # A dummy API key for initialization

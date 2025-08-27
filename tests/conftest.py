@@ -617,11 +617,13 @@ def test_backend_factory(test_httpx_client) -> Generator[Any, None, None]:
     Returns:
         Generator: A test backend factory
     """
+    from src.core.config.app_config import AppConfig
     from src.core.services.backend_factory import BackendFactory
     from src.core.services.backend_registry import BackendRegistry
 
     registry = BackendRegistry()
-    factory = BackendFactory(test_httpx_client, registry)
+    config = AppConfig()
+    factory = BackendFactory(test_httpx_client, registry, config)
     yield factory
 
 

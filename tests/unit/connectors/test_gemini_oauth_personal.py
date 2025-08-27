@@ -21,7 +21,10 @@ def mock_client():
 @pytest.fixture
 def connector(mock_client):
     """Create a GeminiOAuthPersonalConnector instance."""
-    return GeminiOAuthPersonalConnector(mock_client)
+    from src.core.config.app_config import AppConfig
+
+    config = AppConfig()
+    return GeminiOAuthPersonalConnector(mock_client, config)
 
 
 class TestGeminiOAuthPersonalConnector:
@@ -216,7 +219,10 @@ class TestGeminiOAuthPersonalConnector:
     @patch.object(
         GeminiOAuthPersonalConnector, "_refresh_token_if_needed", new_callable=AsyncMock
     )
-    async def test_initialize_success(self, mock_refresh, mock_load, connector):
+    @patch.object(GeminiOAuthPersonalConnector, "_is_token_expired", return_value=False)
+    async def test_initialize_success(
+        self, mock_is_token_expired, mock_refresh, mock_load, connector
+    ):
         """Test successful initialization."""
         mock_load.return_value = True
         mock_refresh.return_value = True
@@ -253,31 +259,31 @@ class TestGeminiOAuthPersonalConnector:
 
         assert connector.is_functional is False
 
-    def test_resolve_gemini_api_config_no_credentials(self, connector):
+    async def test_resolve_gemini_api_config_no_credentials(self, connector):
         """Test resolving API config when no credentials are available."""
         from fastapi import HTTPException
 
         with pytest.raises(HTTPException):
-            connector._resolve_gemini_api_config(None, None, None)
+            await connector._resolve_gemini_api_config(None, None, None)
 
-    def test_resolve_gemini_api_config_with_credentials(self, connector):
+    async def test_resolve_gemini_api_config_with_credentials(self, connector):
         """Test resolving API config with valid credentials."""
         connector._oauth_credentials = {"access_token": "test_token"}
 
-        base_url, headers = connector._resolve_gemini_api_config(
+        base_url, headers = await connector._resolve_gemini_api_config(
             "https://test.api.com", None, None
         )
 
         assert base_url == "https://test.api.com"
         assert headers == {"Authorization": "Bearer test_token"}
 
-    def test_resolve_gemini_api_config_with_api_key_falls_back_to_oauth(
+    async def test_resolve_gemini_api_config_with_api_key_falls_back_to_oauth(
         self, connector
     ):
         """Test that API key is ignored in favor of OAuth token."""
         connector._oauth_credentials = {"access_token": "oauth_token"}
 
-        base_url, headers = connector._resolve_gemini_api_config(
+        base_url, headers = await connector._resolve_gemini_api_config(
             "https://test.api.com", None, "api_key_value"
         )
 
@@ -409,7 +415,7 @@ class TestGeminiOAuthPersonalConnector:
     async def test_perform_health_check_unexpected_error(self, mock_refresh, connector):
         """Test health check when unexpected error occurs."""
         # Setup
-        connector.gemini_api_base_url = "https://test.api.com"
+        connector.gemini_api_base_url = "https://test.i.com"
         connector._oauth_credentials = {"access_token": "test_token"}
 
         with patch.object(connector, "client") as mock_client:

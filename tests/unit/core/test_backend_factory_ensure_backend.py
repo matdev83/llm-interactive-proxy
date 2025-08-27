@@ -40,7 +40,10 @@ def factory(
     mock_client: httpx.AsyncClient, mock_backend_registry: BackendRegistry
 ) -> BackendFactory:
     """Create a BackendFactory instance with mock dependencies."""
-    return BackendFactory(mock_client, mock_backend_registry)
+    from src.core.config.app_config import AppConfig
+
+    config = AppConfig()
+    return BackendFactory(mock_client, mock_backend_registry, config)
 
 
 @pytest.mark.asyncio
@@ -48,6 +51,7 @@ async def test_ensure_backend_with_none_config(factory: BackendFactory) -> None:
     """Test ensure_backend with None config."""
     # Arrange
     backend_type = "openai"
+    app_config = factory._config
     mock_backend = MagicMock()
 
     # We need to patch the actual method, not the instance method
@@ -61,10 +65,10 @@ async def test_ensure_backend_with_none_config(factory: BackendFactory) -> None:
             new_callable=AsyncMock,
         ) as mock_init,
     ):
-        result = await factory.ensure_backend(backend_type, None)
+        result = await factory.ensure_backend(backend_type, app_config, None)
 
         # Assert
-        mock_create.assert_called_once_with(backend_type)
+        mock_create.assert_called_once_with(backend_type, app_config)
         mock_init.assert_called_once()
         assert result == mock_backend
 
@@ -74,6 +78,7 @@ async def test_ensure_backend_with_backend_config(factory: BackendFactory) -> No
     """Test ensure_backend with a BackendConfig object."""
     # Arrange
     backend_type = "openai"
+    app_config = factory._config
     backend_config = BackendConfig(
         api_key=["test-api-key"],
         api_url="https://custom-api.example.com",
@@ -92,10 +97,10 @@ async def test_ensure_backend_with_backend_config(factory: BackendFactory) -> No
             new_callable=AsyncMock,
         ) as mock_init,
     ):
-        result = await factory.ensure_backend(backend_type, backend_config)
+        result = await factory.ensure_backend(backend_type, app_config, backend_config)
 
         # Assert
-        mock_create.assert_called_once_with(backend_type)
+        mock_create.assert_called_once_with(backend_type, app_config)
         mock_init.assert_called_once()
         init_config = mock_init.call_args[0][1]
         assert init_config["api_key"] == "test-api-key"
@@ -109,6 +114,7 @@ async def test_ensure_backend_test_env_injection(factory: BackendFactory) -> Non
     """Test ensure_backend in test environment with no API key."""
     # Arrange
     backend_type = "openai"
+    app_config = factory._config
     backend_config = BackendConfig()  # No API key
     mock_backend = MagicMock()
 
@@ -124,10 +130,10 @@ async def test_ensure_backend_test_env_injection(factory: BackendFactory) -> Non
         ) as mock_init,
         patch.dict(os.environ, {"PYTEST_CURRENT_TEST": "test_something"}),
     ):
-        result = await factory.ensure_backend(backend_type, backend_config)
+        result = await factory.ensure_backend(backend_type, app_config, backend_config)
 
         # Assert
-        mock_create.assert_called_once_with(backend_type)
+        mock_create.assert_called_once_with(backend_type, app_config)
         mock_init.assert_called_once()
         init_config = mock_init.call_args[0][1]
         assert init_config["api_key"] == f"test-key-{backend_type}"
@@ -139,6 +145,7 @@ async def test_ensure_backend_anthropic_specific(factory: BackendFactory) -> Non
     """Test ensure_backend with Anthropic-specific configuration."""
     # Arrange
     backend_type = "anthropic"
+    app_config = factory._config
     backend_config = BackendConfig(api_key=["anthropic-key"])
     mock_backend = MagicMock()
 
@@ -153,10 +160,10 @@ async def test_ensure_backend_anthropic_specific(factory: BackendFactory) -> Non
             new_callable=AsyncMock,
         ) as mock_init,
     ):
-        result = await factory.ensure_backend(backend_type, backend_config)
+        result = await factory.ensure_backend(backend_type, app_config, backend_config)
 
         # Assert
-        mock_create.assert_called_once_with(backend_type)
+        mock_create.assert_called_once_with(backend_type, app_config)
         mock_init.assert_called_once()
         init_config = mock_init.call_args[0][1]
         assert init_config["api_key"] == "anthropic-key"
@@ -169,6 +176,7 @@ async def test_ensure_backend_openrouter_specific(factory: BackendFactory) -> No
     """Test ensure_backend with OpenRouter-specific configuration."""
     # Arrange
     backend_type = "openrouter"
+    app_config = factory._config
     backend_config = BackendConfig(api_key=["openrouter-key"])
     mock_backend = MagicMock()
 
@@ -183,10 +191,10 @@ async def test_ensure_backend_openrouter_specific(factory: BackendFactory) -> No
             new_callable=AsyncMock,
         ) as mock_init,
     ):
-        result = await factory.ensure_backend(backend_type, backend_config)
+        result = await factory.ensure_backend(backend_type, app_config, backend_config)
 
         # Assert
-        mock_create.assert_called_once_with(backend_type)
+        mock_create.assert_called_once_with(backend_type, app_config)
         mock_init.assert_called_once()
         init_config = mock_init.call_args[0][1]
         assert init_config["api_key"] == "openrouter-key"
@@ -201,6 +209,7 @@ async def test_ensure_backend_gemini_specific(factory: BackendFactory) -> None:
     """Test ensure_backend with Gemini-specific configuration."""
     # Arrange
     backend_type = "gemini"
+    app_config = factory._config
     backend_config = BackendConfig(api_key=["gemini-key"])
     mock_backend = MagicMock()
 
@@ -215,10 +224,10 @@ async def test_ensure_backend_gemini_specific(factory: BackendFactory) -> None:
             new_callable=AsyncMock,
         ) as mock_init,
     ):
-        result = await factory.ensure_backend(backend_type, backend_config)
+        result = await factory.ensure_backend(backend_type, app_config, backend_config)
 
         # Assert
-        mock_create.assert_called_once_with(backend_type)
+        mock_create.assert_called_once_with(backend_type, app_config)
         mock_init.assert_called_once()
         init_config = mock_init.call_args[0][1]
         assert init_config["api_key"] == "gemini-key"
@@ -236,6 +245,7 @@ async def test_ensure_backend_custom_api_url_not_overridden(
     """Test ensure_backend doesn't override custom API URL with default."""
     # Arrange
     backend_type = "gemini"
+    app_config = factory._config
     backend_config = BackendConfig(
         api_key=["gemini-key"], api_url="https://custom-gemini-api.example.com"
     )
@@ -252,10 +262,10 @@ async def test_ensure_backend_custom_api_url_not_overridden(
             new_callable=AsyncMock,
         ) as mock_init,
     ):
-        result = await factory.ensure_backend(backend_type, backend_config)
+        result = await factory.ensure_backend(backend_type, app_config, backend_config)
 
         # Assert
-        mock_create.assert_called_once_with(backend_type)
+        mock_create.assert_called_once_with(backend_type, app_config)
         mock_init.assert_called_once()
         init_config = mock_init.call_args[0][1]
         assert init_config["api_key"] == "gemini-key"

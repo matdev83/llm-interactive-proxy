@@ -42,7 +42,10 @@ async def zai_backend_fixture(httpx_mock: HTTPXMock) -> ZAIConnector:
     )
 
     async with httpx.AsyncClient() as client:
-        backend = ZAIConnector(client)
+        from src.core.config.app_config import AppConfig
+
+        config = AppConfig()
+        backend = ZAIConnector(client, config=config)
         await backend.initialize(api_key="test_key")
 
         # Manually set available_models for testing
@@ -279,7 +282,10 @@ async def test_default_models_fallback(httpx_mock: HTTPXMock) -> None:
     """Test that the connector falls back to default models if API call fails."""
     # Create a new backend instance
     async with httpx.AsyncClient() as client:
-        backend = ZAIConnector(client)
+        from src.core.config.app_config import AppConfig
+
+        config = AppConfig()
+        backend = ZAIConnector(client, config=config)
 
         # Setup the mock to fail for the models endpoint
         httpx_mock.add_exception(

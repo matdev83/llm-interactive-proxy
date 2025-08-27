@@ -3,6 +3,7 @@ from __future__ import annotations
 import abc
 from typing import TYPE_CHECKING, Any
 
+from src.core.config.app_config import AppConfig
 from src.core.domain.responses import ResponseEnvelope, StreamingResponseEnvelope
 from src.core.interfaces.configuration_interface import IAppIdentityConfig
 from src.core.interfaces.model_bases import DomainModel, InternalDTO
@@ -19,8 +20,11 @@ class LLMBackend(abc.ABC):
 
     backend_type: str
 
-    def __init__(self, response_processor: IResponseProcessor | None = None) -> None:
+    def __init__(
+        self, config: AppConfig, response_processor: IResponseProcessor | None = None
+    ) -> None:  # Modified
         self._response_processor = response_processor
+        self.config = config  # Stored config
 
     @abc.abstractmethod
     async def chat_completions(

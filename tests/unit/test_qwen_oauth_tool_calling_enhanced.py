@@ -31,7 +31,10 @@ class TestQwenOAuthToolCallingEnhanced:
     @pytest.fixture
     def connector(self, mock_client):
         """QwenOAuthConnector instance with mocked client."""
-        connector = QwenOAuthConnector(mock_client)
+        from src.core.config.app_config import AppConfig
+
+        config = AppConfig()
+        connector = QwenOAuthConnector(mock_client, config=config)
         connector._oauth_credentials = {
             "access_token": "test-access-token",
             "refresh_token": "test-refresh-token",

@@ -15,7 +15,10 @@ def mock_client():
 
 @pytest.fixture
 def openai_connector(mock_client):
-    connector = OpenAIConnector(client=mock_client)
+    from src.core.config.app_config import AppConfig
+
+    config = AppConfig()
+    connector = OpenAIConnector(client=mock_client, config=config)
     connector.api_key = "test-api-key"
     connector.available_models = ["gpt-3.5-turbo", "gpt-4"]
     return connector
@@ -110,7 +113,10 @@ async def test_chat_completions_uses_custom_url(openai_connector, mock_client):
 async def test_initialize_with_custom_url(mock_client):
     """Test that initialize uses a custom URL when provided."""
     # Setup
-    connector = OpenAIConnector(client=mock_client)
+    from src.core.config.app_config import AppConfig
+
+    config = AppConfig()
+    connector = OpenAIConnector(client=mock_client, config=config)
     custom_url = "https://custom-api.example.com/v1"
 
     mock_response = MagicMock()

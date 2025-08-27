@@ -29,7 +29,10 @@ TEST_ANTHROPIC_API_BASE_URL = ANTHROPIC_DEFAULT_BASE_URL
 async def anthropic_backend_fixture() -> AnthropicBackend:
     """Create an Anthropic backend instance with a mock client."""
     async with httpx.AsyncClient() as client:
-        backend = AnthropicBackend(client)
+        from src.core.config.app_config import AppConfig
+
+        config = AppConfig()
+        backend = AnthropicBackend(client, config)
         await backend.initialize(key_name="anthropic", api_key="test_key")
         return backend
 

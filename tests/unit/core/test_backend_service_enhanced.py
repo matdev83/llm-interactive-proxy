@@ -92,18 +92,22 @@ class TestBackendFactory:
         """Test creating a backend with the factory."""
         # Arrange
         client = httpx.AsyncClient()
+        from src.core.config.app_config import AppConfig
         from src.core.services.backend_registry import BackendRegistry
 
         registry = BackendRegistry()
-        factory = BackendFactory(client, registry)
+        config = AppConfig()
+        factory = BackendFactory(client, registry, config)
 
         # Mock the backend registry instead of non-existent _backend_types
         mock_backend = MockBackend(client)
         with patch.object(
-            registry, "get_backend_factory", return_value=lambda client: mock_backend
+            registry,
+            "get_backend_factory",
+            return_value=lambda client, config: mock_backend,
         ):
             # Act
-            backend = factory.create_backend("openai")  # Used string literal
+            backend = factory.create_backend("openai", config)  # Used string literal
 
             # Assert
             assert isinstance(backend, MockBackend)
@@ -115,19 +119,21 @@ class TestBackendFactory:
         """Test initializing a backend with the factory."""
         # Arrange
         client = httpx.AsyncClient()
+        from src.core.config.app_config import AppConfig
         from src.core.services.backend_registry import BackendRegistry
 
         registry = BackendRegistry()
-        factory = BackendFactory(client, registry)
+        config = AppConfig()
+        factory = BackendFactory(client, registry, config)
         backend = MockBackend(client)
-        config = {"api_key": "test-key", "extra_param": "value"}
+        init_config = {"api_key": "test-key", "extra_param": "value"}
 
         # Act
-        await factory.initialize_backend(backend, config)
+        await factory.initialize_backend(backend, init_config)
 
         # Assert
         assert backend.initialize_called
-        assert backend.initialize_kwargs == config
+        assert backend.initialize_kwargs == init_config
 
     @pytest.mark.asyncio
     async def test_create_backend_invalid_type(self):
@@ -137,11 +143,14 @@ class TestBackendFactory:
         from src.core.services.backend_registry import BackendRegistry
 
         registry = BackendRegistry()
-        factory = BackendFactory(client, registry)
+        from src.core.config.app_config import AppConfig
+
+        config = AppConfig()
+        factory = BackendFactory(client, registry, config)
 
         # Act & Assert
         with pytest.raises(ValueError):
-            factory.create_backend("invalid-backend-type")
+            factory.create_backend("invalid-backend-type", config)
 
 
 class ConcreteBackendService(BackendService):
@@ -176,7 +185,10 @@ class TestBackendServiceBasic:
         from src.core.services.backend_registry import BackendRegistry
 
         registry = BackendRegistry()
-        factory = BackendFactory(client, registry)
+        from src.core.config.app_config import AppConfig
+
+        config = AppConfig()
+        factory = BackendFactory(client, registry, config)
         rate_limiter = MockRateLimiter()
         session_service = Mock(spec=ISessionService)
         app_state = Mock(spec=IApplicationState)
@@ -220,7 +232,11 @@ class TestBackendServiceBasic:
 
             # Assert
             assert result is mock_backend
-            mock_ensure.assert_called_once_with("openai", None)  # Used string literal
+            # The service uses its own config, not the factory's config
+            expected_config = service._config
+            mock_ensure.assert_called_once_with(
+                BackendType.OPENAI, expected_config, None
+            )
             assert "openai" in service._backends  # Used string literal
 
     @pytest.mark.asyncio
@@ -259,7 +275,10 @@ class TestBackendServiceCompletions:
         from src.core.services.backend_registry import BackendRegistry
 
         registry = BackendRegistry()
-        factory = BackendFactory(client, registry)
+        from src.core.config.app_config import AppConfig
+
+        config = AppConfig()
+        factory = BackendFactory(client, registry, config)
         rate_limiter = MockRateLimiter()
         session_service = Mock(spec=ISessionService)
         app_state = Mock(spec=IApplicationState)
@@ -465,7 +484,10 @@ class TestBackendServiceValidation:
         from src.core.services.backend_registry import BackendRegistry
 
         registry = BackendRegistry()
-        factory = BackendFactory(client, registry)
+        from src.core.config.app_config import AppConfig
+
+        config = AppConfig()
+        factory = BackendFactory(client, registry, config)
         rate_limiter = MockRateLimiter()
         mock_config = Mock()
         session_service = Mock(spec=ISessionService)
@@ -545,7 +567,10 @@ class TestBackendServiceFailover:
         from src.core.services.backend_registry import BackendRegistry
 
         registry = BackendRegistry()
-        factory = BackendFactory(client, registry)
+        from src.core.config.app_config import AppConfig
+
+        config = AppConfig()
+        factory = BackendFactory(client, registry, config)
         rate_limiter = MockRateLimiter()
         session_service = Mock(spec=ISessionService)
         app_state = Mock(spec=IApplicationState)
@@ -574,7 +599,10 @@ class TestBackendServiceFailover:
         from src.core.services.backend_registry import BackendRegistry
 
         registry = BackendRegistry()
-        factory = BackendFactory(client, registry)
+        from src.core.config.app_config import AppConfig
+
+        config = AppConfig()
+        factory = BackendFactory(client, registry, config)
         rate_limiter = MockRateLimiter()
         session_service = Mock(spec=ISessionService)
         app_state = Mock(spec=IApplicationState)

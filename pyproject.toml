@@ -77,8 +77,8 @@ build-backend = "setuptools.build_meta"
 package-dir = {"" = "src"}
 
 [tool.pytest.ini_options]
-pythonpath = "src"
-addopts = "-v --asyncio-mode=auto -m \"not network and not loop_detection\"  --ignore=tests/unit/core/services/test_response_middleware.py --ignore=tests/integration/test_phase2_integration.py"
+pythonpath = ["src", "tests"]
+addopts = "-v --asyncio-mode=auto -m \"not network and not loop_detection\"  --ignore=tests/unit/core/services/test_response_middleware.py --ignore=tests/integration/test_phase2_integration.py --pyargs src"
 asyncio_default_fixture_loop_scope = "function"
 # To run integration tests, use: pytest -m integration
 # To run command tests, use: pytest -m command

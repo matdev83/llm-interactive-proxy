@@ -59,10 +59,12 @@ class MockBackend(LLMBackend):
 def create_backend_service():
     """Create a BackendService instance for testing."""
     client = httpx.AsyncClient()
+    from src.core.config.app_config import AppConfig
     from src.core.services.backend_registry import BackendRegistry
 
     registry = BackendRegistry()
-    factory = BackendFactory(client, registry)
+    config = AppConfig()
+    factory = BackendFactory(client, registry, config)
     rate_limiter = Mock()
     rate_limiter.check_limit = AsyncMock(return_value=Mock(is_limited=False))
     rate_limiter.record_usage = AsyncMock()

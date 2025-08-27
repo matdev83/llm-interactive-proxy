@@ -7,7 +7,7 @@ from typing import Any
 import httpx
 
 from src.connectors.base import LLMBackend
-from src.core.config.app_config import BackendConfig
+from src.core.config.app_config import AppConfig, BackendConfig
 from src.core.interfaces.di_interface import IServiceProvider
 from src.core.services.backend_registry import BackendRegistry
 
@@ -21,25 +21,30 @@ class BackendFactory:
     """
 
     def __init__(
-        self, httpx_client: httpx.AsyncClient, backend_registry: BackendRegistry
+        self,
+        httpx_client: httpx.AsyncClient,
+        backend_registry: BackendRegistry,
+        config: AppConfig,
     ) -> None:
         """Initialize the backend factory.
 
         Args:
             httpx_client: HTTP client for API calls
             backend_registry: The registry for discovering backends
+            config: The application configuration
         """
         self._client = httpx_client
         self._backend_registry = backend_registry
+        self._config = config  # Stored config
 
     def create_backend(
-        self, backend_type: str, api_key: str | None = None
+        self, backend_type: str, config: AppConfig  # Added config
     ) -> LLMBackend:
         """Create a backend instance of the specified type.
 
         Args:
             backend_type: The type of backend to create
-            api_key: The API key to use for the backend (deprecated, use initialize_backend instead)
+            config: The application configuration
 
         Returns:
             A new LLM backend instance
@@ -48,23 +53,25 @@ class BackendFactory:
             ValueError: If the backend type is not supported
         """
         backend_factory = self._backend_registry.get_backend_factory(backend_type)
-        # Backend connectors only accept the client in constructor
-        # API keys are set during initialization
-        return backend_factory(self._client)
+        # Backend connectors only accept the client and config in constructor
+        return backend_factory(self._client, self._config)  # Modified
 
     async def initialize_backend(
-        self, backend: LLMBackend, config: dict[str, Any]
+        self, backend: LLMBackend, init_config: dict[str, Any]
     ) -> None:
         """Initialize a backend with configuration.
 
         Args:
             backend: The backend to initialize
-            config: The configuration for the backend
+            init_config: The configuration for the backend
         """
-        await backend.initialize(**config)
+        await backend.initialize(**init_config)
 
     async def ensure_backend(
-        self, backend_type: str, backend_config: BackendConfig | None = None
+        self,
+        backend_type: str,
+        app_config: AppConfig,  # Added app_config
+        backend_config: BackendConfig | None = None,
     ) -> LLMBackend:
         """Create and initialize a backend given a canonical BackendConfig.
 
@@ -114,7 +121,7 @@ class BackendFactory:
         logger.info(f"Factory initializing backend {backend_type} with {init_config}")
 
         # Step 1: Create the backend instance
-        backend = self.create_backend(backend_type)
+        backend = self.create_backend(backend_type, app_config)  # Modified
 
         # Step 2: Initialize it with the config
         await self.initialize_backend(backend, init_config)

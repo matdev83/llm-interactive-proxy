@@ -18,7 +18,10 @@ class TestQwenOAuthEnhancedErrorHandling:
     def connector(self):
         """Create a QwenOAuth connector with a mocked httpx client."""
         mock_client = AsyncMock(spec=httpx.AsyncClient)
-        connector = QwenOAuthConnector(mock_client)
+        from src.core.config.app_config import AppConfig
+
+        config = AppConfig()
+        connector = QwenOAuthConnector(mock_client, config=config)
         return connector
 
     @pytest.mark.asyncio

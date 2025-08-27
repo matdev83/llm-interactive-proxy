@@ -12,7 +12,10 @@ class TestGeminiTemperatureHandling:
     def gemini_backend(self):
         """Create a GeminiBackend instance for testing."""
         mock_client = AsyncMock()
-        return GeminiBackend(mock_client)
+        from src.core.config.app_config import AppConfig
+
+        config = AppConfig()
+        return GeminiBackend(mock_client, config=config)
 
     @pytest.fixture
     def sample_request_data(self):

@@ -1,7 +1,7 @@
 from typing import Any
 
 from src.connectors.base import LLMBackend
-from src.core.config.app_config import BackendConfig
+from src.core.config.app_config import AppConfig, BackendConfig
 from src.core.domain.configuration.app_identity_config import AppIdentityConfig
 from src.core.domain.responses import ResponseEnvelope
 from src.core.services.backend_factory import BackendFactory
@@ -38,7 +38,10 @@ class MockBackendFactory(BackendFactory):
         self._backends: dict[str, MockBackend] = {}
 
     async def ensure_backend(
-        self, backend_type: str, backend_config: BackendConfig | None = None
+        self,
+        backend_type: str,
+        app_config: AppConfig,
+        backend_config: BackendConfig | None = None,
     ) -> LLMBackend:
         if backend_type not in self._backends:
             self._backends[backend_type] = MockBackend()

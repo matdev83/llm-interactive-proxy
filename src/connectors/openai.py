@@ -4,7 +4,6 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-import asyncio
 from collections.abc import AsyncGenerator, AsyncIterator
 from typing import Any, cast
 
@@ -14,15 +13,12 @@ from fastapi import HTTPException
 from src.connectors.base import LLMBackend
 from src.core.adapters.api_adapters import dict_to_domain_chat_request
 from src.core.common.exceptions import AuthenticationError, ServiceUnavailableError
+from src.core.config.app_config import AppConfig
 from src.core.domain.chat import ChatRequest
 from src.core.domain.responses import ResponseEnvelope, StreamingResponseEnvelope
-from src.core.interfaces.configuration_interface import (
-    IAppIdentityConfig,  # Import IAppIdentityConfig
-)
+from src.core.interfaces.configuration_interface import IAppIdentityConfig
 from src.core.interfaces.model_bases import DomainModel, InternalDTO
-from src.core.interfaces.response_processor_interface import (
-    IResponseProcessor,  # Import IResponseProcessor
-)
+from src.core.interfaces.response_processor_interface import IResponseProcessor
 from src.core.services.backend_registry import backend_registry
 
 # Add health check flag for subclasses to control behavior
@@ -44,10 +40,12 @@ class OpenAIConnector(LLMBackend):
     def __init__(
         self,
         client: httpx.AsyncClient,
+        config: AppConfig,  # Added
         response_processor: IResponseProcessor | None = None,
     ) -> None:
-        super().__init__(response_processor)
+        super().__init__(config, response_processor)
         self.client = client
+        self.config = config  # Stored config
         self.available_models: list[str] = []
         self.api_key: str | None = None
         self.api_base_url: str = "https://api.openai.com/v1"
@@ -375,19 +373,41 @@ class OpenAIConnector(LLMBackend):
             )
 
         async def gen() -> AsyncGenerator[bytes, None]:
+            # Initialize JSON repair processor if enabled
+            if self.config.session.json_repair_enabled:
+                from src.core.services.json_repair_service import JsonRepairService
+                from src.core.services.streaming_json_repair_processor import (
+                    StreamingJsonRepairProcessor,
+                )
+
+                json_repair_service = JsonRepairService()
+                processor = StreamingJsonRepairProcessor(
+                    repair_service=json_repair_service,
+                    buffer_cap_bytes=self.config.session.json_repair_buffer_cap_bytes,
+                    strict_mode=self.config.session.json_repair_strict_mode,
+                )
+
+                # Wrap the raw stream with the JSON repair processor
+                # Convert AsyncIterator to AsyncGenerator for compatibility
+                async def text_generator() -> AsyncGenerator[str, None]:
+                    async for chunk in response.aiter_text():
+                        yield chunk
+
+                processed_stream = processor.process_stream(text_generator())
+            else:
+                # If JSON repair is disabled, just use the raw stream
+                # Convert AsyncIterator to AsyncGenerator for consistency
+                async def text_generator() -> AsyncGenerator[str, None]:
+                    async for chunk in response.aiter_text():
+                        yield chunk
+
+                processed_stream = text_generator()
+
             try:
-                it = response.aiter_bytes()
-                if hasattr(it, "__aiter__"):
-                    async for chunk in it:
-                        yield chunk
-                elif hasattr(it, "__iter__"):
-                    for chunk in it:  # type: ignore[misc]
-                        yield chunk
-                elif asyncio.iscoroutine(it):
-                    res = await it
-                    if hasattr(res, "__iter__"):
-                        for chunk in res:
-                            yield chunk
+                async for chunk in processed_stream:
+                    # OpenAI streaming responses are typically already JSON chunks
+                    # We just need to yield them as bytes
+                    yield chunk.encode("utf-8")
             finally:
                 import contextlib
 

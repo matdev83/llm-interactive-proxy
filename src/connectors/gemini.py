@@ -12,6 +12,7 @@ from fastapi import HTTPException
 from src.connectors.base import LLMBackend
 from src.core.adapters.api_adapters import dict_to_domain_chat_request
 from src.core.common.exceptions import BackendError, ServiceUnavailableError
+from src.core.config.app_config import AppConfig  # Added
 from src.core.domain.chat import (
     ChatRequest,
     MessageContentPartImage,
@@ -22,6 +23,10 @@ from src.core.interfaces.configuration_interface import IAppIdentityConfig
 from src.core.interfaces.model_bases import DomainModel, InternalDTO
 from src.core.interfaces.response_processor_interface import ProcessedResponse
 from src.core.services.backend_registry import backend_registry
+from src.core.services.json_repair_service import JsonRepairService  # Added
+from src.core.services.streaming_json_repair_processor import (
+    StreamingJsonRepairProcessor,  # Added
+)
 
 # Legacy ChatCompletionRequest removed from connector signatures; use domain ChatRequest
 
@@ -36,8 +41,11 @@ class GeminiBackend(LLMBackend):
 
     backend_type: str = "gemini"
 
-    def __init__(self, client: httpx.AsyncClient) -> None:
+    def __init__(
+        self, client: httpx.AsyncClient, config: AppConfig
+    ) -> None:  # Modified
         self.client = client
+        self.config = config  # Stored config
         self.available_models: list[str] = []
         self.api_keys: list[str] = []
 
@@ -270,46 +278,39 @@ class GeminiBackend(LLMBackend):
                 )
 
             async def stream_generator() -> AsyncGenerator[ProcessedResponse, None]:
-                decoder = json.JSONDecoder()
-                buffer = ""
+                # Initialize JSON repair processor if enabled
+                if self.config.session.json_repair_enabled:
+                    json_repair_service = JsonRepairService()
+                    processor = StreamingJsonRepairProcessor(
+                        repair_service=json_repair_service,
+                        buffer_cap_bytes=self.config.session.json_repair_buffer_cap_bytes,
+                        strict_mode=self.config.session.json_repair_strict_mode,
+                        schema=self.config.session.json_repair_schema,  # Added schema
+                    )
+                    # Wrap the raw stream with the JSON repair processor
+                    processed_stream = processor.process_stream(response.aiter_text())
+                else:
+                    # If JSON repair is disabled, just use the raw stream
+                    processed_stream = response.aiter_text()
+
                 try:
-                    async for chunk in response.aiter_text():
-                        buffer += chunk
-                        while True:
-                            buffer = buffer.lstrip()
-                            if not buffer:
-                                break
-                            try:
-                                obj, idx = decoder.raw_decode(buffer)
-                            except json.JSONDecodeError:
-                                break
+                    async for chunk in processed_stream:
+                        # If JSON repair is enabled, the processor yields repaired JSON strings
+                        # or raw text. If disabled, it yields raw text.
+                        # Convert Gemini format to OpenAI format for consistency
+                        from src.gemini_converters import gemini_to_openai_stream_chunk
 
-                            if isinstance(obj, list):
-                                for item in obj:
-                                    if isinstance(item, dict):
-                                        converted = self._convert_stream_chunk(
-                                            item, effective_model
-                                        )
-                                        yield f"data: {json.dumps(converted)}\n\n".encode()
-                                    else:
-                                        logger.warning(
-                                            f"Unexpected item type in Gemini stream: {type(item)}"
-                                        )
-                            elif isinstance(
-                                obj, dict
-                            ):  # Ensure obj is a dict before processing
-                                converted = self._convert_stream_chunk(
-                                    obj, effective_model
-                                )
-                                yield f"data: {json.dumps(converted)}\n\n".encode()
-                            else:
-                                logger.warning(
-                                    f"Unexpected object type in Gemini stream: {type(obj)}"
-                                )
+                        if chunk.startswith(("data: ", "id: ", ":")):
+                            # Convert Gemini SSE chunk to OpenAI format
+                            openai_chunk = gemini_to_openai_stream_chunk(chunk)
+                            yield openai_chunk.encode()
+                        else:
+                            # Convert raw Gemini JSON to OpenAI format
+                            openai_chunk = gemini_to_openai_stream_chunk(
+                                f"data: {chunk}"
+                            )
+                            yield openai_chunk.encode()
 
-                            buffer = buffer[idx:]
-                            if buffer.startswith(","):
-                                buffer = buffer[1:]
                     yield b"data: [DONE]\n\n"
                 finally:
                     await response.aclose()
@@ -340,7 +341,7 @@ class GeminiBackend(LLMBackend):
         **kwargs: Any,
     ) -> ResponseEnvelope | StreamingResponseEnvelope:
         # Resolve base configuration
-        base_api_url, headers = self._resolve_gemini_api_config(
+        base_api_url, headers = await self._resolve_gemini_api_config(
             gemini_api_base_url, openrouter_api_base_url, api_key, **kwargs
         )
         if identity:
@@ -421,7 +422,7 @@ class GeminiBackend(LLMBackend):
             model_url, payload, headers, effective_model
         )
 
-    def _resolve_gemini_api_config(
+    async def _resolve_gemini_api_config(
         self,
         gemini_api_base_url: str | None,
         openrouter_api_base_url: str | None,

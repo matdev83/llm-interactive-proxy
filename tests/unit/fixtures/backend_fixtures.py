@@ -58,6 +58,8 @@ def mock_backend_factory() -> Mock:
     """
     factory = Mock()
     factory.create_backend = Mock()
+    # Mock the create_backend method to accept config parameter
+    factory.create_backend.side_effect = lambda backend_type, config=None: Mock()
     return factory
 
 

@@ -60,8 +60,13 @@ from fastapi import HTTPException
 from google.auth.exceptions import RefreshError
 
 from src.core.common.exceptions import AuthenticationError, BackendError
+from src.core.config.app_config import AppConfig
 from src.core.domain.responses import ResponseEnvelope, StreamingResponseEnvelope
 from src.core.services.backend_registry import backend_registry
+from src.core.services.json_repair_service import JsonRepairService
+from src.core.services.streaming_json_repair_processor import (
+    StreamingJsonRepairProcessor,
+)
 
 from .gemini import GeminiBackend
 
@@ -167,8 +172,10 @@ class GeminiCloudProjectConnector(GeminiBackend):
 
     backend_type: str = "gemini-cli-cloud-project"
 
-    def __init__(self, client: httpx.AsyncClient, **kwargs: Any) -> None:
-        super().__init__(client)
+    def __init__(
+        self, client: httpx.AsyncClient, config: AppConfig, **kwargs: Any
+    ) -> None:  # Modified
+        super().__init__(client, config)  # Modified
         self.name = "gemini-cli-cloud-project"
         self.is_functional = False
         self._oauth_credentials: dict[str, Any] | None = None
@@ -461,7 +468,7 @@ class GeminiCloudProjectConnector(GeminiBackend):
             logger.error(f"Failed to validate project access: {e}")
             raise
 
-    def _resolve_gemini_api_config(
+    async def _resolve_gemini_api_config(
         self,
         gemini_api_base_url: str | None,
         openrouter_api_base_url: str | None,
@@ -784,28 +791,43 @@ class GeminiCloudProjectConnector(GeminiBackend):
                             status_code=response.status_code,
                         )
 
-                    response_text = response.text
-                    for line in response_text.split("\n"):
-                        if line.startswith("data: "):
-                            data_str = line[6:].strip()
-                            if data_str == "[DONE]":
-                                yield b"data: [DONE]\n\n"
-                                break
+                    # Initialize JSON repair processor if enabled
+                    if self.config.session.json_repair_enabled:
+                        json_repair_service = JsonRepairService()
+                        processor = StreamingJsonRepairProcessor(
+                            repair_service=json_repair_service,
+                            buffer_cap_bytes=self.config.session.json_repair_buffer_cap_bytes,
+                            strict_mode=self.config.session.json_repair_strict_mode,
+                            schema=self.config.session.json_repair_schema,  # Added schema
+                        )
+                        # Wrap the raw stream with the JSON repair processor
+                        processed_stream = processor.process_stream(
+                            response.aiter_text()
+                        )
+                    else:
+                        # If JSON repair is disabled, just use the raw stream
+                        processed_stream = response.aiter_text()
 
-                            try:
-                                data = json.loads(data_str)
-                                openai_chunk = self._convert_stream_chunk(
-                                    data, effective_model
-                                )
-                                yield f"data: {json.dumps(openai_chunk)}\n\n".encode()
-                            except json.JSONDecodeError:
-                                continue
-                        elif line.strip() and not line.startswith(":"):
-                            yield f"{line}\n".encode()
+                    async for chunk in processed_stream:
+                        # If JSON repair is enabled, the processor yields repaired JSON strings
+                        # or raw text. If disabled, it yields raw text.
+                        # We need to ensure it's properly formatted as SSE.
+                        if chunk.startswith(("data: ", "id: ", ":")):
+                            # Already SSE formatted or a comment, yield directly
+                            yield chunk.encode()
+                        else:
+                            # Assume it's a raw text chunk (either repaired JSON or non-JSON text)
+                            # and format it as an SSE data event.
+                            yield f"data: {chunk}\n\n".encode()
+
+                    yield b"data: [DONE]\n\n"
 
                 except Exception as e:
                     logger.error(f"Error in streaming generator: {e}")
                     yield b"data: [DONE]\n\n"
+
+                finally:
+                    await response.aclose()
 
             return StreamingResponseEnvelope(
                 content=stream_generator(),

@@ -13,6 +13,7 @@ from src.core.common.exceptions import (
     BackendError,
     ServiceUnavailableError,
 )
+from src.core.config.app_config import AppConfig
 from src.core.domain.chat import ChatRequest
 from src.core.domain.responses import ResponseEnvelope, StreamingResponseEnvelope
 from src.core.interfaces.configuration_interface import IAppIdentityConfig
@@ -27,8 +28,10 @@ class OpenRouterBackend(OpenAIConnector):
 
     backend_type: str = "openrouter"
 
-    def __init__(self, client: httpx.AsyncClient) -> None:
-        super().__init__(client)
+    def __init__(
+        self, client: httpx.AsyncClient, config: AppConfig
+    ) -> None:  # Modified
+        super().__init__(client, config)  # Modified
         self.api_base_url = "https://openrouter.ai/api/v1"
         self.headers_provider: Callable[[str, str], dict[str, str]] | None = None
         self.key_name: str | None = None

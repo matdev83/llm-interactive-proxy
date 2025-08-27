@@ -29,7 +29,10 @@ class TestQwenOAuthConnectorUnit:
     @pytest.fixture
     def connector(self, mock_client):
         """QwenOAuthConnector instance with mocked client."""
-        return QwenOAuthConnector(mock_client)
+        from src.core.config.app_config import AppConfig
+
+        config = AppConfig()
+        return QwenOAuthConnector(mock_client, config=config)
 
     @pytest.fixture
     def mock_credentials_content(self):

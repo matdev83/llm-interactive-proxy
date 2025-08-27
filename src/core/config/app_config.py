@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import contextlib
+import json
 import logging
 import os
 from enum import Enum
@@ -109,6 +110,11 @@ class SessionConfig(DomainModel):
     tool_call_repair_enabled: bool = True
     # Max per-session buffer for tool-call repair streaming (bytes)
     tool_call_repair_buffer_cap_bytes: int = 64 * 1024
+    json_repair_enabled: bool = True
+    # Max per-session buffer for JSON repair streaming (bytes)
+    json_repair_buffer_cap_bytes: int = 64 * 1024
+    json_repair_strict_mode: bool = False
+    json_repair_schema: dict[str, Any] | None = None  # Added
 
 
 class EmptyResponseConfig(DomainModel):
@@ -311,6 +317,17 @@ class AppConfig(DomainModel, IConfig):
                 if os.environ.get("TOOL_CALL_REPAIR_BUFFER_CAP_BYTES")
                 else 65536
             ),
+            "json_repair_enabled": os.environ.get("JSON_REPAIR_ENABLED", "true").lower()
+            == "true",
+            # Optional cap for streaming repair buffer
+            "json_repair_buffer_cap_bytes": (
+                int(os.environ.get("JSON_REPAIR_BUFFER_CAP_BYTES", "65536"))
+                if os.environ.get("JSON_REPAIR_BUFFER_CAP_BYTES")
+                else 65536
+            ),
+            "json_repair_schema": json.loads(
+                os.environ.get("JSON_REPAIR_SCHEMA", "null")
+            ),  # Added
         }
 
         config["logging"] = {

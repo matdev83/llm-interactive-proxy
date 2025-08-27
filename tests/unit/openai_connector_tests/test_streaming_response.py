@@ -58,6 +58,20 @@ class MockResponse:
         """Async context manager exit point."""
         await self.aclose()
 
+    def aiter_text(self) -> Any:
+        """Mock aiter_text method that converts bytes to text."""
+        if self.aiter_bytes:
+            # Convert bytes iterator to text iterator
+            async def text_generator():
+                async for chunk in self.aiter_bytes():
+                    if isinstance(chunk, bytes):
+                        yield chunk.decode("utf-8")
+                    else:
+                        yield str(chunk)
+
+            return text_generator()
+        return None
+
 
 class AsyncIterBytes:
     """Mock async iterator for bytes."""
@@ -78,7 +92,7 @@ class AsyncIterBytes:
 
 
 class SyncIterBytes:
-    """Mock sync iterator for bytes."""
+    """Mock sync iterator for bytes that also supports async iteration."""
 
     def __init__(self, chunks: list[bytes]) -> None:
         self.chunks = chunks
@@ -94,6 +108,18 @@ class SyncIterBytes:
         self.index += 1
         return chunk
 
+    def __aiter__(self) -> SyncIterBytes:
+        """Support async iteration."""
+        return self
+
+    async def __anext__(self) -> bytes:
+        """Support async iteration."""
+        if self.index >= len(self.chunks):
+            raise StopAsyncIteration
+        chunk = self.chunks[self.index]
+        self.index += 1
+        return chunk
+
 
 @pytest.fixture
 def connector(mocker: MockerFixture) -> OpenAIConnector:
@@ -103,7 +129,12 @@ def connector(mocker: MockerFixture) -> OpenAIConnector:
     mock_instance = mock_async_client.return_value
     mock_instance.send.return_value = MockResponse()  # Default mock response
 
-    connector = OpenAIConnector(mock_instance)
+    from src.core.config.app_config import AppConfig
+
+    config = AppConfig()
+    # Disable JSON repair for streaming tests to test basic functionality
+    config.session.json_repair_enabled = False
+    connector = OpenAIConnector(mock_instance, config=config)
     connector.api_key = "test-api-key"
     return connector
 
@@ -203,8 +234,9 @@ async def test_streaming_response_coroutine(
     chunks = [b"chunk1", b"chunk2", b"chunk3"]
     mock_response = MockResponse(headers={"Content-Type": "text/event-stream"})
 
-    async def mock_aiter_bytes() -> list[bytes]:
-        return chunks
+    async def mock_aiter_bytes():
+        for chunk in chunks:
+            yield chunk
 
     mock_response.aiter_bytes = mock_aiter_bytes
 

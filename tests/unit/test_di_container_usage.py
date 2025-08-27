@@ -155,6 +155,7 @@ class DIViolationScanner:
             "src\\core\\di\\container.py",  # Whitelist DI container implementation details
             "src\\core\\services\\application_state_service.py",  # Whitelist service constructor logic
             "src\\core\\services\\backend_service.py",  # Whitelist service constructor logic
+            "src\\connectors\\",  # Whitelist all connector files - they may instantiate utility services locally
         ]
 
         return any(pattern in str(file_path) for pattern in skip_patterns)

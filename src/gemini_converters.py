@@ -247,6 +247,99 @@ def openai_to_gemini_stream_chunk(chunk_data: str) -> str:
         return "data: {}\n\n"
 
 
+def gemini_to_openai_stream_chunk(chunk_data: str) -> str:
+    """Convert Gemini streaming chunk to OpenAI streaming format."""
+    try:
+        # Parse the Gemini chunk
+        if chunk_data.startswith("data: "):
+            chunk_data = chunk_data[6:]
+
+        if chunk_data.strip() == "[DONE]":
+            return "data: [DONE]\n\n"
+
+        gemini_chunk = json.loads(chunk_data)
+
+        # Handle Gemini array format (multiple candidates in one chunk)
+        if isinstance(gemini_chunk, list):
+            openai_chunks = []
+            for item in gemini_chunk:
+                if item.get("candidates"):
+                    candidate = item["candidates"][0]
+                    openai_chunk = _gemini_candidate_to_openai_chunk(candidate)
+                    if openai_chunk:
+                        openai_chunks.append(openai_chunk)
+            return "".join(openai_chunks)
+
+        # Handle single Gemini object format
+        elif isinstance(gemini_chunk, dict) and "candidates" in gemini_chunk:
+            if gemini_chunk["candidates"]:
+                candidate = gemini_chunk["candidates"][0]
+                openai_chunk = _gemini_candidate_to_openai_chunk(candidate)
+                if openai_chunk:
+                    return openai_chunk
+
+        # If parsing fails, return empty chunk
+        return "data: {}\n\n"
+
+    except Exception:
+        # If parsing fails, return empty chunk
+        return "data: {}\n\n"
+
+
+def _gemini_candidate_to_openai_chunk(candidate: dict[str, Any]) -> str | None:
+    """Convert a single Gemini candidate to OpenAI chunk format."""
+    try:
+        openai_chunk: dict[str, Any] = {
+            "id": "chatcmpl-gemini",
+            "object": "chat.completion.chunk",
+            "created": 1677652288,
+            "model": "gemini",
+            "choices": [],
+        }
+
+        choice: dict[str, Any] = {"index": 0, "delta": {}, "finish_reason": None}
+
+        # Extract content from Gemini candidate
+        if "content" in candidate:
+            content = candidate["content"]
+            if "parts" in content:
+                for part in content["parts"]:
+                    if "text" in part:
+                        choice["delta"]["content"] = part["text"]
+                    elif "functionCall" in part:
+                        # Handle function calls
+                        function_call = part["functionCall"]
+                        choice["delta"]["tool_calls"] = [
+                            {
+                                "index": 0,
+                                "id": f"call_{function_call.get('name', 'unknown')}",
+                                "function": {
+                                    "name": function_call.get("name", ""),
+                                    "arguments": json.dumps(
+                                        function_call.get("args", {})
+                                    ),
+                                },
+                                "type": "function",
+                            }
+                        ]
+
+        # Extract finish reason
+        if "finishReason" in candidate:
+            finish_reason = candidate["finishReason"].lower()
+            if finish_reason == "stop":
+                choice["finish_reason"] = "stop"
+            elif finish_reason == "max_tokens":
+                choice["finish_reason"] = "length"
+            elif finish_reason == "tool_calls":
+                choice["finish_reason"] = "tool_calls"
+
+        openai_chunk["choices"].append(choice)
+        return f"data: {json.dumps(openai_chunk)}\n\n"
+
+    except Exception:
+        return None
+
+
 def openai_models_to_gemini_models(
     openai_models: list[dict[str, Any]],
 ) -> ListModelsResponse:

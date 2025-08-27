@@ -624,7 +624,9 @@ def register_core_services(
 
         # Create backend factory - always use real implementation, ignore any mocks
         # This ensures BackendService uses real backends even in test environments
-        backend_factory: BackendFactory = BackendFactory(httpx_client, backend_registry)
+        backend_factory: BackendFactory = BackendFactory(
+            httpx_client, backend_registry, app_config
+        )
 
         # Create rate limiter
         rate_limiter: RateLimiter = RateLimiter()

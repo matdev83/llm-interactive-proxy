@@ -44,7 +44,10 @@ async def test_chat_completions_http_error_streaming(
     monkeypatch.setattr(httpx.AsyncClient, "send", mock_send)
 
     async with httpx.AsyncClient() as client:
-        gemini_backend = GeminiBackend(client=client)
+        from src.core.config.app_config import AppConfig
+
+        config = AppConfig()
+        gemini_backend = GeminiBackend(client=client, config=config)
         with pytest.raises(BackendError) as exc_info:
             await gemini_backend.chat_completions(
                 request_data=sample_chat_request_data,

@@ -243,7 +243,7 @@ def interactive_client(
         return MagicMock()
 
     async def ensure_backend_side_effect(
-        backend_type: str, backend_config: Any | None = None
+        backend_type: str, app_config: Any, backend_config: Any | None = None
     ) -> MagicMock:
         return create_backend_side_effect(backend_type)
 

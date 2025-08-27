@@ -255,8 +255,24 @@ class BackendService(IBackendService):
                     backend_type
                 )
 
+            # Use provider config if available, otherwise use default app config
+            from src.core.config.app_config import AppConfig
+
+            if isinstance(provider_cfg, AppConfig):
+                app_config = provider_cfg
+            else:
+                app_config = cast(AppConfig, self._config)
+
+            # Cast provider_cfg to BackendConfig for type compatibility
+            from src.core.config.app_config import BackendConfig
+
+            backend_config = (
+                provider_cfg
+                if isinstance(provider_cfg, BackendConfig) or provider_cfg is None
+                else None
+            )
             backend: LLMBackend = await self._factory.ensure_backend(
-                backend_type, provider_cfg
+                backend_type, app_config, backend_config
             )
             self._backends[backend_type] = backend
             return backend

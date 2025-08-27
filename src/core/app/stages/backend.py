@@ -98,7 +98,12 @@ class BackendStage(InitializationStage):
                 backend_registry_instance: BackendRegistry = (
                     provider.get_required_service(BackendRegistry)
                 )
-                return BackendFactory(httpx_client, backend_registry_instance)
+                app_config: AppConfig = provider.get_required_service(
+                    AppConfig
+                )  # Added
+                return BackendFactory(
+                    httpx_client, backend_registry_instance, app_config
+                )  # Modified
 
             services.add_singleton(
                 BackendFactory, implementation_factory=backend_factory_factory

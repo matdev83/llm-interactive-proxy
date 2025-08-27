@@ -2,27 +2,24 @@
 Qwen OAuth connector that uses refresh_token from qwen-cli oauth_creds.json file
 """
 
-import asyncio  # Import asyncio
+import asyncio
 import json
 import logging
 import time
+from collections.abc import AsyncGenerator
 from pathlib import Path
-from typing import (
-    TYPE_CHECKING,
-    Any,  # Added cast
-)
+from typing import TYPE_CHECKING, Any
 
 import httpx
 from fastapi import HTTPException
 
-from src.core.adapters.api_adapters import (
-    legacy_to_domain_chat_request,
-)
+from src.core.adapters.api_adapters import legacy_to_domain_chat_request
 from src.core.common.exceptions import (
     AuthenticationError,
     BackendError,
     ServiceUnavailableError,
 )
+from src.core.config.app_config import AppConfig
 from src.core.domain.responses import ResponseEnvelope, StreamingResponseEnvelope
 from src.core.interfaces.model_bases import DomainModel, InternalDTO
 from src.core.services.backend_registry import backend_registry
@@ -46,8 +43,10 @@ class QwenOAuthConnector(OpenAIConnector):
 
     backend_type: str = "qwen-oauth"
 
-    def __init__(self, client: httpx.AsyncClient) -> None:
-        super().__init__(client)
+    def __init__(
+        self, client: httpx.AsyncClient, config: AppConfig
+    ) -> None:  # Modified
+        super().__init__(client, config)  # Modified
         self.name = "qwen-oauth"
         self._default_endpoint = "https://dashscope.aliyuncs.com/compatible-mode/v1"
         self.api_base_url = self._default_endpoint
@@ -351,12 +350,48 @@ class QwenOAuthConnector(OpenAIConnector):
             modified_request = chat_request.model_copy(update={"model": model_name})
 
             # Call the parent class method to handle the actual API request
-            return await super().chat_completions(
+            response_envelope = await super().chat_completions(
                 request_data=modified_request,
                 processed_messages=processed_messages,
                 effective_model=model_name,
                 **kwargs,
             )
+
+            # If streaming, wrap the content with the JSON repair processor
+            if (
+                isinstance(response_envelope, StreamingResponseEnvelope)
+                and self.config.session.json_repair_enabled
+            ):
+                from src.core.services.json_repair_service import JsonRepairService
+                from src.core.services.streaming_json_repair_processor import (
+                    StreamingJsonRepairProcessor,
+                )
+
+                json_repair_service = JsonRepairService()
+                processor = StreamingJsonRepairProcessor(
+                    repair_service=json_repair_service,
+                    buffer_cap_bytes=self.config.session.json_repair_buffer_cap_bytes,
+                    strict_mode=self.config.session.json_repair_strict_mode,
+                )
+
+                # Convert AsyncIterator[bytes] to AsyncGenerator[str, None]
+                async def bytes_to_string_generator() -> AsyncGenerator[str, None]:
+                    async for chunk in response_envelope.content:
+                        yield chunk.decode("utf-8")
+
+                # Store the processed stream and convert back to AsyncIterator[bytes]
+                processed_content = processor.process_stream(
+                    bytes_to_string_generator()
+                )
+
+                # Convert the processed string stream back to bytes
+                async def string_to_bytes_generator() -> AsyncGenerator[bytes, None]:
+                    async for chunk in processed_content:
+                        yield chunk.encode("utf-8")
+
+                response_envelope.content = string_to_bytes_generator()
+
+            return response_envelope
 
         except HTTPException:
             # Re-raise HTTP exceptions directly

@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING, Any
 import httpx
 
 from src.core.common.exceptions import AuthenticationError, ConfigurationError
+from src.core.config.app_config import AppConfig
 from src.core.domain.responses import ResponseEnvelope, StreamingResponseEnvelope
 from src.core.interfaces.configuration_interface import IAppIdentityConfig
 from src.core.services.backend_registry import backend_registry
@@ -24,8 +25,10 @@ class ZAIConnector(OpenAIConnector):
 
     backend_type: str = "zai"
 
-    def __init__(self, client: httpx.AsyncClient) -> None:
-        super().__init__(client)
+    def __init__(
+        self, client: httpx.AsyncClient, config: AppConfig
+    ) -> None:  # Modified
+        super().__init__(client, config)  # Modified
         self.api_base_url = "https://open.bigmodel.cn/api/paas/v4/"
         self.name = "zai"
         # Load default models from JSON config file
@@ -126,13 +129,49 @@ class ZAIConnector(OpenAIConnector):
         identity: IAppIdentityConfig | None = None,
         **kwargs: Any,
     ) -> ResponseEnvelope | StreamingResponseEnvelope:
-        return await super().chat_completions(
+        response_envelope = await super().chat_completions(
             request_data=request_data,
             processed_messages=processed_messages,
             effective_model=effective_model,
             identity=identity,
             **kwargs,
         )
+
+        # If streaming, wrap the content with the JSON repair processor
+        if (
+            isinstance(response_envelope, StreamingResponseEnvelope)
+            and self.config.session.json_repair_enabled
+        ):
+            from src.core.services.json_repair_service import JsonRepairService
+            from src.core.services.streaming_json_repair_processor import (
+                StreamingJsonRepairProcessor,
+            )
+
+            json_repair_service = JsonRepairService()
+            processor = StreamingJsonRepairProcessor(
+                repair_service=json_repair_service,
+                buffer_cap_bytes=self.config.session.json_repair_buffer_cap_bytes,
+                strict_mode=self.config.session.json_repair_strict_mode,
+            )
+            from collections.abc import AsyncGenerator, AsyncIterator
+
+            async def _bytes_to_str(
+                stream: AsyncIterator[bytes],
+            ) -> AsyncGenerator[str, None]:
+                async for chunk in stream:
+                    yield chunk.decode("utf-8", errors="ignore")
+
+            async def _str_to_bytes(
+                stream: AsyncGenerator[str, None],
+            ) -> AsyncIterator[bytes]:
+                async for chunk in stream:
+                    yield chunk.encode("utf-8")
+
+            response_envelope.content = _str_to_bytes(
+                processor.process_stream(_bytes_to_str(response_envelope.content))
+            )
+
+        return response_envelope
 
 
 backend_registry.register_backend("zai", ZAIConnector)

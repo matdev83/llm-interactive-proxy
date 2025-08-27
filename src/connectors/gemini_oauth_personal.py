@@ -71,6 +71,7 @@ import httpx
 from fastapi import HTTPException
 
 from src.core.common.exceptions import AuthenticationError, BackendError
+from src.core.config.app_config import AppConfig
 from src.core.domain.responses import ResponseEnvelope, StreamingResponseEnvelope
 from src.core.services.backend_registry import backend_registry
 
@@ -99,8 +100,10 @@ class GeminiOAuthPersonalConnector(GeminiBackend):
 
     backend_type: str = "gemini-cli-oauth-personal"
 
-    def __init__(self, client: httpx.AsyncClient, **kwargs: Any) -> None:
-        super().__init__(client)
+    def __init__(
+        self, client: httpx.AsyncClient, config: AppConfig
+    ) -> None:  # Modified
+        super().__init__(client, config)  # Modified
         self.name = "gemini-cli-oauth-personal"
         self.is_functional = False  # Initialize functional state
         self._oauth_credentials: dict[str, Any] | None = None
@@ -121,8 +124,8 @@ class GeminiOAuthPersonalConnector(GeminiBackend):
         # Start as checked only if explicitly disabled via env, otherwise require first-use check
         self._health_checked: bool = disable_health_checks
 
-        # Set custom .gemini directory path (defaults to ~/.gemini)
-        self.gemini_cli_oauth_path = kwargs.get("gemini_cli_oauth_path")
+        # Set custom .gemini directory path (will be set in initialize)
+        self.gemini_cli_oauth_path: str | None = None
 
     def _is_token_expired(self) -> bool:
         """Check if the current access token is expired or close to expiring."""
@@ -258,6 +261,9 @@ class GeminiOAuthPersonalConnector(GeminiBackend):
             "gemini_api_base_url", "https://cloudcode-pa.googleapis.com"
         )
 
+        # Set custom .gemini directory path (defaults to ~/.gemini)
+        self.gemini_cli_oauth_path = kwargs.get("gemini_cli_oauth_path")
+
         if not await self._load_oauth_credentials():
             logger.warning("Failed to load initial Gemini OAuth credentials.")
             self.is_functional = False
@@ -295,7 +301,7 @@ class GeminiOAuthPersonalConnector(GeminiBackend):
                 "Gemini OAuth Personal backend initialized (models will be loaded on first use)."
             )
 
-    def _resolve_gemini_api_config(
+    async def _resolve_gemini_api_config(
         self,
         gemini_api_base_url: str | None,
         openrouter_api_base_url: str | None,
@@ -735,32 +741,50 @@ class GeminiOAuthPersonalConnector(GeminiBackend):
                             status_code=response.status_code,
                         )
 
-                    # Read the SSE stream and yield chunks
-                    response_text = response.text
-                    for line in response_text.split("\n"):
-                        if line.startswith("data: "):
-                            data_str = line[6:].strip()
-                            if data_str == "[DONE]":
-                                # Send the final [DONE] marker
-                                yield b"data: [DONE]\n\n"
-                                break
+                    # Initialize JSON repair processor if enabled
+                    if self.config.session.json_repair_enabled:
+                        from src.core.services.json_repair_service import (
+                            JsonRepairService,
+                        )
+                        from src.core.services.streaming_json_repair_processor import (
+                            StreamingJsonRepairProcessor,
+                        )
 
-                            try:
-                                data = json.loads(data_str)
-                                # Convert to OpenAI-compatible streaming format
-                                openai_chunk = self._convert_stream_chunk(
-                                    data, effective_model
-                                )
-                                yield f"data: {json.dumps(openai_chunk)}\n\n".encode()
-                            except json.JSONDecodeError:
-                                continue
-                        elif line.strip() and not line.startswith(":"):
-                            # Skip comments but yield other data
-                            yield f"{line}\n".encode()
+                        json_repair_service = JsonRepairService()
+                        processor = StreamingJsonRepairProcessor(
+                            repair_service=json_repair_service,
+                            buffer_cap_bytes=self.config.session.json_repair_buffer_cap_bytes,
+                            strict_mode=self.config.session.json_repair_strict_mode,
+                            schema=self.config.session.json_repair_schema,  # Added schema
+                        )
+                        # Wrap the raw stream with the JSON repair processor
+                        processed_stream = processor.process_stream(
+                            response.aiter_text()
+                        )
+                    else:
+                        # If JSON repair is disabled, just use the raw stream
+                        processed_stream = response.aiter_text()
+
+                    async for chunk in processed_stream:
+                        # If JSON repair is enabled, the processor yields repaired JSON strings
+                        # or raw text. If disabled, it yields raw text.
+                        # We need to ensure it's properly formatted as SSE.
+                        if chunk.startswith(("data: ", "id: ", ":")):
+                            # Already SSE formatted or a comment, yield directly
+                            yield chunk.encode()
+                        else:
+                            # Assume it's a raw text chunk (either repaired JSON or non-JSON text)
+                            # and format it as an SSE data event.
+                            yield f"data: {chunk}\n\n".encode()
+
+                    yield b"data: [DONE]\n\n"
 
                 except Exception as e:
                     logger.error(f"Error in streaming generator: {e}")
                     yield b"data: [DONE]\n\n"
+
+                finally:
+                    await response.aclose()
 
             return StreamingResponseEnvelope(
                 content=stream_generator(),
