@@ -455,6 +455,7 @@ class TestAnthropicFrontendWithoutSDK:
 
         # Patch BackendFactory to return a mock Anthropic backend
         from src.core.services.backend_factory import BackendFactory
+
         self._patchers = []
 
         self.mock_anthropic_backend = MagicMock()
