@@ -18,6 +18,44 @@ The LLM Interactive Proxy is an advanced middleware service that provides a unif
 - **JSON Repair**: Centralized in the streaming pipeline and enabled for non-streaming responses too. Uses `json_repair` library; supports schema validation and strict gating.
 - **Unified API**: OpenAI-compatible API for all backends.
 
+### Wire-Level Capture (Request/Reply Logging)
+
+- Purpose: Capture all outbound LLM requests and inbound replies/streams as-is to a separate capture log. Useful for debugging, auditing, and reproducing issues. The capture runs across all backends without backend-specific code.
+- How it works:
+  - Implemented as a cross-cutting `IWireCapture` service; integrated at the central backend call path.
+  - Non-streaming responses are logged in full. Streaming responses (SSE) are wrapped and teed to the capture file as chunks arrive.
+  - Separators include: UTC timestamp, client host (if available), session id (if available), backend, model, and API key name (ENV var name, not secret value).
+- Enable via CLI: `--capture-file path/to/capture.log` (disabled by default). When omitted, no capture occurs.
+- Configure via environment: set `CAPTURE_FILE` to a path to enable capture.
+- Rotation and truncation options:
+  - `CAPTURE_MAX_BYTES` (int): If set, rotates the current capture file to `<file>.1` when size would exceed this limit, then starts fresh. Rotation is best-effort and overwrites any existing `.1`.
+  - `CAPTURE_TRUNCATE_BYTES` (int): If set, truncates each captured streaming chunk to this many bytes in the capture log (appends `[[truncated]]`). Stream data sent to the client is never truncated.
+- Example output:
+
+```
+----- REQUEST 2025-08-28T12:34:56Z -----
+client=127.0.0.1 session=abc123 -> backend=openrouter model=gpt-4 key=OPENROUTER_API_KEY_1
+{
+  "model": "gpt-4",
+  "messages": [
+    {"role": "user", "content": "Hello"}
+  ],
+  "stream": true
+}
+----- REPLY-STREAM 2025-08-28T12:34:57Z -----
+client=127.0.0.1 session=abc123 -> backend=openrouter model=gpt-4 key=OPENROUTER_API_KEY_1
+data: {"choices":[{"delta":{"content":"Hi"}}]}
+
+data: {"choices":[{"delta":{"content":" there"}}]}
+
+data: [DONE]
+```
+
+Notes:
+- Capture uses best-effort file I/O and never blocks or impacts request processing.
+- API key “name” is derived by matching configured keys to env vars (e.g., `OPENROUTER_API_KEY_1`), never logging secret values.
+- Redaction: if prompt redaction is enabled, capture contains post-redaction payloads.
+
 ### Security: API Key Redaction
 
 - **Outbound Request Redaction**: Before any request reaches a backend, a request redaction middleware scans user message content (including text parts in multimodal messages) and replaces any discovered API keys with a placeholder `(API_KEY_HAS_BEEN_REDACTED)`. It also strips proxy commands (e.g., `!/hello`) to prevent command leakage to providers.

@@ -99,6 +99,13 @@ class LoggingConfig(DomainModel):
     # Optional separate wire-capture log file; when set, all outbound requests
     # and inbound replies/SSE payloads are captured verbatim to this file.
     capture_file: str | None = None
+    # Optional max size in bytes; when exceeded, rotate current capture to
+    # `<capture_file>.1` and start a new file (overwrite existing .1).
+    capture_max_bytes: int | None = None
+    # Optional per-chunk truncation size in bytes for streaming capture. When
+    # set, stream chunks written to capture are truncated to this size with a
+    # short marker appended; streaming to client remains unmodified.
+    capture_truncate_bytes: int | None = None
 
 
 class SessionConfig(DomainModel):
@@ -341,6 +348,17 @@ class AppConfig(DomainModel, IConfig):
             "log_file": os.environ.get("LOG_FILE"),
             # Optional wire-capture file (disabled by default)
             "capture_file": os.environ.get("CAPTURE_FILE"),
+            # Optional rotation/truncation
+            "capture_max_bytes": (
+                int(os.environ.get("CAPTURE_MAX_BYTES", "0"))
+                if os.environ.get("CAPTURE_MAX_BYTES")
+                else None
+            ),
+            "capture_truncate_bytes": (
+                int(os.environ.get("CAPTURE_TRUNCATE_BYTES", "0"))
+                if os.environ.get("CAPTURE_TRUNCATE_BYTES")
+                else None
+            ),
         }
 
         config["empty_response"] = {

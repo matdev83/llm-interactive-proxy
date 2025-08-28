@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
 import os
 from collections.abc import AsyncIterator
@@ -24,6 +25,11 @@ class WireCapture(IWireCapture):
         self._config = config
         self._lock = asyncio.Lock()
         self._file_path: str | None = getattr(config.logging, "capture_file", None)
+        # Rotation/truncation options
+        self._max_bytes: int | None = getattr(config.logging, "capture_max_bytes", None)
+        self._truncate_bytes: int | None = getattr(
+            config.logging, "capture_truncate_bytes", None
+        )
 
         # Ensure directory exists if configured
         if self._file_path:
@@ -112,6 +118,14 @@ class WireCapture(IWireCapture):
                 # Append chunk as-is (bytes) with a small prefix for readability
                 try:
                     text = chunk.decode("utf-8", errors="replace")
+                    # Optional truncation for capture file only (stream to client is not modified)
+                    if self._truncate_bytes and self._truncate_bytes > 0:
+                        enc = text.encode("utf-8")
+                        if len(enc) > self._truncate_bytes:
+                            enc = enc[: self._truncate_bytes]
+                            text = (
+                                enc.decode("utf-8", errors="ignore") + " [[truncated]]"
+                            )
                     await self._append(text)
                 except Exception:
                     # Fallback to repr if decoding fails
@@ -147,6 +161,21 @@ class WireCapture(IWireCapture):
         if not self._file_path:
             return
         async with self._lock:
+            # Rotation: if size exceeds max, move current to .1 and start new
+            if self._max_bytes and self._max_bytes > 0:
+                try:
+                    current_size = (
+                        os.path.getsize(self._file_path)
+                        if os.path.exists(self._file_path)
+                        else 0
+                    )
+                    incoming_size = len(text.encode("utf-8"))
+                    if current_size + incoming_size > self._max_bytes:
+                        rot = f"{self._file_path}.1"
+                        with contextlib.suppress(Exception):
+                            os.replace(self._file_path, rot)
+                except Exception:
+                    pass
             with open(self._file_path, "a", encoding="utf-8") as f:
                 f.write(text)
 

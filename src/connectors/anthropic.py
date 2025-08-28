@@ -25,6 +25,7 @@ from src.core.domain.responses import ResponseEnvelope, StreamingResponseEnvelop
 from src.core.interfaces.configuration_interface import IAppIdentityConfig
 from src.core.interfaces.model_bases import DomainModel, InternalDTO
 from src.core.interfaces.response_processor_interface import ProcessedResponse
+from src.core.services.backend_registry import backend_registry
 
 # Legacy ChatCompletionRequest removed from connector signatures; use domain ChatRequest
 
@@ -462,3 +463,6 @@ class AnthropicBackend(LLMBackend):
         except Exception:
             self.available_models = []
         return cast(list[dict[str, Any]], models)
+
+
+backend_registry.register_backend("anthropic", AnthropicBackend)
