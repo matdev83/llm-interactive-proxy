@@ -93,7 +93,7 @@ class FailoverService:
                 # Parse the element into backend and model
                 elem_backend, elem_model = parse_model_backend(element)
                 attempts.append(FailoverAttempt(backend=elem_backend, model=elem_model))
-            except Exception:
+            except ValueError:
                 logger.warning(
                     "Failed to parse failover route element",
                     element=element,

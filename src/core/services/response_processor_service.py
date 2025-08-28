@@ -6,7 +6,10 @@ import logging
 from collections.abc import AsyncIterator
 from typing import Any
 
-from src.core.common.exceptions import BackendError, LoopDetectionError
+from src.core.common.exceptions import (
+    LoopDetectionError,
+    ParsingError,
+)
 from src.core.domain.chat import ChatResponse, StreamingChatResponse
 from src.core.domain.streaming_response_processor import (
     IStreamProcessor,
@@ -180,7 +183,7 @@ class ResponseProcessor(IResponseProcessor):
                     else:
                         try:
                             usage = dict(response.usage)
-                        except Exception:
+                        except (TypeError, AttributeError):
                             usage = None
 
             # Handle ResponseEnvelope-like object
@@ -202,7 +205,7 @@ class ResponseProcessor(IResponseProcessor):
                                     ):
                                         metadata["http_status_override"] = 400
                     usage = getattr(response, "usage", None)
-                except Exception:
+                except (TypeError, AttributeError):
                     content = str(getattr(response, "content", ""))
                     usage = None
 
@@ -231,7 +234,7 @@ class ResponseProcessor(IResponseProcessor):
             ):  # Ensure content is always a string for ProcessedResponse
                 try:
                     content = json.dumps(content)
-                except Exception:
+                except (TypeError, ValueError):
                     content = str(content)
 
             # If backend returned a domain ResponseEnvelope-like dict indicating an invalid model,
@@ -254,8 +257,10 @@ class ResponseProcessor(IResponseProcessor):
                         # Encode a bad-request style response for compatibility
                         content = msg_content
                         metadata["http_status_override"] = 400
-            except Exception:
-                pass
+            except (KeyError, IndexError, TypeError) as e:
+                logger.debug(
+                    f"Error in test-specific status override: {e}", exc_info=True
+                )
 
             # Create the processed response
             processed_response = ProcessedResponse(
@@ -319,14 +324,23 @@ class ResponseProcessor(IResponseProcessor):
         except LoopDetectionError:
             # Propagate loop detection as-is
             raise
-        except Exception as e:
+        except json.JSONDecodeError as e:
             logger.error(
-                f"Error processing non-streaming response: {e!s}", exc_info=True
+                f"JSON decoding error in non-streaming response: {e!s}", exc_info=True
             )
-            raise BackendError(
-                message=f"Error processing non-streaming response: {e!s}",
-                details={"session_id": session_id},
+            raise ParsingError(
+                message=f"Failed to decode JSON in response: {e!s}",
+                details={"session_id": session_id, "original_error": str(e)},
+            ) from e
+        except (TypeError, ValueError, AttributeError, KeyError, IndexError) as e:
+            # Catch common expected exceptions for data processing
+            logger.error(
+                f"Data processing error in non-streaming response: {e!s}", exc_info=True
             )
+            raise ParsingError(
+                message=f"Error processing response data: {e!s}",
+                details={"session_id": session_id, "original_error": str(e)},
+            ) from e
 
     async def process_streaming_response(
         self, response_iterator: AsyncIterator[Any], session_id: str
@@ -390,7 +404,7 @@ class ResponseProcessor(IResponseProcessor):
                             yield ProcessedResponse(
                                 content=content, metadata={}, usage=None
                             )
-                    except Exception:
+                    except json.JSONDecodeError:
                         # Just yield the raw bytes as string
                         yield ProcessedResponse(
                             content=str(chunk), metadata={}, usage=None
@@ -444,17 +458,36 @@ class ResponseProcessor(IResponseProcessor):
                             usage=None,
                             metadata={},
                         )
-            except Exception as inner_e:
+            except (
+                TypeError,
+                ValueError,
+                json.JSONDecodeError,
+                AttributeError,
+                KeyError,
+            ) as inner_e:
+                # Catch common expected exceptions; others will be caught by the global error handler
                 logger.error(f"Error in stream processing: {inner_e!s}", exc_info=True)
                 yield ProcessedResponse(
                     content=f"Error in stream processing: {inner_e!s}",
                     usage=None,
                     metadata={"error": True},
                 )
-        except Exception as e:
-            logger.error(f"Error processing streaming response: {e!s}", exc_info=True)
+        except json.JSONDecodeError as e:
+            logger.error(
+                f"JSON decoding error in streaming response: {e!s}", exc_info=True
+            )
             yield ProcessedResponse(
-                content=f"Error processing streaming response: {e!s}",
+                content=f"Error decoding JSON in stream: {e!s}",
                 usage=None,
-                metadata={"error": True},
+                metadata={"error": True, "original_error": str(e)},
+            )
+        except (TypeError, ValueError, AttributeError, KeyError) as e:
+            # Catch common expected exceptions for data processing
+            logger.error(
+                f"Data processing error in streaming response: {e!s}", exc_info=True
+            )
+            yield ProcessedResponse(
+                content=f"Error processing streaming data: {e!s}",
+                usage=None,
+                metadata={"error": True, "original_error": str(e)},
             )

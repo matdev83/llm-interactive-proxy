@@ -146,28 +146,6 @@ def get_service_provider() -> IServiceProvider:
     return get_or_build_service_provider()
 
 
-# Define a function to create backend factory without DI
-def _create_backend_factory():  # type: ignore[name-defined]
-    """Create a backend factory instance without using DI.
-
-    This is a special factory method for use in controllers when the DI container
-    is not available but a BackendFactory is needed.
-
-    Returns:
-        BackendFactory instance
-    """
-    # Create HTTP client
-    import httpx
-
-    client = httpx.AsyncClient()
-
-    # Create backend factory
-    from src.core.services.backend_factory import BackendFactory
-    from src.core.services.backend_registry import backend_registry
-
-    return BackendFactory(client, backend_registry)
-
-
 def register_core_services(
     services: ServiceCollection, app_config: AppConfig | None = None
 ) -> None:
@@ -231,40 +209,6 @@ def register_core_services(
     _add_singleton(DefaultSessionResolver)
     # Register both the concrete type and the interface
     _add_singleton(ISessionResolver, DefaultSessionResolver)  # type: ignore[type-abstract]
-
-    # Register application state service
-    def _application_state_factory(
-        provider: IServiceProvider,
-    ) -> ApplicationStateService:
-        # Check if we already have a cached singleton instance (e.g., from test setup)
-        descriptors = getattr(provider, "_descriptors", {})
-        descriptor = descriptors.get(ApplicationStateService)
-        if descriptor and descriptor.instance is not None:
-            return descriptor.instance
-
-        # Create a single ApplicationStateService and also sync it to the
-        # global default to maintain compatibility with tests that use
-        # get_default_application_state() to mutate flags.
-        instance = ApplicationStateService()
-        try:
-            from src.core.services.application_state_service import (
-                set_default_application_state,
-            )
-
-            set_default_application_state(instance)
-        except Exception:
-            pass
-        return instance
-
-    _add_singleton(
-        ApplicationStateService, implementation_factory=_application_state_factory
-    )
-
-    with contextlib.suppress(Exception):
-        services.add_singleton(
-            cast(type, IApplicationState),
-            implementation_factory=_application_state_factory,
-        )  # type: ignore[type-abstract]
 
     # Register CommandRegistry
     from src.core.services.command_service import CommandRegistry
@@ -611,7 +555,7 @@ def register_core_services(
         )
 
         cfg: AppConfig = provider.get_required_service(AppConfig)
-        middlewares: list[IResponseMiddleware] = []  # type: ignore[name-defined]
+        middlewares: list[IResponseMiddleware] = []
 
         # JSON repair for non-streaming responses
         if getattr(cfg.session, "json_repair_enabled", False):
@@ -630,8 +574,12 @@ def register_core_services(
         # Tool call loop detection middleware
         try:
             middlewares.append(ToolCallLoopDetectionMiddleware())
+
             default_loop_config = LoopDetectionConfiguration()
-        except Exception:
+        except Exception as e:
+            logging.getLogger(__name__).warning(
+                f"Error configuring ToolCallLoopDetectionMiddleware: {e}", exc_info=True
+            )
             default_loop_config = None
 
         return MiddlewareApplicationProcessor(
@@ -764,13 +712,15 @@ def register_core_services(
             cast(type, IBackendService), implementation_factory=_backend_service_factory
         )  # type: ignore[type-abstract]
 
-    # Register failover coordinator
+    # Register failover coordinator (if not already registered elsewhere as a concrete type)
     def _failover_coordinator_factory(
         provider: IServiceProvider,
     ) -> FailoverCoordinator:
         from src.core.services.failover_coordinator import FailoverCoordinator
+        from src.core.services.failover_service import FailoverService
 
-        return FailoverCoordinator()
+        failover_service = provider.get_required_service(FailoverService)
+        return FailoverCoordinator(failover_service)
 
     from src.core.services.failover_coordinator import FailoverCoordinator
 

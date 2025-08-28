@@ -9,7 +9,7 @@ import logging
 
 from fastapi import HTTPException, Request, Response
 
-from src.core.common.exceptions import LLMProxyError
+from src.core.common.exceptions import InitializationError, LLMProxyError
 from src.core.domain.chat import ChatRequest
 from src.core.interfaces.backend_request_manager_interface import IBackendRequestManager
 from src.core.interfaces.di_interface import IServiceProvider
@@ -377,8 +377,8 @@ def get_chat_controller(service_provider: IServiceProvider) -> ChatController:
                             singleton_instances[RequestProcessor] = request_processor
 
         if request_processor is None:
-            raise Exception("Could not find or create RequestProcessor")
+            raise InitializationError("Could not find or create RequestProcessor")
 
         return ChatController(request_processor)
     except Exception as e:
-        raise Exception(f"Failed to create ChatController: {e}")
+        raise InitializationError(f"Failed to create ChatController: {e}") from e

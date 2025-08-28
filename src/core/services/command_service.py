@@ -455,8 +455,8 @@ class CommandService(ICommandService):
                 result = await coro_result
             else:
                 result = coro_result
-        except Exception:
-            result = await cmd.execute(args, session, context)
+        except TypeError:
+            result = coro_result
 
         # Update session state if needed
         if (
@@ -470,7 +470,7 @@ class CommandService(ICommandService):
                 )
                 try:
                     session.update_state(result.new_state)
-                except Exception:
+                except (AttributeError, TypeError):
                     session.state = result.new_state
             else:
                 logger.info(

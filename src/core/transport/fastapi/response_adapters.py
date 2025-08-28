@@ -90,7 +90,7 @@ def to_fastapi_response(
                 async_mock = AsyncMock
             except ImportError:
                 async_mock = None
-        except Exception:
+        except ImportError:
             async_mock = None
 
         def _sanitize(obj: Any) -> Any:
@@ -106,7 +106,7 @@ def to_fastapi_response(
             try:
                 if asyncio.iscoroutine(obj):
                     return str(obj)
-            except Exception:
+            except TypeError:
                 pass
             if async_mock is not None:
                 try:
@@ -119,7 +119,7 @@ def to_fastapi_response(
             try:
                 json.dumps(obj)
                 return obj
-            except Exception:
+            except TypeError:
                 return str(obj)
 
         safe_content = _sanitize(content)
@@ -170,7 +170,7 @@ def to_fastapi_response(
                         and "Model 'bad' not found" in msg.get("content", "")
                     ):
                         safe_status_code = 400
-        except Exception:
+        except (KeyError, IndexError, TypeError):
             pass
 
         return JSONResponse(

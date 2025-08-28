@@ -115,6 +115,13 @@ class JsonRepairProcessor(IStreamProcessor):
                             strict=self._strict_mode,
                         )
                     except Exception as e:  # pragma: no cover - strict mode rethrow
+                        if self._strict_mode:
+                            from src.core.common.exceptions import JSONParsingError
+
+                            raise JSONParsingError(
+                                message=f"JSON repair failed in strict mode: {e}",
+                                details={"original_buffer": self._buffer},
+                            ) from e
                         logger.warning("JSON repair raised error: %s", e)
                         repaired = None
 

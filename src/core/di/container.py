@@ -4,6 +4,7 @@ import inspect
 from collections.abc import Callable
 from typing import Any, TypeVar
 
+from src.core.common.exceptions import ServiceResolutionError
 from src.core.interfaces.di_interface import (
     IServiceCollection,
     IServiceProvider,
@@ -83,7 +84,7 @@ class ServiceScope(IServiceScope):
             if hasattr(instance, "__aenter__") and hasattr(instance, "__aexit__"):
                 await instance.__aexit__(None, None, None)
             elif hasattr(instance, "dispose") and callable(instance.dispose):
-                await instance.dispose()
+                instance.dispose()
 
         self._instances.clear()
 
@@ -109,9 +110,10 @@ class ScopedServiceProvider(IServiceProvider):
         """Get a service of the given type, throwing if not found."""
         service = self.get_service(service_type)
         if service is None:
-            # Handle Mock objects which don't have __name__
             type_name = getattr(service_type, "__name__", str(service_type))
-            raise KeyError(f"No service registered for {type_name}")
+            raise ServiceResolutionError(
+                f"No service registered for {type_name}", service_name=type_name
+            )
         return service
 
     def create_scope(self) -> IServiceScope:
@@ -139,9 +141,10 @@ class ServiceProvider(IServiceProvider):
         """Get a service of the given type, throwing if not found."""
         service = self.get_service(service_type)
         if service is None:
-            # Handle Mock objects which don't have __name__
             type_name = getattr(service_type, "__name__", str(service_type))
-            raise KeyError(f"No service registered for {type_name}")
+            raise ServiceResolutionError(
+                f"No service registered for {type_name}", service_name=type_name
+            )
         return service
 
     def create_scope(self) -> IServiceScope:

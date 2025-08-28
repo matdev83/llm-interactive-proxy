@@ -70,7 +70,7 @@ class EmptyResponseMiddleware(IResponseMiddleware):
                     f"Recovery prompt file not found at {prompt_path}, using fallback"
                 )
 
-        except Exception as e:
+        except OSError as e:
             logger.error(f"Error loading recovery prompt: {e}")
             self._recovery_prompt = (
                 "The previous response was empty. Please provide a valid response "

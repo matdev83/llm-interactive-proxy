@@ -80,7 +80,7 @@ class LoopDetector(ILoopDetector):
                         if isinstance(v, int):
                             return int(v)
                 return int(value)  # last resort
-            except Exception:
+            except (TypeError, ValueError):
                 return default
 
         min_len = _as_int(self._min_pattern_length, 50)

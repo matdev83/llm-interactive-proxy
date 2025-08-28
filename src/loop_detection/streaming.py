@@ -41,7 +41,8 @@ def _detect_simple_repetition(text: str) -> tuple[str | None, int]:
                 if repeats >= 3:
                     return (candidate, repeats)
         return (None, 0)
-    except Exception:
+    except IndexError as e:
+        logger.debug(f"Error during simple repetition detection: {e}")
         return (None, 0)
 
 

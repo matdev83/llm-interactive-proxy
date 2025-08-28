@@ -16,7 +16,7 @@ from src.anthropic_converters import (
     openai_to_anthropic_response,
 )
 from src.anthropic_models import AnthropicMessagesRequest
-from src.core.common.exceptions import LLMProxyError
+from src.core.common.exceptions import InitializationError, LLMProxyError
 from src.core.interfaces.di_interface import IServiceProvider
 from src.core.interfaces.request_processor_interface import IRequestProcessor
 from src.core.interfaces.session_resolver_interface import ISessionResolver
@@ -340,8 +340,8 @@ def get_anthropic_controller(service_provider: IServiceProvider) -> AnthropicCon
                         singleton_instances[RequestProcessor] = request_processor
 
         if request_processor is None:
-            raise Exception("Could not find or create RequestProcessor")
+            raise InitializationError("Could not find or create RequestProcessor")
 
         return AnthropicController(request_processor)
     except Exception as e:
-        raise Exception(f"Failed to create AnthropicController: {e}")
+        raise InitializationError(f"Failed to create AnthropicController: {e}") from e

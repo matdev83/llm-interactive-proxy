@@ -19,6 +19,18 @@
 - Error handling: Use specific exceptions and include meaningful error messages
 - Prefer f-strings for string formatting
 
+### Error Handling Strategy
+
+The project uses a custom exception hierarchy to provide detailed and consistent error information. All custom exceptions inherit from `LLMProxyError`.
+
+When handling errors, follow these guidelines:
+
+- **Catch specific exceptions** whenever possible. Avoid broad `except Exception` blocks.
+- If a broad exception must be caught, **log the error with `exc_info=True`** and re-raise a more specific custom exception.
+- Use the most specific exception class available from `src.core.common.exceptions` that accurately describes the error.
+- When creating new exceptions, ensure they inherit from the appropriate base class (e.g., `BackendError`, `CommandError`).
+- Provide clear, helpful error messages and include relevant details in the `details` dictionary of the exception.
+
 ## Development Workflow
 1. Write tests first (TDD)
 2. Run tests to confirm they fail: `./.venv/Scripts/python.exe -m pytest tests/unit/test_file.py::test_name`

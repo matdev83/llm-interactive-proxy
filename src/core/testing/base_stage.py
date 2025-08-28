@@ -50,8 +50,10 @@ class ValidatedTestStage(InitializationStage):
         try:
             TestStageValidator.validate_stage_services(self._registered_services)
             logger.debug(f"All services in stage '{self.name}' passed validation")
-        except Exception as e:
-            logger.error(f"Service validation failed in stage '{self.name}': {e}")
+        except (TypeError, AttributeError) as e:
+            logger.error(
+                f"Service validation failed in stage '{self.name}': {e}", exc_info=True
+            )
             # Don't raise here, just warn, so tests can still run but with warnings
 
     async def _register_services(

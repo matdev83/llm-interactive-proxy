@@ -7,11 +7,14 @@ issues like unawaited coroutines by enforcing proper patterns through the type s
 
 from __future__ import annotations
 
+import logging
 from typing import Any, Protocol, TypeVar, runtime_checkable
 from unittest.mock import AsyncMock, MagicMock
 
 from src.core.domain.session import Session, SessionInteraction
 from src.core.interfaces.session_service_interface import ISessionService
+
+logger = logging.getLogger(__name__)
 
 T = TypeVar("T")
 
@@ -79,12 +82,9 @@ class TestServiceValidator:
                         "This will cause coroutine warnings."
                     )
 
-            except Exception as e:
+            except (TypeError, AttributeError) as e:
                 # If we can't validate, log a warning but don't fail
-                import logging
-
-                logger = logging.getLogger(__name__)
-                logger.warning(f"Could not validate session service: {e}")
+                logger.warning(f"Error validating signature: {e}", exc_info=True)
 
     @staticmethod
     def validate_sync_method(obj: Any, method_name: str) -> None:
@@ -118,9 +118,9 @@ class TestServiceValidator:
                     f"{type(obj).__name__}.{method_name}() returns AsyncMock "
                     "but should return a real object. This will cause coroutine warnings."
                 )
-        except Exception:
+        except (TypeError, AttributeError) as e:
             # Can't validate dynamically, that's okay
-            pass
+            logger.debug(f"Error validating instance: {e}", exc_info=True)
 
 
 class SafeTestSession(Session):

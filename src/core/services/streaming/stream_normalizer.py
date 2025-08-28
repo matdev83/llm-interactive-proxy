@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from collections.abc import AsyncGenerator, AsyncIterator
+from collections.abc import AsyncGenerator, AsyncIterator, Sequence
 from typing import Any
 
 from src.core.domain.streaming_response_processor import (
@@ -17,17 +17,17 @@ logger = logging.getLogger(__name__)
 class StreamNormalizer(IStreamNormalizer):
     """A service that normalizes streaming responses by applying a series of stream processors."""
 
-    def __init__(self, processors: list[IStreamProcessor] | None = None) -> None:
+    def __init__(self, processors: Sequence[IStreamProcessor] | None = None) -> None:
         """Initializes the StreamNormalizer.
 
         Args:
-            processors: An optional list of IStreamProcessor instances to apply.
+            processors: An optional sequence of IStreamProcessor instances to apply.
         """
-        self._processors = processors or []
+        self._processors = list(processors) if processors is not None else []
 
     async def process_stream(
         self, stream: AsyncIterator[Any], output_format: str = "bytes"
-    ) -> AsyncGenerator[StreamingContent | bytes, None]:  # type: ignore
+    ) -> AsyncGenerator[StreamingContent | bytes, None]:
         """Process a stream and convert to the desired output format.
 
         Args:

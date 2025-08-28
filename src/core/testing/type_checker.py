@@ -46,7 +46,7 @@ class AsyncSyncPatternChecker:
             tree = ast.parse(content, filename=str(file_path))
             self._check_ast_node(tree, str(file_path))
 
-        except Exception as e:
+        except (SyntaxError, OSError) as e:
             self.issues.append(f"Error parsing {file_path}: {e}")
 
         return self.issues.copy()
@@ -190,9 +190,12 @@ class RuntimePatternChecker:
                         f"Session service {service_type.__name__}.get_session() returns a coroutine "
                         f"but should return a Session object directly. This will cause coroutine warnings."
                     )
-            except Exception:
+            except (AttributeError, TypeError) as e:
                 # Can't test, skip
-                pass
+                logger.debug(
+                    f"Could not check service registration for {service_type.__name__}: {e}",
+                    exc_info=True,
+                )
 
         # Check for AsyncMock in sync contexts
         from unittest.mock import AsyncMock
@@ -239,8 +242,8 @@ class RuntimePatternChecker:
                         ISessionService, session_service
                     )
                     warnings.extend(service_warnings)
-            except Exception:
-                pass
+            except (AttributeError, TypeError) as e:
+                logger.debug(f"Could not validate test app: {e}", exc_info=True)
 
         return warnings
 

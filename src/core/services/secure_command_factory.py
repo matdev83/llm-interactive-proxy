@@ -10,6 +10,7 @@ from __future__ import annotations
 import logging
 from typing import Any, TypeVar
 
+from src.core.common.exceptions import CommandCreationError
 from src.core.domain.commands.secure_base_command import (
     SecureCommandBase,
     StatefulCommandBase,
@@ -91,12 +92,26 @@ class SecureCommandFactory:
             logger.info(f"Successfully created command: {command_name}")
             return command  # type: ignore
 
-        except Exception as e:
-            logger.error(f"Failed to create command {command_name}: {e}")
-            raise StateAccessViolationError(
-                f"Failed to create command {command_name}: {e}",
-                "Ensure command constructor accepts required dependencies",
+        except StateAccessViolationError:
+            raise
+        except TypeError as e:
+            logger.error(
+                f"Type error creating command {command_name}: {e}. Check constructor signature.",
+                exc_info=True,
             )
+            raise StateAccessViolationError(
+                f"Failed to create command {command_name} due to a type error: {e}",
+                "Ensure command constructor accepts required dependencies (e.g., state_reader, state_modifier).",
+            ) from e
+        except Exception as e:
+            logger.error(
+                f"An unexpected error occurred while creating command {command_name}: {e}",
+                exc_info=True,
+            )
+            raise CommandCreationError(
+                message=f"An unexpected error occurred while creating command {command_name}: {e}",
+                command_name=command_name,
+            ) from e
 
     def get_created_commands(self) -> dict[str, SecureCommandBase]:
         """Get all commands created by this factory."""

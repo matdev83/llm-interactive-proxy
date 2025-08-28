@@ -89,7 +89,9 @@ def test_service_provider_get_required_service() -> None:
     provider = ServiceCollection().build_service_provider()
 
     # Act & Assert
-    with pytest.raises(KeyError):
+    from src.core.common.exceptions import ServiceResolutionError
+
+    with pytest.raises(ServiceResolutionError):
         provider.get_required_service(ExampleService)
 
 

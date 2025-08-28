@@ -123,7 +123,7 @@ class BackendProcessor(IBackendProcessor):
 
             return backend_response
 
-        except Exception as e:
+        except Exception as e:  # Catch all exceptions to record them in the session
             # Add a failed interaction to the session
             session.add_interaction(
                 SessionInteraction(
@@ -136,7 +136,7 @@ class BackendProcessor(IBackendProcessor):
                 )
             )
             # Re-raise the exception
-            raise
+            raise  # Re-raise the original exception after logging
 
     def _extract_raw_prompt(self, messages: list[Any]) -> str:
         """Extract the raw prompt from a list of messages.

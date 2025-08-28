@@ -107,15 +107,18 @@ class BackendService(IBackendService):
         use_strategy: bool = False
         try:
             use_strategy = self._app_state.get_use_failover_strategy()
-        except Exception:
+        except (AttributeError, KeyError) as e:
+            logger.debug(
+                f"Could not get failover strategy from app state: {e}", exc_info=True
+            )
             use_strategy = False
 
         if use_strategy and self._failover_strategy is not None:
             try:
                 return self._failover_strategy.get_failover_plan(model, backend_type)
-            except Exception:
+            except (BackendError, RateLimitExceededError) as e:
+                logger.debug(f"Failover strategy failed: {e}", exc_info=True)
                 # Fall back to coordinator attempts on error
-                pass
 
         attempts = self._failover_coordinator.get_failover_attempts(model, backend_type)
         return [(a.backend, a.model) for a in attempts]
@@ -162,12 +165,12 @@ class BackendService(IBackendService):
             # Initialize backend only after passing rate limiting checks
             try:
                 backend = await self._get_or_create_backend(backend_type)
-            except Exception as e:
+            except (TypeError, ValueError, AttributeError, KeyError) as e:
                 raise BackendError(
                     message=f"Failed to initialize backend {backend_type}",
                     backend_name=backend_type,
                     details={"error": str(e)},
-                )
+                ) from e
 
             domain_request: ChatRequest = request
 
@@ -193,13 +196,15 @@ class BackendService(IBackendService):
                 )
 
                 return result
-            except Exception as call_exc:
+            except (
+                Exception
+            ) as call_exc:  # Catch all exceptions for comprehensive logging
                 # If the exception is already a BackendError or RateLimitExceededError,
                 # treat it specially; otherwise wrap or re-raise depending on allow_failover.
                 if isinstance(call_exc, BackendError | RateLimitExceededError):
                     if not allow_failover:
                         # Re-raise the original domain-specific exception
-                        raise
+                        raise  # Re-raise the original exception
                     last_error = call_exc
                 else:
                     if not allow_failover:
@@ -207,7 +212,7 @@ class BackendService(IBackendService):
                         raise BackendError(
                             message=f"Backend call failed: {call_exc!s}",
                             backend_name=backend_type,
-                        )
+                        ) from call_exc  # Chain the exception
                     last_error = call_exc  # type: ignore[assignment]
 
                 # Handle failover on backend call failure
@@ -222,11 +227,15 @@ class BackendService(IBackendService):
                     backend_name=backend_type,
                 )
 
-        except Exception:
-            # Ensure the try/except block above is properly closed and
-            # any unexpected exceptions are propagated as BackendError to
-            # preserve the original behavior expected by tests.
+        except (BackendError, RateLimitExceededError):
+            # Propagate expected exceptions as-is
             raise
+        except Exception as e:
+            # Catch any other unexpected exceptions and wrap them
+            raise BackendError(
+                message=f"An unexpected error occurred during backend call: {e!s}",
+                backend_name=backend_type,
+            ) from e
 
     async def validate_backend_and_model(
         self, backend: str, model: str
@@ -240,7 +249,10 @@ class BackendService(IBackendService):
                 return True, None
 
             return False, f"Model {model} not available on backend {backend}"
-        except Exception as e:
+        except (TypeError, ValueError, AttributeError) as e:
+            logger.warning(
+                f"Backend validation failed for {backend}: {e!s}", exc_info=True
+            )
             return False, f"Backend validation failed: {e!s}"
 
     async def _get_or_create_backend(self, backend_type: str) -> LLMBackend:
@@ -276,11 +288,16 @@ class BackendService(IBackendService):
             )
             self._backends[backend_type] = backend
             return backend
-        except Exception as e:
+        except (TypeError, ValueError, AttributeError, KeyError) as e:
             raise BackendError(
                 message=f"Failed to create backend {backend_type}: {e!s}",
                 backend_name=backend_type,
-            )
+            ) from e
+        except Exception as e:
+            raise BackendError(
+                f"Failed to create backend '{backend_type}': {e}",
+                backend_name=backend_type,
+            ) from e
 
     async def chat_completions(
         self, request: ChatRequest, **kwargs: Any
@@ -361,9 +378,13 @@ class BackendService(IBackendService):
             )
         except BackendError:
             raise
-        except Exception as failover_error:
-            logger.error(f"Failover processing failed: {failover_error!s}")
-            raise BackendError(message="all backends failed", backend_name=backend_type)
+        except (TypeError, ValueError, AttributeError, KeyError) as failover_error:
+            logger.error(
+                f"Failover processing failed: {failover_error!s}", exc_info=True
+            )
+            raise BackendError(
+                message="all backends failed", backend_name=backend_type
+            ) from failover_error
 
     async def _attempt_failover_plan(
         self,
@@ -407,9 +428,17 @@ class BackendService(IBackendService):
                 return await self.call_completion(
                     attempt_request, stream=stream, allow_failover=False
                 )
-            except Exception as attempt_error:
+            except (BackendError, RateLimitExceededError) as attempt_error:
                 logger.warning(
-                    f"Failover attempt failed for {backend_attempt}:{model_attempt}: {attempt_error!s}"
+                    f"Failover attempt failed for {backend_attempt}:{model_attempt}: {attempt_error!s}",
+                    exc_info=True,
+                )
+                last_error = attempt_error
+                continue
+            except Exception as attempt_error:
+                logger.error(
+                    f"Unexpected error during failover attempt for {backend_attempt}:{model_attempt}: {attempt_error!s}",
+                    exc_info=True,
                 )
                 last_error = attempt_error
                 continue
@@ -453,12 +482,14 @@ class BackendService(IBackendService):
                 return await self._attempt_failover_plan(
                     request, plan_nested, stream, backend_type
                 )
-            except Exception as failover_error:
-                logger.error(f"Failover processing failed: {failover_error!s}")
+            except (TypeError, ValueError, AttributeError, KeyError) as failover_error:
+                logger.error(
+                    f"Failover processing failed: {failover_error!s}", exc_info=True
+                )
                 raise BackendError(
                     message=f"Failover processing failed: {failover_error!s}",
                     backend_name=backend_type,
-                )
+                ) from failover_error
 
         elif backend_type in self._failover_routes:
             fallback_info: dict[str, Any] = self._failover_routes.get(backend_type, {})

@@ -24,7 +24,7 @@ class CommandArgumentParser(ICommandArgumentParser):
 
         try:
             tokens = shlex.split(args_str)
-        except Exception:
+        except ValueError:
             tokens = args_str.split()
 
         for token in tokens:

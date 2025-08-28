@@ -222,3 +222,209 @@ class ToolCallLoopError(LLMProxyError):
             result["error"]["tool_name"] = self.tool_name
 
         return result
+
+
+class InitializationError(LLMProxyError):
+    """Exception raised during application initialization."""
+
+    def __init__(
+        self,
+        message: str = "Application initialization failed",
+        code: str | None = "initialization_error",
+    ):
+        super().__init__(message=message, code=code, status_code=500)
+
+
+class StateError(LLMProxyError):
+    """Exception raised for issues with application state management."""
+
+    def __init__(
+        self,
+        message: str = "Application state error",
+        code: str | None = "state_error",
+    ):
+        super().__init__(message=message, code=code, status_code=500)
+
+
+class APIConnectionError(BackendError):
+    """Exception raised when there's an issue connecting to a backend API."""
+
+    def __init__(
+        self,
+        message: str = "Failed to connect to API",
+        code: str | None = "api_connection_error",
+        backend_name: str | None = None,
+    ):
+        super().__init__(
+            message=message, code=code, status_code=503, backend_name=backend_name
+        )
+
+
+class APITimeoutError(BackendError):
+    """Exception raised when an API call times out."""
+
+    def __init__(
+        self,
+        message: str = "API call timed out",
+        code: str | None = "api_timeout_error",
+        backend_name: str | None = None,
+    ):
+        super().__init__(
+            message=message, code=code, status_code=504, backend_name=backend_name
+        )
+
+
+class ModelNotFoundError(BackendError):
+    """Exception raised when a requested model is not found on the backend."""
+
+    def __init__(
+        self,
+        message: str = "Model not found",
+        code: str | None = "model_not_found",
+        backend_name: str | None = None,
+        model_name: str | None = None,
+    ):
+        super().__init__(
+            message=message, code=code, status_code=404, backend_name=backend_name
+        )
+        self.model_name = model_name
+
+    def to_dict(self) -> dict[str, Any]:
+        result = super().to_dict()
+        if self.model_name:
+            result["error"]["model_name"] = self.model_name
+        return result
+
+
+class ParsingError(LLMProxyError):
+    """Base exception for errors during data parsing."""
+
+    def __init__(
+        self,
+        message: str = "Data parsing error",
+        code: str | None = "parsing_error",
+        status_code: int = 400,
+        details: dict[str, Any] | None = None,
+    ):
+        super().__init__(
+            message=message, code=code, status_code=status_code, details=details
+        )
+
+
+class JSONParsingError(ParsingError):
+    """Exception raised for errors during JSON parsing."""
+
+    def __init__(
+        self,
+        message: str = "JSON parsing error",
+        code: str | None = "json_parsing_error",
+        details: dict[str, Any] | None = None,
+    ):
+        super().__init__(message=message, code=code, status_code=400, details=details)
+
+
+class ToolCallParsingError(ParsingError):
+    """Exception raised for errors during tool call parsing."""
+
+    def __init__(
+        self,
+        message: str = "Tool call parsing error",
+        code: str | None = "tool_call_parsing_error",
+        details: dict[str, Any] | None = None,
+    ):
+        super().__init__(message=message, code=code, status_code=400, details=details)
+
+
+class CommandError(LLMProxyError):
+    """Base exception for errors related to command processing."""
+
+    def __init__(
+        self,
+        message: str = "Command error",
+        code: str | None = "command_error",
+        status_code: int = 400,
+        details: dict[str, Any] | None = None,
+    ):
+        super().__init__(
+            message=message, code=code, status_code=status_code, details=details
+        )
+
+
+class CommandExecutionError(CommandError):
+    """Exception raised when a command fails to execute."""
+
+    def __init__(
+        self,
+        message: str = "Command execution failed",
+        code: str | None = "command_execution_error",
+        command_name: str | None = None,
+        details: dict[str, Any] | None = None,
+    ):
+        super().__init__(message=message, code=code, status_code=400, details=details)
+        self.command_name = command_name
+
+    def to_dict(self) -> dict[str, Any]:
+        result = super().to_dict()
+        if self.command_name:
+            result["error"]["command_name"] = self.command_name
+        return result
+
+
+class InvalidArgumentError(CommandError):
+    """Exception raised when a command receives an invalid argument."""
+
+    def __init__(
+        self,
+        message: str = "Invalid argument",
+        code: str | None = "invalid_argument",
+        command_name: str | None = None,
+        details: dict[str, Any] | None = None,
+    ):
+        super().__init__(message=message, code=code, status_code=400, details=details)
+        self.command_name = command_name
+
+    def to_dict(self) -> dict[str, Any]:
+        result = super().to_dict()
+        if self.command_name:
+            result["error"]["command_name"] = self.command_name
+        return result
+
+
+class CommandCreationError(CommandError):
+    """Exception raised when a command fails to be created."""
+
+    def __init__(
+        self,
+        message: str = "Command creation failed",
+        code: str | None = "command_creation_error",
+        command_name: str | None = None,
+        details: dict[str, Any] | None = None,
+    ):
+        super().__init__(message=message, code=code, status_code=500, details=details)
+        self.command_name = command_name
+
+    def to_dict(self) -> dict[str, Any]:
+        result = super().to_dict()
+        if self.command_name:
+            result["error"]["command_name"] = self.command_name
+        return result
+
+
+class ServiceResolutionError(StateError):
+    """Exception raised when a service cannot be resolved from the container."""
+
+    def __init__(
+        self,
+        message: str = "Service resolution failed",
+        code: str | None = "service_resolution_error",
+        service_name: str | None = None,
+        details: dict[str, Any] | None = None,
+    ):
+        super().__init__(message=message, code=code)
+        self.service_name = service_name
+
+    def to_dict(self) -> dict[str, Any]:
+        result = super().to_dict()
+        if self.service_name:
+            result["error"]["service_name"] = self.service_name
+        return result

@@ -92,7 +92,9 @@ class LoopDetector(ILoopDetector):
                     self.on_loop_detected(event)
                 except Exception as e:
                     if logger.isEnabledFor(logging.ERROR):
-                        logger.error("Error in loop detection callback: %s", e)
+                        logger.error(
+                            "Error in loop detection callback: %s", e, exc_info=True
+                        )
             return event
 
         # No detection

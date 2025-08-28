@@ -3,6 +3,7 @@
 import logging
 from typing import TypeVar, cast
 
+from src.core.common.exceptions import ServiceResolutionError
 from src.core.di.container import ServiceCollection
 from src.core.domain.commands.base_command import BaseCommand
 from src.core.domain.commands.failover_commands import (
@@ -243,5 +244,8 @@ def _register_all_commands_in_registry(
             logger.debug(
                 f"Successfully registered command {command_type.__name__} in registry"
             )
-        except Exception as e:
-            logger.error(f"Failed to register command {command_type.__name__}: {e}")
+        except (ServiceResolutionError, TypeError) as e:
+            logger.error(
+                f"Failed to register command {command_type.__name__}: {e}",
+                exc_info=True,
+            )

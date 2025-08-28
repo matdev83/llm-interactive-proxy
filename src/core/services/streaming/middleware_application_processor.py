@@ -26,7 +26,7 @@ class MiddlewareApplicationProcessor(IStreamProcessor):
             try:
                 p = getattr(mw, "priority", 0)
                 return p if isinstance(p, int) else 0
-            except Exception:
+            except (AttributeError, TypeError):
                 return 0
 
         self._middleware = sorted(middleware, key=_priority, reverse=True)

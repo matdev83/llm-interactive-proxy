@@ -51,7 +51,7 @@ def gemini_to_openai_messages(contents: list[Content]) -> list[ChatMessage]:
                 has_tool_response = True
                 try:
                     payload = json.dumps(part.function_response)
-                except Exception:
+                except (TypeError, ValueError):
                     payload = str(part.function_response)
                 messages.append(ChatMessage(role="tool", content=payload))
         if has_tool_response:
@@ -242,7 +242,7 @@ def openai_to_gemini_stream_chunk(chunk_data: str) -> str:
 
         return f"data: {json.dumps(gemini_chunk)}\n\n"
 
-    except Exception:
+    except json.JSONDecodeError:
         # If parsing fails, return empty chunk
         return "data: {}\n\n"
 
@@ -281,7 +281,7 @@ def gemini_to_openai_stream_chunk(chunk_data: str) -> str:
         # If parsing fails, return empty chunk
         return "data: {}\n\n"
 
-    except Exception:
+    except json.JSONDecodeError:
         # If parsing fails, return empty chunk
         return "data: {}\n\n"
 
@@ -336,7 +336,7 @@ def _gemini_candidate_to_openai_chunk(candidate: dict[str, Any]) -> str | None:
         openai_chunk["choices"].append(choice)
         return f"data: {json.dumps(openai_chunk)}\n\n"
 
-    except Exception:
+    except (json.JSONDecodeError, KeyError, TypeError):
         return None
 
 
@@ -409,7 +409,7 @@ def _openai_part_to_gemini_part(
                 header, b64_data = url.split(",", 1)
                 mime = header.split(";")[0][5:]
                 return Part(inline_data=Blob(mime_type=mime, data=b64_data))  # type: ignore[call-arg]
-            except Exception:
+            except ValueError:
                 return Part(text=f"[Image: {url}]")  # type: ignore[call-arg]
         return Part(
             file_data=FileData(mime_type="application/octet-stream", file_uri=url)
@@ -421,7 +421,7 @@ def _tool_call_to_function_call(tool_call: dict[str, Any] | Any) -> Part:
     try:
         args_obj = json.loads(tool_call["function"]["arguments"])  # type: ignore[index]
         name = tool_call["function"]["name"]  # type: ignore[index]
-    except Exception:
+    except (json.JSONDecodeError, KeyError, TypeError):
         args_obj = {
             "_raw": getattr(getattr(tool_call, "function", {}), "arguments", "")
         }

@@ -106,9 +106,18 @@ class ToolCallRepairService:
                     data.get("name", ""), data["arguments"]
                 )  # Ensure name is str
         except json.JSONDecodeError as e:
-            logger.warning(f"Failed to decode JSON for tool call repair: {e}")
-        except Exception as e:
-            logger.warning(f"Error processing JSON tool call match: {e}")
+            logger.warning(
+                f"Failed to decode JSON for tool call repair: {e}", exc_info=True
+            )
+        except KeyError as e:
+            logger.warning(
+                f"Missing expected key in JSON for tool call repair: {e}", exc_info=True
+            )
+        except TypeError as e:
+            logger.warning(
+                f"Type error while processing JSON for tool call repair: {e}",
+                exc_info=True,
+            )
         return None
 
     def _process_text_match(self, name: str, args_string: str) -> dict[str, Any] | None:
@@ -123,8 +132,10 @@ class ToolCallRepairService:
                 )  # Wrap as a simple JSON object
 
             return self._format_openai_tool_call(name, arguments)
-        except Exception as e:
-            logger.warning(f"Error processing text tool call match: {e}")
+        except json.JSONDecodeError as e:
+            logger.warning(f"Failed to encode arguments to JSON: {e}", exc_info=True)
+        except (KeyError, TypeError) as e:
+            logger.warning(f"Error processing text tool call match: {e}", exc_info=True)
         return None
 
     def _extract_json_object_near_key(self, text: str) -> str | None:

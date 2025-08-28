@@ -8,6 +8,7 @@ in chat messages, including text, images, audio, and other media types.
 # type: ignore[unreachable]
 from __future__ import annotations
 
+import logging
 from enum import Enum
 from typing import Any, Literal, TypedDict
 
@@ -248,10 +249,8 @@ class MultimodalMessage(ValueObject):
                         # Handle raw dict format that might be passed directly
                         text_parts.append(part.get("text", ""))  # type: ignore[unreachable]
         except Exception as e:
-            import logging
-
             logging.getLogger(__name__).warning(
-                f"Error extracting text from multimodal content: {e}"
+                f"Error extracting text from multimodal content: {e}", exc_info=True
             )
             return "[Error processing multimodal content]"
 
@@ -288,10 +287,9 @@ class MultimodalMessage(ValueObject):
                                 )
                     result["content"] = content_parts
                 except Exception as e:
-                    import logging
-
                     logging.getLogger(__name__).error(
-                        f"Error converting multimodal content to dict: {e}"
+                        f"Error converting multimodal content to dict: {e}",
+                        exc_info=True,
                     )
                     # Fallback to safe representation
                     result["content"] = "[Error processing multimodal content]"
@@ -355,10 +353,9 @@ class MultimodalMessage(ValueObject):
                                 )
                     result["content"] = content_parts
                 except Exception as e:
-                    import logging
-
                     logging.getLogger(__name__).error(
-                        f"Error converting multimodal content to OpenAI format: {e}"
+                        f"Error converting multimodal content to OpenAI format: {e}",
+                        exc_info=True,
                     )
                     # Fallback to safe representation
                     result["content"] = "[Error processing multimodal content]"
@@ -414,10 +411,9 @@ class MultimodalMessage(ValueObject):
                                 )
                     result["content"] = content_parts
                 except Exception as e:
-                    import logging
-
                     logging.getLogger(__name__).error(
-                        f"Error converting multimodal content to Anthropic format: {e}"
+                        f"Error converting multimodal content to Anthropic format: {e}",
+                        exc_info=True,
                     )
                     # Fallback to safe representation
                     result["content"] = [
@@ -472,10 +468,9 @@ class MultimodalMessage(ValueObject):
                                 content_parts.append({"text": str(part)})
                     result["parts"] = content_parts
                 except Exception as e:
-                    import logging
-
                     logging.getLogger(__name__).error(
-                        f"Error converting multimodal content to Gemini format: {e}"
+                        f"Error converting multimodal content to Gemini format: {e}",
+                        exc_info=True,
                     )
                     # Fallback to safe representation
                     result["parts"] = [

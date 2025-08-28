@@ -136,7 +136,8 @@ class RequestProcessor(IRequestProcessor):
                 if hasattr(v, "model_dump"):
                     dumped = v.model_dump()
                     return dumped if isinstance(dumped, dict) else None
-            except Exception:
+            except (TypeError, AttributeError) as e:
+                logger.warning(f"Error resolving extra_body: {e}", exc_info=True)
                 return None
             return None
 
@@ -188,7 +189,10 @@ class RequestProcessor(IRequestProcessor):
         if self._app_state is not None:
             try:
                 should_disable_commands = bool(self._app_state.get_disable_commands())
-            except Exception:
+            except AttributeError as e:
+                logger.warning(
+                    f"Error getting disable_commands state: {e}", exc_info=True
+                )
                 should_disable_commands = False
 
         if should_disable_commands:

@@ -168,8 +168,13 @@ class ChatRequest(ValueObject):
                 try:
                     td = ToolDefinition(**item)
                     result.append(td.model_dump())
-                except Exception:
-                    raise ValueError("Invalid tool definition")
+                except Exception as e:
+                    from src.core.common.exceptions import ToolCallParsingError
+
+                    raise ToolCallParsingError(
+                        message="Invalid tool definition provided",
+                        details={"original_error": str(e), "invalid_item": str(item)},
+                    ) from e
         return result
 
 

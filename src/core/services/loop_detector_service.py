@@ -52,7 +52,7 @@ class LoopDetector(ILoopDetector):
                         if isinstance(v, int):
                             return int(v)
                 return int(value)
-            except Exception:
+            except (TypeError, ValueError):
                 return default
 
         min_len = _as_int(self._min_pattern_length, 50)
@@ -111,7 +111,7 @@ class LoopDetector(ILoopDetector):
 
             return LoopDetectionResult(has_loop=False)
 
-        except Exception as e:
+        except (TypeError, ValueError, AttributeError, IndexError) as e:
             logger.error(f"Error detecting loops: {e}", exc_info=True)
             return LoopDetectionResult(has_loop=False, details={"error": str(e)})
 
