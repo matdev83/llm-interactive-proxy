@@ -106,6 +106,16 @@ class LoggingConfig(DomainModel):
     # set, stream chunks written to capture are truncated to this size with a
     # short marker appended; streaming to client remains unmodified.
     capture_truncate_bytes: int | None = None
+    # Optional number of rotated files to keep (e.g., file.1..file.N). If not
+    # set or <= 0, keeps a single rotation (file.1). Used only when
+    # capture_max_bytes is set.
+    capture_max_files: int | None = None
+    # Time-based rotation period in seconds (default 1 day). If set <= 0, time
+    # rotation is disabled.
+    capture_rotate_interval_seconds: int = 86400
+    # Total disk cap across current capture file and rotated files. If set <= 0,
+    # disabled. Default is 100 MiB.
+    capture_total_max_bytes: int = 104857600
 
 
 class SessionConfig(DomainModel):
@@ -358,6 +368,17 @@ class AppConfig(DomainModel, IConfig):
                 int(os.environ.get("CAPTURE_TRUNCATE_BYTES", "0"))
                 if os.environ.get("CAPTURE_TRUNCATE_BYTES")
                 else None
+            ),
+            "capture_max_files": (
+                int(os.environ.get("CAPTURE_MAX_FILES", "0"))
+                if os.environ.get("CAPTURE_MAX_FILES")
+                else None
+            ),
+            "capture_rotate_interval_seconds": (
+                int(os.environ.get("CAPTURE_ROTATE_INTERVAL_SECONDS", "86400"))
+            ),
+            "capture_total_max_bytes": (
+                int(os.environ.get("CAPTURE_TOTAL_MAX_BYTES", "104857600"))
             ),
         }
 

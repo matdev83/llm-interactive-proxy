@@ -9,7 +9,7 @@ We welcome contributions to the LLM Interactive Proxy! This guide provides an ov
 1. **Clone the repository**:
 
     ```bash
-    git clone https://github.com/your-org/llm-interactive-proxy.git
+    git clone https://github.com/matdev83/llm-interactive-proxy.git
     cd llm-interactive-proxy
     ```
 
@@ -268,6 +268,7 @@ async def test_oauth_backend_health_check(self, mock_refresh, mock_home):
 
 ## Additional Resources
 
+- [CHANGELOG.md](CHANGELOG.md): Project Changelog.
 - `docs/API_REFERENCE.md`: Detailed API documentation.
 - `docs/ARCHITECTURE_GUIDE.md`: Comprehensive architecture guide.
 - `docs/CONFIGURATION.md`: Configuration options.

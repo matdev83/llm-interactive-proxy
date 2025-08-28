@@ -8,6 +8,7 @@ from src.core.common.exceptions import BackendError, RateLimitExceededError
 from src.core.config.app_config import AppConfig
 from src.core.config.config_loader import _collect_api_keys
 from src.core.domain.chat import ChatRequest
+from src.core.domain.request_context import RequestContext
 from src.core.domain.responses import ResponseEnvelope, StreamingResponseEnvelope
 from src.core.interfaces.application_state_interface import IApplicationState
 from src.core.interfaces.backend_config_provider_interface import IBackendConfigProvider
@@ -129,7 +130,11 @@ class BackendService(IBackendService):
         return [(a.backend, a.model) for a in attempts]
 
     async def call_completion(
-        self, request: ChatRequest, stream: bool = False, allow_failover: bool = True
+        self,
+        request: ChatRequest,
+        stream: bool = False,
+        allow_failover: bool = True,
+        context: RequestContext | None = None,
     ) -> ResponseEnvelope | StreamingResponseEnvelope:
         """Call the LLM backend for a completion."""
         # Resolve backend type and effective model

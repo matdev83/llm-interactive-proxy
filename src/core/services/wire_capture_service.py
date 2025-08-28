@@ -4,6 +4,7 @@ import asyncio
 import contextlib
 import json
 import os
+import time
 from collections.abc import AsyncIterator
 from datetime import datetime
 from pathlib import Path
@@ -30,6 +31,16 @@ class WireCapture(IWireCapture):
         self._truncate_bytes: int | None = getattr(
             config.logging, "capture_truncate_bytes", None
         )
+        self._max_files: int = max(
+            0, int(getattr(config.logging, "capture_max_files", 0) or 0)
+        )
+        self._rotate_interval: int = int(
+            getattr(config.logging, "capture_rotate_interval_seconds", 0) or 0
+        )
+        self._total_cap: int = int(
+            getattr(config.logging, "capture_total_max_bytes", 0) or 0
+        )
+        self._last_rotation_ts: float = time.time()
 
         # Ensure directory exists if configured
         if self._file_path:
@@ -161,7 +172,10 @@ class WireCapture(IWireCapture):
         if not self._file_path:
             return
         async with self._lock:
-            # Rotation: if size exceeds max, move current to .1 and start new
+            # Rotation: if size exceeds max, perform multi-level rotation
+            # Also rotate based on elapsed time if configured
+            if self._should_rotate_time():
+                self._perform_rotation()
             if self._max_bytes and self._max_bytes > 0:
                 try:
                     current_size = (
@@ -171,13 +185,86 @@ class WireCapture(IWireCapture):
                     )
                     incoming_size = len(text.encode("utf-8"))
                     if current_size + incoming_size > self._max_bytes:
-                        rot = f"{self._file_path}.1"
-                        with contextlib.suppress(Exception):
-                            os.replace(self._file_path, rot)
+                        self._perform_rotation()
                 except Exception:
                     pass
             with open(self._file_path, "a", encoding="utf-8") as f:
                 f.write(text)
+            # Enforce total cap best-effort
+            self._enforce_total_cap()
+
+    def _should_rotate_time(self) -> bool:
+        if not self._file_path or self._rotate_interval < 0:
+            return False
+        # If rotate_interval is 0, always rotate (immediate rotation)
+        if self._rotate_interval == 0:
+            return True
+        try:
+            if not os.path.exists(self._file_path):
+                return False
+            now = time.time()
+            return (now - self._last_rotation_ts) >= self._rotate_interval
+        except Exception:
+            return False
+
+    def _perform_rotation(self) -> None:
+        if not self._file_path:
+            return
+        try:
+            # Multi-level rotation if configured
+            if self._max_files and self._max_files > 0:
+                for i in range(self._max_files, 0, -1):
+                    src = f"{self._file_path}.{i}"
+                    dst = f"{self._file_path}.{i+1}"
+                    if os.path.exists(src):
+                        with contextlib.suppress(Exception):
+                            if i == self._max_files:
+                                os.remove(src)
+                            else:
+                                os.replace(src, dst)
+            with contextlib.suppress(Exception):
+                if os.path.exists(self._file_path):
+                    os.replace(self._file_path, f"{self._file_path}.1")
+            self._last_rotation_ts = time.time()
+        except Exception:
+            # Ignore rotation failures
+            pass
+
+    def _enforce_total_cap(self) -> None:
+        if not self._file_path or not self._total_cap or self._total_cap <= 0:
+            return
+        try:
+            files: list[tuple[str, int]] = []
+            base = self._file_path
+            if os.path.exists(base):
+                with contextlib.suppress(Exception):
+                    files.append((base, os.path.getsize(base)))
+            # Include rotated files up to some reasonable bound (max_files + 10 as safety)
+            max_scan = max(self._max_files or 0, 10)
+            for i in range(1, max_scan + 1):
+                p = f"{base}.{i}"
+                if os.path.exists(p):
+                    with contextlib.suppress(Exception):
+                        files.append((p, os.path.getsize(p)))
+            total = sum(sz for _, sz in files)
+            if total <= self._total_cap:
+                return
+            # Remove oldest rotated files first (highest index), then proceed downward
+            for i in range(max_scan, 0, -1):
+                p = f"{base}.{i}"
+                if os.path.exists(p):
+                    with contextlib.suppress(Exception):
+                        sz = os.path.getsize(p)
+                        os.remove(p)
+                        total -= sz
+                    if total <= self._total_cap:
+                        return
+            # If still exceeding with only base file left, remove it entirely
+            if os.path.exists(base):
+                with contextlib.suppress(Exception):
+                    os.remove(base)
+        except Exception:
+            pass
 
 
 def _safe_json_dump(obj: Any) -> str:

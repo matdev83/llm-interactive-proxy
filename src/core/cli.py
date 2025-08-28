@@ -95,6 +95,20 @@ def parse_cli_args(argv: list[str] | None = None) -> argparse.Namespace:
         help="Write raw LLM requests and replies to FILE (disabled if omitted)",
     )
     parser.add_argument(
+        "--capture-rotate-interval",
+        dest="capture_rotate_interval_seconds",
+        type=int,
+        metavar="SECONDS",
+        help="Time-based rotation period in seconds (env: CAPTURE_ROTATE_INTERVAL_SECONDS)",
+    )
+    parser.add_argument(
+        "--capture-total-max-bytes",
+        dest="capture_total_max_bytes",
+        type=int,
+        metavar="N",
+        help="Total disk cap across capture files in bytes (env: CAPTURE_TOTAL_MAX_BYTES)",
+    )
+    parser.add_argument(
         "--config",
         dest="config_file",
         metavar="FILE",
@@ -177,6 +191,18 @@ def apply_cli_args(args: argparse.Namespace) -> AppConfig:
         cfg.logging.level = LogLevel[args.log_level]
     if getattr(args, "capture_file", None) is not None:
         cfg.logging.capture_file = args.capture_file
+    if getattr(args, "capture_max_bytes", None) is not None:
+        cfg.logging.capture_max_bytes = args.capture_max_bytes
+    if getattr(args, "capture_truncate_bytes", None) is not None:
+        cfg.logging.capture_truncate_bytes = args.capture_truncate_bytes
+    if getattr(args, "capture_max_files", None) is not None:
+        cfg.logging.capture_max_files = args.capture_max_files
+    if getattr(args, "capture_rotate_interval_seconds", None) is not None:
+        cfg.logging.capture_rotate_interval_seconds = (
+            args.capture_rotate_interval_seconds
+        )
+    if getattr(args, "capture_total_max_bytes", None) is not None:
+        cfg.logging.capture_total_max_bytes = args.capture_total_max_bytes
 
     # Backend-specific keys
     if args.default_backend is not None:

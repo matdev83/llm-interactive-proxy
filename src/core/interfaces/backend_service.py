@@ -4,6 +4,7 @@ from abc import ABC, abstractmethod
 from typing import Any
 
 from src.core.domain.chat import ChatRequest
+from src.core.domain.request_context import RequestContext
 from src.core.domain.responses import ResponseEnvelope, StreamingResponseEnvelope
 
 
@@ -24,7 +25,11 @@ class IBackendService(ABC):
 
     @abstractmethod
     async def call_completion(
-        self, request: ChatRequest, stream: bool = False, allow_failover: bool = True
+        self,
+        request: ChatRequest,
+        stream: bool = False,
+        allow_failover: bool = True,
+        context: RequestContext | None = None,
     ) -> ResponseEnvelope | StreamingResponseEnvelope:
         """Call the LLM backend for a completion.
 

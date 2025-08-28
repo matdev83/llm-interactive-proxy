@@ -17,6 +17,7 @@ The LLM Interactive Proxy is an advanced middleware service that provides a unif
 - **Tool Call Repair**: Converts malformed textual tool/function calls into OpenAI-compatible `tool_calls`.
 - **JSON Repair**: Centralized in the streaming pipeline and enabled for non-streaming responses too. Uses `json_repair` library; supports schema validation and strict gating.
 - **Unified API**: OpenAI-compatible API for all backends.
+- **Empty Response Recovery**: Automatically detects empty LLM responses (no text, no tool call) and retries the request with a corrective prompt to guide the LLM.
 
 ### Wire-Level Capture (Request/Reply Logging)
 
@@ -30,6 +31,11 @@ The LLM Interactive Proxy is an advanced middleware service that provides a unif
 - Rotation and truncation options:
   - `CAPTURE_MAX_BYTES` (int): If set, rotates the current capture file to `<file>.1` when size would exceed this limit, then starts fresh. Rotation is best-effort and overwrites any existing `.1`.
   - `CAPTURE_TRUNCATE_BYTES` (int): If set, truncates each captured streaming chunk to this many bytes in the capture log (appends `[[truncated]]`). Stream data sent to the client is never truncated.
+  - `CAPTURE_MAX_FILES` (int): If set `> 0`, keeps up to N rotated files using suffixes `.1..N`. When rotation occurs, the oldest file is dropped and others are shifted.
+  - CLI mirrors:
+    - `--capture-max-bytes N`
+    - `--capture-truncate-bytes N`
+    - `--capture-max-files N`
 - Example output:
 
 ```
@@ -553,6 +559,7 @@ Notes:
 ## Support
 
 - Issues: [GitHub Issues](https://github.com/your-org/llm-interactive-proxy/issues)
+- Changelog: [CHANGELOG.md](CHANGELOG.md)
 ## Processing & Repair Pipeline
 
 - **Streaming order**: JSON repair → text loop detection → tool-call repair → middleware → accumulation. This order ensures:
