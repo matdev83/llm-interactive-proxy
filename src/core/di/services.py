@@ -550,12 +550,32 @@ def register_core_services(
         from src.core.domain.configuration.loop_detection_config import (
             LoopDetectionConfiguration,
         )
+
+        # Import empty response middleware for auto-retry handling
+        from src.core.services.empty_response_middleware import (
+            EmptyResponseMiddleware,
+        )
         from src.core.services.tool_call_loop_middleware import (
             ToolCallLoopDetectionMiddleware,
         )
 
         cfg: AppConfig = provider.get_required_service(AppConfig)
         middlewares: list[IResponseMiddleware] = []
+
+        # Empty response detection and auto-retry (non-streaming path)
+        # Enabled by default via AppConfig.empty_response.enabled
+        try:
+            if getattr(cfg.empty_response, "enabled", True):
+                middlewares.append(
+                    EmptyResponseMiddleware(
+                        enabled=True,
+                        max_retries=getattr(cfg.empty_response, "max_retries", 1),
+                    )
+                )
+        except Exception as e:
+            logging.getLogger(__name__).warning(
+                f"Error configuring EmptyResponseMiddleware: {e}", exc_info=True
+            )
 
         # JSON repair for non-streaming responses
         if getattr(cfg.session, "json_repair_enabled", False):

@@ -198,6 +198,13 @@ class ResponseProcessor(IResponseProcessor):
                                 message = choice["message"]
                                 if isinstance(message, dict) and "content" in message:
                                     content = message.get("content") or ""
+                                    # Also carry over tool_calls to metadata to avoid false empties
+                                    try:
+                                        tool_calls = message.get("tool_calls")
+                                        if tool_calls:
+                                            metadata["tool_calls"] = tool_calls  # type: ignore[assignment]
+                                    except (AttributeError, TypeError):
+                                        pass
                                     # Map invalid model content to 400 for tests
                                     if (
                                         isinstance(content, str)
@@ -220,8 +227,16 @@ class ResponseProcessor(IResponseProcessor):
                     choice = choices[0]
                     if isinstance(choice, dict) and "message" in choice:
                         message = choice["message"]
-                        if isinstance(message, dict) and "content" in message:
-                            content = message.get("content") or ""
+                        if isinstance(message, dict):
+                            if "content" in message:
+                                content = message.get("content") or ""
+                            # Also carry over tool_calls to metadata to avoid false empties
+                            try:
+                                tool_calls = message.get("tool_calls")
+                                if tool_calls:
+                                    metadata["tool_calls"] = tool_calls  # type: ignore[assignment]
+                            except (AttributeError, TypeError):
+                                pass
 
                 usage = response.get("usage")
 
