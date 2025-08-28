@@ -171,7 +171,7 @@ class SOLIDViolationDetector(ast.NodeVisitor):
         # This is a simplified check - in a real implementation you'd need to parse comments
         # For now, we'll check if the line contains specific noqa patterns
         try:
-            with open(self.file_path, "r", encoding="utf-8") as f:
+            with open(self.file_path, encoding="utf-8") as f:
                 lines = f.readlines()
                 if node.lineno - 1 < len(lines):
                     line = lines[node.lineno - 1]
@@ -185,7 +185,7 @@ class SOLIDViolationDetector(ast.NodeVisitor):
         # This is a simplified check - in a real implementation you'd need to parse comments
         # For now, we'll check if the line contains specific noqa patterns
         try:
-            with open(self.file_path, "r", encoding="utf-8") as f:
+            with open(self.file_path, encoding="utf-8") as f:
                 lines = f.readlines()
                 if node.lineno - 1 < len(lines):
                     line = lines[node.lineno - 1]

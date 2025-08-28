@@ -17,7 +17,11 @@ class MiddlewareApplicationProcessor(IStreamProcessor):
     Stream processor that applies a chain of IResponseMiddleware to StreamingContent.
     """
 
-    def __init__(self, middleware: list[IResponseMiddleware]) -> None:
+    def __init__(
+        self,
+        middleware: list[IResponseMiddleware],
+        default_loop_config: object | None = None,
+    ) -> None:
         def _priority(mw: IResponseMiddleware) -> int:
             try:
                 p = getattr(mw, "priority", 0)
@@ -26,16 +30,25 @@ class MiddlewareApplicationProcessor(IStreamProcessor):
                 return 0
 
         self._middleware = sorted(middleware, key=_priority, reverse=True)
+        self._default_loop_config = default_loop_config
 
     async def process(self, content: StreamingContent) -> StreamingContent:
         processed_response = ProcessedResponse(
             content=content.content, usage=content.usage, metadata=content.metadata
         )
         session_id_str = str(content.metadata.get("session_id", ""))
-        context = {
+        response_type = (
+            "non_streaming" if content.metadata.get("non_streaming") else "stream"
+        )
+        context: dict[str, object] = {
             "session_id": session_id_str,
-            "response_type": "stream",
+            "response_type": response_type,
         }
+        # Per-route flags
+        if "expected_json" in content.metadata:
+            context["expected_json"] = bool(content.metadata.get("expected_json"))
+        if self._default_loop_config is not None:
+            context["config"] = self._default_loop_config
 
         for mw in self._middleware:
             result = await mw.process(processed_response, session_id_str, context)

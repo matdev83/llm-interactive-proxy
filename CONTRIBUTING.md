@@ -260,3 +260,32 @@ async def test_oauth_backend_health_check(self, mock_refresh, mock_home):
 - `docs/CONFIGURATION.md`: Configuration options.
 - `docs/FAILOVER_ROUTES.md`: Failover routing information.
 - `docs/TOOL_CALL_LOOP_DETECTION.md`: Tool call loop detection details.
+### JSON Repair, Strict Gating, and Helpers
+
+- JSON repair is applied both in streaming (processor) and non-streaming (middleware) paths.
+- Strict mode (non-streaming) is enforced when:
+  - `session.json_repair_strict_mode` is true, or
+  - Content-Type is `application/json`, or
+  - `expected_json=True` is present in middleware context/metadata, or
+  - A `session.json_repair_schema` is configured.
+- Convenience helpers (available for controllers/adapters):
+  - `src/core/utils/json_intent.py#set_expected_json(metadata, True)`
+  - `#infer_expected_json(metadata, content)`
+  - The ResponseProcessor auto-inferrs `expected_json` if not provided; you can override it via the helper.
+
+### Processing Order (Streaming)
+
+The streaming pipeline runs processors in this order by default:
+
+1. JSON repair
+2. Text loop detection
+3. Tool-call repair
+4. Middleware
+5. Accumulation
+
+This ordering ensures loop detection operates on human-visible text, tool-call repair uses normalized content, and downstream middleware sees consistent data.
+
+### Metrics
+
+- In-memory metrics in `src/core/services/metrics_service.py` record JSON repair outcomes for both streaming and non-streaming.
+- Use `metrics.snapshot()` for ad-hoc debugging in tests.

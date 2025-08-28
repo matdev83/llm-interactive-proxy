@@ -274,13 +274,26 @@ class ResponseProcessor(IResponseProcessor):
                         and processor.__class__.__name__
                         == "MiddlewareApplicationProcessor"
                     ):
+                        # Prepare metadata and infer expected_json by default
+                        from src.core.utils.json_intent import infer_expected_json
+
+                        enriched_metadata: dict[str, Any] = {
+                            "session_id": session_id,
+                            "non_streaming": True,
+                            **processed_response.metadata,
+                        }
+                        if (
+                            "expected_json" not in enriched_metadata
+                            and infer_expected_json(
+                                enriched_metadata, processed_response.content
+                            )
+                        ):
+                            enriched_metadata["expected_json"] = True
+
                         # Convert to StreamingContent for middleware processing
                         streaming_content = StreamingContent(
                             content=processed_response.content,
-                            metadata={
-                                "session_id": session_id,
-                                **processed_response.metadata,
-                            },
+                            metadata=enriched_metadata,
                             usage=processed_response.usage,
                         )
 
@@ -296,7 +309,7 @@ class ResponseProcessor(IResponseProcessor):
                             metadata={
                                 k: v
                                 for k, v in processed_streaming_content.metadata.items()
-                                if k != "session_id"
+                                if k not in ("session_id", "non_streaming")
                             },
                         )
                         break  # Only need to process through middleware once

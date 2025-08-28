@@ -125,3 +125,26 @@ This document outlines significant changes and updates to the LLM Interactive Pr
 - **HTTP Status Constants**: Introduced `src/core/constants/http_status_constants.py` for standardized HTTP status messages, reducing test fragility and improving maintainability.
 - **Test Suite Optimization**: Significant improvements in test suite performance by optimizing fixtures, simplifying mocks, and reducing debug logging.
 - **Test Suite Status**: All tests are now passing, with improved test isolation, fixtures, and categorization using pytest markers.
+## 2025-08-28 – JSON Repair Centralization, Strict Gating, and Loop/Tool-Call Ordering
+
+- Centralized JSON repair across the codebase:
+  - Streaming: `JsonRepairProcessor` in the pipeline; buffers and repairs complete JSON blocks; uses `json_repair` library with optional schema validation.
+  - Non-streaming: `JsonRepairMiddleware` applied through `MiddlewareApplicationProcessor`.
+- Strict gating for non-streaming repairs:
+  - Strict when any of: global strict flag, Content-Type is `application/json`, `expected_json=True` in context, or a schema is configured.
+  - Otherwise best-effort; failures do not raise and original content is preserved.
+- Convenience helpers for controllers/adapters:
+  - `src/core/utils/json_intent.py#set_expected_json(metadata, True)` to opt-in strict mode per route.
+  - `#infer_expected_json(metadata, content)`; ResponseProcessor auto-inferrs and sets `expected_json` if not present.
+- Streaming processor order updated:
+  - JSON repair → text loop detection → tool-call repair → middleware → accumulation.
+  - Cancellation flags are preserved across processors.
+- Tool-call loop detection:
+  - Middleware detects 4 consecutive identical tool calls; in `CHANCE_THEN_BREAK` mode emits guidance once, then breaks on the next identical call.
+- Metrics (in-memory) added:
+  - `json_repair.streaming.[strict|best_effort]_{success|fail}`
+  - `json_repair.non_streaming.[strict|best_effort]_{success|fail}`
+- Documentation updated, and a comprehensive test suite added for:
+  - Strict gating (expected_json flag, Content-Type)
+  - Streaming order and cancellation vs tool-call conversion
+  - Tool-call loop detection break/chance flows

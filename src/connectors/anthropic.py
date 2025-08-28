@@ -323,29 +323,11 @@ class AnthropicBackend(LLMBackend):
             )
 
         async def event_stream() -> AsyncGenerator[bytes, None]:
-            # Initialize JSON repair processor if enabled
-            if self.config.session.json_repair_enabled:
-                from src.core.services.json_repair_service import JsonRepairService
-                from src.core.services.streaming_json_repair_processor import (
-                    StreamingJsonRepairProcessor,
-                )
-
-                json_repair_service = JsonRepairService()
-                processor = StreamingJsonRepairProcessor(
-                    repair_service=json_repair_service,
-                    buffer_cap_bytes=self.config.session.json_repair_buffer_cap_bytes,
-                    strict_mode=self.config.session.json_repair_strict_mode,
-                    schema=self.config.session.json_repair_schema,  # Added schema
-                )
-                # Wrap the raw stream with the JSON repair processor
-                processed_stream = processor.process_stream(response.aiter_text())
-            else:
-                # If JSON repair is disabled, just use the raw stream
-                processed_stream = response.aiter_text()
+            # Forward raw text stream; central pipeline will handle normalization/repairs
+            processed_stream = response.aiter_text()
 
             async for chunk in processed_stream:
-                # If JSON repair is enabled, the processor yields repaired JSON strings
-                # or raw text. If disabled, it yields raw text.
+                # If JSON repair is enabled centrally, the pipeline yields repaired content.
                 # We need to ensure it's properly formatted as SSE.
                 if chunk.startswith(("data: ", "id: ", ":")):
                     # Already SSE formatted or a comment, yield directly

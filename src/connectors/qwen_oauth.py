@@ -6,7 +6,6 @@ import asyncio
 import json
 import logging
 import time
-from collections.abc import AsyncGenerator
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -357,39 +356,7 @@ class QwenOAuthConnector(OpenAIConnector):
                 **kwargs,
             )
 
-            # If streaming, wrap the content with the JSON repair processor
-            if (
-                isinstance(response_envelope, StreamingResponseEnvelope)
-                and self.config.session.json_repair_enabled
-            ):
-                from src.core.services.json_repair_service import JsonRepairService
-                from src.core.services.streaming_json_repair_processor import (
-                    StreamingJsonRepairProcessor,
-                )
-
-                json_repair_service = JsonRepairService()
-                processor = StreamingJsonRepairProcessor(
-                    repair_service=json_repair_service,
-                    buffer_cap_bytes=self.config.session.json_repair_buffer_cap_bytes,
-                    strict_mode=self.config.session.json_repair_strict_mode,
-                )
-
-                # Convert AsyncIterator[bytes] to AsyncGenerator[str, None]
-                async def bytes_to_string_generator() -> AsyncGenerator[str, None]:
-                    async for chunk in response_envelope.content:
-                        yield chunk.decode("utf-8")
-
-                # Store the processed stream and convert back to AsyncIterator[bytes]
-                processed_content = processor.process_stream(
-                    bytes_to_string_generator()
-                )
-
-                # Convert the processed string stream back to bytes
-                async def string_to_bytes_generator() -> AsyncGenerator[bytes, None]:
-                    async for chunk in processed_content:
-                        yield chunk.encode("utf-8")
-
-                response_envelope.content = string_to_bytes_generator()
+            # If streaming, leave content as-is; central pipeline will handle repairs
 
             return response_envelope
 

@@ -13,8 +13,9 @@ The LLM Interactive Proxy is an advanced middleware service that provides a unif
 - **Command Processing**: Interactive commands embedded in chat messages.
 - **Rate Limiting**: Protect backends and manage usage quotas.
 - **Session Management**: Maintain conversation state and context.
-- **Loop Detection**: Prevent infinite loops in agent interactions.
-- **Tool Call Repair**: Automatically repairs malformed tool/function calls emitted as plain text.
+- **Loop Detection**: Prevent infinite loops in agent interactions (text and tool-call focused).
+- **Tool Call Repair**: Converts malformed textual tool/function calls into OpenAI-compatible `tool_calls`.
+- **JSON Repair**: Centralized in the streaming pipeline and enabled for non-streaming responses too. Uses `json_repair` library; supports schema validation and strict gating.
 - **Unified API**: OpenAI-compatible API for all backends.
 
 ## Backend Support
@@ -29,9 +30,11 @@ The proxy supports three different Gemini backends, each with its own authentica
 | `gemini` | API Key | Pay-per-use (metered) | Production apps, high-volume usage |
 | `gemini-cli-oauth-personal` | OAuth 2.0 (free tier) | Free with limits | Development, testing, personal projects |
 | `gemini-cli-cloud-project` | OAuth 2.0 + GCP Project | Billed to GCP project | Enterprise, production with GCP integration |
+
 #### Key Differences
 
 **Gemini (API Key)**
+
 - **Setup**: Requires a Google AI Studio API key from [makersuite.google.com](https://makersuite.google.com/app/apikey)
 - **Billing**: Pay-as-you-go pricing based on tokens used
 - **Limits**: Higher rate limits and quotas
@@ -39,6 +42,7 @@ The proxy supports three different Gemini backends, each with its own authentica
 - **Use Case**: Production applications, commercial projects
 
 **Gemini CLI OAuth Personal**
+
 - **Setup**: Uses OAuth credentials from the Gemini CLI tool (no API key needed)
 - **Billing**: Free tier with usage limits (uses Google-managed project)
 - **Limits**: Lower rate limits suitable for development
@@ -46,6 +50,7 @@ The proxy supports three different Gemini backends, each with its own authentica
 - **Use Case**: Personal projects, development, testing, learning
 
 **Gemini CLI Cloud Project**
+
 - **Setup**: OAuth credentials + your own Google Cloud Project ID
 - **Billing**: Usage billed to your GCP project (standard or enterprise tier)
 - **Limits**: Higher quotas based on your GCP project settings
@@ -144,6 +149,7 @@ The `gemini-cli-cloud-project` backend provides enterprise-grade integration wit
   - Option B: Your own user account authenticated locally via gcloud (ADC).
 
 Glossary:
+
 - Service Account: A non-human identity used by apps/servers. You can create keys for it (JSON file) and grant it roles on your project.
 - ADC (Application Default Credentials): A Google standard where tools pick credentials from your environment automatically (service account file, gcloud login, or workload identity).
 - GOOGLE_CLOUD_PROJECT: The environment variable that specifies which GCP project to use (e.g., `my-project-123`).
@@ -167,6 +173,7 @@ gcloud services enable cloudaicompanion.googleapis.com --project=YOUR_PROJECT_ID
 Grant the role `roles/cloudaicompanion.user`.
 
 - If you will authenticate as your own user (Option B):
+
 ```bash
 gcloud projects add-iam-policy-binding YOUR_PROJECT_ID \
   --member="user:YOUR_EMAIL@gmail.com" \
@@ -174,6 +181,7 @@ gcloud projects add-iam-policy-binding YOUR_PROJECT_ID \
 ```
 
 - If you will use a Service Account (Option A):
+
 ```bash
 # Create a service account (choose a name)
 gcloud iam service-accounts create gemini-agent --project=YOUR_PROJECT_ID
@@ -188,18 +196,23 @@ gcloud projects add-iam-policy-binding YOUR_PROJECT_ID \
 
 - Option A: Service Account (recommended for servers/CI)
   1. Create a JSON key for the service account:
+
   ```bash
   gcloud iam service-accounts keys create sa-key.json \
     --iam-account=gemini-agent@YOUR_PROJECT_ID.iam.gserviceaccount.com \
     --project=YOUR_PROJECT_ID
   ```
+
   2. Set environment variables so the backend can find the key and your project:
   - Windows PowerShell:
+
     ```powershell
     $env:GOOGLE_APPLICATION_CREDENTIALS = "C:\\path\\to\\sa-key.json"
     $env:GOOGLE_CLOUD_PROJECT = "YOUR_PROJECT_ID"
     ```
+
   - Linux/macOS:
+
     ```bash
     export GOOGLE_APPLICATION_CREDENTIALS="/absolute/path/sa-key.json"
     export GOOGLE_CLOUD_PROJECT="YOUR_PROJECT_ID"
@@ -208,20 +221,26 @@ gcloud projects add-iam-policy-binding YOUR_PROJECT_ID \
 - Option B: Your User account via gcloud (local development)
   1. Install gcloud: `https://cloud.google.com/sdk/docs/install`
   2. Authenticate for Application Default Credentials (ADC):
+
   ```bash
   gcloud auth application-default login
   ```
+
   3. Tell the backend which project to use:
   - Windows PowerShell:
+
     ```powershell
     $env:GOOGLE_CLOUD_PROJECT = "YOUR_PROJECT_ID"
     ```
+
   - Linux/macOS:
+
     ```bash
     export GOOGLE_CLOUD_PROJECT="YOUR_PROJECT_ID"
     ```
 
 Notes:
+
 - ADC means the backend will automatically pick credentials from either the service account file (`GOOGLE_APPLICATION_CREDENTIALS`) or your local gcloud login.
 - Do not commit the `sa-key.json` file to source control.
 
@@ -232,6 +251,7 @@ Notes:
   - If using a service account key, set `GOOGLE_APPLICATION_CREDENTIALS` as above.
 
 - Using `config.yaml` (optional):
+
 ```yaml
 backends:
   gemini-cli-cloud-project:
@@ -244,6 +264,7 @@ backends:
 6) Verify your setup
 
 - Minimal check (env present):
+
 ```bash
 echo $env:GOOGLE_CLOUD_PROJECT  # PowerShell
 echo $GOOGLE_CLOUD_PROJECT      # bash/zsh
@@ -252,6 +273,7 @@ echo $GOOGLE_CLOUD_PROJECT      # bash/zsh
 - Run the proxy or a small test that uses the `gemini-cli-cloud-project` backend and requests a simple completion. Ensure the first call may trigger onboarding (standard-tier) and might take a few seconds.
 
 If you see 403 errors, double-check:
+
 - Cloud AI Companion API is enabled.
 - Billing is enabled.
 - The identity (user or service account) has `roles/cloudaicompanion.user` on the project.
@@ -275,6 +297,7 @@ If you see 403 errors, double-check:
 - **Wrong Tier**: Backend requires standard or enterprise tier, not free tier
 
 Additional tips:
+
 - If using a service account, ensure the path in `GOOGLE_APPLICATION_CREDENTIALS` is absolute and accessible by the process.
 - On Windows, use double backslashes in paths in PowerShell when setting env vars, or single backslashes inside quotes.
 - For local development, `gcloud auth application-default login` is usually the fastest path; remember to set `GOOGLE_CLOUD_PROJECT` as well.
@@ -428,6 +451,46 @@ Notes:
 - Repair is conservative and only activates when patterns are confidently detected. If detection fails, the response is passed through unchanged.
 - For streaming, trailing free text immediately after a repaired tool call is not emitted by the repair processor to avoid ambiguity; the client will see the repaired tool call with `finish_reason="tool_calls"`.
 
+### JSON Repair
+
+- **What it does**: Automatically detects and repairs malformed JSON in model responses. Can optionally validate and coerce data into a target schema (JSON Schema). Works for both non-streaming and streaming pipelines.
+- **Detection & Repair**: Prefers fenced ```json blocks, otherwise scans for balanced braces. Repairs common issues like single quotes, trailing commas, unbalanced braces/brackets, and stray control characters.
+- **Schema Coercion**: Using jsonschema with coercion (e.g., "42" → 42). Supports type coercion, defaults injection, and unknown property handling.
+- **Enable/disable**: Controlled via config and env vars (see below). Enabled by default.
+- **Buffer cap**: Per-session buffer is limited (default 64 KB). Increase only if your JSON payloads are unusually large.
+
+#### Configuration
+
+- Config path: `AppConfig.session`
+- `json_repair_enabled` (bool, default `true`)
+- `json_repair_buffer_cap_bytes` (int, default `65536`)
+- `json_repair_strict_mode` (bool, default `false`)
+- `json_coercion_enabled` (bool, default `true`)
+- `json_schema_sources` (dict[str, Any], default `{}`)
+
+- Environment variables
+  - `JSON_REPAIR_ENABLED=true|false`
+  - `JSON_REPAIR_BUFFER_CAP_BYTES=65536`
+  - `JSON_REPAIR_STRICT_MODE=true|false`
+  - `JSON_COERCION_ENABLED=true|false`
+
+Example (YAML-like):
+
+```yaml
+session:
+  json_repair_enabled: true
+  json_repair_buffer_cap_bytes: 65536
+  json_repair_strict_mode: false
+  json_coercion_enabled: true
+ json_schema_sources: {}
+```
+
+Notes:
+
+- Repair is conservative and only activates when patterns are confidently detected. If detection fails, the response is passed through unchanged.
+- For streaming, trailing free text immediately after a repaired JSON is not emitted by default to avoid ambiguity.
+- Schema coercion can be enabled/disabled independently of JSON repair.
+
 ### Rate Limiting Issues
 
 - **Rate Limit Exceeded**: Check rate limit configuration, use multiple API keys, implement backoff and retry logic.
@@ -441,3 +504,42 @@ Notes:
 ## Support
 
 - Issues: [GitHub Issues](https://github.com/your-org/llm-interactive-proxy/issues)
+## Processing & Repair Pipeline
+
+- **Streaming order**: JSON repair → text loop detection → tool-call repair → middleware → accumulation. This order ensures:
+  - Loop detection runs on human-visible text, avoiding false positives from JSON scaffolding.
+  - Tool-call repair operates after normalization.
+
+- **Non-streaming repairs**:
+  - JSON repair and tool-call repair are applied via middleware on final content.
+  - Tool-call loop detection middleware can stop repeated tool calls (configurable; defaults enabled).
+
+### JSON Repair Strict Mode (Non-Streaming)
+
+- Strict mode is enabled when any of the following are true:
+  - `session.json_repair_strict_mode` is true (global opt-in)
+  - Response Content-Type is `application/json`
+  - `expected_json=True` is set in response metadata (see helpers below)
+  - A `session.json_repair_schema` is configured
+
+- Otherwise, repairs are best-effort: failures don’t raise and original content is preserved.
+
+### Convenience Helpers (expected_json)
+
+- Location: `src/core/utils/json_intent.py`
+  - `set_expected_json(metadata, True)`: marks a non-streaming response as JSON for strict repair
+  - `infer_expected_json(metadata, content)`: detects JSON intent from Content-Type or JSON-looking content
+
+- The proxy auto-inferrs `expected_json` for non-streaming responses if not provided, based on Content-Type or payload shape. You can always override by calling `set_expected_json` on response metadata in controllers/adapters.
+
+### Metrics
+
+- Module: `src/core/services/metrics_service.py` (in-memory counters)
+- Counters recorded:
+  - `json_repair.streaming.[strict|best_effort]_{success|fail}`
+  - `json_repair.non_streaming.[strict|best_effort]_{success|fail}`
+
+### Tool-Call Loop Detection
+
+- Detects 4 identical tool calls (same name + args) in a row within a TTL; sends guidance (chance) or breaks based on mode.
+- Configurable with `LoopDetectionConfiguration` and `ToolCallLoopConfig`.

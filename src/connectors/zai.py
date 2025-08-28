@@ -137,22 +137,11 @@ class ZAIConnector(OpenAIConnector):
             **kwargs,
         )
 
-        # If streaming, wrap the content with the JSON repair processor
+        # If streaming, wrap the content (connector-agnostic pipeline will repair JSON)
         if (
             isinstance(response_envelope, StreamingResponseEnvelope)
             and self.config.session.json_repair_enabled
         ):
-            from src.core.services.json_repair_service import JsonRepairService
-            from src.core.services.streaming_json_repair_processor import (
-                StreamingJsonRepairProcessor,
-            )
-
-            json_repair_service = JsonRepairService()
-            processor = StreamingJsonRepairProcessor(
-                repair_service=json_repair_service,
-                buffer_cap_bytes=self.config.session.json_repair_buffer_cap_bytes,
-                strict_mode=self.config.session.json_repair_strict_mode,
-            )
             from collections.abc import AsyncGenerator, AsyncIterator
 
             async def _bytes_to_str(
@@ -167,8 +156,9 @@ class ZAIConnector(OpenAIConnector):
                 async for chunk in stream:
                     yield chunk.encode("utf-8")
 
+            # Forward stream unchanged; centralized pipeline will handle repairs
             response_envelope.content = _str_to_bytes(
-                processor.process_stream(_bytes_to_str(response_envelope.content))
+                _bytes_to_str(response_envelope.content)
             )
 
         return response_envelope

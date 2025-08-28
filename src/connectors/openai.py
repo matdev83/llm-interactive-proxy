@@ -373,40 +373,13 @@ class OpenAIConnector(LLMBackend):
             )
 
         async def gen() -> AsyncGenerator[bytes, None]:
-            # Initialize JSON repair processor if enabled
-            if self.config.session.json_repair_enabled:
-                from src.core.services.json_repair_service import JsonRepairService
-                from src.core.services.streaming_json_repair_processor import (
-                    StreamingJsonRepairProcessor,
-                )
-
-                json_repair_service = JsonRepairService()
-                processor = StreamingJsonRepairProcessor(
-                    repair_service=json_repair_service,
-                    buffer_cap_bytes=self.config.session.json_repair_buffer_cap_bytes,
-                    strict_mode=self.config.session.json_repair_strict_mode,
-                )
-
-                # Wrap the raw stream with the JSON repair processor
-                # Convert AsyncIterator to AsyncGenerator for compatibility
-                async def text_generator() -> AsyncGenerator[str, None]:
-                    async for chunk in response.aiter_text():
-                        yield chunk
-
-                processed_stream = processor.process_stream(text_generator())
-            else:
-                # If JSON repair is disabled, just use the raw stream
-                # Convert AsyncIterator to AsyncGenerator for consistency
-                async def text_generator() -> AsyncGenerator[str, None]:
-                    async for chunk in response.aiter_text():
-                        yield chunk
-
-                processed_stream = text_generator()
+            # Forward raw text stream; central pipeline will handle normalization/repairs
+            async def text_generator() -> AsyncGenerator[str, None]:
+                async for chunk in response.aiter_text():
+                    yield chunk
 
             try:
-                async for chunk in processed_stream:
-                    # OpenAI streaming responses are typically already JSON chunks
-                    # We just need to yield them as bytes
+                async for chunk in text_generator():
                     yield chunk.encode("utf-8")
             finally:
                 import contextlib

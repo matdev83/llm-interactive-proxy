@@ -23,10 +23,6 @@ from src.core.interfaces.configuration_interface import IAppIdentityConfig
 from src.core.interfaces.model_bases import DomainModel, InternalDTO
 from src.core.interfaces.response_processor_interface import ProcessedResponse
 from src.core.services.backend_registry import backend_registry
-from src.core.services.json_repair_service import JsonRepairService  # Added
-from src.core.services.streaming_json_repair_processor import (
-    StreamingJsonRepairProcessor,  # Added
-)
 
 # Legacy ChatCompletionRequest removed from connector signatures; use domain ChatRequest
 
@@ -278,20 +274,8 @@ class GeminiBackend(LLMBackend):
                 )
 
             async def stream_generator() -> AsyncGenerator[ProcessedResponse, None]:
-                # Initialize JSON repair processor if enabled
-                if self.config.session.json_repair_enabled:
-                    json_repair_service = JsonRepairService()
-                    processor = StreamingJsonRepairProcessor(
-                        repair_service=json_repair_service,
-                        buffer_cap_bytes=self.config.session.json_repair_buffer_cap_bytes,
-                        strict_mode=self.config.session.json_repair_strict_mode,
-                        schema=self.config.session.json_repair_schema,  # Added schema
-                    )
-                    # Wrap the raw stream with the JSON repair processor
-                    processed_stream = processor.process_stream(response.aiter_text())
-                else:
-                    # If JSON repair is disabled, just use the raw stream
-                    processed_stream = response.aiter_text()
+                # Forward raw text stream; central pipeline will handle normalization/repairs
+                processed_stream = response.aiter_text()
 
                 try:
                     async for chunk in processed_stream:

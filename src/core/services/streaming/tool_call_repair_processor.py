@@ -83,9 +83,13 @@ class ToolCallRepairProcessor(IStreamProcessor):
             return StreamingContent(
                 content=new_content_str,
                 is_done=content.is_done,
+                is_cancellation=content.is_cancellation,
                 metadata=content.metadata,
                 usage=content.usage,
                 raw_data=content.raw_data,
             )
         else:
-            return StreamingContent(content="")  # Return empty if nothing to yield
+            return StreamingContent(
+                content="",
+                is_cancellation=content.is_cancellation,
+            )  # Return empty if nothing to yield

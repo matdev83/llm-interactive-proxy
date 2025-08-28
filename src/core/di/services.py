@@ -35,6 +35,7 @@ from src.core.interfaces.response_handler_interface import (
 )
 from src.core.interfaces.response_manager_interface import IResponseManager
 from src.core.interfaces.response_processor_interface import (
+    IResponseMiddleware,
     IResponseProcessor,
 )
 from src.core.interfaces.session_manager_interface import ISessionManager
@@ -57,6 +58,7 @@ from src.core.services.command_argument_parser import CommandArgumentParser
 from src.core.services.command_processor import CommandProcessor
 from src.core.services.command_sanitizer import CommandSanitizer
 from src.core.services.command_service import CommandService
+from src.core.services.json_repair_service import JsonRepairService
 from src.core.services.request_processor_service import RequestProcessor
 from src.core.services.response_handlers import (
     DefaultNonStreamingResponseHandler,
@@ -75,6 +77,7 @@ from src.core.services.session_service_impl import SessionService
 from src.core.services.streaming.content_accumulation_processor import (
     ContentAccumulationProcessor,
 )
+from src.core.services.streaming.json_repair_processor import JsonRepairProcessor
 from src.core.services.streaming.middleware_application_processor import (
     MiddlewareApplicationProcessor,
 )
@@ -534,6 +537,16 @@ def register_core_services(
     def _stream_normalizer_factory(provider: IServiceProvider) -> StreamNormalizer:
         # Retrieve all stream processors in the correct order
         try:
+            from src.core.config.app_config import AppConfig
+
+            app_config: AppConfig = provider.get_required_service(AppConfig)
+
+            # Optional JSON repair processor (enabled via config)
+            json_repair_processor = None
+            if getattr(app_config.session, "json_repair_enabled", False):
+                json_repair_processor = provider.get_required_service(
+                    JsonRepairProcessor
+                )
             tool_call_repair_processor = provider.get_required_service(
                 ToolCallRepairProcessor
             )
@@ -547,12 +560,17 @@ def register_core_services(
                 ContentAccumulationProcessor
             )
 
-            processors = [
-                tool_call_repair_processor,
-                loop_detection_processor,
-                middleware_application_processor,
-                content_accumulation_processor,
-            ]
+            processors = []
+            # Prefer JSON repair first so JSON blocks are valid
+            if json_repair_processor is not None:
+                processors.append(json_repair_processor)
+            # Then text loop detection
+            processors.append(loop_detection_processor)
+            # Then tool-call repair
+            processors.append(tool_call_repair_processor)
+            # Middleware and accumulation
+            processors.append(middleware_application_processor)
+            processors.append(content_accumulation_processor)
         except Exception as e:
             logger.warning(
                 f"Error creating stream processors: {e}. Using default configuration."
@@ -575,7 +593,84 @@ def register_core_services(
     _add_singleton(LoopDetectionProcessor)
     _add_singleton(ToolCallRepairProcessor)
     _add_singleton(ContentAccumulationProcessor)
-    _add_singleton(MiddlewareApplicationProcessor)
+
+    # Register MiddlewareApplicationProcessor with configured middleware list
+    def _middleware_application_processor_factory(
+        provider: IServiceProvider,
+    ) -> MiddlewareApplicationProcessor:
+        from src.core.app.middleware.json_repair_middleware import JsonRepairMiddleware
+        from src.core.app.middleware.tool_call_repair_middleware import (
+            ToolCallRepairMiddleware,
+        )
+        from src.core.config.app_config import AppConfig
+        from src.core.domain.configuration.loop_detection_config import (
+            LoopDetectionConfiguration,
+        )
+        from src.core.services.tool_call_loop_middleware import (
+            ToolCallLoopDetectionMiddleware,
+        )
+
+        cfg: AppConfig = provider.get_required_service(AppConfig)
+        middlewares: list[IResponseMiddleware] = []  # type: ignore[name-defined]
+
+        # JSON repair for non-streaming responses
+        if getattr(cfg.session, "json_repair_enabled", False):
+            json_service: JsonRepairService = provider.get_required_service(
+                JsonRepairService
+            )
+            middlewares.append(JsonRepairMiddleware(cfg, json_service))
+
+        # Tool call repair for non-streaming responses
+        if getattr(cfg.session, "tool_call_repair_enabled", True):
+            tcr_service: ToolCallRepairService = provider.get_required_service(
+                ToolCallRepairService
+            )
+            middlewares.append(ToolCallRepairMiddleware(cfg, tcr_service))
+
+        # Tool call loop detection middleware
+        try:
+            middlewares.append(ToolCallLoopDetectionMiddleware())
+            default_loop_config = LoopDetectionConfiguration()
+        except Exception:
+            default_loop_config = None
+
+        return MiddlewareApplicationProcessor(
+            middlewares, default_loop_config=default_loop_config
+        )
+
+    _add_singleton(
+        MiddlewareApplicationProcessor,
+        implementation_factory=_middleware_application_processor_factory,
+    )
+
+    # Register JSON repair service and processor
+    def _json_repair_service_factory(provider: IServiceProvider) -> JsonRepairService:
+        return JsonRepairService()
+
+    _add_singleton(
+        JsonRepairService, implementation_factory=_json_repair_service_factory
+    )
+
+    def _json_repair_processor_factory(
+        provider: IServiceProvider,
+    ) -> JsonRepairProcessor:
+        from src.core.config.app_config import AppConfig
+
+        config: AppConfig = provider.get_required_service(AppConfig)
+        service: JsonRepairService = provider.get_required_service(JsonRepairService)
+        return JsonRepairProcessor(
+            repair_service=service,
+            buffer_cap_bytes=getattr(
+                config.session, "json_repair_buffer_cap_bytes", 64 * 1024
+            ),
+            strict_mode=getattr(config.session, "json_repair_strict_mode", False),
+            schema=getattr(config.session, "json_repair_schema", None),
+            enabled=getattr(config.session, "json_repair_enabled", False),
+        )
+
+    _add_singleton(
+        JsonRepairProcessor, implementation_factory=_json_repair_processor_factory
+    )
 
     # Register tool call repair service (if not already registered elsewhere as a concrete type)
     def _tool_call_repair_service_factory(
