@@ -103,6 +103,7 @@ class BackendProcessor(IBackendProcessor):
                     extra_body=extra_body_dict,
                 ),
                 stream=request.stream if request.stream is not None else False,
+                context=context,
             )
 
             # Add session interaction for the request

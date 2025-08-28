@@ -39,6 +39,18 @@ def fastapi_to_domain_request_context(
     for cookie_name, cookie_value in request.cookies.items():
         cookies[cookie_name] = cookie_value
 
+    # Try to extract agent information from headers
+    agent: str | None = None
+    try:
+        agent = headers.get("x-agent") or headers.get("x-client-agent")
+        if not agent:
+            # Fall back to User-Agent; keep it concise
+            ua = headers.get("user-agent")
+            if ua:
+                agent = ua[:80]
+    except Exception:
+        agent = None
+
     # Create the context
     context = RequestContext(
         headers=headers,
@@ -54,6 +66,7 @@ def fastapi_to_domain_request_context(
             request.app, "state", None
         ),  # noqa: DIP-violation-adapter-layer
         state=getattr(request.state, "request_state", {}),
+        agent=agent,
     )
 
     # Attach the original request if requested

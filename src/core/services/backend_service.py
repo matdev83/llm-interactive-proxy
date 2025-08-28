@@ -157,6 +157,7 @@ class BackendService(IBackendService):
                 backend_type,
                 effective_failover_routes,
                 stream,
+                context,
             )
 
         rate_key = f"backend:{backend_type}"
@@ -206,7 +207,7 @@ class BackendService(IBackendService):
                             else None
                         )
                         await self._wire_capture.capture_outbound_request(
-                            context=None,
+                            context=context,
                             session_id=session_id,
                             backend=backend_type,
                             model=effective_model,
@@ -237,7 +238,7 @@ class BackendService(IBackendService):
 
                         if isinstance(result, StreamingResponseEnvelope):
                             wrapped_stream = self._wire_capture.wrap_inbound_stream(
-                                context=None,
+                                context=context,
                                 session_id=session_id,
                                 backend=backend_type,
                                 model=effective_model,
@@ -251,7 +252,7 @@ class BackendService(IBackendService):
                             )
                         else:
                             await self._wire_capture.capture_inbound_response(
-                                context=None,
+                                context=context,
                                 session_id=session_id,
                                 backend=backend_type,
                                 model=effective_model,
@@ -453,6 +454,7 @@ class BackendService(IBackendService):
         backend_type: str,
         effective_failover_routes: dict[str, Any],
         stream: bool,
+        context: RequestContext | None,
     ) -> ResponseEnvelope | StreamingResponseEnvelope:
         """Execute complex failover strategy for models with configured routes."""
         logger.info(f"Using complex failover policy for model {effective_model}")
@@ -472,7 +474,7 @@ class BackendService(IBackendService):
             )
 
             return await self._attempt_failover_plan(
-                request, plan, stream, backend_type
+                request, plan, stream, backend_type, context
             )
         except BackendError:
             raise
@@ -490,6 +492,7 @@ class BackendService(IBackendService):
         plan: list[tuple[str, str]],
         stream: bool,
         backend_type: str,
+        context: RequestContext | None = None,
     ) -> ResponseEnvelope | StreamingResponseEnvelope:
         """Attempt failover using the provided plan.
 
@@ -524,7 +527,10 @@ class BackendService(IBackendService):
                 )
 
                 return await self.call_completion(
-                    attempt_request, stream=stream, allow_failover=False
+                    attempt_request,
+                    stream=stream,
+                    allow_failover=False,
+                    context=context,
                 )
             except (BackendError, RateLimitExceededError) as attempt_error:
                 logger.warning(
@@ -558,6 +564,7 @@ class BackendService(IBackendService):
         backend_type: str,
         stream: bool,
         last_error: Exception,
+        context: RequestContext | None = None,
     ) -> ResponseEnvelope | StreamingResponseEnvelope:
         """Handle failover logic when backend call fails."""
         # Proceed with failover logic using last_error as the last seen exception
@@ -578,7 +585,7 @@ class BackendService(IBackendService):
                 )
 
                 return await self._attempt_failover_plan(
-                    request, plan_nested, stream, backend_type
+                    request, plan_nested, stream, backend_type, context
                 )
             except (TypeError, ValueError, AttributeError, KeyError) as failover_error:
                 logger.error(
@@ -614,7 +621,10 @@ class BackendService(IBackendService):
                 )
 
                 return await self.call_completion(
-                    fallback_request, stream=stream, allow_failover=False
+                    fallback_request,
+                    stream=stream,
+                    allow_failover=False,
+                    context=context,
                 )
 
         # If no failover options available, raise the original error

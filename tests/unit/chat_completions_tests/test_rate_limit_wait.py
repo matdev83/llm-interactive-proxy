@@ -1,8 +1,13 @@
 import asyncio
 import time
+from collections.abc import AsyncGenerator
+from typing import Any
+
+from fastapi.responses import StreamingResponse
+from src.core.domain.chat import ChatRequest
 
 
-def test_wait_for_rate_limited_backends(monkeypatch, client):
+def test_wait_for_rate_limited_backends(monkeypatch: Any, client: Any) -> None:
     # Build a failover route via commands (uses the compat endpoint); not strictly required
     client.post(
         "/v1/chat/completions",
@@ -29,7 +34,7 @@ def test_wait_for_rate_limited_backends(monkeypatch, client):
     current = 0.0
     monkeypatch.setattr(time, "time", lambda: current)
 
-    async def fake_sleep(d):
+    async def fake_sleep(d: float) -> None:
         nonlocal current
         current += d
 
@@ -42,7 +47,12 @@ def test_wait_for_rate_limited_backends(monkeypatch, client):
     app = client.app
     backend_service = app.state.service_provider.get_required_service(IBackendService)  # type: ignore
 
-    async def fake_call_completion(request, stream=False, allow_failover=True):
+    async def fake_call_completion(
+        request: ChatRequest,
+        stream: bool = False,
+        allow_failover: bool = True,
+        context: Any = None,
+    ) -> StreamingResponse:
         # Simulate two backoffs that would normally be driven by 429 Retry-After headers
         await asyncio.sleep(0.1)
         await asyncio.sleep(0.3)
@@ -50,7 +60,7 @@ def test_wait_for_rate_limited_backends(monkeypatch, client):
         # Success path: return SSE-like text in a simple JSON envelope expected by compat layer
         from fastapi.responses import StreamingResponse
 
-        async def gen():
+        async def gen() -> AsyncGenerator[bytes, None]:
             yield b'data: {"choices": [{"delta": {"content": "ok"}}]\n\n'
             yield b"data: [DONE]\n\n"
 
