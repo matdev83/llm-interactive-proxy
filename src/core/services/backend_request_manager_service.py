@@ -28,10 +28,13 @@ class BackendRequestManager(IBackendRequestManager):
         self,
         backend_processor: IBackendProcessor,
         response_processor: IResponseProcessor,
+        wire_capture: Any | None = None,
     ) -> None:
         """Initialize the backend request manager."""
         self._backend_processor = backend_processor
         self._response_processor = response_processor
+        # wire_capture is currently applied at BackendService level to avoid
+        # duplicating backend resolution logic; accepted here for future use.
 
     async def prepare_backend_request(
         self, request_data: ChatRequest, command_result: ProcessedResult

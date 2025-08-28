@@ -238,6 +238,19 @@ async def test_oauth_backend_health_check(self, mock_refresh, mock_home):
 ## Code Quality
 
 - **Code Style**: Follow PEP 8 with type hints, use Ruff for linting, and Black for formatting.
+
+## Security and Redaction Guidelines
+
+- **Never log secrets**: Do not print raw API keys, tokens, or credentials. Rely on the global logging redaction filter which sanitizes messages automatically.
+- **Request redaction is mandatory**: Outbound prompts/messages are sanitized by the request redaction middleware. Do not re-introduce connector-specific redaction; keep redaction centralized and backend-agnostic.
+- **Configuration**:
+  - Prompt redaction is controlled by `auth.redact_api_keys_in_prompts` (default: true). CLI flag `--disable-redact-api-keys-in-prompts` disables it.
+  - API keys are discovered from config (`auth.api_keys`, `backends.<name>.api_key`) and environment variables.
+- **When modifying the request pipeline**: If you change `RequestProcessor`, `BackendRequestManager`, or middleware wiring, ensure the redaction step remains in the active path and add/update tests.
+- **Tests**:
+  - Unit tests exist for the middleware and processor redaction behavior.
+  - Integration tests verify redaction for both streaming and non-streaming flows.
+  - Run the full test suite after changes to avoid regressions.
 - **SOLID Principles**: Adhere to SRP, OCP, LSP, ISP, and DIP.
 - **DRY**: Avoid code duplication.
 - **Test-Driven Development (TDD)**: Write tests first.

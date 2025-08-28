@@ -1,0 +1,51 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="1" skipped="0" tests="1" time="0.328" timestamp="2025-08-28T16:55:54.402704+02:00" hostname="DESKTOP-I2CAJ6V"><testcase classname="tests.chat_completions_tests.test_anthropic_frontend" name="test_anthropic_messages_non_streaming_frontend" time="0.148"><failure message="assert 500 == 200&#10; +  where 500 = &lt;Response [500 Internal Server Error]&gt;.status_code">anthropic_client = &lt;starlette.testclient.TestClient object at 0x0000020716DF4B80&gt;
+
+    def test_anthropic_messages_non_streaming_frontend(anthropic_client):
+        with patch(
+            "src.core.services.request_processor_service.RequestProcessor.process_request",
+            new_callable=AsyncMock,
+        ) as mock_process:
+            # Configure the mock to return the response envelope directly (not a coroutine)
+            from src.core.domain.responses import ResponseEnvelope
+    
+            # Create a proper OpenAI-style response that will be converted to Anthropic format
+            openai_response = {
+                "id": "chatcmpl-123",
+                "object": "chat.completion",
+                "created": 1677652288,
+                "model": "claude-3-haiku-20240229",
+                "choices": [
+                    {
+                        "index": 0,
+                        "message": {
+                            "role": "assistant",
+                            "content": "Mock response from test backend",
+                        },
+                        "finish_reason": "stop",
+                    }
+                ],
+                "usage": {"prompt_tokens": 5, "completion_tokens": 7, "total_tokens": 12},
+            }
+    
+            mock_response = ResponseEnvelope(
+                content=openai_response,
+                headers={"content-type": "application/json"},
+                status_code=200,
+            )
+    
+            mock_process.return_value = mock_response
+    
+            res = anthropic_client.post(
+                "/anthropic/v1/messages",  # Use the correct Anthropic endpoint
+                headers={"Authorization": "Bearer test-proxy-key"},
+                json={
+                    "model": "claude-3-haiku-20240229",
+                    "max_tokens": 128,
+                    "messages": [{"role": "user", "content": "Hello"}],
+                },
+            )
+&gt;           assert res.status_code == 200
+E           assert 500 == 200
+E            +  where 500 = &lt;Response [500 Internal Server Error]&gt;.status_code
+
+tests\chat_completions_tests\test_anthropic_frontend.py:108: AssertionError</failure></testcase></testsuite></testsuites>

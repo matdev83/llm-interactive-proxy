@@ -98,6 +98,72 @@ class RequestProcessor(IRequestProcessor):
             request_data, command_result
         )
 
+        # Apply request redaction middleware (API keys and proxy commands)
+        # just before calling the backend, so both original and command-modified
+        # messages are covered.
+        if backend_request is not None:
+            try:
+                from src.core.common.logging_utils import (
+                    discover_api_keys_from_config_and_env,
+                )
+                from src.core.services.redaction_middleware import RedactionMiddleware
+
+                # Resolve AppConfig via injected app_state when available
+                app_config = None
+                if self._app_state is not None:
+                    try:
+                        app_config = self._app_state.get_setting("app_config")
+                    except Exception:
+                        app_config = None
+
+                # Only apply if feature flag is enabled (default True)
+                should_redact = True
+                try:
+                    if app_config is not None and hasattr(app_config, "auth"):
+                        should_redact = bool(app_config.auth.redact_api_keys_in_prompts)
+                except Exception:
+                    # Be conservative: keep redaction enabled on errors
+                    should_redact = True
+
+                if should_redact:
+                    api_keys = discover_api_keys_from_config_and_env(app_config)
+                    # Command prefix can be None; RedactionMiddleware has a default
+                    command_prefix = None
+                    try:
+                        command_prefix = (
+                            app_config.command_prefix
+                            if app_config is not None
+                            else None
+                        )
+                    except Exception:
+                        command_prefix = None
+
+                    # Check if commands are disabled
+                    commands_disabled = False
+                    if self._app_state is not None:
+                        try:
+                            commands_disabled = bool(
+                                self._app_state.get_disable_commands()
+                            )
+                        except AttributeError:
+                            commands_disabled = False
+
+                    redaction = RedactionMiddleware(
+                        api_keys=api_keys,
+                        command_prefix=command_prefix or "!/",
+                    )
+                    redaction_context = {"commands_disabled": commands_disabled}
+                    backend_request = await redaction.process(
+                        backend_request, redaction_context
+                    )
+            except Exception:
+                # Redaction is best-effort; never block requests on failure
+                if logger.isEnabledFor(logging.DEBUG):
+                    logger.debug(
+                        "Request redaction middleware failed; proceeding without redaction",
+                        exc_info=True,
+                    )
+
         if backend_request is None:
             # Skip backend call and return command result directly
             logger.debug(
@@ -150,13 +216,17 @@ class RequestProcessor(IRequestProcessor):
         backend_request = backend_request.model_copy(update={"extra_body": extra_body})
 
         # Process backend request with retry handling
-        logger.info(
-            f"Calling backend for session {session_id} with request: {backend_request}"
-        )
+        if logger.isEnabledFor(logging.INFO):
+            logger.info(
+                f"Calling backend for session {session_id} with request: {backend_request}"
+            )
         backend_response = await self._backend_request_manager.process_backend_request(
             backend_request, session_id, context
         )
-        logger.info(f"Backend response for session {session_id}: {backend_response}")
+        if logger.isEnabledFor(logging.INFO):
+            logger.info(
+                f"Backend response for session {session_id}: {backend_response}"
+            )
 
         # Update session history with the backend interaction
         await self._session_manager.update_session_history(

@@ -6,7 +6,6 @@ from typing import Any
 from src.core.config.app_config import AppConfig
 from src.core.interfaces.response_processor_interface import (
     IResponseMiddleware,
-    ProcessedResponse,
 )
 from src.core.services.tool_call_repair_service import ToolCallRepairService
 
@@ -26,8 +25,13 @@ class ToolCallRepairMiddleware(IResponseMiddleware):
         self.tool_call_repair_service = tool_call_repair_service
 
     async def process(
-        self, response: ProcessedResponse, session_id: str, context: dict[str, Any]
-    ) -> ProcessedResponse:
+        self,
+        response: Any,
+        session_id: str,
+        context: dict[str, Any],
+        is_streaming: bool = False,
+        stop_event: Any = None,
+    ) -> Any:
         """
         Processes the response to detect and repair tool calls if enabled.
         """

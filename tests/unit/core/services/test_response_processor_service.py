@@ -1,323 +1,314 @@
-"""
-Tests for the ResponseProcessor service using Hypothesis for property-based testing.
-"""
-
 from collections.abc import AsyncGenerator
-from unittest.mock import AsyncMock, Mock
+from typing import Any
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-from hypothesis import HealthCheck, given, settings
-from hypothesis import strategies as st
+from src.core.common.exceptions import LoopDetectionError, ParsingError
 from src.core.domain.chat import StreamingChatResponse
 from src.core.domain.streaming_response_processor import StreamingContent
-from src.core.interfaces.application_state_interface import IApplicationState
 from src.core.interfaces.loop_detector_interface import ILoopDetector
-from src.core.interfaces.response_processor_interface import (
-    IResponseMiddleware,
-    ProcessedResponse,
+from src.core.interfaces.middleware_application_manager_interface import (
+    IMiddlewareApplicationManager,
 )
+from src.core.interfaces.response_parser_interface import IResponseParser
+from src.core.interfaces.streaming_response_processor_interface import IStreamNormalizer
 from src.core.services.response_processor_service import ResponseProcessor
-from src.core.services.streaming.stream_normalizer import StreamNormalizer
+
+
+@pytest.fixture
+def mock_response_parser() -> MagicMock:
+    """Fixture for a mock response parser."""
+    parser = MagicMock(spec=IResponseParser)
+    parser.parse_response.return_value = {}
+    parser.extract_content.return_value = "default content"
+    parser.extract_usage.return_value = None
+    parser.extract_metadata.return_value = {}
+    return parser
+
+
+@pytest.fixture
+def mock_middleware_application_manager() -> AsyncMock:
+    """Fixture for a mock middleware application manager."""
+    manager = AsyncMock(spec=IMiddlewareApplicationManager)
+    manager.apply_middleware.side_effect = lambda content, **kwargs: content
+    return manager
+
+
+@pytest.fixture
+def mock_loop_detector() -> AsyncMock:
+    """Fixture for a mock loop detector."""
+    detector = AsyncMock(spec=ILoopDetector)
+    detector.check_for_loops.return_value = MagicMock(has_loop=False)
+    return detector
+
+
+@pytest.fixture
+def mock_stream_normalizer() -> AsyncMock:
+    """Fixture for a mock stream normalizer."""
+    normalizer = AsyncMock(spec=IStreamNormalizer)
+    normalizer.process_stream.return_value = AsyncMock()
+    return normalizer
+
+
+@pytest.fixture
+def response_processor(
+    mock_response_parser: MagicMock,
+    mock_middleware_application_manager: AsyncMock,
+    mock_loop_detector: AsyncMock,
+    mock_stream_normalizer: AsyncMock,
+) -> ResponseProcessor:
+    """Fixture for a ResponseProcessor instance with mocked dependencies."""
+    # Create a mock middleware for testing
+    mock_middleware = MagicMock()
+    return ResponseProcessor(
+        response_parser=mock_response_parser,
+        middleware_application_manager=mock_middleware_application_manager,
+        loop_detector=mock_loop_detector,
+        stream_normalizer=mock_stream_normalizer,
+        middleware_list=[mock_middleware],
+    )
+
+
+@pytest.fixture
+def response_processor_no_normalizer(
+    mock_response_parser: MagicMock,
+    mock_middleware_application_manager: AsyncMock,
+    mock_loop_detector: AsyncMock,
+) -> ResponseProcessor:
+    """Fixture for a ResponseProcessor instance without a stream normalizer."""
+    # Create a mock middleware for testing
+    mock_middleware = MagicMock()
+    return ResponseProcessor(
+        response_parser=mock_response_parser,
+        middleware_application_manager=mock_middleware_application_manager,
+        loop_detector=mock_loop_detector,
+        stream_normalizer=None,  # Explicitly pass None
+        middleware_list=[mock_middleware],
+    )
 
 
 class TestResponseProcessor:
     """Tests for the ResponseProcessor class."""
 
-    @pytest.fixture
-    def mock_app_state(self) -> Mock:
-        """Create a mock ApplicationStateService."""
-        app_state = Mock(spec=IApplicationState)
-        app_state.get_use_streaming_pipeline.return_value = False
-        return app_state
-
-    @pytest.fixture
-    def mock_stream_normalizer(self) -> Mock:
-        """Create a mock StreamNormalizer."""
-        normalizer = Mock(spec=StreamNormalizer)
-
-        # The new StreamNormalizer only has process_stream, not normalize_streaming_response
-        # We need to mock process_stream to return an async generator of StreamingContent
-        async def mock_generator(
-            *args, **kwargs
-        ) -> AsyncGenerator[StreamingContent, None]:
-            yield StreamingContent(
-                content="Hello",
-                metadata={"model": "test-model", "session_id": "test-session"},
-            )
-            yield StreamingContent(
-                content=" world",
-                metadata={"model": "test-model", "session_id": "test-session"},
-            )
-
-        # Create an AsyncMock that returns the generator
-        mock_process_stream = AsyncMock()
-        mock_process_stream.return_value = mock_generator()
-        normalizer.process_stream = mock_process_stream
-        return normalizer
-
-    @pytest.fixture
-    def loop_detector(self) -> Mock:
-        """Create a mock loop detector."""
-        detector = Mock(spec=ILoopDetector)
-        detector.check_for_loops = AsyncMock(return_value=Mock(has_loop=False))
-        return detector
-
-    @pytest.fixture
-    def middleware(self) -> Mock:
-        """Create a mock middleware."""
-        mw = Mock(spec=IResponseMiddleware)
-        mw.process = AsyncMock(
-            side_effect=lambda response, session_id, context: response
-        )
-        return mw
-
     @pytest.mark.asyncio
-    async def test_process_response_with_dict(self, mock_app_state: Mock) -> None:
-        """Test processing a dictionary response."""
-        response = {
-            "id": "test-id",
-            "model": "test-model",
-            "choices": [{"message": {"content": "Hello from dict!"}}],
-            "usage": {"prompt_tokens": 15, "completion_tokens": 8},
-        }
-
-        processor = ResponseProcessor(app_state=mock_app_state)
-        result = await processor.process_response(response, "test-session")
-
-        assert isinstance(result, ProcessedResponse)
-        assert result.content == "Hello from dict!"
-        assert result.usage == {"prompt_tokens": 15, "completion_tokens": 8}
-        assert result.metadata["model"] == "test-model"
-        assert result.metadata["id"] == "test-id"
-
-    @pytest.mark.asyncio
-    async def test_process_response_with_string(self, mock_app_state: Mock) -> None:
-        """Test processing a string response."""
-        response = "Direct content"
-
-        processor = ResponseProcessor(app_state=mock_app_state)
-        result = await processor.process_response(response, "test-session")
-
-        assert isinstance(result, ProcessedResponse)
-        assert result.content == "Direct content"
-        assert result.usage is None
-
-    @pytest.mark.asyncio
-    async def test_process_response_with_loop_detection(
-        self, mock_app_state: Mock, loop_detector: Mock
+    async def test_process_response_success(
+        self, response_processor: ResponseProcessor, mock_response_parser: MagicMock
     ) -> None:
-        """Test processing a response with loop detection enabled."""
-        response = "Repeated content that might be a loop"
+        """Test successful processing of a non-streaming response."""
+        mock_response_parser.parse_response.return_value = {"key": "value"}
+        mock_response_parser.extract_content.return_value = "test content"
+        mock_response_parser.extract_usage.return_value = {"tokens": 10}
+        mock_response_parser.extract_metadata.return_value = {"model": "gpt-3.5"}
 
-        # Configure loop detector to detect a loop
-        loop_result = Mock(has_loop=True, pattern="Repeated", repetitions=5)
-        loop_detector.check_for_loops = AsyncMock(return_value=loop_result)
+        response = {"choices": [{"message": {"content": "hello"}}]}
+        processed = await response_processor.process_response(response, "session123")
 
-        processor = ResponseProcessor(
-            app_state=mock_app_state, loop_detector=loop_detector
-        )
-
-        # Should raise LoopDetectionError
-        with pytest.raises(Exception) as exc_info:
-            await processor.process_response(response, "test-session")
-
-        assert "loop detected" in str(exc_info.value).lower()
+        assert processed.content == "test content"
+        assert processed.usage == {"tokens": 10}
+        assert processed.metadata == {"model": "gpt-3.5"}
+        mock_response_parser.parse_response.assert_called_once_with(response)
 
     @pytest.mark.asyncio
-    async def test_process_response_with_middleware(
-        self, mock_app_state: Mock, middleware: Mock
+    async def test_process_response_loop_detection(
+        self, response_processor: ResponseProcessor, mock_loop_detector: AsyncMock
     ) -> None:
-        """Test processing a response with middleware."""
-        response = {"choices": [{"message": {"content": "Test content"}}]}
-
-        processor = ResponseProcessor(app_state=mock_app_state, middleware=[middleware])
-        result = await processor.process_response(response, "test-session")
-
-        # Check that middleware was called
-        middleware.process.assert_called_once()
-        assert isinstance(result, ProcessedResponse)
-        assert result.content == "Test content"
-
-    @pytest.mark.asyncio
-    async def test_process_streaming_response_basic(self, mock_app_state: Mock) -> None:
-        """Test processing a streaming response."""
-
-        async def mock_stream() -> AsyncGenerator[dict[str, list[dict[str, dict[str, str]]]], None]:  # type: ignore
-            yield {"choices": [{"delta": {"content": "Hello"}}]}
-            yield {"choices": [{"delta": {"content": " world"}}]}
-            yield {"choices": [{"delta": {"content": "!"}}]}
-
-        # Create a custom stream normalizer for this test
-        from src.core.domain.streaming_response_processor import StreamingContent
-
-        async def mock_process_stream(*args, **kwargs):
-            yield StreamingContent(
-                content="Hello", metadata={"session_id": "test-session"}
-            )
-            yield StreamingContent(
-                content=" world", metadata={"session_id": "test-session"}
-            )
-            yield StreamingContent(content="!", metadata={"session_id": "test-session"})
-
-        # Create a mock stream normalizer
-        mock_normalizer = Mock()
-        mock_normalizer.process_stream = mock_process_stream
-
-        processor = ResponseProcessor(
-            app_state=mock_app_state, stream_normalizer=mock_normalizer
+        """Test loop detection in a non-streaming response."""
+        mock_loop_detector.check_for_loops.return_value = MagicMock(
+            has_loop=True, pattern="loop", repetitions=3
         )
-        stream = processor.process_streaming_response(mock_stream(), "test-session")  # type: ignore
-
-        results = []
-        async for result in stream:
-            results.append(result)
-
-        assert len(results) == 3
-        assert results[0].content == "Hello"
-        assert results[1].content == " world"
-        assert results[2].content == "!"
+        with pytest.raises(LoopDetectionError):
+            await response_processor.process_response("loop content loop", "session123")
 
     @pytest.mark.asyncio
-    async def test_process_streaming_response_with_streaming_chat_response(
-        self, mock_app_state: Mock
+    async def test_process_response_parsing_error(
+        self, response_processor: ResponseProcessor, mock_response_parser: MagicMock
     ) -> None:
-        """Test processing a streaming response with StreamingChatResponse objects."""
-
-        async def mock_stream() -> AsyncGenerator[StreamingChatResponse, None]:  # type: ignore
-            yield StreamingChatResponse(content="Hello", model="test-model")
-            yield StreamingChatResponse(content=" world", model="test-model")
-
-        # Create a custom stream normalizer for this test
-        from src.core.domain.streaming_response_processor import StreamingContent
-
-        async def mock_process_stream(*args, **kwargs):
-            yield StreamingContent(
-                content="Hello",
-                metadata={"model": "test-model", "session_id": "test-session"},
-            )
-            yield StreamingContent(
-                content=" world",
-                metadata={"model": "test-model", "session_id": "test-session"},
-            )
-
-        # Create a mock stream normalizer
-        mock_normalizer = Mock()
-        mock_normalizer.process_stream = mock_process_stream
-
-        processor = ResponseProcessor(
-            app_state=mock_app_state, stream_normalizer=mock_normalizer
-        )
-        stream = processor.process_streaming_response(mock_stream(), "test-session")  # type: ignore
-
-        results = []
-        async for result in stream:
-            results.append(result)
-
-        assert len(results) == 2
-        assert results[0].content == "Hello"
-        assert results[1].content == " world"
+        """Test parsing error in a non-streaming response."""
+        mock_response_parser.parse_response.side_effect = ParsingError("invalid format")
+        with pytest.raises(ParsingError):
+            await response_processor.process_response("invalid json", "session123")
 
     @pytest.mark.asyncio
-    async def test_process_streaming_response_with_bytes(
-        self, mock_app_state: Mock
+    async def test_process_response_middleware_application(
+        self,
+        response_processor: ResponseProcessor,
+        mock_middleware_application_manager: AsyncMock,
+        mock_response_parser: MagicMock,
     ) -> None:
-        """Test processing a streaming response with bytes."""
-
-        async def mock_stream() -> AsyncGenerator[bytes, None]:  # type: ignore
-            yield b'data: {"choices": [{"delta": {"content": "Hello"}}]}\n\n'
-            yield b'data: {"choices": [{"delta": {"content": " world"}}]}\n\n'
-
-        # Create a custom stream normalizer for this test
-        from src.core.domain.streaming_response_processor import StreamingContent
-
-        async def mock_process_stream(*args, **kwargs):
-            yield StreamingContent(
-                content="Hello", metadata={"session_id": "test-session"}
-            )
-            yield StreamingContent(
-                content=" world", metadata={"session_id": "test-session"}
-            )
-
-        # Create a mock stream normalizer
-        mock_normalizer = Mock()
-        mock_normalizer.process_stream = mock_process_stream
-
-        processor = ResponseProcessor(
-            app_state=mock_app_state, stream_normalizer=mock_normalizer
+        """Test middleware application for non-streaming responses."""
+        original_content = "initial content"
+        modified_content = "modified content"
+        response = {"choices": [{"message": {"content": original_content}}]}
+        mock_response_parser.parse_response.return_value = {}
+        mock_response_parser.extract_content.return_value = original_content
+        mock_middleware_application_manager.apply_middleware = AsyncMock(
+            return_value=modified_content
         )
-        stream = processor.process_streaming_response(mock_stream(), "test-session")  # type: ignore
 
-        results = []
-        async for result in stream:
-            results.append(result)
+        processed = await response_processor.process_response(response, "session123")
 
-        assert len(results) == 2
-        assert results[0].content == "Hello"
-        assert results[1].content == " world"
+        mock_middleware_application_manager.apply_middleware.assert_called_once()
+        assert processed.content == modified_content
 
     @pytest.mark.asyncio
-    async def test_process_streaming_response_with_normalizer_enabled(
-        self, mock_app_state: Mock
+    async def test_process_streaming_response_success(
+        self, response_processor: ResponseProcessor, mock_stream_normalizer: AsyncMock
     ) -> None:
-        """Test processing a streaming response with stream normalizer enabled."""
-        mock_app_state.get_use_streaming_pipeline.return_value = True
+        """Test successful processing of a streaming response."""
 
-        # Create a simple async generator for testing
-        async def test_stream() -> (
-            AsyncGenerator[dict[str, list[dict[str, dict[str, str]]]], None]
-        ):
-            yield {"choices": [{"delta": {"content": "Hello"}}]}
-            yield {"choices": [{"delta": {"content": " world"}}]}
+        async def mock_stream_generator() -> AsyncGenerator[StreamingContent, None]:
+            yield StreamingContent(content="chunk1", is_done=False)
+            yield StreamingContent(content="chunk2", is_done=True)
 
-        # Create a custom stream normalizer for this test
-        from src.core.domain.streaming_response_processor import StreamingContent
+        mock_stream_normalizer.process_stream.return_value = mock_stream_generator()
 
-        async def mock_process_stream(*args, **kwargs):
-            yield StreamingContent(
-                content="Hello", metadata={"session_id": "test-session"}
+        response_chunks = [
+            StreamingChatResponse(content="data1", model="test"),
+            StreamingChatResponse(content="data2", model="test"),
+        ]
+
+        # Simulate an async iterator from a list of chunks
+        async def async_iter_from_list(
+            data_list: list[StreamingChatResponse],
+        ) -> AsyncGenerator[StreamingChatResponse, None]:
+            for item in data_list:
+                yield item
+
+        processed_chunks = [
+            chunk
+            async for chunk in response_processor.process_streaming_response(
+                async_iter_from_list(response_chunks), "session123"
             )
-            yield StreamingContent(
-                content=" world", metadata={"session_id": "test-session"}
-            )
+        ]
 
-        # Create a mock stream normalizer with process_stream method
-        mock_normalizer = Mock()
-        mock_process_stream_mock = AsyncMock()
-        mock_process_stream_mock.return_value = mock_process_stream()
-        mock_normalizer.process_stream = mock_process_stream_mock
+        assert len(processed_chunks) == 2
+        assert processed_chunks[0].content == "chunk1"
+        assert processed_chunks[1].content == "chunk2"
+        mock_stream_normalizer.process_stream.assert_called_once()
 
-        # Create a simple async generator for testing
-        test_stream_instance = test_stream()
-
-        processor = ResponseProcessor(
-            app_state=mock_app_state, stream_normalizer=mock_normalizer
-        )
-        stream = processor.process_streaming_response(
-            test_stream_instance, "test-session"
-        )
-
-        results = []
-        async for result in stream:
-            results.append(result)
-
-        # Verify process_stream was called with the correct arguments
-        mock_normalizer.process_stream.assert_called_once_with(
-            test_stream_instance, output_format="objects"
-        )
-        assert len(results) == 2
-        assert results[0].content == "Hello"
-        assert results[1].content == " world"
-
-    @given(content=st.text(min_size=1, max_size=100))
-    @settings(suppress_health_check=[HealthCheck.function_scoped_fixture])
     @pytest.mark.asyncio
-    async def test_process_response_with_various_string_content(
-        self, mock_app_state: Mock, content: str
+    async def test_process_streaming_response_error_handling(
+        self, response_processor: ResponseProcessor, mock_stream_normalizer: AsyncMock
     ) -> None:
-        """Property-based test for processing various string content."""
-        processor = ResponseProcessor(app_state=mock_app_state)
-        result = await processor.process_response(content, "test-session")
+        """Test error handling during streaming response processing."""
 
-        assert isinstance(result, ProcessedResponse)
-        assert result.content == content
-        assert isinstance(result.metadata, dict)
+        async def error_stream_generator() -> AsyncGenerator[StreamingContent, None]:
+            yield StreamingContent(content="valid", is_done=False)
+            raise ValueError("Stream error")
+
+        mock_stream_normalizer.process_stream.return_value = error_stream_generator()
+
+        response_chunks = [StreamingChatResponse(content="data", model="test")]
+        processed_chunks = []
+        with patch(
+            "src.core.services.response_processor_service.logger"
+        ) as mock_logger:
+
+            async def async_iter_from_list(
+                data_list: list[StreamingChatResponse],
+            ) -> AsyncGenerator[StreamingChatResponse, None]:
+                for item in data_list:
+                    yield item
+
+            async for chunk in response_processor.process_streaming_response(
+                async_iter_from_list(response_chunks), "session123"
+            ):
+                processed_chunks.append(chunk)
+
+            assert len(processed_chunks) == 2
+            assert processed_chunks[0].content == "valid"
+            assert (
+                processed_chunks[1].content is not None
+                and "Stream error" in processed_chunks[1].content
+            )
+            assert processed_chunks[1].metadata.get("error") is True
+            mock_logger.error.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_process_streaming_response_raw_iterator(
+        self,
+        response_processor_no_normalizer: ResponseProcessor,
+        mock_stream_normalizer: AsyncMock,
+    ) -> None:
+        """Test processing of raw async iterators without stream normalizer."""
+
+        async def raw_chunks() -> AsyncGenerator[StreamingChatResponse, None]:
+            yield StreamingChatResponse(content="raw_chunk1", model="test_model")
+            yield StreamingChatResponse(content="raw_chunk2", model="test_model")
+
+        processed_responses = [
+            p
+            async for p in response_processor_no_normalizer.process_streaming_response(
+                raw_chunks(), "session_id"
+            )
+        ]
+
+        assert len(processed_responses) == 2
+        assert processed_responses[0].content == "raw_chunk1"
+        assert processed_responses[0].metadata["model"] == "test_model"
+        assert processed_responses[1].content == "raw_chunk2"
+        assert processed_responses[1].metadata["model"] == "test_model"
+        mock_stream_normalizer.process_stream.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_process_streaming_response_raw_dict_chunks(
+        self, response_processor_no_normalizer: ResponseProcessor
+    ) -> None:
+        """Test processing raw dictionary chunks directly."""
+
+        async def dict_chunks() -> AsyncGenerator[dict, None]:
+            yield {"choices": [{"delta": {"content": "dict_chunk1"}}]}
+            yield {"choices": [{"delta": {"content": "dict_chunk2"}}]}
+
+        processed_responses = [
+            p
+            async for p in response_processor_no_normalizer.process_streaming_response(
+                dict_chunks(), "session_id"
+            )
+        ]
+
+        assert len(processed_responses) == 2
+        assert processed_responses[0].content == "dict_chunk1"
+        assert processed_responses[1].content == "dict_chunk2"
+
+    @pytest.mark.asyncio
+    async def test_process_streaming_response_raw_bytes_sse_chunks(
+        self, response_processor_no_normalizer: ResponseProcessor
+    ) -> None:
+        """Test processing raw bytes (SSE format) chunks directly."""
+
+        async def bytes_chunks() -> AsyncGenerator[bytes, None]:
+            yield b'data: {"choices": [{"delta": {"content": "byte_chunk1"}}]}\n\n'
+            yield b'data: {"choices": [{"delta": {"content": "byte_chunk2"}}]}\n\n'
+
+        processed_responses = [
+            p
+            async for p in response_processor_no_normalizer.process_streaming_response(
+                bytes_chunks(), "session_id"
+            )
+        ]
+
+        assert len(processed_responses) == 2
+        assert processed_responses[0].content == "byte_chunk1"
+        assert processed_responses[1].content == "byte_chunk2"
+
+    @pytest.mark.asyncio
+    async def test_process_streaming_response_raw_unrecognized_chunks(
+        self, response_processor_no_normalizer: ResponseProcessor
+    ) -> None:
+        """Test processing raw unrecognized chunks directly."""
+
+        async def unrecognized_chunks() -> AsyncGenerator[Any, None]:
+            yield 123  # An integer
+            yield ["list", "chunk"]  # A list
+
+        processed_responses = [
+            p
+            async for p in response_processor_no_normalizer.process_streaming_response(
+                unrecognized_chunks(), "session_id"
+            )
+        ]
+
+        assert len(processed_responses) == 2
+        assert processed_responses[0].content == "123"
+        assert processed_responses[1].content == "['list', 'chunk']"

@@ -78,7 +78,8 @@ class GeminiBackend(LLMBackend):
                     m.get("name") for m in data.get("models", []) if m.get("name")
                 ]
             except Exception as e:
-                logger.warning(f"Failed to fetch Gemini models: {e}")
+                if logger.isEnabledFor(logging.WARNING):
+                    logger.warning(f"Failed to fetch Gemini models: {e}")
                 # Return empty list on failure, don't crash
                 self.available_models = []
 

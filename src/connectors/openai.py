@@ -97,7 +97,8 @@ class OpenAIConnector(LLMBackend):
             data = response.json()
             self.available_models = [model["id"] for model in data.get("data", [])]
         except Exception as e:
-            logger.warning(f"Failed to fetch models: {e}")
+            if logger.isEnabledFor(logging.WARNING):
+                logger.warning(f"Failed to fetch models: {e}")
             # Log the error but don't fail initialization
 
     async def _perform_health_check(self) -> bool:
@@ -134,7 +135,8 @@ class OpenAIConnector(LLMBackend):
                 return False
 
         except Exception as e:
-            logger.error(f"Health check failed - unexpected error: {e}")
+            if logger.isEnabledFor(logging.ERROR):
+                logger.error(f"Health check failed - unexpected error: {e}")
             return False
 
     async def _ensure_healthy(self) -> None:
@@ -206,7 +208,8 @@ class OpenAIConnector(LLMBackend):
             try:
                 return data.decode("utf-8")
             except UnicodeDecodeError:
-                logger.warning(f"Could not decode bytes to utf-8: {data!r}")
+                if logger.isEnabledFor(logging.WARNING):
+                    logger.warning(f"Could not decode bytes to utf-8: {data!r}")
                 return str(data)  # Fallback to string representation
         elif isinstance(
             data, memoryview
@@ -214,7 +217,8 @@ class OpenAIConnector(LLMBackend):
             try:
                 return bytes(data).decode("utf-8")
             except UnicodeDecodeError:
-                logger.warning(f"Could not decode memoryview to utf-8: {data!r}")
+                if logger.isEnabledFor(logging.WARNING):
+                    logger.warning(f"Could not decode memoryview to utf-8: {data!r}")
                 return str(data)  # Fallback to string representation
         else:
             return data

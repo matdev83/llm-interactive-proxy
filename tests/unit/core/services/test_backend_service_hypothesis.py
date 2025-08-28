@@ -92,8 +92,15 @@ def create_backend_service():
                 return ResponseEnvelope(content={}, headers={})
             return result
 
+    from tests.utils.failover_stub import StubFailoverCoordinator
+
     return ConcreteBackendService(
-        factory, rate_limiter, mock_config, session_service, app_state
+        factory,
+        rate_limiter,
+        mock_config,
+        session_service,
+        app_state,
+        failover_coordinator=StubFailoverCoordinator(),
     )
 
 

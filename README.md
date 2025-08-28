@@ -18,6 +18,17 @@ The LLM Interactive Proxy is an advanced middleware service that provides a unif
 - **JSON Repair**: Centralized in the streaming pipeline and enabled for non-streaming responses too. Uses `json_repair` library; supports schema validation and strict gating.
 - **Unified API**: OpenAI-compatible API for all backends.
 
+### Security: API Key Redaction
+
+- **Outbound Request Redaction**: Before any request reaches a backend, a request redaction middleware scans user message content (including text parts in multimodal messages) and replaces any discovered API keys with a placeholder `(API_KEY_HAS_BEEN_REDACTED)`. It also strips proxy commands (e.g., `!/hello`) to prevent command leakage to providers.
+- **Logging Redaction**: A global logging filter automatically masks API keys and bearer tokens in all log messages and handler outputs.
+- **Key Discovery**: Keys are discovered from `auth.api_keys`, `backends.<name>.api_key`, and environment variables (pattern-based, including `Bearer ...`).
+- **Configuration**:
+  - Enable/disable prompt redaction via `auth.redact_api_keys_in_prompts` (default: true).
+  - CLI toggle: `--disable-redact-api-keys-in-prompts`.
+- **Wire Capture Note**: If request/response wire capture is enabled, outbound requests are captured after redaction, so captured payloads are sanitized.
+
+
 ## Backend Support
 
 ### Gemini Backends Overview

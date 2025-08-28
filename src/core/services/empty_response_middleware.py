@@ -71,7 +71,8 @@ class EmptyResponseMiddleware(IResponseMiddleware):
                 )
 
         except OSError as e:
-            logger.error(f"Error loading recovery prompt: {e}")
+            if logger.isEnabledFor(logging.ERROR):
+                logger.error(f"Error loading recovery prompt: {e}")
             self._recovery_prompt = (
                 "The previous response was empty. Please provide a valid response "
                 "with either text content or tool calls. Never return an empty response."
@@ -128,10 +129,12 @@ class EmptyResponseMiddleware(IResponseMiddleware):
 
     async def process(
         self,
-        response: ProcessedResponse,
+        response: Any,
         session_id: str,
-        context: dict[str, Any] | None = None,
-    ) -> ProcessedResponse:
+        context: dict[str, Any],
+        is_streaming: bool = False,
+        stop_event: Any = None,
+    ) -> Any:
         """Process a response, checking for empty responses and triggering recovery.
 
         Args:

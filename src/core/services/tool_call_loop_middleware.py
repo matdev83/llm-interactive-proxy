@@ -17,9 +17,6 @@ from src.core.domain.configuration.loop_detection_config import (
     LoopDetectionConfiguration,
 )
 from src.core.interfaces.response_processor_interface import IResponseMiddleware
-from src.core.interfaces.response_processor_interface import (
-    ProcessedResponse as ProcessedResult,
-)
 from src.tool_call_loop.tracker import ToolCallTracker
 
 logger = logging.getLogger(__name__)
@@ -38,10 +35,12 @@ class ToolCallLoopDetectionMiddleware(IResponseMiddleware):
 
     async def process(
         self,
-        response: ProcessedResult,
+        response: Any,
         session_id: str,
-        context: dict[str, Any] | None = None,
-    ) -> ProcessedResult:
+        context: dict[str, Any],
+        is_streaming: bool = False,
+        stop_event: Any = None,
+    ) -> Any:
         """Process a response and check for tool call loops.
 
         Args:

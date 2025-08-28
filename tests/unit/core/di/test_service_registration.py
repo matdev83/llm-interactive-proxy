@@ -11,6 +11,10 @@ from src.core.di.services import (
 from src.core.domain.streaming_response_processor import LoopDetectionProcessor
 from src.core.interfaces.application_state_interface import IApplicationState
 from src.core.interfaces.di_interface import IServiceProvider
+from src.core.interfaces.middleware_application_manager_interface import (
+    IMiddlewareApplicationManager,
+)
+from src.core.interfaces.response_parser_interface import IResponseParser
 from src.core.interfaces.response_processor_interface import IResponseProcessor
 from src.core.interfaces.streaming_response_processor_interface import IStreamNormalizer
 from src.core.interfaces.tool_call_repair_service_interface import (
@@ -89,12 +93,9 @@ class TestServiceRegistration:
         services.add_instance(IApplicationState, mock_app_state)
 
         # Import necessary classes for the local factory
-        from typing import cast  # Removed Iterator
+        from typing import cast
 
         from src.core.domain.streaming_response_processor import IStreamProcessor
-        from src.core.interfaces.response_processor_interface import (
-            IResponseMiddleware,  # Added import
-        )
         from src.core.interfaces.streaming_response_processor_interface import (
             IStreamNormalizer,
         )
@@ -113,6 +114,14 @@ class TestServiceRegistration:
             app_state: IApplicationState = provider.get_required_service(
                 IApplicationState  # type: ignore[type-abstract]
             )
+            response_parser: IResponseParser = provider.get_required_service(
+                IResponseParser  # type: ignore[type-abstract]
+            )
+            middleware_application_manager: (
+                IMiddlewareApplicationManager
+            ) = provider.get_required_service(
+                IMiddlewareApplicationManager  # type: ignore[type-abstract]
+            )
 
             stream_normalizer_instance: IStreamNormalizer | None = None
             if app_state.get_use_streaming_pipeline():
@@ -127,14 +136,14 @@ class TestServiceRegistration:
 
                 stream_normalizer_instance = StreamNormalizer(processors=processors)
 
-            middleware: list[IResponseMiddleware] = []  # Changed type hint
-            detector = None
-
+            # The 'middleware' and 'detector' arguments were removed from ResponseProcessor's __init__
+            # Use the new stream_normalizer_instance and other services directly
             return ResponseProcessor(
+                response_parser=response_parser,
+                middleware_application_manager=middleware_application_manager,
                 app_state=app_state,
-                loop_detector=detector,
-                middleware=middleware,
                 stream_normalizer=stream_normalizer_instance,
+                loop_detector=LoopDetector(),  # Provide a concrete instance for loop_detector if needed
             )
 
         # Manually register required services
@@ -151,6 +160,11 @@ class TestServiceRegistration:
         services.add_singleton(
             cast(type, IResponseProcessor),
             implementation_factory=response_processor_factory_for_test,
+        )
+        # Add mock services for the new required arguments
+        services.add_instance(IResponseParser, Mock(spec=IResponseParser))
+        services.add_instance(
+            IMiddlewareApplicationManager, Mock(spec=IMiddlewareApplicationManager)
         )
 
         provider = services.build_service_provider()

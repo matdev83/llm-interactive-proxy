@@ -89,6 +89,12 @@ def parse_cli_args(argv: list[str] | None = None) -> argparse.Namespace:
         "--log", dest="log_file", metavar="FILE", help="Write logs to FILE"
     )
     parser.add_argument(
+        "--capture-file",
+        dest="capture_file",
+        metavar="FILE",
+        help="Write raw LLM requests and replies to FILE (disabled if omitted)",
+    )
+    parser.add_argument(
         "--config",
         dest="config_file",
         metavar="FILE",
@@ -169,6 +175,8 @@ def apply_cli_args(args: argparse.Namespace) -> AppConfig:
         cfg.logging.log_file = args.log_file
     if args.log_level is not None:
         cfg.logging.level = LogLevel[args.log_level]
+    if getattr(args, "capture_file", None) is not None:
+        cfg.logging.capture_file = args.capture_file
 
     # Backend-specific keys
     if args.default_backend is not None:

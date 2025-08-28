@@ -129,7 +129,8 @@ class ChatController:
             raise
         except Exception as e:
             # Log and convert other exceptions to HTTP exceptions
-            logger.error(f"Error handling chat completion: {e}", exc_info=True)
+            if logger.isEnabledFor(logging.ERROR):
+                logger.error(f"Error handling chat completion: {e}", exc_info=True)
             raise HTTPException(
                 status_code=500,
                 detail={"error": {"message": str(e), "type": "server_error"}},

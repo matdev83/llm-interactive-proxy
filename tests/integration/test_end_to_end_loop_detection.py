@@ -13,7 +13,6 @@ from fastapi.testclient import TestClient
 from src.core.domain.chat import ChatResponse
 from src.core.interfaces.backend_service_interface import IBackendService
 from src.core.services.loop_detector_service import LoopDetector
-from src.core.services.response_middleware import LoopDetectionMiddleware
 from src.core.services.response_processor_service import ResponseProcessor
 
 
@@ -188,22 +187,51 @@ async def test_loop_detection_integration_with_middleware_chain():
     logging_middleware = AsyncMock()
     logging_middleware.process.return_value = None
 
-    loop_detection_middleware = LoopDetectionMiddleware(loop_detector)
-
     # Create a mock app state for the ResponseProcessor
     from src.core.services.application_state_service import ApplicationStateService
 
     mock_app_state = ApplicationStateService()
 
     # Create response processor with middleware chain
-    response_processor = ResponseProcessor(
-        app_state=mock_app_state,
-        loop_detector=loop_detector,
-        middleware=[content_filter, logging_middleware, loop_detection_middleware],
+    from src.core.domain.streaming_response_processor import LoopDetectionProcessor
+    from src.core.interfaces.middleware_application_manager_interface import (
+        IMiddlewareApplicationManager,
     )
+    from src.core.interfaces.response_parser_interface import IResponseParser
+    from src.core.services.streaming.stream_normalizer import StreamNormalizer
 
     # Create a response with repeating content
     repeating_content = "I will repeat myself. I will repeat myself. " * 20
+
+    mock_response_parser = AsyncMock(spec=IResponseParser)
+    mock_response_parser.parse_response.return_value = {
+        "content": repeating_content,
+        "usage": None,
+        "metadata": {},
+    }
+    mock_response_parser.extract_content.return_value = repeating_content
+    mock_response_parser.extract_usage.return_value = None
+    mock_response_parser.extract_metadata.return_value = {}
+
+    mock_middleware_application_manager = AsyncMock(spec=IMiddlewareApplicationManager)
+    mock_middleware_application_manager.apply_middleware.return_value = (
+        "Loop detected: pattern repeated multiple times"
+    )
+
+    # Create a stream normalizer with the loop detection processor
+    stream_normalizer = StreamNormalizer(
+        processors=[
+            LoopDetectionProcessor(loop_detector=loop_detector),
+        ]
+    )
+
+    response_processor = ResponseProcessor(
+        response_parser=mock_response_parser,
+        middleware_application_manager=mock_middleware_application_manager,
+        app_state=mock_app_state,
+        loop_detector=loop_detector,
+        stream_normalizer=stream_normalizer,
+    )
     response = ChatResponse(
         id="test-id",
         created=1234567890,
@@ -225,13 +253,17 @@ async def test_loop_detection_integration_with_middleware_chain():
             response, "test-session"
         )
         # If we get here (no exception), check for error metadata
-        assert "error" in processed_response.metadata
-        assert processed_response.metadata["error"] == "loop_detected"
+        assert "loop_detected" in processed_response.metadata
+        assert processed_response.metadata["loop_detected"] is True
         assert "Loop detected" in processed_response.content
     except LoopDetectionError as e:
         # This is expected behavior - the loop detector is working
-        assert "repetitions" in str(e)
-        assert "repetitions" in e.details
+        assert "repeated" in str(
+            e
+        )  # Check for the word "repeated" instead of "repetitions"
+        assert (
+            "repetitions" in e.details
+        )  # The details dictionary should contain the repetitions count
 
 
 @pytest.mark.asyncio

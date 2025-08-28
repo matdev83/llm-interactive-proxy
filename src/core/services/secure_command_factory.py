@@ -95,19 +95,21 @@ class SecureCommandFactory:
         except StateAccessViolationError:
             raise
         except TypeError as e:
-            logger.error(
-                f"Type error creating command {command_name}: {e}. Check constructor signature.",
-                exc_info=True,
-            )
+            if logger.isEnabledFor(logging.ERROR):
+                logger.error(
+                    f"Type error creating command {command_name}: {e}. Check constructor signature.",
+                    exc_info=True,
+                )
             raise StateAccessViolationError(
                 f"Failed to create command {command_name} due to a type error: {e}",
                 "Ensure command constructor accepts required dependencies (e.g., state_reader, state_modifier).",
             ) from e
         except Exception as e:
-            logger.error(
-                f"An unexpected error occurred while creating command {command_name}: {e}",
-                exc_info=True,
-            )
+            if logger.isEnabledFor(logging.ERROR):
+                logger.error(
+                    f"An unexpected error occurred while creating command {command_name}: {e}",
+                    exc_info=True,
+                )
             raise CommandCreationError(
                 message=f"An unexpected error occurred while creating command {command_name}: {e}",
                 command_name=command_name,

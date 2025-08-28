@@ -108,7 +108,7 @@ class TestEmptyResponseMiddleware:
         middleware = EmptyResponseMiddleware(enabled=False)
         response = ProcessedResponse(content="")
 
-        result = await middleware.process(response, "session123")
+        result = await middleware.process(response, "session123", context={})
         assert result == response
 
     @pytest.mark.asyncio
@@ -117,7 +117,7 @@ class TestEmptyResponseMiddleware:
         middleware = EmptyResponseMiddleware()
         response = ProcessedResponse(content="Hello world")
 
-        result = await middleware.process(response, "session123")
+        result = await middleware.process(response, "session123", context={})
         assert result == response
         assert "session123" not in middleware._retry_counts
 
@@ -130,7 +130,7 @@ class TestEmptyResponseMiddleware:
         response = ProcessedResponse(content="")
 
         with pytest.raises(EmptyResponseRetryException) as exc_info:
-            await middleware.process(response, "session123")
+            await middleware.process(response, "session123", context={})
 
         assert exc_info.value.recovery_prompt == "Recovery prompt"
         assert exc_info.value.session_id == "session123"
@@ -147,7 +147,7 @@ class TestEmptyResponseMiddleware:
         middleware._retry_counts["session123"] = 1
 
         with pytest.raises(BackendError) as exc_info:
-            await middleware.process(response, "session123")
+            await middleware.process(response, "session123", context={})
 
         assert "retry attempts" in str(exc_info.value).lower()
         assert "session123" not in middleware._retry_counts  # Should be reset
@@ -161,7 +161,7 @@ class TestEmptyResponseMiddleware:
         # Set retry count to simulate previous retry
         middleware._retry_counts["session123"] = 1
 
-        result = await middleware.process(response, "session123")
+        result = await middleware.process(response, "session123", context={})
         assert result == response
         assert "session123" not in middleware._retry_counts  # Should be reset
 

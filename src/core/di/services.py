@@ -20,20 +20,28 @@ from src.core.interfaces.agent_response_formatter_interface import (
 )
 from src.core.interfaces.app_settings_interface import IAppSettings
 from src.core.interfaces.application_state_interface import IApplicationState
-from src.core.interfaces.backend_config_provider_interface import IBackendConfigProvider
+from src.core.interfaces.backend_config_provider_interface import (
+    IBackendConfigProvider,
+)
 from src.core.interfaces.backend_processor_interface import IBackendProcessor
-from src.core.interfaces.backend_request_manager_interface import IBackendRequestManager
+from src.core.interfaces.backend_request_manager_interface import (
+    IBackendRequestManager,
+)
 from src.core.interfaces.backend_service_interface import IBackendService
 from src.core.interfaces.command_processor_interface import ICommandProcessor
 from src.core.interfaces.command_service_interface import ICommandService
 from src.core.interfaces.configuration_interface import IConfig
 from src.core.interfaces.di_interface import IServiceProvider
+from src.core.interfaces.middleware_application_manager_interface import (
+    IMiddlewareApplicationManager,
+)
 from src.core.interfaces.request_processor_interface import IRequestProcessor
 from src.core.interfaces.response_handler_interface import (
     INonStreamingResponseHandler,
     IStreamingResponseHandler,
 )
 from src.core.interfaces.response_manager_interface import IResponseManager
+from src.core.interfaces.response_parser_interface import IResponseParser
 from src.core.interfaces.response_processor_interface import (
     IResponseMiddleware,
     IResponseProcessor,
@@ -45,10 +53,13 @@ from src.core.interfaces.state_provider_interface import (
     ISecureStateAccess,
     ISecureStateModification,
 )
-from src.core.interfaces.streaming_response_processor_interface import IStreamNormalizer
+from src.core.interfaces.streaming_response_processor_interface import (
+    IStreamNormalizer,
+)
 from src.core.interfaces.tool_call_repair_service_interface import (
     IToolCallRepairService,
 )
+from src.core.interfaces.wire_capture_interface import IWireCapture
 from src.core.services.app_settings_service import AppSettings
 from src.core.services.application_state_service import ApplicationStateService
 from src.core.services.backend_processor import BackendProcessor
@@ -59,6 +70,9 @@ from src.core.services.command_processor import CommandProcessor
 from src.core.services.command_sanitizer import CommandSanitizer
 from src.core.services.command_service import CommandService
 from src.core.services.json_repair_service import JsonRepairService
+from src.core.services.middleware_application_manager import (
+    MiddlewareApplicationManager,
+)
 from src.core.services.request_processor_service import RequestProcessor
 from src.core.services.response_handlers import (
     DefaultNonStreamingResponseHandler,
@@ -68,6 +82,7 @@ from src.core.services.response_manager_service import (
     AgentResponseFormatter,
     ResponseManager,
 )
+from src.core.services.response_parser_service import ResponseParser
 from src.core.services.response_processor_service import ResponseProcessor
 from src.core.services.secure_command_factory import SecureCommandFactory
 from src.core.services.secure_state_service import SecureStateService
@@ -86,6 +101,7 @@ from src.core.services.streaming.tool_call_repair_processor import (
     ToolCallRepairProcessor,
 )
 from src.core.services.tool_call_repair_service import ToolCallRepairService
+from src.core.services.wire_capture_service import WireCapture
 
 T = TypeVar("T")
 
@@ -313,16 +329,96 @@ def register_core_services(
             cast(type, IStreamingResponseHandler), DefaultStreamingResponseHandler
         )
 
+    # Register MiddlewareApplicationManager and IMiddlewareApplicationManager with configured middleware list
+    def _middleware_application_manager_factory(
+        provider: IServiceProvider,
+    ) -> MiddlewareApplicationManager:
+        from src.core.app.middleware.json_repair_middleware import JsonRepairMiddleware
+        from src.core.app.middleware.tool_call_repair_middleware import (
+            ToolCallRepairMiddleware,
+        )
+        from src.core.config.app_config import AppConfig
+        from src.core.services.empty_response_middleware import (
+            EmptyResponseMiddleware,
+        )
+        from src.core.services.middleware_application_manager import (
+            MiddlewareApplicationManager,
+        )
+        from src.core.services.tool_call_loop_middleware import (
+            ToolCallLoopDetectionMiddleware,
+        )
+
+        cfg: AppConfig = provider.get_required_service(AppConfig)
+        middlewares: list[IResponseMiddleware] = []
+
+        try:
+            if getattr(cfg.empty_response, "enabled", True):
+                middlewares.append(
+                    EmptyResponseMiddleware(
+                        enabled=True,
+                        max_retries=getattr(cfg.empty_response, "max_retries", 1),
+                    )
+                )
+        except Exception as e:
+            logging.getLogger(__name__).warning(
+                f"Error configuring EmptyResponseMiddleware: {e}", exc_info=True
+            )
+
+        if getattr(cfg.session, "json_repair_enabled", False):
+            json_service: JsonRepairService = provider.get_required_service(
+                JsonRepairService
+            )
+            middlewares.append(JsonRepairMiddleware(cfg, json_service))
+
+        if getattr(cfg.session, "tool_call_repair_enabled", True):
+            tcr_service: ToolCallRepairService = provider.get_required_service(
+                ToolCallRepairService
+            )
+            middlewares.append(ToolCallRepairMiddleware(cfg, tcr_service))
+
+        try:
+            middlewares.append(ToolCallLoopDetectionMiddleware())
+        except Exception as e:
+            logging.getLogger(__name__).warning(
+                f"Error configuring ToolCallLoopDetectionMiddleware: {e}", exc_info=True
+            )
+
+        return MiddlewareApplicationManager(middlewares)
+
+    _add_singleton(
+        MiddlewareApplicationManager,
+        implementation_factory=_middleware_application_manager_factory,
+    )
+    with contextlib.suppress(Exception):
+        services.add_singleton(
+            cast(type, IMiddlewareApplicationManager),
+            implementation_factory=_middleware_application_manager_factory,
+        )
+
     # Register response processor
     def _response_processor_factory(provider: IServiceProvider) -> ResponseProcessor:
         app_state: IApplicationState = provider.get_required_service(IApplicationState)
         stream_normalizer: IStreamNormalizer = provider.get_required_service(
             IStreamNormalizer
         )
+        response_parser: IResponseParser = provider.get_required_service(
+            IResponseParser
+        )
+        middleware_application_manager: IMiddlewareApplicationManager = (
+            provider.get_required_service(IMiddlewareApplicationManager)
+        )
+
+        # Get the middleware manager to access the middleware list
+        middleware_manager: MiddlewareApplicationManager = (
+            provider.get_required_service(MiddlewareApplicationManager)
+        )
 
         return ResponseProcessor(
             app_state=app_state,
+            response_parser=response_parser,
+            middleware_application_manager=middleware_application_manager,
             stream_normalizer=stream_normalizer,
+            middleware_list=middleware_manager._middleware,
         )
 
     # Register response processor and bind to interface
@@ -465,7 +561,10 @@ def register_core_services(
     ) -> BackendRequestManager:
         backend_processor = provider.get_required_service(IBackendProcessor)  # type: ignore[type-abstract]
         response_processor = provider.get_required_service(IResponseProcessor)  # type: ignore[type-abstract]
-        return BackendRequestManager(backend_processor, response_processor)
+        wire_capture = provider.get_required_service(IWireCapture)  # type: ignore[type-abstract]
+        return BackendRequestManager(
+            backend_processor, response_processor, wire_capture
+        )
 
     _add_singleton(
         BackendRequestManager, implementation_factory=_backend_request_manager_factory
@@ -533,83 +632,21 @@ def register_core_services(
             implementation_factory=_stream_normalizer_factory,
         )  # type: ignore[type-abstract]
 
+    # Register ResponseParser
+    def _response_parser_factory(provider: IServiceProvider) -> ResponseParser:
+
+        return ResponseParser()
+
+    _add_singleton(ResponseParser, implementation_factory=_response_parser_factory)
+    with contextlib.suppress(Exception):
+        services.add_singleton(
+            cast(type, IResponseParser), implementation_factory=_response_parser_factory
+        )
+
     # Register individual stream processors
     _add_singleton(LoopDetectionProcessor)
     _add_singleton(ToolCallRepairProcessor)
     _add_singleton(ContentAccumulationProcessor)
-
-    # Register MiddlewareApplicationProcessor with configured middleware list
-    def _middleware_application_processor_factory(
-        provider: IServiceProvider,
-    ) -> MiddlewareApplicationProcessor:
-        from src.core.app.middleware.json_repair_middleware import JsonRepairMiddleware
-        from src.core.app.middleware.tool_call_repair_middleware import (
-            ToolCallRepairMiddleware,
-        )
-        from src.core.config.app_config import AppConfig
-        from src.core.domain.configuration.loop_detection_config import (
-            LoopDetectionConfiguration,
-        )
-
-        # Import empty response middleware for auto-retry handling
-        from src.core.services.empty_response_middleware import (
-            EmptyResponseMiddleware,
-        )
-        from src.core.services.tool_call_loop_middleware import (
-            ToolCallLoopDetectionMiddleware,
-        )
-
-        cfg: AppConfig = provider.get_required_service(AppConfig)
-        middlewares: list[IResponseMiddleware] = []
-
-        # Empty response detection and auto-retry (non-streaming path)
-        # Enabled by default via AppConfig.empty_response.enabled
-        try:
-            if getattr(cfg.empty_response, "enabled", True):
-                middlewares.append(
-                    EmptyResponseMiddleware(
-                        enabled=True,
-                        max_retries=getattr(cfg.empty_response, "max_retries", 1),
-                    )
-                )
-        except Exception as e:
-            logging.getLogger(__name__).warning(
-                f"Error configuring EmptyResponseMiddleware: {e}", exc_info=True
-            )
-
-        # JSON repair for non-streaming responses
-        if getattr(cfg.session, "json_repair_enabled", False):
-            json_service: JsonRepairService = provider.get_required_service(
-                JsonRepairService
-            )
-            middlewares.append(JsonRepairMiddleware(cfg, json_service))
-
-        # Tool call repair for non-streaming responses
-        if getattr(cfg.session, "tool_call_repair_enabled", True):
-            tcr_service: ToolCallRepairService = provider.get_required_service(
-                ToolCallRepairService
-            )
-            middlewares.append(ToolCallRepairMiddleware(cfg, tcr_service))
-
-        # Tool call loop detection middleware
-        try:
-            middlewares.append(ToolCallLoopDetectionMiddleware())
-
-            default_loop_config = LoopDetectionConfiguration()
-        except Exception as e:
-            logging.getLogger(__name__).warning(
-                f"Error configuring ToolCallLoopDetectionMiddleware: {e}", exc_info=True
-            )
-            default_loop_config = None
-
-        return MiddlewareApplicationProcessor(
-            middlewares, default_loop_config=default_loop_config
-        )
-
-    _add_singleton(
-        MiddlewareApplicationProcessor,
-        implementation_factory=_middleware_application_processor_factory,
-    )
 
     # Register JSON repair service and processor
     def _json_repair_service_factory(provider: IServiceProvider) -> JsonRepairService:
@@ -639,6 +676,17 @@ def register_core_services(
     _add_singleton(
         JsonRepairProcessor, implementation_factory=_json_repair_processor_factory
     )
+
+    # Register wire-capture service (singleton)
+    def _wire_capture_factory(provider: IServiceProvider) -> WireCapture:
+        cfg: AppConfig = provider.get_required_service(AppConfig)
+        return WireCapture(cfg)
+
+    _add_singleton(WireCapture, implementation_factory=_wire_capture_factory)
+    with contextlib.suppress(Exception):
+        services.add_singleton(
+            cast(type, IWireCapture), implementation_factory=_wire_capture_factory
+        )  # type: ignore[type-abstract]
 
     # Register tool call repair service (if not already registered elsewhere as a concrete type)
     def _tool_call_repair_service_factory(
@@ -722,6 +770,7 @@ def register_core_services(
             app_state=app_state,
             backend_config_provider=backend_config_provider,
             failover_coordinator=failover_coordinator,
+            wire_capture=provider.get_required_service(IWireCapture),  # type: ignore[type-abstract]
         )
 
     # Register backend service and bind to interface

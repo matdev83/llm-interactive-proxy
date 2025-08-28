@@ -144,11 +144,19 @@ def backend_service(
     mock_backend_factory.create_backend.return_value = mock_backend
 
     # Create the backend service with all required parameters
+    from src.core.interfaces.application_state_interface import IApplicationState
+
+    from tests.utils.failover_stub import StubFailoverCoordinator
+
+    mock_app_state = Mock(spec=IApplicationState)
+
     service = BackendService(
         factory=mock_backend_factory,
         rate_limiter=mock_rate_limiter,
         config=mock_config,
         session_service=mock_session_service,
+        app_state=mock_app_state,
+        failover_coordinator=StubFailoverCoordinator(),
     )
     return service
 

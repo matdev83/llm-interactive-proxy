@@ -1,0 +1,224 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="1" skipped="0" tests="93" time="4.631" timestamp="2025-08-28T22:47:14.107455+02:00" hostname="DESKTOP-I2CAJ6V"><testcase classname="tests.chat_completions_tests.test_anthropic_api_compatibility" name="test_anthropic_messages_non_streaming" time="0.011" /><testcase classname="tests.chat_completions_tests.test_anthropic_api_compatibility" name="test_anthropic_messages_with_tool_use_from_openai_tool_calls" time="0.003" /><testcase classname="tests.chat_completions_tests.test_anthropic_frontend" name="test_anthropic_messages_non_streaming_frontend" time="0.057" /><testcase classname="tests.chat_completions_tests.test_anthropic_frontend" name="test_anthropic_messages_streaming_frontend" time="0.045" /><testcase classname="tests.chat_completions_tests.test_anthropic_frontend" name="test_anthropic_messages_auth_failure" time="0.038" /><testcase classname="tests.chat_completions_tests.test_anthropic_frontend" name="test_models_endpoint_includes_anthropic" time="0.041" /><testcase classname="tests.integration.commands.loop_detection_commands.test_integration_loop_detection_command" name="test_loop_detection_enable_snapshot" time="0.007" /><testcase classname="tests.integration.commands.loop_detection_commands.test_integration_loop_detection_command" name="test_loop_detection_disable_snapshot" time="0.006" /><testcase classname="tests.integration.commands.loop_detection_commands.test_integration_loop_detection_command" name="test_loop_detection_default_snapshot" time="0.009" /><testcase classname="tests.integration.commands.loop_detection_commands.test_integration_tool_loop_detection_command" name="test_tool_loop_detection_enable_snapshot" time="0.006" /><testcase classname="tests.integration.commands.loop_detection_commands.test_integration_tool_loop_detection_command" name="test_tool_loop_detection_disable_snapshot" time="0.005" /><testcase classname="tests.integration.commands.loop_detection_commands.test_integration_tool_loop_detection_command" name="test_tool_loop_detection_default_snapshot" time="0.007" /><testcase classname="tests.integration.commands.loop_detection_commands.test_integration_tool_loop_max_repeats_command" name="test_max_repeats_success_snapshot" time="0.006" /><testcase classname="tests.integration.commands.loop_detection_commands.test_integration_tool_loop_max_repeats_command" name="test_max_repeats_failure_snapshot" time="0.006" /><testcase classname="tests.integration.commands.loop_detection_commands.test_integration_tool_loop_mode_command" name="test_tool_loop_mode_success_snapshot" time="0.010" /><testcase classname="tests.integration.commands.loop_detection_commands.test_integration_tool_loop_mode_command" name="test_tool_loop_mode_failure_snapshot" time="0.009" /><testcase classname="tests.integration.commands.loop_detection_commands.test_integration_tool_loop_ttl_command" name="test_ttl_success_snapshot" time="0.005" /><testcase classname="tests.integration.commands.loop_detection_commands.test_integration_tool_loop_ttl_command" name="test_ttl_failure_snapshot" time="0.006" /><testcase classname="tests.integration.commands.test_integration_failover_commands" name="test_failover_commands_lifecycle" time="0.006" /><testcase classname="tests.integration.commands.test_integration_help_command" name="test_help_general_snapshot" time="0.005" /><testcase classname="tests.integration.commands.test_integration_help_command" name="test_help_specific_command_snapshot" time="0.006" /><testcase classname="tests.integration.commands.test_integration_help_command" name="test_help_unknown_command_snapshot" time="0.006" /><testcase classname="tests.integration.commands.test_integration_model_command" name="test_set_model_snapshot" time="0.006" /><testcase classname="tests.integration.commands.test_integration_model_command" name="test_set_model_with_backend_snapshot" time="0.006" /><testcase classname="tests.integration.commands.test_integration_model_command" name="test_unset_model_snapshot" time="0.005" /><testcase classname="tests.integration.commands.test_integration_oneoff_command" name="test_oneoff_success_snapshot" time="0.005" /><testcase classname="tests.integration.commands.test_integration_oneoff_command" name="test_oneoff_failure_snapshot" time="0.005" /><testcase classname="tests.integration.commands.test_integration_project_command" name="test_project_success_snapshot" time="0.006" /><testcase classname="tests.integration.commands.test_integration_project_command" name="test_project_failure_snapshot" time="0.006" /><testcase classname="tests.integration.commands.test_integration_pwd_command" name="test_pwd_with_dir_set_snapshot" time="0.006" /><testcase classname="tests.integration.commands.test_integration_pwd_command" name="test_pwd_with_dir_not_set_snapshot" time="0.006" /><testcase classname="tests.integration.commands.test_integration_set_command" name="test_set_temperature_integration" time="0.005" /><testcase classname="tests.integration.commands.test_integration_set_command" name="test_set_backend_and_model_integration" time="0.006" /><testcase classname="tests.integration.commands.test_integration_temperature_command" name="test_temperature_success_snapshot" time="0.006" /><testcase classname="tests.integration.commands.test_integration_temperature_command" name="test_temperature_failure_snapshot" time="0.006" /><testcase classname="tests.integration.commands.test_integration_unset_command" name="test_unset_temperature_snapshot" time="0.006" /><testcase classname="tests.integration.commands.test_integration_unset_command" name="test_unset_model_snapshot" time="0.005" /><testcase classname="tests.integration.commands.test_integration_unset_command" name="test_unset_multiple_params_snapshot" time="0.005" /><testcase classname="tests.integration.commands.test_integration_unset_command" name="test_unset_unknown_param_snapshot" time="0.006" /><testcase classname="tests.integration.test_anthropic_frontend_integration.TestAnthropicFrontendIntegration" name="test_anthropic_sdk_client_creation" time="0.040" /><testcase classname="tests.integration.test_anthropic_frontend_integration.TestAnthropicFrontendIntegration" name="test_async_anthropic_sdk_client_creation" time="0.051" /><testcase classname="tests.integration.test_anthropic_frontend_integration.TestAnthropicFrontendIntegration" name="test_models_endpoint_via_http" time="0.037" /><testcase classname="tests.integration.test_anthropic_frontend_integration.TestAnthropicFrontendIntegration" name="test_messages_endpoint_validation_via_http" time="0.039" /><testcase classname="tests.integration.test_anthropic_frontend_integration.TestAnthropicFrontendIntegration" name="test_messages_endpoint_with_system_message" time="0.040" /><testcase classname="tests.integration.test_anthropic_frontend_integration.TestAnthropicFrontendIntegration" name="test_messages_endpoint_streaming_request" time="0.039" /><testcase classname="tests.integration.test_anthropic_frontend_integration.TestAnthropicFrontendIntegration" name="test_messages_endpoint_with_stop_sequences" time="0.120" /><testcase classname="tests.integration.test_anthropic_frontend_integration.TestAnthropicFrontendIntegration" name="test_conversation_flow_via_http" time="0.039" /><testcase classname="tests.integration.test_anthropic_frontend_integration.TestAnthropicFrontendIntegration" name="test_error_handling_invalid_model" time="0.041" /><testcase classname="tests.integration.test_anthropic_frontend_integration.TestAnthropicFrontendIntegration" name="test_error_handling_missing_required_fields" time="0.045" /><testcase classname="tests.integration.test_anthropic_frontend_integration.TestAnthropicFrontendIntegration" name="test_parameter_validation_ranges" time="0.046" /><testcase classname="tests.integration.test_anthropic_frontend_integration.TestAnthropicFrontendIntegration" name="test_health_and_info_endpoints" time="0.039" /><testcase classname="tests.integration.test_anthropic_frontend_integration.TestAnthropicFrontendIntegration" name="test_anthropic_sdk_models_call_mock" time="0.045" /><testcase classname="tests.integration.test_anthropic_frontend_integration.TestAnthropicFrontendIntegration" name="test_concurrent_requests" time="0.054" /><testcase classname="tests.integration.test_anthropic_frontend_integration.TestAnthropicFrontendIntegration" name="test_large_payload_handling" time="0.081" /><testcase classname="tests.integration.test_anthropic_frontend_integration.TestAnthropicFrontendIntegration" name="test_unicode_and_special_characters" time="0.043" /><testcase classname="tests.integration.test_anthropic_frontend_integration.TestAnthropicFrontendIntegration" name="test_content_type_headers" time="0.036" /><testcase classname="tests.integration.test_anthropic_frontend_integration.TestAnthropicFrontendIntegration" name="test_anthropic_specific_model_names" time="0.036" /><testcase classname="tests.integration.test_anthropic_frontend_integration.TestAnthropicFrontendIntegration" name="test_endpoint_not_found" time="0.038" /><testcase classname="tests.integration.test_anthropic_frontend_integration.TestAnthropicFrontendIntegration" name="test_method_not_allowed" time="0.037" /><testcase classname="tests.integration.test_anthropic_frontend_integration.TestAnthropicFrontendWithoutSDK" name="test_endpoints_work_without_sdk" time="0.044" /><testcase classname="tests.integration.test_app" name="test_chat_completions_endpoint_handler_setup" time="0.004" /><testcase classname="tests.integration.test_app" name="test_streaming_chat_completions_endpoint_handler_setup" time="0.004" /><testcase classname="tests.integration.test_app" name="test_command_processing_handler_setup" time="0.004" /><testcase classname="tests.integration.test_backend_probing" name="test_functional_backends_in_test_env" time="0.057" /><testcase classname="tests.integration.test_backend_probing" name="test_backend_config_provider_in_di" time="0.033" /><testcase classname="tests.integration.test_backend_probing" name="test_httpx_client_shared_in_di" time="0.036" /><testcase classname="tests.integration.test_backend_probing" name="test_backend_factory_uses_shared_client" time="0.033" /><testcase classname="tests.integration.test_backend_probing" name="test_backend_service_uses_backend_config_provider" time="0.120" /><testcase classname="tests.integration.test_cline_tool_call_implementation.TestClineCommandResponses" name="test_cline_hello_command_returns_tool_calls" time="0.030" /><testcase classname="tests.integration.test_cline_tool_call_implementation.TestClineCommandResponses" name="test_cline_set_command_returns_tool_calls" time="0.035" /><testcase classname="tests.integration.test_cline_tool_call_implementation.TestClineBackendResponses" name="test_xml_from_backend_is_converted_to_tool_calls_for_cline" time="0.033" /><testcase classname="tests.integration.test_cline_tool_call_implementation.TestNonClineAgents" name="test_non_cline_agents_receive_regular_content" time="0.033" /><testcase classname="tests.integration.test_cline_tool_call_implementation.TestNonClineAgents" name="test_xml_content_not_converted_for_non_cline" time="0.022" /><testcase classname="tests.integration.test_cline_tool_call_implementation.TestFrontendAgnostic" name="test_openai_frontend_detection" time="0.022" /><testcase classname="tests.integration.test_cline_tool_call_implementation.TestFrontendAgnostic" name="test_anthropic_frontend_detection" time="0.024" /><testcase classname="tests.integration.test_cline_tool_call_implementation.TestFrontendAgnostic" name="test_gemini_frontend_detection" time="0.021" /><testcase classname="tests.integration.test_cline_tool_call_implementation.TestToolCallStructure" name="test_tool_call_format_compliance" time="0.021" /><testcase classname="tests.integration.test_cline_tool_call_implementation.TestToolCallStructure" name="test_tool_call_id_uniqueness" time="0.022" /><testcase classname="tests.integration.test_cline_tool_call_implementation.TestEndToEndScenarios" name="test_cline_workflow_with_commands" time="0.048" /><testcase classname="tests.integration.test_cline_tool_call_implementation.TestEndToEndScenarios" name="test_mixed_agent_session" time="0.043" /><testcase classname="tests.integration.test_direct_controllers" name="test_chat_controller" time="0.014" /><testcase classname="tests.integration.test_direct_controllers" name="test_chat_controller_error_handling" time="0.011" /><testcase classname="tests.integration.test_direct_controllers" name="test_anthropic_controller" time="0.007" /><testcase classname="tests.integration.test_direct_controllers" name="test_anthropic_controller_error_handling" time="0.010" /><testcase classname="tests.integration.test_empty_response_handling.TestEmptyResponseHandlingIntegration" name="test_empty_response_retry_mechanism" time="0.018" /><testcase classname="tests.integration.test_empty_response_handling.TestEmptyResponseHandlingIntegration" name="test_non_empty_response_no_retry" time="0.019" /><testcase classname="tests.integration.test_empty_response_handling.TestEmptyResponseHandlingIntegration" name="test_streaming_response_bypass" time="0.021" /><testcase classname="tests.integration.test_empty_response_handling.TestEmptyResponseHandlingIntegration" name="test_response_with_tool_calls_no_retry" time="0.020" /><testcase classname="tests.integration.test_empty_response_handling.TestEmptyResponseHandlingIntegration" name="test_recovery_prompt_loaded_from_file" time="0.018" /><testcase classname="tests.integration.test_empty_response_handling" name="test_environment_variable_configuration" time="0.006" /><testcase classname="tests.integration.test_end_to_end_loop_detection" name="test_loop_detection_with_mocked_backend" time="0.046" /><testcase classname="tests.integration.test_end_to_end_loop_detection" name="test_loop_detection_in_streaming_response" time="0.046" /><testcase classname="tests.integration.test_end_to_end_loop_detection" name="test_loop_detection_integration_with_middleware_chain" time="0.010"><failure message="AssertionError: assert 'repetitions' in 'Loop detected: I wil repeated 40 times'&#10; +  where 'Loop detected: I wil repeated 40 times' = str(LoopDetectionError('Loop detected: I wil repeated 40 times'))">@pytest.mark.asyncio
+    async def test_loop_detection_integration_with_middleware_chain():
+        """Test that the loop detection middleware is properly integrated in the chain."""
+        # Create a loop detector
+        loop_detector = LoopDetector(
+            min_pattern_length=5, max_pattern_length=50, min_repetitions=2
+        )
+    
+        # Create middleware components
+        content_filter = AsyncMock()
+        content_filter.process.return_value = None
+    
+        logging_middleware = AsyncMock()
+        logging_middleware.process.return_value = None
+    
+        # Create a mock app state for the ResponseProcessor
+        from src.core.services.application_state_service import ApplicationStateService
+    
+        mock_app_state = ApplicationStateService()
+    
+        # Create response processor with middleware chain
+        from src.core.domain.streaming_response_processor import LoopDetectionProcessor
+        from src.core.interfaces.middleware_application_manager_interface import (
+            IMiddlewareApplicationManager,
+        )
+        from src.core.interfaces.response_parser_interface import IResponseParser
+        from src.core.services.streaming.stream_normalizer import StreamNormalizer
+    
+        # Create a response with repeating content
+        repeating_content = "I will repeat myself. I will repeat myself. " * 20
+    
+        mock_response_parser = AsyncMock(spec=IResponseParser)
+        mock_response_parser.parse_response.return_value = {
+            "content": repeating_content,
+            "usage": None,
+            "metadata": {}
+        }
+        mock_response_parser.extract_content.return_value = repeating_content
+        mock_response_parser.extract_usage.return_value = None
+        mock_response_parser.extract_metadata.return_value = {}
+    
+        mock_middleware_application_manager = AsyncMock(spec=IMiddlewareApplicationManager)
+        mock_middleware_application_manager.apply_middleware.return_value = "Loop detected: pattern repeated multiple times"
+    
+        # Create a stream normalizer with the loop detection processor
+        stream_normalizer = StreamNormalizer(
+            processors=[
+                LoopDetectionProcessor(loop_detector=loop_detector),
+            ]
+        )
+    
+        response_processor = ResponseProcessor(
+            response_parser=mock_response_parser,
+            middleware_application_manager=mock_middleware_application_manager,
+            app_state=mock_app_state,
+            loop_detector=loop_detector,
+            stream_normalizer=stream_normalizer,
+        )
+        response = ChatResponse(
+            id="test-id",
+            created=1234567890,
+            model="test-model",
+            choices=[
+                {
+                    "index": 0,
+                    "message": {"role": "assistant", "content": repeating_content},
+                    "finish_reason": "stop",
+                }
+            ],
+        )
+    
+        # Process the response - expect a LoopDetectionError
+        from src.core.common.exceptions import LoopDetectionError
+    
+        try:
+&gt;           processed_response = await response_processor.process_response(
+                response, "test-session"
+            )
+
+tests\integration\test_end_to_end_loop_detection.py:250: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+self = &lt;src.core.services.response_processor_service.ResponseProcessor object at 0x000001FCA6D28EE0&gt;
+response = ChatResponse(id='test-id', created=1234567890, model='test-model', choices=[ChatCompletionChoice(index=0, message=Chat...eat myself. ', tool_calls=None), finish_reason='stop')], usage=None, system_fingerprint=None, object='chat.completion')
+session_id = 'test-session'
+
+    async def process_response(
+        self, response: Any, session_id: str
+    ) -&gt; ProcessedResponse:
+        """Process a non-streaming response.
+    
+        Args:
+            response: The response object from the backend.
+            session_id: The ID of the current session.
+    
+        Returns:
+            A ProcessedResponse object.
+    
+        Raises:
+            BackendError: If there is an error processing the response.
+            LoopDetectionError: If a loop is detected in the response.
+        """
+        try:
+            # Parse the raw response using the injected parser
+            parsed_data = self._response_parser.parse_response(response)
+            content = self._response_parser.extract_content(parsed_data)
+            usage = self._response_parser.extract_usage(parsed_data)
+            metadata = self._response_parser.extract_metadata(parsed_data) or {}
+    
+            # Check for loops if loop detector is available
+            if self._loop_detector is not None and isinstance(
+                content, str
+            ):  # Ensure content is string for loop detection
+                loop_result = await self._loop_detector.check_for_loops(content)
+                if loop_result.has_loop:
+                    # Add loop detection metadata
+                    metadata["loop_detected"] = True
+                    metadata["loop_pattern"] = loop_result.pattern
+                    metadata["loop_repetitions"] = loop_result.repetitions
+                    # For tests expecting an exception, raise LoopDetectionError
+                    # In a future release, this behavior should be configurable
+&gt;                   raise LoopDetectionError(
+                        message=f"Loop detected: {loop_result.pattern} repeated {loop_result.repetitions} times",
+                        details={
+                            "pattern": loop_result.pattern,
+                            "repetitions": loop_result.repetitions,
+                            "session_id": session_id,
+                        },
+                    )
+E                   src.core.common.exceptions.LoopDetectionError: Loop detected: I wil repeated 40 times
+
+src\core\services\response_processor_service.py:132: LoopDetectionError
+
+During handling of the above exception, another exception occurred:
+
+    @pytest.mark.asyncio
+    async def test_loop_detection_integration_with_middleware_chain():
+        """Test that the loop detection middleware is properly integrated in the chain."""
+        # Create a loop detector
+        loop_detector = LoopDetector(
+            min_pattern_length=5, max_pattern_length=50, min_repetitions=2
+        )
+    
+        # Create middleware components
+        content_filter = AsyncMock()
+        content_filter.process.return_value = None
+    
+        logging_middleware = AsyncMock()
+        logging_middleware.process.return_value = None
+    
+        # Create a mock app state for the ResponseProcessor
+        from src.core.services.application_state_service import ApplicationStateService
+    
+        mock_app_state = ApplicationStateService()
+    
+        # Create response processor with middleware chain
+        from src.core.domain.streaming_response_processor import LoopDetectionProcessor
+        from src.core.interfaces.middleware_application_manager_interface import (
+            IMiddlewareApplicationManager,
+        )
+        from src.core.interfaces.response_parser_interface import IResponseParser
+        from src.core.services.streaming.stream_normalizer import StreamNormalizer
+    
+        # Create a response with repeating content
+        repeating_content = "I will repeat myself. I will repeat myself. " * 20
+    
+        mock_response_parser = AsyncMock(spec=IResponseParser)
+        mock_response_parser.parse_response.return_value = {
+            "content": repeating_content,
+            "usage": None,
+            "metadata": {}
+        }
+        mock_response_parser.extract_content.return_value = repeating_content
+        mock_response_parser.extract_usage.return_value = None
+        mock_response_parser.extract_metadata.return_value = {}
+    
+        mock_middleware_application_manager = AsyncMock(spec=IMiddlewareApplicationManager)
+        mock_middleware_application_manager.apply_middleware.return_value = "Loop detected: pattern repeated multiple times"
+    
+        # Create a stream normalizer with the loop detection processor
+        stream_normalizer = StreamNormalizer(
+            processors=[
+                LoopDetectionProcessor(loop_detector=loop_detector),
+            ]
+        )
+    
+        response_processor = ResponseProcessor(
+            response_parser=mock_response_parser,
+            middleware_application_manager=mock_middleware_application_manager,
+            app_state=mock_app_state,
+            loop_detector=loop_detector,
+            stream_normalizer=stream_normalizer,
+        )
+        response = ChatResponse(
+            id="test-id",
+            created=1234567890,
+            model="test-model",
+            choices=[
+                {
+                    "index": 0,
+                    "message": {"role": "assistant", "content": repeating_content},
+                    "finish_reason": "stop",
+                }
+            ],
+        )
+    
+        # Process the response - expect a LoopDetectionError
+        from src.core.common.exceptions import LoopDetectionError
+    
+        try:
+            processed_response = await response_processor.process_response(
+                response, "test-session"
+            )
+            # If we get here (no exception), check for error metadata
+            assert "loop_detected" in processed_response.metadata
+            assert processed_response.metadata["loop_detected"] is True
+            assert "Loop detected" in processed_response.content
+        except LoopDetectionError as e:
+            # This is expected behavior - the loop detector is working
+&gt;           assert "repetitions" in str(e)
+E           AssertionError: assert 'repetitions' in 'Loop detected: I wil repeated 40 times'
+E            +  where 'Loop detected: I wil repeated 40 times' = str(LoopDetectionError('Loop detected: I wil repeated 40 times'))
+
+tests\integration\test_end_to_end_loop_detection.py:259: AssertionError</failure></testcase></testsuite></testsuites>

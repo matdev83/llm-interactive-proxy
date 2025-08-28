@@ -6,6 +6,7 @@ from typing import Any, cast
 from src.connectors.base import LLMBackend
 from src.core.common.exceptions import BackendError, RateLimitExceededError
 from src.core.config.app_config import AppConfig
+from src.core.config.config_loader import _collect_api_keys
 from src.core.domain.chat import ChatRequest
 from src.core.domain.responses import ResponseEnvelope, StreamingResponseEnvelope
 from src.core.interfaces.application_state_interface import IApplicationState
@@ -18,6 +19,7 @@ from src.core.interfaces.failover_interface import (
 )
 from src.core.interfaces.rate_limiter_interface import IRateLimiter
 from src.core.interfaces.session_service_interface import ISessionService
+from src.core.interfaces.wire_capture_interface import IWireCapture
 from src.core.services.backend_factory import BackendFactory
 from src.core.services.failover_service import FailoverService
 
@@ -41,6 +43,7 @@ class BackendService(IBackendService):
         failover_routes: dict[str, dict[str, Any]] | None = None,
         failover_strategy: IFailoverStrategy | None = None,
         failover_coordinator: IFailoverCoordinator | None = None,
+        wire_capture: IWireCapture | None = None,
     ):
         """Initialize the backend service.
 
@@ -95,6 +98,7 @@ class BackendService(IBackendService):
                 # Create a minimal AppConfig for backward compatibility
                 self._backend_config_service = BackendConfigProvider(AppConfig())
         self._failover_strategy: IFailoverStrategy | None = failover_strategy
+        self._wire_capture: IWireCapture | None = wire_capture
 
     def _get_failover_plan(
         self, model: str, backend_type: str
@@ -117,7 +121,8 @@ class BackendService(IBackendService):
             try:
                 return self._failover_strategy.get_failover_plan(model, backend_type)
             except (BackendError, RateLimitExceededError) as e:
-                logger.debug(f"Failover strategy failed: {e}", exc_info=True)
+                if logger.isEnabledFor(logging.DEBUG):
+                    logger.debug(f"Failover strategy failed: {e}", exc_info=True)
                 # Fall back to coordinator attempts on error
 
         attempts = self._failover_coordinator.get_failover_attempts(model, backend_type)
@@ -140,7 +145,7 @@ class BackendService(IBackendService):
         )
 
         # Handle complex failover if configured for this model
-        if effective_model in effective_failover_routes:
+        if allow_failover and effective_model in effective_failover_routes:
             return await self._execute_complex_failover(
                 request,
                 effective_model,
@@ -186,6 +191,26 @@ class BackendService(IBackendService):
                     if backend_config_from_app and backend_config_from_app.identity
                     else app_config_typed.identity
                 )
+                # Wire-capture: capture outbound payload pre-call (best-effort)
+                try:
+                    if self._wire_capture and self._wire_capture.enabled():
+                        key_name = self._detect_key_name(backend_type)
+                        session_id = (
+                            request.extra_body.get("session_id")
+                            if request.extra_body
+                            else None
+                        )
+                        await self._wire_capture.capture_outbound_request(
+                            context=None,
+                            session_id=session_id,
+                            backend=backend_type,
+                            model=effective_model,
+                            key_name=key_name,
+                            request_payload=domain_request,
+                        )
+                except Exception:
+                    if logger.isEnabledFor(logging.DEBUG):
+                        logger.debug("Wire capture (request) failed", exc_info=True)
                 result: ResponseEnvelope | StreamingResponseEnvelope = (
                     await backend.chat_completions(
                         request_data=domain_request,
@@ -194,7 +219,43 @@ class BackendService(IBackendService):
                         identity=identity,
                     )
                 )
+                # Wire-capture: capture inbound
+                try:
+                    if self._wire_capture and self._wire_capture.enabled():
+                        key_name = self._detect_key_name(backend_type)
+                        session_id = (
+                            request.extra_body.get("session_id")
+                            if request.extra_body
+                            else None
+                        )
+                        from src.core.domain.responses import StreamingResponseEnvelope
 
+                        if isinstance(result, StreamingResponseEnvelope):
+                            wrapped_stream = self._wire_capture.wrap_inbound_stream(
+                                context=None,
+                                session_id=session_id,
+                                backend=backend_type,
+                                model=effective_model,
+                                key_name=key_name,
+                                stream=result.content,
+                            )
+                            return StreamingResponseEnvelope(
+                                content=wrapped_stream,
+                                media_type=result.media_type,
+                                headers=result.headers,
+                            )
+                        else:
+                            await self._wire_capture.capture_inbound_response(
+                                context=None,
+                                session_id=session_id,
+                                backend=backend_type,
+                                model=effective_model,
+                                key_name=key_name,
+                                response_content=result.content,
+                            )
+                except Exception:
+                    if logger.isEnabledFor(logging.DEBUG):
+                        logger.debug("Wire capture (response) failed", exc_info=True)
                 return result
             except (
                 Exception
@@ -347,6 +408,38 @@ class BackendService(IBackendService):
             effective_model = parsed_model
 
         return backend_type, effective_model
+
+    def _detect_key_name(self, backend_type: str) -> str | None:
+        """Derive API key name (env var) for the backend when possible.
+
+        Falls back to the backend type when a specific name is not found.
+        """
+        try:
+            app_config: AppConfig = cast(AppConfig, self._config)
+            backend_cfg = app_config.backends.get(backend_type)
+            api_key_value: str | None = None
+            if backend_cfg and getattr(backend_cfg, "api_key", None):
+                keys = backend_cfg.api_key
+                api_key_value = keys[0] if keys else None
+            if not api_key_value:
+                return backend_type
+
+            env_base = {
+                "openrouter": "OPENROUTER_API_KEY",
+                "gemini": "GEMINI_API_KEY",
+                "anthropic": "ANTHROPIC_API_KEY",
+                "zai": "ZAI_API_KEY",
+            }.get(backend_type)
+            if not env_base:
+                return backend_type
+            mapping = _collect_api_keys(env_base)
+            for name, value in mapping.items():
+                if value == api_key_value:
+                    return name
+        except Exception:
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug("_detect_key_name failed", exc_info=True)
+        return backend_type
 
     async def _execute_complex_failover(
         self,
@@ -515,7 +608,9 @@ class BackendService(IBackendService):
                     update=fallback_updates
                 )
 
-                return await self.call_completion(fallback_request, stream=stream)
+                return await self.call_completion(
+                    fallback_request, stream=stream, allow_failover=False
+                )
 
         # If no failover options available, raise the original error
         raise BackendError(

@@ -19,7 +19,10 @@ from src.core.config.app_config import AppConfig
 from src.core.di.container import ServiceCollection
 from src.core.interfaces.application_state_interface import IApplicationState
 from src.core.interfaces.di_interface import IServiceProvider
-from src.core.interfaces.loop_detector_interface import ILoopDetector
+from src.core.interfaces.middleware_application_manager_interface import (
+    IMiddlewareApplicationManager,
+)
+from src.core.interfaces.response_parser_interface import IResponseParser
 from src.core.interfaces.response_processor_interface import (
     IResponseMiddleware,
 )
@@ -89,10 +92,7 @@ class CoreServicesStage(InitializationStage):
             app_state: IApplicationState = provider.get_required_service(
                 IApplicationState  # type: ignore[type-abstract]
             )
-            # Fetch optional loop detector
-            loop_detector = provider.get_service(  # type: ignore[assignment]
-                ILoopDetector  # type: ignore[type-abstract]
-            )
+
             stream_normalizer: IStreamNormalizer | None = provider.get_service(
                 IStreamNormalizer  # type: ignore[type-abstract]
             )
@@ -110,8 +110,10 @@ class CoreServicesStage(InitializationStage):
 
             processor = ResponseProcessor(
                 app_state=app_state,
-                loop_detector=loop_detector,
-                middleware=middleware_list,
+                response_parser=provider.get_required_service(IResponseParser),  # type: ignore[type-abstract]
+                middleware_application_manager=provider.get_required_service(
+                    IMiddlewareApplicationManager  # type: ignore[type-abstract]
+                ),
                 stream_normalizer=stream_normalizer,
             )
             return processor

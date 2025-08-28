@@ -74,7 +74,7 @@ def tool_call_response() -> ProcessedResponse:
 async def test_process_no_context(middleware: ToolCallLoopDetectionMiddleware) -> None:
     """Test that the middleware returns the response unchanged if no context is provided."""
     response = ProcessedResponse(content={})
-    result = await middleware.process(response, "session123")
+    result = await middleware.process(response, "session123", context={})
     assert result == response
 
 

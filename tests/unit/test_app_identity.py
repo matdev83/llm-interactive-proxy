@@ -12,6 +12,7 @@ from tests.mocks.backend_factory import MockBackendFactory
 from tests.unit.core.test_doubles import (
     MockSessionService,  # Import the correct MockSessionService
 )
+from tests.utils.failover_stub import StubFailoverCoordinator
 
 
 class MockRateLimiter(IRateLimiter):
@@ -44,6 +45,7 @@ async def test_default_identity_headers():
         config=app_config,
         session_service=MockSessionService(),
         app_state=app_state,
+        failover_coordinator=StubFailoverCoordinator(),
     )
     request = ChatRequest(
         messages=[ChatMessage(role="user", content="Hello")],
@@ -82,6 +84,7 @@ async def test_backend_specific_identity_headers():
         config=app_config,
         session_service=MockSessionService(),
         app_state=app_state,
+        failover_coordinator=StubFailoverCoordinator(),
     )
     request = ChatRequest(
         messages=[ChatMessage(role="user", content="Hello")],

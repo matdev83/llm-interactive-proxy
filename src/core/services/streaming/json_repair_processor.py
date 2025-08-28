@@ -5,6 +5,7 @@ import logging
 from typing import Any
 
 import src.core.services.metrics_service as metrics
+from src.core.common.exceptions import JSONParsingError
 from src.core.domain.streaming_response_processor import (
     IStreamProcessor,
     StreamingContent,
@@ -55,132 +56,32 @@ class JsonRepairProcessor(IStreamProcessor):
             return content
 
         out_parts: list[str] = []
-
-        # Process content chunk text if present
         text = content.content or ""
-
         i = 0
         n = len(text)
+
         while i < n:
             if not self._json_started:
-                # Find next potential JSON start
-                brace_pos_obj = text.find("{", i)
-                brace_pos_arr = text.find("[", i)
-                # Choose earliest non -1
-                candidates = [p for p in [brace_pos_obj, brace_pos_arr] if p != -1]
-                if not candidates:
-                    # No JSON start in the rest of this chunk: pass through remainder
-                    if i < n:
-                        out_parts.append(text[i:])
-                    i = n
-                    break
-                start_pos = min(candidates)
-                # Pass through any text before JSON start
-                if start_pos > i:
-                    out_parts.append(text[i:start_pos])
-                # Initialize JSON buffering
-                ch = text[start_pos]
-                self._json_started = True
-                self._buffer = ch
-                self._brace_level = 1
-                self._in_string = False
-                i = start_pos + 1
+                i, new_out_parts = self._handle_non_json_text(text, i, n)
+                out_parts.extend(new_out_parts)
             else:
-                # We are inside a JSON block: consume characters updating state
-                ch = text[i]
-                # Toggle in_string on unescaped quote
-                if ch == '"':
-                    # Check if escaped
-                    if not self._buffer.endswith("\\"):
-                        self._in_string = not self._in_string
-                elif not self._in_string:
-                    if ch == "{" or ch == "[":
-                        self._brace_level += 1
-                    elif ch == "}" or ch == "]":
-                        self._brace_level -= 1
-                self._buffer += ch
-                i += 1
-
-                # Check completion
-                if (
-                    self._json_started
-                    and self._brace_level == 0
-                    and not self._in_string
-                ):
-                    # Attempt to repair and validate
-                    try:
-                        repaired = self._service.repair_and_validate_json(
-                            self._buffer,
-                            schema=self._schema,
-                            strict=self._strict_mode,
-                        )
-                    except Exception as e:  # pragma: no cover - strict mode rethrow
-                        if self._strict_mode:
-                            from src.core.common.exceptions import JSONParsingError
-
-                            raise JSONParsingError(
-                                message=f"JSON repair failed in strict mode: {e}",
-                                details={"original_buffer": self._buffer},
-                            ) from e
-                        logger.warning("JSON repair raised error: %s", e)
-                        repaired = None
-
-                    if repaired is not None:
-                        metrics.inc(
-                            "json_repair.streaming.strict_success"
-                            if self._strict_mode
-                            else "json_repair.streaming.best_effort_success"
-                        )
-                        out_parts.append(json.dumps(repaired))
+                i = self._process_json_character(text, i)
+                if self._is_json_complete():
+                    repaired_json, success = self._handle_json_completion()
+                    if success:
+                        out_parts.append(json.dumps(repaired_json))
                     else:
-                        metrics.inc(
-                            "json_repair.streaming.strict_fail"
-                            if self._strict_mode
-                            else "json_repair.streaming.best_effort_fail"
-                        )
-                        logger.warning(
-                            "JSON block detected but failed to repair. Flushing raw buffer."
-                        )
                         out_parts.append(self._buffer)
-
-                    # Reset for next detection
                     self._reset_state()
 
-                    # Soft-cap: if buffer exceeded during processing, we only log; state has reset now
+            self._log_buffer_capacity_warning()
 
-            # Soft-cap logging (only informational, do not flush)
-            if self._json_started and len(self._buffer) > self._buffer_cap_bytes:
-                logger.warning(
-                    "Buffer capacity exceeded during JSON repair. Continuing to buffer until completion."
-                )
-
-        # If this is the final chunk, flush remaining buffer if any
         if content.is_done:
-            if self._json_started and self._buffer:
-                buf = self._buffer
-                if not self._in_string and buf.rstrip().endswith(":"):
-                    buf = buf + " null"
-                repaired_final = self._service.repair_and_validate_json(
-                    buf, schema=self._schema, strict=self._strict_mode
-                )
-                if repaired_final is not None:
-                    metrics.inc(
-                        "json_repair.streaming.strict_success"
-                        if self._strict_mode
-                        else "json_repair.streaming.best_effort_success"
-                    )
-                    out_parts.append(json.dumps(repaired_final))
-                else:
-                    metrics.inc(
-                        "json_repair.streaming.strict_fail"
-                        if self._strict_mode
-                        else "json_repair.streaming.best_effort_fail"
-                    )
-                    out_parts.append(self._buffer)
-            # After flushing, reset state
+            final_output = self._flush_final_buffer()
+            if final_output:
+                out_parts.append(final_output)
             self._reset_state()
 
-        # If we have any output or this is done marker, return content
         new_text = "".join(out_parts)
         if new_text or content.is_done:
             return StreamingContent(
@@ -191,5 +92,107 @@ class JsonRepairProcessor(IStreamProcessor):
                 raw_data=content.raw_data,
             )
 
-        # Otherwise, return empty to indicate no emission this round
         return StreamingContent(content="")
+
+    def _handle_non_json_text(self, text: str, i: int, n: int) -> tuple[int, list[str]]:
+        out_parts: list[str] = []
+        brace_pos_obj = text.find("{", i)
+        brace_pos_arr = text.find("[", i)
+        candidates = [p for p in [brace_pos_obj, brace_pos_arr] if p != -1]
+
+        if not candidates:
+            if i < n:
+                out_parts.append(text[i:])
+            return n, out_parts
+
+        start_pos = min(candidates)
+        if start_pos > i:
+            out_parts.append(text[i:start_pos])
+
+        ch = text[start_pos]
+        self._json_started = True
+        self._buffer = ch
+        self._brace_level = 1
+        self._in_string = False
+        return start_pos + 1, out_parts
+
+    def _process_json_character(self, text: str, i: int) -> int:
+        ch = text[i]
+        if ch == '"':
+            if not self._buffer.endswith("\\"):
+                self._in_string = not self._in_string
+        elif not self._in_string:
+            if ch == "{" or ch == "[":
+                self._brace_level += 1
+            elif ch == "}" or ch == "]":
+                self._brace_level -= 1
+        self._buffer += ch
+        return i + 1
+
+    def _is_json_complete(self) -> bool:
+        return self._json_started and self._brace_level == 0 and not self._in_string
+
+    def _handle_json_completion(self) -> tuple[Any, bool]:
+        repaired = None
+        success = False
+        try:
+            repaired = self._service.repair_and_validate_json(
+                self._buffer,
+                schema=self._schema,
+                strict=self._strict_mode,
+            )
+            success = True
+        except Exception as e:  # pragma: no cover - strict mode rethrow
+            if self._strict_mode:
+                raise JSONParsingError(
+                    message=f"JSON repair failed in strict mode: {e}",
+                    details={"original_buffer": self._buffer},
+                ) from e
+            logger.warning("JSON repair raised error: %s", e)
+
+        if repaired is not None:
+            metrics.inc(
+                "json_repair.streaming.strict_success"
+                if self._strict_mode
+                else "json_repair.streaming.best_effort_success"
+            )
+        else:
+            metrics.inc(
+                "json_repair.streaming.strict_fail"
+                if self._strict_mode
+                else "json_repair.streaming.best_effort_fail"
+            )
+            logger.warning(
+                "JSON block detected but failed to repair. Flushing raw buffer."
+            )
+        return repaired, success
+
+    def _log_buffer_capacity_warning(self) -> None:
+        if self._json_started and len(self._buffer) > self._buffer_cap_bytes:
+            logger.warning(
+                "Buffer capacity exceeded during JSON repair. Continuing to buffer until completion."
+            )
+
+    def _flush_final_buffer(self) -> str | None:
+        if self._json_started and self._buffer:
+            buf = self._buffer
+            if not self._in_string and buf.rstrip().endswith(":"):
+                buf = buf + " null"
+            repaired_final = self._service.repair_and_validate_json(
+                buf, schema=self._schema, strict=self._strict_mode
+            )
+            if repaired_final is not None:
+                metrics.inc(
+                    "json_repair.streaming.strict_success"
+                    if self._strict_mode
+                    else "json_repair.streaming.best_effort_success"
+                )
+                return json.dumps(repaired_final)
+            else:
+                metrics.inc(
+                    "json_repair.streaming.strict_fail"
+                    if self._strict_mode
+                    else "json_repair.streaming.best_effort_fail"
+                )
+                return self._buffer
+        return None

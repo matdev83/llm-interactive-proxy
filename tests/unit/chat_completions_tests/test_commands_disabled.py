@@ -47,9 +47,9 @@ async def test_commands_ignored(commands_disabled_client: TestClient) -> None:
         call_args = mock_method.call_args
         request = call_args[0][0] if call_args[0] else call_args[1].get("request")
 
-        # The message content should still contain the command since commands are disabled
+        # Since we now always filter commands for security, verify that command was removed
         assert len(request.messages) == 1
-        assert request.messages[0].content == "hi !/set(model=openrouter:foo)"
+        assert request.messages[0].content == "hi "
 
     session_service = (
         commands_disabled_client.app.state.service_provider.get_required_service(

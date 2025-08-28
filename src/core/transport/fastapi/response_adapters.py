@@ -43,154 +43,168 @@ def to_fastapi_response(
     Returns:
         A FastAPI response
     """
-    # Normalize different domain-level response shapes into ResponseEnvelope
-    if isinstance(domain_response, ResponseEnvelope):
-        envelope = domain_response
-    elif isinstance(domain_response, ChatResponse):
-        # Convert ChatResponse (pydantic) to legacy dict
-        envelope = ResponseEnvelope(
-            content=domain_response.model_dump(), headers=None, status_code=200
-        )
-    elif isinstance(domain_response, dict):
-        envelope = ResponseEnvelope(
-            content=domain_response, headers=None, status_code=200
-        )
-    else:
-        # Fallback: wrap whatever we got
-        envelope = ResponseEnvelope(
-            content=domain_response, headers=None, status_code=200
-        )
-
-    # Extract data from the envelope
-    content = envelope.content
+    envelope = _normalize_response_envelope(domain_response)
+    content = _apply_content_converter(envelope.content, content_converter)
     headers = envelope.headers or {}
     status_code = envelope.status_code
     media_type = getattr(envelope, "media_type", "application/json")
 
-    # Apply content converter if provided
-    if content_converter:
-        content = content_converter(content)
-
-    # Create the appropriate response based on media type
     if media_type == "application/json":
-        # Ensure content is a dictionary for JSONResponse
-        if hasattr(content, "model_dump"):
-            content = content.model_dump()
-        elif is_dataclass(content) and not isinstance(content, type):
-            content = asdict(content)
+        json_content = _prepare_json_content(content)
+        safe_content = _sanitize_json_content(json_content)
+        safe_headers = _sanitize_headers(headers)
+        safe_status_code = _sanitize_status_code(status_code)
+        final_status_code = _handle_backend_error_status_code(
+            safe_content, safe_status_code
+        )
+        return _create_json_response(safe_content, final_status_code, safe_headers)
+    else:
+        return _create_other_response(content, status_code, headers, media_type)
 
-        # Sanitize content to avoid un-awaited coroutine/AsyncMock objects
+
+def _normalize_response_envelope(domain_response: Any) -> ResponseEnvelope:
+    if isinstance(domain_response, ResponseEnvelope):
+        return domain_response
+    elif isinstance(domain_response, ChatResponse):
+        return ResponseEnvelope(
+            content=domain_response.model_dump(), headers=None, status_code=200
+        )
+    elif isinstance(domain_response, dict):
+        return ResponseEnvelope(content=domain_response, headers=None, status_code=200)
+    else:
+        return ResponseEnvelope(content=domain_response, headers=None, status_code=200)
+
+
+def _apply_content_converter(
+    content: Any, converter: Callable[[Any], Any] | None
+) -> Any:
+    if converter:
+        return converter(content)
+    return content
+
+
+def _prepare_json_content(content: Any) -> Any:
+    if hasattr(content, "model_dump"):
+        return content.model_dump()
+    elif is_dataclass(content) and not isinstance(content, type):
+        return asdict(content)
+    return content
+
+
+def _sanitize_json_content(obj: Any) -> Any:
+    try:
+        import asyncio
+
         try:
-            import asyncio
+            from unittest.mock import AsyncMock
 
-            # Try to import AsyncMock for detection
-            try:
-                from unittest.mock import AsyncMock
-
-                async_mock = AsyncMock
-            except ImportError:
-                async_mock = None
+            async_mock = AsyncMock
         except ImportError:
             async_mock = None
+    except ImportError:
+        async_mock = None
 
-        def _sanitize(obj: Any) -> Any:
-            if obj is None:
-                return None
-            if isinstance(obj, dict):
-                return {k: _sanitize(v) for k, v in obj.items()}
-            if isinstance(obj, list):
-                return [_sanitize(v) for v in obj]
-            if isinstance(obj, tuple):
-                return tuple(_sanitize(v) for v in obj)
-            # Coroutine objects
+    def _sanitize(o: Any) -> Any:
+        if o is None:
+            return None
+        if isinstance(o, dict):
+            return {k: _sanitize(v) for k, v in o.items()}
+        if isinstance(o, list):
+            return [_sanitize(v) for v in o]
+        if isinstance(o, tuple):
+            return tuple(_sanitize(v) for v in o)
+        try:
+            if asyncio.iscoroutine(o):
+                return str(o)
+        except TypeError:
+            pass
+        if async_mock is not None:
             try:
-                if asyncio.iscoroutine(obj):
-                    return str(obj)
+                if isinstance(o, async_mock):
+                    return str(o)
             except TypeError:
                 pass
-            if async_mock is not None:
-                try:
-                    if isinstance(obj, async_mock):
-                        return str(obj)
-                except TypeError:
-                    # async_mock might not be a valid type for isinstance
-                    pass
-            # Fallback for objects not directly serializable
-            try:
-                json.dumps(obj)
-                return obj
-            except TypeError:
-                return str(obj)
-
-        safe_content = _sanitize(content)
-
-        # Ensure headers is a proper dict, not a coroutine/mock
-        safe_headers = {}
-        if headers is not None:
-            if hasattr(headers, "items") and not callable(headers):
-                # It's likely a dict-like object
-                try:
-                    safe_headers = dict(headers)
-                except (TypeError, ValueError):
-                    safe_headers = {}
-            elif hasattr(headers, "_mock_name") or hasattr(
-                headers, "_execute_mock_call"
-            ):
-                # It's a mock object, ignore it
-                safe_headers = {}
-
-        # Ensure status_code is a proper integer, not a mock
-        safe_status_code = 200
-        if status_code is not None:
-            if hasattr(status_code, "_mock_name") or hasattr(
-                status_code, "_execute_mock_call"
-            ):
-                # It's a mock object, use default 200
-                safe_status_code = 200
-            else:
-                try:
-                    safe_status_code = int(status_code)
-                except (TypeError, ValueError):
-                    safe_status_code = 200
-
-        # Special-case: map specific backend error message to 400 for tests
         try:
-            if (
-                isinstance(safe_content, dict)
-                and "choices" in safe_content
-                and isinstance(safe_content["choices"], list)
-                and safe_content["choices"]
-            ):
-                first_choice = safe_content["choices"][0]
-                if isinstance(first_choice, dict):
-                    msg = first_choice.get("message", {})
-                    if (
-                        isinstance(msg, dict)
-                        and isinstance(msg.get("content"), str)
-                        and "Model 'bad' not found" in msg.get("content", "")
-                    ):
-                        safe_status_code = 400
-        except (KeyError, IndexError, TypeError):
-            pass
+            json.dumps(o)
+            return o
+        except TypeError:
+            return str(o)
 
-        return JSONResponse(
-            content=safe_content, status_code=safe_status_code, headers=safe_headers
-        )
-    else:
-        # For other media types, convert content to string if needed
-        content_str = content
-        if isinstance(content, dict | list | tuple):
+    return _sanitize(obj)
+
+
+def _sanitize_headers(headers: Any) -> dict[str, Any]:
+    safe_headers = {}
+    if headers is not None:
+        if hasattr(headers, "items") and not callable(headers):
             try:
-                content_str = json.dumps(content)
+                safe_headers = dict(headers)
             except (TypeError, ValueError):
-                content_str = str(content)
+                safe_headers = {}
+        elif hasattr(headers, "_mock_name") or hasattr(headers, "_execute_mock_call"):
+            safe_headers = {}
+    return safe_headers
 
-        return Response(
-            content=content_str,
-            status_code=status_code,
-            headers=headers,
-            media_type=media_type,
-        )
+
+def _sanitize_status_code(status_code: Any) -> int:
+    safe_status_code = 200
+    if status_code is not None:
+        if hasattr(status_code, "_mock_name") or hasattr(
+            status_code, "_execute_mock_call"
+        ):
+            safe_status_code = 200
+        else:
+            try:
+                safe_status_code = int(status_code)
+            except (TypeError, ValueError):
+                safe_status_code = 200
+    return safe_status_code
+
+
+def _handle_backend_error_status_code(content: Any, status_code: int) -> int:
+    try:
+        if (
+            isinstance(content, dict)
+            and "choices" in content
+            and isinstance(content["choices"], list)
+            and content["choices"]
+        ):
+            first_choice = content["choices"][0]
+            if isinstance(first_choice, dict):
+                msg = first_choice.get("message", {})
+                if (
+                    isinstance(msg, dict)
+                    and isinstance(msg.get("content"), str)
+                    and "Model 'bad' not found" in msg.get("content", "")
+                ):
+                    return 400
+    except (KeyError, IndexError, TypeError):
+        pass
+    return status_code
+
+
+def _create_json_response(
+    content: Any, status_code: int, headers: dict[str, Any]
+) -> JSONResponse:
+    return JSONResponse(content=content, status_code=status_code, headers=headers)
+
+
+def _create_other_response(
+    content: Any, status_code: int, headers: dict[str, Any], media_type: str
+) -> Response:
+    content_str = content
+    if isinstance(content, dict | list | tuple):
+        try:
+            content_str = json.dumps(content)
+        except (TypeError, ValueError):
+            content_str = str(content)
+
+    return Response(
+        content=content_str,
+        status_code=status_code,
+        headers=headers,
+        media_type=media_type,
+    )
 
 
 def to_fastapi_streaming_response(

@@ -17,6 +17,11 @@ from typing import cast
 from src.core.config.app_config import AppConfig
 from src.core.di.container import ServiceCollection
 from src.core.interfaces.di_interface import IServiceProvider
+from src.core.interfaces.middleware_application_manager_interface import (
+    IMiddlewareApplicationManager,
+)
+from src.core.interfaces.response_parser_interface import IResponseParser
+from src.core.interfaces.response_processor_interface import IResponseMiddleware
 
 from .base import InitializationStage
 
@@ -156,7 +161,6 @@ class ProcessorStage(InitializationStage):
             )
             from src.core.interfaces.loop_detector_interface import ILoopDetector
             from src.core.interfaces.response_processor_interface import (
-                IResponseMiddleware,
                 IResponseProcessor,
             )
             from src.core.interfaces.streaming_response_processor_interface import (
@@ -201,10 +205,19 @@ class ProcessorStage(InitializationStage):
                 else:
                     logger.debug("Streaming pipeline disabled.")
 
+                response_parser: IResponseParser = provider.get_required_service(
+                    cast(type, IResponseParser)
+                )
+                middleware_application_manager: IMiddlewareApplicationManager = (
+                    provider.get_required_service(
+                        cast(type, IMiddlewareApplicationManager)
+                    )
+                )
+
                 return ResponseProcessor(
                     app_state=app_state,
-                    loop_detector=loop_detector,
-                    middleware=middleware,
+                    response_parser=response_parser,
+                    middleware_application_manager=middleware_application_manager,
                     stream_normalizer=stream_normalizer,
                 )
 

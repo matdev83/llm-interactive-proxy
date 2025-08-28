@@ -167,7 +167,8 @@ class AnthropicController:
             if is_streaming:
                 # For streaming, we need to return the adapted response directly
                 # since domain_response_to_fastapi should handle streaming properly
-                logger.info(f"Returning streaming response: {adapted_response}")
+                if logger.isEnabledFor(logging.INFO):
+                    logger.info(f"Returning streaming response: {adapted_response}")
                 if isinstance(adapted_response, StreamingResponse):
                     return adapted_response
                 else:
@@ -186,7 +187,8 @@ class AnthropicController:
                     )
             else:
                 # For non-streaming, return Anthropic-formatted JSON response
-                logger.info(f"Returning JSON response: {anthropic_response_data}")
+                if logger.isEnabledFor(logging.INFO):
+                    logger.info(f"Returning JSON response: {anthropic_response_data}")
 
                 # If we're using the OpenAI format (choices), convert it to Anthropic format
                 if "choices" in anthropic_response_data:
@@ -284,7 +286,21 @@ def get_anthropic_controller(service_provider: IServiceProvider) -> AnthropicCon
                 from src.core.services.request_processor_service import RequestProcessor
 
                 command_processor: CommandProcessor = CommandProcessor(cmd)
-                backend_processor: BackendProcessor = BackendProcessor(backend, session)
+                # Attempt to retrieve application state for BackendProcessor (DIP)
+                from src.core.interfaces.application_state_interface import (
+                    IApplicationState,
+                )
+
+                app_state = service_provider.get_service(IApplicationState)  # type: ignore[type-abstract]
+                if app_state is None:
+                    from src.core.services.application_state_service import (
+                        ApplicationStateService,
+                    )
+
+                    app_state = ApplicationStateService()
+                backend_processor: BackendProcessor = BackendProcessor(
+                    backend, session, app_state
+                )
 
                 # Get the new decomposed services
                 from src.core.services.backend_request_manager_service import (

@@ -146,13 +146,18 @@ class QwenOAuthConnector(OpenAIConnector):
                 )
                 return False
             except httpx.RequestError as e:
-                logger.error(f"Network error during token refresh: {e}")
+                if logger.isEnabledFor(logging.ERROR):
+                    logger.error(f"Network error during token refresh: {e}")
                 return False
             except json.JSONDecodeError as e:
-                logger.error(f"Malformed JSON response during token refresh: {e}")
+                if logger.isEnabledFor(logging.ERROR):
+                    logger.error(f"Malformed JSON response during token refresh: {e}")
                 return False
             except Exception as e:
-                logger.error(f"An unexpected error occurred during token refresh: {e}")
+                if logger.isEnabledFor(logging.ERROR):
+                    logger.error(
+                        f"An unexpected error occurred during token refresh: {e}"
+                    )
                 return False
 
     async def _save_oauth_credentials(self, credentials: dict[str, Any]) -> None:
@@ -167,7 +172,8 @@ class QwenOAuthConnector(OpenAIConnector):
                 json.dump(credentials, f, indent=4)
             logger.info(f"Qwen OAuth credentials saved to {creds_path}")
         except Exception as e:
-            logger.error(f"Error saving Qwen OAuth credentials: {e}")
+            if logger.isEnabledFor(logging.ERROR):
+                logger.error(f"Error saving Qwen OAuth credentials: {e}")
 
     async def _load_oauth_credentials(self) -> bool:
         """Load OAuth credentials from oauth_creds.json file."""
@@ -215,10 +221,12 @@ class QwenOAuthConnector(OpenAIConnector):
             logger.info("Successfully loaded Qwen OAuth credentials.")
             return True
         except json.JSONDecodeError as e:
-            logger.error(f"Error decoding Qwen OAuth credentials JSON: {e}")
+            if logger.isEnabledFor(logging.ERROR):
+                logger.error(f"Error decoding Qwen OAuth credentials JSON: {e}")
             return False
         except Exception as e:
-            logger.error(f"Error loading Qwen OAuth credentials: {e}")
+            if logger.isEnabledFor(logging.ERROR):
+                logger.error(f"Error loading Qwen OAuth credentials: {e}")
             return False
 
     def get_headers(self) -> dict[str, str]:
@@ -265,7 +273,8 @@ class QwenOAuthConnector(OpenAIConnector):
                 return False
 
         except Exception as e:
-            logger.error(f"Qwen OAuth health check failed - unexpected error: {e}")
+            if logger.isEnabledFor(logging.ERROR):
+                logger.error(f"Qwen OAuth health check failed - unexpected error: {e}")
             return False
 
     async def initialize(self, **kwargs: Any) -> None:
@@ -368,7 +377,8 @@ class QwenOAuthConnector(OpenAIConnector):
             raise
         except Exception as e:
             # Convert other exceptions to BackendError
-            logger.error(f"Error in Qwen OAuth chat_completions: {e}")
+            if logger.isEnabledFor(logging.ERROR):
+                logger.error(f"Error in Qwen OAuth chat_completions: {e}")
             raise BackendError(
                 message=f"Qwen OAuth chat completion failed: {e!s}"
             ) from e

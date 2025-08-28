@@ -297,6 +297,26 @@ class MockSessionService(ISessionService):
     async def get_all_sessions(self) -> list[Session]:
         return list(self.sessions.values())
 
+    async def resolve_session_id(self, context: RequestContext) -> str:
+        return "sess"
+
+    async def update_session_agent(self, session_id: str, agent_name: str) -> None:
+        pass
+
+    async def update_session_history(
+        self,
+        request_data: ChatRequest,
+        backend_request: ChatRequest,
+        backend_response: ResponseEnvelope | StreamingResponseEnvelope,
+        session_id: str,
+    ) -> None:
+        pass
+
+    async def record_command_in_session(
+        self, request_data: ChatRequest, session_id: str
+    ) -> None:
+        pass
+
 
 class MockCommandProcessor(ICommandProcessor):
     """A mock command processor for testing."""

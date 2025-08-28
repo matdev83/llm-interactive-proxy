@@ -122,7 +122,8 @@ class OpenRouterBackend(OpenAIConnector):
         # Remove extra_body as it might contain proxy-specific data that OpenRouter doesn't expect
         cleaned_payload.pop("extra_body", None)
 
-        logger.info(f"OpenRouter cleaned payload being sent: {cleaned_payload}")
+        if logger.isEnabledFor(logging.INFO):
+            logger.info(f"OpenRouter cleaned payload being sent: {cleaned_payload}")
 
         # Use the cleaned payload
         payload = cleaned_payload

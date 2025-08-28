@@ -147,6 +147,227 @@ async def test_process_request_basic(session_service: MockSessionService) -> Non
 
 
 @pytest.mark.asyncio
+async def test_request_processor_applies_redaction_before_backend_call(
+    session_service: MockSessionService,
+) -> None:
+    """Ensure API key redaction and command filtering are applied to outbound request."""
+    # Arrange
+    command_processor = MockCommandProcessor()
+    session_manager = AsyncMock()
+    backend_request_manager = AsyncMock()
+    response_manager = AsyncMock()
+
+    # Mock the session manager to return our test session
+    session_manager.resolve_session_id.return_value = "test-session"
+    session_manager.get_session.return_value = AsyncMock(id="test-session", agent=None)
+
+    # Provide an AppConfig via IApplicationState so redaction discovers API keys
+    from unittest.mock import MagicMock
+
+    from src.core.config.app_config import AppConfig
+    from src.core.interfaces.application_state_interface import IApplicationState
+
+    app_config = AppConfig()
+    # Enable redaction and provide a known API key
+    app_config.auth.redact_api_keys_in_prompts = True
+    app_config.auth.api_keys = ["SECRET_API_KEY_123"]
+
+    mock_app_state = MagicMock(spec=IApplicationState)
+    # get_setting("app_config") should return our config
+    mock_app_state.get_setting.return_value = app_config
+
+    processor = RequestProcessor(
+        command_processor,
+        session_manager,
+        backend_request_manager,
+        response_manager,
+        app_state=mock_app_state,
+    )
+
+    # Create a request containing both a secret and a proxy command
+    original_text = "Please use SECRET_API_KEY_123 and !/hello to proceed"
+    context = MockRequestContext(headers={"x-session-id": "test-session"})
+    request_data = create_mock_request(
+        messages=[ChatMessage(role="user", content=original_text)]
+    )
+
+    # Setup command processor to return no additional modifications
+    command_processor.add_result(
+        ProcessedResult(
+            modified_messages=request_data.messages,
+            command_executed=False,
+            command_results=[],
+        )
+    )
+
+    # Backend manager returns a trivial response
+    response = TestDataBuilder.create_chat_response("OK")
+    backend_request_manager.prepare_backend_request.return_value = request_data
+    backend_request_manager.process_backend_request.return_value = response
+
+    # Act
+    await processor.process_request(context, request_data)
+
+    # Assert that the request passed to the backend has been redacted and filtered
+    assert backend_request_manager.process_backend_request.called
+    called_args, called_kwargs = (
+        backend_request_manager.process_backend_request.call_args
+    )
+    # First positional arg is the redacted ChatRequest
+    redacted_request: ChatRequest = called_args[0]
+    assert isinstance(redacted_request, ChatRequest)
+    # Extract user content
+    redacted_content = next(
+        (m.content for m in redacted_request.messages if m.role == "user"),
+        "",
+    )
+    # API key should be replaced
+    assert "SECRET_API_KEY_123" not in redacted_content
+    assert "(API_KEY_HAS_BEEN_REDACTED)" in redacted_content
+    # Proxy command should be removed
+    assert "!/hello" not in redacted_content
+
+
+@pytest.mark.asyncio
+async def test_request_processor_redacts_command_modified_messages(
+    session_service: MockSessionService,
+) -> None:
+    """Ensure redaction applies when commands modify messages before backend call."""
+    # Arrange
+    command_processor = MockCommandProcessor()
+    session_manager = AsyncMock()
+    backend_request_manager = AsyncMock()
+    response_manager = AsyncMock()
+
+    session_manager.resolve_session_id.return_value = "test-session"
+    session_manager.get_session.return_value = AsyncMock(id="test-session", agent=None)
+
+    from unittest.mock import MagicMock
+
+    from src.core.config.app_config import AppConfig
+    from src.core.interfaces.application_state_interface import IApplicationState
+
+    app_config = AppConfig()
+    app_config.auth.redact_api_keys_in_prompts = True
+    app_config.auth.api_keys = ["ANOTHER_SECRET_KEY_456"]
+
+    mock_app_state = MagicMock(spec=IApplicationState)
+    mock_app_state.get_setting.return_value = app_config
+
+    processor = RequestProcessor(
+        command_processor,
+        session_manager,
+        backend_request_manager,
+        response_manager,
+        app_state=mock_app_state,
+    )
+
+    # Request starts with a command; command processing leaves behind text that includes secret and a command
+    context = MockRequestContext(headers={"x-session-id": "test-session"})
+    original = create_mock_request(
+        messages=[ChatMessage(role="user", content="!/set(project=x)")]
+    )
+
+    modified_messages = [
+        ChatMessage(
+            role="user", content="Please use ANOTHER_SECRET_KEY_456 and !/hello"
+        )
+    ]
+    command_processor.add_result(
+        ProcessedResult(
+            modified_messages=modified_messages,
+            command_executed=True,
+            command_results=[],
+        )
+    )
+
+    # Create a request with the modified messages that contains the secret
+    modified_request = create_mock_request(messages=modified_messages)
+
+    response = TestDataBuilder.create_chat_response("OK")
+    backend_request_manager.prepare_backend_request.return_value = modified_request
+    backend_request_manager.process_backend_request.return_value = response
+
+    # Act
+    await processor.process_request(context, original)
+
+    # Assert
+    assert backend_request_manager.process_backend_request.called
+    redacted_request: ChatRequest = (
+        backend_request_manager.process_backend_request.call_args[0][0]
+    )
+    text = next((m.content for m in redacted_request.messages if m.role == "user"), "")
+    assert "ANOTHER_SECRET_KEY_456" not in text
+    assert "(API_KEY_HAS_BEEN_REDACTED)" in text
+    assert "!/hello" not in text
+
+
+@pytest.mark.asyncio
+async def test_request_processor_respects_redaction_feature_flag_disabled(
+    session_service: MockSessionService,
+) -> None:
+    """When redaction flag is disabled, processor should not alter content."""
+    # Arrange
+    command_processor = MockCommandProcessor()
+    session_manager = AsyncMock()
+    backend_request_manager = AsyncMock()
+    response_manager = AsyncMock()
+
+    session_manager.resolve_session_id.return_value = "test-session"
+    session_manager.get_session.return_value = AsyncMock(id="test-session", agent=None)
+
+    from unittest.mock import MagicMock
+
+    from src.core.config.app_config import AppConfig
+    from src.core.interfaces.application_state_interface import IApplicationState
+
+    app_config = AppConfig()
+    app_config.auth.redact_api_keys_in_prompts = False  # disabled
+    app_config.auth.api_keys = ["NO_REDACT_789"]
+
+    mock_app_state = MagicMock(spec=IApplicationState)
+    mock_app_state.get_setting.return_value = app_config
+
+    processor = RequestProcessor(
+        command_processor,
+        session_manager,
+        backend_request_manager,
+        response_manager,
+        app_state=mock_app_state,
+    )
+
+    context = MockRequestContext(headers={"x-session-id": "test-session"})
+    text = "Keep NO_REDACT_789 and !/hello"
+    request_data = create_mock_request(
+        messages=[ChatMessage(role="user", content=text)]
+    )
+
+    command_processor.add_result(
+        ProcessedResult(
+            modified_messages=request_data.messages,
+            command_executed=False,
+            command_results=[],
+        )
+    )
+
+    response = TestDataBuilder.create_chat_response("OK")
+    backend_request_manager.prepare_backend_request.return_value = request_data
+    backend_request_manager.process_backend_request.return_value = response
+
+    # Act
+    await processor.process_request(context, request_data)
+
+    # Assert: content passed to backend should be unchanged when flag is disabled
+    redacted_request: ChatRequest = (
+        backend_request_manager.process_backend_request.call_args[0][0]
+    )
+    out_text = next(
+        (m.content for m in redacted_request.messages if m.role == "user"), ""
+    )
+    assert out_text == text
+
+
+@pytest.mark.asyncio
 async def test_process_request_with_commands(
     session_service: MockSessionService,
 ) -> None:

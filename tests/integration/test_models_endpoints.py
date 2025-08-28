@@ -254,14 +254,17 @@ class TestModelsDiscovery:
         # Create mock session service
         mock_session_service = MagicMock(spec=ISessionService)
 
-        # Create backend service
+        # Create backend service (inject a stub failover coordinator to avoid warnings)
         mock_app_state = MagicMock(spec=IApplicationState)
+        from tests.utils.failover_stub import StubFailoverCoordinator
+
         service = BackendService(
             mock_backend_factory,
             mock_rate_limiter,
             mock_config,
             mock_session_service,
             mock_app_state,
+            failover_coordinator=StubFailoverCoordinator(),
         )
 
         # Mock OpenAI backend
@@ -303,14 +306,17 @@ class TestModelsDiscovery:
         # Create mock session service
         mock_session_service = MagicMock(spec=ISessionService)
 
-        # Create backend service
+        # Create backend service (inject a stub failover coordinator to avoid warnings)
         mock_app_state = MagicMock(spec=IApplicationState)
+        from tests.utils.failover_stub import StubFailoverCoordinator
+
         service = BackendService(
             mock_backend_factory,
             mock_rate_limiter,
             mock_config,
             mock_session_service,
             mock_app_state,
+            failover_coordinator=StubFailoverCoordinator(),
         )
 
         # Mock Anthropic backend
@@ -363,6 +369,8 @@ class TestModelsDiscovery:
         }
 
         mock_app_state = MagicMock(spec=IApplicationState)
+        from tests.utils.failover_stub import StubFailoverCoordinator
+
         service = BackendService(
             mock_backend_factory,
             mock_rate_limiter,
@@ -370,6 +378,7 @@ class TestModelsDiscovery:
             mock_session_service,
             mock_app_state,
             failover_routes=failover_routes,
+            failover_coordinator=StubFailoverCoordinator(),
         )
 
         # First call fails

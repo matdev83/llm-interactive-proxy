@@ -18,10 +18,12 @@ class LoggingMiddleware(IResponseMiddleware):
 
     async def process(
         self,
-        response: ProcessedResponse,
+        response: Any,
         session_id: str,
-        context: dict[str, Any] | None = None,
-    ) -> ProcessedResponse:
+        context: dict[str, Any],
+        is_streaming: bool = False,
+        stop_event: Any = None,
+    ) -> Any:
         """Process a response, logging information as needed."""
         if logger.isEnabledFor(logging.DEBUG):
             response_type = (
@@ -43,10 +45,12 @@ class ContentFilterMiddleware(IResponseMiddleware):
 
     async def process(
         self,
-        response: ProcessedResponse,
+        response: Any,
         session_id: str,
-        context: dict[str, Any] | None = None,
-    ) -> ProcessedResponse:
+        context: dict[str, Any],
+        is_streaming: bool = False,
+        stop_event: Any = None,
+    ) -> Any:
         """Process a response, filtering content as needed."""
         content = response.content
 
@@ -76,10 +80,12 @@ class LoopDetectionMiddleware(IResponseMiddleware):
 
     async def process(
         self,
-        response: ProcessedResponse,
+        response: Any,
         session_id: str,
-        context: dict[str, Any] | None = None,
-    ) -> ProcessedResponse:
+        context: dict[str, Any],
+        is_streaming: bool = False,
+        stop_event: Any = None,
+    ) -> Any:
         """Process a response, checking for loops."""
         if not response.content:
             return response

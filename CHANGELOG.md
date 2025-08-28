@@ -148,3 +148,12 @@ This document outlines significant changes and updates to the LLM Interactive Pr
   - Strict gating (expected_json flag, Content-Type)
   - Streaming order and cancellation vs tool-call conversion
   - Tool-call loop detection break/chance flows
+## 2025-08-28 – API Key Redaction Restored and Documented
+
+- Restored API key redaction in outbound requests across all backends via a centralized request redaction middleware. Secrets found in user message content (including multimodal text parts) are replaced with `(API_KEY_HAS_BEEN_REDACTED)` and proxy commands are stripped before forwarding to providers.
+- Confirmed and documented global logging redaction filter that masks API keys and bearer tokens in all logs.
+- Added focused tests to prevent regressions:
+  - Unit tests for `RedactionMiddleware` and `RequestProcessor` redaction behavior (including feature-flag off).
+  - Integration tests covering both streaming and non-streaming flows with a fake backend capturing the sanitized payload.
+- Updated README and CONTRIBUTING with redaction details and contributor guidance.
+- Configuration: redaction can be disabled via `auth.redact_api_keys_in_prompts = false` or CLI `--disable-redact-api-keys-in-prompts`.

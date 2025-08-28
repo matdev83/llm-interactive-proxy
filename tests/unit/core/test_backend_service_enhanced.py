@@ -192,8 +192,15 @@ class TestBackendServiceBasic:
         rate_limiter = MockRateLimiter()
         session_service = Mock(spec=ISessionService)
         app_state = Mock(spec=IApplicationState)
+        from tests.utils.failover_stub import StubFailoverCoordinator
+
         return ConcreteBackendService(
-            factory, rate_limiter, mock_config, session_service, app_state
+            factory,
+            rate_limiter,
+            mock_config,
+            session_service,
+            app_state,
+            failover_coordinator=StubFailoverCoordinator(),
         )
 
     @pytest.mark.asyncio
@@ -282,8 +289,15 @@ class TestBackendServiceCompletions:
         rate_limiter = MockRateLimiter()
         session_service = Mock(spec=ISessionService)
         app_state = Mock(spec=IApplicationState)
+        from tests.utils.failover_stub import StubFailoverCoordinator
+
         return ConcreteBackendService(
-            factory, rate_limiter, mock_config, session_service, app_state
+            factory,
+            rate_limiter,
+            mock_config,
+            session_service,
+            app_state,
+            failover_coordinator=StubFailoverCoordinator(),
         )
 
     @pytest.fixture
@@ -492,8 +506,15 @@ class TestBackendServiceValidation:
         mock_config = Mock()
         session_service = Mock(spec=ISessionService)
         app_state = Mock(spec=IApplicationState)
+        from tests.utils.failover_stub import StubFailoverCoordinator
+
         return ConcreteBackendService(
-            factory, rate_limiter, mock_config, session_service, app_state
+            factory,
+            rate_limiter,
+            mock_config,
+            session_service,
+            app_state,
+            failover_coordinator=StubFailoverCoordinator(),
         )
 
     @pytest.mark.asyncio
@@ -583,6 +604,8 @@ class TestBackendServiceFailover:
             }
         }
 
+        from tests.utils.failover_stub import StubFailoverCoordinator
+
         return ConcreteBackendService(
             factory,
             rate_limiter,
@@ -590,6 +613,7 @@ class TestBackendServiceFailover:
             session_service,
             app_state,
             failover_routes=failover_routes,
+            failover_coordinator=StubFailoverCoordinator(),
         )
 
     @pytest.fixture
@@ -620,6 +644,8 @@ class TestBackendServiceFailover:
             }
         }
 
+        from tests.utils.failover_stub import StubFailoverCoordinator
+
         return ConcreteBackendService(
             factory,
             rate_limiter,
@@ -627,6 +653,7 @@ class TestBackendServiceFailover:
             session_service,
             app_state,
             failover_routes=failover_routes,
+            failover_coordinator=StubFailoverCoordinator(),
         )
 
     @pytest.fixture
@@ -750,7 +777,8 @@ class TestBackendServiceFailover:
                 "src.core.domain.configuration.backend_config.BackendConfiguration"
             ) as mock_config_class,
             patch.object(
-                service_with_complex_failover._failover_service, "get_failover_attempts"
+                service_with_complex_failover._failover_coordinator,
+                "get_failover_attempts",
             ) as mock_get_attempts,
         ):
             mock_config = Mock()
@@ -838,7 +866,8 @@ class TestBackendServiceFailover:
                 "src.core.domain.configuration.backend_config.BackendConfiguration"
             ) as mock_config_class,
             patch.object(
-                service_with_complex_failover._failover_service, "get_failover_attempts"
+                service_with_complex_failover._failover_coordinator,
+                "get_failover_attempts",
             ) as mock_get_attempts,
         ):
             mock_config = Mock()
@@ -922,7 +951,8 @@ class TestBackendServiceFailover:
                 "src.core.domain.configuration.backend_config.BackendConfiguration"
             ) as mock_config_class,
             patch.object(
-                service_with_complex_failover._failover_service, "get_failover_attempts"
+                service_with_complex_failover._failover_coordinator,
+                "get_failover_attempts",
             ) as mock_get_attempts,
         ):
             mock_config = Mock()

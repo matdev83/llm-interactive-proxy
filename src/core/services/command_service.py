@@ -252,7 +252,7 @@ class CommandService(ICommandService):
                     if not executed_last_message:
                         # Execute only for the last command-bearing message
                         execution_result = await self._execute_parsed_command(
-                            parsed_command, session, modified_messages, i
+                            parsed_command, session, modified_messages
                         )
                         if execution_result:
                             # Known command (string content): prefer suffix; if command at end, keep prefix
@@ -314,7 +314,7 @@ class CommandService(ICommandService):
                         # Replace the part's text with combined (prefix + suffix) and stop after first
                         part.text = parsed_command["updated_combined"]
                         execution_result = await self._execute_parsed_command(
-                            parsed_command, session, modified_messages, i
+                            parsed_command, session, modified_messages
                         )
                         if execution_result or parsed_command["cmd_name"]:
                             command_executed = True
@@ -403,7 +403,6 @@ class CommandService(ICommandService):
         parsed_command: dict[str, Any],
         session: Any,
         modified_messages: list[ChatMessage],
-        message_index: int,
     ) -> dict[str, Any] | None:
         """Execute a parsed command and return execution result."""
         cmd_name = parsed_command["cmd_name"]

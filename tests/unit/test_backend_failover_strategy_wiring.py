@@ -165,6 +165,17 @@ class DummyStrategy(DefaultFailoverStrategy):
 def make_service(
     strategy: Any | None = None, app_state: ApplicationStateService | None = None
 ) -> BackendService:
+    # Pass a minimal coordinator at construction time to avoid init warnings,
+    # then replace with a coordinator that reads routes from the service.
+    class _InitStubCoordinator:
+        def get_failover_attempts(
+            self, model: str, backend_type: str
+        ) -> list[FailoverAttempt]:
+            return [FailoverAttempt(backend=backend_type, model=model)]
+
+        def register_route(self, model: str, route: dict[str, Any]) -> None:
+            return None
+
     svc = BackendService(
         factory=DummyFactory(),
         rate_limiter=DummyLimiter(),
@@ -174,7 +185,10 @@ def make_service(
         failover_routes={"openai": {"backend": "openrouter", "model": "meta/llama"}},
         failover_strategy=strategy,
         app_state=app_state,
+        failover_coordinator=_InitStubCoordinator(),
     )
+    # Replace with a coordinator tied to the service's failover routes for tests
+    svc._failover_coordinator = FakeCoordinator(svc)  # type: ignore[attr-defined]
     return svc
 
 

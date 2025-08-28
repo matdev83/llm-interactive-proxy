@@ -251,16 +251,10 @@ def install_api_key_redaction_filter(
         return
 
 
-def discover_api_keys_from_config_and_env(config: AppConfig | None = None) -> list[str]:
-    """Discover API keys from AppConfig-like objects and the environment.
-
-    This inspects the provided `config` for known locations (auth.api_keys,
-    backends.<name>.api_key) and also scans environment variables for any
-    values that match typical API key patterns. Returns a list of unique keys.
-    """
-    found: set[str] = set()
-
-    # From config.auth.api_keys
+def _discover_api_keys_from_config_auth(
+    config: AppConfig | None, found: set[str]
+) -> None:
+    """Discover API keys from config.auth.api_keys."""
     try:
         if config is not None and getattr(config, "auth", None):
             ak = getattr(config.auth, "api_keys", None)
@@ -269,9 +263,14 @@ def discover_api_keys_from_config_and_env(config: AppConfig | None = None) -> li
                     if k:
                         found.add(str(k))
     except Exception:
+        # Suppress errors to ensure logging continues
         pass
 
-    # From config.backends.<backend>.api_key (BackendConfig.api_key may be list)
+
+def _discover_api_keys_from_config_backends(
+    config: AppConfig | None, found: set[str]
+) -> None:
+    """Discover API keys from config.backends.<backend>.api_key."""
     try:
         if config is not None and getattr(config, "backends", None):
             backends = config.backends
@@ -299,11 +298,12 @@ def discover_api_keys_from_config_and_env(config: AppConfig | None = None) -> li
                     # If backend attribute is missing or malformed, skip
                     continue
     except Exception:
+        # Suppress errors to ensure logging continues
         pass
 
-    # Scan environment variables for values matching known token patterns or
-    # environment variable names that look like API key containers (including
-    # numbered variants like OPENROUTER_API_KEY_1..OPENROUTER_API_KEY_20).
+
+def _discover_api_keys_from_environment(found: set[str]) -> None:
+    """Scan environment variables for API keys."""
     try:
         api_key_name_re = re.compile(r".*API_KEY(?:_\d+)?$", re.IGNORECASE)
         api_keys_container_re = re.compile(r".*API_KEYS?$", re.IGNORECASE)
@@ -345,7 +345,22 @@ def discover_api_keys_from_config_and_env(config: AppConfig | None = None) -> li
             except Exception:
                 continue
     except Exception:
+        # Suppress errors to ensure logging continues
         pass
+
+
+def discover_api_keys_from_config_and_env(config: AppConfig | None = None) -> list[str]:
+    """Discover API keys from AppConfig-like objects and the environment.
+
+    This inspects the provided `config` for known locations (auth.api_keys,
+    backends.<name>.api_key) and also scans environment variables for any
+    values that match typical API key patterns. Returns a list of unique keys.
+    """
+    found: set[str] = set()
+
+    _discover_api_keys_from_config_auth(config, found)
+    _discover_api_keys_from_config_backends(config, found)
+    _discover_api_keys_from_environment(found)
 
     return list(found)
 
@@ -421,9 +436,9 @@ def log_async_call(
             import asyncio
 
             if asyncio.iscoroutinefunction(func):
-                result: T = await func(*args, **kwargs)
+                result = await func(*args, **kwargs)
             else:
-                result2: T = func(*args, **kwargs)
+                result = func(*args, **kwargs)
 
             if logger.isEnabledFor(level):
                 logger.log(
@@ -433,7 +448,7 @@ def log_async_call(
                     module=func.__module__,
                 )
 
-            return result if asyncio.iscoroutinefunction(func) else result2
+            return cast(T, result)
 
         return cast(Callable[..., T], wrapper)
 

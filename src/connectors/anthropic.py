@@ -84,7 +84,8 @@ class AnthropicBackend(LLMBackend):
                     if isinstance(m, dict) and m.get("name", m.get("id")) is not None
                 ]
             except Exception as e:
-                logger.warning(f"Failed to fetch Anthropic models: {e}")
+                if logger.isEnabledFor(logging.WARNING):
+                    logger.warning(f"Failed to fetch Anthropic models: {e}")
                 # Return empty list on failure, don't crash
                 self.available_models = []
 

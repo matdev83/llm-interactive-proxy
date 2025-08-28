@@ -151,7 +151,8 @@ class LoopDetector(ILoopDetector):
             return LoopDetectionResult(has_loop=False)
 
         except Exception as e:
-            logger.error(f"Error detecting loops: {e}", exc_info=True)
+            if logger.isEnabledFor(logging.ERROR):
+                logger.error(f"Error detecting loops: {e}", exc_info=True)
             return LoopDetectionResult(has_loop=False, details={"error": str(e)})
 
     async def configure(

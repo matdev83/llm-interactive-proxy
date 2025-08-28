@@ -96,6 +96,9 @@ class LoggingConfig(DomainModel):
     request_logging: bool = False
     response_logging: bool = False
     log_file: str | None = None
+    # Optional separate wire-capture log file; when set, all outbound requests
+    # and inbound replies/SSE payloads are captured verbatim to this file.
+    capture_file: str | None = None
 
 
 class SessionConfig(DomainModel):
@@ -336,6 +339,8 @@ class AppConfig(DomainModel, IConfig):
             "response_logging": os.environ.get("RESPONSE_LOGGING", "").lower()
             == "true",
             "log_file": os.environ.get("LOG_FILE"),
+            # Optional wire-capture file (disabled by default)
+            "capture_file": os.environ.get("CAPTURE_FILE"),
         }
 
         config["empty_response"] = {

@@ -93,15 +93,20 @@ class IResponseMiddleware(ABC):
 
     @abstractmethod
     async def process(
-        self, response: Any, session_id: str, context: dict[str, Any]
+        self,
+        response: Any,
+        session_id: str,
+        context: dict[str, Any],
+        is_streaming: bool = False,
+        stop_event: Any = None,
     ) -> Any:
         """Process a response or response chunk.
-
         Args:
             response: The response or chunk to process
             session_id: The session ID associated with this request
             context: Additional context for processing
-
+            is_streaming: A boolean indicating if the middleware is applied during streaming.
+            stop_event: An optional event to signal early termination during streaming.
         Returns:
             The processed response or chunk
         """

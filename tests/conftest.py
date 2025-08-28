@@ -416,11 +416,20 @@ def test_backend_service(
 
     mock_rate_limiter = MagicMock(spec=IRateLimiter)
 
+    # Provide a minimal app_state and stub coordinator to avoid init warnings
+    from src.core.interfaces.application_state_interface import IApplicationState
+
+    from tests.utils.failover_stub import StubFailoverCoordinator
+
+    mock_app_state = MagicMock(spec=IApplicationState)
+
     backend_service = BackendService(
         factory=test_backend_factory,
         rate_limiter=mock_rate_limiter,
         config=test_app_config,
         session_service=test_session_service,
+        app_state=mock_app_state,
+        failover_coordinator=StubFailoverCoordinator(),
     )
     test_service_provider.register_instance(IBackendService, backend_service)
     yield backend_service

@@ -45,7 +45,8 @@ class DefaultSessionResolver(ISessionResolver):
                     if configured_default:
                         self.default_session_id = configured_default
             except (AttributeError, TypeError) as e:
-                logger.debug(f"Could not read default session ID from config: {e}")
+                if logger.isEnabledFor(logging.DEBUG):
+                    logger.debug(f"Could not read default session ID from config: {e}")
 
     async def resolve_session_id(self, context: RequestContext) -> str:
         """Resolve a session ID from a request context.
