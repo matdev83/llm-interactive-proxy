@@ -12,6 +12,28 @@ def set_expected_json(metadata: dict[str, Any], value: bool = True) -> dict[str,
     return metadata
 
 
+def set_json_response_metadata(
+    metadata: dict[str, Any], content_type: str = "application/json; charset=utf-8"
+) -> dict[str, Any]:
+    """Convenience: mark response as JSON and set Content-Type.
+
+    - Sets metadata['expected_json'] = True
+    - Ensures metadata['headers']["Content-Type"] = content_type
+    Returns the same dict for chaining.
+    """
+    set_expected_json(metadata, True)
+    headers_raw = metadata.get("headers")
+    if isinstance(headers_raw, dict):
+        headers = headers_raw
+    else:
+        headers = {}
+        metadata["headers"] = headers
+    headers["Content-Type"] = content_type
+    # also set a flat content_type for convenience, some paths read this
+    metadata["content_type"] = content_type
+    return metadata
+
+
 def is_json_content_type(metadata: dict[str, Any]) -> bool:
     headers_raw = metadata.get("headers")
     headers: dict[str, Any] = headers_raw if isinstance(headers_raw, dict) else {}

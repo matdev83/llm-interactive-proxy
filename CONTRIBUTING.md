@@ -270,6 +270,7 @@ async def test_oauth_backend_health_check(self, mock_refresh, mock_home):
   - A `session.json_repair_schema` is configured.
 - Convenience helpers (available for controllers/adapters):
   - `src/core/utils/json_intent.py#set_expected_json(metadata, True)`
+  - `src/core/utils/json_intent.py#set_json_response_metadata(metadata, content_type='application/json; charset=utf-8')`
   - `#infer_expected_json(metadata, content)`
   - The ResponseProcessor auto-inferrs `expected_json` if not provided; you can override it via the helper.
 

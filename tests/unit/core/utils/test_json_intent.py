@@ -5,6 +5,7 @@ from src.core.utils.json_intent import (
     is_json_content_type,
     is_json_like,
     set_expected_json,
+    set_json_response_metadata,
 )
 
 
@@ -33,3 +34,12 @@ def test_set_expected_json() -> None:
     md = {}
     set_expected_json(md, True)
     assert md["expected_json"] is True
+
+
+def test_set_json_response_metadata_sets_headers_and_flag() -> None:
+    md: dict = {}
+    set_json_response_metadata(md)
+    assert md.get("expected_json") is True
+    assert md.get("content_type", "").startswith("application/json")
+    assert isinstance(md.get("headers"), dict)
+    assert md["headers"].get("Content-Type", "").startswith("application/json")

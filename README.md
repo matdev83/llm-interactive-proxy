@@ -529,6 +529,7 @@ Notes:
 - Location: `src/core/utils/json_intent.py`
   - `set_expected_json(metadata, True)`: marks a non-streaming response as JSON for strict repair
   - `infer_expected_json(metadata, content)`: detects JSON intent from Content-Type or JSON-looking content
+  - `set_json_response_metadata(metadata, content_type='application/json; charset=utf-8')`: sets Content-Type and expected_json in one call
 
 - The proxy auto-inferrs `expected_json` for non-streaming responses if not provided, based on Content-Type or payload shape. You can always override by calling `set_expected_json` on response metadata in controllers/adapters.
 
