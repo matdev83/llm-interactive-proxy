@@ -156,10 +156,22 @@ class ZAIConnector(OpenAIConnector):
                 async for chunk in stream:
                     yield chunk.encode("utf-8")
 
-            # Forward stream unchanged; centralized pipeline will handle repairs
-            response_envelope.content = _str_to_bytes(
-                _bytes_to_str(response_envelope.content)
+            from src.core.interfaces.response_processor_interface import (
+                ProcessedResponse,
             )
+
+            async def _process_stream(
+                stream: AsyncIterator[ProcessedResponse],
+            ) -> AsyncGenerator[ProcessedResponse, None]:
+                async for item in stream:
+                    if isinstance(item.content, bytes):
+                        yield ProcessedResponse(
+                            content=item.content.decode("utf-8", errors="ignore")
+                        )
+                    else:
+                        yield item
+
+            response_envelope.content = _process_stream(response_envelope.content)
 
         return response_envelope
 

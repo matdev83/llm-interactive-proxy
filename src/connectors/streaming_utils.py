@@ -137,6 +137,10 @@ def normalize_streaming_response(
                 yield f'data: {{"error": "Streaming error: {e!s}"}}\\n\\n'.encode()
                 yield b"data: [DONE]\n\n"
 
+    from typing import cast
+
     return StreamingResponseEnvelope(
-        content=create_normalized_stream(), media_type=media_type, headers=headers or {}
+        content=cast(AsyncIterator, create_normalized_stream()),
+        media_type=media_type,
+        headers=headers or {},
     )

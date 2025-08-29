@@ -80,7 +80,11 @@ async def test_chat_completions_streaming_success(
 
     joined = b"".join(
         [
-            chunk if isinstance(chunk, bytes) else chunk.encode("utf-8")
+            (
+                chunk.content
+                if isinstance(chunk.content, bytes)
+                else chunk.content.encode("utf-8")
+            )
             for chunk in chunks
         ]
     )

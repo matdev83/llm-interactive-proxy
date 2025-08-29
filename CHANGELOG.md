@@ -2,6 +2,17 @@
 
 This document outlines significant changes and updates to the LLM Interactive Proxy.
 
+## 2025-08-29 – Automated Edit-Precision Tuning
+
+- New feature: Automatically tune model sampling parameters after failed file-edit attempts from popular coding agents.
+  - Request-side detection: scans incoming user/agent prompts for known failure phrases (SEARCH/REPLACE no match, multiple matches, unified-diff hunk failures, fuzzy patch warnings).
+  - Response-side detection: middleware inspects non-streaming responses and streaming chunks for markers like `diff_error` and hunk failures; flags a one-shot tune for the next request.
+  - Single-call override: applies lowered `temperature` and optionally `top_p` to just the next backend call; then resets.
+  - Configurable via `AppConfig.edit_precision` and environment variables: `EDIT_PRECISION_ENABLED`, `EDIT_PRECISION_TEMPERATURE`, `EDIT_PRECISION_OVERRIDE_TOP_P`, `EDIT_PRECISION_MIN_TOP_P`, `EDIT_PRECISION_EXCLUDE_AGENTS_REGEX`, `EDIT_PRECISION_PATTERNS_PATH`.
+  - Patterns externalized at `conf/edit_precision_patterns.yaml`.
+  - Documentation: README section “Automated Edit-Precision Tuning (new)” and `dev/agents-edit-error-prompts.md` with curated failure prompts from Cline, Roo/Kilo, Gemini-CLI, Aider, Crush, OpenCode.
+  - Tests: request-side overrides, exclusion regex, response/streaming detection pending flag, and pending-flag application on the next request.
+
 ## 2025-08-26 – Gemini CLI Cloud Project Backend
 
 - **New Feature**: Added `gemini-cli-cloud-project` backend for enterprise-grade integration with Google Cloud Platform

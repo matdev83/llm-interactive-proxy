@@ -18,6 +18,7 @@ class IMiddlewareApplicationManager(ABC):
         middleware_list: list[IResponseMiddleware],  # Changed to IResponseMiddleware
         is_streaming: bool = False,
         stop_event: Any = None,
+        session_id: str = "",
     ) -> str | Any:
         """
         Applies a list of response middleware to the given content.
@@ -27,6 +28,7 @@ class IMiddlewareApplicationManager(ABC):
             middleware_list: A list of IResponseMiddleware objects to apply.
             is_streaming: A boolean indicating if the middleware is applied during streaming.
             stop_event: An optional event to signal early termination during streaming.
+            session_id: The session ID for context-aware processing.
 
         Returns:
             The content after applying all middleware. For streaming, this might be a generator.

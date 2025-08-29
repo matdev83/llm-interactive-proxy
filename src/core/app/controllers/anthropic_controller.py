@@ -251,9 +251,11 @@ def get_anthropic_controller(service_provider: IServiceProvider) -> AnthropicCon
     """
     try:
         # Try to get the existing request processor from the service provider
+        from typing import cast
+
         request_processor: IRequestProcessor | None = service_provider.get_service(
-            IRequestProcessor
-        )  # type: ignore[type-abstract]
+            cast(type, IRequestProcessor)
+        )
         if request_processor is None:
             # Try to get the concrete implementation
             from src.core.services.request_processor_service import RequestProcessor
@@ -269,16 +271,18 @@ def get_anthropic_controller(service_provider: IServiceProvider) -> AnthropicCon
             )
             from src.core.interfaces.session_service_interface import ISessionService
 
-            cmd: ICommandService | None = service_provider.get_service(ICommandService)  # type: ignore[type-abstract]
+            cmd: ICommandService | None = service_provider.get_service(
+                cast(type, ICommandService)
+            )
             backend: IBackendService | None = service_provider.get_service(
-                IBackendService
-            )  # type: ignore[type-abstract]
+                cast(type, IBackendService)
+            )
             session: ISessionService | None = service_provider.get_service(
-                ISessionService
-            )  # type: ignore[type-abstract]
+                cast(type, ISessionService)
+            )
             response_proc: IResponseProcessor | None = service_provider.get_service(
-                IResponseProcessor
-            )  # type: ignore[type-abstract]
+                cast(type, IResponseProcessor)
+            )
 
             if cmd and backend and session and response_proc:
                 from src.core.services.backend_processor import BackendProcessor
@@ -291,7 +295,7 @@ def get_anthropic_controller(service_provider: IServiceProvider) -> AnthropicCon
                     IApplicationState,
                 )
 
-                app_state = service_provider.get_service(IApplicationState)  # type: ignore[type-abstract]
+                app_state = service_provider.get_service(cast(type, IApplicationState))
                 if app_state is None:
                     from src.core.services.application_state_service import (
                         ApplicationStateService,
@@ -309,7 +313,9 @@ def get_anthropic_controller(service_provider: IServiceProvider) -> AnthropicCon
                 from src.core.services.response_manager_service import ResponseManager
                 from src.core.services.session_manager_service import SessionManager
 
-                session_resolver = service_provider.get_service(ISessionResolver)  # type: ignore[type-abstract]
+                session_resolver = service_provider.get_service(
+                    cast(type, ISessionResolver)
+                )
                 if session_resolver is None:
                     from src.core.services.session_resolver_service import (
                         DefaultSessionResolver,
@@ -322,7 +328,9 @@ def get_anthropic_controller(service_provider: IServiceProvider) -> AnthropicCon
                     IAgentResponseFormatter,
                 )
 
-                agent_response_formatter = service_provider.get_service(IAgentResponseFormatter)  # type: ignore[type-abstract]
+                agent_response_formatter = service_provider.get_service(
+                    cast(type, IAgentResponseFormatter)
+                )
                 if agent_response_formatter is None:
                     from src.core.services.response_manager_service import (
                         AgentResponseFormatter,

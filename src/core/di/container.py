@@ -235,9 +235,9 @@ class ServiceCollection(IServiceCollection):
 
     def add_singleton(
         self,
-        service_type: type[T],
+        service_type: type[Any],
         implementation_type: type | None = None,
-        implementation_factory: Callable[[IServiceProvider], T] | None = None,
+        implementation_factory: Callable[[IServiceProvider], Any] | None = None,
     ) -> IServiceCollection:
         """Register a singleton service."""
         # If only service_type is provided, use it as the implementation type
@@ -254,8 +254,8 @@ class ServiceCollection(IServiceCollection):
 
     def add_singleton_factory(
         self,
-        service_type: type[T],
-        implementation_factory: Callable[[IServiceProvider], T],
+        service_type: type[Any],
+        implementation_factory: Callable[[IServiceProvider], Any],
     ) -> IServiceCollection:
         """Register a singleton service with a factory."""
         return self.add_singleton(
@@ -264,9 +264,9 @@ class ServiceCollection(IServiceCollection):
 
     def add_transient(
         self,
-        service_type: type[T],
+        service_type: type[Any],
         implementation_type: type | None = None,
-        implementation_factory: Callable[[IServiceProvider], T] | None = None,
+        implementation_factory: Callable[[IServiceProvider], Any] | None = None,
     ) -> IServiceCollection:
         """Register a transient service."""
         # If only service_type is provided, use it as the implementation type
@@ -283,9 +283,9 @@ class ServiceCollection(IServiceCollection):
 
     def add_scoped(
         self,
-        service_type: type[T],
+        service_type: type[Any],
         implementation_type: type | None = None,
-        implementation_factory: Callable[[IServiceProvider], T] | None = None,
+        implementation_factory: Callable[[IServiceProvider], Any] | None = None,
     ) -> IServiceCollection:
         """Register a scoped service."""
         # If only service_type is provided, use it as the implementation type
@@ -300,7 +300,9 @@ class ServiceCollection(IServiceCollection):
         )
         return self
 
-    def add_instance(self, service_type: type[T], instance: T) -> IServiceCollection:
+    def add_instance(
+        self, service_type: type[Any], instance: Any
+    ) -> IServiceCollection:
         """Register an existing instance as a singleton."""
         self._descriptors[service_type] = ServiceDescriptor(
             service_type=service_type,
@@ -322,9 +324,9 @@ class ServiceCollection(IServiceCollection):
 
     def register_singleton(
         self,
-        service_type: type[T],
-        implementation_type: type[T] | None = None,
-        implementation_factory: Callable[[IServiceProvider], T] | None = None,
+        service_type: type[Any],
+        implementation_type: type[Any] | None = None,
+        implementation_factory: Callable[[IServiceProvider], Any] | None = None,
     ) -> IServiceCollection:
         """Alias for add_singleton to maintain compatibility."""
         return self.add_singleton(
@@ -333,9 +335,9 @@ class ServiceCollection(IServiceCollection):
 
     def register_transient(
         self,
-        service_type: type[T],
-        implementation_type: type[T] | None = None,
-        implementation_factory: Callable[[IServiceProvider], T] | None = None,
+        service_type: type[Any],
+        implementation_type: type[Any] | None = None,
+        implementation_factory: Callable[[IServiceProvider], Any] | None = None,
     ) -> IServiceCollection:
         """Alias for add_transient to maintain compatibility."""
         return self.add_transient(
@@ -344,9 +346,9 @@ class ServiceCollection(IServiceCollection):
 
     def register_scoped(
         self,
-        service_type: type[T],
-        implementation_type: type[T] | None = None,
-        implementation_factory: Callable[[IServiceProvider], T] | None = None,
+        service_type: type[Any],
+        implementation_type: type[Any] | None = None,
+        implementation_factory: Callable[[IServiceProvider], Any] | None = None,
     ) -> IServiceCollection:
         """Alias for add_scoped to maintain compatibility."""
         return self.add_scoped(

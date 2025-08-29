@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import copy
 import logging
+import re
 from typing import Any
 
 from src.core.domain.chat import ChatRequest
@@ -161,6 +162,124 @@ class RequestProcessor(IRequestProcessor):
                 if logger.isEnabledFor(logging.DEBUG):
                     logger.debug(
                         "Request redaction middleware failed; proceeding without redaction",
+                        exc_info=True,
+                    )
+
+        # Apply edit-precision tuning middleware if enabled and we still have a backend request
+        if backend_request is not None:
+            try:
+                from src.core.services.edit_precision_middleware import (
+                    EditPrecisionTuningMiddleware,
+                )
+
+                # Resolve AppConfig via injected app_state when available
+                cfg_enabled = True
+                cfg_temp = 0.1
+                cfg_min_top_p: float | None = 0.3
+                exclude_agents_regex: str | None = None
+                cfg_override_top_p = False
+                if self._app_state is not None:
+                    try:
+                        app_config = self._app_state.get_setting("app_config")
+                        if app_config is not None and hasattr(
+                            app_config, "edit_precision"
+                        ):
+                            # Pydantic models expose attributes directly
+                            ep = app_config.edit_precision
+                            cfg_enabled = bool(getattr(ep, "enabled", True))
+                            cfg_temp = float(getattr(ep, "temperature", 0.1))
+                            cfg_override_top_p = bool(
+                                getattr(ep, "override_top_p", False)
+                            )
+                            cfg_min_top_p = (
+                                getattr(ep, "min_top_p", 0.3)
+                                if cfg_override_top_p
+                                else None
+                            )
+                            cfg_target_top_k = (
+                                int(getattr(ep, "target_top_k", 0)) or None
+                                if bool(getattr(ep, "override_top_k", False))
+                                else None
+                            )
+                            exclude_agents_regex = getattr(
+                                ep, "exclude_agents_regex", None
+                            )
+                    except Exception:
+                        # Keep defaults on error
+                        cfg_enabled = True
+
+                # Respect agent exclusion regex if configured
+                if (
+                    cfg_enabled
+                    and exclude_agents_regex
+                    and getattr(session, "agent", None)
+                ):
+                    try:
+                        if re.search(
+                            exclude_agents_regex,
+                            str(session.agent),
+                            re.IGNORECASE,
+                        ):
+                            cfg_enabled = False
+                    except re.error:
+                        # Invalid pattern; ignore exclusion
+                        pass
+
+                # If previous response flagged a pending precision tune, apply once
+                force_apply = False
+                try:
+                    pending_map = (
+                        self._app_state.get_setting("edit_precision_pending")
+                        if self._app_state is not None
+                        else None
+                    )
+                    if isinstance(pending_map, dict):
+                        pending_count = int(pending_map.get(session_id, 0))
+                        if pending_count > 0:
+                            force_apply = True
+                            # decrement one-shot counter
+                            pending_map[session_id] = pending_count - 1
+                            if self._app_state is not None:
+                                self._app_state.set_setting(
+                                    "edit_precision_pending", pending_map
+                                )
+                            # Best-effort info log
+                            import contextlib
+
+                            with contextlib.suppress(Exception):
+                                logger.info(
+                                    "Edit-precision pending consumed; session_id=%s prior_count=%s now=%s",
+                                    session_id,
+                                    pending_count,
+                                    pending_map.get(session_id, 0),
+                                )
+                except Exception:
+                    pass
+
+                if cfg_enabled:
+                    edit_precision = EditPrecisionTuningMiddleware(
+                        target_temperature=cfg_temp,
+                        min_top_p=cfg_min_top_p,
+                        force_apply=force_apply,
+                    )
+                    # Inject target top_k dynamically if configured
+                    try:
+                        if cfg_target_top_k is not None:
+                            edit_precision._target_top_k = int(cfg_target_top_k)
+                    except Exception:
+                        pass
+                    backend_request = await edit_precision.process(
+                        backend_request,
+                        {
+                            "session_id": session_id,
+                            "agent": getattr(session, "agent", None),
+                        },
+                    )
+            except Exception:
+                # Never block on precision tuning; proceed with original request
+                if logger.isEnabledFor(logging.DEBUG):
+                    logger.debug(
+                        "Edit-precision middleware failed; proceeding without overrides",
                         exc_info=True,
                     )
 

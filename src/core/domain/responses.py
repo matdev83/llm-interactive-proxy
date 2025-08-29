@@ -3,6 +3,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from src.core.interfaces.model_bases import InternalDTO
+from src.core.interfaces.response_processor_interface import ProcessedResponse
 
 
 @dataclass
@@ -32,7 +33,7 @@ class StreamingResponseEnvelope(InternalDTO):
     """
 
     # Iterator of raw bytes to be sent to clients. Tests expect bytes.
-    content: AsyncIterator[bytes]
+    content: AsyncIterator[ProcessedResponse]
     media_type: str = "text/event-stream"
     headers: dict[str, str] | None = None
 
@@ -44,8 +45,10 @@ class StreamingResponseEnvelope(InternalDTO):
 
         async def _byte_iterator() -> AsyncIterator[bytes]:
             async for item in self.content:
-                # self.content already yields bytes
-                yield item
+                if isinstance(item.content, bytes):
+                    yield item.content
+                else:
+                    yield str(item.content).encode("utf-8")
 
         return _byte_iterator()
 

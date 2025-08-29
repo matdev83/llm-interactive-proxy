@@ -147,6 +147,220 @@ async def test_process_request_basic(session_service: MockSessionService) -> Non
 
 
 @pytest.mark.asyncio
+async def test_request_processor_applies_edit_precision_overrides_for_failed_edit_prompt() -> (
+    None
+):
+    """Ensure edit-precision middleware lowers temperature/top_p for a single request when detection triggers."""
+    # Arrange
+    command_processor = MockCommandProcessor()
+    session_manager = AsyncMock()
+    backend_request_manager = AsyncMock()
+    response_manager = AsyncMock()
+
+    # Mock the session manager to return our test session (no special agent)
+    session = AsyncMock(id="test-session", agent="someagent")
+    session_manager.resolve_session_id.return_value = "test-session"
+    session_manager.get_session.return_value = session
+
+    # Provide AppConfig with edit_precision enabled and strict values
+    from unittest.mock import MagicMock
+
+    from src.core.config.app_config import AppConfig
+    from src.core.interfaces.application_state_interface import IApplicationState
+
+    app_config = AppConfig()
+    app_config.edit_precision.enabled = True
+    app_config.edit_precision.temperature = 0.05
+    app_config.edit_precision.min_top_p = 0.2
+    app_config.edit_precision.override_top_p = True
+
+    mock_app_state = MagicMock(spec=IApplicationState)
+    mock_app_state.get_setting.return_value = app_config
+
+    processor = RequestProcessor(
+        command_processor,
+        session_manager,
+        backend_request_manager,
+        response_manager,
+        app_state=mock_app_state,
+    )
+
+    # Create a request whose content includes a known failure phrase
+    failure_text = "The SEARCH block ... does not match anything in the file"
+    request_data = create_mock_request(
+        stream=True, messages=[ChatMessage(role="user", content=failure_text)]
+    )
+
+    # No additional command modifications
+    command_processor.add_result(
+        ProcessedResult(
+            modified_messages=request_data.messages,
+            command_executed=False,
+            command_results=[],
+        )
+    )
+
+    # Backend manager returns same request on prepare and a dummy response on process
+    response = TestDataBuilder.create_chat_response("OK")
+    backend_request_manager.prepare_backend_request.return_value = request_data
+    backend_request_manager.process_backend_request.return_value = response
+
+    # Act
+    await processor.process_request(MockRequestContext(), request_data)
+
+    # Assert: backend was called once with lowered sampling params
+    assert backend_request_manager.process_backend_request.called
+    sent_request = backend_request_manager.process_backend_request.call_args[0][0]
+    assert sent_request.temperature == pytest.approx(0.05)
+    assert sent_request.top_p == pytest.approx(0.2)
+
+
+@pytest.mark.asyncio
+async def test_request_processor_respects_exclude_agents_regex() -> None:
+    """Ensure exclusion regex disables precision overrides for matching agents."""
+    # Arrange
+    command_processor = MockCommandProcessor()
+    session_manager = AsyncMock()
+    backend_request_manager = AsyncMock()
+    response_manager = AsyncMock()
+
+    # Session agent matches exclusion
+    session = AsyncMock(id="test-session", agent="cline")
+    session_manager.resolve_session_id.return_value = "test-session"
+    session_manager.get_session.return_value = session
+    # Ensure update_session_agent preserves the agent value
+    session_manager.update_session_agent.return_value = session
+
+    from unittest.mock import MagicMock
+
+    from src.core.config.app_config import AppConfig
+    from src.core.interfaces.application_state_interface import IApplicationState
+
+    app_config = AppConfig()
+    app_config.edit_precision.enabled = True
+    app_config.edit_precision.temperature = 0.05
+    app_config.edit_precision.min_top_p = 0.2
+    app_config.edit_precision.exclude_agents_regex = r"^(cline|roocode)$"
+
+    mock_app_state = MagicMock(spec=IApplicationState)
+    mock_app_state.get_setting.return_value = app_config
+
+    processor = RequestProcessor(
+        command_processor,
+        session_manager,
+        backend_request_manager,
+        response_manager,
+        app_state=mock_app_state,
+    )
+
+    # Request includes failure phrase but should be excluded due to agent
+    failure_text = "UnifiedDiffNoMatch: hunk failed to apply"
+    # Seed with explicit starting values to ensure they remain unchanged
+    request_data = ChatRequest(
+        model="gpt-4",
+        messages=[ChatMessage(role="user", content=failure_text)],
+        temperature=0.9,
+        top_p=0.9,
+        agent="cline",
+    )
+
+    command_processor.add_result(
+        ProcessedResult(
+            modified_messages=request_data.messages,
+            command_executed=False,
+            command_results=[],
+        )
+    )
+
+    response = TestDataBuilder.create_chat_response("OK")
+    backend_request_manager.prepare_backend_request.return_value = request_data
+    backend_request_manager.process_backend_request.return_value = response
+
+    # Act
+    await processor.process_request(MockRequestContext(), request_data)
+
+    # Assert: params unchanged due to exclusion
+    assert backend_request_manager.process_backend_request.called
+    sent_request = backend_request_manager.process_backend_request.call_args[0][0]
+    assert sent_request.temperature == pytest.approx(0.9)
+    assert sent_request.top_p == pytest.approx(0.9)
+
+
+@pytest.mark.asyncio
+async def test_request_processor_applies_overrides_when_pending_flag_set() -> None:
+    """If response-side detection flagged a pending precision tune, the next request should be tuned even without prompt triggers."""
+    # Arrange
+    command_processor = MockCommandProcessor()
+    session_manager = AsyncMock()
+    backend_request_manager = AsyncMock()
+    response_manager = AsyncMock()
+
+    # Mock session
+    session = AsyncMock(id="test-session", agent="someagent")
+    session_manager.resolve_session_id.return_value = "test-session"
+    session_manager.get_session.return_value = session
+
+    from unittest.mock import MagicMock
+
+    from src.core.config.app_config import AppConfig
+    from src.core.interfaces.application_state_interface import IApplicationState
+
+    app_config = AppConfig()
+    app_config.edit_precision.enabled = True
+    app_config.edit_precision.temperature = 0.2
+    app_config.edit_precision.min_top_p = 0.4
+    app_config.edit_precision.override_top_p = True
+
+    # Build a mock app_state that returns app_config and a pending flag map
+    pending_map = {"test-session": 1}
+
+    def _get_setting(name: str, default: object | None = None) -> object | None:
+        if name == "app_config":
+            return app_config
+        if name == "edit_precision_pending":
+            return pending_map
+        return default
+
+    mock_app_state = MagicMock(spec=IApplicationState)
+    mock_app_state.get_setting.side_effect = _get_setting
+
+    processor = RequestProcessor(
+        command_processor,
+        session_manager,
+        backend_request_manager,
+        response_manager,
+        app_state=mock_app_state,
+    )
+
+    # No failure phrase in message; tuning should still be applied due to pending flag
+    request_data = create_mock_request(
+        stream=False,
+        messages=[ChatMessage(role="user", content="Proceed with next step")],
+    )
+
+    command_processor.add_result(
+        ProcessedResult(
+            modified_messages=request_data.messages,
+            command_executed=False,
+            command_results=[],
+        )
+    )
+
+    response = TestDataBuilder.create_chat_response("OK")
+    backend_request_manager.prepare_backend_request.return_value = request_data
+    backend_request_manager.process_backend_request.return_value = response
+
+    # Act
+    await processor.process_request(MockRequestContext(), request_data)
+
+    # Assert request was tuned
+    assert backend_request_manager.process_backend_request.called
+    sent_request = backend_request_manager.process_backend_request.call_args[0][0]
+    assert sent_request.temperature == pytest.approx(0.2)
+    assert sent_request.top_p == pytest.approx(0.4)
+
+
+@pytest.mark.asyncio
 async def test_request_processor_applies_redaction_before_backend_call(
     session_service: MockSessionService,
 ) -> None:

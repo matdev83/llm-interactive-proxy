@@ -175,7 +175,8 @@ async def test_streaming_response_async_iterator(
     # Collect the chunks from the streaming response
     collected_chunks = []
     async for chunk in result.content:
-        collected_chunks.append(chunk)
+        if chunk.content:
+            collected_chunks.append(chunk.content.encode("utf-8"))
 
     # Verify the chunks
     assert collected_chunks == chunks
@@ -218,7 +219,8 @@ async def test_streaming_response_sync_iterator(
     # Collect the chunks from the streaming response
     collected_chunks = []
     async for chunk in result.content:
-        collected_chunks.append(chunk)
+        if chunk.content:
+            collected_chunks.append(chunk.content.encode("utf-8"))
 
     # Verify the chunks
     assert collected_chunks == chunks
@@ -266,7 +268,8 @@ async def test_streaming_response_coroutine(
     # Collect the chunks from the streaming response
     collected_chunks = []
     async for chunk in result.content:
-        collected_chunks.append(chunk)
+        if chunk.content:
+            collected_chunks.append(chunk.content.encode("utf-8"))
 
     # Verify the chunks
     assert collected_chunks == chunks

@@ -72,7 +72,11 @@ from fastapi import HTTPException
 
 from src.core.common.exceptions import AuthenticationError, BackendError
 from src.core.config.app_config import AppConfig
-from src.core.domain.responses import ResponseEnvelope, StreamingResponseEnvelope
+from src.core.domain.responses import (
+    ProcessedResponse,
+    ResponseEnvelope,
+    StreamingResponseEnvelope,
+)
 from src.core.services.backend_registry import backend_registry
 
 from .gemini import GeminiBackend
@@ -97,6 +101,8 @@ class GeminiOAuthPersonalConnector(GeminiBackend):
     from the gemini-cli generated oauth_creds.json file and uses it as the API key.
     It handles token refresh automatically when the token expires.
     """
+
+    _project_id: str | None = None
 
     backend_type: str = "gemini-cli-oauth-personal"
 
@@ -495,7 +501,7 @@ class GeminiOAuthPersonalConnector(GeminiBackend):
         processed_messages: list[Any],
         effective_model: str,
         **kwargs: Any,
-    ) -> Any:
+    ) -> ResponseEnvelope:
         """Handle chat completions using the Code Assist API.
 
         This method implements the Code Assist API calls that match the Gemini CLI
@@ -540,13 +546,7 @@ class GeminiOAuthPersonalConnector(GeminiBackend):
                 "project": project_id,
                 "request": {
                     "contents": contents,
-                    "generationConfig": {
-                        "temperature": float(getattr(request_data, "temperature", 0.7)),
-                        "maxOutputTokens": int(
-                            getattr(request_data, "max_tokens", 1024)
-                        ),
-                        "topP": float(getattr(request_data, "top_p", 0.95)),
-                    },
+                    "generationConfig": self._build_generation_config(request_data),
                 },
             }
 
@@ -699,13 +699,7 @@ class GeminiOAuthPersonalConnector(GeminiBackend):
                 "project": project_id,
                 "request": {
                     "contents": contents,
-                    "generationConfig": {
-                        "temperature": float(getattr(request_data, "temperature", 0.7)),
-                        "maxOutputTokens": int(
-                            getattr(request_data, "max_tokens", 1024)
-                        ),
-                        "topP": float(getattr(request_data, "top_p", 0.95)),
-                    },
+                    "generationConfig": self._build_generation_config(request_data),
                 },
             }
 
@@ -714,7 +708,7 @@ class GeminiOAuthPersonalConnector(GeminiBackend):
             logger.info(f"Making streaming Code Assist API call to: {url}")
 
             # Create an async iterator that yields SSE-formatted chunks
-            async def stream_generator() -> AsyncGenerator[bytes, None]:
+            async def stream_generator() -> AsyncGenerator[ProcessedResponse, None]:
                 try:
                     # Use the auth_session.request exactly like KiloCode
                     # Add ?alt=sse for server-sent events streaming
@@ -750,17 +744,17 @@ class GeminiOAuthPersonalConnector(GeminiBackend):
                         # We need to ensure it's properly formatted as SSE.
                         if chunk.startswith(("data: ", "id: ", ":")):
                             # Already SSE formatted or a comment, yield directly
-                            yield chunk.encode()
+                            yield ProcessedResponse(content=chunk)
                         else:
                             # Assume it's a raw text chunk (either repaired JSON or non-JSON text)
                             # and format it as an SSE data event.
-                            yield f"data: {chunk}\n\n".encode()
+                            yield ProcessedResponse(content=f"data: {chunk}\n\n")
 
-                    yield b"data: [DONE]\n\n"
+                    yield ProcessedResponse(content="data: [DONE]\n\n")
 
                 except Exception as e:
                     logger.error(f"Error in streaming generator: {e}")
-                    yield b"data: [DONE]\n\n"
+                    yield ProcessedResponse(content="data: [DONE]\n\n")
 
                 finally:
                     await response.aclose()
@@ -784,7 +778,7 @@ class GeminiOAuthPersonalConnector(GeminiBackend):
     def _convert_stream_chunk(self, data: dict[str, Any], model: str) -> dict[str, Any]:
         """Convert a Code Assist API streaming chunk to OpenAI format."""
         # Extract content from candidates
-        candidate = {}
+        candidate: dict[str, Any] = {}
         text = ""
         if data.get("candidates"):
             candidate = data["candidates"][0] or {}
@@ -858,14 +852,25 @@ class GeminiOAuthPersonalConnector(GeminiBackend):
             "contents": [
                 {"role": "user", "parts": [{"text": full_prompt or user_message}]}
             ],
-            "generationConfig": {
-                "temperature": getattr(request_data, "temperature", 0.7),
-                "maxOutputTokens": getattr(request_data, "max_tokens", 2048),
-                "topP": getattr(request_data, "top_p", 1.0),
-            },
+            "generationConfig": self._build_generation_config(request_data),
         }
 
         return code_assist_request
+
+    def _build_generation_config(self, request_data: Any) -> dict[str, Any]:
+        """Build Code Assist generationConfig from request_data including optional topK."""
+        cfg: dict[str, Any] = {
+            "temperature": float(getattr(request_data, "temperature", 0.7)),
+            "maxOutputTokens": int(getattr(request_data, "max_tokens", 1024)),
+            "topP": float(getattr(request_data, "top_p", 0.95)),
+        }
+        top_k = getattr(request_data, "top_k", None)
+        if top_k is not None:
+            import contextlib
+
+            with contextlib.suppress(Exception):
+                cfg["topK"] = int(top_k)
+        return cfg
 
     def _convert_from_code_assist_format(
         self, code_assist_response: dict[str, Any], model: str
@@ -915,7 +920,7 @@ class GeminiOAuthPersonalConnector(GeminiBackend):
         """
         # If we already have a project ID, return it
         if hasattr(self, "_project_id") and self._project_id:
-            return self._project_id
+            return str(self._project_id)
 
         initial_project_id = "default"
 
@@ -952,7 +957,7 @@ class GeminiOAuthPersonalConnector(GeminiBackend):
             # Check if we already have a project ID from the response
             if load_data.get("cloudaicompanionProject"):
                 self._project_id = load_data["cloudaicompanionProject"]
-                return self._project_id
+                return str(self._project_id)
 
             # If no existing project, we need to onboard
             allowed_tiers = load_data.get("allowedTiers", [])
@@ -1076,13 +1081,13 @@ class GeminiOAuthPersonalConnector(GeminiBackend):
 
             self._project_id = discovered_project_id
             logger.info(f"Discovered project ID: {self._project_id}")
-            return self._project_id
+            return str(self._project_id)
 
         except Exception as e:
             logger.error(f"Failed to discover project ID: {e}")
             # Fall back to default
             self._project_id = initial_project_id
-            return self._project_id
+            return str(self._project_id)
 
     def _convert_messages_to_gemini_format(
         self, processed_messages: list[Any]

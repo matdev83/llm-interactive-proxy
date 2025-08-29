@@ -223,8 +223,9 @@ class MockBackendStage(InitializationStage):
                     import httpx
 
                     from src.connectors.anthropic import AnthropicBackend
+                    from src.core.config.app_config import AppConfig
 
-                    real_backend = AnthropicBackend(httpx.AsyncClient())
+                    real_backend = AnthropicBackend(httpx.AsyncClient(), AppConfig())
                     # Call connector using a minimal processed_messages list and
                     # the request.model as effective_model when available.
                     processed_messages: list[dict[str, str]] = []
@@ -298,8 +299,11 @@ class MockBackendStage(InitializationStage):
                         import httpx
 
                         from src.connectors.anthropic import AnthropicBackend
+                        from src.core.config.app_config import AppConfig
 
-                        real_backend = AnthropicBackend(httpx.AsyncClient())
+                        real_backend = AnthropicBackend(
+                            httpx.AsyncClient(), AppConfig()
+                        )
                         # If the connector was patched in tests, its methods will
                         # already reflect the patch. Cache and return the real
                         # backend so tests that patch connector class methods
@@ -411,7 +415,9 @@ class MockBackendStage(InitializationStage):
                     provider.get_required_service(cast(type, IBackendConfigProvider))
                 )
                 rate_limiter = provider.get_required_service(RateLimiter)
-                app_state = provider.get_required_service(cast(type, IApplicationState))
+                app_state: IApplicationState = provider.get_required_service(
+                    cast(type, IApplicationState)
+                )
 
                 return BackendService(
                     backend_factory,

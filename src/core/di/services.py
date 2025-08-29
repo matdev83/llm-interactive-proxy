@@ -14,7 +14,10 @@ from typing import Any, TypeVar, cast
 
 from src.core.config.app_config import AppConfig
 from src.core.di.container import ServiceCollection
-from src.core.domain.streaming_response_processor import LoopDetectionProcessor
+from src.core.domain.streaming_response_processor import (
+    IStreamProcessor,
+    LoopDetectionProcessor,
+)
 from src.core.interfaces.agent_response_formatter_interface import (
     IAgentResponseFormatter,
 )
@@ -53,9 +56,7 @@ from src.core.interfaces.state_provider_interface import (
     ISecureStateAccess,
     ISecureStateModification,
 )
-from src.core.interfaces.streaming_response_processor_interface import (
-    IStreamNormalizer,
-)
+from src.core.interfaces.streaming_response_processor_interface import IStreamNormalizer
 from src.core.interfaces.tool_call_repair_service_interface import (
     IToolCallRepairService,
 )
@@ -251,8 +252,10 @@ def register_core_services(
     # Register ICommandService interface
     with contextlib.suppress(Exception):
         services.add_singleton(
-            cast(type, ICommandService), implementation_factory=_command_service_factory
-        )  # type: ignore[type-abstract]
+            ICommandService,
+            CommandService,
+            implementation_factory=_command_service_factory,
+        )
 
     # Register session service factory
     def _session_service_factory(provider: IServiceProvider) -> SessionService:
@@ -272,15 +275,19 @@ def register_core_services(
 
     with contextlib.suppress(Exception):
         services.add_singleton(
-            cast(type, ISessionService), implementation_factory=_session_service_factory
-        )  # type: ignore[type-abstract]
+            ISessionService,
+            SessionService,
+            implementation_factory=_session_service_factory,
+        )
 
     # Register command processor
     def _command_processor_factory(provider: IServiceProvider) -> CommandProcessor:
         # Get command service
+        from typing import cast
+
         command_service: ICommandService = provider.get_required_service(
-            ICommandService
-        )  # type: ignore[type-abstract]
+            cast(type, ICommandService)
+        )
 
         # Return command processor
         return CommandProcessor(command_service)
@@ -290,20 +297,25 @@ def register_core_services(
 
     with contextlib.suppress(Exception):
         services.add_singleton(
-            cast(type, ICommandProcessor),
+            ICommandProcessor,
+            CommandProcessor,
             implementation_factory=_command_processor_factory,
-        )  # type: ignore[type-abstract]
+        )
 
     # Register backend processor
     def _backend_processor_factory(provider: IServiceProvider) -> BackendProcessor:
         # Get backend service and session service
+        from typing import cast
+
         backend_service: IBackendService = provider.get_required_service(
-            IBackendService
-        )  # type: ignore[type-abstract]
+            cast(type, IBackendService)
+        )
         session_service: ISessionService = provider.get_required_service(
-            ISessionService
-        )  # type: ignore[type-abstract]
-        app_state: IApplicationState = provider.get_required_service(IApplicationState)
+            cast(type, ISessionService)
+        )
+        app_state: IApplicationState = provider.get_required_service(
+            cast(type, IApplicationState)
+        )
 
         # Return backend processor
         return BackendProcessor(backend_service, session_service, app_state)
@@ -313,9 +325,10 @@ def register_core_services(
 
     with contextlib.suppress(Exception):
         services.add_singleton(
-            cast(type, IBackendProcessor),
+            IBackendProcessor,
+            BackendProcessor,
             implementation_factory=_backend_processor_factory,
-        )  # type: ignore[type-abstract]
+        )
 
     # Register response handlers
     _add_singleton(DefaultNonStreamingResponseHandler)
@@ -364,6 +377,19 @@ def register_core_services(
                 f"Error configuring EmptyResponseMiddleware: {e}", exc_info=True
             )
 
+        # Edit-precision response-side detection (optional)
+        try:
+            from src.core.services.edit_precision_response_middleware import (
+                EditPrecisionResponseMiddleware,
+            )
+
+            middlewares.append(EditPrecisionResponseMiddleware())
+        except Exception as e:
+            logging.getLogger(__name__).warning(
+                f"Error configuring EditPrecisionResponseMiddleware: {e}",
+                exc_info=True,
+            )
+
         if getattr(cfg.session, "json_repair_enabled", False):
             json_service: JsonRepairService = provider.get_required_service(
                 JsonRepairService
@@ -391,21 +417,40 @@ def register_core_services(
     )
     with contextlib.suppress(Exception):
         services.add_singleton(
-            cast(type, IMiddlewareApplicationManager),
+            IMiddlewareApplicationManager,
+            MiddlewareApplicationManager,
             implementation_factory=_middleware_application_manager_factory,
         )
 
+    # Register MiddlewareApplicationProcessor used inside the streaming pipeline
+    def _middleware_application_processor_factory(
+        provider: IServiceProvider,
+    ) -> MiddlewareApplicationProcessor:
+        manager: MiddlewareApplicationManager = provider.get_required_service(
+            MiddlewareApplicationManager
+        )
+        return MiddlewareApplicationProcessor(manager._middleware)
+
+    _add_singleton(
+        MiddlewareApplicationProcessor,
+        implementation_factory=_middleware_application_processor_factory,
+    )
+
     # Register response processor
     def _response_processor_factory(provider: IServiceProvider) -> ResponseProcessor:
-        app_state: IApplicationState = provider.get_required_service(IApplicationState)
+        from typing import cast
+
+        app_state: IApplicationState = provider.get_required_service(
+            cast(type, IApplicationState)
+        )
         stream_normalizer: IStreamNormalizer = provider.get_required_service(
-            IStreamNormalizer
+            cast(type, IStreamNormalizer)
         )
         response_parser: IResponseParser = provider.get_required_service(
-            IResponseParser
+            cast(type, IResponseParser)
         )
         middleware_application_manager: IMiddlewareApplicationManager = (
-            provider.get_required_service(IMiddlewareApplicationManager)
+            provider.get_required_service(cast(type, IMiddlewareApplicationManager))
         )
 
         # Get the middleware manager to access the middleware list
@@ -428,9 +473,10 @@ def register_core_services(
 
     with contextlib.suppress(Exception):
         services.add_singleton(
-            cast(type, IResponseProcessor),
+            IResponseProcessor,
+            ResponseProcessor,
             implementation_factory=_response_processor_factory,
-        )  # type: ignore[type-abstract]
+        )
 
     # Register app settings
     def _app_settings_factory(provider: IServiceProvider) -> AppSettings:
@@ -451,8 +497,8 @@ def register_core_services(
 
     with contextlib.suppress(Exception):
         services.add_singleton(
-            cast(type, IAppSettings), implementation_factory=_app_settings_factory
-        )  # type: ignore[type-abstract]
+            IAppSettings, AppSettings, implementation_factory=_app_settings_factory
+        )
 
     # Register application state service
     def _application_state_factory(
@@ -462,7 +508,7 @@ def register_core_services(
         descriptors = getattr(provider, "_descriptors", {})
         descriptor = descriptors.get(ApplicationStateService)
         if descriptor and descriptor.instance is not None:
-            return descriptor.instance
+            return cast(ApplicationStateService, descriptor.instance)
 
         # Create a single ApplicationStateService and also sync it to the
         # global default to maintain compatibility with tests that use
@@ -484,9 +530,10 @@ def register_core_services(
 
     with contextlib.suppress(Exception):
         services.add_singleton(
-            cast(type, IApplicationState),
+            IApplicationState,
+            ApplicationStateService,
             implementation_factory=_application_state_factory,
-        )  # type: ignore[type-abstract]
+        )
 
     # Register secure state service
     def _secure_state_factory(provider: IServiceProvider) -> SecureStateService:
@@ -497,12 +544,15 @@ def register_core_services(
 
     with contextlib.suppress(Exception):
         services.add_singleton(
-            cast(type, ISecureStateAccess), implementation_factory=_secure_state_factory
-        )  # type: ignore[type-abstract]
-        services.add_singleton(
-            cast(type, ISecureStateModification),
+            ISecureStateAccess,
+            SecureStateService,
             implementation_factory=_secure_state_factory,
-        )  # type: ignore[type-abstract]
+        )
+        services.add_singleton(
+            ISecureStateModification,
+            SecureStateService,
+            implementation_factory=_secure_state_factory,
+        )
 
     # Register secure command factory
     def _secure_command_factory(provider: IServiceProvider) -> SecureCommandFactory:
@@ -523,8 +573,10 @@ def register_core_services(
 
     with contextlib.suppress(Exception):
         services.add_singleton(
-            cast(type, ISessionManager), implementation_factory=_session_manager_factory
-        )  # type: ignore[type-abstract]
+            ISessionManager,
+            SessionManager,
+            implementation_factory=_session_manager_factory,
+        )
 
     # Register agent response formatter
     def _agent_response_formatter_factory(
@@ -538,9 +590,10 @@ def register_core_services(
 
     with contextlib.suppress(Exception):
         services.add_singleton(
-            cast(type, IAgentResponseFormatter),
+            IAgentResponseFormatter,
+            AgentResponseFormatter,
             implementation_factory=_agent_response_formatter_factory,
-        )  # type: ignore[type-abstract]
+        )
 
     # Register response manager
     def _response_manager_factory(provider: IServiceProvider) -> ResponseManager:
@@ -551,9 +604,10 @@ def register_core_services(
 
     with contextlib.suppress(Exception):
         services.add_singleton(
-            cast(type, IResponseManager),
+            IResponseManager,
+            ResponseManager,
             implementation_factory=_response_manager_factory,
-        )  # type: ignore[type-abstract]
+        )
 
     # Register backend request manager
     def _backend_request_manager_factory(
@@ -572,9 +626,10 @@ def register_core_services(
 
     with contextlib.suppress(Exception):
         services.add_singleton(
-            cast(type, IBackendRequestManager),
+            IBackendRequestManager,
+            BackendRequestManager,
             implementation_factory=_backend_request_manager_factory,
-        )  # type: ignore[type-abstract]
+        )
 
     # Register stream normalizer
     def _stream_normalizer_factory(provider: IServiceProvider) -> StreamNormalizer:
@@ -590,12 +645,18 @@ def register_core_services(
                 json_repair_processor = provider.get_required_service(
                     JsonRepairProcessor
                 )
-            tool_call_repair_processor = provider.get_required_service(
-                ToolCallRepairProcessor
-            )
-            loop_detection_processor = provider.get_required_service(
-                LoopDetectionProcessor
-            )
+            tool_call_repair_processor = None
+            if getattr(app_config.session, "tool_call_repair_enabled", True):
+                tool_call_repair_processor = provider.get_required_service(
+                    ToolCallRepairProcessor
+                )
+            loop_detection_processor = None
+            try:
+                loop_detection_processor = provider.get_required_service(
+                    LoopDetectionProcessor
+                )
+            except Exception:
+                loop_detection_processor = None
             middleware_application_processor = provider.get_required_service(
                 MiddlewareApplicationProcessor
             )
@@ -603,14 +664,16 @@ def register_core_services(
                 ContentAccumulationProcessor
             )
 
-            processors = []
+            processors: list[IStreamProcessor] = []
             # Prefer JSON repair first so JSON blocks are valid
             if json_repair_processor is not None:
                 processors.append(json_repair_processor)
             # Then text loop detection
-            processors.append(loop_detection_processor)
+            if loop_detection_processor is not None:
+                processors.append(loop_detection_processor)
             # Then tool-call repair
-            processors.append(tool_call_repair_processor)
+            if tool_call_repair_processor is not None:
+                processors.append(tool_call_repair_processor)
             # Middleware and accumulation
             processors.append(middleware_application_processor)
             processors.append(content_accumulation_processor)
@@ -628,9 +691,10 @@ def register_core_services(
 
     with contextlib.suppress(Exception):
         services.add_singleton(
-            cast(type, IStreamNormalizer),
+            IStreamNormalizer,
+            StreamNormalizer,
             implementation_factory=_stream_normalizer_factory,
-        )  # type: ignore[type-abstract]
+        )
 
     # Register ResponseParser
     def _response_parser_factory(provider: IServiceProvider) -> ResponseParser:
@@ -640,7 +704,9 @@ def register_core_services(
     _add_singleton(ResponseParser, implementation_factory=_response_parser_factory)
     with contextlib.suppress(Exception):
         services.add_singleton(
-            cast(type, IResponseParser), implementation_factory=_response_parser_factory
+            IResponseParser,
+            ResponseParser,
+            implementation_factory=_response_parser_factory,
         )
 
     # Register individual stream processors
@@ -685,8 +751,8 @@ def register_core_services(
     _add_singleton(WireCapture, implementation_factory=_wire_capture_factory)
     with contextlib.suppress(Exception):
         services.add_singleton(
-            cast(type, IWireCapture), implementation_factory=_wire_capture_factory
-        )  # type: ignore[type-abstract]
+            IWireCapture, WireCapture, implementation_factory=_wire_capture_factory
+        )
 
     # Register tool call repair service (if not already registered elsewhere as a concrete type)
     def _tool_call_repair_service_factory(
@@ -700,9 +766,10 @@ def register_core_services(
 
     with contextlib.suppress(Exception):
         services.add_singleton(
-            cast(type, IToolCallRepairService),
+            IToolCallRepairService,
+            ToolCallRepairService,
             implementation_factory=_tool_call_repair_service_factory,
-        )  # type: ignore[type-abstract]
+        )
 
     # Register tool call repair processor
     def _tool_call_repair_processor_factory(
@@ -778,8 +845,10 @@ def register_core_services(
 
     with contextlib.suppress(Exception):
         services.add_singleton(
-            cast(type, IBackendService), implementation_factory=_backend_service_factory
-        )  # type: ignore[type-abstract]
+            IBackendService,
+            BackendService,
+            implementation_factory=_backend_service_factory,
+        )
 
     # Register failover coordinator (if not already registered elsewhere as a concrete type)
     def _failover_coordinator_factory(
@@ -801,9 +870,10 @@ def register_core_services(
         from src.core.interfaces.failover_interface import IFailoverCoordinator
 
         services.add_singleton(
-            cast(type, IFailoverCoordinator),
+            IFailoverCoordinator,
+            FailoverCoordinator,
             implementation_factory=_failover_coordinator_factory,
-        )  # type: ignore[type-abstract]
+        )
 
     # Register request processor
     def _request_processor_factory(provider: IServiceProvider) -> RequestProcessor:
@@ -828,9 +898,10 @@ def register_core_services(
 
     with contextlib.suppress(Exception):
         _add_singleton(
-            cast(type, IRequestProcessor),
+            IRequestProcessor,
+            RequestProcessor,
             implementation_factory=_request_processor_factory,
-        )  # type: ignore[type-abstract]
+        )
 
 
 def get_service(service_type: type[T]) -> T | None:

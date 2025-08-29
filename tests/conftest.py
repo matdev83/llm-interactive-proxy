@@ -166,6 +166,7 @@ def _global_mock_backend_init(monkeypatch, request):
         or
         # Tests that explicitly manage their own backend mocks
         ("multimodal_cross_protocol" in test_module)
+        or ("test_custom_model_parameters" in test_module)  # Exclude integration tests
         or (
             "anthropic_frontend_integration" in test_module
         )  # These tests have specific mocking needs

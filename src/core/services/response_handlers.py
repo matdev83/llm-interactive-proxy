@@ -6,7 +6,6 @@ This module provides implementations of the response handler interfaces.
 
 from __future__ import annotations
 
-import json
 import logging
 from collections.abc import AsyncIterator
 from typing import Any
@@ -73,15 +72,4 @@ class DefaultStreamingResponseHandler(IStreamingResponseHandler):
             Normalized chunks from the source iterator as ProcessedResponse objects
         """
         async for chunk in source:
-            # Check if the chunk is a valid JSON object
-            try:
-                # Try to parse the chunk as JSON
-                json.loads(chunk.decode("utf-8"))
-
-                # If it's a valid JSON object, yield it as is
-                yield ProcessedResponse(content=chunk.decode("utf-8"))
-            except json.JSONDecodeError:
-                # If it's not a valid JSON object, normalize it
-                # This could involve wrapping it in a JSON object or other processing
-                # For now, just yield it as is
-                yield ProcessedResponse(content=chunk.decode("utf-8"))
+            yield ProcessedResponse(content=chunk.decode("utf-8"))

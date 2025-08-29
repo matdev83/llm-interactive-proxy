@@ -243,10 +243,10 @@ class BackendService(IBackendService):
                                 backend=backend_type,
                                 model=effective_model,
                                 key_name=key_name,
-                                stream=result.content,
+                                stream=result.content,  # type: ignore
                             )
                             return StreamingResponseEnvelope(
-                                content=wrapped_stream,
+                                content=wrapped_stream,  # type: ignore
                                 media_type=result.media_type,
                                 headers=result.headers,
                             )

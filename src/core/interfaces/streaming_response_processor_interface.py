@@ -17,7 +17,7 @@ class IStreamNormalizer(ABC):
     """Interface for normalizing streaming responses."""
 
     @abstractmethod
-    async def process_stream(
+    def process_stream(
         self, stream: AsyncIterator[Any], output_format: str = "bytes"
     ) -> AsyncGenerator[StreamingContent | bytes, None]:
         """Process a stream and convert to the desired output format.
@@ -43,7 +43,7 @@ class IStreamingResponseProcessor(ABC):
         """
 
     @abstractmethod
-    async def process_streaming_response(
+    def process_streaming_response(
         self, response_iterator: AsyncIterator[Any], session_id: str
     ) -> AsyncIterator[ProcessedResponse]:
         """Process a streaming response.

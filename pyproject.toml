@@ -102,8 +102,5 @@ markers = [
     "loop_detection: marks tests related to loop detection",
     "multimodal: marks tests related to multimodal content",
 ]
-filterwarnings = [
-    "ignore::pytest.PytestUnraisableExceptionWarning",
-    "ignore::DeprecationWarning",
-    "ignore::UserWarning:pydantic._internal._fields",
-]
+
+

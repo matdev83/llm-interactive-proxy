@@ -34,7 +34,7 @@ async def anthropic_backend_fixture() -> AnthropicBackend:
         config = AppConfig()
         backend = AnthropicBackend(client, config)
         await backend.initialize(key_name="anthropic", api_key="test_key")
-        return backend
+        yield backend
 
 
 @pytest.mark.asyncio

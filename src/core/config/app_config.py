@@ -144,6 +144,27 @@ class EmptyResponseConfig(DomainModel):
     max_retries: int = 1
 
 
+class EditPrecisionConfig(DomainModel):
+    """Configuration for automated edit-precision tuning.
+
+    When enabled, detects agent edit-failure prompts and lowers sampling
+    parameters for the next single call to improve precision.
+    """
+
+    enabled: bool = True
+    temperature: float = 0.1
+    # Only applied if override_top_p is True; otherwise top_p remains unchanged
+    min_top_p: float | None = 0.3
+    # Control whether top_p/top_k are overridden by this feature
+    override_top_p: bool = False
+    override_top_k: bool = False
+    # Target top_k to apply when override_top_k is True (for providers that support it, e.g., Gemini)
+    target_top_k: int | None = None
+    # Optional regex pattern; when set, agents with names matching this pattern
+    # will be excluded (feature disabled) even if enabled=True.
+    exclude_agents_regex: str | None = None
+
+
 from src.core.services.backend_registry import (
     backend_registry,  # Updated import path
 )
@@ -282,6 +303,9 @@ class AppConfig(DomainModel, IConfig):
     # Empty response handling settings
     empty_response: EmptyResponseConfig = Field(default_factory=EmptyResponseConfig)
 
+    # Edit-precision tuning settings
+    edit_precision: EditPrecisionConfig = Field(default_factory=EditPrecisionConfig)
+
     def save(self, path: str | Path) -> None:
         """Save the current configuration to a file."""
         with open(path, "w") as f:
@@ -386,6 +410,36 @@ class AppConfig(DomainModel, IConfig):
             "enabled": os.environ.get("EMPTY_RESPONSE_HANDLING_ENABLED", "true").lower()
             == "true",
             "max_retries": int(os.environ.get("EMPTY_RESPONSE_MAX_RETRIES", "1")),
+        }
+
+        # Edit precision settings
+        def _env_bool(name: str, default: bool) -> bool:
+            v = os.environ.get(name)
+            if v is None:
+                return default
+            return v.lower() in ("1", "true", "yes", "on")
+
+        def _env_float(name: str, default: float | None) -> float | None:
+            v = os.environ.get(name)
+            if v is None:
+                return default
+            try:
+                return float(v)
+            except ValueError:
+                return default
+
+        config["edit_precision"] = {
+            "enabled": _env_bool("EDIT_PRECISION_ENABLED", True),
+            "temperature": _env_float("EDIT_PRECISION_TEMPERATURE", 0.1) or 0.1,
+            "min_top_p": _env_float("EDIT_PRECISION_MIN_TOP_P", 0.3),
+            "override_top_p": _env_bool("EDIT_PRECISION_OVERRIDE_TOP_P", False),
+            "override_top_k": _env_bool("EDIT_PRECISION_OVERRIDE_TOP_K", False),
+            "target_top_k": (
+                int(os.environ.get("EDIT_PRECISION_TARGET_TOP_K", "0")) or None
+            ),
+            "exclude_agents_regex": os.environ.get(
+                "EDIT_PRECISION_EXCLUDE_AGENTS_REGEX"
+            ),
         }
 
         config["backends"] = {

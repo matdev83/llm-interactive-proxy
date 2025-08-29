@@ -61,7 +61,11 @@ from google.auth.exceptions import RefreshError
 
 from src.core.common.exceptions import AuthenticationError, BackendError
 from src.core.config.app_config import AppConfig
-from src.core.domain.responses import ResponseEnvelope, StreamingResponseEnvelope
+from src.core.domain.responses import (
+    ProcessedResponse,
+    ResponseEnvelope,
+    StreamingResponseEnvelope,
+)
 from src.core.services.backend_registry import backend_registry
 
 from .gemini import GeminiBackend
@@ -623,13 +627,7 @@ class GeminiCloudProjectConnector(GeminiBackend):
                 "project": project_id,  # User's GCP project
                 "request": {
                     "contents": contents,
-                    "generationConfig": {
-                        "temperature": float(getattr(request_data, "temperature", 0.7)),
-                        "maxOutputTokens": int(
-                            getattr(request_data, "max_tokens", 1024)
-                        ),
-                        "topP": float(getattr(request_data, "top_p", 0.95)),
-                    },
+                    "generationConfig": self._build_generation_config(request_data),
                 },
             }
 
@@ -748,13 +746,7 @@ class GeminiCloudProjectConnector(GeminiBackend):
                 "project": project_id,
                 "request": {
                     "contents": contents,
-                    "generationConfig": {
-                        "temperature": float(getattr(request_data, "temperature", 0.7)),
-                        "maxOutputTokens": int(
-                            getattr(request_data, "max_tokens", 1024)
-                        ),
-                        "topP": float(getattr(request_data, "top_p", 0.95)),
-                    },
+                    "generationConfig": self._build_generation_config(request_data),
                 },
             }
 
@@ -763,7 +755,7 @@ class GeminiCloudProjectConnector(GeminiBackend):
                 f"Making streaming Code Assist API call with project {project_id}"
             )
 
-            async def stream_generator() -> AsyncGenerator[bytes, None]:
+            async def stream_generator() -> AsyncGenerator[ProcessedResponse, None]:
                 try:
                     response = await asyncio.to_thread(
                         auth_session.request,
@@ -796,17 +788,17 @@ class GeminiCloudProjectConnector(GeminiBackend):
                         # We need to ensure it's properly formatted as SSE.
                         if chunk.startswith(("data: ", "id: ", ":")):
                             # Already SSE formatted or a comment, yield directly
-                            yield chunk.encode()
+                            yield ProcessedResponse(content=chunk)
                         else:
                             # Assume it's a raw text chunk (either repaired JSON or non-JSON text)
                             # and format it as an SSE data event.
-                            yield f"data: {chunk}\n\n".encode()
+                            yield ProcessedResponse(content=f"data: {chunk}\n\n")
 
-                    yield b"data: [DONE]\n\n"
+                    yield ProcessedResponse(content="data: [DONE]\n\n")
 
                 except Exception as e:
                     logger.error(f"Error in streaming generator: {e}")
-                    yield b"data: [DONE]\n\n"
+                    yield ProcessedResponse(content="data: [DONE]\n\n")
 
                 finally:
                     await response.aclose()
@@ -822,6 +814,20 @@ class GeminiCloudProjectConnector(GeminiBackend):
         except Exception as e:
             logger.error(f"Unexpected error during streaming API call: {e}")
             raise BackendError(f"Unexpected error during streaming API call: {e}")
+
+    def _build_generation_config(self, request_data: Any) -> dict[str, Any]:
+        cfg: dict[str, Any] = {
+            "temperature": float(getattr(request_data, "temperature", 0.7)),
+            "maxOutputTokens": int(getattr(request_data, "max_tokens", 1024)),
+            "topP": float(getattr(request_data, "top_p", 0.95)),
+        }
+        top_k = getattr(request_data, "top_k", None)
+        if top_k is not None:
+            import contextlib
+
+            with contextlib.suppress(Exception):
+                cfg["topK"] = int(top_k)
+        return cfg
 
     async def _ensure_project_onboarded(self, auth_session) -> str:
         """Ensure the user's GCP project is onboarded for standard-tier access."""

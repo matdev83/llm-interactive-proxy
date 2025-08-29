@@ -36,6 +36,7 @@ class MiddlewareApplicationManager(IMiddlewareApplicationManager):
         middleware_list: list[IResponseMiddleware] | None = None,
         is_streaming: bool = False,
         stop_event: Any = None,
+        session_id: str = "",
     ) -> str | Any:
         """
         Applies a list of response middleware to the given content.
@@ -60,7 +61,7 @@ class MiddlewareApplicationManager(IMiddlewareApplicationManager):
             )
 
         return await self._apply_non_streaming_middleware(
-            content, middleware_to_apply, stop_event
+            content, middleware_to_apply, stop_event, session_id
         )
 
     async def _apply_non_streaming_middleware(
@@ -68,6 +69,7 @@ class MiddlewareApplicationManager(IMiddlewareApplicationManager):
         content: str,
         middleware_list: list[IResponseMiddleware],
         stop_event: Any = None,
+        session_id: str = "",
     ) -> str:
         processed_response = ProcessedResponse(content=content, usage=None, metadata={})
 
@@ -75,7 +77,7 @@ class MiddlewareApplicationManager(IMiddlewareApplicationManager):
             try:
                 result = await mw.process(
                     processed_response,
-                    "",
+                    session_id,
                     {"stop_event": stop_event},
                     is_streaming=False,
                     stop_event=stop_event,
@@ -94,6 +96,7 @@ class MiddlewareApplicationManager(IMiddlewareApplicationManager):
         content_iterator: Any,
         middleware_list: list[IResponseMiddleware],
         stop_event: Any,
+        session_id: str = "",
     ) -> Any:
         async def generator() -> AsyncGenerator[Any, None]:
             if stop_event and stop_event.is_set():
@@ -106,7 +109,7 @@ class MiddlewareApplicationManager(IMiddlewareApplicationManager):
                     try:
                         result = await mw.process(
                             processed_chunk,
-                            "",
+                            session_id,
                             {"stop_event": stop_event},
                             is_streaming=True,
                             stop_event=stop_event,

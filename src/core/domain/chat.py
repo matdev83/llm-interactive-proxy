@@ -121,6 +121,7 @@ class ChatRequest(ValueObject):
     messages: list[ChatMessage]
     temperature: float | None = None
     top_p: float | None = None
+    top_k: int | None = None
     n: int | None = None
     stream: bool | None = None
     stop: list[str] | str | None = None
@@ -129,6 +130,7 @@ class ChatRequest(ValueObject):
     frequency_penalty: float | None = None
     logit_bias: dict[str, float] | None = None
     user: str | None = None
+    seed: int | None = None
     tools: list[dict[str, Any]] | None = None
     tool_choice: str | dict[str, Any] | None = None
     session_id: str | None = None

@@ -186,10 +186,11 @@ class ResponseProcessor(IResponseProcessor):
                 # Assuming middleware application manager can handle non-streaming content directly
                 processed_content = (
                     await self._middleware_application_manager.apply_middleware(
-                        content=processed_response.content,
+                        content=processed_response.content or "",
                         middleware_list=self._middleware_list,
                         is_streaming=False,
                         stop_event=None,
+                        session_id=session_id,
                     )
                 )
 
@@ -298,11 +299,7 @@ class ResponseProcessor(IResponseProcessor):
                     response_iterator, output_format="objects"
                 )
 
-                # If stream_processor is a coroutine, await it to get the actual async generator
-                if hasattr(stream_processor, "__await__") and not hasattr(
-                    stream_processor, "__aiter__"
-                ):
-                    stream_processor = await stream_processor
+                # stream_processor is already an async generator, no need to await
 
                 async for processed_chunk in stream_processor:
                     if isinstance(processed_chunk, StreamingContent):

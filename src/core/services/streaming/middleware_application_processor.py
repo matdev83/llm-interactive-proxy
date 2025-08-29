@@ -36,7 +36,10 @@ class MiddlewareApplicationProcessor(IStreamProcessor):
         processed_response = ProcessedResponse(
             content=content.content, usage=content.usage, metadata=content.metadata
         )
-        session_id_str = str(content.metadata.get("session_id", ""))
+        # Prefer explicit session_id; fall back to chunk id when available
+        session_id_str = str(
+            content.metadata.get("session_id") or content.metadata.get("id") or ""
+        )
         response_type = (
             "non_streaming" if content.metadata.get("non_streaming") else "stream"
         )

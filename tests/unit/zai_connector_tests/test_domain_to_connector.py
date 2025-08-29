@@ -5,6 +5,7 @@ This module tests that the ZAI connector correctly processes domain models.
 """
 
 import json
+from collections.abc import AsyncGenerator
 
 import httpx
 import pytest
@@ -22,7 +23,9 @@ TEST_ZAI_API_BASE_URL = "https://open.bigmodel.cn/api/paas/v4/"
 
 
 @pytest_asyncio.fixture(name="zai_backend")
-async def zai_backend_fixture(httpx_mock: HTTPXMock) -> ZAIConnector:
+async def zai_backend_fixture(
+    httpx_mock: HTTPXMock,
+) -> AsyncGenerator[ZAIConnector, None]:
     """Create a ZAI backend instance with a mock client."""
     # Setup the mock response for models during initialization
     mock_models = {
@@ -41,7 +44,8 @@ async def zai_backend_fixture(httpx_mock: HTTPXMock) -> ZAIConnector:
         headers={"Content-Type": "application/json"},
     )
 
-    async with httpx.AsyncClient() as client:
+    client = httpx.AsyncClient()
+    try:
         from src.core.config.app_config import AppConfig
 
         config = AppConfig()
@@ -52,7 +56,9 @@ async def zai_backend_fixture(httpx_mock: HTTPXMock) -> ZAIConnector:
         # This is a workaround for the mock response not being processed correctly
         backend.available_models = ["glm-4.5", "glm-4.5-flash", "glm-4.5-air"]
 
-        return backend
+        yield backend
+    finally:
+        await client.aclose()
 
 
 @pytest.mark.asyncio

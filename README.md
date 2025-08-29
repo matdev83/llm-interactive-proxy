@@ -19,6 +19,52 @@ The LLM Interactive Proxy is an advanced middleware service that provides a unif
 - **Unified API**: OpenAI-compatible API for all backends.
 - **Empty Response Recovery**: Automatically detects empty LLM responses (no text, no tool call) and retries the request with a corrective prompt to guide the LLM.
 
+#### Automated Edit-Precision Tuning (new)
+
+- Detects failed file-edit attempts from popular coding agents (Cline, Roo/Kilo, Gemini-CLI, Aider, Crush, OpenCode) and automatically lowers sampling parameters for the next model call to improve literal matching and patch precision.
+- Request-side detection: scans incoming user messages for known failure prompts (e.g., SEARCH/REPLACE no match, unified diff hunk failures).
+- Optional response-side detection: inspects model responses (e.g., `diff_error`) and flags a one‑shot tuning for the next request.
+- Single-call override only: tuned parameters apply to the very next backend call and then reset to normal.
+- Config:
+  - `edit_precision.enabled` (default: true)
+  - `edit_precision.temperature` (default: 0.1)
+  - `edit_precision.override_top_p` (default: false) and `edit_precision.min_top_p` (used only when override_top_p is true)
+  - `edit_precision.override_top_k` (default: false) and `edit_precision.target_top_k` (used only when override_top_k is true, applied on providers that support `top_k`, e.g., Gemini)
+  - `edit_precision.exclude_agents_regex` to disable tuning for specific agents (e.g., `^(cline|roocode)$`)
+  - Patterns externalized at `conf/edit_precision_patterns.yaml`; override path with `EDIT_PRECISION_PATTERNS_PATH`.
+
+- Env vars:
+  - `EDIT_PRECISION_ENABLED` (true/false)
+  - `EDIT_PRECISION_TEMPERATURE` (float)
+  - `EDIT_PRECISION_OVERRIDE_TOP_P` (true/false)
+  - `EDIT_PRECISION_MIN_TOP_P` (float)
+  - `EDIT_PRECISION_OVERRIDE_TOP_K` (true/false)
+  - `EDIT_PRECISION_TARGET_TOP_K` (integer; used only when override_top_k is true)
+  - `EDIT_PRECISION_EXCLUDE_AGENTS_REGEX` (regex string)
+  - `EDIT_PRECISION_PATTERNS_PATH` (file path to YAML patterns)
+
+When does tuning trigger?
+
+- LLMs often miss exact search/replace matches or produce ambiguous diffs. When an agent indicates a failure (e.g., “The SEARCH block … does not match”, “hunk failed to apply”), the proxy adjusts sampling (lower temperature, optionally lower top_p and top_k) to bias toward exact matches and reduce “creative” drift.
+
+Backend semantics
+
+- OpenAI-compatible (OpenAI/OpenRouter/ZAI/Qwen): applies top-level `temperature` and `top_p`.
+- Anthropic-compatible: applies top-level `temperature` and `top_p` to Messages API.
+- Gemini (all variants): applies `generationConfig.temperature` (clamped to [0,1] for public), `generationConfig.topP`, and, when configured, `generationConfig.topK`.
+
+Logging
+
+- Response-side detection logs when a trigger is matched (session id, pattern, new pending count).
+- Request-side tuning logs when overrides are applied (session id, force_apply, original→applied `temperature`/`top_p`/`top_k`).
+- Pending flag consumption logs the counter decrement before the tuned request is sent.
+
+Triggers and sources
+
+- Request-side: scans inbound messages (what the agent sends to the LLM) for known edit-failure prompts.
+- Response-side: scans model output (non-streaming and streaming chunks) for failure markers such as `diff_error` and unified-diff hunk failures; sets a one-shot pending flag that tunes the very next request.
+- Reference list of agent prompts captured from popular agents is maintained in `dev/agents-edit-error-prompts.md`.
+
 ### Wire-Level Capture (Request/Reply Logging)
 
 - Purpose: Capture all outbound LLM requests and inbound replies/streams as-is to a separate capture log. Useful for debugging, auditing, and reproducing issues. The capture runs across all backends without backend-specific code.

@@ -242,6 +242,24 @@ class AnthropicBackend(LLMBackend):
             payload["stop_sequences"] = request_data.stop
         if project:
             payload["metadata"] = {"project": project}
+        if request_data.user is not None:
+            payload.setdefault("metadata", {})["user_id"] = request_data.user
+
+        # Unsupported parameters
+        if request_data.seed is not None:
+            logger.warning("AnthropicBackend does not support the 'seed' parameter.")
+        if request_data.presence_penalty is not None:
+            logger.warning(
+                "AnthropicBackend does not support the 'presence_penalty' parameter."
+            )
+        if request_data.frequency_penalty is not None:
+            logger.warning(
+                "AnthropicBackend does not support the 'frequency_penalty' parameter."
+            )
+        if request_data.logit_bias is not None:
+            logger.warning(
+                "AnthropicBackend does not support the 'logit_bias' parameter."
+            )
 
         # Include tools and tool_choice when provided (tests set these fields)
         tools = getattr(request_data, "tools", None)
@@ -252,6 +270,10 @@ class AnthropicBackend(LLMBackend):
 
         # Include extra params from domain extra_body directly (allows reasoning, etc.)
         payload.update(request_data.extra_body or {})
+
+        # Include reasoning_effort when provided
+        if getattr(request_data, "reasoning_effort", None) is not None:
+            payload["reasoning_effort"] = request_data.reasoning_effort
         return payload
 
     # -----------------------------------------------------------
@@ -261,10 +283,6 @@ class AnthropicBackend(LLMBackend):
         self, url: str, payload: dict, headers: dict, model: str
     ) -> ResponseEnvelope:
         try:
-            response = await self.client.post(url, json=payload, headers=headers)
-        except RuntimeError:
-            # Client may have been closed by the fixture scope; recreate and retry
-            self.client = httpx.AsyncClient()
             response = await self.client.post(url, json=payload, headers=headers)
         except httpx.RequestError as e:
             raise ServiceUnavailableError(
@@ -296,13 +314,6 @@ class AnthropicBackend(LLMBackend):
         request = self.client.build_request("POST", url, json=payload, headers=headers)
         try:
             response = await self.client.send(request, stream=True)
-        except RuntimeError:
-            # Recreate client and retry
-            self.client = httpx.AsyncClient()
-            request = self.client.build_request(
-                "POST", url, json=payload, headers=headers
-            )
-            response = await self.client.send(request, stream=True)
         except httpx.RequestError as e:
             raise ServiceUnavailableError(
                 message=f"Could not connect to Anthropic API: {e}"
@@ -324,7 +335,7 @@ class AnthropicBackend(LLMBackend):
                 status_code=response.status_code,
             )
 
-        async def event_stream() -> AsyncGenerator[bytes, None]:
+        async def event_stream() -> AsyncGenerator[ProcessedResponse, None]:
             # Forward raw text stream; central pipeline will handle normalization/repairs
             processed_stream = response.aiter_text()
 
@@ -333,13 +344,13 @@ class AnthropicBackend(LLMBackend):
                 # We need to ensure it's properly formatted as SSE.
                 if chunk.startswith(("data: ", "id: ", ":")):
                     # Already SSE formatted or a comment, yield directly
-                    yield chunk.encode()
+                    yield ProcessedResponse(content=chunk)
                 else:
                     # Assume it's a raw text chunk (either repaired JSON or non-JSON text)
                     # and format it as an SSE data event.
-                    yield f"data: {chunk}\n\n".encode()
+                    yield ProcessedResponse(content=f"data: {chunk}\n\n")
 
-            yield b"data: [DONE]\n\n"
+            yield ProcessedResponse(content="data: [DONE]\n\n")
             await response.aclose()
 
         return event_stream()
@@ -427,10 +438,6 @@ class AnthropicBackend(LLMBackend):
         url = f"{base.rstrip('/')}/models"
         headers = {"x-api-key": key_api, "anthropic-version": ANTHROPIC_VERSION_HEADER}
         try:
-            response = await self.client.get(url, headers=headers)
-        except RuntimeError:
-            # Recreate client and retry
-            self.client = httpx.AsyncClient()
             response = await self.client.get(url, headers=headers)
         except httpx.RequestError as e:
             raise ServiceUnavailableError(

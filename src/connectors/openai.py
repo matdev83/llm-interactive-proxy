@@ -18,7 +18,10 @@ from src.core.domain.chat import ChatRequest
 from src.core.domain.responses import ResponseEnvelope, StreamingResponseEnvelope
 from src.core.interfaces.configuration_interface import IAppIdentityConfig
 from src.core.interfaces.model_bases import DomainModel, InternalDTO
-from src.core.interfaces.response_processor_interface import IResponseProcessor
+from src.core.interfaces.response_processor_interface import (
+    IResponseProcessor,
+    ProcessedResponse,
+)
 from src.core.services.backend_registry import backend_registry
 
 # Add health check flag for subclasses to control behavior
@@ -191,6 +194,11 @@ class OpenAIConnector(LLMBackend):
         extra = getattr(request_data, "extra_body", None)
         if extra:
             payload.update(extra)
+
+        # Add seed if available
+        if request_data.seed is not None:
+            payload["seed"] = request_data.seed
+
         return payload
 
     def _ensure_string_keys_and_values(self, data: Any) -> Any:
@@ -298,10 +306,6 @@ class OpenAIConnector(LLMBackend):
 
         try:
             response = await self.client.post(url, json=payload, headers=headers)
-        except RuntimeError:
-            # Client was closed by caller; create a new client for this request
-            self.client = httpx.AsyncClient()
-            response = await self.client.post(url, json=payload, headers=headers)
         except httpx.RequestError as e:
             raise ServiceUnavailableError(message=f"Could not connect to backend ({e})")
 
@@ -338,22 +342,14 @@ class OpenAIConnector(LLMBackend):
         payload: dict[str, Any],
         headers: dict[str, str] | None,
         session_id: str,
-    ) -> AsyncIterator[bytes]:
-        """Return an AsyncIterator of raw bytes (transport-agnostic)"""
+    ) -> AsyncIterator[ProcessedResponse]:
+        """Return an AsyncIterator of ProcessedResponse objects (transport-agnostic)"""
 
         if not headers or not headers.get("Authorization"):
             raise AuthenticationError(message="No auth credentials found")
 
         request = self.client.build_request("POST", url, json=payload, headers=headers)
-        try:
-            response = await self.client.send(request, stream=True)
-        except RuntimeError:
-            # Recreate client if it was closed and retry once
-            self.client = httpx.AsyncClient()
-            request = self.client.build_request(
-                "POST", url, json=payload, headers=headers
-            )
-            response = await self.client.send(request, stream=True)
+        response = await self.client.send(request, stream=True)
 
         status_code = (
             int(response.status_code) if hasattr(response, "status_code") else 200
@@ -376,7 +372,7 @@ class OpenAIConnector(LLMBackend):
                 },
             )
 
-        async def gen() -> AsyncGenerator[bytes, None]:
+        async def gen() -> AsyncGenerator[ProcessedResponse, None]:
             # Forward raw text stream; central pipeline will handle normalization/repairs
             async def text_generator() -> AsyncGenerator[str, None]:
                 async for chunk in response.aiter_text():
@@ -384,7 +380,7 @@ class OpenAIConnector(LLMBackend):
 
             try:
                 async for chunk in text_generator():
-                    yield chunk.encode("utf-8")
+                    yield ProcessedResponse(content=chunk)
             finally:
                 import contextlib
 
@@ -399,17 +395,7 @@ class OpenAIConnector(LLMBackend):
         headers = self.get_headers()
         base = api_base_url or self.api_base_url
         logger.info(f"OpenAIConnector list_models - base URL: {base}")
-        try:
-            response = await self.client.get(
-                f"{base.rstrip('/')}/models", headers=headers
-            )
-        except RuntimeError:
-            import httpx
-
-            self.client = httpx.AsyncClient()
-            response = await self.client.get(
-                f"{base.rstrip('/')}/models", headers=headers
-            )
+        response = await self.client.get(f"{base.rstrip('/')}/models", headers=headers)
         response.raise_for_status()
         result = response.json()
         return result  # type: ignore[no-any-return]

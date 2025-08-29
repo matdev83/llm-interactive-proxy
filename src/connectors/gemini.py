@@ -288,15 +288,15 @@ class GeminiBackend(LLMBackend):
                         if chunk.startswith(("data: ", "id: ", ":")):
                             # Convert Gemini SSE chunk to OpenAI format
                             openai_chunk = gemini_to_openai_stream_chunk(chunk)
-                            yield openai_chunk.encode()
+                            yield ProcessedResponse(content=openai_chunk)
                         else:
                             # Convert raw Gemini JSON to OpenAI format
                             openai_chunk = gemini_to_openai_stream_chunk(
                                 f"data: {chunk}"
                             )
-                            yield openai_chunk.encode()
+                            yield ProcessedResponse(content=openai_chunk)
 
-                    yield b"data: [DONE]\n\n"
+                    yield ProcessedResponse(content="data: [DONE]\n\n")
                 finally:
                     await response.aclose()
 
@@ -441,6 +441,16 @@ class GeminiBackend(LLMBackend):
                 "thinkingBudget"
             ] = request_data.thinking_budget  # type: ignore[index]
 
+        # top_k
+        if getattr(request_data, "top_k", None) is not None:
+            generation_config["topK"] = request_data.top_k
+
+        # reasoning_effort
+        if getattr(request_data, "reasoning_effort", None) is not None:
+            generation_config.setdefault("thinkingConfig", {})[
+                "reasoning_effort"
+            ] = request_data.reasoning_effort
+
         # generation config blob - merge with existing config
         if getattr(request_data, "generation_config", None):
             # Deep merge the generation_config into generationConfig
@@ -456,6 +466,30 @@ class GeminiBackend(LLMBackend):
                 )
                 temperature = 1.0
             generation_config["temperature"] = temperature
+
+        # top_p
+        if request_data.top_p is not None:
+            generation_config["topP"] = request_data.top_p
+
+        # stop sequences
+        if request_data.stop:
+            generation_config["stopSequences"] = request_data.stop
+
+        # Unsupported parameters
+        if request_data.seed is not None:
+            logger.warning("GeminiBackend does not support the 'seed' parameter.")
+        if request_data.presence_penalty is not None:
+            logger.warning(
+                "GeminiBackend does not support the 'presence_penalty' parameter."
+            )
+        if request_data.frequency_penalty is not None:
+            logger.warning(
+                "GeminiBackend does not support the 'frequency_penalty' parameter."
+            )
+        if request_data.logit_bias is not None:
+            logger.warning("GeminiBackend does not support the 'logit_bias' parameter.")
+        if request_data.user is not None:
+            logger.warning("GeminiBackend does not support the 'user' parameter.")
 
     def _normalize_model_name(self, effective_model: str) -> str:
         model_name = effective_model
