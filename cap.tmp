@@ -1,5 +1,0 @@
------ REPLY 2025-08-28T21:09:33Z -----
-client=unknown session=s -> backend=openai model=gpt-4 key=OPENAI_API_KEY
-{
-  "ok": true
-}
