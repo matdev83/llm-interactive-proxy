@@ -101,6 +101,7 @@ The scanner identifies violations where services are manually instantiated inste
 #### Understanding Scanner Output
 
 **Concise Summary (Default - Always Visible):**
+
 ```
 ⚠️  DI CONTAINER VIOLATIONS DETECTED: 61 violations in 14 files.
 Most affected: core\di\services.py: 15, core\app\controllers\chat_controller.py: 8, core\app\controllers\anthropic_controller.py: 6.
@@ -108,6 +109,7 @@ Use -s flag for detailed report | Fix with IServiceProvider.get_required_service
 ```
 
 **Detailed Report (With -s Flag):**
+
 ```
 🎯 DI Container Scanner Results:
    📊 Total violations found: 61
@@ -122,6 +124,7 @@ Use -s flag for detailed report | Fix with IServiceProvider.get_required_service
 #### Fixing DI Violations
 
 **❌ Bad (Violation):**
+
 ```python
 def handle_request(self, request):
     processor = CommandProcessor(self.config)  # VIOLATION!
@@ -129,6 +132,7 @@ def handle_request(self, request):
 ```
 
 **✅ Good (Fixed):**
+
 ```python
 def __init__(self, command_processor: ICommandProcessor):
     self.command_processor = command_processor
@@ -274,6 +278,7 @@ async def test_oauth_backend_health_check(self, mock_refresh, mock_home):
 - `docs/CONFIGURATION.md`: Configuration options.
 - `docs/FAILOVER_ROUTES.md`: Failover routing information.
 - `docs/TOOL_CALL_LOOP_DETECTION.md`: Tool call loop detection details.
+
 ### JSON Repair, Strict Gating, and Helpers
 
 - JSON repair is applied both in streaming (processor) and non-streaming (middleware) paths.

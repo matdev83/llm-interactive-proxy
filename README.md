@@ -58,6 +58,7 @@ data: [DONE]
 ```
 
 Notes:
+
 - Capture uses best-effort file I/O and never blocks or impacts request processing.
 - API key “name” is derived by matching configured keys to env vars (e.g., `OPENROUTER_API_KEY_1`), never logging secret values.
 - Redaction: if prompt redaction is enabled, capture contains post-redaction payloads.
@@ -71,7 +72,6 @@ Notes:
   - Enable/disable prompt redaction via `auth.redact_api_keys_in_prompts` (default: true).
   - CLI toggle: `--disable-redact-api-keys-in-prompts`.
 - **Wire Capture Note**: If request/response wire capture is enabled, outbound requests are captured after redaction, so captured payloads are sanitized.
-
 
 ## Backend Support
 
@@ -560,6 +560,7 @@ Notes:
 
 - Issues: [GitHub Issues](https://github.com/your-org/llm-interactive-proxy/issues)
 - Changelog: [CHANGELOG.md](CHANGELOG.md)
+
 ## Processing & Repair Pipeline
 
 - **Streaming order**: JSON repair → text loop detection → tool-call repair → middleware → accumulation. This order ensures:
