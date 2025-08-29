@@ -8,6 +8,7 @@ request_patterns:
   # Gemini-CLI edit-tool failures
   - "Failed\\s+to\\s+edit,\\s+could\\s+not\\s+find\\s+the\\s+string\\s+to\\s+replace"
   - "Failed\\s+to\\s+edit,\\s+expected\\s+\\d+\\s+(?:occurrence|occurrences)\\s+but\\s+found\\s+\\d+"
+  - "Failed\\s+to\\s+edit,\\s*0\\s+occurrences\\s+found"
   # Aider unified diff failures
   - "UnifiedDiffNoMatch:\\s+hunk\\s+failed\\s+to\\s+apply"
   - "UnifiedDiffNotUnique:\\s+hunk\\s+failed\\s+to\\s+apply"
