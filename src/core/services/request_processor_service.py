@@ -81,6 +81,22 @@ class RequestProcessor(IRequestProcessor):
             f"command_results={len(command_result.command_results) if hasattr(command_result.command_results, '__len__') else 0}"
         )
 
+        # Special handling: Cline agent expects tool_calls for proxy commands
+        try:
+            if (
+                getattr(session, "agent", None) == "cline"
+                and command_result.command_executed
+            ):
+                await self._session_manager.record_command_in_session(
+                    request_data, session_id
+                )
+                return await self._response_manager.process_command_result(
+                    command_result, session
+                )
+        except Exception:
+            # Fall back to default path on any issue
+            logger.debug("Cline agent fast-path failed; continuing", exc_info=True)
+
         # Check if we should take the command-only path
         if self._should_process_command_only(command_result):
             logger.debug(f"Taking command result path for session {session_id}")

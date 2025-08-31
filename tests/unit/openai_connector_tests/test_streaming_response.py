@@ -7,6 +7,7 @@ This module tests the chat_completions method of the OpenAIConnector class,
 covering the various ways it can handle streaming responses.
 """
 
+import json
 import types
 from collections.abc import Callable
 from typing import TYPE_CHECKING, Any
@@ -190,16 +191,45 @@ async def test_streaming_response_async_iterator(
 ) -> None:
     """Test handling a streaming response with an async iterator."""
     # Create a mock response with an async iterator
-    chunks = [b"chunk1", b"chunk2", b"chunk3"]
+    chunk1 = {
+        "id": "chatcmpl-123",
+        "object": "chat.completion.chunk",
+        "created": 1234567890,
+        "model": "test-model",
+        "choices": [
+            {
+                "index": 0,
+                "delta": {"role": "assistant", "content": "Hello"},
+                "finish_reason": None,
+            }
+        ],
+    }
+    chunk2 = {
+        "id": "chatcmpl-123",
+        "object": "chat.completion.chunk",
+        "created": 1234567890,
+        "model": "test-model",
+        "choices": [
+            {"index": 0, "delta": {"content": " world"}, "finish_reason": None}
+        ],
+    }
+    chunks = [
+        f"data: {json.dumps(chunk1)}\n\n",
+        f"data: {json.dumps(chunk2)}\n\n",
+        "data: [DONE]\n\n",
+    ]
     mock_response = MockResponse(headers={"Content-Type": "text/event-stream"})
-
-    # Use a regular method instead of AsyncMock for headers
-    # This prevents AsyncMock.keys() issue
-    mock_response.headers = {"Content-Type": "text/event-stream"}
-    mock_response.aiter_bytes = lambda: AsyncIterBytes(chunks)
+    mock_response.aiter_bytes = lambda: AsyncIterBytes(
+        [c.encode("utf-8") for c in chunks]
+    )
 
     # Mock the client.send method to return our mock response
     mocker.patch.object(connector.client, "send", AsyncMock(return_value=mock_response))
+    mocker.patch.object(
+        connector.translation_service,
+        "to_domain_stream_chunk",
+        side_effect=lambda chunk, _: chunk,
+    )
 
     # Create a mock ChatRequest with streaming enabled
     from src.core.domain.chat import ChatMessage, ChatRequest
@@ -222,13 +252,30 @@ async def test_streaming_response_async_iterator(
     assert result.media_type == "text/event-stream"
 
     # Collect the chunks from the streaming response
-    collected_chunks = []
+    collected_content = []
     async for chunk in result.content:
-        if chunk.content:
-            collected_chunks.append(chunk.content.encode("utf-8"))
+        if not chunk.content:
+            continue
+        # The content is a string, so we need to parse it as JSON
+        if isinstance(chunk.content, str) and chunk.content.startswith("data:"):
+            data_str = chunk.content[len("data: ") :]
+            if data_str.strip() == "[DONE]":
+                continue
+            data = json.loads(data_str)
+            choices = data.get("choices", [])
+            if not choices:
+                continue
+            delta = choices[0].get("delta")
+            if not delta:
+                continue
+            content = delta.get("content")
+            if content:
+                collected_content.append(content)
+
+    full_content = "".join(collected_content)
 
     # Verify the chunks
-    assert collected_chunks == chunks
+    assert full_content == "Hello world"
     assert mock_response.closed
 
 
@@ -238,12 +285,45 @@ async def test_streaming_response_sync_iterator(
 ) -> None:
     """Test handling a streaming response with a sync iterator."""
     # Create a mock response with a sync iterator
-    chunks = [b"chunk1", b"chunk2", b"chunk3"]
+    chunk1 = {
+        "id": "chatcmpl-123",
+        "object": "chat.completion.chunk",
+        "created": 1234567890,
+        "model": "test-model",
+        "choices": [
+            {
+                "index": 0,
+                "delta": {"role": "assistant", "content": "Hello"},
+                "finish_reason": None,
+            }
+        ],
+    }
+    chunk2 = {
+        "id": "chatcmpl-123",
+        "object": "chat.completion.chunk",
+        "created": 1234567890,
+        "model": "test-model",
+        "choices": [
+            {"index": 0, "delta": {"content": " world"}, "finish_reason": None}
+        ],
+    }
+    chunks = [
+        f"data: {json.dumps(chunk1)}\n\n",
+        f"data: {json.dumps(chunk2)}\n\n",
+        "data: [DONE]\n\n",
+    ]
     mock_response = MockResponse(headers={"Content-Type": "text/event-stream"})
-    mock_response.aiter_bytes = lambda: SyncIterBytes(chunks)
+    mock_response.aiter_bytes = lambda: SyncIterBytes(
+        [c.encode("utf-8") for c in chunks]
+    )
 
     # Mock the client.send method to return our mock response
     mocker.patch.object(connector.client, "send", AsyncMock(return_value=mock_response))
+    mocker.patch.object(
+        connector.translation_service,
+        "to_domain_stream_chunk",
+        side_effect=lambda chunk, _: chunk,
+    )
 
     # Create a mock ChatRequest with streaming enabled
     from src.core.domain.chat import ChatMessage, ChatRequest
@@ -266,13 +346,30 @@ async def test_streaming_response_sync_iterator(
     assert result.media_type == "text/event-stream"
 
     # Collect the chunks from the streaming response
-    collected_chunks = []
+    collected_content = []
     async for chunk in result.content:
-        if chunk.content:
-            collected_chunks.append(chunk.content.encode("utf-8"))
+        if not chunk.content:
+            continue
+        # The content is a string, so we need to parse it as JSON
+        if isinstance(chunk.content, str) and chunk.content.startswith("data:"):
+            data_str = chunk.content[len("data: ") :]
+            if data_str.strip() == "[DONE]":
+                continue
+            data = json.loads(data_str)
+            choices = data.get("choices", [])
+            if not choices:
+                continue
+            delta = choices[0].get("delta")
+            if not delta:
+                continue
+            content = delta.get("content")
+            if content:
+                collected_content.append(content)
+
+    full_content = "".join(collected_content)
 
     # Verify the chunks
-    assert collected_chunks == chunks
+    assert full_content == "Hello world"
     assert mock_response.closed
 
 
@@ -282,18 +379,48 @@ async def test_streaming_response_coroutine(
 ) -> None:
     """Test handling a streaming response with a coroutine."""
     # Create a mock response with a coroutine that returns an iterable
-    chunks = [b"chunk1", b"chunk2", b"chunk3"]
+    chunk1 = {
+        "id": "chatcmpl-123",
+        "object": "chat.completion.chunk",
+        "created": 1234567890,
+        "model": "test-model",
+        "choices": [
+            {
+                "index": 0,
+                "delta": {"role": "assistant", "content": "Hello"},
+                "finish_reason": None,
+            }
+        ],
+    }
+    chunk2 = {
+        "id": "chatcmpl-123",
+        "object": "chat.completion.chunk",
+        "created": 1234567890,
+        "model": "test-model",
+        "choices": [
+            {"index": 0, "delta": {"content": " world"}, "finish_reason": None}
+        ],
+    }
+    chunks = [
+        f"data: {json.dumps(chunk1)}\n\n",
+        f"data: {json.dumps(chunk2)}\n\n",
+        "data: [DONE]\n\n",
+    ]
     mock_response = MockResponse(headers={"Content-Type": "text/event-stream"})
 
     async def mock_aiter_bytes():
         for chunk in chunks:
-            yield chunk
+            yield chunk.encode("utf-8")
 
     mock_response.aiter_bytes = mock_aiter_bytes
 
     # Mock the client.send method to return our mock response
     mocker.patch.object(connector.client, "send", AsyncMock(return_value=mock_response))
-
+    mocker.patch.object(
+        connector.translation_service,
+        "to_domain_stream_chunk",
+        side_effect=lambda chunk, _: chunk,
+    )
     # Create a mock ChatRequest with streaming enabled
     from src.core.domain.chat import ChatMessage, ChatRequest
 
@@ -315,13 +442,30 @@ async def test_streaming_response_coroutine(
     assert result.media_type == "text/event-stream"
 
     # Collect the chunks from the streaming response
-    collected_chunks = []
+    collected_content = []
     async for chunk in result.content:
-        if chunk.content:
-            collected_chunks.append(chunk.content.encode("utf-8"))
+        if not chunk.content:
+            continue
+        # The content is a string, so we need to parse it as JSON
+        if isinstance(chunk.content, str) and chunk.content.startswith("data:"):
+            data_str = chunk.content[len("data: ") :]
+            if data_str.strip() == "[DONE]":
+                continue
+            data = json.loads(data_str)
+            choices = data.get("choices", [])
+            if not choices:
+                continue
+            delta = choices[0].get("delta")
+            if not delta:
+                continue
+            content = delta.get("content")
+            if content:
+                collected_content.append(content)
+
+    full_content = "".join(collected_content)
 
     # Verify the chunks
-    assert collected_chunks == chunks
+    assert full_content == "Hello world"
     assert mock_response.closed
 
 

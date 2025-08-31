@@ -272,6 +272,14 @@ class ApplicationBuilder:
         app.state.service_provider = service_provider
         app.state.app_config = config
 
+        # Ensure global DI accessor is in sync for legacy helpers/dependencies
+        try:
+            from src.core.di.services import set_service_provider
+
+            set_service_provider(service_provider)
+        except Exception:
+            logger.debug("Unable to set global service provider", exc_info=True)
+
         # Configure middleware
         self._configure_middleware(app, config)
 

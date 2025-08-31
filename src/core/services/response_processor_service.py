@@ -145,26 +145,7 @@ class ResponseProcessor(IResponseProcessor):
                 except (TypeError, ValueError):
                     content = str(content)
 
-            # If backend returned a domain ResponseEnvelope-like dict indicating an invalid model,
-            # convert to a 400 error content for tests expecting bad request.
-            # This logic should ideally be handled within the ResponseParser
-            # but is kept here for now for compatibility.
-            if (
-                isinstance(response, dict)
-                and "choices" in response
-                and isinstance(response["choices"], list)
-                and response["choices"]
-            ):
-                msg_obj = response["choices"][0].get("message", {})
-                msg_content = (
-                    msg_obj.get("content") if isinstance(msg_obj, dict) else None
-                )
-                if (
-                    isinstance(msg_content, str)
-                    and "Model 'bad' not found" in msg_content
-                ):
-                    content = msg_content
-                    metadata["http_status_override"] = 400
+            # Leave status as-is; allow upstream layers to decide error mapping.
 
             processed_response = ProcessedResponse(
                 content=content, usage=usage, metadata=metadata

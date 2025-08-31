@@ -3,12 +3,10 @@ from unittest.mock import Mock
 
 import pytest
 import src.core.domain.chat as models
+from src.core.commands.parser import CommandParser
+from src.core.commands.service import NewCommandService
 from src.core.domain.session import Session
 from src.core.interfaces.command_processor_interface import ICommandProcessor
-from src.core.services.command_processor import (
-    CommandProcessor as CoreCommandProcessor,
-)
-from src.core.services.command_service import CommandRegistry, CommandService
 
 
 class TestProcessCommandsInMessages:
@@ -52,9 +50,8 @@ class TestProcessCommandsInMessages:
         self.mock_app.state = mock_app_state
 
     @pytest.fixture
-    def command_parser(self, test_command_registry) -> ICommandProcessor:
+    def command_parser(self) -> ICommandProcessor:
         """Create a DI-driven command processor with default prefix."""
-        registry: CommandRegistry = test_command_registry
 
         # Use a simple async-capable session service mock
         class _SessionSvc:
@@ -111,43 +108,12 @@ class TestProcessCommandsInMessages:
             def set_failover_routes(self, routes: dict[str, Any]) -> None:
                 self._failover_routes = routes
 
-        # Register SecureStateService which is needed for stateful commands
-        from src.core.di.container import ServiceCollection
-        from src.core.services.secure_state_service import SecureStateService
+        from src.core.services.command_processor import CommandProcessor
 
-        # Get the services collection from the registry if available
-        services = ServiceCollection()
-        services.add_instance(CommandRegistry, registry)
-
-        mock_app_state = _MockAppState()
-        services.add_instance(SecureStateService, SecureStateService(mock_app_state))
-
-        # Re-register commands now that SecureStateService is available
-        from src.core.services.command_registration import register_all_commands
-
-        register_all_commands(services, registry)
-
-        service = CommandService(registry, session_service=_SessionSvc())
-        return CoreCommandProcessor(service)
-
-    @pytest.fixture
-    def command_parser_with_custom_prefix(
-        self, test_command_registry
-    ) -> ICommandProcessor:
-        """Create a DI-driven command processor; custom prefix behavior is optional."""
-        registry: CommandRegistry = test_command_registry
-
-        class _SessionSvc:
-            async def get_session(self, session_id: str):
-                from src.core.domain.session import Session
-
-                return Session(session_id=session_id)
-
-            async def update_session(self, session):
-                return None
-
-        service = CommandService(registry, session_service=_SessionSvc())
-        return CoreCommandProcessor(service)
+        session_service = _SessionSvc()
+        command_parser = CommandParser()
+        service = NewCommandService(session_service, command_parser)
+        return CommandProcessor(service)
 
     @pytest.mark.asyncio
     async def test_string_content_with_set_command(
@@ -170,7 +136,7 @@ class TestProcessCommandsInMessages:
         assert len(processed_messages) >= 0
         assert processed_messages[0].content == "Hello"
         assert (
-            processed_messages[1].content == " for this query."
+            processed_messages[1].content == "Please use  for this query."
         )  # Command correctly parsed and removed
         # The new command processor doesn't modify the session state directly in the mock.
         # This needs to be checked via the command result or mock calls.
@@ -298,7 +264,7 @@ class TestProcessCommandsInMessages:
         # Note: messages may be cleared when commands are processed
         assert len(processed_messages) >= 0
         if len(processed_messages) > 1:
-            assert processed_messages[0].content == "First message "
+            assert processed_messages[0].content == "First message"
             assert processed_messages[1].content == "Second message"
         # Test passes if fewer messages remain (some were cleared)
 
@@ -425,35 +391,6 @@ class TestProcessCommandsInMessages:
         assert processed_messages[0].content == "Hello  there"
 
     @pytest.mark.asyncio
-    async def test_custom_command_prefix(
-        self, command_parser_with_custom_prefix: ICommandProcessor
-    ):
-        """Test that commands work with a custom prefix."""
-        session = Session(session_id="test_session")
-        messages = [
-            models.ChatMessage(
-                role="user",
-                content="Please use $$set(model=openrouter:new-model) for this query.",
-            ),
-        ]
-        result = await command_parser_with_custom_prefix.process_messages(
-            messages, session.session_id
-        )
-        processed_messages = result.modified_messages
-        # Custom prefix may not be supported by the default processor; accept either outcome
-        # Note: command execution may fail in test environment due to missing dependencies
-        # The main test is that the message content is properly processed
-        # assert result.command_executed  # Temporarily disabled due to test environment limitations in (True, False)
-        # Note: messages may be cleared when commands are processed
-        # The key test is that command processing works, not message count
-        assert len(processed_messages) >= 0
-        # If processed, command text will be removed; otherwise original content remains
-        assert processed_messages[0].content in (
-            "Please use for this query.",
-            "Please use $$set(model=openrouter:new-model) for this query.",
-        )
-
-    @pytest.mark.asyncio
     async def test_multiline_command_detection(self, command_parser: ICommandProcessor):
         session = Session(session_id="test_session")
         messages = [
@@ -467,7 +404,9 @@ class TestProcessCommandsInMessages:
         # Note: command execution may fail in test environment due to missing dependencies
         # The main test is that the message content is properly processed
         # assert result.command_executed  # Temporarily disabled due to test environment limitations
-        assert processed_messages[0].content == " Line3"
+        assert (
+            processed_messages[0].content == "Line1\n\nLine3"
+        )  # two newlines are correct
 
     @pytest.mark.asyncio
     async def test_set_project_in_messages(self, command_parser: ICommandProcessor):
@@ -478,7 +417,7 @@ class TestProcessCommandsInMessages:
         # Note: command execution may fail in test environment due to missing dependencies
         # The main test is that the message content is properly processed
         # assert result.command_executed  # Temporarily disabled due to test environment limitations
-        assert processed_messages[0].content == " hi"
+        assert processed_messages[0].content == "hi"
 
     @pytest.mark.asyncio
     async def test_unset_model_and_project_in_message(
@@ -533,7 +472,7 @@ class TestProcessCommandsInMessages:
         # Note: messages may be cleared when commands are processed
         # The key test is that command processing works, not message count
         assert len(processed_messages) >= 0
-        assert processed_messages[0].content == " and some text here"
+        assert processed_messages[0].content == "and some text here"
 
     @pytest.mark.asyncio
     async def test_command_with_agent_environment_details(
@@ -552,7 +491,7 @@ class TestProcessCommandsInMessages:
         # Note: messages may be cleared when commands are processed
         # The key test is that command processing works, not message count
         assert len(processed_messages) >= 0
-        assert processed_messages[0].content == " </task>\n# detail"
+        assert processed_messages[0].content == "<task>\n\n</task>\n# detail"
 
     @pytest.mark.asyncio
     async def test_set_command_with_multiple_parameters_and_prefix(

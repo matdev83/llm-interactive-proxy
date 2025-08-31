@@ -87,6 +87,7 @@ class AuthConfig(DomainModel):
     api_keys: list[str] = Field(default_factory=list)
     auth_token: str | None = None
     redact_api_keys_in_prompts: bool = True
+    trusted_ips: list[str] = Field(default_factory=list)
 
 
 class LoggingConfig(DomainModel):
@@ -118,6 +119,33 @@ class LoggingConfig(DomainModel):
     capture_total_max_bytes: int = 104857600
 
 
+class ToolCallReactorConfig(DomainModel):
+    """Configuration for the Tool Call Reactor system.
+
+    The Tool Call Reactor provides event-driven reactions to tool calls
+    from LLMs, allowing custom handlers to monitor, modify, or replace responses.
+    """
+
+    enabled: bool = True
+    """Whether the Tool Call Reactor is enabled."""
+
+    apply_diff_steering_enabled: bool = True
+    """Whether the apply_diff steering handler is enabled."""
+
+    apply_diff_steering_rate_limit_seconds: int = 60
+    """Rate limit window for apply_diff steering in seconds.
+
+    Controls how often steering messages are shown for apply_diff tool calls
+    within the same session. Default: 60 seconds (1 message per minute).
+    """
+
+    apply_diff_steering_message: str | None = None
+    """Custom steering message for apply_diff tool calls.
+
+    If None, uses the default message. Can be customized to fit your workflow.
+    """
+
+
 class SessionConfig(DomainModel):
     """Session management configuration."""
 
@@ -135,13 +163,19 @@ class SessionConfig(DomainModel):
     json_repair_buffer_cap_bytes: int = 64 * 1024
     json_repair_strict_mode: bool = False
     json_repair_schema: dict[str, Any] | None = None  # Added
+    tool_call_reactor: ToolCallReactorConfig = Field(
+        default_factory=ToolCallReactorConfig
+    )
 
 
 class EmptyResponseConfig(DomainModel):
     """Configuration for empty response handling."""
 
     enabled: bool = True
+    """Whether the empty response recovery is enabled."""
+
     max_retries: int = 1
+    """Maximum number of retries for empty responses."""
 
 
 class EditPrecisionConfig(DomainModel):
@@ -224,11 +258,35 @@ class BackendSettings(DomainModel):
     def functional_backends(self) -> set[str]:
         """Get the set of functional backends (those with API keys)."""
         functional: set[str] = set()
-        for backend_name in backend_registry.get_registered_backends():
+        registered = backend_registry.get_registered_backends()
+        for backend_name in registered:
             if backend_name in self.__dict__:
                 config: Any = self.__dict__[backend_name]
                 if isinstance(config, BackendConfig) and config.api_key:
                     functional.add(backend_name)
+
+        # Consider OAuth-style backends functional even without an api_key in config,
+        # since they source credentials from local auth stores (e.g., CLI-managed files).
+        oauth_like: set[str] = set()
+        for name in registered:
+            if name.endswith("-oauth") or name.startswith("gemini-cli-oauth"):
+                oauth_like.add(name)
+            if name == "gemini-cli-cloud-project":
+                oauth_like.add(name)
+
+        functional.update(oauth_like.intersection(set(registered)))
+
+        # Include any dynamically added backends present in __dict__ that have api_key
+        # (used in tests and when users add custom backends not in the registry).
+        for name, cfg in getattr(self, "__dict__", {}).items():
+            if (
+                name == "default_backend"
+                or name.startswith("_")
+                or not isinstance(cfg, BackendConfig)
+            ):
+                continue
+            if cfg.api_key:
+                functional.add(name)
         return functional
 
     def __getattr__(self, name: str) -> Any:

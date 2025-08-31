@@ -1,19 +1,15 @@
 """Fixed command service with correct indentation."""
 
 import asyncio
+import json
 import logging
 import re
 from typing import Any
 
-from src.core.domain.chat import ChatMessage
-from src.core.domain.command_context import CommandContext
+from src.core.domain.chat import ChatMessage, MessageContentPartText
 from src.core.domain.command_results import CommandResult
 from src.core.domain.commands.base_command import BaseCommand
 from src.core.domain.processed_result import ProcessedResult
-from src.core.interfaces.command_argument_parser_interface import (
-    ICommandArgumentParser,
-)
-from src.core.interfaces.command_sanitizer_interface import ICommandSanitizer
 from src.core.interfaces.command_service_interface import ICommandService
 from src.core.interfaces.session_service_interface import ISessionService
 
@@ -65,10 +61,8 @@ def get_command_pattern(command_prefix: str) -> re.Pattern:
     """
     # Escape special regex characters in the prefix
     escaped_prefix = re.escape(command_prefix)
-    # Pattern to match commands with optional arguments in parentheses, using named groups
-    # to match the legacy semantics used in some tests.
-    # Allow command names with letters, digits, underscore, and hyphen
-    return re.compile(rf"{escaped_prefix}(?P<cmd>[\w-]+)(?:\((?P<args>[^)]*)\))?")
+    # Pattern to match commands with optional arguments in parentheses
+    return re.compile(rf"{escaped_prefix}(?P<cmd>\w+)(?:\((?P<args>.*?)\))?")
 
 
 class CommandRegistry:
@@ -170,8 +164,6 @@ class CommandService(ICommandService):
         command_registry: CommandRegistry,
         session_service: ISessionService,
         preserve_unknown: bool = False,
-        argument_parser: ICommandArgumentParser | None = None,
-        command_sanitizer: ICommandSanitizer | None = None,
     ) -> None:
         """
         Initialize the command service.
@@ -184,8 +176,6 @@ class CommandService(ICommandService):
         self._registry = command_registry
         self._session_service = session_service
         self._preserve_unknown = preserve_unknown
-        self._argument_parser = argument_parser
-        self._command_sanitizer = command_sanitizer
 
     async def register_command(self, command_name: str, command_handler: Any) -> None:
         """Register a command handler.
@@ -195,14 +185,6 @@ class CommandService(ICommandService):
             command_handler: The command handler to register
         """
         self._registry.register(command_handler)
-
-    def get_command_handlers(self) -> dict[str, BaseCommand]:
-        """Get all registered command handlers.
-
-        Returns:
-            A dictionary of command name to handler
-        """
-        return self._registry.get_all()
 
     async def process_commands(
         self, messages: list[ChatMessage], session_id: str
@@ -232,251 +214,219 @@ class CommandService(ICommandService):
         command_results = []
         command_executed = False
 
-        executed_last_message = False
         for i in range(len(modified_messages) - 1, -1, -1):
             message = modified_messages[i]
-
             if message.role != "user":
                 continue
 
             content = message.content or ""
-            # Case 1: String content
+
+            # Case 1: plain text content
             if isinstance(content, str):
-                logger.debug(f"Checking message content for commands: '{content}'")
+                text = content
+                # Find command with optional args first
+                args_match = re.search(r"!/(\w+)\(([^)]*)\)", text)
+                simple_match = re.search(r"!/(\w+)", text) if not args_match else None
+                match = args_match or simple_match
+                if not match:
+                    break
 
-                parsed_command = self._parse_command_from_message(content)
+                cmd_name = match.group(1)
+                args_str = match.group(2) if args_match else None
+                before = text[: match.start()]
+                after = text[match.end() :]
+                remaining = after
 
-                if parsed_command:
-                    match_start = parsed_command.get("match_start", 0)
-                    match_end = parsed_command.get("match_end", len(content))
-                    if not executed_last_message:
-                        # Execute only for the last command-bearing message
-                        execution_result = await self._execute_parsed_command(
-                            parsed_command, session, modified_messages
+                # Remove the command from message text
+                message.content = before + remaining
+
+                cmd = self._registry.get(cmd_name)
+                if cmd:
+                    args: dict[str, Any] = {}
+                    if args_str:
+                        try:
+                            args = json.loads(args_str)
+                            if not isinstance(args, dict):
+                                args = {"value": args}
+                        except Exception:
+                            for arg in args_str.split(","):
+                                arg = arg.strip()
+                                if "=" in arg:
+                                    k, v = arg.split("=", 1)
+                                    v = v.strip()
+                                    if (v.startswith('"') and v.endswith('"')) or (
+                                        v.startswith("'") and v.endswith("'")
+                                    ):
+                                        v = v[1:-1]
+                                    args[k.strip()] = v
+                                elif arg:
+                                    if ":" in arg or "/" in arg:
+                                        args["element"] = arg
+                                    else:
+                                        args[arg] = True
+
+                    if session is None:
+                        logger.warning(
+                            f"Cannot execute command {cmd_name} without a session"
                         )
-                        if execution_result:
-                            # Known command (string content): prefer suffix; if command at end, keep prefix
-                            before = content[:match_start]
-                            after = content[match_end:]
-                            if after.strip():
-                                message.content = f" {after.lstrip()}"
-                            else:
-                                message.content = before.rstrip()
-                            logger.debug(
-                                f"Updated message content: '{message.content}'"
-                            )
-                            command_executed = True
-                            command_results.append(execution_result["wrapped_result"])
-                            executed_last_message = True
-                        elif parsed_command["cmd_name"]:
-                            # Unknown: preserve both sides with double space when in middle
-                            before = content[:match_start]
-                            after = content[match_end:]
-                            message.content = (
-                                f"{before.rstrip()}  {after.lstrip()}"
-                                if before and after
-                                else before + after
-                            )
-                            command_executed = True
-                            executed_last_message = True
-                    else:
-                        # Earlier messages: strip command text without executing
-                        before = content[:match_start]
-                        after = content[match_end:]
-                        if before and after:
-                            message.content = f"{before.rstrip()} {after.lstrip()}"
-                        elif before:
-                            message.content = f"{before.rstrip()} "
-                        else:
-                            # Command is the entire content - preserve it for earlier messages
-                            pass  # Leave the message content unchanged
-                elif not self._preserve_unknown and "!/" in content:
-                    # Unknown command pattern: preserve exact double-space when command removed in middle
-                    # Replace first occurrence of pattern with a single space and then normalize to ensure
-                    # two spaces between words if removal happens between tokens.
-                    import re
+                        break
 
-                    message.content = re.sub(r"\s*!/\S+\s*", "  ", content, count=1)
+                    result_coro = cmd.execute(
+                        args,
+                        session,
+                        type(
+                            "CommandContext", (), {"command_registry": self._registry}
+                        )(),
+                    )
+                    result = (
+                        await result_coro
+                        if asyncio.iscoroutine(result_coro)
+                        else result_coro
+                    )
+
+                    if (
+                        (result.success or getattr(result, "new_state", None))
+                        and self._session_service
+                        and session
+                    ):
+                        if getattr(result, "new_state", None):
+                            try:
+                                session.update_state(result.new_state)
+                            except Exception:
+                                session.state = result.new_state
+                        await self._session_service.update_session(session)
+
+                    command_results.append(CommandResultWrapper(result))
                     command_executed = True
-                # Continue to earlier messages to apply stripping logic where needed
 
-            # Case 2: List of content parts (e.g., MessageContentPartText)
-            if isinstance(content, list):
-                new_parts = []
-                processed_part_index = None
-                for idx, part in enumerate(content):
-                    text = getattr(part, "text", None)
-                    if not isinstance(text, str):
-                        new_parts.append(part)
-                        continue
-                    parsed_command = self._parse_command_from_message(text)
-                    if parsed_command and processed_part_index is None:
-                        # Replace the part's text with combined (prefix + suffix) and stop after first
-                        part.text = parsed_command["updated_combined"]
-                        execution_result = await self._execute_parsed_command(
-                            parsed_command, session, modified_messages
-                        )
-                        if execution_result or parsed_command["cmd_name"]:
-                            command_executed = True
-                            if execution_result:
-                                command_results.append(
-                                    execution_result["wrapped_result"]
-                                )
-                        # Keep the modified part only if non-empty; drop empty command part per tests
-                        if part.text and part.text.strip():
-                            new_parts.append(part)
-                        processed_part_index = idx
-                        # Do not process subsequent parts for commands in this message
-                        # but keep them as-is
-                        continue
+                    if remaining:
+                        modified_messages[i].content = " " + remaining.strip()
                     else:
-                        # Keep non-command parts until a command is found
-                        new_parts.append(part)
-                message.content = new_parts
+                        modified_messages[i].content = " "
+                else:
+                    # Unknown command
+                    if not self._preserve_unknown:
+                        modified_messages[i].content = " "
+                    command_executed = True
                 break
+
+            # Case 2: multimodal content (list of parts)
+            if isinstance(content, list) or isinstance(content, tuple):  # noqa: SIM101
+                new_parts: list[Any] = []
+                handled = False
+                for part in content:
+                    if handled:
+                        new_parts.append(part)
+                        continue
+                    if hasattr(part, "text") and (
+                        not hasattr(part, "type") or part.type == "text"
+                    ):
+                        text = getattr(part, "text", "") or ""
+                        args_match = re.search(r"!/(\w+)\(([^)]*)\)", text)
+                        simple_match = (
+                            re.search(r"!/(\w+)", text) if not args_match else None
+                        )
+                        match = args_match or simple_match
+                        if not match:
+                            new_parts.append(part)
+                            continue
+
+                        cmd_name = match.group(1)
+                        args_str = match.group(2) if args_match else None
+                        before = text[: match.start()]
+                        after = text[match.end() :]
+                        updated_text = (before + after).strip()
+
+                        cmd = self._registry.get(cmd_name)
+                        if cmd:
+                            multi_modal_args: dict[str, Any] = {}
+                            if args_str:
+                                try:
+                                    multi_modal_args = json.loads(args_str)
+                                    if not isinstance(multi_modal_args, dict):
+                                        multi_modal_args = {"value": multi_modal_args}
+                                except Exception:
+                                    for arg in args_str.split(","):
+                                        arg = arg.strip()
+                                        if "=" in arg:
+                                            k, v = arg.split("=", 1)
+                                            v = v.strip()
+                                            if (
+                                                v.startswith('"') and v.endswith('"')
+                                            ) or (
+                                                v.startswith("'") and v.endswith("'")
+                                            ):
+                                                v = v[1:-1]
+                                            multi_modal_args[k.strip()] = v
+                                        elif arg:
+                                            if ":" in arg or "/" in arg:
+                                                multi_modal_args["element"] = arg
+                                            else:
+                                                multi_modal_args[arg] = True
+
+                            if session is None:
+                                logger.warning(
+                                    f"Cannot execute command {cmd_name} without a session"
+                                )
+                                new_parts.append(part)
+                            else:
+                                result_coro = cmd.execute(
+                                    multi_modal_args,
+                                    session,
+                                    type(
+                                        "CommandContext",
+                                        (),
+                                        {"command_registry": self._registry},
+                                    )(),
+                                )
+                                result = (
+                                    await result_coro
+                                    if asyncio.iscoroutine(result_coro)
+                                    else result_coro
+                                )
+                                if (
+                                    (
+                                        result.success
+                                        or getattr(result, "new_state", None)
+                                    )
+                                    and self._session_service
+                                    and session
+                                ):
+                                    if getattr(result, "new_state", None):
+                                        try:
+                                            session.update_state(result.new_state)
+                                        except Exception:
+                                            session.state = result.new_state
+                                    await self._session_service.update_session(session)
+
+                                command_results.append(CommandResultWrapper(result))
+                                command_executed = True
+                                handled = True
+                                if updated_text:
+                                    new_parts.append(
+                                        MessageContentPartText(
+                                            type="text", text=updated_text
+                                        )
+                                    )
+                        else:
+                            # Unknown command in part
+                            command_executed = True
+                            handled = True
+                            if updated_text:
+                                new_parts.append(
+                                    MessageContentPartText(
+                                        type="text", text=updated_text
+                                    )
+                                )
+                    else:
+                        new_parts.append(part)
+
+                message.content = new_parts
+                if handled:
+                    break
 
         return ProcessedResult(
             modified_messages=modified_messages,
             command_executed=command_executed,
             command_results=command_results,
         )
-
-    def _parse_command_from_message(self, content: str) -> dict[str, Any] | None:
-        """Parse command from message content and return command details.
-
-        Uses the shared get_command_pattern with default prefix to ensure
-        consistent detection semantics across the codebase.
-        """
-        pattern = get_command_pattern("!/")
-        m = pattern.search(content)
-        if not m:
-            return None
-
-        cmd_name = (m.group("cmd") or "").strip()
-        args_str = (m.group("args") or "").strip() or None
-        match_start, match_end = m.start(), m.end()
-
-        # Extract remaining content after the command and rebuild updated content
-        before = content[:match_start]
-        after = content[match_end:]
-        # For parts: updated_combined should keep only suffix for that part's text
-        # Normalize leading whitespace in the after part to a single space when starts with newline/tab
-        if after and after[0] in ["\n", "\t"]:
-            updated_combined = " " + after[1:]
-        else:
-            updated_combined = after
-
-        updated_content = before + after
-
-        logger.debug(
-            "Parsed command: name=%s, args=%r, updated_content=%r",
-            cmd_name,
-            args_str,
-            updated_content,
-        )
-
-        return {
-            "cmd_name": cmd_name,
-            "args_str": args_str,
-            "remaining": after,
-            "updated_content": updated_content,
-            "updated_combined": updated_combined,
-            "command_handler": self._registry.get(cmd_name),
-            "match_start": match_start,
-            "match_end": match_end,
-        }
-
-    def _parse_command_arguments(self, args_str: str | None) -> dict[str, Any]:
-        """Parse command arguments from argument string using injected parser.
-
-        Falls back to legacy function to maintain compatibility until DI wiring
-        is complete across the app.
-        """
-        if self._argument_parser is not None:
-            return self._argument_parser.parse(args_str)
-        from src.core.common.command_args import parse_command_arguments
-
-        return parse_command_arguments(args_str)
-
-    async def _execute_parsed_command(
-        self,
-        parsed_command: dict[str, Any],
-        session: Any,
-        modified_messages: list[ChatMessage],
-    ) -> dict[str, Any] | None:
-        """Execute a parsed command and return execution result."""
-        cmd_name = parsed_command["cmd_name"]
-        cmd = parsed_command["command_handler"]
-
-        logger.debug(f"Attempting to retrieve command: '{cmd_name}'")
-        logger.debug(
-            f"CommandRegistry contents: {list(self._registry.get_all().keys())}"
-        )
-        if not cmd:
-            logger.warning(f"Command '{cmd_name}' not found in registry.")
-            return None
-
-        if session is None:
-            logger.warning(f"Cannot execute command {cmd_name} without a session")
-            return None
-
-        # Parse arguments
-        args = self._parse_command_arguments(parsed_command["args_str"])
-
-        logger.info(
-            f"Executing command: {cmd_name} with session: {session.session_id if session else 'N/A'}"
-        )
-
-        # Create command context with minimal attributes used by commands
-        backend_types = {
-            "openai",
-            "anthropic",
-            "openrouter",
-            "gemini",
-            "qwen-oauth",
-            "zai",
-        }
-        backend_factory_stub = type(
-            "BackendFactoryStub", (), {"_backend_types": backend_types}
-        )()
-
-        context = CommandContext(
-            command_registry=self._registry,
-            backend_factory=backend_factory_stub,
-            backend_type=None,
-        )
-
-        # Execute command
-        result: CommandResult
-        try:
-            coro_result = cmd.execute(args, session, context)
-            if asyncio.iscoroutine(coro_result):
-                result = await coro_result
-            else:
-                result = coro_result
-        except TypeError:
-            result = coro_result
-
-        # Update session state if needed
-        if (
-            (result.success or getattr(result, "new_state", None))
-            and self._session_service
-            and session
-        ):
-            if hasattr(result, "new_state") and result.new_state:
-                logger.info(
-                    f"Updating session state with new_state from command: {result.new_state}"
-                )
-                try:
-                    session.update_state(result.new_state)
-                except (AttributeError, TypeError):
-                    session.state = result.new_state
-            else:
-                logger.info(
-                    "No new_state in command result, not updating session state"
-                )
-            await self._session_service.update_session(session)
-            logger.info("Session updated in repository")
-
-        wrapped_result = CommandResultWrapper(result)
-        return {"wrapped_result": wrapped_result}

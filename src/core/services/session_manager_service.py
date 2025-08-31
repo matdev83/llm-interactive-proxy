@@ -114,52 +114,6 @@ class SessionManager(ISessionManager):
         session_id: str,
     ) -> None:
         """Update session history with the backend interaction."""
-        session = await self._session_service.get_session(session_id)
-
-        raw_prompt = ""
-        if request_data and getattr(request_data, "messages", None):
-            for message in reversed(request_data.messages):
-                role = (
-                    message.get("role")  # type: ignore[unreachable]
-                    if isinstance(message, dict)
-                    else getattr(message, "role", None)
-                )
-                if role == "user":
-                    content = (
-                        message.get("content")  # type: ignore[unreachable]
-                        if isinstance(message, dict)
-                        else getattr(message, "content", None)
-                    )
-                raw_prompt = content if isinstance(content, str) else str(content)
-                break
-
-        if raw_prompt:
-            try:
-                last = session.history[-1] if session.history else None
-                last_prompt = getattr(last, "prompt", None) if last else None
-            except (IndexError, AttributeError) as e:
-                logger.warning(
-                    f"Could not retrieve last prompt from session history: {e}",
-                    exc_info=True,
-                )
-                last_prompt = None
-
-            if last_prompt != raw_prompt:
-                session.add_interaction(
-                    SessionInteraction(
-                        prompt=raw_prompt,
-                        handler="proxy",
-                        backend=getattr(
-                            session.state.backend_config, "backend_type", None
-                        ),
-                        model=getattr(session.state.backend_config, "model", None),
-                        project=getattr(session.state, "project", None),
-                        parameters={
-                            "temperature": getattr(request_data, "temperature", None),
-                            "top_p": getattr(request_data, "top_p", None),
-                            "max_tokens": getattr(request_data, "max_tokens", None),
-                        },
-                    )
-                )
-                await self._session_service.update_session(session)
-        logger.info("Session updated in repository")
+        # BackendProcessor records backend interactions; avoid duplicating entries here.
+        # This method is retained for compatibility and future extensions.
+        _ = await self._session_service.get_session(session_id)

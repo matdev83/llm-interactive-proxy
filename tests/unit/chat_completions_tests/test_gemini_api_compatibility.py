@@ -365,8 +365,10 @@ class TestGeminiAuthentication:
     def test_gemini_auth_with_api_key_header(self):
         """Test authentication using x-goog-api-key header."""
         # Create app with auth enabled
+        # Use a direct dictionary without nested structure
         config = {
-            "disable_auth": False,
+            "disable_auth": False,  # Directly at the root level
+            "api_keys": ["test-api-key"],  # Directly at the root level
             "interactive_mode": False,
             "command_prefix": "/",
             "disable_interactive_commands": True,
@@ -375,7 +377,13 @@ class TestGeminiAuthentication:
             "gemini_api_base_url": "https://generativelanguage.googleapis.com/v1beta",
         }
 
+        # Ensure no environment variables are interfering
+        import os
+
+        os.environ["DISABLE_AUTH"] = "false"
+
         app = build_app(config)
+        # Set the client API key directly in app.state for testing
         app.state.client_api_key = "test-api-key"
         client = TestClient(app)
 

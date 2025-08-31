@@ -169,6 +169,13 @@ def parse_cli_args(argv: list[str] | None = None) -> argparse.Namespace:
         default=False,
         help="Run the server as a daemon (in the background). Requires --log to be set.",
     )
+    parser.add_argument(
+        "--trusted-ip",
+        action="append",
+        dest="trusted_ips",
+        metavar="IP",
+        help="IP address to trust for bypassing authorization. Can be specified multiple times.",
+    )
     return parser.parse_args(argv)
 
 
@@ -228,6 +235,8 @@ def apply_cli_args(args: argparse.Namespace) -> AppConfig:
         )
     if args.disable_auth is not None:
         cfg.auth.disable_auth = args.disable_auth
+    if getattr(args, "trusted_ips", None) is not None:
+        cfg.auth.trusted_ips = args.trusted_ips
     if args.force_set_project is not None:
         cfg.session.force_set_project = args.force_set_project
         os.environ["FORCE_SET_PROJECT"] = "true" if args.force_set_project else "false"
@@ -318,6 +327,12 @@ def main(
         app = build_app_fn(cfg, args.config_file)
     else:
         app = build_app(cfg)
+
+    # Log trusted IPs information if configured
+    if cfg.auth.trusted_ips:
+        logging.info(
+            f"Trusted IPs configured for bypassing authorization: {', '.join(cfg.auth.trusted_ips)}"
+        )
 
     uvicorn.run(app, host=cfg.host, port=cfg.port)
 

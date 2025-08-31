@@ -61,7 +61,8 @@ class BackendRequestManager(IBackendRequestManager):
                     return False
                 # If content is a string, check non-empty after strip
                 if isinstance(content, str):
-                    return bool(content.strip())
+                    # Treat empty strings as acceptable content to allow backend validation paths
+                    return True
                 # If content is a list (multimodal parts), treat non-empty as content
                 if isinstance(content, list):
                     return len(content) > 0

@@ -49,38 +49,30 @@ class MockSessionService(ISecureStateAccess, ISecureStateModification):
 # Helper function to simulate running a command, adapted for unset command tests
 async def run_command(command_string: str, initial_state: SessionState = None) -> str:
     """Run a command and return the result message."""
-    # Import required modules
-    from tests.unit.mock_commands import MockUnsetCommand
+    from src.core.commands.parser import CommandParser
+    from src.core.commands.service import NewCommandService
+    from src.core.domain.chat import ChatMessage
+    from src.core.services.command_processor import (
+        CommandProcessor as CoreCommandProcessor,
+    )
+    from tests.unit.core.test_doubles import MockSessionService
 
     # Create a Session object to hold the state
     initial_state = initial_state or SessionState()
+    session = Session(session_id="test_session", state=initial_state)
 
-    # Create an unset command instance
-    unset_command = MockUnsetCommand()
+    session_service = MockSessionService(session=session)
+    command_parser = CommandParser()
+    service = NewCommandService(session_service, command_parser)
+    processor = CoreCommandProcessor(service)
 
-    # Execute the command directly
-    if "!/unset" in command_string:
-        # Extract any arguments from the command
-        args = {}
-        if "(" in command_string and ")" in command_string:
-            arg_part = command_string.split("(")[1].split(")")[0]
-            if "," in arg_part:
-                # Handle multiple parameters
-                for part in arg_part.split(","):
-                    part = part.strip()
-                    if part:
-                        args[part] = True
-            elif arg_part:
-                args[arg_part.strip()] = True
+    messages = [ChatMessage(role="user", content=command_string)]
 
-        # Execute the unset command directly
-        result = await unset_command.execute(args, initial_state)
+    result = await processor.process_messages(messages, session_id="test_session")
 
-        # Return the message from the result
-        if result and hasattr(result, "message"):
-            return result.message
+    if result.command_results:
+        return result.command_results[0].message
 
-    # Return empty string if no command was found or executed
     return ""
 
 

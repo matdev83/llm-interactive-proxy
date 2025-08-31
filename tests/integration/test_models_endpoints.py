@@ -17,6 +17,44 @@ from src.core.interfaces.application_state_interface import IApplicationState
 from src.core.interfaces.session_service_interface import ISessionService
 
 
+@pytest.fixture
+def middleware_order_validator():
+    """Fixture to validate middleware ordering in integration tests."""
+
+    def validate_middleware_order(app, expected_order: list[str]) -> bool:
+        """
+        Validate that middleware is configured in the expected order.
+
+        Args:
+            app: FastAPI application
+            expected_order: List of middleware class names in expected order
+
+        Returns:
+            True if middleware order matches expectations
+        """
+        if not hasattr(app, "user_middleware"):
+            return False
+
+        actual_order = []
+        for middleware in app.user_middleware:
+            middleware_class = middleware.cls
+            actual_order.append(middleware_class.__name__)
+
+        # Check if expected middleware classes are present in the correct order
+        expected_indices = []
+        for expected_middleware in expected_order:
+            if expected_middleware in actual_order:
+                expected_indices.append(actual_order.index(expected_middleware))
+            else:
+                # Middleware not found
+                return False
+
+        # Check if indices are in ascending order (correct order)
+        return expected_indices == sorted(expected_indices)
+
+    return validate_middleware_order
+
+
 class TestModelsEndpoints:
     """Integration tests for models discovery endpoints."""
 
@@ -45,6 +83,7 @@ class TestModelsEndpoints:
     def app_with_auth_enabled(self, monkeypatch):
         """Create app with authentication enabled."""
         monkeypatch.setenv("API_KEYS", "test-key-123")
+        monkeypatch.setenv("DISABLE_AUTH", "false")  # Explicitly enable auth
         monkeypatch.delenv(
             "AUTH_TOKEN", raising=False
         )  # Remove auth token to prevent AuthMiddleware interference
@@ -118,6 +157,29 @@ class TestModelsEndpoints:
             assert response.status_code == 401
             detail = response.json().get("detail", "")
             assert detail in ("Unauthorized", "Invalid or missing API key")
+
+    def test_middleware_configuration_order(
+        self, monkeypatch, middleware_order_validator
+    ):
+        """Test that middleware is configured in the correct order."""
+        monkeypatch.setenv("API_KEYS", "test-key-123")
+        monkeypatch.setenv("DISABLE_AUTH", "false")
+        app = build_app()
+
+        # Expected middleware order (note: FastAPI applies middleware in reverse order)
+        # Last added middleware executes first, so the actual execution order is:
+        # RetryAfter -> CustomHeader -> APIKey -> CORS
+        expected_order = [
+            "RetryAfterMiddleware",
+            "CustomHeaderMiddleware",
+            "APIKeyMiddleware",
+            "CORSMiddleware",
+        ]
+
+        # Validate middleware order
+        assert middleware_order_validator(
+            app, expected_order
+        ), f"Middleware not configured in expected order. Expected: {expected_order}"
 
     def test_models_with_configured_backends(self, monkeypatch):
         """Test models discovery with configured backends."""

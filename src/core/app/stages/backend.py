@@ -55,6 +55,10 @@ class BackendStage(InitializationStage):
         logger.info("Initializing backend services...")
 
         try:
+            # Import connectors package to trigger backend registrations via side effects
+            import importlib
+
+            importlib.import_module("src.connectors")
             logger.debug(
                 f"Imported connectors, registered backends: {backend_registry.get_registered_backends()}"
             )

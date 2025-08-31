@@ -66,10 +66,7 @@ from src.core.services.application_state_service import ApplicationStateService
 from src.core.services.backend_processor import BackendProcessor
 from src.core.services.backend_request_manager_service import BackendRequestManager
 from src.core.services.backend_service import BackendService
-from src.core.services.command_argument_parser import CommandArgumentParser
 from src.core.services.command_processor import CommandProcessor
-from src.core.services.command_sanitizer import CommandSanitizer
-from src.core.services.command_service import CommandService
 from src.core.services.json_repair_service import JsonRepairService
 from src.core.services.middleware_application_manager import (
     MiddlewareApplicationManager,
@@ -101,8 +98,13 @@ from src.core.services.streaming.stream_normalizer import StreamNormalizer
 from src.core.services.streaming.tool_call_repair_processor import (
     ToolCallRepairProcessor,
 )
+from src.core.services.structured_wire_capture_service import StructuredWireCapture
+from src.core.services.tool_call_reactor_middleware import ToolCallReactorMiddleware
+from src.core.services.tool_call_reactor_service import (
+    InMemoryToolCallHistoryTracker,
+    ToolCallReactorService,
+)
 from src.core.services.tool_call_repair_service import ToolCallRepairService
-from src.core.services.wire_capture_service import WireCapture
 
 T = TypeVar("T")
 
@@ -227,33 +229,38 @@ def register_core_services(
     # Register both the concrete type and the interface
     _add_singleton(ISessionResolver, DefaultSessionResolver)  # type: ignore[type-abstract]
 
-    # Register CommandRegistry
-    from src.core.services.command_service import CommandRegistry
-
-    _add_singleton(CommandRegistry)
-
     # Register CommandService with factory
-    def _command_service_factory(provider: IServiceProvider) -> CommandService:
-        registry: CommandRegistry = provider.get_required_service(CommandRegistry)
-        session_svc: SessionService = provider.get_required_service(SessionService)
-        # Inject new parser/sanitizer; keep service construction resilient
-        argument_parser = CommandArgumentParser()
-        command_sanitizer = CommandSanitizer()
-        return CommandService(
-            registry,
-            session_svc,
-            argument_parser=argument_parser,
-            command_sanitizer=command_sanitizer,
-        )
+    def _command_service_factory(provider: IServiceProvider) -> ICommandService:
+        from src.core.commands.parser import CommandParser
+        from src.core.commands.service import NewCommandService
+        from src.core.services.session_service_impl import SessionService
+
+        session_service = provider.get_required_service(SessionService)
+        command_parser = provider.get_required_service(CommandParser)
+        return NewCommandService(session_service, command_parser)
 
     # Register CommandService and bind to interface
-    _add_singleton(CommandService, implementation_factory=_command_service_factory)
+    _add_singleton(ICommandService, implementation_factory=_command_service_factory)  # type: ignore[type-abstract]
 
-    # Register ICommandService interface
-    with contextlib.suppress(Exception):
-        services.add_singleton(
-            cast(type, ICommandService), implementation_factory=_command_service_factory
-        )  # type: ignore[type-abstract]
+    # Register CommandParser
+    from src.core.commands.parser import CommandParser
+    from src.core.interfaces.command_parser_interface import ICommandParser
+
+    _add_singleton(ICommandParser, CommandParser)  # type: ignore[type-abstract]
+
+    # Ensure command handlers are imported so their @command decorators register them
+    try:
+        import importlib
+        import pkgutil
+
+        package_name = "src.core.commands.handlers"
+        package = importlib.import_module(package_name)
+        for m in pkgutil.iter_modules(package.__path__):  # type: ignore[attr-defined]
+            importlib.import_module(f"{package_name}.{m.name}")
+    except Exception:
+        logging.getLogger(__name__).warning(
+            "Failed to import command handlers for registration", exc_info=True
+        )
 
     # Register session service factory
     def _session_service_factory(provider: IServiceProvider) -> SessionService:
@@ -401,6 +408,17 @@ def register_core_services(
         except Exception as e:
             logging.getLogger(__name__).warning(
                 f"Error configuring ToolCallLoopDetectionMiddleware: {e}", exc_info=True
+            )
+
+        # Add tool call reactor middleware
+        try:
+            tool_call_reactor_middleware = provider.get_required_service(
+                ToolCallReactorMiddleware
+            )
+            middlewares.append(tool_call_reactor_middleware)
+        except Exception as e:
+            logging.getLogger(__name__).warning(
+                f"Error configuring ToolCallReactorMiddleware: {e}", exc_info=True
             )
 
         return MiddlewareApplicationManager(middlewares)
@@ -724,11 +742,11 @@ def register_core_services(
     )
 
     # Register wire-capture service (singleton)
-    def _wire_capture_factory(provider: IServiceProvider) -> WireCapture:
+    def _wire_capture_factory(provider: IServiceProvider) -> StructuredWireCapture:
         cfg: AppConfig = provider.get_required_service(AppConfig)
-        return WireCapture(cfg)
+        return StructuredWireCapture(cfg)
 
-    _add_singleton(WireCapture, implementation_factory=_wire_capture_factory)
+    _add_singleton(StructuredWireCapture, implementation_factory=_wire_capture_factory)
     with contextlib.suppress(Exception):
         services.add_singleton(
             cast(type, IWireCapture), implementation_factory=_wire_capture_factory
@@ -760,6 +778,82 @@ def register_core_services(
     _add_singleton(
         ToolCallRepairProcessor,
         implementation_factory=_tool_call_repair_processor_factory,
+    )
+
+    # Register tool call reactor services
+    def _tool_call_history_tracker_factory(
+        provider: IServiceProvider,
+    ) -> InMemoryToolCallHistoryTracker:
+        return InMemoryToolCallHistoryTracker()
+
+    _add_singleton(
+        InMemoryToolCallHistoryTracker,
+        implementation_factory=_tool_call_history_tracker_factory,
+    )
+
+    def _tool_call_reactor_factory(
+        provider: IServiceProvider,
+    ) -> ToolCallReactorService:
+        from src.core.config.app_config import AppConfig
+
+        history_tracker = provider.get_required_service(InMemoryToolCallHistoryTracker)
+        reactor = ToolCallReactorService(history_tracker)
+
+        # Get configuration
+        app_config: AppConfig = provider.get_required_service(AppConfig)
+        reactor_config = app_config.session.tool_call_reactor
+
+        # Register default handlers if enabled
+        if reactor_config.enabled:
+            from src.core.services.tool_call_handlers.apply_diff_handler import (
+                ApplyDiffHandler,
+            )
+
+            if reactor_config.apply_diff_steering_enabled:
+                # Create handler with configuration
+                apply_diff_handler = ApplyDiffHandler(
+                    history_tracker=history_tracker,
+                    rate_limit_window_seconds=reactor_config.apply_diff_steering_rate_limit_seconds,
+                    steering_message=reactor_config.apply_diff_steering_message,
+                )
+
+                # Register synchronously since we're in the factory
+                import asyncio
+
+                try:
+                    loop = asyncio.get_event_loop()
+                    if not loop.is_running():
+                        loop.run_until_complete(
+                            reactor.register_handler(apply_diff_handler)
+                        )
+                    # If loop is running, handler will be registered later
+                except RuntimeError:
+                    # No event loop, handler will be registered later
+                    pass
+
+        return reactor
+
+    _add_singleton(
+        ToolCallReactorService,
+        implementation_factory=_tool_call_reactor_factory,
+    )
+
+    def _tool_call_reactor_middleware_factory(
+        provider: IServiceProvider,
+    ) -> ToolCallReactorMiddleware:
+        from src.core.config.app_config import AppConfig
+
+        reactor = provider.get_required_service(ToolCallReactorService)
+
+        # Get configuration to determine if middleware should be enabled
+        app_config: AppConfig = provider.get_required_service(AppConfig)
+        enabled = app_config.session.tool_call_reactor.enabled
+
+        return ToolCallReactorMiddleware(reactor, enabled=enabled, priority=-10)
+
+    _add_singleton(
+        ToolCallReactorMiddleware,
+        implementation_factory=_tool_call_reactor_middleware_factory,
     )
 
     # Register backend service

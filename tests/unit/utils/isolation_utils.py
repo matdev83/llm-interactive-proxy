@@ -10,7 +10,6 @@ from typing import Any, TypeVar, cast
 
 import pytest
 from src.core.domain.session import Session, SessionState, SessionStateAdapter
-from src.core.services.command_service import CommandRegistry
 
 # Type variable for generic functions
 T = TypeVar("T")
@@ -50,14 +49,16 @@ def clear_sessions() -> None:
 
 
 def reset_command_registry() -> None:
-    """Reset the CommandRegistry singleton.
+    """Reset the command registry.
 
-    This function clears the CommandRegistry singleton instance,
-    ensuring that each test starts with a clean registry.
+    This function is a placeholder for resetting the command registry.
+    In the new architecture, command handlers are registered via decorators,
+    and the registry is managed by the DI container.
     """
-
-    # Clear the instance
-    CommandRegistry.clear_instance()
+    # In the new architecture, there is no singleton to clear.
+    # Command handlers are registered via decorators.
+    # The registry is managed by the DI container.
+    # If needed, the DI container can be re-initialized.
 
     # Force garbage collection to remove any lingering references
     gc.collect()
@@ -67,9 +68,9 @@ def reset_global_state() -> None:
     """Reset all global state.
 
     This function resets all global state that might interfere with tests,
-    including the CommandRegistry, session state, and DI container.
+    including the command registry, session state, and DI container.
     """
-    # Reset the CommandRegistry
+    # Reset the command registry
     reset_command_registry()
 
     # Clear all sessions

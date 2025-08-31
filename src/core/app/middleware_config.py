@@ -35,10 +35,12 @@ def configure_middleware(app: FastAPI, config: Any) -> None:
         # Legacy dict config
         disable_auth = config.get("disable_auth", False)
         api_keys = config.get("api_keys", [])
+        trusted_ips = config.get("trusted_ips", [])
     else:
         # New AppConfig object
         disable_auth = config.auth.disable_auth if hasattr(config, "auth") else False
         api_keys = config.auth.api_keys if hasattr(config, "auth") else []
+        trusted_ips = config.auth.trusted_ips if hasattr(config, "auth") else []
 
     # Respect environment override for disabling auth (useful for tests)
     env_disable = os.getenv("DISABLE_AUTH", "").lower() == "true"
@@ -50,7 +52,9 @@ def configure_middleware(app: FastAPI, config: Any) -> None:
             api_keys = ["test-proxy-key"]
         logger.info("API Key authentication is enabled", key_count=len(api_keys))
         # Add API Key middleware
-        app.add_middleware(APIKeyMiddleware, valid_keys=api_keys)
+        app.add_middleware(
+            APIKeyMiddleware, valid_keys=api_keys, trusted_ips=trusted_ips
+        )
     else:
         logger.info("API Key authentication is disabled")
 
@@ -58,7 +62,12 @@ def configure_middleware(app: FastAPI, config: Any) -> None:
     auth_token = None
     if not disable_auth:
         if isinstance(config, dict):
+            # Check both root level and nested auth structure for auth_token
             auth_token = config.get("auth_token")
+            if not auth_token and "auth" in config and isinstance(config["auth"], dict):
+                auth_token = config["auth"].get("auth_token")
+            # Debug log for auth token
+            logger.debug("Auth token from config: %s", auth_token)
         elif hasattr(config, "auth") and hasattr(config.auth, "auth_token"):
             auth_token = config.auth.auth_token
 

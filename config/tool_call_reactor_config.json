@@ -1,0 +1,10 @@
+{
+  "session": {
+    "tool_call_reactor": {
+      "enabled": true,
+      "apply_diff_steering_enabled": true,
+      "apply_diff_steering_rate_limit_seconds": 60,
+      "apply_diff_steering_message": "You tried to use apply_diff tool. Please prefer to use patch_file tool instead, as it is superior to apply_diff and provides automated Python QA checks."
+    }
+  }
+}

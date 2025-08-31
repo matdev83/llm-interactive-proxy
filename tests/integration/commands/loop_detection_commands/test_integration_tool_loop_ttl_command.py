@@ -1,37 +1,59 @@
 import pytest
+from src.core.commands.parser import CommandParser
+
+# Import the actual NewCommandService
+from src.core.commands.service import NewCommandService
 
 # Unskip: snapshot fixture is available in test suite
 from src.core.domain.chat import ChatMessage
-from src.core.domain.session import LoopDetectionConfiguration, SessionState
-from src.core.services.command_processor import (
-    CommandProcessor as CoreCommandProcessor,
-)
-from src.core.services.command_service import CommandRegistry, CommandService
+from src.core.domain.session import LoopDetectionConfiguration, Session, SessionState
+from src.core.interfaces.session_service_interface import ISessionService
+from src.core.services.command_processor import CommandProcessor as CoreCommandProcessor
 
 
 async def run_command(command_string: str) -> str:
-    from src.core.domain.commands.loop_detection_commands.tool_loop_ttl_command import (
-        ToolLoopTTLCommand,
-    )
 
-    registry = CommandRegistry()
-    registry.register(ToolLoopTTLCommand())
+    # The LoopDetectionCommandHandler should already be decorated
 
-    class _SessionSvc:
-        async def get_session(self, session_id: str):
-            from src.core.domain.session import Session
-
+    class _SessionSvc(ISessionService):
+        async def get_session(self, session_id: str) -> Session:
             return Session(
                 session_id=session_id,
                 state=SessionState(loop_config=LoopDetectionConfiguration()),
             )
 
-        async def update_session(self, session):
-            return None
+        async def get_session_async(self, session_id: str) -> Session:
+            return await self.get_session(session_id)
 
-    processor = CoreCommandProcessor(
-        CommandService(registry, session_service=_SessionSvc())
+        async def create_session(self, session_id: str) -> Session:
+            return Session(session_id=session_id)
+
+        async def get_or_create_session(self, session_id: str | None = None) -> Session:
+            if session_id is None:
+                # This should ideally create a new session ID or handle it as per the actual service
+                return Session(session_id="new_session_id")
+            return await self.get_session(session_id)
+
+        async def update_session(self, session: Session) -> None:
+            pass
+
+        async def update_session_backend_config(
+            self, session_id: str, backend_type: str, model: str
+        ) -> None:
+            pass
+
+        async def delete_session(self, session_id: str) -> bool:
+            return True
+
+        async def get_all_sessions(self) -> list[Session]:
+            return []
+
+    # Use the actual NewCommandService
+    command_service = NewCommandService(
+        session_service=_SessionSvc(), command_parser=CommandParser()
     )
+
+    processor = CoreCommandProcessor(command_service)
 
     result = await processor.process_messages(
         [ChatMessage(role="user", content=command_string)],

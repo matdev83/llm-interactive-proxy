@@ -148,6 +148,9 @@ class ProxyCommandFilter:
                 start, end = match.span()
                 filtered_text = filtered_text[:start] + filtered_text[end:]
 
+            # If text became empty or whitespace-only after filtering, insert a benign placeholder
+            if not filtered_text.strip():
+                filtered_text = "(command_removed)"
             return filtered_text
         return text
 

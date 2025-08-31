@@ -162,24 +162,7 @@ def _sanitize_status_code(status_code: Any) -> int:
 
 
 def _handle_backend_error_status_code(content: Any, status_code: int) -> int:
-    try:
-        if (
-            isinstance(content, dict)
-            and "choices" in content
-            and isinstance(content["choices"], list)
-            and content["choices"]
-        ):
-            first_choice = content["choices"][0]
-            if isinstance(first_choice, dict):
-                msg = first_choice.get("message", {})
-                if (
-                    isinstance(msg, dict)
-                    and isinstance(msg.get("content"), str)
-                    and "Model 'bad' not found" in msg.get("content", "")
-                ):
-                    return 400
-    except (KeyError, IndexError, TypeError):
-        pass
+    # Preserve original status code; specific error mappings are handled upstream
     return status_code
 
 

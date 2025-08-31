@@ -2,6 +2,47 @@
 
 This document outlines significant changes and updates to the LLM Interactive Proxy.
 
+## 2025-08-31 – Trusted IP Authorization Bypass
+
+- **New Feature**: Added `--trusted-ip` command-line parameter for bypassing API key authentication from specified IP addresses
+  - **Multiple IPs Support**: `--trusted-ip` can be specified multiple times to define multiple trusted IP addresses
+  - **Security-First Design**: Only bypasses authentication when `--disable-auth` is not set (authentication remains enabled)
+  - **CIDR Support**: Supports IP ranges using CIDR notation (e.g., `10.0.0.0/8`, `192.168.0.0/16`)
+  - **Audit Logging**: Logs when authentication is bypassed for trusted IPs for security monitoring
+  - **Flexible Configuration**: Works with both CLI parameters and YAML configuration files
+  - **Use Cases**: Ideal for internal networks, load balancers, reverse proxies, CI/CD pipelines, and development environments
+- **Configuration Options**:
+  - CLI: `--trusted-ip 192.168.1.100 --trusted-ip 10.0.0.0/8`
+  - YAML: `auth.trusted_ips: ["192.168.1.100", "10.0.0.0/8"]`
+  - Environment: Can be configured through environment variables if needed
+- **Implementation Details**:
+  - Added `trusted_ips` field to `AuthConfig` class in `src/core/config/app_config.py`
+  - Extended `APIKeyMiddleware` to check client IP against trusted IPs list before authentication
+  - Updated middleware configuration to pass trusted IPs to the authentication middleware
+  - Added comprehensive test coverage for trusted IP bypass functionality
+- **Documentation**: Updated README.md with detailed usage examples, configuration options, and security considerations
+- **Backward Compatibility**: No impact on existing functionality; feature is opt-in and secure by default
+
+## 2025-08-31 – Anthropic OAuth Backend
+
+- New backend: `anthropic-oauth` for using Anthropic without configuring API keys in the proxy.
+  - Reads a local OAuth-style credential file `oauth_creds.json` (e.g., from Claude Code) and uses its `access_token`/`api_key` as `x-api-key`.
+  - Default search paths: `~/.anthropic`, `~/.claude`, `~/.config/claude`, and on Windows `%APPDATA%/Claude`.
+  - Optional `anthropic_oauth_path` to point at a specific directory containing `oauth_creds.json`.
+  - Optional `anthropic_api_base_url` to override the default `https://api.anthropic.com/v1`.
+  - Can be set as the default backend via `LLM_BACKEND=anthropic-oauth` or `backends.default_backend`.
+  - Documentation added under README “Anthropic OAuth Backend”.
+
+## 2025-08-31 – OpenAI OAuth Backend
+
+- New backend: `openai-oauth` for using OpenAI without storing API keys in proxy config.
+  - Reads Codex CLI `auth.json` (ChatGPT login) and uses `tokens.access_token` as bearer; falls back to `OPENAI_API_KEY` if present.
+  - Default search paths: `~/.codex/auth.json` and on Windows `%USERPROFILE%/.codex/auth.json`.
+  - Optional `openai_oauth_path` to point at a specific directory containing `auth.json`.
+  - Optional `openai_api_base_url` to override the default `https://api.openai.com/v1` (env `OPENAI_BASE_URL` can also be used in some environments).
+  - Can be selected via `LLM_BACKEND=openai-oauth` or per-request model prefix `openai-oauth:<model>`.
+  - Documentation added under README “OpenAI OAuth Backend”.
+
 ## 2025-08-29 – Automated Edit-Precision Tuning
 
 - New feature: Automatically tune model sampling parameters after failed file-edit attempts from popular coding agents.
@@ -10,8 +51,56 @@ This document outlines significant changes and updates to the LLM Interactive Pr
   - Single-call override: applies lowered `temperature` and optionally `top_p` to just the next backend call; then resets.
   - Configurable via `AppConfig.edit_precision` and environment variables: `EDIT_PRECISION_ENABLED`, `EDIT_PRECISION_TEMPERATURE`, `EDIT_PRECISION_OVERRIDE_TOP_P`, `EDIT_PRECISION_MIN_TOP_P`, `EDIT_PRECISION_EXCLUDE_AGENTS_REGEX`, `EDIT_PRECISION_PATTERNS_PATH`.
   - Patterns externalized at `conf/edit_precision_patterns.yaml`.
-  - Documentation: README section “Automated Edit-Precision Tuning (new)” and `dev/agents-edit-error-prompts.md` with curated failure prompts from Cline, Roo/Kilo, Gemini-CLI, Aider, Crush, OpenCode.
+  - Documentation: README section "Automated Edit-Precision Tuning (new)" and `dev/agents-edit-error-prompts.md` with curated failure prompts from Cline, Roo/Kilo, Gemini-CLI, Aider, Crush, OpenCode.
   - Tests: request-side overrides, exclusion regex, response/streaming detection pending flag, and pending-flag application on the next request.
+
+## 2025-08-28 – Tool Call Reactor - Event-Driven Agent Steering
+
+- **New Feature**: Added Tool Call Reactor system for event-driven agent steering functionality
+  - **Event-Driven Architecture**: Pluggable code to react to tool calls from remote LLMs with custom handlers
+  - **Handler Types**: Support for both passive event receivers and active handlers that can swallow and replace LLM responses
+  - **Built-in ApplyDiff Handler**: Automatically steers LLMs from `apply_diff` to `patch_file` tool usage with configurable rate limiting
+  - **Rate Limiting**: Per-session rate limiting to prevent excessive steering messages (default: once per 60 seconds)
+  - **Session Information**: Handlers receive full context including session ID, backend name, model name, tool call details, and calling agent
+  - **Middleware Integration**: Properly positioned in response processing pipeline after JSON repair and tool call repair
+  - **Configuration**: Environment variables `TOOL_CALL_REACTOR_ENABLED`, `APPLY_DIFF_STEERING_ENABLED`, `APPLY_DIFF_STEERING_RATE_LIMIT_SECONDS`
+  - **Architecture**: Follows SOLID principles with dependency injection, interfaces, and proper separation of concerns
+  - **Testing**: Comprehensive test suite with 52 tests covering all functionality including unit tests, integration tests, and edge cases
+  - **Documentation**: Complete feature documentation in README with configuration examples and usage patterns
+
+## 2025-08-28 – JSON Repair Centralization, Strict Gating, and Loop/Tool-Call Ordering
+
+- Centralized JSON repair across the codebase:
+  - Streaming: `JsonRepairProcessor` in the pipeline; buffers and repairs complete JSON blocks; uses `json_repair` library with optional schema validation.
+  - Non-streaming: `JsonRepairMiddleware` applied through `MiddlewareApplicationProcessor`.
+- Strict gating for non-streaming repairs:
+  - Strict when any of: global strict flag, Content-Type is `application/json`, `expected_json=True` in context, or a schema is configured.
+  - Otherwise best-effort; failures do not raise and original content is preserved.
+- Convenience helpers for controllers/adapters:
+  - `src/core/utils/json_intent.py#set_expected_json(metadata, True)` to opt-in strict mode per route.
+  - `#infer_expected_json(metadata, content)`; ResponseProcessor auto-inferrs and sets `expected_json` if not present.
+- Streaming processor order updated:
+  - JSON repair → text loop detection → tool-call repair → middleware → accumulation.
+  - Cancellation flags are preserved across processors.
+- Tool-call loop detection:
+  - Middleware detects 4 consecutive identical tool calls; in `CHANCE_THEN_BREAK` mode emits guidance once, then breaks on the next identical call.
+- Metrics (in-memory) added:
+  - `json_repair.streaming.[strict|best_effort]_{success|fail}`
+  - `json_repair.non_streaming.[strict|best_effort]_{success|fail}`
+- Documentation updated, and a comprehensive test suite added for:
+  - Strict gating (expected_json flag, Content-Type)
+  - Streaming order and cancellation vs tool-call conversion
+  - Tool-call loop detection break/chance flows
+
+## 2025-08-28 – API Key Redaction Restored and Documented
+
+- Restored API key redaction in outbound requests across all backends via a centralized request redaction middleware. Secrets found in user message content (including multimodal text parts) are replaced with `(API_KEY_HAS_BEEN_REDACTED)` and proxy commands are stripped before forwarding to providers.
+- Confirmed and documented global logging redaction filter that masks API keys and bearer tokens in all logs.
+- Added focused tests to prevent regressions:
+  - Unit tests for `RedactionMiddleware` and `RequestProcessor` redaction behavior (including feature-flag off).
+  - Integration tests covering both streaming and non-streaming flows with a fake backend capturing the sanitized payload.
+- Updated README and CONTRIBUTING with redaction details and contributor guidance.
+- Configuration: redaction can be disabled via `auth.redact_api_keys_in_prompts = false` or CLI `--disable-redact-api-keys-in-prompts`.
 
 ## 2025-08-26 – Gemini CLI Cloud Project Backend
 
@@ -54,30 +143,6 @@ This document outlines significant changes and updates to the LLM Interactive Pr
 - Safety/performance:
   - Added a per-session buffer cap (default 64 KB) in the repair service to guard against pathological streams and reduce scanning overhead.
   - Optimized detection using fast-path guards and a balanced JSON extractor to avoid heavy regex backtracking on large buffers.
-
-## API Versioning and Deprecation
-
-- **API Versioning**: The API is now versioned using URL path prefixes:
-  - `/v1/` - Legacy API (compatible with OpenAI/Anthropic) - **DEPRECATED**
-  - `/v2/` - New SOLID architecture API (recommended)
-- **Deprecation Notice**: Legacy endpoints (`/v1/*`) are deprecated and will return deprecation headers (`Deprecation: true`, `Sunset: 2023-12-31`). It is recommended to migrate to the `/v2/` endpoints as soon as possible.
-
-## Migration Timeline
-
-- **July 2024**: Legacy endpoints marked as deprecated in code and documentation.
-- **September 2024**: Legacy endpoints will begin returning deprecation warnings in headers and responses.
-- **October 2024**: Legacy endpoints will log warnings for each use.
-- **November 2024**: Legacy code will be completely removed from the codebase.
-- **December 2024**: Only the new architecture endpoints will be available.
-
-### Legacy Code Deprecation Timeline
-
-| Component | Deprecation Date | Removal Date |
-|---|---|---|
-| `src/proxy_logic.py` | July 2024 | November 2024 |
-| `src/main.py` endpoints | July 2024 | November 2024 |
-| Legacy adapters (`src/core/adapters/`) | July 2024 | October 2024 |
-| Feature flags | July 2024 | September 2024 |
 
 ## Key Architectural Improvements
 
@@ -122,13 +187,6 @@ This document outlines significant changes and updates to the LLM Interactive Pr
 - **Recovery Mechanism**: Reads recovery prompt from `config/prompts/empty_response_auto_retry_prompt.md`, retries the request, or generates HTTP error if retry fails.
 - Configurable via `EMPTY_RESPONSE_HANDLING_ENABLED` and `EMPTY_RESPONSE_MAX_RETRIES` environment variables.
 
-### Enhanced Empty Response Handling
-
-- Implements automated detection and recovery for empty responses from remote LLMs.
-- **Detection Criteria**: HTTP 200 OK, empty/whitespace content, no tool calls.
-- **Recovery Mechanism**: Reads recovery prompt from `config/prompts/empty_response_auto_retry_prompt.md`, retries the request, or generates HTTP error if retry fails.
-- Configurable via `EMPTY_RESPONSE_HANDLING_ENABLED` and `EMPTY_RESPONSE_MAX_RETRIES` environment variables.
-
 ### Tool Call Loop Detection
 
 - Identifies and mitigates repetitive tool calls in LLM responses to prevent infinite loops.
@@ -142,35 +200,3 @@ This document outlines significant changes and updates to the LLM Interactive Pr
 - **HTTP Status Constants**: Introduced `src/core/constants/http_status_constants.py` for standardized HTTP status messages, reducing test fragility and improving maintainability.
 - **Test Suite Optimization**: Significant improvements in test suite performance by optimizing fixtures, simplifying mocks, and reducing debug logging.
 - **Test Suite Status**: All tests are now passing, with improved test isolation, fixtures, and categorization using pytest markers.
-## 2025-08-28 – JSON Repair Centralization, Strict Gating, and Loop/Tool-Call Ordering
-
-- Centralized JSON repair across the codebase:
-  - Streaming: `JsonRepairProcessor` in the pipeline; buffers and repairs complete JSON blocks; uses `json_repair` library with optional schema validation.
-  - Non-streaming: `JsonRepairMiddleware` applied through `MiddlewareApplicationProcessor`.
-- Strict gating for non-streaming repairs:
-  - Strict when any of: global strict flag, Content-Type is `application/json`, `expected_json=True` in context, or a schema is configured.
-  - Otherwise best-effort; failures do not raise and original content is preserved.
-- Convenience helpers for controllers/adapters:
-  - `src/core/utils/json_intent.py#set_expected_json(metadata, True)` to opt-in strict mode per route.
-  - `#infer_expected_json(metadata, content)`; ResponseProcessor auto-inferrs and sets `expected_json` if not present.
-- Streaming processor order updated:
-  - JSON repair → text loop detection → tool-call repair → middleware → accumulation.
-  - Cancellation flags are preserved across processors.
-- Tool-call loop detection:
-  - Middleware detects 4 consecutive identical tool calls; in `CHANCE_THEN_BREAK` mode emits guidance once, then breaks on the next identical call.
-- Metrics (in-memory) added:
-  - `json_repair.streaming.[strict|best_effort]_{success|fail}`
-  - `json_repair.non_streaming.[strict|best_effort]_{success|fail}`
-- Documentation updated, and a comprehensive test suite added for:
-  - Strict gating (expected_json flag, Content-Type)
-  - Streaming order and cancellation vs tool-call conversion
-  - Tool-call loop detection break/chance flows
-## 2025-08-28 – API Key Redaction Restored and Documented
-
-- Restored API key redaction in outbound requests across all backends via a centralized request redaction middleware. Secrets found in user message content (including multimodal text parts) are replaced with `(API_KEY_HAS_BEEN_REDACTED)` and proxy commands are stripped before forwarding to providers.
-- Confirmed and documented global logging redaction filter that masks API keys and bearer tokens in all logs.
-- Added focused tests to prevent regressions:
-  - Unit tests for `RedactionMiddleware` and `RequestProcessor` redaction behavior (including feature-flag off).
-  - Integration tests covering both streaming and non-streaming flows with a fake backend capturing the sanitized payload.
-- Updated README and CONTRIBUTING with redaction details and contributor guidance.
-- Configuration: redaction can be disabled via `auth.redact_api_keys_in_prompts = false` or CLI `--disable-redact-api-keys-in-prompts`.

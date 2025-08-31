@@ -428,3 +428,26 @@ class ServiceResolutionError(StateError):
         if self.service_name:
             result["error"]["service_name"] = self.service_name
         return result
+
+
+class ToolCallReactorError(LLMProxyError):
+    """Exception raised for errors in the tool call reactor system."""
+
+    def __init__(
+        self,
+        message: str = "Tool call reactor error",
+        code: str | None = "tool_call_reactor_error",
+        handler_name: str | None = None,
+        details: dict[str, Any] | None = None,
+    ):
+        super().__init__(message=message, code=code, status_code=500)
+        self.handler_name = handler_name
+        self.details = details
+
+    def to_dict(self) -> dict[str, Any]:
+        result = super().to_dict()
+        if self.handler_name:
+            result["error"]["handler_name"] = self.handler_name
+        if self.details:
+            result["error"]["details"] = self.details
+        return result

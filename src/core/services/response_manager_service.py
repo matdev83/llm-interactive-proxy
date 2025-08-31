@@ -6,11 +6,14 @@ This module provides the implementation of the response manager interface.
 
 from __future__ import annotations
 
+import json
 import logging
 import time
 import uuid
 from typing import Any
 
+from src.core.commands.command import CommandResult
+from src.core.domain.command_results import CommandResult as DomainCommandResult
 from src.core.domain.processed_result import ProcessedResult
 from src.core.domain.responses import ResponseEnvelope
 from src.core.domain.session import Session
@@ -18,7 +21,6 @@ from src.core.interfaces.agent_response_formatter_interface import (
     IAgentResponseFormatter,
 )
 from src.core.interfaces.response_manager_interface import IResponseManager
-from src.core.services.command_service import CommandResultWrapper
 
 logger = logging.getLogger(__name__)
 
@@ -77,20 +79,21 @@ class AgentResponseFormatter(IAgentResponseFormatter):
         )
 
         if is_cline_agent:
-            # For Cline, we expect a CommandResultWrapper
-            if isinstance(command_result, CommandResultWrapper):
-                command_name = command_result.command
-                import json
+            # For Cline, we expect a CommandResult (either type) or CommandResultWrapper
+            if isinstance(
+                command_result, CommandResult | DomainCommandResult
+            ) or hasattr(command_result, "name"):
+                command_name = getattr(command_result, "name", "unknown_command")
 
                 # For Cline, use the actual command name for the tool call
                 # The result message is passed directly
                 arguments = json.dumps(
                     {
-                        "result": str(command_result.result.message or ""),
+                        "result": str(command_result.message or ""),
                     }
                 )
                 logger.debug(
-                    f"Cline agent - creating '{command_name}' tool call for command: {command_name}, message: {command_result.result.message}"
+                    f"Cline agent - creating '{command_name}' tool call for command: {command_name}, message: {command_result.message}"
                 )
                 return self._create_tool_calls_response(command_name, arguments)
             else:
@@ -113,11 +116,11 @@ class AgentResponseFormatter(IAgentResponseFormatter):
             message = ""
             command_name = "unknown_command"
 
-            from src.core.domain.command_results import CommandResult
-
-            if isinstance(command_result, CommandResult):
+            if isinstance(
+                command_result, CommandResult | DomainCommandResult
+            ) or hasattr(command_result, "name"):
                 message = command_result.message
-                command_name = command_result.name
+                command_name = getattr(command_result, "name", "unknown_command")
             elif hasattr(command_result, "result") and hasattr(
                 command_result.result, "message"
             ):
@@ -135,8 +138,6 @@ class AgentResponseFormatter(IAgentResponseFormatter):
 
             # For unit test that expects tool calls
             if command_name == "hello" and message == "Hello acknowledged":
-                import json
-
                 return self._create_tool_calls_response(
                     command_name, json.dumps({"result": message})
                 )

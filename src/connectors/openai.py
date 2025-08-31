@@ -5,7 +5,6 @@ import logging
 logger = logging.getLogger(__name__)
 
 from collections.abc import AsyncGenerator, AsyncIterator
-from contextlib import suppress
 from typing import Any
 
 import httpx
@@ -248,42 +247,66 @@ class OpenAIConnector(LLMBackend):
         payload = self.translation_service.from_domain_request(request_data, "openai")
 
         # Prefer processed_messages (these are the canonical, post-processed
-        # messages ready to send); if provided, use them to build the
-        # provider payload so tests and callers that patch messages work.
+        # messages ready to send). Convert them to plain dicts to ensure JSON
+        # serializability without mutating the original Pydantic models.
         if processed_messages:
-            with suppress(Exception):
-                payload["messages"] = []
+            try:
+                normalized_messages: list[dict[str, Any]] = []
                 for m in processed_messages:
-                    message_dict = {"role": m.role}
+                    # If the message is a pydantic model, use model_dump
+                    if hasattr(m, "model_dump") and callable(m.model_dump):
+                        # Keep keys with None (e.g., content=None for tool messages)
+                        normalized_messages.append(
+                            dict(m.model_dump(exclude_none=False))
+                        )
+                        continue
 
-                    # Handle content which could be string, list of parts, or None
-                    if m.content is None:
-                        message_dict["content"] = None
-                    elif isinstance(m.content, str):
-                        message_dict["content"] = m.content
-                    elif isinstance(m.content, list):
-                        # Convert multimodal content parts to dict
-                        message_dict["content"] = [
-                            part.model_dump() if hasattr(part, "model_dump") else part
-                            for part in m.content
-                        ]
+                    # Fallback: build a minimal dict, converting possible content parts
+                    msg: dict[str, Any] = {"role": getattr(m, "role", "user")}
+                    content = getattr(m, "content", None)
+                    if content is not None and any(
+                        isinstance(content, t) for t in (list, tuple)
+                    ):
+                        normalized_content: list[Any] = []
+                        for part in content:
+                            if hasattr(part, "model_dump") and callable(
+                                part.model_dump
+                            ):
+                                normalized_content.append(
+                                    part.model_dump(exclude_none=True)
+                                )
+                            else:
+                                normalized_content.append(part)
+                        msg["content"] = normalized_content
+                    else:
+                        # Include the key even when content is None
+                        msg["content"] = content
+                    name = getattr(m, "name", None)
+                    if name:
+                        msg["name"] = name
+                    tool_calls = getattr(m, "tool_calls", None)
+                    if tool_calls:
+                        try:
+                            msg["tool_calls"] = [
+                                (
+                                    tc.model_dump(exclude_none=True)
+                                    if hasattr(tc, "model_dump")
+                                    and callable(tc.model_dump)
+                                    else tc
+                                )
+                                for tc in tool_calls
+                            ]
+                        except Exception:
+                            msg["tool_calls"] = tool_calls
+                    tool_call_id = getattr(m, "tool_call_id", None)
+                    if tool_call_id:
+                        msg["tool_call_id"] = tool_call_id
+                    normalized_messages.append(msg)
 
-                    # Handle tool calls if present
-                    if m.tool_calls:
-                        message_dict["tool_calls"] = [
-                            tc.model_dump() if hasattr(tc, "model_dump") else tc
-                            for tc in m.tool_calls
-                        ]
-
-                    # Handle tool call ID if present
-                    if m.tool_call_id:
-                        message_dict["tool_call_id"] = m.tool_call_id
-
-                    # Handle name if present
-                    if m.name:
-                        message_dict["name"] = m.name
-
-                    payload["messages"].append(message_dict)
+                payload["messages"] = normalized_messages
+            except Exception:
+                # Fallback - leave whatever the converter produced
+                pass
 
         # The caller may supply an "effective_model" which should override
         # the model value coming from the domain request. Many tests expect
@@ -296,8 +319,7 @@ class OpenAIConnector(LLMBackend):
         if isinstance(extra, dict):
             payload.update(extra)
 
-        # mypy: ensure we return a concrete dict[str, Any]
-        return dict(payload)
+        return payload  # type: ignore[no-any-return]
 
     async def _handle_non_streaming_response(
         self,
@@ -409,7 +431,7 @@ class OpenAIConnector(LLMBackend):
         response = await self.client.get(f"{base.rstrip('/')}/models", headers=headers)
         response.raise_for_status()
         result = response.json()
-        return result  # type: ignore[no-any-return]
+        return result  # type: ignore[no-any-return]  # type: ignore[no-any-return]
 
 
 backend_registry.register_backend("openai", OpenAIConnector)

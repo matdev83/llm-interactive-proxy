@@ -8,7 +8,7 @@ and prevents direct state access violations.
 from __future__ import annotations
 
 import logging
-from typing import Any, TypeVar
+from typing import TypeVar
 
 from src.core.common.exceptions import CommandCreationError
 from src.core.domain.commands.secure_base_command import (
@@ -122,15 +122,3 @@ class SecureCommandFactory:
     def clear_cache(self) -> None:
         """Clear the command cache."""
         self._created_commands.clear()
-
-
-class LegacyCommandAdapter:  # Deprecated; retained as no-op shim for compatibility
-    """Deprecated shim; no longer used. Kept to avoid import errors."""
-
-    def __init__(self, *args: Any, **kwargs: Any) -> None:  # pragma: no cover
-        logger.warning("LegacyCommandAdapter is deprecated and a no-op.")
-
-    def __getattr__(self, name: str) -> Any:  # pragma: no cover
-        raise AttributeError(
-            "LegacyCommandAdapter is deprecated; remove usages and migrate to SecureCommandBase"
-        )

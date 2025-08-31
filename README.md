@@ -8,7 +8,8 @@ The LLM Interactive Proxy is an advanced middleware service that provides a unif
 
 ### Key Features
 
-- **Multi-Backend Support**: Seamlessly integrate with OpenAI, Anthropic, Google Gemini, OpenRouter, custom backends, and Gemini CLI OAuth.
+- **Multi-Backend Support**: Seamlessly integrate with OpenAI, Anthropic, Anthropic OAuth, Google Gemini, OpenRouter, custom backends, and Gemini CLI OAuth.
+  - Included OAuth-style backends: Anthropic OAuth, OpenAI OAuth
 - **Intelligent Failover**: Automatic fallback to alternative models/backends on failure.
 - **Command Processing**: Interactive commands embedded in chat messages.
 - **Rate Limiting**: Protect backends and manage usage quotas.
@@ -18,6 +19,7 @@ The LLM Interactive Proxy is an advanced middleware service that provides a unif
 - **JSON Repair**: Centralized in the streaming pipeline and enabled for non-streaming responses too. Uses `json_repair` library; supports schema validation and strict gating.
 - **Unified API**: OpenAI-compatible API for all backends.
 - **Empty Response Recovery**: Automatically detects empty LLM responses (no text, no tool call) and retries the request with a corrective prompt to guide the LLM.
+- **Tool Call Reactor**: Event-driven system for reacting to tool calls from LLMs, with pluggable handlers that can provide steering instructions or modify responses.
 
 #### Automated Edit-Precision Tuning (new)
 
@@ -67,16 +69,52 @@ Triggers and sources
 
 ### Wire-Level Capture (Request/Reply Logging)
 
-- Purpose: Capture all outbound LLM requests and inbound replies/streams as-is to a separate capture log. Useful for debugging, auditing, and reproducing issues. The capture runs across all backends without backend-specific code.
+- Purpose: Capture all outbound LLM requests and inbound replies/streams to a separate structured JSON log. Useful for debugging, auditing, and reproducing issues. The capture runs across all backends without backend-specific code.
 - How it works:
   - Implemented as a cross-cutting `IWireCapture` service; integrated at the central backend call path.
-  - Non-streaming responses are logged in full. Streaming responses (SSE) are wrapped and teed to the capture file as chunks arrive.
-  - Separators include: UTC timestamp, client host (if available), session id (if available), backend, model, and API key name (ENV var name, not secret value).
+  - Each communication is logged as a structured JSON object on a single line (JSON Lines format).
+  - Communication flow is clearly marked (frontend_to_backend or backend_to_frontend) with source and destination.
+  - Non-streaming responses are logged in full. Streaming responses are wrapped with start/chunk/end markers.
+  - Includes ISO and human-readable timestamps based on local timezone.
+  - Includes byte count for all payloads.
+  - Automatically extracts and separately logs system prompts when present.
+  - JSON schema available at [`src/core/services/wire_capture_schema.json`](src/core/services/wire_capture_schema.json).
 - Enable via CLI: `--capture-file path/to/capture.log` (disabled by default). When omitted, no capture occurs.
 - Configure via environment: set `CAPTURE_FILE` to a path to enable capture.
 - Rotation and truncation options:
   - `CAPTURE_MAX_BYTES` (int): If set, rotates the current capture file to `<file>.1` when size would exceed this limit, then starts fresh. Rotation is best-effort and overwrites any existing `.1`.
-  - `CAPTURE_TRUNCATE_BYTES` (int): If set, truncates each captured streaming chunk to this many bytes in the capture log (appends `[[truncated]]`). Stream data sent to the client is never truncated.
+  - `CAPTURE_TRUNCATE_BYTES` (int): If set, truncates each captured streaming chunk to this many bytes in the capture log. Stream data sent to the client is never truncated.
+
+#### JSON Format Structure
+
+Each captured message follows this JSON structure:
+
+```json
+{
+  "timestamp": {
+    "iso": "2023-06-15T13:45:30.123Z",
+    "human_readable": "2023-06-15 15:45:30"
+  },
+  "communication": {
+    "flow": "frontend_to_backend",  // or "backend_to_frontend"
+    "direction": "request",  // or "response", "response_stream_start", "response_stream_chunk", "response_stream_end"
+    "source": "127.0.0.1",  // Source of the message (client or backend)
+    "destination": "openai"  // Destination of the message (backend or client)
+  },
+  "metadata": {
+    "session_id": "user-session-123",
+    "agent": "agent-name",
+    "backend": "openai",
+    "model": "gpt-4",
+    "key_name": "OPENAI_API_KEY",
+    "byte_count": 1024,
+    "system_prompt": "You are a helpful assistant."  // If present in the request
+  },
+  "payload": {
+    // The actual request or response payload
+  }
+}
+```
   - `CAPTURE_MAX_FILES` (int): If set `> 0`, keeps up to N rotated files using suffixes `.1..N`. When rotation occurs, the oldest file is dropped and others are shifted.
   - CLI mirrors:
     - `--capture-max-bytes N`
@@ -403,6 +441,144 @@ Additional tips:
 - On Windows, use double backslashes in paths in PowerShell when setting env vars, or single backslashes inside quotes.
 - For local development, `gcloud auth application-default login` is usually the fastest path; remember to set `GOOGLE_CLOUD_PROJECT` as well.
 
+## Tool Call Reactor
+
+The Tool Call Reactor is an event-driven system that allows you to react to tool calls made by LLMs in real-time. It provides a pluggable architecture for creating custom handlers that can monitor, modify, or replace tool call responses.
+
+### Key Concepts
+
+- **Event-Driven Architecture**: Handlers are triggered when LLMs make tool calls
+- **Pluggable Handlers**: Create custom handlers for specific tool call patterns
+- **Two Handler Modes**:
+  - **Active Mode**: Can swallow tool calls and provide replacement responses
+  - **Passive Mode**: Only observe tool calls without modifying responses
+- **Rate Limiting**: Built-in rate limiting to prevent spam
+- **Session Awareness**: Per-session state and rate limiting
+
+### Built-in Handlers
+
+#### Apply Diff Steering Handler
+
+The `ApplyDiffHandler` monitors for `apply_diff` tool calls and provides steering instructions to use `patch_file` instead, which is considered superior due to automated QA checks.
+
+**Features:**
+- Monitors all `apply_diff` tool calls
+- Rate limiting: Only provides steering once per minute per session
+- Customizable steering message
+- Session-aware rate limiting
+
+**Example Response:**
+```
+You tried to use apply_diff tool. Please prefer to use patch_file tool instead, as it is superior to apply_diff and provides automated Python QA checks.
+```
+
+### Execution Order
+
+The Tool Call Reactor is designed to run **after** other response processing middleware to ensure proper tool call handling:
+
+1. **JSON Repair** → Fixes malformed JSON responses
+2. **Tool Call Repair** → Converts plain-text tool calls to structured format
+3. **Tool Call Loop Detection** → Prevents infinite loops
+4. **Tool Call Reactor** → Applies custom handlers and steering logic
+
+This order ensures that the reactor receives properly formatted tool calls and can focus on business logic rather than format repair.
+
+### Configuration
+
+The Tool Call Reactor is automatically enabled and configured in the proxy. The default `ApplyDiffHandler` is registered with:
+- Rate limit: 1 steering message per 60 seconds per session
+- Priority: 100 (high priority)
+- Tool pattern: `apply_diff`
+
+#### Environment Variables
+
+- `TOOL_CALL_REACTOR_ENABLED=true|false` - Enable/disable the entire Tool Call Reactor system
+- `APPLY_DIFF_STEERING_ENABLED=true|false` - Enable/disable the apply_diff steering handler
+- `APPLY_DIFF_STEERING_RATE_LIMIT_SECONDS=60` - Rate limit window in seconds for steering messages
+- `APPLY_DIFF_STEERING_MESSAGE="Custom message"` - Custom steering message (optional)
+
+#### JSON/YAML Configuration
+
+```json
+{
+  "session": {
+    "tool_call_reactor": {
+      "enabled": true,
+      "apply_diff_steering_enabled": true,
+      "apply_diff_steering_rate_limit_seconds": 60,
+      "apply_diff_steering_message": "Custom steering message here"
+    }
+  }
+}
+```
+
+```yaml
+session:
+  tool_call_reactor:
+    enabled: true
+    apply_diff_steering_enabled: true
+    apply_diff_steering_rate_limit_seconds: 60
+    apply_diff_steering_message: "Custom steering message here"
+```
+
+### Creating Custom Handlers
+
+You can create custom handlers by implementing the `IToolCallHandler` interface:
+
+```python
+from src.core.interfaces.tool_call_reactor_interface import (
+    IToolCallHandler,
+    ToolCallContext,
+    ToolCallReactionResult,
+)
+
+class MyCustomHandler(IToolCallHandler):
+    @property
+    def name(self) -> str:
+        return "my_custom_handler"
+
+    @property
+    def priority(self) -> int:
+        return 50
+
+    async def can_handle(self, context: ToolCallContext) -> bool:
+        # Return True if this handler should process the tool call
+        return context.tool_name == "my_tool"
+
+    async def handle(self, context: ToolCallContext) -> ToolCallReactionResult:
+        # Process the tool call and return reaction
+        return ToolCallReactionResult(
+            should_swallow=True,
+            replacement_response="Custom steering message",
+            metadata={"handler": self.name}
+        )
+```
+
+### Handler Registration
+
+Handlers are registered through the DI container. To add a custom handler:
+
+1. Create your handler class
+2. Register it in the DI container in `src/core/di/services.py`
+3. The handler will be automatically picked up by the reactor
+
+### Use Cases
+
+- **Tool Migration**: Guide users away from deprecated tools toward better alternatives
+- **Security Filtering**: Block or modify potentially harmful tool calls
+- **Usage Analytics**: Track and analyze tool call patterns
+- **Quality Assurance**: Provide automated feedback on tool usage
+- **Custom Workflows**: Implement domain-specific tool call processing
+
+### Monitoring and Statistics
+
+The Tool Call Reactor provides statistics through the reactor service:
+- Total tool calls processed
+- Tool calls swallowed by handlers
+- Handler execution counts
+- Rate limiting events
+- Per-session statistics
+
 ## API Reference
 
 The API is versioned using URL path prefixes:
@@ -410,7 +586,39 @@ The API is versioned using URL path prefixes:
 - `/v1/` - Legacy API (compatible with OpenAI/Anthropic) - **DEPRECATED**
 - `/v2/` - New SOLID architecture API (recommended)
 
-All endpoints require authentication unless the server is started with `--disable-auth`. Authentication is performed using the `Authorization` header with a bearer token: `Authorization: Bearer <api-key>`.
+All endpoints require authentication unless the server is started with `--disable-auth` or the request comes from a trusted IP address. Authentication is performed using the `Authorization` header with a bearer token: `Authorization: Bearer <api-key>`.
+
+#### Trusted IP Addresses
+
+The proxy supports bypassing authentication for requests originating from specified trusted IP addresses. This feature is useful for:
+- Internal network access
+- Load balancers or reverse proxies
+- Development and testing environments
+- CI/CD pipelines
+
+**Command Line Usage:**
+```bash
+# Single trusted IP
+./.venv/Scripts/python.exe -m src.core.cli --trusted-ip 192.168.1.100
+
+# Multiple trusted IPs
+./.venv/Scripts/python.exe -m src.core.cli --trusted-ip 192.168.1.100 --trusted-ip 10.0.0.50 --trusted-ip 172.16.0.100
+```
+
+**Configuration:**
+```yaml
+auth:
+  trusted_ips:
+    - "192.168.1.100"
+    - "10.0.0.0/8"
+    - "172.16.0.0/12"
+```
+
+**Notes:**
+- CIDR notation is supported for IP ranges (e.g., `10.0.0.0/8`)
+- Trusted IP bypass only applies when authentication is enabled (`--disable-auth` is not set)
+- The proxy logs when authentication is bypassed for trusted IPs
+- This feature does not affect API key validation for other security measures
 
 Sessions are identified using the `x-session-id` header. If not provided, a new session ID will be generated.
 
@@ -669,3 +877,89 @@ Notes:
 
 - Detects 4 identical tool calls (same name + args) in a row within a TTL; sends guidance (chance) or breaks based on mode.
 - Configurable with `LoopDetectionConfiguration` and `ToolCallLoopConfig`.
+
+### Anthropic OAuth Backend
+
+The `anthropic-oauth` backend enables Anthropic usage without placing API keys in your proxy config. It reads a local OAuth-style credential file (commonly produced by tools like Claude Code) and uses its token as the `x-api-key`.
+
+Key points:
+- Credentials file name: `oauth_creds.json`
+- Default search paths (first found wins):
+  - Windows: `%APPDATA%/Claude/oauth_creds.json`
+  - Cross‑platform: `~/.anthropic/oauth_creds.json`, `~/.claude/oauth_creds.json`, `~/.config/claude/oauth_creds.json`
+- Expected fields: `access_token` (preferred) or `api_key`
+- Base URL default: `https://api.anthropic.com/v1` (override with `anthropic_api_base_url`)
+
+Configuration (config.yaml):
+
+```yaml
+backends:
+  anthropic-oauth:
+    type: anthropic-oauth
+    # Optional: directory path that contains oauth_creds.json
+    anthropic_oauth_path: C:\\Users\\YourUser\\.anthropic
+    # Optional: override Anthropic API base URL
+    anthropic_api_base_url: https://api.anthropic.com/v1
+
+  # Example alongside other backends
+  openai:
+    type: openai
+    api_key: sk-...
+
+# Optional: make anthropic-oauth the default backend for the proxy
+# backends:
+#   default_backend: anthropic-oauth
+```
+
+Environment and routing:
+- Set `LLM_BACKEND=anthropic-oauth` to select it at startup.
+- Route per-request via model name prefix: `model: anthropic-oauth:claude-3-5-sonnet-20241022`.
+
+Environment variable alternative:
+- You can override the Anthropic base URL using `ANTHROPIC_API_BASE_URL` instead of the YAML field `anthropic_api_base_url`.
+
+Troubleshooting:
+- 401/403: Ensure `oauth_creds.json` exists in a default path or set `anthropic_oauth_path` to its directory.
+- Invalid credentials: File must contain `access_token` or `api_key`.
+- Model names: Use Anthropic Messages API models (e.g., `claude-3-5-sonnet-20241022`).
+
+### OpenAI OAuth Backend
+
+The `openai-oauth` backend lets you use OpenAI without storing an API key in your proxy config. It reads the ChatGPT/Codex `auth.json` file created by the Codex CLI and uses the contained token as the `Authorization: Bearer ...` header for OpenAI API calls.
+
+Key points:
+- Credentials file name: `auth.json`
+- Default search paths (first found wins):
+  - Windows: `%USERPROFILE%/.codex/auth.json`
+  - Cross‑platform: `~/.codex/auth.json`
+- Token priority: `tokens.access_token` (preferred), then `OPENAI_API_KEY` as fallback
+- Base URL default: `https://api.openai.com/v1` (override with `openai_api_base_url` or env `OPENAI_BASE_URL` if your environment uses one)
+
+Configuration (config.yaml):
+
+```yaml
+backends:
+  openai-oauth:
+    type: openai-oauth
+    # Optional: directory path that contains auth.json
+    openai_oauth_path: C:\\Users\\YourUser\\.codex
+    # Optional: override OpenAI API base URL
+    openai_api_base_url: https://api.openai.com/v1
+
+  # Example alongside other backends
+  openai:
+    type: openai
+    api_key: sk-...
+
+# Optional: make openai-oauth the default backend for the proxy
+# backends:
+#   default_backend: openai-oauth
+```
+
+Environment and routing:
+- Set `LLM_BACKEND=openai-oauth` to select it at startup.
+- Route per-request via model name prefix: `model: openai-oauth:gpt-4o-mini`.
+
+Troubleshooting:
+- 401/403: Ensure `auth.json` exists in a default path or set `openai_oauth_path` to its directory.
+- Invalid credentials: File must contain `tokens.access_token` or `OPENAI_API_KEY`.

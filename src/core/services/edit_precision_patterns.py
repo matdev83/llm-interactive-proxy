@@ -46,7 +46,7 @@ def _load_yaml(path: str) -> dict | None:
 def _load_patterns() -> tuple[list[str], list[str]]:
     path = os.environ.get(
         "EDIT_PRECISION_PATTERNS_PATH",
-        os.path.join("conf", "edit_precision_patterns.yaml"),
+        os.path.join("config", "edit_precision_patterns.yaml"),
     )
     data = _load_yaml(path)
     if not data:

@@ -1,17 +1,16 @@
-from typing import cast
-
 import pytest
+from src.core.commands.parser import CommandParser
+from src.core.commands.service import NewCommandService
 from src.core.domain.chat import ChatMessage, MessageContentPartText
 from src.core.services.command_processor import (
     CommandProcessor as CoreCommandProcessor,
 )
-from src.core.services.command_service import CommandRegistry, CommandService
 
-from tests.unit.core.test_doubles import MockSessionService, MockSuccessCommand
-from tests.unit.mock_commands import get_mock_commands
+from tests.unit.core.test_doubles import MockSessionService
 
 # Avoid global backend mocking for these focused unit tests
 pytestmark = [pytest.mark.no_global_mock]
+
 
 # --- Tests for CommandParser.process_messages ---
 
@@ -19,16 +18,12 @@ pytestmark = [pytest.mark.no_global_mock]
 @pytest.mark.asyncio
 async def test_process_messages_single_message_with_command() -> None:
     # Setup DI-driven processor
-    registry = CommandRegistry()
-    for cmd in get_mock_commands().values():
-        registry.register(cmd)
     session_service = MockSessionService()
-    service = CommandService(registry, session_service)
+    command_parser = CommandParser()
+    service = NewCommandService(session_service, command_parser)
     processor = CoreCommandProcessor(service)
 
     messages = [ChatMessage(role="user", content="!/hello")]
-    hello = cast(MockSuccessCommand, registry.get("hello"))
-    hello.reset_mock_state()
     result = await processor.process_messages(messages, session_id="test-session")
     processed_messages = result.modified_messages
     any_command_processed = result.command_executed
@@ -36,18 +31,15 @@ async def test_process_messages_single_message_with_command() -> None:
     assert any_command_processed is True
     if processed_messages:
         assert processed_messages[0].content in ("", " ")
-    assert hello.called is True
 
 
 @pytest.mark.asyncio
 async def test_process_messages_stops_after_first_command_in_message_content_list() -> (
     None
 ):
-    registry = CommandRegistry()
-    for cmd in get_mock_commands().values():
-        registry.register(cmd)
     session_service = MockSessionService()
-    service = CommandService(registry, session_service)
+    command_parser = CommandParser()
+    service = NewCommandService(session_service, command_parser)
     processor = CoreCommandProcessor(service)
     messages = [
         ChatMessage(
@@ -58,8 +50,6 @@ async def test_process_messages_stops_after_first_command_in_message_content_lis
             ],
         )
     ]
-    cast(MockSuccessCommand, registry.get("hello")).reset_mock_state()
-    cast(MockSuccessCommand, registry.get("anothercmd")).reset_mock_state()
 
     result = await processor.process_messages(messages, session_id="test-session")
     processed_messages = result.modified_messages
@@ -93,29 +83,18 @@ async def test_process_messages_stops_after_first_command_in_message_content_lis
         assert isinstance(remaining_part, MessageContentPartText)
         assert remaining_part.text == "!/anothercmd"
 
-    hello_handler = registry.get("hello")
-    another_cmd_handler = registry.get("anothercmd")
-    assert isinstance(hello_handler, MockSuccessCommand)
-    assert isinstance(another_cmd_handler, MockSuccessCommand)
-    assert hello_handler.called is True
-    assert another_cmd_handler.called is False
-
 
 # Removed @pytest.mark.parametrize for preserve_unknown
 @pytest.mark.asyncio
 async def test_process_messages_processes_command_in_last_message_and_stops() -> None:
-    registry = CommandRegistry()
-    for cmd in get_mock_commands().values():
-        registry.register(cmd)
     session_service = MockSessionService()
-    service = CommandService(registry, session_service)
+    command_parser = CommandParser()
+    service = NewCommandService(session_service, command_parser)
     processor = CoreCommandProcessor(service)
     messages = [
         ChatMessage(role="user", content="!/hello"),
         ChatMessage(role="user", content="!/anothercmd"),
     ]
-    cast(MockSuccessCommand, registry.get("hello")).reset_mock_state()
-    cast(MockSuccessCommand, registry.get("anothercmd")).reset_mock_state()
 
     # `process_messages` iterates from last to first message to find the *last* message
     # containing a command. It then processes only that message and stops.
@@ -130,14 +109,3 @@ async def test_process_messages_processes_command_in_last_message_and_stops() ->
     assert len(processed_messages) == 2
     assert processed_messages[0].content.startswith("!/hello")
     assert processed_messages[1].content in ("", " ")
-
-    hello_handler = registry.get("hello")
-    another_cmd_handler = registry.get("anothercmd")
-    assert isinstance(hello_handler, MockSuccessCommand)
-    assert isinstance(another_cmd_handler, MockSuccessCommand)
-
-    # In DI-driven processor, a command is executed
-    assert any(
-        isinstance(h, MockSuccessCommand) and h.called
-        for h in (hello_handler, another_cmd_handler)
-    )

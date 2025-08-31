@@ -26,11 +26,16 @@ class APIKeyMiddleware(BaseHTTPMiddleware):
     """
 
     def __init__(
-        self, app: Any, valid_keys: list[str], bypass_paths: list[str] | None = None
+        self,
+        app: Any,
+        valid_keys: list[str],
+        bypass_paths: list[str] | None = None,
+        trusted_ips: list[str] | None = None,
     ) -> None:
         super().__init__(app)
         self.valid_keys = set(valid_keys)
         self.bypass_paths = bypass_paths or ["/docs", "/openapi.json", "/redoc"]
+        self.trusted_ips = set(trusted_ips or [])
 
     async def dispatch(
         self, request: Request, call_next: Callable[[Request], Awaitable[Response]]
@@ -47,6 +52,13 @@ class APIKeyMiddleware(BaseHTTPMiddleware):
         """
         # Check if the path is in the bypass list
         if request.url.path in self.bypass_paths:
+            response = await call_next(request)
+            return response
+
+        # Check if the client IP is in the trusted IPs list
+        client_ip = request.client.host if request.client else None
+        if client_ip and client_ip in self.trusted_ips:
+            logger.info("Bypassing authentication for trusted IP: %s", client_ip)
             response = await call_next(request)
             return response
 
@@ -110,7 +122,11 @@ class APIKeyMiddleware(BaseHTTPMiddleware):
 
         # Check for Gemini API key in x-goog-api-key header
         if not api_key:
-            api_key = request.headers.get("x-goog-api-key")
+            gemini_api_key = request.headers.get("x-goog-api-key")
+            if gemini_api_key:
+                # Log the detected Gemini API key for debugging
+                logger.debug("Detected Gemini API key in x-goog-api-key header")
+                api_key = gemini_api_key
 
         # Check for API key in query parameter
         if not api_key:

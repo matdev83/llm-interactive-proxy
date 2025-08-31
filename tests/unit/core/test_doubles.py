@@ -230,10 +230,16 @@ class MockBackendService(IBackendService, IBackendProcessor):
 # Mock Session Service
 #
 class MockSessionService(ISessionService):
-    """A mock session service for testing."""
+    """A mock session service for testing.
 
-    def __init__(self) -> None:
+    Supports optional seeding with a prebuilt Session via the constructor to
+    satisfy integration tests that provide a custom initial Session state.
+    """
+
+    def __init__(self, session: Session | None = None) -> None:
         self.sessions: dict[str, Session] = {}
+        if session is not None:
+            self.sessions[session.session_id] = session
 
     async def get_session(self, session_id: str) -> Session:
         if session_id not in self.sessions:

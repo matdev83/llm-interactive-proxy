@@ -253,6 +253,30 @@ class CoreServicesStage(InitializationStage):
             logger.error(f"Failed to register core services from DI module: {e}")
             raise
 
+        # Register wire capture service
+        self._register_wire_capture_service(services)
+
+    def _register_wire_capture_service(self, services: ServiceCollection) -> None:
+        """Register wire capture service."""
+        try:
+            from src.core.interfaces.wire_capture_interface import IWireCapture
+            from src.core.services.structured_wire_capture_service import (
+                StructuredWireCapture,
+            )
+
+            def wire_capture_factory(
+                provider: IServiceProvider,
+            ) -> StructuredWireCapture:
+                config = provider.get_required_service(AppConfig)
+                return StructuredWireCapture(config)
+
+            services.add_singleton(
+                IWireCapture, implementation_factory=wire_capture_factory
+            )
+            logger.debug("Registered wire capture service")
+        except ImportError as e:
+            logger.warning(f"Could not register wire capture service: {e}")
+
     async def validate(self, services: ServiceCollection, config: AppConfig) -> bool:
         """Validate that core services can be registered."""
         try:

@@ -209,19 +209,6 @@ def interactive_client(
     )
     app = build_app(config)
 
-    # After the app is built, get the CommandRegistry from its service provider
-    # and register the mock commands.
-    from src.core.services.command_service import CommandRegistry
-
-    from tests.unit.mock_commands import (  # Import necessary mock commands
-        MockAnotherCommand,
-        MockHelloCommand,
-    )
-
-    command_registry = app.state.service_provider.get_required_service(CommandRegistry)
-    command_registry.register(MockHelloCommand())
-    command_registry.register(MockAnotherCommand())
-
     # Patch BackendFactory methods at class level to prevent real network calls
     from src.core.services.backend_factory import BackendFactory
 

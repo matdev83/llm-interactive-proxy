@@ -1,35 +1,18 @@
 """Mock command implementations for unit tests."""
 
-from collections.abc import Mapping
-from typing import Any
-
-from src.core.domain.command_results import CommandResult
-from src.core.domain.commands.base_command import BaseCommand
+from src.core.commands.command import Command, CommandResult
+from src.core.commands.handler import ICommandHandler
+from src.core.commands.registry import command
 from src.core.domain.session import Session
 
-from tests.unit.core.test_doubles import MockSuccessCommand
 
-
-def setup_test_command_registry_for_unit_tests() -> Any:
-    """Mock function for setting up test command registry.
-
-    Returns:
-        A CommandRegistry instance with mock commands registered
-    """
-    from src.core.services.command_service import CommandRegistry
-
-    # Create a command registry with mock commands
-    registry = CommandRegistry()
-    for _, command in get_mock_commands().items():
-        registry.register(command)
-    return registry
-
-
-class MockSetCommand(MockSuccessCommand):
+@command("set")
+class MockSetCommandHandler(ICommandHandler):
     """Mock implementation of the set command for tests."""
 
-    def __init__(self) -> None:
-        super().__init__("set")
+    @property
+    def command_name(self) -> str:
+        return "set"
 
     @property
     def description(self) -> str:
@@ -39,26 +22,26 @@ class MockSetCommand(MockSuccessCommand):
     def format(self) -> str:
         return "set(param=value)"
 
-    async def execute(
-        self, args: Mapping[str, Any], session: Session, context: Any = None
-    ) -> CommandResult:
-        self._called = True
-        self._called_with_args = dict(args)
+    @property
+    def examples(self) -> list[str]:
+        return ["!/set(model=gpt-4)"]
+
+    async def handle(self, command: Command, session: Session) -> CommandResult:
         message = "Settings updated"
         return CommandResult(
             success=True,
             message=message,
-            name=self.name,
-            new_state=session,
-            data={"processed_content": ""},
+            new_state=session.state,
         )
 
 
-class MockUnsetCommand(MockSuccessCommand):
+@command("unset")
+class MockUnsetCommandHandler(ICommandHandler):
     """Mock implementation of the unset command for tests."""
 
-    def __init__(self) -> None:
-        super().__init__("unset")
+    @property
+    def command_name(self) -> str:
+        return "unset"
 
     @property
     def description(self) -> str:
@@ -68,26 +51,26 @@ class MockUnsetCommand(MockSuccessCommand):
     def format(self) -> str:
         return "unset(param)"
 
-    async def execute(
-        self, args: Mapping[str, Any], session: Session, context: Any = None
-    ) -> CommandResult:
-        self._called = True
-        self._called_with_args = dict(args)
+    @property
+    def examples(self) -> list[str]:
+        return ["!/unset(model)"]
+
+    async def handle(self, command: Command, session: Session) -> CommandResult:
         message = "Settings unset"
         return CommandResult(
             success=True,
             message=message,
-            name=self.name,
-            new_state=session,
-            data={"processed_content": ""},
+            new_state=session.state,
         )
 
 
-class MockHelpCommand(MockSuccessCommand):
+@command("help")
+class MockHelpCommandHandler(ICommandHandler):
     """Mock implementation of the help command for tests."""
 
-    def __init__(self) -> None:
-        super().__init__("help")
+    @property
+    def command_name(self) -> str:
+        return "help"
 
     @property
     def description(self) -> str:
@@ -97,25 +80,25 @@ class MockHelpCommand(MockSuccessCommand):
     def format(self) -> str:
         return "help"
 
-    async def execute(
-        self, args: Mapping[str, Any], session: Session, context: Any = None
-    ) -> CommandResult:
-        self._called = True
-        self._called_with_args = dict(args)
+    @property
+    def examples(self) -> list[str]:
+        return ["!/help"]
+
+    async def handle(self, command: Command, session: Session) -> CommandResult:
         message = "Mock help information"
         return CommandResult(
             success=True,
             message=message,
-            name=self.name,
-            data={"processed_content": ""},
         )
 
 
-class MockHelloCommand(MockSuccessCommand):
+@command("hello")
+class MockHelloCommandHandler(ICommandHandler):
     """Mock implementation of the hello command for tests."""
 
-    def __init__(self) -> None:
-        super().__init__("hello")
+    @property
+    def command_name(self) -> str:
+        return "hello"
 
     @property
     def description(self) -> str:
@@ -125,28 +108,28 @@ class MockHelloCommand(MockSuccessCommand):
     def format(self) -> str:
         return "hello"
 
-    async def execute(
-        self, args: Mapping[str, Any], session: Session, context: Any = None
-    ) -> CommandResult:
-        self._called = True
-        self._called_with_args = dict(args)
+    @property
+    def examples(self) -> list[str]:
+        return ["!/hello"]
+
+    async def handle(self, command: Command, session: Session) -> CommandResult:
         session.state = session.state.with_hello_requested(True)
 
         result = CommandResult(
             success=True,
             message="Hello! I'm the mock command handler.",
-            name=self.name,
-            new_state=session,
-            data={"processed_content": ""},
+            new_state=session.state,
         )
         return result
 
 
-class MockAnotherCommand(MockSuccessCommand):
+@command("anothercmd")
+class MockAnotherCommandHandler(ICommandHandler):
     """Mock implementation of another command for tests."""
 
-    def __init__(self) -> None:
-        super().__init__("anothercmd")
+    @property
+    def command_name(self) -> str:
+        return "anothercmd"
 
     @property
     def description(self) -> str:
@@ -156,25 +139,25 @@ class MockAnotherCommand(MockSuccessCommand):
     def format(self) -> str:
         return "anothercmd"
 
-    async def execute(
-        self, args: Mapping[str, Any], session: Session, context: Any = None
-    ) -> CommandResult:
-        self._called = True
-        self._called_with_args = dict(args)
+    @property
+    def examples(self) -> list[str]:
+        return ["!/anothercmd"]
+
+    async def handle(self, command: Command, session: Session) -> CommandResult:
         return CommandResult(
             success=True,
             message="Another mock command executed.",
-            name=self.name,
-            new_state=session,
-            data={"processed_content": ""},
+            new_state=session.state,
         )
 
 
-class MockModelCommand(MockSuccessCommand):
+@command("model")
+class MockModelCommandHandler(ICommandHandler):
     """Mock implementation of the model command for tests."""
 
-    def __init__(self) -> None:
-        super().__init__("model")
+    @property
+    def command_name(self) -> str:
+        return "model"
 
     @property
     def description(self) -> str:
@@ -184,33 +167,14 @@ class MockModelCommand(MockSuccessCommand):
     def format(self) -> str:
         return "model(name=value)"
 
-    async def execute(
-        self, args: Mapping[str, Any], session: Session, context: Any = None
-    ) -> CommandResult:
-        self._called = True
-        self._called_with_args = dict(args)
+    @property
+    def examples(self) -> list[str]:
+        return ["!/model(name=gpt-4)"]
+
+    async def handle(self, command: Command, session: Session) -> CommandResult:
         message = "Model command executed"
         return CommandResult(
             success=True,
             message=message,
-            name=self.name,
-            new_state=session,
-            data={"processed_content": ""},
+            new_state=session.state,
         )
-
-
-def get_mock_commands() -> dict[str, BaseCommand]:
-    """Get a dictionary of mock commands for testing.
-
-    Returns:
-        Dictionary mapping command names to command instances
-    """
-    commands: dict[str, BaseCommand] = {
-        "set": MockSetCommand(),
-        "unset": MockUnsetCommand(),
-        "help": MockHelpCommand(),
-        "hello": MockHelloCommand(),
-        "anothercmd": MockAnotherCommand(),
-        "model": MockModelCommand(),
-    }
-    return commands

@@ -154,6 +154,62 @@ class TestAPIKeyMiddleware:
         call_next.assert_called_once_with(mock_request)
         assert response == "next_response"
 
+    @pytest.mark.asyncio
+    async def test_trusted_ip_bypass(self, mock_request):
+        """Test that trusted IPs bypass authentication."""
+        # Setup
+        from src.core.security.middleware import APIKeyMiddleware
+
+        middleware = APIKeyMiddleware(
+            app=MagicMock(),
+            valid_keys=["test-key"],
+            trusted_ips=["192.168.1.100", "10.0.0.1"],
+        )
+        mock_request.url.path = "/api/test"
+        mock_request.client.host = "192.168.1.100"
+        call_next = AsyncMock(return_value="next_response")
+
+        # Execute
+        response = await middleware.dispatch(mock_request, call_next)
+
+        # Verify
+        call_next.assert_called_once_with(mock_request)
+        assert response == "next_response"
+
+    @pytest.mark.asyncio
+    async def test_non_trusted_ip_requires_auth(self, mock_request):
+        """Test that non-trusted IPs still require authentication."""
+        from src.core.security.middleware import APIKeyMiddleware
+        from starlette.responses import JSONResponse
+
+        # Setup
+        middleware = APIKeyMiddleware(
+            app=MagicMock(), valid_keys=["test-key"], trusted_ips=["192.168.1.100"]
+        )
+        # Mock the application state service to return auth enabled
+        middleware.app_state_service = MagicMock()
+        middleware.app_state_service.get_setting.side_effect = (
+            lambda key, default=None: {
+                "disable_auth": False,
+                "app_config": MagicMock(
+                    auth=MagicMock(disable_auth=False, api_keys=["test-key"])
+                ),
+            }.get(key, default)
+        )
+
+        mock_request.url.path = "/api/test"
+        mock_request.client.host = "10.0.0.1"
+        mock_request.headers = {}
+        mock_request.query_params = {}
+        call_next = AsyncMock(return_value=JSONResponse({"test": "data"}))
+
+        # Execute
+        response = await middleware.dispatch(mock_request, call_next)
+
+        # Verify
+        call_next.assert_not_called()
+        assert response.status_code == 401
+
 
 class TestAuthMiddleware:
     """Test the AuthMiddleware class."""
@@ -373,13 +429,13 @@ class TestAppIntegration:
 
             # Verify
             app.add_middleware.assert_any_call(
-                APIKeyMiddleware, valid_keys=["test-key"]
+                APIKeyMiddleware, valid_keys=["test-key"], trusted_ips=[]
             )
 
-    @patch("src.core.security.middleware.AuthMiddleware")
-    def test_app_with_auth_token(self, mock_middleware):
+    def test_app_with_auth_token(self):
         """Test application with auth token enabled."""
         # Import locally to ensure environment variables are read
+        from src.core.security.middleware import AuthMiddleware
 
         # Create mock app
         app = MagicMock(spec=FastAPI)
@@ -390,6 +446,23 @@ class TestAppIntegration:
         )
 
         # Verify
-        app.add_middleware.assert_any_call(
-            AuthMiddleware, valid_token="test-token", bypass_paths=["/docs"]
-        )
+        # Get all calls to add_middleware
+        middleware_calls = app.add_middleware.call_args_list
+        print(f"DEBUG: All middleware calls: {middleware_calls}")
+
+        # Check if AuthMiddleware was added with correct parameters
+        auth_middleware_call = None
+        for call in middleware_calls:
+            args, kwargs = call
+            if args and args[0] == AuthMiddleware:
+                auth_middleware_call = call
+                break
+
+        # Assert that we found the AuthMiddleware call
+        assert auth_middleware_call is not None, "AuthMiddleware was not added"
+
+        # Check the parameters
+        args, kwargs = auth_middleware_call
+        assert args[0] == AuthMiddleware
+        assert kwargs.get("valid_token") == "test-token"
+        assert kwargs.get("bypass_paths") == ["/docs"]

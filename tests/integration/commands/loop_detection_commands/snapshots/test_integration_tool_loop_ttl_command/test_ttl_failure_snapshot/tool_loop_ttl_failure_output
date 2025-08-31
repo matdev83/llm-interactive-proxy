@@ -1,1 +1,1 @@
-TTL seconds must be a valid integer
+Error: TTL seconds must be a valid integer.

@@ -1,4 +1,6 @@
 import pytest
+from src.core.commands.parser import CommandParser
+from src.core.commands.service import NewCommandService
 
 # Unskip: snapshot fixture is available in test suite
 from src.core.domain.chat import ChatMessage
@@ -6,16 +8,9 @@ from src.core.domain.session import LoopDetectionConfiguration, SessionState
 from src.core.services.command_processor import (
     CommandProcessor as CoreCommandProcessor,
 )
-from src.core.services.command_service import CommandRegistry, CommandService
 
 
 async def run_command(command_string: str) -> str:
-    from src.core.domain.commands.loop_detection_commands.tool_loop_detection_command import (
-        ToolLoopDetectionCommand,
-    )
-
-    registry = CommandRegistry()
-    registry.register(ToolLoopDetectionCommand())
 
     class _SessionSvc:
         async def get_session(self, session_id: str):
@@ -30,7 +25,7 @@ async def run_command(command_string: str) -> str:
             return None
 
     processor = CoreCommandProcessor(
-        CommandService(registry, session_service=_SessionSvc())
+        NewCommandService(session_service=_SessionSvc(), command_parser=CommandParser())
     )
 
     result = await processor.process_messages(

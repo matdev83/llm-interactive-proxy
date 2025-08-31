@@ -70,44 +70,15 @@ class CommandStage(InitializationStage):
             return False
 
     def _register_command_registry(self, services: ServiceCollection) -> None:
-        """Register command registry as singleton."""
+        """Register the CommandRegistry service for backward compatibility."""
         try:
             from src.core.services.command_service import CommandRegistry
 
-            # Check if a global instance is already set (e.g., by a test fixture)
-            existing_registry = CommandRegistry.get_instance()
-            if existing_registry:
-                services.add_instance(CommandRegistry, existing_registry)
-                logger.debug("Registered existing CommandRegistry instance")
-            else:
-                # Register as singleton (no dependencies)
-                services.add_singleton(CommandRegistry)
-                logger.debug("Registered new CommandRegistry instance")
-
-            logger.debug("Registered command registry")
-
-            from src.core.services.command_registration import register_all_commands
-            from src.core.services.command_service import CommandRegistry
-
-            # Use the same registry instance that was registered with the service collection
-            # Don't build a new service provider as that creates a different instance
-            if existing_registry:
-                registry = existing_registry
-            else:
-                # Get the registry from the services collection directly
-                registry = services.build_service_provider().get_required_service(
-                    CommandRegistry
-                )
-
-            # Register all commands using the centralized registration utility
-            # This will register both stateless and stateful commands
-            register_all_commands(services, registry)
-
-            logger.debug(
-                "Registered all domain commands using command registration utility"
-            )
+            # Register CommandRegistry as singleton
+            services.add_singleton(CommandRegistry)
+            logger.debug("Registered CommandRegistry service")
         except ImportError as e:
-            logger.warning(f"Could not register command registry: {e}")
+            logger.warning(f"Could not register CommandRegistry: {e}")
 
     def _register_command_settings_service(
         self, services: ServiceCollection, config: AppConfig
@@ -140,37 +111,34 @@ class CommandStage(InitializationStage):
     def _register_command_service(self, services: ServiceCollection) -> None:
         """Register command service with dependencies."""
         try:
+            from src.core.commands.parser import CommandParser
+            from src.core.commands.service import NewCommandService
+            from src.core.interfaces.command_parser_interface import ICommandParser
             from src.core.interfaces.command_service_interface import ICommandService
-            from src.core.interfaces.session_service_interface import ISessionService
-            from src.core.services.command_service import CommandService
 
-            def command_service_factory(provider: IServiceProvider) -> CommandService:
+            def command_service_factory(
+                provider: IServiceProvider,
+            ) -> NewCommandService:
                 """Factory function for creating CommandService with dependencies."""
-                from typing import cast
+                from src.core.services.session_service_impl import SessionService
 
-                from src.core.services.command_service import CommandRegistry
-
-                registry = provider.get_required_service(CommandRegistry)
-                session_service: ISessionService = provider.get_required_service(
-                    cast(type, ISessionService)
-                )
-                return CommandService(registry, session_service)
-
-            # Register concrete implementation
-            services.add_singleton(
-                CommandService, implementation_factory=command_service_factory
-            )
-
-            # Register interface binding
-            from typing import cast
+                session_service = provider.get_required_service(SessionService)
+                command_parser = provider.get_required_service(CommandParser)
+                return NewCommandService(session_service, command_parser)
 
             services.add_singleton(
-                cast(type, ICommandService),
-                implementation_factory=command_service_factory,
+                NewCommandService, implementation_factory=command_service_factory
+            )
+            services.add_singleton(
+                ICommandService,
+                implementation_factory=lambda sp: sp.get_required_service(
+                    NewCommandService
+                ),
             )
 
-            logger.debug("Registered command service with dependencies")
+            services.add_singleton(CommandParser)
+            services.add_singleton(ICommandParser, CommandParser)
 
-            logger.debug("Registered command service and parser with dependencies")
-        except ImportError as e:
+            logger.debug("Registered new command service and parser with dependencies")
+        except Exception as e:
             logger.warning(f"Could not register command service or parser: {e}")

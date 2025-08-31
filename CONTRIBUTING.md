@@ -197,6 +197,251 @@ Use repositories for data access operations.
 
 Use factories for creating complex objects, such as backend instances.
 
+## Implementing Custom Reactor Event Handlers
+
+The Tool Call Reactor system provides an event-driven architecture for reacting to tool calls from remote LLMs. This section guides you through implementing custom event handlers.
+
+### Overview
+
+The Tool Call Reactor allows you to:
+- **Monitor** tool calls from LLMs in real-time
+- **Steer** LLM behavior by providing custom responses
+- **Apply rate limiting** to prevent excessive steering
+- **Maintain session context** across multiple requests
+
+### Handler Types
+
+1. **Passive Event Receivers**: Monitor tool calls without modifying responses
+2. **Active Handlers**: Can swallow tool calls and provide custom steering responses
+
+### Implementation Steps
+
+#### 1. Create Handler Source Code Location
+
+Place your custom handlers in: `src/core/services/tool_call_handlers/`
+
+Example directory structure:
+```
+src/core/services/tool_call_handlers/
+├── __init__.py
+├── apply_diff_handler.py          # Built-in example
+└── your_custom_handler.py        # Your new handler
+```
+
+#### 2. Implement the Handler Interface
+
+```python
+from typing import Any
+from src.core.interfaces.tool_call_reactor_interface import (
+    IToolCallHandler,
+    ToolCallContext,
+    ToolCallReactionResult
+)
+
+class YourCustomHandler(IToolCallHandler):
+    """Custom handler for specific tool call scenarios."""
+
+    @property
+    def name(self) -> str:
+        return "your_custom_handler"
+
+    @property
+    def priority(self) -> int:
+        return 100  # Higher priority = processed first
+
+    async def can_handle(self, context: ToolCallContext) -> bool:
+        """Check if this handler should process the tool call."""
+        # Your logic to determine if this handler applies
+        return context.tool_name == "your_target_tool"
+
+    async def handle(self, context: ToolCallContext) -> ToolCallReactionResult:
+        """Process the tool call and return a reaction."""
+        # Your custom logic here
+
+        if should_swallow:
+            return ToolCallReactionResult(
+                should_swallow=True,
+                replacement_response="Your custom steering message",
+                metadata={"handler": self.name, "action": "steered"}
+            )
+        else:
+            return ToolCallReactionResult(
+                should_swallow=False,
+                replacement_response=None,
+                metadata={"handler": self.name, "action": "monitored"}
+            )
+```
+
+#### 3. Register Handler with DI Container
+
+Add your handler to the DI container in `src/core/di/services.py`:
+
+```python
+# Add import at the top
+from src.core.services.tool_call_handlers.your_custom_handler import YourCustomHandler
+
+# In the services registration section:
+def _tool_call_reactor_factory(provider: IServiceProvider) -> ToolCallReactorService:
+    """Factory for creating the tool call reactor service."""
+    history_tracker = provider.get_required_service(InMemoryToolCallHistoryTracker)
+    reactor = ToolCallReactorService(history_tracker)
+
+    # Register built-in handlers
+    app_config: AppConfig = provider.get_required_service(AppConfig)
+    reactor_config = app_config.session.tool_call_reactor
+
+    if reactor_config.enabled and reactor_config.apply_diff_steering_enabled:
+        apply_diff_handler = ApplyDiffHandler(
+            history_tracker=history_tracker,
+            rate_limit_window_seconds=reactor_config.apply_diff_steering_rate_limit_seconds,
+            steering_message=reactor_config.apply_diff_steering_message,
+        )
+        await reactor.register_handler(apply_diff_handler)
+
+    # Register your custom handler
+    if reactor_config.enabled and reactor_config.your_custom_handler_enabled:
+        your_handler = YourCustomHandler(
+            # Pass any dependencies your handler needs
+            history_tracker=history_tracker
+        )
+        await reactor.register_handler(your_handler)
+
+    return reactor
+```
+
+#### 4. Add Configuration Options
+
+Extend the configuration in `src/core/config/app_config.py`:
+
+```python
+class ToolCallReactorConfig(DomainModel):
+    """Configuration for the Tool Call Reactor system."""
+    enabled: bool = True
+    apply_diff_steering_enabled: bool = True
+    apply_diff_steering_rate_limit_seconds: int = 60
+    apply_diff_steering_message: str | None = None
+
+    # Add your custom handler configuration
+    your_custom_handler_enabled: bool = True
+    your_custom_handler_rate_limit_seconds: int = 30
+    your_custom_handler_message: str | None = None
+```
+
+#### 5. Add Environment Variables
+
+Update `config/sample.env` with your handler's configuration:
+
+```bash
+# Your Custom Handler Settings
+YOUR_CUSTOM_HANDLER_ENABLED=true
+YOUR_CUSTOM_HANDLER_RATE_LIMIT_SECONDS=30
+```
+
+### Example Implementation: ApplyDiff Handler
+
+The built-in `ApplyDiffHandler` provides an excellent example of a steering handler:
+
+**Location**: `src/core/services/tool_call_handlers/apply_diff_handler.py`
+
+**Key Features**:
+- Monitors for `apply_diff` tool calls
+- Provides steering message recommending `patch_file` instead
+- Implements per-session rate limiting (default: once per 60 seconds)
+- Configurable steering message via environment variables
+
+**Usage Example**:
+```python
+# The handler automatically steers LLMs from:
+tool_call: apply_diff(...)
+
+# To a custom response:
+"You tried to use apply_diff tool. Please prefer to use patch_file tool instead,
+as it is superior to apply_diff and provides automated Python QA checks."
+```
+
+### Handler Registration and Activation
+
+#### Automatic Registration
+Handlers are automatically registered when:
+1. `TOOL_CALL_REACTOR_ENABLED=true` (environment variable)
+2. Your specific handler's enabled flag is `true`
+3. The DI container initializes the reactor service
+
+#### Manual Registration (Testing)
+For testing or manual control:
+
+```python
+from src.core.di.services import get_service_provider
+from src.core.services.tool_call_handlers.your_custom_handler import YourCustomHandler
+
+provider = get_service_provider()
+reactor = provider.get_required_service(ToolCallReactorService)
+
+handler = YourCustomHandler()
+await reactor.register_handler(handler)
+```
+
+#### Verification
+Check if your handler is active:
+
+```python
+# Get registered handlers
+handlers = reactor.get_registered_handlers()
+print(f"Active handlers: {handlers}")
+
+# Should include: ['apply_diff_steering_handler', 'your_custom_handler']
+```
+
+### Best Practices
+
+#### 1. Handler Design
+- **Single Responsibility**: Each handler should handle one specific tool or scenario
+- **Idempotent**: Handlers should be safe to run multiple times
+- **Fast Execution**: Avoid blocking operations in handlers
+- **Error Handling**: Always handle exceptions gracefully
+
+#### 2. Rate Limiting
+- **Consider Session Context**: Rate limits should be per-session, not global
+- **Reasonable Limits**: Don't overwhelm users with too many steering messages
+- **Configurable**: Allow users to adjust rate limits via environment variables
+
+#### 3. Testing
+- **Unit Tests**: Test handler logic in isolation
+- **Integration Tests**: Test full request/response flow
+- **Mock Dependencies**: Use DI to inject mock services for testing
+
+#### 4. Configuration
+- **Environment Variables**: Use clear, descriptive names
+- **Sensible Defaults**: Provide reasonable default values
+- **Documentation**: Document all configuration options
+
+### Common Use Cases
+
+1. **Tool Steering**: Guide LLMs toward preferred tools
+2. **Safety Monitoring**: Block or warn about problematic tool usage
+3. **Usage Analytics**: Track tool call patterns and statistics
+4. **Custom Workflows**: Implement domain-specific tool call handling
+5. **Quality Assurance**: Enforce coding standards or best practices
+
+### Troubleshooting
+
+#### Handler Not Activating
+1. Check `TOOL_CALL_REACTOR_ENABLED=true`
+2. Verify your handler's enabled flag is `true`
+3. Confirm handler is registered: `reactor.get_registered_handlers()`
+4. Check logs for registration errors
+
+#### Handler Not Triggering
+1. Verify `can_handle()` returns `True` for your target tool calls
+2. Check tool call format in the `ToolCallContext`
+3. Ensure proper priority ordering if multiple handlers apply
+4. Review rate limiting - handlers may be temporarily disabled
+
+#### Configuration Issues
+1. Verify environment variables are set correctly
+2. Check configuration loading in `AppConfig`
+3. Ensure DI container is properly wired
+
 ## Testing Guidelines
 
 ### 1. Unit Testing

@@ -13,11 +13,11 @@ from src.core.domain.configuration.backend_config import BackendConfiguration
 from src.core.domain.multimodal import ContentPart, MultimodalMessage
 from src.core.domain.processed_result import ProcessedResult
 from src.core.domain.session import Session, SessionStateAdapter
+from src.core.interfaces.command_service_interface import ICommandService
 from src.core.interfaces.di_interface import IServiceProvider
 from src.core.services.command_processor import (
     CommandProcessor as CoreCommandProcessor,
 )
-from src.core.services.command_service import CommandRegistry, CommandService
 
 from tests.unit.core.test_doubles import MockBackendService, MockSessionService
 
@@ -91,10 +91,10 @@ async def test_mock_app() -> "FastAPI":
 
 
 @pytest.fixture
-def test_command_registry(test_mock_app: "FastAPI") -> CommandRegistry:
-    """Return a CommandRegistry from a mock app."""
+def test_command_service(test_mock_app: "FastAPI") -> ICommandService:
+    """Return a ICommandService from a mock app."""
     service_provider = cast(IServiceProvider, test_mock_app.state.service_provider)
-    return service_provider.get_required_service(CommandRegistry)
+    return service_provider.get_required_service(ICommandService)
 
 
 @pytest.fixture
@@ -142,7 +142,7 @@ def session_service() -> MockSessionService:
 
 @pytest.fixture
 def command_parser(
-    test_command_registry: CommandRegistry,
+    test_command_service: ICommandService,
     test_session_state: "SessionStateAdapter",
     test_mock_app: "FastAPI",
     monkeypatch: pytest.MonkeyPatch,  # Add monkeypatch here
@@ -159,9 +159,7 @@ def command_parser(
         async def update_session(self, session):
             return None
 
-    command_service = CommandService(
-        test_command_registry, session_service=_SessionSvc()
-    )
+    command_service = test_command_service
     parser = CoreCommandProcessor(command_service)
     # Provide a compatibility attribute expected by some tests
     import re as _re
