@@ -347,7 +347,9 @@ class TestGeminiStreamGenerateContent:
             )
 
             assert response.status_code == 200
-            assert response.headers["content-type"] == "text/plain; charset=utf-8"
+            assert (
+                response.headers["content-type"] == "text/event-stream; charset=utf-8"
+            )
 
             # Read the streaming content
             content = response.content.decode("utf-8")

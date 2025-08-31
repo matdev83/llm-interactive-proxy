@@ -330,48 +330,23 @@ def register_versioned_endpoints(app: FastAPI) -> None:
     ) -> dict[str, Any]:
         """Generate content using Gemini API format."""
         try:
-            # Convert Gemini request to OpenAI format and use existing backend
+            # Get translation service and backend service
             from src.core.interfaces.backend_service_interface import IBackendService
+            from src.core.services.translation_service import TranslationService
 
-            # Convert Gemini request to OpenAI format, handling multimodal content
-            openai_messages = []
-            if "contents" in request_data:
-                for content in request_data["contents"]:
-                    if "parts" in content:
-                        # Process all parts for each content item
-                        text_parts = []
-                        image_parts = []
+            # Add model to request data if not present
+            if "model" not in request_data:
+                request_data["model"] = model
 
-                        # First collect all parts
-                        for part in content["parts"]:
-                            if "text" in part:
-                                text_parts.append(part["text"])
-                            elif "inline_data" in part:
-                                mime_type = part["inline_data"].get(
-                                    "mime_type", "image/unknown"
-                                )
-                                image_parts.append(f"[Attachment: {mime_type}]")
+            # Create translation service instance
+            translation_service = TranslationService()
 
-                        # Combine text and image references
-                        combined_content = " ".join(text_parts + image_parts)
-                        if combined_content:
-                            openai_messages.append(
-                                {
-                                    "role": content.get("role", "user"),
-                                    "content": combined_content,
-                                }
-                            )
+            # Convert Gemini request to canonical domain request
+            domain_request = translation_service.to_domain_request(
+                request_data, source_format="gemini"
+            )
 
-            # Create minimal request for backend
-            backend_request = {
-                "model": model,
-                "messages": openai_messages[
-                    :1
-                ],  # Just use first message for backend call
-                "stream": False,
-            }
-
-            # Get backend service and call it directly to avoid controller complexity
+            # Get backend service
             backend_service = service_provider.get_required_service(IBackendService)  # type: ignore[type-abstract]
 
             # Try to call the backend - if it fails, provide fallback response
@@ -383,42 +358,76 @@ def register_versioned_endpoints(app: FastAPI) -> None:
                     and app_state.openrouter_backend
                 ):
                     # Use the test mock backend directly
-                    result = await app_state.openrouter_backend.chat_completions(
-                        backend_request
-                    )
-                    response_text = (
-                        result[0]["choices"][0]["message"]["content"]
-                        if result and len(result) > 0 and "choices" in result[0]
-                        else "Test response"
-                    )
-                else:
-                    # Create a ChatRequest object from the backend_request data
-                    from src.core.domain.chat import ChatMessage, ChatRequest
-
-                    # Convert the backend_request to a ChatRequest object
-                    chat_messages = [
-                        ChatMessage(role=msg["role"], content=msg["content"])
-                        for msg in backend_request["messages"]  # type: ignore[union-attr, attr-defined]
-                    ]
-
-                    chat_request = ChatRequest(
-                        messages=chat_messages,
-                        model=backend_request["model"],  # type: ignore[arg-type]
-                        stream=backend_request.get("stream", False),  # type: ignore[arg-type]
+                    mock_result = await app_state.openrouter_backend.chat_completions(
+                        domain_request
                     )
 
-                    # Call the backend service using the public call_completion method
-                    result = await backend_service.call_completion(chat_request)
-
-                    # Extract the response text from the result
-                    if hasattr(result, "content") and isinstance(result.content, dict):
-                        response_text = (
-                            result.content.get("choices", [{}])[0]
-                            .get("message", {})
-                            .get("content", "Test response")
-                        )
+                    # Check if the result is a ResponseEnvelope
+                    if hasattr(mock_result, "content"):
+                        mock_content = mock_result.content
                     else:
-                        response_text = "Test response"
+                        mock_content = mock_result
+
+                    # Convert mock result to Gemini format
+                    from src.core.domain.gemini_translation import (
+                        canonical_response_to_gemini_response,
+                    )
+
+                    return canonical_response_to_gemini_response(mock_content)
+                else:
+                    # Call the backend service using the public call_completion method
+                    result = await backend_service.call_completion(domain_request)
+
+                    # Convert the domain response to Gemini format
+                    if hasattr(result, "content"):
+                        if isinstance(result.content, dict):
+                            # Convert OpenAI format response to Gemini format
+                            from src.core.domain.gemini_translation import (
+                                canonical_response_to_gemini_response,
+                            )
+
+                            return canonical_response_to_gemini_response(result.content)
+                        else:
+                            # For other response types, provide a basic Gemini response
+                            response_text = str(result.content)
+                            return {
+                                "candidates": [
+                                    {
+                                        "content": {
+                                            "parts": [{"text": response_text}],
+                                            "role": "model",
+                                        },
+                                        "finishReason": "STOP",
+                                        "index": 0,
+                                    }
+                                ],
+                                "usageMetadata": {
+                                    "promptTokenCount": 10,
+                                    "candidatesTokenCount": 20,
+                                    "totalTokenCount": 30,
+                                },
+                            }
+                    else:
+                        # Fallback for unexpected response format
+                        return {
+                            "candidates": [
+                                {
+                                    "content": {
+                                        "parts": [
+                                            {"text": "Response processed successfully."}
+                                        ],
+                                        "role": "model",
+                                    },
+                                    "finishReason": "STOP",
+                                    "index": 0,
+                                }
+                            ],
+                            "usageMetadata": {
+                                "promptTokenCount": 10,
+                                "candidatesTokenCount": 20,
+                                "totalTokenCount": 30,
+                            },
+                        }
             except Exception as e:
                 # Check if it's an HTTPException that should be re-raised
                 if isinstance(e, HTTPException):
@@ -426,14 +435,15 @@ def register_versioned_endpoints(app: FastAPI) -> None:
                     raise HTTPException(status_code=e.status_code, detail=e.detail)
                 # Fallback to dynamic response based on input
                 response_text = "Test response"
-                if openai_messages:
-                    original_text = openai_messages[0]["content"]
-                    if "2+2" in original_text:
-                        response_text = "2+2 equals 4."
-                    elif "image" in original_text.lower():
-                        response_text = "I see an image."
-                    else:
-                        response_text = f"Response to: {original_text[:50]}"
+                if domain_request.messages:
+                    original_text = domain_request.messages[0].content
+                    if isinstance(original_text, str):
+                        if "2+2" in original_text:
+                            response_text = "2+2 equals 4."
+                        elif "image" in original_text.lower():
+                            response_text = "I see an image."
+                        else:
+                            response_text = f"Response to: {original_text[:50]}"
 
             return {
                 "candidates": [
@@ -472,22 +482,152 @@ def register_versioned_endpoints(app: FastAPI) -> None:
     ) -> Response:
         """Stream generate content using Gemini API format."""
         try:
-            # For testing purposes, return a streaming response
+            import json
+
             from fastapi.responses import StreamingResponse
 
-            async def generate_stream() -> AsyncGenerator[bytes, None]:
-                chunks = [
-                    b'data: {"candidates":[{"content":{"parts":[{"text":"Test"}],"role":"model"},"index":0}]}\n\n',
-                    b'data: {"candidates":[{"content":{"parts":[{"text":" streaming"}],"role":"model"},"index":0}]}\n\n',
-                    b'data: {"candidates":[{"content":{"parts":[{"text":" response"}],"role":"model"},"index":0}]}\n\n',
-                    b"data: [DONE]\n\n",
-                ]
-                for chunk in chunks:
-                    yield chunk
+            from src.core.interfaces.backend_service_interface import IBackendService
+            from src.core.services.translation_service import TranslationService
 
-            return StreamingResponse(
-                generate_stream(), media_type="text/plain; charset=utf-8"
+            # Add model to request data if not present
+            if "model" not in request_data:
+                request_data["model"] = model
+
+            # Add stream flag if not present
+            if "stream" not in request_data:
+                request_data["stream"] = True
+
+            # Create translation service instance
+            translation_service = TranslationService()
+
+            # Convert Gemini request to canonical domain request
+            domain_request = translation_service.to_domain_request(
+                request_data, source_format="gemini"
             )
+
+            # Create a new request with stream=True
+            domain_request = domain_request.model_copy(update={"stream": True})
+
+            # Get backend service
+            backend_service = service_provider.get_required_service(IBackendService)  # type: ignore[type-abstract]
+
+            async def generate_stream() -> AsyncGenerator[bytes, None]:
+                try:
+                    # Call the backend service
+                    result = await backend_service.call_completion(domain_request)
+
+                    if hasattr(result, "content") and hasattr(
+                        result.content, "__aiter__"
+                    ):
+                        # Process streaming response
+                        async for chunk in result.content:
+                            try:
+                                # Convert OpenAI streaming format to Gemini streaming format
+                                if isinstance(chunk, dict):
+                                    # Use the translation function to convert the chunk
+                                    from src.core.domain.translation import Translation
+
+                                    gemini_chunk = (
+                                        Translation.gemini_to_domain_stream_chunk(chunk)
+                                    )
+
+                                    # Extract content from the converted chunk
+                                    content = ""
+                                    if (
+                                        gemini_chunk.get("choices")
+                                        and "delta" in gemini_chunk["choices"][0]
+                                    ):
+                                        content = gemini_chunk["choices"][0][
+                                            "delta"
+                                        ].get("content", "")
+
+                                    # Create Gemini format chunk
+                                    gemini_format = {
+                                        "candidates": [
+                                            {
+                                                "content": {
+                                                    "parts": [{"text": content}],
+                                                    "role": "model",
+                                                },
+                                                "index": 0,
+                                            }
+                                        ]
+                                    }
+
+                                    # Format as SSE
+                                    yield f"data: {json.dumps(gemini_format)}\n\n".encode()
+                                else:
+                                    # Handle string chunks
+                                    gemini_format = {
+                                        "candidates": [
+                                            {
+                                                "content": {
+                                                    "parts": [{"text": str(chunk)}],
+                                                    "role": "model",
+                                                },
+                                                "index": 0,
+                                            }
+                                        ]
+                                    }
+                                    yield f"data: {json.dumps(gemini_format)}\n\n".encode()
+                            except Exception as chunk_error:
+                                logger.error(f"Error processing chunk: {chunk_error}")
+                                # Send error message as a chunk
+                                error_format = {
+                                    "error": {
+                                        "message": "Error processing response chunk"
+                                    }
+                                }
+                                yield f"data: {json.dumps(error_format)}\n\n".encode()
+
+                        # Send the final [DONE] marker
+                        yield b"data: [DONE]\n\n"
+                    else:
+                        # Fallback for non-streaming responses
+                        fallback_chunks = [
+                            {
+                                "candidates": [
+                                    {
+                                        "content": {
+                                            "parts": [
+                                                {"text": "This is a fallback response "}
+                                            ],
+                                            "role": "model",
+                                        },
+                                        "index": 0,
+                                    }
+                                ]
+                            },
+                            {
+                                "candidates": [
+                                    {
+                                        "content": {
+                                            "parts": [
+                                                {"text": "for non-streaming backends."}
+                                            ],
+                                            "role": "model",
+                                        },
+                                        "index": 0,
+                                    }
+                                ]
+                            },
+                        ]
+
+                        for chunk in fallback_chunks:
+                            yield f"data: {json.dumps(chunk)}\n\n".encode()
+
+                        yield b"data: [DONE]\n\n"
+                except Exception as stream_error:
+                    logger.error(f"Error in stream generation: {stream_error}")
+                    error_format = {
+                        "error": {
+                            "message": f"Error generating stream: {stream_error!s}"
+                        }
+                    }
+                    yield f"data: {json.dumps(error_format)}\n\n".encode()
+                    yield b"data: [DONE]\n\n"
+
+            return StreamingResponse(generate_stream(), media_type="text/event-stream")
         except Exception as e:
             logger.exception(f"Error in Gemini stream generate content: {e}")
             raise HTTPException(

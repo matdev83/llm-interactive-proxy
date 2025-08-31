@@ -122,9 +122,19 @@ class BackendStage(InitializationStage):
     def _register_translation_service(self, services: ServiceCollection) -> None:
         """Register translation service."""
         try:
+            from src.core.interfaces.translation_service_interface import (
+                ITranslationService,
+            )
             from src.core.services.translation_service import TranslationService
 
+            # Register concrete implementation
             services.add_singleton(TranslationService)
+
+            # Register interface
+            services.add_singleton(
+                cast(type, ITranslationService),
+                implementation_type=TranslationService,
+            )
 
             logger.debug("Registered translation service")
         except ImportError as e:
