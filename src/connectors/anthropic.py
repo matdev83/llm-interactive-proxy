@@ -6,14 +6,12 @@ from __future__ import annotations
 
 import json
 import logging
-import time
 from collections.abc import AsyncGenerator, AsyncIterator, Callable
 from typing import Any, cast
 
 import httpx
 
 from src.connectors.base import LLMBackend
-from src.core.adapters.api_adapters import dict_to_domain_chat_request
 from src.core.common.exceptions import (
     AuthenticationError,
     ConfigurationError,
@@ -26,6 +24,7 @@ from src.core.interfaces.configuration_interface import IAppIdentityConfig
 from src.core.interfaces.model_bases import DomainModel, InternalDTO
 from src.core.interfaces.response_processor_interface import ProcessedResponse
 from src.core.services.backend_registry import backend_registry
+from src.core.services.translation_service import TranslationService
 
 # Legacy ChatCompletionRequest removed from connector signatures; use domain ChatRequest
 
@@ -43,9 +42,15 @@ class AnthropicBackend(LLMBackend):
 
     backend_type: str = "anthropic"
 
-    def __init__(self, client: httpx.AsyncClient, config: AppConfig) -> None:
+    def __init__(
+        self,
+        client: httpx.AsyncClient,
+        config: AppConfig,
+        translation_service: TranslationService,
+    ) -> None:
         self.client = client
         self.config = config  # Stored config
+        self.translation_service = translation_service
         self.available_models: list[str] = []
 
     # -----------------------------------------------------------
@@ -127,23 +132,17 @@ class AnthropicBackend(LLMBackend):
         base_url = (openrouter_api_base_url or ANTHROPIC_DEFAULT_BASE_URL).rstrip("/")
         url = f"{base_url}/messages"
 
-        # Normalize incoming request to ChatRequest
-        if isinstance(request_data, dict):
-            request_data = dict_to_domain_chat_request(request_data)
-        elif not isinstance(request_data, ChatRequest):
-            # Convert to dict first
-            if hasattr(request_data, "model_dump"):
-                request_dict = request_data.model_dump()  # type: ignore
-            elif hasattr(request_data, "dict"):
-                request_dict = request_data.dict()  # type: ignore
-            else:
-                request_dict = dict(request_data)  # type: ignore
-            request_data = dict_to_domain_chat_request(request_dict)
-        request_data = cast(ChatRequest, request_data)
+        # Translate incoming request to CanonicalChatRequest using the translation service
+        domain_request = self.translation_service.to_domain_request(
+            request_data, source_format="anthropic"
+        )
 
         # request_data is a domain ChatRequest; connectors can rely on adapter helpers
         anthropic_payload = self._prepare_anthropic_payload(
-            request_data, processed_messages, effective_model, project
+            request_data=domain_request,
+            processed_messages=processed_messages,
+            effective_model=effective_model,
+            project=project,
         )
 
         headers = {
@@ -161,14 +160,14 @@ class AnthropicBackend(LLMBackend):
             logger.info(
                 "Forwarding to Anthropic. Model: %s Stream: %s",
                 effective_model,
-                request_data.stream,
+                domain_request.stream,
             )
         if logger.isEnabledFor(logging.DEBUG):
             logger.debug(
                 "Anthropic payload: %s", json.dumps(anthropic_payload, indent=2)
             )
 
-        if request_data.stream:
+        if domain_request.stream:
             stream_iterator = await self._handle_streaming_response(
                 url, anthropic_payload, headers, effective_model
             )
@@ -194,7 +193,7 @@ class AnthropicBackend(LLMBackend):
         project: str | None,
     ) -> dict[str, Any]:
         payload: dict[str, Any] = {
-            "model": effective_model,
+            "model": effective_model.replace("anthropic:", ""),
             "max_tokens": request_data.max_tokens or 1024,
             "stream": bool(request_data.stream),
         }
@@ -234,7 +233,7 @@ class AnthropicBackend(LLMBackend):
         payload["messages"] = anth_messages
         if system_prompt:
             payload["system"] = system_prompt
-        if getattr(request_data, "temperature", None) is not None:
+        if request_data.temperature is not None:
             payload["temperature"] = request_data.temperature
         if request_data.top_p is not None:
             payload["top_p"] = request_data.top_p
@@ -262,11 +261,8 @@ class AnthropicBackend(LLMBackend):
             )
 
         # Include tools and tool_choice when provided (tests set these fields)
-        tools = getattr(request_data, "tools", None)
-        if tools is not None:
-            payload["tools"] = [
-                t if isinstance(t, dict) else t.model_dump() for t in tools
-            ]
+        if request_data.tools is not None:
+            payload["tools"] = request_data.tools
 
         # Include extra params from domain extra_body directly (allows reasoning, etc.)
         payload.update(request_data.extra_body or {})
@@ -297,9 +293,11 @@ class AnthropicBackend(LLMBackend):
             raise
 
         data = response.json()
-        converted = self._convert_full_response(data, model)
+        converted_response = self.translation_service.to_domain_response(
+            data, source_format="anthropic"
+        )
         return ResponseEnvelope(
-            content=converted,
+            content=converted_response,
             headers=dict(response.headers),
             status_code=response.status_code,
         )
@@ -360,56 +358,19 @@ class AnthropicBackend(LLMBackend):
     # -----------------------------------------------------------
     def _convert_stream_chunk(self, data: dict[str, Any], model: str) -> dict[str, Any]:
         """Convert Anthropic delta event to OpenAI chat.completion.chunk format."""
-        # Anthropic delta events have the shape:
-        # {"type": "content_block_delta", "index":0, "delta": {"text":"..."}}
-        text = ""
-        finish_reason = None
-        if data.get("type") == "content_block_delta":
-            text = data.get("delta", {}).get("text", "")
-        elif data.get("type") == "message_delta":
-            finish_reason = data.get("delta", {}).get("stop_reason")
-        return {
-            "id": data.get("id", ""),
-            "object": "chat.completion.chunk",
-            "created": int(time.time()),
-            "model": model,
-            "choices": [
-                {"index": 0, "delta": {"content": text}, "finish_reason": finish_reason}
-            ],
-        }
+        # This method is no longer needed as translation is handled by TranslationService
+        raise NotImplementedError(
+            "AnthropicBackend._convert_stream_chunk is deprecated."
+        )
 
     def _convert_full_response(
         self, data: dict[str, Any], model: str
     ) -> dict[str, Any]:
         """Convert full Anthropic message response to OpenAI format."""
-        # Anthropic response example:
-        # {"id":"...","content":[{"type":"text","text":"..."}],"role":"assistant","stop_reason":"stop","usage":{"input_tokens":X,"output_tokens":Y}}
-        content_blocks = data.get("content", [])
-        text = "".join(
-            block.get("text", "")
-            for block in content_blocks
-            if block.get("type") == "text"
+        # This method is no longer needed as translation is handled by TranslationService
+        raise NotImplementedError(
+            "AnthropicBackend._convert_full_response is deprecated."
         )
-        usage = data.get("usage", {})
-        return {
-            "id": data.get("id", ""),
-            "object": "chat.completion",
-            "created": int(time.time()),
-            "model": model,
-            "choices": [
-                {
-                    "index": 0,
-                    "message": {"role": "assistant", "content": text},
-                    "finish_reason": data.get("stop_reason"),
-                }
-            ],
-            "usage": {
-                "prompt_tokens": usage.get("input_tokens", 0),
-                "completion_tokens": usage.get("output_tokens", 0),
-                "total_tokens": usage.get("input_tokens", 0)
-                + usage.get("output_tokens", 0),
-            },
-        }
 
     # -----------------------------------------------------------
     # Model listing

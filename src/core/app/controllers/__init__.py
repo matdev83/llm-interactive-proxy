@@ -526,8 +526,18 @@ def register_compatibility_endpoints(app: FastAPI) -> None:
     ) -> Response:
         return await controller.handle_anthropic_messages(request, request_data)
 
-    # Add Anthropic compatibility endpoints
-    @app.post("/anthropic/v1/messages")
+    _register_anthropic_endpoints(app, "/anthropic")
+
+
+def _register_anthropic_endpoints(app: FastAPI, prefix: str = "") -> None:
+    """Register Anthropic API endpoints with an optional prefix.
+
+    Args:
+        app: The FastAPI application instance.
+        prefix: The URL prefix for the endpoints (e.g., "/anthropic").
+    """
+
+    @app.post(f"{prefix}/v1/messages")
     async def anthropic_messages(
         request: Request,
         request_data: AnthropicMessagesRequest = Body(...),
@@ -537,7 +547,7 @@ def register_compatibility_endpoints(app: FastAPI) -> None:
     ) -> Response:
         return await controller.handle_anthropic_messages(request, request_data)
 
-    @app.get("/anthropic/v1/models")
+    @app.get(f"{prefix}/v1/models")
     async def anthropic_models(
         request: Request,
         controller: AnthropicController = Depends(
@@ -545,7 +555,6 @@ def register_compatibility_endpoints(app: FastAPI) -> None:
         ),
     ) -> dict[str, Any]:
         """Get available models in Anthropic API format."""
-        # Simple mock response that matches test expectations
         return {
             "object": "list",
             "data": [
@@ -577,7 +586,7 @@ def register_compatibility_endpoints(app: FastAPI) -> None:
             ],
         }
 
-    @app.get("/anthropic/v1/info")
+    @app.get(f"{prefix}/v1/info")
     async def anthropic_info() -> dict[str, Any]:
         """Get information about the Anthropic API."""
         return {
@@ -593,7 +602,7 @@ def register_compatibility_endpoints(app: FastAPI) -> None:
             ],
         }
 
-    @app.get("/anthropic/health")
+    @app.get(f"{prefix}/v1/health")
     async def anthropic_health() -> dict[str, Any]:
         """Health check endpoint."""
         return {"status": "healthy", "service": "anthropic-proxy"}

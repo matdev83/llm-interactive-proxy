@@ -157,10 +157,14 @@ def get_backend_factory_service() -> BackendFactory:
         from src.core.config.app_config import AppConfig
         from src.core.services.backend_factory import BackendFactory
         from src.core.services.backend_registry import backend_registry
+        from src.core.services.translation_service import TranslationService
 
         httpx_client = httpx.AsyncClient()
         config = AppConfig()  # Use default config as fallback
-        return BackendFactory(httpx_client, backend_registry, config)
+        translation_service = TranslationService()
+        return BackendFactory(
+            httpx_client, backend_registry, config, translation_service
+        )
 
 
 @router.get("/models")

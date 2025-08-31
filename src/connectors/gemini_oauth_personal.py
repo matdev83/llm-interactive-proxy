@@ -78,6 +78,7 @@ from src.core.domain.responses import (
     StreamingResponseEnvelope,
 )
 from src.core.services.backend_registry import backend_registry
+from src.core.services.translation_service import TranslationService
 
 from .gemini import GeminiBackend
 
@@ -107,16 +108,22 @@ class GeminiOAuthPersonalConnector(GeminiBackend):
     backend_type: str = "gemini-cli-oauth-personal"
 
     def __init__(
-        self, client: httpx.AsyncClient, config: AppConfig
-    ) -> None:  # Modified
-        super().__init__(client, config)  # Modified
+        self,
+        client: httpx.AsyncClient,
+        config: AppConfig,
+        translation_service: TranslationService,
+    ) -> None:
+        super().__init__(
+            client, config, translation_service
+        )  # Pass translation_service to super
         self.name = "gemini-cli-oauth-personal"
-        self.is_functional = False  # Initialize functional state
+        self.is_functional = False
         self._oauth_credentials: dict[str, Any] | None = None
         self._credentials_path: Path | None = None
         self._last_modified: float = 0
         self._refresh_token: str | None = None
         self._token_refresh_lock = asyncio.Lock()
+        self.translation_service = translation_service
 
         # Check environment variable to allow disabling health checks globally
         import os
@@ -537,18 +544,16 @@ class GeminiOAuthPersonalConnector(GeminiBackend):
             # Discover project ID (required for Code Assist API)
             project_id = await self._discover_project_id(auth_session)
 
-            # Convert messages to Gemini format
-            contents = self._convert_messages_to_gemini_format(processed_messages)
+            # Convert messages to Gemini format using the translation service
+            canonical_request = self.translation_service.to_domain_request(
+                request=request_data,
+                source_format="anthropic",  # Assuming input is Anthropic-compatible
+            )
 
             # Prepare request body for Code Assist API (exactly matching KiloCode)
-            request_body = {
-                "model": effective_model,
-                "project": project_id,
-                "request": {
-                    "contents": contents,
-                    "generationConfig": self._build_generation_config(request_data),
-                },
-            }
+            request_body = canonical_request.model_dump(exclude_unset=True)
+            request_body["model"] = effective_model  # Ensure model is correct
+            request_body["project"] = project_id  # Ensure project is correct
 
             # Use the Code Assist API exactly like KiloCode does
             # IMPORTANT: KiloCode uses :streamGenerateContent, not :generateContent
@@ -564,7 +569,7 @@ class GeminiOAuthPersonalConnector(GeminiBackend):
                 params={"alt": "sse"},  # Important: KiloCode uses SSE streaming
                 json=request_body,
                 headers={"Content-Type": "application/json"},
-                timeout=60.0,
+                timeout=60,  # Changed to int
             )
 
             # Process the response
@@ -582,7 +587,7 @@ class GeminiOAuthPersonalConnector(GeminiBackend):
 
             # Parse SSE stream response
             generated_text = ""
-            usage_metadata = {}
+            domain_response = None
 
             # Read the SSE stream
             response_text = response.text
@@ -593,43 +598,26 @@ class GeminiOAuthPersonalConnector(GeminiBackend):
                         break
                     try:
                         data = json.loads(data_str)
-                        # Handle the response or just the data object
-                        response_data = data.get("response", data)
-
-                        # Extract content from candidates
-                        candidates = response_data.get("candidates", [])
-                        if candidates:
-                            content = candidates[0].get("content", {})
-                            parts = content.get("parts", [])
-                            for part in parts:
-                                if isinstance(part, dict) and "text" in part:
-                                    generated_text += part["text"]
-
-                        # Store usage metadata if present
-                        if "usageMetadata" in response_data:
-                            usage_metadata = response_data["usageMetadata"]
+                        # Use translation service to convert to domain response
+                        domain_response = self.translation_service.to_domain_response(
+                            response=data,  # Corrected parameter name
+                            source_format="code_assist",
+                        )
+                        if (
+                            domain_response.choices
+                            and domain_response.choices[0].message.content
+                        ):
+                            generated_text += domain_response.choices[0].message.content
                     except json.JSONDecodeError:
                         continue
 
-            # Convert to OpenAI-compatible format
-            openai_response = {
-                "id": f"gemini-oauth-{int(time.time())}",
-                "object": "chat.completion",
-                "created": int(time.time()),
-                "model": effective_model,  # Use the model name the user requested
-                "choices": [
-                    {
-                        "index": 0,
-                        "message": {"role": "assistant", "content": generated_text},
-                        "finish_reason": "stop",
-                    }
-                ],
-                "usage": {
-                    "prompt_tokens": usage_metadata.get("promptTokenCount", 0),
-                    "completion_tokens": usage_metadata.get("candidatesTokenCount", 0),
-                    "total_tokens": usage_metadata.get("totalTokenCount", 0),
-                },
-            }
+            # Convert to OpenAI-compatible format using translation_service
+            if not domain_response:
+                raise BackendError("Failed to parse a valid response from the backend.")
+            openai_response = self.translation_service.from_domain_response(
+                response=domain_response,
+                target_format="openai",
+            ).model_dump(exclude_unset=True)
 
             logger.info("Successfully received response from Code Assist API")
             return ResponseEnvelope(
@@ -690,18 +678,16 @@ class GeminiOAuthPersonalConnector(GeminiBackend):
             # Discover project ID (required for Code Assist API)
             project_id = await self._discover_project_id(auth_session)
 
-            # Convert messages to Gemini format
-            contents = self._convert_messages_to_gemini_format(processed_messages)
+            # Convert messages to canonical domain request using the translation service
+            canonical_request = self.translation_service.to_domain_request(
+                request=request_data,
+                source_format="anthropic",  # Assuming input is Anthropic-compatible
+            )
 
             # Prepare request body for Code Assist API (exactly matching KiloCode)
-            request_body = {
-                "model": effective_model,
-                "project": project_id,
-                "request": {
-                    "contents": contents,
-                    "generationConfig": self._build_generation_config(request_data),
-                },
-            }
+            request_body = canonical_request.model_dump(exclude_unset=True)
+            request_body["model"] = effective_model  # Ensure model is correct
+            request_body["project"] = project_id  # Ensure project is correct
 
             # Use the Code Assist API with streaming endpoint
             url = f"{self.gemini_api_base_url}/v1internal:streamGenerateContent"
@@ -709,6 +695,7 @@ class GeminiOAuthPersonalConnector(GeminiBackend):
 
             # Create an async iterator that yields SSE-formatted chunks
             async def stream_generator() -> AsyncGenerator[ProcessedResponse, None]:
+                response = None  # Initialize response to None
                 try:
                     # Use the auth_session.request exactly like KiloCode
                     # Add ?alt=sse for server-sent events streaming
@@ -719,7 +706,7 @@ class GeminiOAuthPersonalConnector(GeminiBackend):
                         params={"alt": "sse"},  # Important: KiloCode uses SSE streaming
                         json=request_body,
                         headers={"Content-Type": "application/json"},
-                        timeout=60.0,
+                        timeout=60,  # Changed to int
                     )
 
                     # Process the response
@@ -735,29 +722,62 @@ class GeminiOAuthPersonalConnector(GeminiBackend):
                             status_code=response.status_code,
                         )
 
-                    # Forward raw text stream; central pipeline will handle normalization/repairs
-                    processed_stream = response.aiter_text()
+                    # Process the streaming response using synchronous iter_lines()
+                    for line in response.iter_lines(
+                        chunk_size=1
+                    ):  # Process line by line
+                        try:
+                            decoded_line = line.decode("utf-8")
+                            if decoded_line.startswith("data: "):
+                                data_str = decoded_line[6:].strip()
+                                if data_str == "[DONE]":
+                                    yield self.translation_service.to_domain_stream_chunk(
+                                        chunk=None,  # Indicate end of stream
+                                        source_format="code_assist",
+                                    )
+                                    break
+                                try:
+                                    data = json.loads(data_str)
+                                    domain_chunk = (
+                                        self.translation_service.to_domain_stream_chunk(
+                                            chunk=data,  # Pass the parsed JSON data
+                                            source_format="code_assist",
+                                        )
+                                    )
+                                    yield domain_chunk
+                                except json.JSONDecodeError:
+                                    # If it's not JSON, it might be an empty line or comment, skip
+                                    continue
+                            else:
+                                # Handle non-data lines (e.g., comments, event types) if necessary
+                                if decoded_line.strip():
+                                    yield self.translation_service.to_domain_stream_chunk(
+                                        chunk={
+                                            "text": decoded_line
+                                        },  # Wrap in a dict for consistency
+                                        source_format="raw_text",  # Or a more specific raw format
+                                    )
+                        except Exception as chunk_error:
+                            logger.error(f"Error processing stream line: {chunk_error}")
+                            continue
 
-                    async for chunk in processed_stream:
-                        # If JSON repair is enabled, the processor yields repaired JSON strings
-                        # or raw text. If disabled, it yields raw text.
-                        # We need to ensure it's properly formatted as SSE.
-                        if chunk.startswith(("data: ", "id: ", ":")):
-                            # Already SSE formatted or a comment, yield directly
-                            yield ProcessedResponse(content=chunk)
-                        else:
-                            # Assume it's a raw text chunk (either repaired JSON or non-JSON text)
-                            # and format it as an SSE data event.
-                            yield ProcessedResponse(content=f"data: {chunk}\n\n")
-
-                    yield ProcessedResponse(content="data: [DONE]\n\n")
+                    # Ensure the stream is properly closed with a DONE signal
+                    yield self.translation_service.to_domain_stream_chunk(
+                        chunk=None,  # Indicate end of stream
+                        source_format="code_assist",
+                    )
 
                 except Exception as e:
                     logger.error(f"Error in streaming generator: {e}")
-                    yield ProcessedResponse(content="data: [DONE]\n\n")
+                    # Yield an error chunk or ensure stream ends gracefully
+                    yield self.translation_service.to_domain_stream_chunk(
+                        chunk=None,  # Indicate end of stream due to error
+                        source_format="code_assist",
+                    )
 
                 finally:
-                    await response.aclose()
+                    if response:  # Ensure response is defined before closing
+                        response.close()  # Use synchronous close
 
             return StreamingResponseEnvelope(
                 content=stream_generator(),
@@ -774,38 +794,6 @@ class GeminiOAuthPersonalConnector(GeminiBackend):
         except Exception as e:
             logger.error(f"Unexpected error during streaming API call: {e}")
             raise BackendError(f"Unexpected error during streaming API call: {e}")
-
-    def _convert_stream_chunk(self, data: dict[str, Any], model: str) -> dict[str, Any]:
-        """Convert a Code Assist API streaming chunk to OpenAI format."""
-        # Extract content from candidates
-        candidate: dict[str, Any] = {}
-        text = ""
-        if data.get("candidates"):
-            candidate = data["candidates"][0] or {}
-            content = candidate.get("content", {})
-            parts = content.get("parts", [])
-            for part in parts:
-                if isinstance(part, dict) and "text" in part:
-                    text += part["text"]
-
-        finish_reason = candidate.get("finishReason")
-        return {
-            "id": data.get("id", ""),
-            "object": "chat.completion.chunk",
-            "created": int(time.time()),
-            "model": model,
-            "choices": [
-                {
-                    "index": candidate.get("index", 0),
-                    "delta": {"content": text},
-                    "finish_reason": (
-                        finish_reason.lower()
-                        if isinstance(finish_reason, str)
-                        else None
-                    ),
-                }
-            ],
-        }
 
     def _convert_to_code_assist_format(
         self, request_data: Any, processed_messages: list[Any], model: str
@@ -1088,36 +1076,6 @@ class GeminiOAuthPersonalConnector(GeminiBackend):
             # Fall back to default
             self._project_id = initial_project_id
             return str(self._project_id)
-
-    def _convert_messages_to_gemini_format(
-        self, processed_messages: list[Any]
-    ) -> list[dict]:
-        """Convert processed messages to Gemini format.
-
-        This method converts the OpenAI-style messages to the format
-        expected by the Code Assist API.
-        """
-        contents = []
-
-        for msg in processed_messages:
-            role = (
-                msg.get("role") if isinstance(msg, dict) else getattr(msg, "role", None)
-            )
-            content = (
-                msg.get("content")
-                if isinstance(msg, dict)
-                else getattr(msg, "content", "")
-            )
-
-            if role and content:
-                # Convert role mapping
-                gemini_role = "user" if role == "user" else "model"
-
-                contents.append(
-                    {"role": gemini_role, "parts": [{"text": str(content)}]}
-                )
-
-        return contents
 
 
 backend_registry.register_backend(

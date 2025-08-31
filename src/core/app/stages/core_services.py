@@ -67,6 +67,10 @@ class CoreServicesStage(InitializationStage):
         services.add_instance(AppConfig, config)
         logger.debug("Registered AppConfig instance")
 
+        # Register ApplicationStateService
+        services.add_singleton(ApplicationStateService)
+        services.add_singleton(IApplicationState, ApplicationStateService)
+
         # Register ToolCallRepairService as a singleton with configured buffer cap
         def _tool_repair_factory(
             provider: IServiceProvider,
@@ -239,6 +243,7 @@ class CoreServicesStage(InitializationStage):
             )
 
         # Register core services from DI services module
+
         try:
             from src.core.di.services import register_core_services
 

@@ -311,7 +311,7 @@ class TestAnthropicFrontendIntegration:
     def test_health_and_info_endpoints(self):
         """Test health and info endpoints."""
         # Health check
-        response = self.client.get("/anthropic/health")
+        response = self.client.get("/anthropic/v1/health")
         assert response.status_code == 200
         assert response.json()["status"] == "healthy"
 

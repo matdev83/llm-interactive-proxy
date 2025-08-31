@@ -47,30 +47,16 @@ class MockBackendStage(InitializationStage):
         self._register_backend_config_provider(services)
 
         # Import required classes for service checks
-        from src.core.interfaces.backend_service_interface import IBackendService
-        from src.core.services.backend_factory import BackendFactory
 
-        # Only register mock services if real ones are not already registered
-        backend_factory_registered = BackendFactory in services._descriptors
-        backend_service_registered = IBackendService in services._descriptors
+        # Always register mock services for test environments, overwriting real ones
+        self._register_mock_backend_factory(services)
+        logger.debug("Registered mock backend factory")
 
-        if not backend_factory_registered:
-            # Register mock backend factory
-            self._register_mock_backend_factory(services)
-            logger.debug("Registered mock backend factory")
-        else:
-            logger.debug(
-                "BackendFactory already registered, skipping mock registration"
-            )
+        self._register_mock_backend_service(services)
+        logger.debug("Registered mock backend service")
 
-        if not backend_service_registered:
-            # Register mock backend service
-            self._register_mock_backend_service(services)
-            logger.debug("Registered mock backend service")
-        else:
-            logger.debug(
-                "IBackendService already registered, skipping mock registration"
-            )
+        # Override session service to ensure real sessions instead of mocks
+        self._override_session_service_for_test_compatibility(services)
 
         # Skip real backend service registration in test environment
         # The mock backend service should be sufficient for testing
@@ -148,8 +134,8 @@ class MockBackendStage(InitializationStage):
                                         "id": "call_mock_123",
                                         "type": "function",
                                         "function": {
-                                            "name": "mock_function",
-                                            "arguments": "{}",
+                                            "name": "get_weather",
+                                            "arguments": '{"location": "New York"}',
                                         },
                                     }
                                 ],
@@ -224,8 +210,22 @@ class MockBackendStage(InitializationStage):
 
                     from src.connectors.anthropic import AnthropicBackend
                     from src.core.config.app_config import AppConfig
+                    from src.core.services.translation_service import TranslationService
 
-                    real_backend = AnthropicBackend(httpx.AsyncClient(), AppConfig())
+                    # Try to get existing translation service from services
+                    translation_service = None
+                    try:
+                        # Build a service provider to get the translation service
+                        provider = services.build_service_provider()
+                        translation_service = provider.get_required_service(
+                            TranslationService
+                        )
+                    except Exception:
+                        translation_service = TranslationService()
+
+                    real_backend = AnthropicBackend(
+                        httpx.AsyncClient(), AppConfig(), translation_service
+                    )
                     # Call connector using a minimal processed_messages list and
                     # the request.model as effective_model when available.
                     processed_messages: list[dict[str, str]] = []
@@ -300,9 +300,23 @@ class MockBackendStage(InitializationStage):
 
                         from src.connectors.anthropic import AnthropicBackend
                         from src.core.config.app_config import AppConfig
+                        from src.core.services.translation_service import (
+                            TranslationService,
+                        )
+
+                        # Try to get existing translation service from services
+                        translation_service = None
+                        try:
+                            # Build a service provider to get the translation service
+                            provider = services.build_service_provider()
+                            translation_service = provider.get_required_service(
+                                TranslationService
+                            )
+                        except Exception:
+                            translation_service = TranslationService()
 
                         real_backend = AnthropicBackend(
-                            httpx.AsyncClient(), AppConfig()
+                            httpx.AsyncClient(), AppConfig(), translation_service
                         )
                         # If the connector was patched in tests, its methods will
                         # already reflect the patch. Cache and return the real
@@ -333,17 +347,10 @@ class MockBackendStage(InitializationStage):
                 side_effect=mock_get_or_create_backend
             )
 
-            # Register the mock service only if not already registered
-            # This preserves real BackendService from CoreServicesStage
-            if IBackendService not in services._descriptors:
-                services.add_instance(IBackendService, mock_backend_service)
-                logger.debug(
-                    "Registered mock backend service with full method coverage"
-                )
-            else:
-                logger.debug(
-                    "IBackendService already registered, skipping mock registration"
-                )
+            # Always register the mock service instance to ensure it overrides any
+            # previously registered real service.
+            services.add_instance(IBackendService, mock_backend_service)
+            logger.debug("Registered mock backend service with full method coverage")
         except ImportError as e:
             logger.warning(f"Could not register mock backend service: {e}")
 
@@ -354,7 +361,15 @@ class MockBackendStage(InitializationStage):
             from src.core.services.backend_factory import BackendFactory
 
             # Create mock backend factory
+            from src.core.services.translation_service import TranslationService
+
+            # Try to get existing translation service or create a new one
+            translation_service = TranslationService()
+
             mock_factory = MagicMock(spec=BackendFactory)
+            mock_factory.translation_service = translation_service or MagicMock(
+                spec=TranslationService
+            )
 
             # Create mock backend instance
             mock_backend = MagicMock(spec=LLMBackend)
@@ -375,15 +390,10 @@ class MockBackendStage(InitializationStage):
             httpx_client = httpx.AsyncClient()
             mock_factory._client = httpx_client
 
-            # Register the mock factory only if not already registered
-            # This preserves real BackendFactory from CoreServicesStage
-            if BackendFactory not in services._descriptors:
-                services.add_instance(BackendFactory, mock_factory)
-                logger.debug("Registered mock backend factory")
-            else:
-                logger.debug(
-                    "BackendFactory already registered, skipping mock registration"
-                )
+            # Always register the mock factory instance to ensure it overrides any
+            # previously registered real factory.
+            services.add_instance(BackendFactory, mock_factory)
+            logger.debug("Registered mock backend factory")
         except ImportError as e:
             logger.warning(f"Could not register mock backend factory: {e}")
 

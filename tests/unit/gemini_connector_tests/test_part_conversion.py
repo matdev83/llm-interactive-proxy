@@ -14,9 +14,12 @@ TEST_GEMINI_API_BASE_URL = "https://generativelanguage.googleapis.com"
 async def gemini_backend_fixture():
     async with httpx.AsyncClient() as client:
         from src.core.config.app_config import AppConfig
+        from src.core.services.translation_service import TranslationService
 
         config = AppConfig()
-        yield GeminiBackend(client=client, config=config)
+        yield GeminiBackend(
+            client=client, config=config, translation_service=TranslationService()
+        )
 
 
 @pytest.mark.asyncio

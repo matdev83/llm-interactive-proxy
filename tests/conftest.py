@@ -88,10 +88,6 @@ from src.core.domain.responses import (
 from src.core.interfaces.backend_service_interface import IBackendService
 from src.core.interfaces.session_service_interface import ISessionService
 
-from tests.unit.openai_connector_tests.test_streaming_response import (
-    AsyncIterBytes,  # Added for AsyncIterBytes in global mock
-)
-
 # Import shared fixtures
 
 # Silence logging during tests
@@ -234,9 +230,13 @@ def _global_mock_backend_init(monkeypatch, request):
     # Mock streaming response
     async def _mock_chat_completions_stream(*args, **kwargs):
 
+        from tests.unit.core.test_backend_service_enhanced import (
+            TestBackendServiceCompletions,
+        )
+
         # Create a simple streaming response for compatibility
         return StreamingResponseEnvelope(
-            content=AsyncIterBytes([]),  # Use AsyncIterBytes
+            content=TestBackendServiceCompletions.mock_streaming_content([]),  # type: ignore
             headers={},
         )
 
@@ -346,7 +346,7 @@ def test_app_config() -> AppConfig:
     """
     # Create backend settings with just the openai backend to avoid attribute errors
     backends = BackendSettings()
-    backends.openai = BackendConfig(api_key=["test-key"])
+    backends.set("openai", BackendConfig(api_key=["test-key"]))
 
     return AppConfig(
         logging=LoggingConfig(level=LogLevel.INFO),
@@ -368,7 +368,7 @@ def test_service_provider(test_service_collection) -> Generator[Any, None, None]
     Returns:
         Generator: A test service provider
     """
-    from src.core.di.provider import ServiceProvider
+    from src.core.di.container import ServiceProvider
 
     provider = ServiceProvider(test_service_collection)
     yield provider
@@ -386,7 +386,7 @@ def test_session_service(test_service_provider) -> Generator[Any, None, None]:
     """
     from unittest.mock import MagicMock
 
-    from src.core.interfaces.session_repository_interface import ISessionRepository
+    from src.core.interfaces.repositories_interface import ISessionRepository
     from src.core.services.session_service import SessionService
 
     mock_session_repository = MagicMock(spec=ISessionRepository)
@@ -633,7 +633,9 @@ def test_backend_factory(test_httpx_client) -> Generator[Any, None, None]:
 
     registry = BackendRegistry()
     config = AppConfig()
-    factory = BackendFactory(test_httpx_client, registry, config)
+    from src.core.services.translation_service import TranslationService
+
+    factory = BackendFactory(test_httpx_client, registry, config, TranslationService())
     yield factory
 
 

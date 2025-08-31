@@ -290,3 +290,15 @@ class StreamingChatResponse(ValueObject):
 
 
 # ChatUsage class is defined elsewhere in this file
+
+
+class CanonicalChatRequest(ChatRequest):
+    """
+    A canonical chat request model that is used internally throughout the application.
+    """
+
+
+class CanonicalChatResponse(ChatResponse):
+    """
+    A canonical chat response model that is used internally throughout the application.
+    """

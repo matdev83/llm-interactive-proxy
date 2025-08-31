@@ -45,7 +45,7 @@ class MockBackend(LLMBackend):
         processed_messages: list,
         effective_model: str,
         **kwargs: Any,
-    ) -> ResponseEnvelope:  # type: ignore
+    ) -> ResponseEnvelope:
         self.chat_completions_called = True
         self.chat_completions_args = {
             "request_data": request_data,
@@ -63,8 +63,10 @@ def create_backend_service():
     from src.core.services.backend_registry import BackendRegistry
 
     registry = BackendRegistry()
+    from src.core.services.translation_service import TranslationService
+
     config = AppConfig()
-    factory = BackendFactory(client, registry, config)
+    factory = BackendFactory(client, registry, config, TranslationService())
     rate_limiter = Mock()
     rate_limiter.check_limit = AsyncMock(return_value=Mock(is_limited=False))
     rate_limiter.record_usage = AsyncMock()
@@ -87,7 +89,10 @@ def create_backend_service():
 
             result = await self.call_completion(request, stream=stream)
             if isinstance(result, StreamingResponseEnvelope):
-                return ResponseEnvelope(content={}, headers={})
+                # In a real scenario, you'd handle the stream. For this test, we just consume it.
+                async for _ in result.content:
+                    pass
+                return ResponseEnvelope(content={}, headers={}, usage=None)
             return result
 
     from tests.utils.failover_stub import StubFailoverCoordinator

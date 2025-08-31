@@ -22,9 +22,11 @@ def mock_client():
 def connector(mock_client):
     """Create a GeminiOAuthPersonalConnector instance."""
     from src.core.config.app_config import AppConfig
+    from src.core.services.translation_service import TranslationService
 
     config = AppConfig()
-    return GeminiOAuthPersonalConnector(mock_client, config)
+    translation_service = TranslationService()
+    return GeminiOAuthPersonalConnector(mock_client, config, translation_service)
 
 
 class TestGeminiOAuthPersonalConnector:

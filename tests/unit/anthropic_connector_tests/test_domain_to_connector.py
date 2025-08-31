@@ -30,9 +30,11 @@ async def anthropic_backend_fixture() -> AnthropicBackend:
     """Create an Anthropic backend instance with a mock client."""
     async with httpx.AsyncClient() as client:
         from src.core.config.app_config import AppConfig
+        from src.core.services.translation_service import TranslationService
 
         config = AppConfig()
-        backend = AnthropicBackend(client, config)
+        translation_service = TranslationService()
+        backend = AnthropicBackend(client, config, translation_service)
         await backend.initialize(key_name="anthropic", api_key="test_key")
         yield backend
 

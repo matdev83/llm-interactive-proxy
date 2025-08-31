@@ -10,6 +10,7 @@ from src.connectors.base import LLMBackend
 from src.core.config.app_config import AppConfig, BackendConfig
 from src.core.interfaces.di_interface import IServiceProvider
 from src.core.services.backend_registry import BackendRegistry
+from src.core.services.translation_service import TranslationService
 
 logger = logging.getLogger(__name__)
 
@@ -25,6 +26,7 @@ class BackendFactory:
         httpx_client: httpx.AsyncClient,
         backend_registry: BackendRegistry,
         config: AppConfig,
+        translation_service: TranslationService,
     ) -> None:
         """Initialize the backend factory.
 
@@ -36,6 +38,7 @@ class BackendFactory:
         self._client = httpx_client
         self._backend_registry = backend_registry
         self._config = config  # Stored config
+        self._translation_service = translation_service
 
     def create_backend(
         self, backend_type: str, config: AppConfig  # Added config
@@ -54,7 +57,9 @@ class BackendFactory:
         """
         backend_factory = self._backend_registry.get_backend_factory(backend_type)
         # Backend connectors only accept the client and config in constructor
-        return backend_factory(self._client, self._config)  # Modified
+        return backend_factory(
+            self._client, self._config, self._translation_service
+        )  # Modified
 
     async def initialize_backend(
         self, backend: LLMBackend, init_config: dict[str, Any]

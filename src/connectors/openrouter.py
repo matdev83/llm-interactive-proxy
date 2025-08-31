@@ -7,18 +7,17 @@ from typing import Any, cast
 import httpx
 
 from src.connectors.openai import OpenAIConnector
-from src.core.adapters.api_adapters import dict_to_domain_chat_request
 from src.core.common.exceptions import (
     AuthenticationError,
     BackendError,
     ServiceUnavailableError,
 )
 from src.core.config.app_config import AppConfig
-from src.core.domain.chat import ChatRequest
 from src.core.domain.responses import ResponseEnvelope, StreamingResponseEnvelope
 from src.core.interfaces.configuration_interface import IAppIdentityConfig
 from src.core.interfaces.model_bases import DomainModel, InternalDTO
 from src.core.services.backend_registry import backend_registry
+from src.core.services.translation_service import TranslationService
 
 logger = logging.getLogger(__name__)
 
@@ -29,9 +28,12 @@ class OpenRouterBackend(OpenAIConnector):
     backend_type: str = "openrouter"
 
     def __init__(
-        self, client: httpx.AsyncClient, config: AppConfig
+        self,
+        client: httpx.AsyncClient,
+        config: AppConfig,
+        translation_service: TranslationService | None = None,
     ) -> None:  # Modified
-        super().__init__(client, config)  # Modified
+        super().__init__(client, config, translation_service=translation_service)
         self.api_base_url = "https://openrouter.ai/api/v1"
         self.headers_provider: Callable[[str, str], dict[str, str]] | None = None
         self.key_name: str | None = None
@@ -91,70 +93,6 @@ class OpenRouterBackend(OpenAIConnector):
         # with our specific URL.
         # await super().initialize(api_key=api_key, api_base_url=self.api_base_url)
 
-    def _prepare_payload(
-        self,
-        request_data: ChatRequest,
-        processed_messages: list[Any],
-        effective_model: str,
-    ) -> dict[str, Any]:
-        """Constructs the payload for the OpenRouter API request."""
-        payload = super()._prepare_payload(
-            request_data, processed_messages, effective_model
-        )
-
-        # Log the effective model for debugging
-        logger.info(
-            f"OpenRouter _prepare_payload: effective_model = '{effective_model}'"
-        )
-
-        # For OpenRouter, the model name should be sent as-is (without any prefix)
-        # The proxy already strips the "openrouter:" prefix before calling this method
-        payload["model"] = effective_model
-
-        # Clean up the payload by removing None values and extra fields that might cause issues
-        cleaned_payload = {"model": payload["model"], "messages": payload["messages"]}
-
-        # Only add non-None values
-        for key, value in payload.items():
-            if key not in ["model", "messages"] and value is not None:
-                cleaned_payload[key] = value
-
-        # Remove extra_body as it might contain proxy-specific data that OpenRouter doesn't expect
-        cleaned_payload.pop("extra_body", None)
-
-        if logger.isEnabledFor(logging.INFO):
-            logger.info(f"OpenRouter cleaned payload being sent: {cleaned_payload}")
-
-        # Use the cleaned payload
-        payload = cleaned_payload
-
-        # Add project to payload if available
-        if "project" in request_data.model_dump(exclude_unset=True):
-            payload["project"] = request_data.model_dump(exclude_unset=True).get(
-                "project"
-            )
-
-        # Handle extra_params by merging them into the payload
-        # This is needed for tests that set extra_params in the request data
-        # extra_params is not a formal field of ChatRequest, but tests may set it
-        # We need to access it through __dict__ or model_dump() without exclude_unset
-        if (
-            hasattr(request_data, "__dict__")
-            and "extra_params" in request_data.__dict__
-        ):
-            payload.update(request_data.__dict__["extra_params"])
-        else:
-            # Fallback to model_dump with exclude_unset to avoid including unset
-            # fields (tests expect unset fields to be excluded)
-            request_dict = request_data.model_dump(exclude_unset=True)
-            if "extra_params" in request_dict:
-                payload.update(request_dict["extra_params"])
-
-        # Always request usage information for billing tracking
-        payload["usage"] = {"include": True}
-
-        return payload
-
     async def chat_completions(  # type: ignore[override]
         self,
         request_data: DomainModel | InternalDTO | dict[str, Any],
@@ -164,20 +102,11 @@ class OpenRouterBackend(OpenAIConnector):
         project: str | None = None,
         **kwargs: Any,
     ) -> ResponseEnvelope | StreamingResponseEnvelope:
-        # Normalize incoming request to ChatRequest
         self.identity = identity
-        if isinstance(request_data, dict):
-            request_data = dict_to_domain_chat_request(request_data)
-        elif not isinstance(request_data, ChatRequest):
-            # Convert to dict first
-            if hasattr(request_data, "model_dump"):
-                request_dict = request_data.model_dump()  # type: ignore
-            elif hasattr(request_data, "dict"):
-                request_dict = request_data.dict()  # type: ignore
-            else:
-                request_dict = dict(request_data)  # type: ignore
-            request_data = dict_to_domain_chat_request(request_dict)
-        request_data = cast(ChatRequest, request_data)
+
+        domain_request = self.translation_service.to_domain_request(
+            request_data, "openrouter"
+        )
         # Allow tests and callers to provide per-call OpenRouter settings via kwargs
         headers_provider = kwargs.pop("openrouter_headers_provider", None)
         key_name = kwargs.pop("key_name", None)
@@ -227,12 +156,53 @@ class OpenRouterBackend(OpenAIConnector):
             call_kwargs["headers_override"] = headers_override
             call_kwargs["openai_url"] = self.api_base_url
 
-            return await super().chat_completions(
-                request_data=request_data,
-                processed_messages=processed_messages,
-                effective_model=effective_model,
-                **call_kwargs,
+            # Translate to a base payload using the shared hook so that
+            # processed_messages, effective_model and extra_body are applied
+            # consistently (and tests can patch _prepare_payload).
+            payload = await self._prepare_payload(
+                domain_request, processed_messages, effective_model
             )
+
+            # Add OpenRouter-specific parameters to the payload
+            if domain_request.top_k is not None:
+                payload["top_k"] = domain_request.top_k
+            if domain_request.seed is not None:
+                payload["seed"] = domain_request.seed
+            if domain_request.reasoning_effort is not None:
+                payload["reasoning_effort"] = float(domain_request.reasoning_effort)
+
+            # Add frequency_penalty and presence_penalty if specified
+            if domain_request.frequency_penalty is not None:
+                payload["frequency_penalty"] = domain_request.frequency_penalty
+            if domain_request.presence_penalty is not None:
+                payload["presence_penalty"] = domain_request.presence_penalty
+
+            # Handle extra_body from the request (takes precedence)
+            if hasattr(domain_request, "extra_body") and domain_request.extra_body:
+                for key, value in domain_request.extra_body.items():
+                    payload[key] = value
+
+            # Handle reasoning config
+            if hasattr(domain_request, "reasoning") and domain_request.reasoning:
+                payload["reasoning"] = domain_request.reasoning
+
+            # Manually call the appropriate handler from the parent class
+            api_base = call_kwargs.get("openai_url") or self.api_base_url
+            url = f"{api_base.rstrip('/')}/chat/completions"
+
+            if domain_request.stream:
+                content_iterator = await self._handle_streaming_response(
+                    url, payload, headers_override, domain_request.session_id or ""
+                )
+                return StreamingResponseEnvelope(
+                    content=content_iterator,
+                    media_type="text/event-stream",
+                    headers={},
+                )
+            else:
+                return await self._handle_non_streaming_response(
+                    url, payload, headers_override, domain_request.session_id or ""
+                )
         except ServiceUnavailableError:
             raise
         except BackendError:

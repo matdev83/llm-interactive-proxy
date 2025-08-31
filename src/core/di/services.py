@@ -781,8 +781,12 @@ def register_core_services(
 
         # Create backend factory - always use real implementation, ignore any mocks
         # This ensures BackendService uses real backends even in test environments
+        from src.core.services.translation_service import TranslationService
+
+        translation_service = provider.get_required_service(TranslationService)
+
         backend_factory: BackendFactory = BackendFactory(
-            httpx_client, backend_registry, app_config
+            httpx_client, backend_registry, app_config, translation_service
         )
 
         # Create rate limiter

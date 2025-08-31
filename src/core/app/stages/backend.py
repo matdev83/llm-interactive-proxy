@@ -22,6 +22,7 @@ from src.core.interfaces.di_interface import IServiceProvider
 from src.core.interfaces.session_service_interface import ISessionService
 from src.core.services.backend_factory import BackendFactory
 from src.core.services.backend_registry import backend_registry
+from src.core.services.translation_service import TranslationService
 
 from .base import InitializationStage
 
@@ -61,6 +62,7 @@ class BackendStage(InitializationStage):
             logger.warning(f"Failed to import connectors: {e}")
 
         self._register_backend_registry(services)
+        self._register_translation_service(services)
         self._register_backend_factory(services)
         self._register_backend_config_provider(services)
         self._register_backend_service(services)
@@ -98,12 +100,16 @@ class BackendStage(InitializationStage):
                 backend_registry_instance: BackendRegistry = (
                     provider.get_required_service(BackendRegistry)
                 )
-                app_config: AppConfig = provider.get_required_service(
-                    AppConfig
-                )  # Added
+                app_config: AppConfig = provider.get_required_service(AppConfig)
+                translation_service: TranslationService = provider.get_required_service(
+                    TranslationService
+                )
                 return BackendFactory(
-                    httpx_client, backend_registry_instance, app_config
-                )  # Modified
+                    httpx_client,
+                    backend_registry_instance,
+                    app_config,
+                    translation_service,
+                )
 
             services.add_singleton(
                 BackendFactory, implementation_factory=backend_factory_factory
@@ -112,6 +118,17 @@ class BackendStage(InitializationStage):
             logger.debug("Registered backend factory with dependencies")
         except ImportError as e:
             logger.warning(f"Could not register backend factory: {e}")
+
+    def _register_translation_service(self, services: ServiceCollection) -> None:
+        """Register translation service."""
+        try:
+            from src.core.services.translation_service import TranslationService
+
+            services.add_singleton(TranslationService)
+
+            logger.debug("Registered translation service")
+        except ImportError as e:
+            logger.warning(f"Could not register translation service: {e}")
 
     def _register_backend_config_provider(self, services: ServiceCollection) -> None:
         """Register backend configuration provider."""

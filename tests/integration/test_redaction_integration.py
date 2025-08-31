@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import AsyncIterator
-from typing import Any
+from typing import Any, cast
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -60,12 +60,18 @@ class _FakeBackend(LLMBackend):
 
         if self._stream:
 
-            async def gen() -> AsyncIterator[bytes]:
-                yield b'data: {"choices":[{"delta":{"content":"ok"}}]}\n\n'
-                yield b"data: [DONE]\n\n"
+            from src.core.interfaces.response_processor_interface import (
+                ProcessedResponse,
+            )
+
+            async def gen() -> AsyncIterator[ProcessedResponse]:
+                yield ProcessedResponse(
+                    content='data: {"choices":[{"delta":{"content":"ok"}}]}\n\n'
+                )
+                yield ProcessedResponse(content="data: [DONE]\n\n")
 
             return StreamingResponseEnvelope(
-                content=gen(), media_type="text/event-stream"
+                content=gen(), media_type="text/event-stream", headers={}
             )
         else:
             content = {
@@ -93,7 +99,7 @@ class _FakeBackend(LLMBackend):
 def _register_fake_backend_once() -> None:
     if "fake" not in backend_registry._factories:
 
-        def _factory(client, config):
+        def _factory(client, config, translation_service=None):
             inst = _FakeBackend(client, config)
             FAKE_INSTANCES.append(inst)
             return inst
@@ -113,7 +119,11 @@ async def _build_services_with_fake_backend(
     import httpx
 
     http_client = httpx.AsyncClient()
-    factory = BackendFactory(http_client, backend_registry, app_config)
+    from src.core.services.translation_service import TranslationService
+
+    factory = BackendFactory(
+        http_client, backend_registry, app_config, TranslationService()
+    )
     rate_limiter = InMemoryRateLimiter()
     session_service = MockSessionService()
 
@@ -122,8 +132,10 @@ async def _build_services_with_fake_backend(
     # Patch backend config to our fake backend so resolution uses it
     from src.core.domain.configuration.backend_config import BackendConfiguration
 
+    assert isinstance(sess.state.backend_config, BackendConfiguration)
+    backend_config = cast(BackendConfiguration, sess.state.backend_config)
     sess.state = sess.state.with_backend_config(
-        BackendConfiguration(backend_type="fake", model="fakemodel")
+        backend_config.with_backend_and_model("fake", "fakemodel")
     )
 
     # Minimal app_state mock
@@ -163,8 +175,14 @@ async def _build_services_with_fake_backend(
     req = ChatRequest(
         model="fakemodel", messages=[ChatMessage(role="user", content="hi")]
     )
+    from src.core.domain.request_context import RequestContext
+
     await backend_request_manager.process_backend_request(
-        req, session_id="sess", context=None
+        req,
+        session_id="sess",
+        context=RequestContext(
+            headers={}, cookies={}, state={}, app_state={}, original_request=None
+        ),
     )
     # We return the manager and rely on _FakeBackend to capture last_request during the actual test call
     return (
@@ -172,7 +190,7 @@ async def _build_services_with_fake_backend(
         _FakeBackend,
         session_service,
         response_processor,
-    )  # type: ignore[return-value]
+    )
 
 
 def _make_app_config_with_fake_backend_and_keys() -> AppConfig:
@@ -181,7 +199,7 @@ def _make_app_config_with_fake_backend_and_keys() -> AppConfig:
     cfg = AppConfig()
     cfg.backends.default_backend = "fake"
     # Provide a dummy api key for the fake backend to look functional
-    cfg.backends.fake = BackendConfig(api_key=["TEST_FAKE_API_KEY"])
+    cfg.backends["fake"] = BackendConfig(api_key=["TEST_FAKE_API_KEY"])
     # Enable request redaction and provide an explicit secret for discovery
     cfg.auth.redact_api_keys_in_prompts = True
     cfg.auth.api_keys = ["RED_SECRET_ABC"]
@@ -210,11 +228,18 @@ async def test_end_to_end_non_streaming_redaction() -> None:
     app_state = MagicMock(spec=IApplicationState)
     app_state.get_setting.return_value = cfg
 
+    from src.core.interfaces.response_manager_interface import IResponseManager
+    from src.core.interfaces.session_resolver_interface import ISessionResolver
+    from src.core.services.session_manager_service import SessionManager
+
+    mock_session_resolver = AsyncMock(spec=ISessionResolver)
+    mock_response_manager = AsyncMock(spec=IResponseManager)
+
     processor = RequestProcessor(
         command_processor,
-        session_manager,
+        SessionManager(session_manager, mock_session_resolver),
         backend_request_manager,
-        response_manager,
+        mock_response_manager,
         app_state=app_state,
     )
 
@@ -244,6 +269,7 @@ async def test_end_to_end_non_streaming_redaction() -> None:
     redacted_request = FAKE_INSTANCES[-1].last_request
     assert redacted_request is not None
     text = next((m.content for m in redacted_request.messages if m.role == "user"), "")
+    assert isinstance(text, str)
     assert "(API_KEY_HAS_BEEN_REDACTED)" in text
     assert secret not in text
     assert "!/hello" not in text
@@ -267,11 +293,18 @@ async def test_end_to_end_streaming_redaction() -> None:
     app_state = MagicMock(spec=IApplicationState)
     app_state.get_setting.return_value = cfg
 
+    from src.core.interfaces.response_manager_interface import IResponseManager
+    from src.core.interfaces.session_resolver_interface import ISessionResolver
+    from src.core.services.session_manager_service import SessionManager
+
+    mock_session_resolver = AsyncMock(spec=ISessionResolver)
+    mock_response_manager = AsyncMock(spec=IResponseManager)
+
     processor = RequestProcessor(
         command_processor,
-        session_manager,
+        SessionManager(session_manager, mock_session_resolver),
         backend_request_manager,
-        response_manager,
+        mock_response_manager,
         app_state=app_state,
     )
 
@@ -299,6 +332,7 @@ async def test_end_to_end_streaming_redaction() -> None:
     redacted_request = FAKE_INSTANCES[-1].last_request
     assert redacted_request is not None
     text = next((m.content for m in redacted_request.messages if m.role == "user"), "")
+    assert isinstance(text, str)
     assert "(API_KEY_HAS_BEEN_REDACTED)" in text
     assert secret not in text
     assert "!/help" not in text

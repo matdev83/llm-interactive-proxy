@@ -1,8 +1,8 @@
-# mypy: disable-error-code=all
 """
 Enhanced tests for the BackendService implementation.
 """
 
+from collections.abc import AsyncIterator
 from typing import Any
 from unittest.mock import AsyncMock, Mock, patch
 
@@ -17,7 +17,9 @@ from src.core.domain.chat import (
 )
 from src.core.domain.responses import ResponseEnvelope, StreamingResponseEnvelope
 from src.core.interfaces.application_state_interface import IApplicationState
+from src.core.interfaces.model_bases import DomainModel, InternalDTO
 from src.core.interfaces.rate_limiter_interface import RateLimitInfo
+from src.core.interfaces.response_processor_interface import ProcessedResponse
 from src.core.interfaces.session_service_interface import ISessionService
 from src.core.services.backend_factory import BackendFactory
 from src.core.services.backend_service import BackendService
@@ -38,7 +40,7 @@ class MockBackend(LLMBackend):
         self.available_models = available_models or ["model1", "model2"]
         self.initialize_called = False
         self.chat_completions_called = False
-        self.chat_completions_mock = AsyncMock()
+        self.chat_completions_mock: AsyncMock = AsyncMock()  # type: ignore
 
     async def initialize(self, **kwargs: Any) -> None:
         self.initialize_called = True
@@ -49,16 +51,18 @@ class MockBackend(LLMBackend):
 
     async def chat_completions(
         self,
-        request_data: ChatRequest,
+        request_data: DomainModel | InternalDTO | dict[str, Any],
         processed_messages: list,
         effective_model: str,
+        identity: Any = None,
         **kwargs: Any,
-    ) -> ResponseEnvelope | StreamingResponseEnvelope:  # type: ignore
+    ) -> ResponseEnvelope | StreamingResponseEnvelope:
         self.chat_completions_called = True
         self.chat_completions_args = {
             "request_data": request_data,
             "processed_messages": processed_messages,
             "effective_model": effective_model,
+            "identity": identity,
             "kwargs": kwargs,
         }
         return await self.chat_completions_mock()
@@ -79,7 +83,7 @@ class MockStreamingResponse:
             self._content_iter = iter(self.content)
         try:
             chunk = next(self._content_iter)
-            return chunk.encode() if isinstance(chunk, str) else chunk
+            return ProcessedResponse(content=chunk)
         except StopIteration:
             raise StopAsyncIteration
 
@@ -96,15 +100,17 @@ class TestBackendFactory:
         from src.core.services.backend_registry import BackendRegistry
 
         registry = BackendRegistry()
+        from src.core.services.translation_service import TranslationService
+
         config = AppConfig()
-        factory = BackendFactory(client, registry, config)
+        factory = BackendFactory(client, registry, config, TranslationService())
 
         # Mock the backend registry instead of non-existent _backend_types
         mock_backend = MockBackend(client)
         with patch.object(
             registry,
             "get_backend_factory",
-            return_value=lambda client, config: mock_backend,
+            return_value=lambda client, config, translation_service: mock_backend,
         ):
             # Act
             backend = factory.create_backend("openai", config)  # Used string literal
@@ -123,8 +129,10 @@ class TestBackendFactory:
         from src.core.services.backend_registry import BackendRegistry
 
         registry = BackendRegistry()
+        from src.core.services.translation_service import TranslationService
+
         config = AppConfig()
-        factory = BackendFactory(client, registry, config)
+        factory = BackendFactory(client, registry, config, TranslationService())
         backend = MockBackend(client)
         init_config = {"api_key": "test-key", "extra_param": "value"}
 
@@ -144,9 +152,10 @@ class TestBackendFactory:
 
         registry = BackendRegistry()
         from src.core.config.app_config import AppConfig
+        from src.core.services.translation_service import TranslationService
 
         config = AppConfig()
-        factory = BackendFactory(client, registry, config)
+        factory = BackendFactory(client, registry, config, TranslationService())
 
         # Act & Assert
         with pytest.raises(ValueError):
@@ -186,9 +195,10 @@ class TestBackendServiceBasic:
 
         registry = BackendRegistry()
         from src.core.config.app_config import AppConfig
+        from src.core.services.translation_service import TranslationService
 
         config = AppConfig()
-        factory = BackendFactory(client, registry, config)
+        factory = BackendFactory(client, registry, config, TranslationService())
         rate_limiter = MockRateLimiter()
         session_service = Mock(spec=ISessionService)
         app_state = Mock(spec=IApplicationState)
@@ -268,6 +278,13 @@ class TestBackendServiceBasic:
 class TestBackendServiceCompletions:
     """Tests for the BackendService's completion handling."""
 
+    @staticmethod
+    async def mock_streaming_content(
+        chunks: list[str],
+    ) -> AsyncIterator[ProcessedResponse]:
+        for chunk in chunks:
+            yield ProcessedResponse(content=chunk)
+
     @pytest.fixture
     def mock_config(self):
         """Create a mock configuration."""
@@ -283,9 +300,10 @@ class TestBackendServiceCompletions:
 
         registry = BackendRegistry()
         from src.core.config.app_config import AppConfig
+        from src.core.services.translation_service import TranslationService
 
         config = AppConfig()
-        factory = BackendFactory(client, registry, config)
+        factory = BackendFactory(client, registry, config, TranslationService())
         rate_limiter = MockRateLimiter()
         session_service = Mock(spec=ISessionService)
         app_state = Mock(spec=IApplicationState)
@@ -344,11 +362,10 @@ class TestBackendServiceCompletions:
             "data: [DONE]\n\n",
         ]
 
-        mock_response = MockStreamingResponse(chunks)
         client = httpx.AsyncClient()
         mock_backend = MockBackend(client)
         mock_backend.chat_completions_mock.return_value = StreamingResponseEnvelope(
-            content=mock_response,
+            content=self.mock_streaming_content(chunks),
             media_type="text/event-stream",
             headers={},
         )
@@ -367,8 +384,9 @@ class TestBackendServiceCompletions:
 
             # Verify chunks
             assert len(result_chunks) == len(chunks)
-            for i in range(len(chunks)):
-                assert result_chunks[i] == chunks[i].encode()
+            for i, chunk in enumerate(chunks):
+                assert isinstance(result_chunks[i], ProcessedResponse)
+                assert result_chunks[i].content == chunk
 
     @pytest.mark.asyncio
     async def test_call_completion_streaming_error(self, service, chat_request):
@@ -499,9 +517,10 @@ class TestBackendServiceValidation:
 
         registry = BackendRegistry()
         from src.core.config.app_config import AppConfig
+        from src.core.services.translation_service import TranslationService
 
         config = AppConfig()
-        factory = BackendFactory(client, registry, config)
+        factory = BackendFactory(client, registry, config, TranslationService())
         rate_limiter = MockRateLimiter()
         mock_config = Mock()
         session_service = Mock(spec=ISessionService)
@@ -589,9 +608,10 @@ class TestBackendServiceFailover:
 
         registry = BackendRegistry()
         from src.core.config.app_config import AppConfig
+        from src.core.services.translation_service import TranslationService
 
         config = AppConfig()
-        factory = BackendFactory(client, registry, config)
+        factory = BackendFactory(client, registry, config, TranslationService())
         rate_limiter = MockRateLimiter()
         session_service = Mock(spec=ISessionService)
         app_state = Mock(spec=IApplicationState)
@@ -624,9 +644,10 @@ class TestBackendServiceFailover:
 
         registry = BackendRegistry()
         from src.core.config.app_config import AppConfig
+        from src.core.services.translation_service import TranslationService
 
         config = AppConfig()
-        factory = BackendFactory(client, registry, config)
+        factory = BackendFactory(client, registry, config, TranslationService())
         rate_limiter = MockRateLimiter()
         session_service = Mock(spec=ISessionService)
         app_state = Mock(spec=IApplicationState)

@@ -10,7 +10,7 @@ covering the various ways it can handle streaming responses.
 import types
 from collections.abc import Callable
 from typing import TYPE_CHECKING, Any
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from fastapi import HTTPException
@@ -30,20 +30,48 @@ class MockResponse:
         content: bytes | None = None,
         is_error: bool = False,
     ) -> None:
-        self.status_code = status_code
-        self.headers = headers or {}
-        self.content = content or b"test content"
-        self.is_error = is_error
-        self.closed = False
-        self.aiter_bytes: Callable[..., Any] | None = None
+        self.status_code: int = status_code
+        self._headers: dict[str, str] = headers or {}
+        self._content: bytes = content or b"test content"
+        self._is_error: bool = is_error
+        self._closed: bool = False
+        self._aiter_bytes: Callable[..., Any] | None = None
+
+    @property
+    def headers(self) -> dict[str, str]:
+        return self._headers
+
+    @headers.setter
+    def headers(self, value: dict[str, str]) -> None:
+        self._headers = value
+
+    @property
+    def content(self) -> bytes:
+        return self._content
+
+    @property
+    def is_error(self) -> bool:
+        return self._is_error
+
+    @property
+    def closed(self) -> bool:
+        return self._closed
+
+    @property
+    def aiter_bytes(self) -> Callable[..., Any] | None:
+        return self._aiter_bytes
+
+    @aiter_bytes.setter
+    def aiter_bytes(self, value: Callable[..., Any] | None) -> None:
+        self._aiter_bytes = value
 
     async def aread(self) -> bytes:
         """Mock aread method."""
-        return self.content
+        return self._content
 
     async def aclose(self) -> None:
         """Mock aclose method."""
-        self.closed = True
+        self._closed = True
 
     async def __aenter__(self) -> MockResponse:
         """Async context manager entry point."""
@@ -60,10 +88,11 @@ class MockResponse:
 
     def aiter_text(self) -> Any:
         """Mock aiter_text method that converts bytes to text."""
-        if self.aiter_bytes:
+        aiter_bytes_callable = self.aiter_bytes
+        if aiter_bytes_callable:
             # Convert bytes iterator to text iterator
             async def text_generator():
-                async for chunk in self.aiter_bytes():
+                async for chunk in aiter_bytes_callable():
                     if isinstance(chunk, bytes):
                         yield chunk.decode("utf-8")
                     else:
@@ -127,14 +156,30 @@ def connector(mocker: MockerFixture) -> OpenAIConnector:
     # Mock httpx.AsyncClient directly to ensure all instantiations are mocked
     mock_async_client = mocker.patch("httpx.AsyncClient", autospec=True)
     mock_instance = mock_async_client.return_value
-    mock_instance.send.return_value = MockResponse()  # Default mock response
+    # Default mock response - make sure headers is a dict
+    default_mock_response = MagicMock()
+    default_mock_response.status_code = 200
+    default_mock_response.headers = {}  # Ensure headers is a dict
+    default_mock_response.json.return_value = {}  # Ensure json() returns a dict
+    default_mock_response.text.return_value = ""  # Ensure text() returns a string
+    default_mock_response.aread.return_value = b""  # Ensure aread() returns bytes
+    default_mock_response.aclose = AsyncMock()
+    default_mock_response.aiter_bytes = AsyncMock(return_value=[])
+    default_mock_response.aiter_text = AsyncMock(return_value=[])
+
+    mock_instance.send.return_value = default_mock_response
 
     from src.core.config.app_config import AppConfig
+    from src.core.services.translation_service import TranslationService
 
     config = AppConfig()
     # Disable JSON repair for streaming tests to test basic functionality
     config.session.json_repair_enabled = False
-    connector = OpenAIConnector(mock_instance, config=config)
+    # Pass translation_service to OpenAIConnector
+    translation_service = TranslationService()
+    connector = OpenAIConnector(
+        mock_instance, config=config, translation_service=translation_service
+    )
     connector.api_key = "test-api-key"
     return connector
 
@@ -147,6 +192,10 @@ async def test_streaming_response_async_iterator(
     # Create a mock response with an async iterator
     chunks = [b"chunk1", b"chunk2", b"chunk3"]
     mock_response = MockResponse(headers={"Content-Type": "text/event-stream"})
+
+    # Use a regular method instead of AsyncMock for headers
+    # This prevents AsyncMock.keys() issue
+    mock_response.headers = {"Content-Type": "text/event-stream"}
     mock_response.aiter_bytes = lambda: AsyncIterBytes(chunks)
 
     # Mock the client.send method to return our mock response

@@ -143,7 +143,11 @@ class MockBackendService(IBackendService, IBackendProcessor):
         self.responses.append(response)
 
     async def call_completion(
-        self, request: ChatRequest, stream: bool = False, allow_failover: bool = True
+        self,
+        request: ChatRequest,
+        stream: bool = False,
+        allow_failover: bool = True,
+        context: RequestContext | None = None,
     ) -> ResponseEnvelope | StreamingResponseEnvelope:
         self.calls.append(request)
 

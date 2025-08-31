@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import json
 import logging
-import time
 from collections.abc import AsyncGenerator, Callable
 from typing import Any, cast
 
@@ -10,7 +9,6 @@ import httpx
 from fastapi import HTTPException
 
 from src.connectors.base import LLMBackend
-from src.core.adapters.api_adapters import dict_to_domain_chat_request
 from src.core.common.exceptions import BackendError, ServiceUnavailableError
 from src.core.config.app_config import AppConfig  # Added
 from src.core.domain.chat import (
@@ -23,6 +21,7 @@ from src.core.interfaces.configuration_interface import IAppIdentityConfig
 from src.core.interfaces.model_bases import DomainModel, InternalDTO
 from src.core.interfaces.response_processor_interface import ProcessedResponse
 from src.core.services.backend_registry import backend_registry
+from src.core.services.translation_service import TranslationService
 
 # Legacy ChatCompletionRequest removed from connector signatures; use domain ChatRequest
 
@@ -38,10 +37,14 @@ class GeminiBackend(LLMBackend):
     backend_type: str = "gemini"
 
     def __init__(
-        self, client: httpx.AsyncClient, config: AppConfig
-    ) -> None:  # Modified
+        self,
+        client: httpx.AsyncClient,
+        config: AppConfig,
+        translation_service: TranslationService,
+    ) -> None:
         self.client = client
         self.config = config  # Stored config
+        self.translation_service = translation_service
         self.available_models: list[str] = []
         self.api_keys: list[str] = []
 
@@ -94,87 +97,19 @@ class GeminiBackend(LLMBackend):
 
     def _convert_stream_chunk(self, data: dict[str, Any], model: str) -> dict[str, Any]:
         """Convert a Gemini streaming JSON chunk to OpenAI format."""
-        candidate: dict[str, Any] = {}
-        text = ""
-        if data.get("candidates"):
-            candidate = data["candidates"][0] or {}
-            parts = candidate.get("content", {}).get("parts", [])
-            for part in parts:
-                if isinstance(part, dict) and "text" in part:
-                    text += part["text"]
-        finish = candidate.get("finishReason")
-        return {
-            "id": data.get("id", ""),
-            "object": "chat.completion.chunk",
-            "created": int(time.time()),
-            "model": model,
-            "choices": [
-                {
-                    "index": candidate.get("index", 0),
-                    "delta": {"content": text},
-                    "finish_reason": (
-                        finish.lower() if isinstance(finish, str) else None
-                    ),
-                }
-            ],
-        }
+        # This method is no longer needed as translation is handled by TranslationService
+        raise DeprecationWarning(
+            "GeminiBackend._convert_stream_chunk is deprecated and will be removed."
+        )
 
     def _convert_full_response(
         self, data: dict[str, Any], model: str
     ) -> dict[str, Any]:
         """Convert a Gemini JSON response to OpenAI format, including function calls."""
-        candidate: dict[str, Any] = {}
-        text = ""
-        tool_call_obj: dict[str, Any] | None = None
-        if data.get("candidates"):
-            candidate = data["candidates"][0] or {}
-            parts = candidate.get("content", {}).get("parts", [])
-            for part in parts:
-                if isinstance(part, dict):
-                    if part.get("functionCall"):
-                        fc = part["functionCall"]
-                        try:
-                            args_str = json.dumps(fc.get("args", {}))
-                        except Exception:
-                            args_str = "{}"
-                        tool_call_obj = {
-                            "id": "call_0",
-                            "type": "function",
-                            "function": {
-                                "name": fc.get("name", "function"),
-                                "arguments": args_str,
-                            },
-                        }
-                    elif "text" in part:
-                        text += part["text"]
-        finish = candidate.get("finishReason")
-        usage = data.get("usageMetadata", {})
-
-        message: dict[str, Any] = {"role": "assistant", "content": text}
-        finish_reason = finish.lower() if isinstance(finish, str) else None
-        if tool_call_obj is not None:
-            message["content"] = None
-            message["tool_calls"] = [tool_call_obj]
-            finish_reason = "tool_calls"
-
-        return {
-            "id": data.get("id", ""),
-            "object": "chat.completion",
-            "created": int(time.time()),
-            "model": model,
-            "choices": [
-                {
-                    "index": candidate.get("index", 0),
-                    "message": message,
-                    "finish_reason": finish_reason,
-                }
-            ],
-            "usage": {
-                "prompt_tokens": usage.get("promptTokenCount", 0),
-                "completion_tokens": usage.get("candidatesTokenCount", 0),
-                "total_tokens": usage.get("totalTokenCount", 0),
-            },
-        }
+        # This method is no longer needed as translation is handled by TranslationService
+        raise DeprecationWarning(
+            "GeminiBackend._convert_full_response is deprecated and will be removed."
+        )
 
     def _convert_part_for_gemini(
         self, part: MessageContentPartText | MessageContentPartImage
@@ -283,18 +218,18 @@ class GeminiBackend(LLMBackend):
                         # If JSON repair is enabled, the processor yields repaired JSON strings
                         # or raw text. If disabled, it yields raw text.
                         # Convert Gemini format to OpenAI format for consistency
-                        from src.gemini_converters import gemini_to_openai_stream_chunk
-
                         if chunk.startswith(("data: ", "id: ", ":")):
-                            # Convert Gemini SSE chunk to OpenAI format
-                            openai_chunk = gemini_to_openai_stream_chunk(chunk)
-                            yield ProcessedResponse(content=openai_chunk)
-                        else:
-                            # Convert raw Gemini JSON to OpenAI format
-                            openai_chunk = gemini_to_openai_stream_chunk(
-                                f"data: {chunk}"
+                            yield ProcessedResponse(
+                                content=self.translation_service.to_domain_stream_chunk(
+                                    chunk, source_format="gemini"
+                                )
                             )
-                            yield ProcessedResponse(content=openai_chunk)
+                        else:
+                            yield ProcessedResponse(
+                                content=self.translation_service.to_domain_stream_chunk(
+                                    f"data: {chunk}", source_format="gemini"
+                                )
+                            )
 
                     yield ProcessedResponse(content="data: [DONE]\n\n")
                 finally:
@@ -335,32 +270,28 @@ class GeminiBackend(LLMBackend):
             if identity.title:
                 headers["X-Title"] = identity.title
 
-        # Normalize incoming request to ChatRequest
-        if isinstance(request_data, dict):
-            request_data = dict_to_domain_chat_request(request_data)
-        elif not isinstance(request_data, ChatRequest):
-            # Convert to dict first
-            if hasattr(request_data, "model_dump"):
-                request_dict = request_data.model_dump()  # type: ignore
-            elif hasattr(request_data, "dict"):
-                request_dict = request_data.dict()  # type: ignore
-            else:
-                request_dict = dict(request_data)  # type: ignore
-            request_data = dict_to_domain_chat_request(request_dict)
-        request_data = cast(ChatRequest, request_data)
+        # Translate incoming request to CanonicalChatRequest using the translation service
+        domain_request = self.translation_service.to_domain_request(
+            request_data, source_format="gemini"
+        )
 
-        # Build payload
-        payload: dict[str, Any] = {
-            "contents": self._prepare_gemini_contents(processed_messages)
-        }
-        self._apply_generation_config(payload, request_data)
-        if request_data.extra_body:
+        # Translate CanonicalChatRequest to Gemini request using the translation service
+        payload = self.translation_service.from_domain_request(
+            domain_request, target_format="gemini"
+        )
+
+        # Apply generation config including temperature clamping
+        self._apply_generation_config(payload, domain_request)
+
+        # Apply contents and extra_body
+        payload["contents"] = self._prepare_gemini_contents(processed_messages)
+        if domain_request.extra_body:
             # Merge extra_body with payload, but be careful with generationConfig.
             # We support both legacy placement under 'generation_config' and
             # the external 'generationConfig' key that Gemini expects.
             # Normalize: prefer explicit generation_config on ChatRequest, then
             # merge any 'generationConfig' present in extra_body on top.
-            extra_body_copy = dict(request_data.extra_body)
+            extra_body_copy = dict(domain_request.extra_body)
 
             # If caller placed generation_config on ChatRequest it was already
             # merged by _apply_generation_config into payload['generationConfig'].
@@ -375,7 +306,24 @@ class GeminiBackend(LLMBackend):
                 # merge by creating a new dict so we don't retain old references
                 existing = payload.get("generationConfig", {})
                 merged = dict(existing)
-                merged.update(extra_gen_cfg)
+
+                # Handle nested structures like thinkingConfig
+                for key, value in extra_gen_cfg.items():
+                    if (
+                        key == "thinkingConfig"
+                        and isinstance(value, dict)
+                        and "thinkingConfig" in merged
+                        and isinstance(merged["thinkingConfig"], dict)
+                    ):
+                        # Deep merge thinkingConfig
+                        merged["thinkingConfig"].update(value)
+                    elif key == "maxOutputTokens" and "maxOutputTokens" not in merged:
+                        # Add maxOutputTokens if not present
+                        merged["maxOutputTokens"] = value
+                    else:
+                        # Regular update for other keys
+                        merged[key] = value
+
                 # Ensure extra_body overrides win for temperature specifically
                 if "temperature" in extra_gen_cfg:
                     merged["temperature"] = extra_gen_cfg["temperature"]
@@ -398,7 +346,7 @@ class GeminiBackend(LLMBackend):
         model_url = f"{base_api_url}/v1beta/models/{model_name}"
 
         # Streaming vs non-streaming
-        if request_data.stream:
+        if domain_request.stream:
             return await self._handle_gemini_streaming_response(
                 model_url, payload, headers, effective_model
             )
@@ -437,9 +385,8 @@ class GeminiBackend(LLMBackend):
 
         # thinking budget
         if getattr(request_data, "thinking_budget", None):
-            generation_config.setdefault("thinkingConfig", {})[
-                "thinkingBudget"
-            ] = request_data.thinking_budget  # type: ignore[index]
+            thinking_config = generation_config.setdefault("thinkingConfig", {})
+            thinking_config["thinkingBudget"] = request_data.thinking_budget  # type: ignore[index]
 
         # top_k
         if getattr(request_data, "top_k", None) is not None:
@@ -447,9 +394,8 @@ class GeminiBackend(LLMBackend):
 
         # reasoning_effort
         if getattr(request_data, "reasoning_effort", None) is not None:
-            generation_config.setdefault("thinkingConfig", {})[
-                "reasoning_effort"
-            ] = request_data.reasoning_effort
+            thinking_config = generation_config.setdefault("thinkingConfig", {})
+            thinking_config["reasoning_effort"] = request_data.reasoning_effort
 
         # generation config blob - merge with existing config
         if getattr(request_data, "generation_config", None):
@@ -460,12 +406,13 @@ class GeminiBackend(LLMBackend):
         # temperature clamped to [0,1]
         temperature = getattr(request_data, "temperature", None)
         if temperature is not None:
-            if temperature > 1.0:
+            # Clamp temperature to [0,1] range for Gemini
+            if float(temperature) > 1.0:
                 logger.warning(
                     f"Temperature {temperature} > 1.0 for Gemini, clamping to 1.0"
                 )
                 temperature = 1.0
-            generation_config["temperature"] = temperature
+            generation_config["temperature"] = float(temperature)
 
         # top_p
         if request_data.top_p is not None:
@@ -528,7 +475,9 @@ class GeminiBackend(LLMBackend):
             if logger.isEnabledFor(logging.DEBUG):
                 logger.debug("Gemini response headers: %s", dict(response.headers))
             return ResponseEnvelope(
-                content=self._convert_full_response(data, effective_model),
+                content=self.translation_service.to_domain_response(
+                    data, source_format="gemini"
+                ),
                 headers=dict(response.headers),
                 status_code=response.status_code,
             )

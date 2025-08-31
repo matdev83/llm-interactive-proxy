@@ -274,6 +274,7 @@ class AppConfig(DomainModel, IConfig):
 
     host: str = "0.0.0.0"
     port: int = 8000
+    anthropic_port: int | None = None  # Will be set to port + 1 if not provided
     proxy_timeout: int = 120
     command_prefix: str = "!/"
 
@@ -325,6 +326,8 @@ class AppConfig(DomainModel, IConfig):
             # Server settings
             "host": os.environ.get("APP_HOST", "0.0.0.0"),
             "port": int(os.environ.get("APP_PORT", "8000")),
+            "anthropic_port": int(os.environ.get("ANTHROPIC_PORT") or 0)
+            or (int(os.environ.get("APP_PORT", "8000")) + 1),
             "proxy_timeout": int(os.environ.get("PROXY_TIMEOUT", "120")),
             "command_prefix": os.environ.get("COMMAND_PREFIX", "!/"),
             "auth": {

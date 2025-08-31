@@ -34,6 +34,9 @@ def mock_app_config() -> AppConfig:
     return config
 
 
+from src.core.services.translation_service import TranslationService
+
+
 @pytest.fixture
 def backend_factory(
     mock_http_client: MockHTTPClient, mock_app_config: AppConfig
@@ -47,7 +50,10 @@ def backend_factory(
     registry.register_backend("anthropic", AnthropicBackend)
 
     return BackendFactory(
-        httpx_client=mock_http_client, backend_registry=registry, config=mock_app_config
+        httpx_client=mock_http_client,
+        backend_registry=registry,
+        config=mock_app_config,
+        translation_service=TranslationService(),
     )
 
 

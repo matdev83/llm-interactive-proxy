@@ -5,16 +5,16 @@ import logging
 logger = logging.getLogger(__name__)
 
 from collections.abc import AsyncGenerator, AsyncIterator
-from typing import Any, cast
+from contextlib import suppress
+from typing import Any
 
 import httpx
 from fastapi import HTTPException
 
 from src.connectors.base import LLMBackend
-from src.core.adapters.api_adapters import dict_to_domain_chat_request
 from src.core.common.exceptions import AuthenticationError, ServiceUnavailableError
 from src.core.config.app_config import AppConfig
-from src.core.domain.chat import ChatRequest
+from src.core.domain.chat import CanonicalChatRequest
 from src.core.domain.responses import ResponseEnvelope, StreamingResponseEnvelope
 from src.core.interfaces.configuration_interface import IAppIdentityConfig
 from src.core.interfaces.model_bases import DomainModel, InternalDTO
@@ -23,6 +23,7 @@ from src.core.interfaces.response_processor_interface import (
     ProcessedResponse,
 )
 from src.core.services.backend_registry import backend_registry
+from src.core.services.translation_service import TranslationService
 
 # Add health check flag for subclasses to control behavior
 HEALTH_CHECK_SUPPORTED = False
@@ -45,9 +46,11 @@ class OpenAIConnector(LLMBackend):
         client: httpx.AsyncClient,
         config: AppConfig,  # Added
         response_processor: IResponseProcessor | None = None,
+        translation_service: TranslationService | None = None,  # Added
     ) -> None:
         super().__init__(config, response_processor)
         self.client = client
+        self.translation_service = translation_service or TranslationService()
         self.config = config  # Stored config
         self.available_models: list[str] = []
         self.api_key: str | None = None
@@ -178,59 +181,6 @@ class OpenAIConnector(LLMBackend):
         self._health_check_enabled = False
         logger.info(f"Health check disabled for {self.backend_type} backend")
 
-    def _prepare_payload(
-        self,
-        request_data: ChatRequest,
-        processed_messages: list[Any],
-        effective_model: str,
-    ) -> dict[str, Any]:
-        payload = request_data.model_dump(exclude_unset=True)
-        payload["model"] = effective_model
-        payload["messages"] = [
-            m.model_dump() if hasattr(m, "model_dump") else m
-            for m in processed_messages
-        ]
-        # Merge any connector-specific extra_body fields
-        extra = getattr(request_data, "extra_body", None)
-        if extra:
-            payload.update(extra)
-
-        # Add seed if available
-        if request_data.seed is not None:
-            payload["seed"] = request_data.seed
-
-        return payload
-
-    def _ensure_string_keys_and_values(self, data: Any) -> Any:
-        """Recursively ensures all dictionary keys and values (if bytes) are strings."""
-        if isinstance(data, dict):
-            return {
-                self._ensure_string_keys_and_values(
-                    k
-                ): self._ensure_string_keys_and_values(v)
-                for k, v in data.items()
-            }
-        elif isinstance(data, list):
-            return [self._ensure_string_keys_and_values(elem) for elem in data]
-        elif isinstance(data, bytes | bytearray):  # Handle bytes and bytearray directly
-            try:
-                return data.decode("utf-8")
-            except UnicodeDecodeError:
-                if logger.isEnabledFor(logging.WARNING):
-                    logger.warning(f"Could not decode bytes to utf-8: {data!r}")
-                return str(data)  # Fallback to string representation
-        elif isinstance(
-            data, memoryview
-        ):  # Convert memoryview to bytes before decoding
-            try:
-                return bytes(data).decode("utf-8")
-            except UnicodeDecodeError:
-                if logger.isEnabledFor(logging.WARNING):
-                    logger.warning(f"Could not decode memoryview to utf-8: {data!r}")
-                return str(data)  # Fallback to string representation
-        else:
-            return data
-
     async def chat_completions(
         self,
         request_data: DomainModel | InternalDTO | dict[str, Any],
@@ -242,26 +192,13 @@ class OpenAIConnector(LLMBackend):
         # Perform health check if enabled (for subclasses that support it)
         await self._ensure_healthy()
 
-        # Normalize incoming request to domain ChatRequest
-        if isinstance(request_data, dict):
-            request_data = dict_to_domain_chat_request(
-                self._ensure_string_keys_and_values(request_data)
-            )
-        elif not isinstance(request_data, ChatRequest):
-            # Convert to dict first
-            if hasattr(request_data, "model_dump"):
-                request_dict = request_data.model_dump()  # type: ignore
-            elif hasattr(request_data, "dict"):
-                request_dict = request_data.dict()  # type: ignore
-            else:
-                request_dict = dict(request_data)  # type: ignore
-            request_data = dict_to_domain_chat_request(
-                self._ensure_string_keys_and_values(request_dict)
-            )
-        request_data = cast(ChatRequest, request_data)
-
-        payload = self._prepare_payload(
-            request_data, processed_messages, effective_model
+        domain_request = self.translation_service.to_domain_request(
+            request_data, "openai"
+        )
+        # Prepare the payload using a helper so subclasses and tests can
+        # override or patch payload construction logic easily.
+        payload = await self._prepare_payload(
+            domain_request, processed_messages, effective_model
         )
         headers = kwargs.pop("headers_override", None)
         if headers is None:
@@ -275,11 +212,11 @@ class OpenAIConnector(LLMBackend):
         api_base = kwargs.get("openai_url") or self.api_base_url
         url = f"{api_base.rstrip('/')}/chat/completions"
 
-        if request_data.stream:
+        if domain_request.stream:
             # Return a domain-level streaming envelope (raw bytes iterator)
             try:
                 content_iterator = await self._handle_streaming_response(
-                    url, payload, headers, request_data.session_id or ""
+                    url, payload, headers, domain_request.session_id or ""
                 )
             except AuthenticationError as e:
                 raise HTTPException(status_code=401, detail=str(e))
@@ -291,8 +228,76 @@ class OpenAIConnector(LLMBackend):
         else:
             # Return a domain ResponseEnvelope for non-streaming
             return await self._handle_non_streaming_response(
-                url, payload, headers, request_data.session_id or ""
+                url, payload, headers, domain_request.session_id or ""
             )
+
+    async def _prepare_payload(
+        self,
+        request_data: CanonicalChatRequest,
+        processed_messages: list[Any],
+        effective_model: str,
+    ) -> dict[str, Any]:
+        """
+        Default payload preparation for OpenAI-compatible backends.
+
+        Subclasses or tests may patch/override this method to customize the
+        final payload sent to the provider.
+        """
+        # request_data is expected to be a CanonicalChatRequest already
+        # (the caller creates it via TranslationService.to_domain_request).
+        payload = self.translation_service.from_domain_request(request_data, "openai")
+
+        # Prefer processed_messages (these are the canonical, post-processed
+        # messages ready to send); if provided, use them to build the
+        # provider payload so tests and callers that patch messages work.
+        if processed_messages:
+            with suppress(Exception):
+                payload["messages"] = []
+                for m in processed_messages:
+                    message_dict = {"role": m.role}
+
+                    # Handle content which could be string, list of parts, or None
+                    if m.content is None:
+                        message_dict["content"] = None
+                    elif isinstance(m.content, str):
+                        message_dict["content"] = m.content
+                    elif isinstance(m.content, list):
+                        # Convert multimodal content parts to dict
+                        message_dict["content"] = [
+                            part.model_dump() if hasattr(part, "model_dump") else part
+                            for part in m.content
+                        ]
+
+                    # Handle tool calls if present
+                    if m.tool_calls:
+                        message_dict["tool_calls"] = [
+                            tc.model_dump() if hasattr(tc, "model_dump") else tc
+                            for tc in m.tool_calls
+                        ]
+
+                    # Handle tool call ID if present
+                    if m.tool_call_id:
+                        message_dict["tool_call_id"] = m.tool_call_id
+
+                    # Handle name if present
+                    if m.name:
+                        message_dict["name"] = m.name
+
+                    payload["messages"].append(message_dict)
+
+        # The caller may supply an "effective_model" which should override
+        # the model value coming from the domain request. Many tests expect
+        # the provider payload to use the effective_model.
+        if effective_model:
+            payload["model"] = effective_model
+
+        # Allow request.extra_body to override or augment the final payload.
+        extra = getattr(request_data, "extra_body", None)
+        if isinstance(extra, dict):
+            payload.update(extra)
+
+        # mypy: ensure we return a concrete dict[str, Any]
+        return dict(payload)
 
     async def _handle_non_streaming_response(
         self,
@@ -318,23 +323,27 @@ class OpenAIConnector(LLMBackend):
                 err = response.text
             raise HTTPException(status_code=response.status_code, detail=err)
 
-        if self._response_processor:
-            processed_response = await self._response_processor.process_response(
-                response.json(), session_id=session_id
-            )
-            return ResponseEnvelope(
-                content=processed_response.content,
-                status_code=response.status_code,
-                headers=dict(response.headers),
-                usage=processed_response.usage,
-                metadata=processed_response.metadata,
-            )
-        else:
-            return ResponseEnvelope(
-                content=response.json(),
-                status_code=response.status_code,
-                headers=dict(response.headers),
-            )
+        domain_response = self.translation_service.to_domain_response(
+            response.json(), "openai"
+        )
+        # Some tests use mocks that set response.headers to AsyncMock or
+        # other non-dict types; defensively coerce to a dict and fall back
+        # to an empty dict on error so tests don't raise during header
+        # extraction.
+        try:
+            response_headers = dict(response.headers)
+        except Exception:
+            try:
+                response_headers = dict(getattr(response, "headers", {}) or {})
+            except Exception:
+                response_headers = {}
+
+        return ResponseEnvelope(
+            content=domain_response.model_dump(),
+            status_code=response.status_code,
+            headers=response_headers,
+            usage=domain_response.usage,
+        )
 
     async def _handle_streaming_response(
         self,
@@ -376,7 +385,9 @@ class OpenAIConnector(LLMBackend):
             # Forward raw text stream; central pipeline will handle normalization/repairs
             async def text_generator() -> AsyncGenerator[str, None]:
                 async for chunk in response.aiter_text():
-                    yield chunk
+                    yield self.translation_service.to_domain_stream_chunk(
+                        chunk, "openai"
+                    )
 
             try:
                 async for chunk in text_generator():

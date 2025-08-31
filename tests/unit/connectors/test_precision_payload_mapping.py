@@ -12,6 +12,7 @@ from src.connectors.openai import OpenAIConnector
 from src.connectors.openrouter import OpenRouterBackend
 from src.core.config.app_config import AppConfig
 from src.core.domain.chat import ChatMessage, ChatRequest
+from src.core.services.translation_service import TranslationService
 
 
 def _messages() -> list[Any]:
@@ -19,29 +20,56 @@ def _messages() -> list[Any]:
 
 
 @pytest.mark.asyncio
-async def test_openai_payload_contains_temperature_and_top_p() -> None:
+async def test_openai_payload_contains_temperature_and_top_p(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     cfg = AppConfig()
-    connector = OpenAIConnector(httpx.AsyncClient(), cfg)
+    client = httpx.AsyncClient()
+    connector = OpenAIConnector(client, cfg, translation_service=TranslationService())
+    connector.api_key = "test-api-key"  # Add API key to avoid authentication error
     req = ChatRequest(model="gpt-4", messages=_messages(), temperature=0.12, top_p=0.34)
-    payload = connector._prepare_payload(
-        req, [m.model_dump() for m in req.messages], req.model
-    )
-    assert payload.get("temperature") == 0.12
-    assert payload.get("top_p") == 0.34
+
+    captured_payload = {}
+
+    async def fake_post(url: str, json: dict, headers: dict) -> httpx.Response:
+        captured_payload.update(json)
+        return httpx.Response(
+            200, json={"id": "1", "choices": [{"message": {"content": "ok"}}]}
+        )
+
+    monkeypatch.setattr(client, "post", fake_post)
+
+    await connector.chat_completions(req, req.messages, req.model)
+
+    assert captured_payload.get("temperature") == 0.12
+    assert captured_payload.get("top_p") == 0.34
 
 
 @pytest.mark.asyncio
-async def test_openrouter_payload_contains_temperature_and_top_p() -> None:
+async def test_openrouter_payload_contains_temperature_and_top_p(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     cfg = AppConfig()
-    connector = OpenRouterBackend(httpx.AsyncClient(), cfg)  # type: ignore[arg-type]
+    client = httpx.AsyncClient()
+    connector = OpenRouterBackend(client, cfg, translation_service=TranslationService())
     req = ChatRequest(
         model="openrouter:gpt-4", messages=_messages(), temperature=0.2, top_p=0.5
     )
-    payload = connector._prepare_payload(
-        req, [m.model_dump() for m in req.messages], "gpt-4"
-    )
-    assert payload.get("temperature") == 0.2
-    assert payload.get("top_p") == 0.5
+
+    captured_payload = {}
+
+    async def fake_post(url: str, json: dict, headers: dict) -> httpx.Response:
+        captured_payload.update(json)
+        return httpx.Response(
+            200, json={"id": "1", "choices": [{"message": {"content": "ok"}}]}
+        )
+
+    monkeypatch.setattr(client, "post", fake_post)
+
+    await connector.chat_completions(req, req.messages, "gpt-4")
+
+    assert captured_payload.get("temperature") == 0.2
+    assert captured_payload.get("top_p") == 0.5
 
 
 @pytest.mark.asyncio
@@ -49,7 +77,8 @@ async def test_anthropic_payload_contains_temperature_and_top_p(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     cfg = AppConfig()
-    backend = AnthropicBackend(httpx.AsyncClient(), cfg)
+    client = httpx.AsyncClient()
+    backend = AnthropicBackend(client, cfg, TranslationService())
 
     captured: dict[str, Any] = {}
 
@@ -75,7 +104,7 @@ async def test_anthropic_payload_contains_temperature_and_top_p(
         captured["headers"] = headers
         return _Resp()
 
-    monkeypatch.setattr(backend.client, "post", fake_post)
+    monkeypatch.setattr(client, "post", fake_post)
 
     req = ChatRequest(
         model="claude-3", messages=_messages(), temperature=0.25, top_p=0.6
@@ -88,7 +117,9 @@ async def test_anthropic_payload_contains_temperature_and_top_p(
 
 def test_gemini_public_generation_config_clamping_and_topk() -> None:
     cfg = AppConfig()
-    backend = GeminiBackend(httpx.AsyncClient(), cfg)
+    backend = GeminiBackend(
+        httpx.AsyncClient(), cfg, translation_service=TranslationService()
+    )
     payload: dict[str, Any] = {}
     req = ChatRequest(
         model="gemini-pro", messages=_messages(), temperature=1.5, top_p=0.4, top_k=50
@@ -102,7 +133,9 @@ def test_gemini_public_generation_config_clamping_and_topk() -> None:
 
 def test_gemini_oauth_personal_builds_topk() -> None:
     cfg = AppConfig()
-    backend = GeminiOAuthPersonalConnector(httpx.AsyncClient(), cfg)  # type: ignore[arg-type]
+    backend = GeminiOAuthPersonalConnector(
+        httpx.AsyncClient(), cfg, translation_service=TranslationService()
+    )
 
     class _Req:
         temperature = 0.22
@@ -119,7 +152,12 @@ def test_gemini_oauth_personal_builds_topk() -> None:
 def test_gemini_cloud_project_builds_topk() -> None:
     cfg = AppConfig()
     # Minimal init (project id may be None for this isolated helper test)
-    backend = GeminiCloudProjectConnector(httpx.AsyncClient(), cfg, gcp_project_id="test-proj")  # type: ignore[arg-type]
+    backend = GeminiCloudProjectConnector(
+        httpx.AsyncClient(),
+        cfg,
+        translation_service=TranslationService(),
+        gcp_project_id="test-proj",
+    )
 
     class _Req:
         temperature = 0.3

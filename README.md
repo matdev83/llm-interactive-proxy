@@ -440,6 +440,28 @@ Sessions are identified using the `x-session-id` header. If not provided, a new 
 - **Usage Stats**: `GET /v2/usage/stats`
 - **Recent Usage**: `GET /v2/usage/recent`
 
+#### Dedicated Anthropic Server
+
+To accommodate clients that cannot use custom URI paths, the Anthropic front-end can be run on a dedicated port. When running on a dedicated port, the `/anthropic` path prefix is not required.
+
+To run the dedicated Anthropic server, set the `ANTHROPIC_PORT` environment variable to the desired port number and run the following command:
+
+```bash
+python -m src.anthropic_server
+```
+
+#### Dedicated Anthropic Server
+
+To accommodate clients that cannot use custom URI paths, the Anthropic front-end can be run on a dedicated port. When running on a dedicated port, the `/anthropic` path prefix is not required.
+
+To run the dedicated Anthropic server, set the `ANTHROPIC_PORT` environment variable to the desired port number and run the following command:
+
+```bash
+python -m src.anthropic_server
+```
+
+If the `ANTHROPIC_PORT` is not set, it will default to the main port + 1.
+
 #### Audit Logs
 
 - `GET /v2/audit/logs`

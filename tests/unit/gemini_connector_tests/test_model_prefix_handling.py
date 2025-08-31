@@ -1,6 +1,5 @@
 # import json # F401: Removed
 
-from typing import Any
 
 import httpx
 import pytest
@@ -16,9 +15,12 @@ TEST_GEMINI_API_BASE_URL = "https://generativelanguage.googleapis.com"
 async def gemini_backend_fixture():
     async with httpx.AsyncClient() as client:
         from src.core.config.app_config import AppConfig
+        from src.core.services.translation_service import TranslationService
 
         config = AppConfig()
-        yield GeminiBackend(client=client, config=config)
+        yield GeminiBackend(
+            client=client, config=config, translation_service=TranslationService()
+        )
 
 
 @pytest.fixture
@@ -73,9 +75,7 @@ async def test_chat_completions_model_prefix_handled(
     )
     # The response is now a ResponseEnvelope
     assert hasattr(response_tuple, "content")
-    response: dict[str, Any] = response_tuple.content  # type: ignore
-
-    assert isinstance(response, dict)
+    # The content is now a CanonicalChatResponse, not a dict
     request = httpx_mock.get_request()
     assert request is not None
     assert (

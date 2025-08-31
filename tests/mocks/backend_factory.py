@@ -33,8 +33,19 @@ class MockBackend(LLMBackend):
         return {"HTTP-Referer": self.identity.url, "X-Title": self.identity.title}
 
 
+import httpx
+from src.core.services.backend_registry import BackendRegistry
+from src.core.services.translation_service import TranslationService
+
+
 class MockBackendFactory(BackendFactory):
     def __init__(self) -> None:
+        super().__init__(
+            httpx.AsyncClient(),
+            BackendRegistry(),
+            AppConfig(),
+            TranslationService(),
+        )
         self._backends: dict[str, MockBackend] = {}
 
     async def ensure_backend(

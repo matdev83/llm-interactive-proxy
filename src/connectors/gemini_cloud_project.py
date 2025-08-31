@@ -67,6 +67,7 @@ from src.core.domain.responses import (
     StreamingResponseEnvelope,
 )
 from src.core.services.backend_registry import backend_registry
+from src.core.services.translation_service import TranslationService
 
 from .gemini import GeminiBackend
 
@@ -173,9 +174,14 @@ class GeminiCloudProjectConnector(GeminiBackend):
     backend_type: str = "gemini-cli-cloud-project"
 
     def __init__(
-        self, client: httpx.AsyncClient, config: AppConfig, **kwargs: Any
+        self,
+        client: httpx.AsyncClient,
+        config: AppConfig,
+        translation_service: TranslationService,
+        **kwargs: Any,
     ) -> None:  # Modified
-        super().__init__(client, config)  # Modified
+        super().__init__(client, config, translation_service)
+        self.translation_service = translation_service
         self.name = "gemini-cli-cloud-project"
         self.is_functional = False
         self._oauth_credentials: dict[str, Any] | None = None
@@ -450,7 +456,7 @@ class GeminiCloudProjectConnector(GeminiBackend):
                 url=url,
                 json=load_request,
                 headers={"Content-Type": "application/json"},
-                timeout=30.0,
+                timeout=30,
             )
 
             if load_response.status_code == 403:
@@ -618,18 +624,16 @@ class GeminiCloudProjectConnector(GeminiBackend):
             # Ensure project is onboarded for standard-tier
             project_id = await self._ensure_project_onboarded(auth_session)
 
-            # Convert messages to Gemini format
-            contents = self._convert_messages_to_gemini_format(processed_messages)
+            # Convert messages to canonical domain request using the translation service
+            canonical_request = self.translation_service.to_domain_request(
+                request=request_data,
+                source_format="anthropic",  # Assuming input is Anthropic-compatible
+            )
 
             # Prepare request body with USER'S project ID
-            request_body = {
-                "model": effective_model,
-                "project": project_id,  # User's GCP project
-                "request": {
-                    "contents": contents,
-                    "generationConfig": self._build_generation_config(request_data),
-                },
-            }
+            request_body = canonical_request.model_dump(exclude_unset=True)
+            request_body["model"] = effective_model
+            request_body["project"] = project_id  # User's GCP project
 
             url = f"{self.gemini_api_base_url}/v1internal:streamGenerateContent"
             logger.info(f"Making Code Assist API call with project {project_id}")
@@ -641,7 +645,7 @@ class GeminiCloudProjectConnector(GeminiBackend):
                 params={"alt": "sse"},
                 json=request_body,
                 headers={"Content-Type": "application/json"},
-                timeout=60.0,
+                timeout=60,
             )
 
             if response.status_code >= 400:
@@ -664,7 +668,7 @@ class GeminiCloudProjectConnector(GeminiBackend):
 
             # Parse SSE stream response
             generated_text = ""
-            usage_metadata = {}
+            domain_response = None
 
             response_text = response.text
             for line in response_text.split("\n"):
@@ -674,40 +678,25 @@ class GeminiCloudProjectConnector(GeminiBackend):
                         break
                     try:
                         data = json.loads(data_str)
-                        response_data = data.get("response", data)
-
-                        candidates = response_data.get("candidates", [])
-                        if candidates:
-                            content = candidates[0].get("content", {})
-                            parts = content.get("parts", [])
-                            for part in parts:
-                                if isinstance(part, dict) and "text" in part:
-                                    generated_text += part["text"]
-
-                        if "usageMetadata" in response_data:
-                            usage_metadata = response_data["usageMetadata"]
+                        domain_response = self.translation_service.to_domain_response(
+                            response=data,
+                            source_format="code_assist",
+                        )
+                        if (
+                            domain_response.choices
+                            and domain_response.choices[0].message.content
+                        ):
+                            generated_text += domain_response.choices[0].message.content
                     except json.JSONDecodeError:
                         continue
 
-            # Convert to OpenAI-compatible format
-            openai_response = {
-                "id": f"gemini-cloud-{int(time.time())}",
-                "object": "chat.completion",
-                "created": int(time.time()),
-                "model": effective_model,
-                "choices": [
-                    {
-                        "index": 0,
-                        "message": {"role": "assistant", "content": generated_text},
-                        "finish_reason": "stop",
-                    }
-                ],
-                "usage": {
-                    "prompt_tokens": usage_metadata.get("promptTokenCount", 0),
-                    "completion_tokens": usage_metadata.get("candidatesTokenCount", 0),
-                    "total_tokens": usage_metadata.get("totalTokenCount", 0),
-                },
-            }
+            # Convert to OpenAI-compatible format using the translation service
+            if not domain_response:
+                raise BackendError("Failed to parse a valid response from the backend.")
+            openai_response = self.translation_service.from_domain_response(
+                response=domain_response,
+                target_format="openai",
+            ).model_dump(exclude_unset=True)
 
             logger.info(
                 f"Successfully received response from Code Assist API for project {project_id}"
@@ -737,18 +726,16 @@ class GeminiCloudProjectConnector(GeminiBackend):
             # Ensure project is onboarded for standard-tier
             project_id = await self._ensure_project_onboarded(auth_session)
 
-            # Convert messages to Gemini format
-            contents = self._convert_messages_to_gemini_format(processed_messages)
+            # Convert messages to canonical domain request using the translation service
+            canonical_request = self.translation_service.to_domain_request(
+                request=request_data,
+                source_format="anthropic",  # Assuming input is Anthropic-compatible
+            )
 
             # Prepare request body with USER'S project ID
-            request_body = {
-                "model": effective_model,
-                "project": project_id,
-                "request": {
-                    "contents": contents,
-                    "generationConfig": self._build_generation_config(request_data),
-                },
-            }
+            request_body = canonical_request.model_dump(exclude_unset=True)
+            request_body["model"] = effective_model
+            request_body["project"] = project_id
 
             url = f"{self.gemini_api_base_url}/v1internal:streamGenerateContent"
             logger.info(
@@ -756,6 +743,7 @@ class GeminiCloudProjectConnector(GeminiBackend):
             )
 
             async def stream_generator() -> AsyncGenerator[ProcessedResponse, None]:
+                response = None
                 try:
                     response = await asyncio.to_thread(
                         auth_session.request,
@@ -764,7 +752,7 @@ class GeminiCloudProjectConnector(GeminiBackend):
                         params={"alt": "sse"},
                         json=request_body,
                         headers={"Content-Type": "application/json"},
-                        timeout=60.0,
+                        timeout=60,
                     )
 
                     if response.status_code >= 400:
@@ -779,29 +767,62 @@ class GeminiCloudProjectConnector(GeminiBackend):
                             status_code=response.status_code,
                         )
 
-                    # Forward raw text stream; central pipeline will handle normalization/repairs
-                    processed_stream = response.aiter_text()
+                    # Process the streaming response using synchronous iter_lines()
+                    for line in response.iter_lines(
+                        chunk_size=1
+                    ):  # Process line by line
+                        try:
+                            decoded_line = line.decode("utf-8")
+                            if decoded_line.startswith("data: "):
+                                data_str = decoded_line[6:].strip()
+                                if data_str == "[DONE]":
+                                    yield self.translation_service.to_domain_stream_chunk(
+                                        chunk=None,  # Indicate end of stream
+                                        source_format="code_assist",
+                                    )
+                                    break
+                                try:
+                                    data = json.loads(data_str)
+                                    domain_chunk = (
+                                        self.translation_service.to_domain_stream_chunk(
+                                            chunk=data,  # Pass the parsed JSON data
+                                            source_format="code_assist",
+                                        )
+                                    )
+                                    yield domain_chunk
+                                except json.JSONDecodeError:
+                                    # If it's not JSON, it might be an empty line or comment, skip
+                                    continue
+                            else:
+                                # Handle non-data lines (e.g., comments, event types) if necessary
+                                if decoded_line.strip():
+                                    yield self.translation_service.to_domain_stream_chunk(
+                                        chunk={
+                                            "text": decoded_line
+                                        },  # Wrap in a dict for consistency
+                                        source_format="raw_text",  # Or a more specific raw format
+                                    )
+                        except Exception as chunk_error:
+                            logger.error(f"Error processing stream line: {chunk_error}")
+                            continue
 
-                    async for chunk in processed_stream:
-                        # If JSON repair is enabled, the processor yields repaired JSON strings
-                        # or raw text. If disabled, it yields raw text.
-                        # We need to ensure it's properly formatted as SSE.
-                        if chunk.startswith(("data: ", "id: ", ":")):
-                            # Already SSE formatted or a comment, yield directly
-                            yield ProcessedResponse(content=chunk)
-                        else:
-                            # Assume it's a raw text chunk (either repaired JSON or non-JSON text)
-                            # and format it as an SSE data event.
-                            yield ProcessedResponse(content=f"data: {chunk}\n\n")
-
-                    yield ProcessedResponse(content="data: [DONE]\n\n")
+                    # Ensure the stream is properly closed with a DONE signal
+                    yield self.translation_service.to_domain_stream_chunk(
+                        chunk=None,  # Indicate end of stream
+                        source_format="code_assist",
+                    )
 
                 except Exception as e:
                     logger.error(f"Error in streaming generator: {e}")
-                    yield ProcessedResponse(content="data: [DONE]\n\n")
+                    # Yield an error chunk or ensure stream ends gracefully
+                    yield self.translation_service.to_domain_stream_chunk(
+                        chunk=None,  # Indicate end of stream due to error
+                        source_format="code_assist",
+                    )
 
                 finally:
-                    await response.aclose()
+                    if response:  # Ensure response is defined before closing
+                        response.close()  # Use synchronous close
 
             return StreamingResponseEnvelope(
                 content=stream_generator(),
@@ -986,62 +1007,6 @@ class GeminiCloudProjectConnector(GeminiBackend):
             )
 
         return lro_data
-
-    def _convert_messages_to_gemini_format(
-        self, processed_messages: list[Any]
-    ) -> list[dict]:
-        """Convert processed messages to Gemini format."""
-        contents = []
-
-        for msg in processed_messages:
-            role = (
-                msg.get("role") if isinstance(msg, dict) else getattr(msg, "role", None)
-            )
-            content = (
-                msg.get("content")
-                if isinstance(msg, dict)
-                else getattr(msg, "content", "")
-            )
-
-            if role and content:
-                # Convert role mapping
-                gemini_role = "user" if role == "user" else "model"
-                contents.append(
-                    {"role": gemini_role, "parts": [{"text": str(content)}]}
-                )
-
-        return contents
-
-    def _convert_stream_chunk(self, data: dict[str, Any], model: str) -> dict[str, Any]:
-        """Convert a Code Assist API streaming chunk to OpenAI format."""
-        candidate = {}
-        text = ""
-        if data.get("candidates"):
-            candidate = data["candidates"][0] or {}
-            content = candidate.get("content", {})
-            parts = content.get("parts", [])
-            for part in parts:
-                if isinstance(part, dict) and "text" in part:
-                    text += part["text"]
-
-        finish_reason = candidate.get("finishReason")
-        return {
-            "id": data.get("id", ""),
-            "object": "chat.completion.chunk",
-            "created": int(time.time()),
-            "model": model,
-            "choices": [
-                {
-                    "index": candidate.get("index", 0),
-                    "delta": {"content": text},
-                    "finish_reason": (
-                        finish_reason.lower()
-                        if isinstance(finish_reason, str)
-                        else None
-                    ),
-                }
-            ],
-        }
 
 
 backend_registry.register_backend(

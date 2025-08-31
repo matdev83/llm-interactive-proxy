@@ -49,9 +49,12 @@ async def test_gemini_models_cached() -> None:
 
     # Create and configure backend
     from src.core.config.app_config import AppConfig
+    from src.core.services.translation_service import TranslationService
 
     config = AppConfig()
-    backend = GeminiBackend(mock_client, config=config)
+    backend = GeminiBackend(
+        mock_client, config=config, translation_service=TranslationService()
+    )
 
     # Initialize the backend with test values
     await backend.initialize(
@@ -87,11 +90,9 @@ def test_auto_default_backend(monkeypatch) -> None:
         app = build_test_app()
         from fastapi.testclient import TestClient
 
-        with TestClient(
-            app, headers={"Authorization": "Bearer test-proxy-key"}
-        ) as client:
+        with TestClient(app, headers={"Authorization": "Bearer test-proxy-key"}):
             # Should default to openai backend when no other backend is available
-            assert client.app.state.app_config.backends.default_backend == "openai"
+            assert app.state.app_config.backends.default_backend == "openai"
 
 
 def test_multiple_backends_requires_arg(monkeypatch) -> None:
@@ -119,16 +120,12 @@ def test_multiple_backends_requires_arg(monkeypatch) -> None:
         app = build_test_app()
         from fastapi.testclient import TestClient
 
-        with TestClient(
-            app, headers={"Authorization": "Bearer test-proxy-key"}
-        ) as client:
+        with TestClient(app, headers={"Authorization": "Bearer test-proxy-key"}):
             # With the updated behavior, it should default to 'openai'
-            assert client.app.state.app_config.backends.default_backend == "openai"
+            assert app.state.app_config.backends.default_backend == "openai"
 
         # Now try specifying the backend explicitly
         monkeypatch.setenv("LLM_BACKEND", "gemini")
         app2 = build_test_app()
-        with TestClient(
-            app2, headers={"Authorization": "Bearer test-proxy-key"}
-        ) as client2:
-            assert client2.app.state.app_config.backends.default_backend == "gemini"
+        with TestClient(app2, headers={"Authorization": "Bearer test-proxy-key"}):
+            assert app2.state.app_config.backends.default_backend == "gemini"

@@ -41,9 +41,12 @@ def factory(
 ) -> BackendFactory:
     """Create a BackendFactory instance with mock dependencies."""
     from src.core.config.app_config import AppConfig
+    from src.core.services.translation_service import TranslationService
 
     config = AppConfig()
-    return BackendFactory(mock_client, mock_backend_registry, config)
+    return BackendFactory(
+        mock_client, mock_backend_registry, config, TranslationService()
+    )
 
 
 @pytest.mark.asyncio
