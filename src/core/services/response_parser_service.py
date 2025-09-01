@@ -1,8 +1,11 @@
 import json
+import logging
 from typing import Any, cast
 
 from src.core.domain.chat import ChatResponse
 from src.core.interfaces.response_parser_interface import IResponseParser
+
+logger = logging.getLogger(__name__)
 
 
 class ParsingError(Exception):
@@ -77,8 +80,10 @@ class ResponseParser(IResponseParser):
                                 tool_calls = message.get("tool_calls")
                                 if tool_calls:
                                     metadata["tool_calls"] = tool_calls
-                            except (AttributeError, TypeError):
-                                pass
+                            except (AttributeError, TypeError) as e:
+                                logger.debug(
+                                    "Could not parse tool_calls: %s", e, exc_info=True
+                                )
                             if (
                                 content is not None
                                 and isinstance(content, str)
@@ -112,8 +117,10 @@ class ResponseParser(IResponseParser):
                             tool_calls = message.get("tool_calls")
                             if tool_calls:
                                 metadata["tool_calls"] = tool_calls
-                        except (AttributeError, TypeError):
-                            pass
+                        except (AttributeError, TypeError) as e:
+                            logger.debug(
+                                "Could not parse tool_calls: %s", e, exc_info=True
+                            )
             usage = raw_response.get("usage")
 
             # If content is still empty, prioritize tool_calls if present

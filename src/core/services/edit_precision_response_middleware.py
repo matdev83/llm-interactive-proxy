@@ -4,11 +4,11 @@ import logging
 import re
 from typing import Any
 
+from src.core.interfaces.application_state_interface import IApplicationState
 from src.core.interfaces.response_processor_interface import (
     IResponseMiddleware,
     ProcessedResponse,
 )
-from src.core.services.application_state_service import get_default_application_state
 
 
 class EditPrecisionResponseMiddleware(IResponseMiddleware):
@@ -19,9 +19,10 @@ class EditPrecisionResponseMiddleware(IResponseMiddleware):
     next outbound request.
     """
 
-    def __init__(self) -> None:
+    def __init__(self, app_state: IApplicationState) -> None:
         super().__init__(priority=10)
         self._logger = logging.getLogger(__name__)
+        self._app_state = app_state
         # Load regex patterns (fallback to defaults if unavailable)
         try:
             from src.core.services.edit_precision_patterns import (
@@ -67,8 +68,7 @@ class EditPrecisionResponseMiddleware(IResponseMiddleware):
 
         if matched_pattern is not None:
             # Set pending flag for this session (one-shot)
-            app_state = get_default_application_state()
-            pending_map = app_state.get_setting("edit_precision_pending", {})
+            pending_map = self._app_state.get_setting("edit_precision_pending", {})
             try:
                 # Expect a dict[str, int]
                 if not isinstance(pending_map, dict):
@@ -79,7 +79,7 @@ class EditPrecisionResponseMiddleware(IResponseMiddleware):
             key = session_id or ""
             if key:
                 pending_map[key] = int(pending_map.get(key, 0)) + 1
-                app_state.set_setting("edit_precision_pending", pending_map)
+                self._app_state.set_setting("edit_precision_pending", pending_map)
                 # Best-effort logging; do not let logging failures affect flow
                 try:
                     response_type = (
@@ -92,6 +92,8 @@ class EditPrecisionResponseMiddleware(IResponseMiddleware):
                         pending_map.get(key, 0),
                         response_type,
                     )
-                except Exception:
-                    pass
+                except Exception as e:
+                    self._logger.debug(
+                        "Error logging edit-precision trigger: %s", e, exc_info=True
+                    )
         return out

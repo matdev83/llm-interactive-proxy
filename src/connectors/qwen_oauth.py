@@ -12,7 +12,7 @@ from typing import TYPE_CHECKING, Any
 import httpx
 from fastapi import HTTPException
 
-from src.core.adapters.api_adapters import legacy_to_domain_chat_request
+from src.core.adapters.api_adapters import dict_to_domain_chat_request
 from src.core.common.exceptions import (
     AuthenticationError,
     BackendError,
@@ -351,7 +351,14 @@ class QwenOAuthConnector(OpenAIConnector):
                 model_name = model_name[11:]  # Remove "qwen-oauth:" prefix
 
             # Convert request_data to ChatRequest using the adapter
-            chat_request = legacy_to_domain_chat_request(request_data)
+            if not isinstance(request_data, dict):
+                if hasattr(request_data, "model_dump"):
+                    request_data = request_data.model_dump()
+                else:
+                    raise TypeError(
+                        f"Unsupported request_data type: {type(request_data).__name__}"
+                    )
+            chat_request = dict_to_domain_chat_request(request_data)
 
             # Create a modified request_data with the correct model name.
             # Use model_copy(update=...) to avoid mutating frozen ValueObject instances.

@@ -15,7 +15,10 @@ from src.core.domain.request_context import RequestContext
 from src.core.domain.responses import ResponseEnvelope, StreamingResponseEnvelope
 from src.core.interfaces.backend_processor_interface import IBackendProcessor
 from src.core.interfaces.backend_request_manager_interface import IBackendRequestManager
-from src.core.interfaces.response_processor_interface import IResponseProcessor
+from src.core.interfaces.response_processor_interface import (
+    IResponseProcessor,
+    ProcessedResponse,
+)
 from src.core.services.empty_response_middleware import EmptyResponseRetryError
 
 logger = logging.getLogger(__name__)
@@ -159,12 +162,21 @@ class BackendRequestManager(IBackendRequestManager):
                         request=retry_request, session_id=session_id, context=context
                     )
             else:
-                # For streaming responses or responses without content, return as-is
-                # TODO: Implement streaming empty response detection if needed
-                return backend_response
+                if backend_request.stream:
+                    if isinstance(backend_response, StreamingResponseEnvelope):
+                        return await self._process_streaming_response(
+                            backend_response, backend_request, session_id, context
+                        )
+                    else:
+                        # This case should ideally not be reached if the logic is correct
+                        logger.warning(
+                            "Expected a StreamingResponseEnvelope but got a ResponseEnvelope for a streaming request."
+                        )
+                        return backend_response
+                else:
+                    return backend_response
 
         except EmptyResponseRetryError as e:
-            # This shouldn't happen here since we catch it above, but just in case
             logger.info(
                 f"Empty response detected, retrying with recovery prompt: {e.recovery_prompt[:100]}..."
             )
@@ -175,19 +187,71 @@ class BackendRequestManager(IBackendRequestManager):
                 request=retry_request, session_id=session_id, context=context
             )
 
+    async def _process_streaming_response(
+        self,
+        stream_envelope: StreamingResponseEnvelope,
+        original_request: ChatRequest,
+        session_id: str,
+        context: RequestContext,
+    ) -> StreamingResponseEnvelope:
+        """
+        Processes a streaming response, checking for an empty stream and
+        triggering a retry with a recovery prompt if necessary.
+        """
+        is_empty = True
+        first_chunk = None
+
+        async def stream_wrapper():
+            nonlocal is_empty, first_chunk
+            async for chunk in stream_envelope.content:
+                if is_empty:
+                    is_empty = False
+                    first_chunk = chunk
+                yield chunk
+
+        # Consume one item to see if the stream is empty
+        try:
+            # We need to manually iterate to check for the first item
+            first_chunk = await stream_wrapper().__anext__()
+            is_empty = False
+        except StopAsyncIteration:
+            # Stream is empty, trigger retry
+            logger.info("Empty stream detected, retrying with recovery prompt.")
+            recovery_prompt = "The previous response was empty, please try again."
+            retry_request = await self._create_retry_request(
+                original_request, recovery_prompt
+            )
+            # The result of a retry could be streaming or not, but the original request was for a stream
+            retry_response = await self._backend_processor.process_backend_request(
+                request=retry_request, session_id=session_id, context=context
+            )
+            if isinstance(retry_response, StreamingResponseEnvelope):
+                return retry_response
+            else:
+                # If the retry did not return a stream, we need to adapt it.
+                async def single_item_stream():
+                    yield ProcessedResponse(content=retry_response.content)
+
+                return StreamingResponseEnvelope(content=single_item_stream())
+
+        # If not empty, reconstruct the stream with the first chunk
+        async def combined_stream():
+            if first_chunk is not None:
+                yield first_chunk
+            async for chunk in stream_wrapper():
+                yield chunk
+
+        return StreamingResponseEnvelope(content=combined_stream())
+
     async def _create_retry_request(
         self, original_request: ChatRequest, recovery_prompt: str
     ) -> ChatRequest:
         """Create a retry request with the recovery prompt appended."""
-        # Copy the original messages
         retry_messages = list(original_request.messages)
-
-        # Add the recovery prompt as a user message
         recovery_message = ChatMessage(role="user", content=recovery_prompt)
         retry_messages.append(recovery_message)
 
-        # Create new request with the recovery prompt
-        retry_request = ChatRequest(
+        return ChatRequest(
             model=original_request.model,
             messages=retry_messages,
             temperature=original_request.temperature,
@@ -196,5 +260,3 @@ class BackendRequestManager(IBackendRequestManager):
             stream=original_request.stream,
             extra_body=original_request.extra_body,
         )
-
-        return retry_request

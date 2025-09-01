@@ -5,12 +5,20 @@ from collections.abc import Callable
 from typing import Any, TypeVar
 
 from src.core.common.exceptions import ServiceResolutionError
+from src.core.interfaces.app_settings_interface import IAppSettings
+from src.core.interfaces.application_state_interface import IApplicationState
+from src.core.interfaces.backend_processor_interface import IBackendProcessor
+from src.core.interfaces.backend_request_manager_interface import IBackendRequestManager
+from src.core.interfaces.command_service_interface import ICommandService
 from src.core.interfaces.di_interface import (
     IServiceCollection,
     IServiceProvider,
     IServiceScope,
     ServiceLifetime,
 )
+from src.core.interfaces.request_processor_interface import IRequestProcessor
+from src.core.interfaces.response_processor_interface import IResponseProcessor
+from src.core.interfaces.session_service_interface import ISessionService
 
 T = TypeVar("T")
 
@@ -316,11 +324,55 @@ class ServiceCollection(IServiceCollection):
         return ServiceProvider(self._descriptors.copy())
 
     def register_app_services(self) -> None:
-        """Register all application services.
+        from src.core.interfaces.tool_call_reactor_interface import IToolCallHandler
+        from src.core.interfaces.usage_tracking_interface import (
+            IUsageTrackingService,  # type: ignore[import-untyped]
+        )
+        from src.core.services.app_settings_service import AppSettings
+        from src.core.services.application_state_service import (
+            ApplicationStateService,  # type: ignore[import-untyped]
+        )
+        from src.core.services.backend_factory import (
+            BackendFactory,  # type: ignore[import-untyped]
+        )
+        from src.core.services.backend_processor import (
+            BackendProcessor,  # type: ignore[import-untyped]
+        )
+        from src.core.services.backend_registry import (
+            BackendRegistry,  # type: ignore[import-untyped]
+        )
+        from src.core.services.backend_request_manager_service import (
+            BackendRequestManager,  # type: ignore[import-untyped]
+        )
+        from src.core.services.command_service import (
+            CommandService,  # type: ignore[import-untyped]
+        )
+        from src.core.services.request_processor_service import RequestProcessor
+        from src.core.services.response_parser_service import ResponseParser
+        from src.core.services.session_service import (
+            SessionService,  # type: ignore[import-untyped]
+        )
+        from src.core.services.tool_call_handlers.apply_diff_handler import (
+            ApplyDiffHandler as ToolCallHandler,  # type: ignore[import-untyped]
+        )
+        from src.core.services.usage_tracking_service import (
+            UsageTrackingService,  # type: ignore[import-untyped]
+        )
 
-        This is a placeholder method to satisfy the interface requirement.
-        Actual service registration is done in the application factory.
-        """
+        # Register all application services
+        self.add_singleton(IApplicationState, ApplicationStateService)
+        self.add_singleton(IAppSettings, AppSettings)
+        self.add_singleton(BackendFactory, BackendFactory)
+        self.add_singleton(BackendRegistry, BackendRegistry)
+        self.add_singleton(IUsageTrackingService, UsageTrackingService)
+        self.add_singleton(ISessionService, SessionService)
+        self.add_singleton(ICommandService, CommandService)
+        self.add_singleton(IToolCallHandler, ToolCallHandler)
+
+        self.add_scoped(IBackendProcessor, BackendProcessor)
+        self.add_scoped(IResponseProcessor, ResponseParser)
+        self.add_scoped(IBackendRequestManager, BackendRequestManager)
+        self.add_scoped(IRequestProcessor, RequestProcessor)
 
     def register_singleton(
         self,

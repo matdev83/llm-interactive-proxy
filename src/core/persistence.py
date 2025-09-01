@@ -76,9 +76,13 @@ class ConfigManager:
                                     ]
                                 )
                             return
-                    except Exception:
+                    except Exception as e:
                         # If DI resolution fails, do not fall back to legacy state
-                        pass
+                        logger.debug(
+                            "DI resolution for IBackendService failed: %s",
+                            e,
+                            exc_info=True,
+                        )
                 # Do not use legacy app.state.<backend>_backend attributes; require DI
             else:
                 raise ValueError(
@@ -189,13 +193,39 @@ class ConfigManager:
                 f"Backend '{backend_name}' in route '{route_name}' element '{elem_str}' is not functional, skipping.",
             )
 
-        backend_instance = (
-            self.app_state.get_legacy_backend(backend_name) if self.app_state else None
-        )
-        if (
-            not backend_instance
-            or model_name not in backend_instance.get_available_models()
-        ):
+        valid_model = False
+        validation_error: str | None = "Backend service not available."
+        if self.service_provider:
+            try:
+                from src.core.interfaces.backend_service_interface import (
+                    IBackendService,
+                )
+
+                backend_service = self.service_provider.get_required_service(
+                    IBackendService  # type: ignore[type-abstract]
+                )
+                if backend_service:
+                    # This is now an async method, but we are in a sync method.
+                    # This is a bigger issue that needs to be addressed separately.
+                    # For now, we will assume it's valid if the service exists.
+                    # A proper fix would involve making this method async.
+                    # This is a temporary workaround to unblock the current refactoring.
+                    import asyncio
+
+                    valid_model, validation_error = asyncio.run(
+                        backend_service.validate_backend_and_model(
+                            backend_name, model_name
+                        )
+                    )
+
+            except Exception as e:
+                logger.debug(
+                    "DI resolution for IBackendService failed in failover validation: %s",
+                    e,
+                    exc_info=True,
+                )
+
+        if not valid_model:
             return (
                 None,
                 f"Model '{model_name}' for backend '{backend_name}' in route '{route_name}' element '{elem_str}' is not available, skipping.",

@@ -9,7 +9,7 @@ from src.core.di.services import get_or_build_service_provider
 from src.core.domain.chat import ChatMessage, ChatRequest
 from src.core.domain.processed_result import ProcessedResult
 from src.core.domain.responses import ResponseEnvelope
-from src.core.services.application_state_service import get_default_application_state
+from src.core.services.application_state_service import ApplicationStateService
 from src.core.services.request_processor_service import RequestProcessor
 from src.core.services.streaming.stream_normalizer import StreamNormalizer
 
@@ -34,7 +34,7 @@ async def test_e2e_di_streaming_pipeline_sets_pending_and_next_call_tuned() -> N
     normalizer: StreamNormalizer = provider.get_required_service(StreamNormalizer)  # type: ignore[assignment]
 
     # Also publish to default app_state for request processor path
-    app_state = get_default_application_state()
+    app_state: ApplicationStateService = provider.get_required_service(ApplicationStateService)  # type: ignore[assignment]
     app_state.set_setting("app_config", prov_cfg)
 
     session_id = "di-e2e-sess"

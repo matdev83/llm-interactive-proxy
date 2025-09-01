@@ -18,7 +18,7 @@ def detect_frontend_api(request_path: str) -> str:
     Detect the frontend API type based on the request path.
 
     Args:
-        request_path: The request path (e.g., "/v1/chat/completions", "/anthropic/v1/messages")
+        request_path: The request path (e.g., "/v2/chat/completions", "/anthropic/v1/messages")
 
     Returns:
         Frontend API type: "openai", "anthropic", or "gemini"
@@ -28,7 +28,7 @@ def detect_frontend_api(request_path: str) -> str:
     elif request_path.startswith("/v1beta/"):
         return "gemini"
     else:
-        # Default to OpenAI for /v1/ paths and others
+        # Default to OpenAI for all other paths
         return "openai"
 
 

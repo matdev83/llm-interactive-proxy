@@ -20,10 +20,6 @@ class SessionService(ISessionService):
             await self._session_repository.add(session)
         return session
 
-    async def get_session_async(self, session_id: str) -> Session:
-        """Legacy compatibility method, identical to get_session."""
-        return await self.get_session(session_id)
-
     async def get_or_create_session(self, session_id: str | None = None) -> Session:
         if session_id is None:
             import uuid

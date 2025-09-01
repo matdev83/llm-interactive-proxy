@@ -259,19 +259,3 @@ async def list_models(
     except Exception as e:  # type: ignore[misc]
         logger.error(f"Error listing models: {e}")
         raise HTTPException(status_code=500, detail=str(e))
-
-
-@router.get("/v1/models")
-async def list_models_v1(
-    backend_service: IBackendService = Depends(get_backend_service),
-    config: IConfig = Depends(get_config_service),
-    backend_factory: BackendFactory = Depends(get_backend_factory_service),
-) -> dict[str, Any]:
-    """OpenAI-compatible models endpoint.
-
-    Returns:
-        A dictionary containing the list of available models
-    """
-    return await list_models(
-        backend_service=backend_service, config=config, backend_factory=backend_factory
-    )

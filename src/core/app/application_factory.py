@@ -16,14 +16,11 @@ from fastapi import FastAPI
 from src.core.config.app_config import AppConfig
 
 
-def build_app(
-    config: AppConfig | dict[str, Any] | None = None, config_path: str | None = None
-) -> FastAPI:
+def build_app(config: AppConfig | dict[str, Any] | None = None) -> FastAPI:
     """Build the FastAPI application using the new staged initialization.
 
     Args:
         config: The application configuration (AppConfig object or dict)
-        config_path: Path to configuration file (legacy support)
 
     Returns:
         The FastAPI ASGI application instance.
@@ -32,12 +29,7 @@ def build_app(
     from src.core.app.application_builder import build_app as new_build_app
 
     # Step 1: Ensure we have an AppConfig object
-    if config_path is not None:
-        # Allow calling tests to pass a config file path for legacy tests
-        from src.core.config.app_config import load_config
-
-        config = load_config(config_path)
-    elif config is None:
+    if config is None:
         # Load configuration from environment
         config = AppConfig.from_env()
     elif isinstance(config, dict):
@@ -64,7 +56,7 @@ def build_app(
 
 
 def build_app_with_config(
-    config: AppConfig | dict[str, Any] | None = None, config_path: str | None = None
+    config: AppConfig | dict[str, Any] | None = None,
 ) -> tuple[FastAPI, AppConfig]:
     """Build the FastAPI application and return (app, config).
 
@@ -75,11 +67,7 @@ def build_app_with_config(
     from src.core.app.application_builder import build_app as new_build_app
 
     # Reuse the existing logic: ensure config is normalized and return both.
-    if config_path is not None:
-        from src.core.config.app_config import load_config
-
-        config = load_config(config_path)
-    elif config is None:
+    if config is None:
         config = AppConfig.from_env()
     elif isinstance(config, dict):
         # Assuming that if a dict is passed, it conforms to the new AppConfig schema

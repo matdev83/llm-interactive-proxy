@@ -7,11 +7,12 @@ and must use proper DI patterns.
 
 from __future__ import annotations
 
-from abc import ABC, abstractmethod
+from abc import abstractmethod
 from collections.abc import Mapping
 from typing import Any, final
 
 from src.core.domain.command_results import CommandResult
+from src.core.domain.commands.base_command import BaseCommand
 from src.core.domain.session import Session
 from src.core.interfaces.state_provider_interface import (
     ISecureStateAccess,
@@ -20,7 +21,7 @@ from src.core.interfaces.state_provider_interface import (
 )
 
 
-class SecureCommandBase(ABC):
+class SecureCommandBase(BaseCommand):
     """Base class for domain commands that enforces secure state access."""
 
     def __init__(

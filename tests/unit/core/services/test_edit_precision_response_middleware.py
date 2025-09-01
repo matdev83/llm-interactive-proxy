@@ -5,8 +5,6 @@ from src.core.domain.streaming_response_processor import StreamingContent
 from src.core.interfaces.response_processor_interface import ProcessedResponse
 from src.core.services.application_state_service import (
     ApplicationStateService,
-    get_default_application_state,
-    set_default_application_state,
 )
 from src.core.services.edit_precision_response_middleware import (
     EditPrecisionResponseMiddleware,
@@ -16,15 +14,17 @@ from src.core.services.streaming.middleware_application_processor import (
 )
 
 
-@pytest.fixture(autouse=True)
-def _reset_app_state() -> None:
-    """Ensure a clean default application state per test."""
-    set_default_application_state(ApplicationStateService())
+@pytest.fixture
+def app_state() -> ApplicationStateService:
+    """Ensure a clean application state per test."""
+    return ApplicationStateService()
 
 
 @pytest.mark.asyncio
-async def test_response_middleware_sets_pending_on_non_streaming_match() -> None:
-    mw = EditPrecisionResponseMiddleware()
+async def test_response_middleware_sets_pending_on_non_streaming_match(
+    app_state: ApplicationStateService,
+) -> None:
+    mw = EditPrecisionResponseMiddleware(app_state)
 
     session_id = "sess-123"
     resp = ProcessedResponse(content="Something something diff_error occurred")
@@ -32,17 +32,18 @@ async def test_response_middleware_sets_pending_on_non_streaming_match() -> None
     out = await mw.process(resp, session_id, context={"response_type": "non_streaming"})
     assert isinstance(out, ProcessedResponse)
 
-    app_state = get_default_application_state()
     pending = app_state.get_setting("edit_precision_pending", {})
     assert isinstance(pending, dict)
     assert pending.get(session_id, 0) >= 1
 
 
 @pytest.mark.asyncio
-async def test_streaming_processor_applies_middleware_and_sets_pending() -> None:
+async def test_streaming_processor_applies_middleware_and_sets_pending(
+    app_state: ApplicationStateService,
+) -> None:
     # Build processor with our middleware
-    mw = EditPrecisionResponseMiddleware()
-    processor = MiddlewareApplicationProcessor([mw])
+    mw = EditPrecisionResponseMiddleware(app_state)
+    processor = MiddlewareApplicationProcessor([mw], app_state=app_state)
 
     # Simulate a streaming chunk that includes a trigger fragment
     sc = StreamingContent(
@@ -54,7 +55,6 @@ async def test_streaming_processor_applies_middleware_and_sets_pending() -> None
     assert isinstance(out, StreamingContent)
     assert out.content == sc.content  # middleware does not alter content
 
-    app_state = get_default_application_state()
     pending = app_state.get_setting("edit_precision_pending", {})
     assert isinstance(pending, dict)
     assert pending.get("stream-abc", 0) >= 1

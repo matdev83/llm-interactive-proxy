@@ -196,26 +196,6 @@ class IApplicationState(ABC):
         """
 
     @abstractmethod
-    def get_legacy_backend(self, backend_name: str) -> Any | None:
-        """Get legacy backend instance by name.
-
-        Args:
-            backend_name: Name of the backend
-
-        Returns:
-            Backend instance or None if not found
-        """
-
-    @abstractmethod
-    def set_legacy_backend(self, backend_name: str, backend_instance: Any) -> None:
-        """Set legacy backend instance by name.
-
-        Args:
-            backend_name: Name of the backend
-            backend_instance: The backend instance
-        """
-
-    @abstractmethod
     def get_failover_routes(self) -> list[dict[str, Any]] | None:
         """Get failover routes.
 

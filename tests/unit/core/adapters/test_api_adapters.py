@@ -15,7 +15,6 @@ from src.core.adapters.api_adapters import (
     anthropic_to_domain_chat_request,
     dict_to_domain_chat_request,
     gemini_to_domain_chat_request,
-    legacy_to_domain_chat_request,
     openai_to_domain_chat_request,
 )
 from src.core.domain.chat import (
@@ -25,118 +24,6 @@ from src.core.domain.chat import (
     ToolCall,
     ToolDefinition,
 )
-
-
-class TestLegacyToDomainChatRequest:
-    """Tests for legacy_to_domain_chat_request function."""
-
-    def test_convert_dict_with_basic_fields(self) -> None:
-        """Test converting a basic dict request."""
-        legacy_request = {
-            "model": "gpt-4",
-            "messages": [{"role": "user", "content": "Hello"}],
-            "temperature": 0.7,
-            "max_tokens": 100,
-        }
-
-        result = legacy_to_domain_chat_request(legacy_request)
-
-        assert isinstance(result, ChatRequest)
-        assert result.model == "gpt-4"
-        assert len(result.messages) == 1
-        assert result.messages[0].role == "user"
-        assert result.messages[0].content == "Hello"
-        assert result.temperature == 0.7
-        assert result.max_tokens == 100
-
-    def test_convert_dict_with_tools(self) -> None:
-        """Test converting a dict request with tools."""
-        legacy_request = {
-            "model": "gpt-4",
-            "messages": [{"role": "user", "content": "Use the tool"}],
-            "tools": [
-                {
-                    "type": "function",
-                    "function": {
-                        "name": "get_weather",
-                        "description": "Get weather info",
-                        "parameters": {"type": "object", "properties": {}},
-                    },
-                }
-            ],
-        }
-
-        result = legacy_to_domain_chat_request(legacy_request)
-
-        assert isinstance(result, ChatRequest)
-        assert result.tools is not None
-        assert len(result.tools) == 1
-        assert result.tools[0]["type"] == "function"
-        assert result.tools[0]["function"]["name"] == "get_weather"
-
-    def test_convert_dict_with_tool_calls(self) -> None:
-        """Test converting a dict request with tool calls in messages."""
-        legacy_request = {
-            "model": "gpt-4",
-            "messages": [
-                {"role": "user", "content": "Use the tool"},
-                {
-                    "role": "assistant",
-                    "content": None,
-                    "tool_calls": [
-                        {
-                            "id": "call_123",
-                            "type": "function",
-                            "function": {
-                                "name": "get_weather",
-                                "arguments": '{"location": "NYC"}',
-                            },
-                        }
-                    ],
-                },
-            ],
-        }
-
-        result = legacy_to_domain_chat_request(legacy_request)
-
-        assert isinstance(result, ChatRequest)
-        assert len(result.messages) == 2
-        assistant_msg = result.messages[1]
-        assert assistant_msg.tool_calls is not None
-        assert len(assistant_msg.tool_calls) == 1
-        assert assistant_msg.tool_calls[0].id == "call_123"
-        assert assistant_msg.tool_calls[0].function.name == "get_weather"
-
-    def test_convert_pydantic_model(self) -> None:
-        """Test converting a Pydantic model."""
-
-        class MockLegacyRequest:
-            def __init__(self) -> None:
-                self.model = "gpt-4"
-                self.messages = [{"role": "user", "content": "Hello"}]
-                self.temperature = 0.5
-                self.stream = True
-
-        legacy_request = MockLegacyRequest()
-        result = legacy_to_domain_chat_request(legacy_request)
-
-        assert isinstance(result, ChatRequest)
-        assert result.model == "gpt-4"
-        assert result.temperature == 0.5
-        assert result.stream is True
-
-    def test_convert_with_reasoning_effort_numeric(self) -> None:
-        """Test converting with numeric reasoning effort."""
-        legacy_request = {
-            "model": "gpt-4",
-            "messages": [{"role": "user", "content": "Think deeply"}],
-            "reasoning_effort": 0.8,
-        }
-
-        result = legacy_to_domain_chat_request(legacy_request)
-
-        assert isinstance(result, ChatRequest)
-        assert result.reasoning_effort == 0.8
 
 
 class TestDictToDomainChatRequest:

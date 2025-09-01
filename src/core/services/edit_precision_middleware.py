@@ -106,8 +106,10 @@ class EditPrecisionTuningMiddleware(IRequestMiddleware):
                 getattr(request, "top_k", None),
                 new_top_k,
             )
-        except Exception:
-            pass
+        except Exception as e:
+            self._logger.debug(
+                "Error logging edit-precision overrides: %s", e, exc_info=True
+            )
 
         return request.model_copy(
             update={

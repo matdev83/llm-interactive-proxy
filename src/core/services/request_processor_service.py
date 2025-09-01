@@ -237,9 +237,12 @@ class RequestProcessor(IRequestProcessor):
                             re.IGNORECASE,
                         ):
                             cfg_enabled = False
-                    except re.error:
+                    except re.error as e:
                         # Invalid pattern; ignore exclusion
-                        pass
+                        logger.warning(
+                            "Invalid regex in edit_precision.exclude_agents_regex: %s",
+                            e,
+                        )
 
                 # If previous response flagged a pending precision tune, apply once
                 force_apply = False
@@ -269,8 +272,10 @@ class RequestProcessor(IRequestProcessor):
                                     pending_count,
                                     pending_map.get(session_id, 0),
                                 )
-                except Exception:
-                    pass
+                except Exception as e:
+                    logger.debug(
+                        "Could not resolve edit_precision_pending: %s", e, exc_info=True
+                    )
 
                 if cfg_enabled:
                     edit_precision = EditPrecisionTuningMiddleware(
@@ -282,8 +287,12 @@ class RequestProcessor(IRequestProcessor):
                     try:
                         if cfg_target_top_k is not None:
                             edit_precision._target_top_k = int(cfg_target_top_k)
-                    except Exception:
-                        pass
+                    except Exception as e:
+                        logger.debug(
+                            "Could not set target_top_k on edit_precision middleware: %s",
+                            e,
+                            exc_info=True,
+                        )
                     backend_request = await edit_precision.process(
                         backend_request,
                         {

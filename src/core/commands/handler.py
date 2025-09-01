@@ -3,7 +3,7 @@ Defines the interface for command handlers.
 """
 
 from abc import ABC, abstractmethod
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from src.core.commands.command import Command, CommandResult
 from src.core.domain.session import Session
@@ -17,8 +17,15 @@ class ICommandHandler(ABC):
     Interface for a command handler.
     """
 
-    def __init__(self, command_service: "ICommandService | None" = None) -> None:
+    def __init__(
+        self,
+        command_service: "ICommandService | None" = None,
+        secure_state_access: Any = None,
+        secure_state_modification: Any = None,
+    ) -> None:
         self._command_service = command_service
+        self._secure_state_access = secure_state_access
+        self._secure_state_modification = secure_state_modification
 
     @property
     @abstractmethod

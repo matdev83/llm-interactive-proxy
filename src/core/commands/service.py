@@ -2,6 +2,10 @@ import logging
 from typing import Any
 
 from src.core.commands.handler import ICommandHandler
+from src.core.commands.handlers.failover_command_handler import (
+    FailoverCommandHandler,
+    SessionStateApplicationStateAdapter,
+)
 from src.core.commands.parser import CommandParser
 from src.core.commands.registry import get_command_handler
 from src.core.domain import chat as models
@@ -63,6 +67,7 @@ class NewCommandService(ICommandService):
         command_executed = False
 
         executed_at: int | None = None
+        executed_command_name: str | None = None
         for message in reversed(modified_messages):
             if message.role != "user":
                 continue
@@ -114,54 +119,22 @@ class NewCommandService(ICommandService):
 
             handler_class = get_command_handler(command.name)
             if not handler_class:
-                # Bridge to legacy CommandRegistry for integration tests that register
-                # BaseCommand handlers (e.g., failover route commands)
-                try:
-                    from src.core.services.command_service import (
-                        CommandRegistry as LegacyRegistry,
-                    )
-
-                    legacy = LegacyRegistry.get_instance()
-                except Exception:
-                    legacy = None
-
-                if legacy is not None:
-                    legacy_handler = legacy.get(command.name)
-                    if legacy_handler is not None:
-                        # Execute legacy command and wrap result
-                        legacy_result = await legacy_handler.execute(
-                            command.args or {}, session
-                        )
-
-                        class CommandResultWrapperLegacy:
-                            def __init__(self, name: str, result):
-                                self.name = name
-                                self.message = result.message
-                                self.success = result.success
-                                self.new_state = getattr(result, "new_state", None)
-                                self._original_result = result
-
-                        command_results.append(
-                            CommandResultWrapperLegacy(command.name, legacy_result)
-                        )
-                        # Indicate command-only path by clearing modified messages
-                        modified_messages = []
-                        command_executed = True
-                        executed_at = (
-                            modified_messages.index(message)
-                            if message in modified_messages
-                            else 0
-                        )
-                        break
-
                 logger.warning(f"Command '{command.name}' not found.")
-                # Unknown command with no legacy fallback: if there are earlier messages, stop; otherwise continue
+                # Unknown command: if there are earlier messages, stop; otherwise continue
                 if len(modified_messages) > 1:
                     command_executed = True
                     break
                 continue
 
-            handler: ICommandHandler = handler_class()
+            if handler_class is FailoverCommandHandler:
+                app_state_adapter = SessionStateApplicationStateAdapter(session)
+                handler: ICommandHandler = handler_class(
+                    secure_state_access=app_state_adapter,
+                    secure_state_modification=app_state_adapter,
+                )
+            else:
+                handler = handler_class()
+
             result = await handler.handle(command, session)
 
             # Wrap the result with command name for proper response formatting
@@ -173,7 +146,8 @@ class NewCommandService(ICommandService):
                     self.new_state = getattr(result, "new_state", None)
                     self._original_result = result
 
-            wrapped_result = CommandResultWrapper(command.name, result)
+            executed_command_name = command.name
+            wrapped_result = CommandResultWrapper(executed_command_name, result)
             command_executed = True
             executed_at = (
                 modified_messages.index(message) if message in modified_messages else 0
@@ -197,8 +171,41 @@ class NewCommandService(ICommandService):
                 else:
                     m.content = content_val.strip()
 
+        # If, after command execution, there is no meaningful user content left,
+        # return a command-only result to avoid unnecessary backend calls.
+        def _has_meaningful_user_content(msgs: list[ChatMessage]) -> bool:
+            for m in msgs:
+                if m.role != "user":
+                    continue
+                if isinstance(m.content, str) and m.content.strip():
+                    return True
+                if isinstance(m.content, list) and len(m.content) > 0:
+                    return True
+            return False
+
+        # Only treat as command-only for specific commands (e.g., failover commands)
+        command_only_names = {
+            "create-failover-route",
+            "delete-failover-route",
+            "list-failover-routes",
+            "route-append",
+            "route-clear",
+            "route-list",
+            "route-prepend",
+        }
+        should_command_only = (
+            executed_command_name in command_only_names
+            if executed_command_name is not None
+            else False
+        )
+
+        if should_command_only and not _has_meaningful_user_content(modified_messages):
+            final_modified = []
+        else:
+            final_modified = modified_messages
+
         return ProcessedResult(
-            modified_messages=modified_messages,
+            modified_messages=final_modified,
             command_executed=command_executed,
             command_results=command_results,
         )

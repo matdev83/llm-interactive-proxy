@@ -228,23 +228,3 @@ class AppSettings(IAppSettings):
             disable: Whether interactive commands are disabled
         """
         self.set_setting("disable_interactive_commands", disable)
-
-
-# Singleton instance for legacy compatibility during transition
-# This should be removed once DI is fully implemented
-_default_instance: AppSettings | None = None
-
-
-def get_default_instance() -> AppSettings:
-    """Get the default singleton instance of the AppSettings.
-
-    This function is provided for legacy compatibility during the transition
-    to full dependency injection. New code should use proper DI instead.
-
-    Returns:
-        The default AppSettings instance
-    """
-    global _default_instance
-    if _default_instance is None:
-        _default_instance = AppSettings()
-    return _default_instance

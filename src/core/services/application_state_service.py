@@ -175,23 +175,6 @@ class ApplicationStateService(IApplicationState):
             self._state_provider.model_defaults = defaults
         self._local_state["model_defaults"] = defaults
 
-    def get_legacy_backend(self, backend_name: str) -> Any | None:
-        """Get legacy backend instance by name."""
-        if self._state_provider:
-            # Try to get backend using the legacy pattern
-            backend_attr = f"{backend_name}_backend"
-            if hasattr(self._state_provider, backend_attr):
-                return getattr(self._state_provider, backend_attr)
-        return self._local_state.get(f"legacy_backend_{backend_name}")
-
-    def set_legacy_backend(self, backend_name: str, backend_instance: Any) -> None:
-        """Set legacy backend instance by name."""
-        if self._state_provider:
-            # Set backend using the legacy pattern
-            backend_attr = f"{backend_name}_backend"
-            setattr(self._state_provider, backend_attr, backend_instance)
-        self._local_state[f"legacy_backend_{backend_name}"] = backend_instance
-
     def get_failover_routes(self) -> list[dict[str, Any]] | None:
         """Get failover routes."""
         if self._state_provider and hasattr(self._state_provider, "failover_routes"):
@@ -234,29 +217,3 @@ class ApplicationStateService(IApplicationState):
                     name = route["name"]
                     route_config = {k: v for k, v in route.items() if k != "name"}
                     self._local_state["failover_routes"][name] = route_config
-
-
-# Global instance for backward compatibility
-_default_instance: ApplicationStateService | None = None
-
-
-def get_default_application_state() -> ApplicationStateService:
-    """Get the default application state service instance.
-
-    Returns:
-        The default application state service instance
-    """
-    global _default_instance
-    if _default_instance is None:
-        _default_instance = ApplicationStateService()
-    return _default_instance
-
-
-def set_default_application_state(instance: ApplicationStateService) -> None:
-    """Set the default application state service instance.
-
-    Args:
-        instance: The application state service instance
-    """
-    global _default_instance
-    _default_instance = instance

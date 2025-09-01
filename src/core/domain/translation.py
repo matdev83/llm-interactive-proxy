@@ -25,40 +25,7 @@ class Translation:
             gemini_request_to_canonical_request,
         )
 
-        if isinstance(request, dict):
-            return gemini_request_to_canonical_request(request)
-
-        # Legacy format handling (for backward compatibility)
-        model = getattr(request, "model", None)
-        messages = getattr(request, "messages", [])
-        top_k = getattr(request, "top_k", None)
-        top_p = getattr(request, "top_p", None)
-        temperature = getattr(request, "temperature", None)
-        max_tokens = getattr(request, "max_tokens", None)
-        stop = getattr(request, "stop", None)
-        reasoning_effort = getattr(request, "reasoning_effort", None)
-
-        if not model:
-            raise ValueError("Model not found in request")
-
-        # Convert messages to ChatMessage objects if they are dicts
-        chat_messages = []
-        for msg in messages:
-            if isinstance(msg, dict):
-                chat_messages.append(ChatMessage(**msg))
-            else:
-                chat_messages.append(msg)
-
-        return CanonicalChatRequest(
-            model=model,
-            messages=chat_messages,
-            top_k=top_k,
-            top_p=top_p,
-            temperature=temperature,
-            max_tokens=max_tokens,
-            stop=stop,
-            reasoning_effort=reasoning_effort,
-        )
+        return gemini_request_to_canonical_request(request)
 
     @staticmethod
     def anthropic_to_domain_request(request: Any) -> CanonicalChatRequest:

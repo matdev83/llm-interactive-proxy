@@ -100,9 +100,7 @@ class CommandStage(InitializationStage):
 
             # Register as singleton instance
             services.add_instance(CommandSettingsService, cmd_settings)
-            from typing import cast
-
-            services.add_instance(cast(type, ICommandSettingsService), cmd_settings)
+            services.add_instance(ICommandSettingsService, cmd_settings)  # type: ignore[type-abstract] # Mypy incorrectly flags interface as abstract for instance registration
 
             logger.debug("Registered command settings service")
         except ImportError as e:
@@ -142,3 +140,99 @@ class CommandStage(InitializationStage):
             logger.debug("Registered new command service and parser with dependencies")
         except Exception as e:
             logger.warning(f"Could not register command service or parser: {e}")
+
+    def _register_default_commands(self, services: ServiceCollection) -> None:
+        """Register default commands including failover commands."""
+        try:
+            # Register a factory that will populate the command registry with default commands
+            def populate_commands_factory(provider: IServiceProvider) -> None:
+                """Factory to populate the command registry with default commands."""
+                try:
+                    from src.core.domain.commands.failover_commands import (
+                        CreateFailoverRouteCommand,
+                        DeleteFailoverRouteCommand,
+                        ListFailoverRoutesCommand,
+                        RouteAppendCommand,
+                        RouteClearCommand,
+                        RouteListCommand,
+                        RoutePrependCommand,
+                    )
+                    from src.core.interfaces.command_settings_interface import (
+                        ICommandSettingsService,
+                    )
+                    from src.core.interfaces.state_provider_interface import (
+                        ISecureStateAccess,
+                        ISecureStateModification,
+                    )
+                    from src.core.services.command_service import CommandRegistry
+
+                    registry = provider.get_required_service(CommandRegistry)
+                    settings_service = provider.get_required_service(
+                        ICommandSettingsService  # type: ignore[type-abstract]
+                    )
+
+                    # Create a simple state service for commands
+                    class DefaultStateService(
+                        ISecureStateAccess, ISecureStateModification
+                    ):
+                        def __init__(self, settings_service):
+                            self._settings = settings_service
+                            self._routes = []
+                            self._interactive_commands_enabled = False  # Initialize
+
+                        def get_command_prefix(self):
+                            return self._settings.get_command_prefix()
+
+                        def get_failover_routes(self):
+                            return self._routes
+
+                        def update_failover_routes(self, routes):
+                            self._routes = routes
+
+                        def get_api_key_redaction_enabled(self):
+                            return self._settings.get_api_key_redaction_enabled()
+
+                        def get_disable_interactive_commands(self):
+                            return self._settings.get_disable_interactive_commands()
+
+                        def update_command_prefix(self, prefix: str) -> None:
+                            self._settings.command_prefix = prefix
+
+                        def update_api_key_redaction(self, enabled: bool) -> None:
+                            self._settings.api_key_redaction_enabled = enabled
+
+                        def update_interactive_commands(self, enabled: bool) -> None:
+                            self._interactive_commands_enabled = enabled
+
+                    state_service = DefaultStateService(settings_service)
+
+                    # Register failover commands
+                    registry.register(
+                        CreateFailoverRouteCommand(state_service, state_service)
+                    )
+                    registry.register(
+                        DeleteFailoverRouteCommand(state_service, state_service)
+                    )
+                    registry.register(
+                        ListFailoverRoutesCommand(state_service, state_service)
+                    )
+                    registry.register(RouteAppendCommand(state_service, state_service))
+                    registry.register(RouteClearCommand(state_service, state_service))
+                    registry.register(RouteListCommand(state_service, state_service))
+                    registry.register(RoutePrependCommand(state_service, state_service))
+
+                    logger.debug("Registered default failover commands")
+
+                except Exception as e:
+                    logger.warning(f"Could not register default commands: {e}")
+
+                return None
+
+            # Register the factory as a singleton that gets called during service provider build
+            services.add_singleton(
+                type(None), implementation_factory=populate_commands_factory
+            )
+
+            logger.debug("Registered default commands factory")
+        except Exception as e:
+            logger.warning(f"Could not register default commands factory: {e}")

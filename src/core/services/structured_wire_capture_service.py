@@ -281,8 +281,8 @@ class StructuredWireCapture(IWireCapture):
                 for content in payload["contents"]:
                     if isinstance(content, dict) and content.get("role") == "system":
                         return str(content.get("parts", [{}])[0].get("text", ""))
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug("Failed to extract system prompt: %s", e, exc_info=True)
 
         return None
 
@@ -311,8 +311,12 @@ class StructuredWireCapture(IWireCapture):
                         incoming_size = len(json_str.encode("utf-8"))
                         if current_size + incoming_size > self._max_bytes:
                             self._perform_rotation()
-                    except Exception:
-                        pass
+                    except Exception as e:
+                        logger.warning(
+                            "Error during structured wire capture rotation: %s",
+                            e,
+                            exc_info=True,
+                        )
 
                 # Write JSON entry
                 with open(self._file_path, "a", encoding="utf-8") as f:
@@ -356,9 +360,11 @@ class StructuredWireCapture(IWireCapture):
                 if os.path.exists(self._file_path):
                     os.replace(self._file_path, f"{self._file_path}.1")
             self._last_rotation_ts = time.time()
-        except Exception:
+        except Exception as e:
             # Ignore rotation failures
-            pass
+            logger.warning(
+                "Error during structured wire capture rotation: %s", e, exc_info=True
+            )
 
     def _enforce_total_cap(self) -> None:
         if not self._file_path or not self._total_cap or self._total_cap <= 0:
@@ -393,8 +399,12 @@ class StructuredWireCapture(IWireCapture):
             if os.path.exists(base):
                 with contextlib.suppress(Exception):
                     os.remove(base)
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning(
+                "Error enforcing total cap on structured wire capture logs: %s",
+                e,
+                exc_info=True,
+            )
 
 
 def _safe_json_dump(obj: Any) -> str:

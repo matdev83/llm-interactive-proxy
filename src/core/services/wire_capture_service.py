@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import json
+import logging
 import os
 import time
 from collections.abc import AsyncIterator
@@ -13,6 +14,8 @@ from typing import Any
 from src.core.config.app_config import AppConfig
 from src.core.domain.request_context import RequestContext
 from src.core.interfaces.wire_capture_interface import IWireCapture
+
+logger = logging.getLogger(__name__)
 
 
 class WireCapture(IWireCapture):
@@ -186,8 +189,11 @@ class WireCapture(IWireCapture):
                     incoming_size = len(text.encode("utf-8"))
                     if current_size + incoming_size > self._max_bytes:
                         self._perform_rotation()
-                except Exception:
-                    pass
+                except Exception as e:
+                    # Log rotation errors but do not propagate
+                    logger.warning(
+                        "Error during wire capture rotation: %s", e, exc_info=True
+                    )
             with open(self._file_path, "a", encoding="utf-8") as f:
                 f.write(text)
             # Enforce total cap best-effort
@@ -226,9 +232,9 @@ class WireCapture(IWireCapture):
                 if os.path.exists(self._file_path):
                     os.replace(self._file_path, f"{self._file_path}.1")
             self._last_rotation_ts = time.time()
-        except Exception:
+        except Exception as e:
             # Ignore rotation failures
-            pass
+            logger.warning("Error during wire capture rotation: %s", e)
 
     def _enforce_total_cap(self) -> None:
         if not self._file_path or not self._total_cap or self._total_cap <= 0:
@@ -263,8 +269,8 @@ class WireCapture(IWireCapture):
             if os.path.exists(base):
                 with contextlib.suppress(Exception):
                     os.remove(base)
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning("Error enforcing total cap on wire capture logs: %s", e)
 
 
 def _safe_json_dump(obj: Any) -> str:

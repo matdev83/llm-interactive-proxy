@@ -60,6 +60,17 @@ class TranslationService:
         Returns:
             A ChatRequest object.
         """
+        # If the request is already in canonical/domain form, return it as-is
+        from src.core.domain.chat import (
+            CanonicalChatRequest as _Canonical,
+        )
+        from src.core.domain.chat import (
+            ChatRequest as _ChatRequest,
+        )
+
+        if isinstance(request, _Canonical | _ChatRequest):
+            return _Canonical.model_validate(request.model_dump())
+
         if source_format == "gemini":
             return Translation.gemini_to_domain_request(request)
         elif source_format == "openai":
@@ -164,6 +175,8 @@ class TranslationService:
             return chunk
         elif source_format == "openai":
             return Translation.openai_to_domain_stream_chunk(chunk)
+        elif source_format == "anthropic":
+            return Translation.anthropic_to_domain_stream_chunk(chunk)
         # Add more specific stream chunk converters here as needed
         raise NotImplementedError(
             f"Stream chunk converter for format '{source_format}' not implemented."

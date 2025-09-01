@@ -297,9 +297,11 @@ def _discover_api_keys_from_config_backends(
                 except Exception:
                     # If backend attribute is missing or malformed, skip
                     continue
-    except Exception:
+    except Exception as e:
         # Suppress errors to ensure logging continues
-        pass
+        get_logger().warning(
+            "Failed to discover API keys from config backends: %s", e, exc_info=True
+        )
 
 
 def _discover_api_keys_from_environment(found: set[str]) -> None:
@@ -344,9 +346,11 @@ def _discover_api_keys_from_environment(found: set[str]) -> None:
                         found.add(m)
             except Exception:
                 continue
-    except Exception:
+    except Exception as e:
         # Suppress errors to ensure logging continues
-        pass
+        get_logger().warning(
+            "Failed to discover API keys from environment: %s", e, exc_info=True
+        )
 
 
 def discover_api_keys_from_config_and_env(config: AppConfig | None = None) -> list[str]:

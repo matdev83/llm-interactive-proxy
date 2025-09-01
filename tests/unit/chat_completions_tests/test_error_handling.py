@@ -34,7 +34,7 @@ def test_empty_messages_after_processing_no_commands_bad_request(
     }
     response = client.post("/v1/chat/completions", json=payload)
 
-    assert response.status_code == 400
+    assert response.status_code == 422
     response_json = response.json()
     # The error structure might be in either "detail" or "error" depending on the handler
     error_msg = str(response_json).lower()

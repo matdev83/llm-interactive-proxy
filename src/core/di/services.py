@@ -384,7 +384,8 @@ def register_core_services(
                 EditPrecisionResponseMiddleware,
             )
 
-            middlewares.append(EditPrecisionResponseMiddleware())
+            app_state = provider.get_required_service(ApplicationStateService)
+            middlewares.append(EditPrecisionResponseMiddleware(app_state))
         except Exception as e:
             logging.getLogger(__name__).warning(
                 f"Error configuring EditPrecisionResponseMiddleware: {e}",
@@ -440,7 +441,10 @@ def register_core_services(
         manager: MiddlewareApplicationManager = provider.get_required_service(
             MiddlewareApplicationManager
         )
-        return MiddlewareApplicationProcessor(manager._middleware)
+        app_state: IApplicationState = provider.get_required_service(
+            IApplicationState  # type: ignore[type-abstract]
+        )
+        return MiddlewareApplicationProcessor(manager._middleware, app_state=app_state)
 
     _add_singleton(
         MiddlewareApplicationProcessor,
@@ -524,14 +528,7 @@ def register_core_services(
         # global default to maintain compatibility with tests that use
         # get_default_application_state() to mutate flags.
         instance = ApplicationStateService()
-        try:
-            from src.core.services.application_state_service import (
-                set_default_application_state,
-            )
 
-            set_default_application_state(instance)
-        except Exception:
-            pass
         return instance
 
     _add_singleton(
@@ -827,9 +824,11 @@ def register_core_services(
                             reactor.register_handler(apply_diff_handler)
                         )
                     # If loop is running, handler will be registered later
-                except RuntimeError:
+                except RuntimeError as e:
                     # No event loop, handler will be registered later
-                    pass
+                    logger.debug(
+                        "Could not register handler due to missing event loop: %s", e
+                    )
 
         return reactor
 

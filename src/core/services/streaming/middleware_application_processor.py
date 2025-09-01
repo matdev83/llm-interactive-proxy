@@ -4,6 +4,7 @@ from src.core.domain.streaming_response_processor import (
     IStreamProcessor,
     StreamingContent,
 )
+from src.core.interfaces.application_state_interface import IApplicationState
 from src.core.interfaces.response_processor_interface import (
     IResponseMiddleware,
     ProcessedResponse,
@@ -21,6 +22,7 @@ class MiddlewareApplicationProcessor(IStreamProcessor):
         self,
         middleware: list[IResponseMiddleware],
         default_loop_config: object | None = None,
+        app_state: IApplicationState | None = None,
     ) -> None:
         def _priority(mw: IResponseMiddleware) -> int:
             try:
@@ -31,6 +33,7 @@ class MiddlewareApplicationProcessor(IStreamProcessor):
 
         self._middleware = sorted(middleware, key=_priority, reverse=True)
         self._default_loop_config = default_loop_config
+        self._app_state = app_state
 
     async def process(self, content: StreamingContent) -> StreamingContent:
         processed_response = ProcessedResponse(
@@ -46,6 +49,7 @@ class MiddlewareApplicationProcessor(IStreamProcessor):
         context: dict[str, object] = {
             "session_id": session_id_str,
             "response_type": response_type,
+            "app_state": self._app_state,
         }
         # Per-route flags
         if "expected_json" in content.metadata:

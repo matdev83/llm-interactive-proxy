@@ -11,7 +11,6 @@ from collections.abc import Mapping
 from typing import Any
 
 from src.core.domain.command_results import CommandResult
-from src.core.domain.commands.base_command import BaseCommand
 from src.core.domain.commands.secure_base_command import StatefulCommandBase
 from src.core.domain.session import Session
 from src.core.interfaces.state_provider_interface import (
@@ -22,7 +21,7 @@ from src.core.interfaces.state_provider_interface import (
 logger = logging.getLogger(__name__)
 
 
-class CreateFailoverRouteCommand(StatefulCommandBase, BaseCommand):
+class CreateFailoverRouteCommand(StatefulCommandBase):
     """Command to create a new failover route."""
 
     def __init__(
@@ -94,7 +93,7 @@ class CreateFailoverRouteCommand(StatefulCommandBase, BaseCommand):
         )
 
 
-class DeleteFailoverRouteCommand(StatefulCommandBase, BaseCommand):
+class DeleteFailoverRouteCommand(StatefulCommandBase):
     """Command to delete a failover route."""
 
     def __init__(
@@ -170,7 +169,7 @@ class DeleteFailoverRouteCommand(StatefulCommandBase, BaseCommand):
         )
 
 
-class ListFailoverRoutesCommand(StatefulCommandBase, BaseCommand):
+class ListFailoverRoutesCommand(StatefulCommandBase):
     """Command to list all failover routes."""
 
     def __init__(
@@ -233,7 +232,7 @@ class ListFailoverRoutesCommand(StatefulCommandBase, BaseCommand):
         return CommandResult(name=self.name, success=True, message=message)
 
 
-class RouteListCommand(StatefulCommandBase, BaseCommand):
+class RouteListCommand(StatefulCommandBase):
     """Command to list route details."""
 
     def __init__(
@@ -316,7 +315,7 @@ class RouteListCommand(StatefulCommandBase, BaseCommand):
         return CommandResult(name=self.name, success=True, message=message)
 
 
-class RouteAppendCommand(StatefulCommandBase, BaseCommand):
+class RouteAppendCommand(StatefulCommandBase):
     """Command to append to a route."""
 
     def __init__(
@@ -422,7 +421,7 @@ class RouteAppendCommand(StatefulCommandBase, BaseCommand):
         )
 
 
-class RoutePrependCommand(StatefulCommandBase, BaseCommand):
+class RoutePrependCommand(StatefulCommandBase):
     """Command to prepend to a route."""
 
     def __init__(
@@ -511,7 +510,7 @@ class RoutePrependCommand(StatefulCommandBase, BaseCommand):
         )
 
 
-class RouteClearCommand(StatefulCommandBase, BaseCommand):
+class RouteClearCommand(StatefulCommandBase):
     """Command to clear a route."""
 
     def __init__(

@@ -370,8 +370,6 @@ class AppConfig(DomainModel, IConfig):
         with open(path, "w") as f:
             f.write(self.model_dump_json(indent=4))
 
-    # Integration with legacy config
-
     @classmethod
     def from_env(cls) -> AppConfig:
         """Create AppConfig from environment variables.

@@ -11,7 +11,6 @@ from src.core.domain.responses import ResponseEnvelope
 from src.core.domain.streaming_response_processor import StreamingContent
 from src.core.services.application_state_service import (
     ApplicationStateService,
-    set_default_application_state,
 )
 from src.core.services.edit_precision_response_middleware import (
     EditPrecisionResponseMiddleware,
@@ -33,7 +32,6 @@ class _Ctx(RequestContext):
 async def test_e2e_stream_detection_flags_next_call_and_tunes_request() -> None:
     # Shared app state across streaming and request phases
     shared_state = ApplicationStateService()
-    set_default_application_state(shared_state)
 
     # Configure edit-precision settings
     app_config = AppConfig()
@@ -46,8 +44,8 @@ async def test_e2e_stream_detection_flags_next_call_and_tunes_request() -> None:
     session_id = "e2e-sess"
 
     # Phase 1: simulate streaming response with an edit-failure marker
-    mw = EditPrecisionResponseMiddleware()
-    processor = MiddlewareApplicationProcessor([mw])
+    mw = EditPrecisionResponseMiddleware(shared_state)
+    processor = MiddlewareApplicationProcessor([mw], app_state=shared_state)
 
     sc = StreamingContent(
         content="... diff_error encountered ...", metadata={"session_id": session_id}

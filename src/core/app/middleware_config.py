@@ -31,16 +31,10 @@ def configure_middleware(app: FastAPI, config: Any) -> None:
     )
 
     # API key authentication middleware (if enabled)
-    if isinstance(config, dict):
-        # Legacy dict config
-        disable_auth = config.get("disable_auth", False)
-        api_keys = config.get("api_keys", [])
-        trusted_ips = config.get("trusted_ips", [])
-    else:
-        # New AppConfig object
-        disable_auth = config.auth.disable_auth if hasattr(config, "auth") else False
-        api_keys = config.auth.api_keys if hasattr(config, "auth") else []
-        trusted_ips = config.auth.trusted_ips if hasattr(config, "auth") else []
+    # New AppConfig object
+    disable_auth = config.auth.disable_auth if hasattr(config, "auth") else False
+    api_keys = config.auth.api_keys if hasattr(config, "auth") else []
+    trusted_ips = config.auth.trusted_ips if hasattr(config, "auth") else []
 
     # Respect environment override for disabling auth (useful for tests)
     env_disable = os.getenv("DISABLE_AUTH", "").lower() == "true"
@@ -61,14 +55,7 @@ def configure_middleware(app: FastAPI, config: Any) -> None:
     # Auth middleware (for tokens) - only add if auth not disabled
     auth_token = None
     if not disable_auth:
-        if isinstance(config, dict):
-            # Check both root level and nested auth structure for auth_token
-            auth_token = config.get("auth_token")
-            if not auth_token and "auth" in config and isinstance(config["auth"], dict):
-                auth_token = config["auth"].get("auth_token")
-            # Debug log for auth token
-            logger.debug("Auth token from config: %s", auth_token)
-        elif hasattr(config, "auth") and hasattr(config.auth, "auth_token"):
+        if hasattr(config, "auth") and hasattr(config.auth, "auth_token"):
             auth_token = config.auth.auth_token
 
         if auth_token:
@@ -84,25 +71,26 @@ def configure_middleware(app: FastAPI, config: Any) -> None:
     app.add_middleware(RetryAfterMiddleware)
 
     # Request/response logging middleware (if enabled)
-    if isinstance(config, dict):
-        request_logging = config.get("request_logging", False)
-        response_logging = config.get("response_logging", False)
-    else:
-        request_logging = (
-            config.logging.request_logging if hasattr(config, "logging") else False
-        )
-        response_logging = (
-            config.logging.response_logging if hasattr(config, "logging") else False
-        )
+    request_logging = (
+        config.logging.request_logging if hasattr(config, "logging") else False
+    )
+    response_logging = (
+        config.logging.response_logging if hasattr(config, "logging") else False
+    )
 
     if request_logging or response_logging:
+        from src.core.app.middleware.logging_middleware import LoggingMiddleware
+
         logger.info(
             "Logging middleware is enabled",
             request_logging=request_logging,
             response_logging=response_logging,
         )
-        # For now, we'll use a simplified approach to logging middleware
-        # TODO: Reimplement proper logging middleware integration
+        app.add_middleware(
+            LoggingMiddleware,
+            log_requests=request_logging,
+            log_responses=response_logging,
+        )
 
 
 def register_custom_middleware(app: FastAPI, *args: Any, **kwargs: Any) -> None:
@@ -113,6 +101,18 @@ def register_custom_middleware(app: FastAPI, *args: Any, **kwargs: Any) -> None:
         *args: Positional arguments (middleware_class should be the first)
         **kwargs: Keyword arguments to pass to the middleware constructor
     """
-    # For now, we'll skip custom middleware registration
-    # TODO: Implement proper custom middleware registration
-    # middleware_class would be args[0] if provided
+    if not args:
+        logger.warning("No middleware class provided to register_custom_middleware")
+        return
+
+    middleware_class = args[0]
+    try:
+        app.add_middleware(middleware_class, **kwargs)
+        logger.info(
+            f"Successfully registered custom middleware: {middleware_class.__name__}"
+        )
+    except Exception as e:
+        logger.error(
+            f"Failed to register custom middleware: {middleware_class.__name__}",
+            exc_info=e,
+        )
