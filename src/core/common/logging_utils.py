@@ -243,11 +243,17 @@ def install_api_key_redaction_filter(
         for handler in list(root.handlers):
             try:
                 handler.addFilter(filter_instance)
-            except Exception:
-                # Ignore handlers that cannot accept filters
+            except Exception as e:
+                # Ignore handlers that cannot accept filters, but log for diagnostics
+                get_logger(__name__).debug(
+                    "Handler does not support filters: %s", e, exc_info=True
+                )
                 continue
-    except Exception:
+    except Exception as e:
         # Never propagate logging configuration errors
+        get_logger(__name__).debug(
+            "Failed to enable API key redaction filter: %s", e, exc_info=True
+        )
         return
 
 
@@ -262,9 +268,11 @@ def _discover_api_keys_from_config_auth(
                 for k in ak if isinstance(ak, list | tuple) else [ak]:
                     if k:
                         found.add(str(k))
-    except Exception:
-        # Suppress errors to ensure logging continues
-        pass
+    except Exception as e:
+        # Suppress errors to ensure logging continues; add debug context
+        get_logger(__name__).debug(
+            "Error discovering API keys from config.auth: %s", e, exc_info=True
+        )
 
 
 def _discover_api_keys_from_config_backends(
@@ -279,7 +287,10 @@ def _discover_api_keys_from_config_backends(
                 from src.core.services.backend_registry import backend_registry
 
                 registered = backend_registry.get_registered_backends()
-            except Exception:
+            except Exception as e:
+                get_logger(__name__).debug(
+                    "Backend registry discovery failed: %s", e, exc_info=True
+                )
                 registered = []
 
             # Iterate over registered backends and pull api_key fields
@@ -294,8 +305,11 @@ def _discover_api_keys_from_config_backends(
                                     found.add(str(k))
                         else:
                             found.add(str(ak))
-                except Exception:
+                except Exception as e:
                     # If backend attribute is missing or malformed, skip
+                    get_logger(__name__).debug(
+                        "Skipping malformed backend config: %s", e, exc_info=True
+                    )
                     continue
     except Exception as e:
         # Suppress errors to ensure logging continues
@@ -344,7 +358,10 @@ def _discover_api_keys_from_environment(found: set[str]) -> None:
                 for m in BEARER_TOKEN_PATTERN.findall(val):
                     if m:
                         found.add(m)
-            except Exception:
+            except Exception as e:
+                get_logger(__name__).debug(
+                    "Error scanning env var for tokens: %s", e, exc_info=True
+                )
                 continue
     except Exception as e:
         # Suppress errors to ensure logging continues

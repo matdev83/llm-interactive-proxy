@@ -248,7 +248,7 @@ class CommandService(ICommandService):
                             args = json.loads(args_str)
                             if not isinstance(args, dict):
                                 args = {"value": args}
-                        except Exception:
+                        except json.JSONDecodeError:
                             for arg in args_str.split(","):
                                 arg = arg.strip()
                                 if "=" in arg:
@@ -292,7 +292,13 @@ class CommandService(ICommandService):
                         if getattr(result, "new_state", None):
                             try:
                                 session.update_state(result.new_state)
-                            except Exception:
+                            except Exception as e:
+                                # Fallback to direct state assignment; log for visibility
+                                logger.debug(
+                                    "Session.update_state failed, assigning state directly: %s",
+                                    e,
+                                    exc_info=True,
+                                )
                                 session.state = result.new_state
                         await self._session_service.update_session(session)
 
@@ -345,7 +351,7 @@ class CommandService(ICommandService):
                                     multi_modal_args = json.loads(args_str)
                                     if not isinstance(multi_modal_args, dict):
                                         multi_modal_args = {"value": multi_modal_args}
-                                except Exception:
+                                except json.JSONDecodeError:
                                     for arg in args_str.split(","):
                                         arg = arg.strip()
                                         if "=" in arg:
@@ -395,7 +401,12 @@ class CommandService(ICommandService):
                                     if getattr(result, "new_state", None):
                                         try:
                                             session.update_state(result.new_state)
-                                        except Exception:
+                                        except Exception as e:
+                                            logger.debug(
+                                                "Session.update_state failed, assigning state directly: %s",
+                                                e,
+                                                exc_info=True,
+                                            )
                                             session.state = result.new_state
                                     await self._session_service.update_session(session)
 

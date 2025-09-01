@@ -103,7 +103,7 @@ class OpenAIConnector(LLMBackend):
             self.available_models = [model["id"] for model in data.get("data", [])]
         except Exception as e:
             if logger.isEnabledFor(logging.WARNING):
-                logger.warning(f"Failed to fetch models: {e}")
+                logger.warning("Failed to fetch models: %s", e, exc_info=True)
             # Log the error but don't fail initialization
 
     async def _perform_health_check(self) -> bool:
@@ -141,7 +141,9 @@ class OpenAIConnector(LLMBackend):
 
         except Exception as e:
             if logger.isEnabledFor(logging.ERROR):
-                logger.error(f"Health check failed - unexpected error: {e}")
+                logger.error(
+                    "Health check failed - unexpected error: %s", e, exc_info=True
+                )
             return False
 
     async def _ensure_healthy(self) -> None:

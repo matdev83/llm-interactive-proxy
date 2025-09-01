@@ -132,7 +132,9 @@ def normalize_streaming_response(
                     # _ensure_async_iterator guarantees bytes
                     yield chunk
             except Exception as e:
-                logger.error(f"Error in non-normalized streaming path: {e}")
+                logger.error(
+                    f"Error in non-normalized streaming path: {e}", exc_info=True
+                )
                 # Fallback to empty response with error message
                 yield f'data: {{"error": "Streaming error: {e!s}"}}\\n\\n'.encode()
                 yield b"data: [DONE]\n\n"

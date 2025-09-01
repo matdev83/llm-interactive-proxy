@@ -52,8 +52,14 @@ class StructuredWireCapture(IWireCapture):
                 Path(os.path.dirname(self._file_path) or ".").mkdir(
                     parents=True, exist_ok=True
                 )
-            except Exception:
+            except OSError as e:
                 # Best-effort; if we cannot create the directory, leave disabled
+                logger.warning(
+                    "Failed to create structured capture directory for %s: %s",
+                    self._file_path,
+                    e,
+                    exc_info=True,
+                )
                 self._file_path = None
 
     def enabled(self) -> bool:
@@ -150,22 +156,22 @@ class StructuredWireCapture(IWireCapture):
                 all_chunks.append(chunk)
 
                 # Capture each chunk
+                text = chunk.decode("utf-8", errors="replace")
+                chunk_entry = self._create_json_entry(
+                    flow="backend_to_frontend",
+                    direction="response_stream_chunk",
+                    context=context,
+                    session_id=session_id,
+                    backend=backend,
+                    model=model,
+                    key_name=key_name,
+                    payload=text,
+                    byte_count=len(chunk),
+                )
                 try:
-                    text = chunk.decode("utf-8", errors="replace")
-                    chunk_entry = self._create_json_entry(
-                        flow="backend_to_frontend",
-                        direction="response_stream_chunk",
-                        context=context,
-                        session_id=session_id,
-                        backend=backend,
-                        model=model,
-                        key_name=key_name,
-                        payload=text,
-                        byte_count=len(chunk),
-                    )
                     await self._append_json(chunk_entry)
                 except Exception as e:
-                    logger.debug(f"Error capturing stream chunk: {e}", exc_info=True)
+                    logger.debug("Error capturing stream chunk: %s", e, exc_info=True)
 
                 yield chunk
 
@@ -295,37 +301,50 @@ class StructuredWireCapture(IWireCapture):
         try:
             # Convert entry to JSON string
             json_str = json.dumps(entry, ensure_ascii=False) + "\n"
+        except (TypeError, ValueError) as e:
+            logger.debug(
+                "JSON serialization failed for structured capture: %s", e, exc_info=True
+            )
+            try:
+                json_str = (
+                    json.dumps({"fallback_entry": str(entry)}, ensure_ascii=False)
+                    + "\n"
+                )
+            except Exception:
+                return
 
-            async with self._lock:
-                # Check if rotation needed
-                if self._should_rotate_time():
-                    self._perform_rotation()
+        async with self._lock:
+            # Check if rotation needed
+            if self._should_rotate_time():
+                self._perform_rotation()
 
-                if self._max_bytes and self._max_bytes > 0:
-                    try:
-                        current_size = (
-                            os.path.getsize(self._file_path)
-                            if os.path.exists(self._file_path)
-                            else 0
-                        )
-                        incoming_size = len(json_str.encode("utf-8"))
-                        if current_size + incoming_size > self._max_bytes:
-                            self._perform_rotation()
-                    except Exception as e:
-                        logger.warning(
-                            "Error during structured wire capture rotation: %s",
-                            e,
-                            exc_info=True,
-                        )
+            if self._max_bytes and self._max_bytes > 0:
+                try:
+                    current_size = (
+                        os.path.getsize(self._file_path)
+                        if os.path.exists(self._file_path)
+                        else 0
+                    )
+                    incoming_size = len(json_str.encode("utf-8"))
+                    if current_size + incoming_size > self._max_bytes:
+                        self._perform_rotation()
+                except OSError as e:
+                    logger.warning(
+                        "Error during structured wire capture rotation: %s",
+                        e,
+                        exc_info=True,
+                    )
 
-                # Write JSON entry
+            try:
                 with open(self._file_path, "a", encoding="utf-8") as f:
                     f.write(json_str)
+            except OSError as e:
+                logger.warning(
+                    "Structured wire capture write failed: %s", e, exc_info=True
+                )
+                return
 
-                # Enforce total cap best-effort
-                self._enforce_total_cap()
-        except Exception as e:
-            logger.debug(f"Error appending JSON entry: {e}", exc_info=True)
+            self._enforce_total_cap()
 
     def _should_rotate_time(self) -> bool:
         if not self._file_path:
@@ -338,7 +357,7 @@ class StructuredWireCapture(IWireCapture):
                 return False
             now = time.time()
             return (now - self._last_rotation_ts) >= self._rotate_interval
-        except Exception:
+        except OSError:
             return False
 
     def _perform_rotation(self) -> None:
@@ -351,16 +370,16 @@ class StructuredWireCapture(IWireCapture):
                     src = f"{self._file_path}.{i}"
                     dst = f"{self._file_path}.{i+1}"
                     if os.path.exists(src):
-                        with contextlib.suppress(Exception):
+                        with contextlib.suppress(OSError):
                             if i == self._max_files:
                                 os.remove(src)
                             else:
                                 os.replace(src, dst)
-            with contextlib.suppress(Exception):
+            with contextlib.suppress(OSError):
                 if os.path.exists(self._file_path):
                     os.replace(self._file_path, f"{self._file_path}.1")
             self._last_rotation_ts = time.time()
-        except Exception as e:
+        except OSError as e:
             # Ignore rotation failures
             logger.warning(
                 "Error during structured wire capture rotation: %s", e, exc_info=True
@@ -373,14 +392,14 @@ class StructuredWireCapture(IWireCapture):
             files: list[tuple[str, int]] = []
             base = self._file_path
             if os.path.exists(base):
-                with contextlib.suppress(Exception):
+                with contextlib.suppress(OSError):
                     files.append((base, os.path.getsize(base)))
             # Include rotated files up to some reasonable bound (max_files + 10 as safety)
             max_scan = max(self._max_files or 0, 10)
             for i in range(1, max_scan + 1):
                 p = f"{base}.{i}"
                 if os.path.exists(p):
-                    with contextlib.suppress(Exception):
+                    with contextlib.suppress(OSError):
                         files.append((p, os.path.getsize(p)))
             total = sum(sz for _, sz in files)
             if total <= self._total_cap:
@@ -389,7 +408,7 @@ class StructuredWireCapture(IWireCapture):
             for i in range(max_scan, 0, -1):
                 p = f"{base}.{i}"
                 if os.path.exists(p):
-                    with contextlib.suppress(Exception):
+                    with contextlib.suppress(OSError):
                         sz = os.path.getsize(p)
                         os.remove(p)
                         total -= sz
@@ -397,9 +416,9 @@ class StructuredWireCapture(IWireCapture):
                         return
             # If still exceeding with only base file left, remove it entirely
             if os.path.exists(base):
-                with contextlib.suppress(Exception):
+                with contextlib.suppress(OSError):
                     os.remove(base)
-        except Exception as e:
+        except OSError as e:
             logger.warning(
                 "Error enforcing total cap on structured wire capture logs: %s",
                 e,
@@ -411,10 +430,15 @@ def _safe_json_dump(obj: Any) -> str:
     """Safely convert object to JSON string."""
     try:
         return json.dumps(obj, ensure_ascii=False)
-    except Exception:
+    except (TypeError, ValueError):
         try:
             if hasattr(obj, "model_dump"):
                 return json.dumps(obj.model_dump(), ensure_ascii=False)  # type: ignore[attr-defined]
             return json.dumps(obj.__dict__, ensure_ascii=False)
-        except Exception:
+        except Exception as e:
+            logger.debug(
+                "Falling back to str() during structured JSON dump: %s",
+                e,
+                exc_info=True,
+            )
             return str(obj)

@@ -92,7 +92,7 @@ class ZAIConnector(OpenAIConnector):
             # Log the exception for debugging
             import logging
 
-            logging.debug(f"Error fetching models from API: {e}")
+            logging.debug("Error fetching models from API: %s", e, exc_info=True)
 
         # If we get here, either the API call failed or returned no models
         # Use default models from config

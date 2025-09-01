@@ -904,6 +904,21 @@ def register_core_services(
 
             backend_config_provider = BackendConfigProvider(app_config)
 
+        # Optionally build a failover strategy based on feature flag
+        failover_strategy = None
+        try:
+            if (
+                app_state.get_use_failover_strategy()
+                and failover_coordinator is not None
+            ):
+                from src.core.services.failover_strategy import DefaultFailoverStrategy
+
+                failover_strategy = DefaultFailoverStrategy(failover_coordinator)
+        except Exception as e:
+            logging.getLogger(__name__).debug(
+                "Failed to enable failover strategy: %s", e, exc_info=True
+            )
+
         # Return backend service
         return BackendService(
             backend_factory,
@@ -913,6 +928,7 @@ def register_core_services(
             app_state=app_state,
             backend_config_provider=backend_config_provider,
             failover_coordinator=failover_coordinator,
+            failover_strategy=failover_strategy,
             wire_capture=provider.get_required_service(IWireCapture),  # type: ignore[type-abstract]
         )
 
