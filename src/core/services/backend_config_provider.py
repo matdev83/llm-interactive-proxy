@@ -29,8 +29,16 @@ class BackendConfigProvider(IBackendConfigProvider):
                     return BackendConfig(**cfg.model_dump())
                 elif isinstance(cfg, dict):
                     return BackendConfig(**cfg)
-        except Exception:
-            pass
+        except Exception as e:
+            # Attribute probing may fail in test configurations; log at debug level
+            import logging
+
+            logging.getLogger(__name__).debug(
+                "get_backend_config attribute access failed for %s: %s",
+                name,
+                e,
+                exc_info=True,
+            )
 
         # Fallback to dict-style access
         try:
@@ -41,8 +49,15 @@ class BackendConfigProvider(IBackendConfigProvider):
                     return BackendConfig(**val.model_dump())
                 elif isinstance(val, dict):
                     return BackendConfig(**val)
-        except Exception:
-            pass
+        except Exception as e:
+            import logging
+
+            logging.getLogger(__name__).debug(
+                "get_backend_config dict access failed for %s: %s",
+                name,
+                e,
+                exc_info=True,
+            )
 
         return None
 
@@ -59,8 +74,14 @@ class BackendConfigProvider(IBackendConfigProvider):
                     # Skip default_backend and non-backend attributes
                     if key != "default_backend" and not key.startswith("_"):
                         registered.add(key)
-        except Exception:
-            pass
+        except Exception as e:
+            import logging
+
+            logging.getLogger(__name__).debug(
+                "iter_backend_names failed while inspecting __dict__: %s",
+                e,
+                exc_info=True,
+            )
 
         return registered
 
@@ -70,8 +91,14 @@ class BackendConfigProvider(IBackendConfigProvider):
             default = self._app_config.backends.default_backend
             if default and isinstance(default, str):
                 return default
-        except Exception:
-            pass
+        except Exception as e:
+            import logging
+
+            logging.getLogger(__name__).debug(
+                "get_default_backend failed to access default_backend: %s",
+                e,
+                exc_info=True,
+            )
         return "openai"
 
     def get_functional_backends(self) -> set[str]:
@@ -82,8 +109,12 @@ class BackendConfigProvider(IBackendConfigProvider):
                 backends = self._app_config.backends.functional_backends
                 if isinstance(backends, set) and backends:  # Non-empty set
                     return backends
-        except Exception:
-            pass
+        except Exception as e:
+            import logging
+
+            logging.getLogger(__name__).debug(
+                "get_functional_backends failed reading property: %s", e, exc_info=True
+            )
 
         # Build a set of backends with api_key present
         result = set()

@@ -229,7 +229,10 @@ async def list_models(
                     logger.debug(f"Discovered {len(models)} models from {backend_type}")
 
                 except Exception as e:  # type: ignore[misc]
-                    logger.warning(f"Failed to get models from {backend_type}: {e}")
+                    logger.warning(
+                        f"Failed to get models from {backend_type}: {e}",
+                        exc_info=True,
+                    )
                     continue
 
         # If no models were discovered, provide default fallback models
@@ -257,5 +260,5 @@ async def list_models(
         return {"object": "list", "data": all_models}
 
     except Exception as e:  # type: ignore[misc]
-        logger.error(f"Error listing models: {e}")
+        logger.error(f"Error listing models: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))

@@ -2,11 +2,16 @@ import json
 import logging
 import os
 from pathlib import Path
-from typing import Any  # Added Optional and Tuple
+from typing import Any
 
 from fastapi import FastAPI
 
 from src.command_prefix import validate_command_prefix
+from src.core.common.exceptions import (
+    ConfigurationError,
+    JSONParsingError,
+    ServiceResolutionError,
+)
 from src.core.domain.model_utils import (
     ModelDefaults,  # Add import for model config classes
 )
@@ -34,9 +39,33 @@ class ConfigManager:
             return
         try:
             data = json.loads(self.path.read_text())
-        except Exception as e:  # pragma: no cover - should rarely happen
-            logger.warning("Failed to load config file %s: %s", self.path, e)
-            return
+        except json.JSONDecodeError as e:
+            logger.error(
+                "Failed to parse config file %s as JSON: %s",
+                self.path,
+                e,
+                exc_info=True,
+            )
+            raise JSONParsingError(
+                f"Failed to parse config file {self.path.name} as JSON."
+            ) from e
+        except OSError as e:
+            logger.error(
+                "Failed to read config file %s: %s", self.path, e, exc_info=True
+            )
+            raise ConfigurationError(
+                f"Failed to read config file {self.path.name}."
+            ) from e
+        except Exception as e:  # Catch any other unexpected exceptions
+            logger.error(
+                "An unexpected error occurred while loading config file %s: %s",
+                self.path,
+                e,
+                exc_info=True,
+            )
+            raise ConfigurationError(
+                f"An unexpected error occurred while loading config file {self.path.name}."
+            ) from e
         self.apply(data)
 
     def _apply_default_backend(self, backend_value: Any) -> None:
@@ -76,13 +105,24 @@ class ConfigManager:
                                     ]
                                 )
                             return
-                    except Exception as e:
-                        # If DI resolution fails, do not fall back to legacy state
+                    except ServiceResolutionError as e:
                         logger.debug(
                             "DI resolution for IBackendService failed: %s",
                             e,
                             exc_info=True,
                         )
+                        raise ServiceResolutionError(
+                            "Failed to resolve IBackendService for default backend."
+                        ) from e
+                    except Exception as e:
+                        logger.error(
+                            "An unexpected error occurred during DI resolution for IBackendService: %s",
+                            e,
+                            exc_info=True,
+                        )
+                        raise ConfigurationError(
+                            "An unexpected error occurred while applying default backend."
+                        ) from e
                 # Do not use legacy app.state.<backend>_backend attributes; require DI
             else:
                 raise ValueError(
@@ -101,8 +141,24 @@ class ConfigManager:
                     ISessionService  # type: ignore[type-abstract]
                 )
                 session_service.default_interactive_mode = mode_value  # type: ignore[attr-defined]
+            except ServiceResolutionError as e:
+                logger.debug(
+                    "DI resolution for ISessionService failed: %s",
+                    e,
+                    exc_info=True,
+                )
+                raise ServiceResolutionError(
+                    "Failed to resolve ISessionService for interactive mode."
+                ) from e
             except Exception as e:
-                logger.warning(f"Failed to set interactive mode: {e}")
+                logger.error(
+                    "An unexpected error occurred during DI resolution for ISessionService: %s",
+                    e,
+                    exc_info=True,
+                )
+                raise ConfigurationError(
+                    "An unexpected error occurred while applying interactive mode."
+                ) from e
 
     def _apply_redact_api_keys(self, redact_value: Any) -> None:
         if isinstance(redact_value, bool) and self.app_state:
@@ -153,7 +209,15 @@ class ConfigManager:
                     self.app_state.set_model_defaults(current_defaults)
                 logger.info(f"Loaded defaults for model: {model_name}")
             except Exception as e:
-                warnings.append(f"Invalid model defaults for '{model_name}': {e}")
+                logger.error(
+                    "Invalid model defaults for '%s': %s",
+                    model_name,
+                    e,
+                    exc_info=True,
+                )
+                warnings.append(
+                    f"Invalid model defaults for '{model_name}': {e}. Check logs for details."
+                )
                 continue
 
         return warnings
@@ -175,7 +239,7 @@ class ConfigManager:
         from src.core.domain.model_utils import parse_model_backend
 
         backend_name, model_name = parse_model_backend(elem_str)
-        if not backend_name:
+        if not backend_name or not model_name:
             return (
                 None,
                 f"Invalid element format '{elem_str}' in route '{route_name}', must contain '/' or ':' separator.",
