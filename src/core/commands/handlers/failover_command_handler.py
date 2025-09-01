@@ -33,15 +33,16 @@ class SessionStateApplicationStateAdapter(
 ):
     def __init__(self, session: Session):
         self._session = session
+        self._local_state: dict[str, Any] = {}
 
     def get_command_prefix(self) -> str | None:
-        return None
+        return self._local_state.get("command_prefix")
 
     def get_api_key_redaction_enabled(self) -> bool:
-        return False
+        return bool(self._local_state.get("api_key_redaction_enabled", False))
 
     def get_disable_interactive_commands(self) -> bool:
-        return False
+        return bool(self._local_state.get("disable_interactive_commands", False))
 
     def get_failover_routes(self) -> list[dict[str, Any]] | None:
         routes_dict = self._session.state.backend_config.failover_routes
@@ -50,13 +51,13 @@ class SessionStateApplicationStateAdapter(
         return None
 
     def set_command_prefix(self, prefix: str) -> None:
-        pass
+        self._local_state["command_prefix"] = prefix
 
     def set_api_key_redaction_enabled(self, enabled: bool) -> None:
-        pass
+        self._local_state["api_key_redaction_enabled"] = enabled
 
     def set_disable_interactive_commands(self, disabled: bool) -> None:
-        pass
+        self._local_state["disable_interactive_commands"] = disabled
 
     def set_failover_routes(self, routes: list[dict[str, Any]]) -> None:
         # Start with a clean backend config
@@ -92,52 +93,55 @@ class SessionStateApplicationStateAdapter(
         )
 
     def get_disable_commands(self) -> bool:
-        return False
+        return bool(self._local_state.get("disable_commands", False))
 
     def set_disable_commands(self, disabled: bool) -> None:
-        pass
+        self._local_state["disable_commands"] = disabled
 
     def get_setting(self, key: str, default: Any = None) -> Any:
-        return default
+        return self._local_state.get(key, default)
 
     def set_setting(self, key: str, value: Any) -> None:
-        pass
+        self._local_state[key] = value
 
     def get_use_failover_strategy(self) -> bool:
-        return False
+        return bool(self._local_state.get("PROXY_USE_FAILOVER_STRATEGY", False))
 
     def set_use_failover_strategy(self, enabled: bool) -> None:
-        pass
+        self._local_state["PROXY_USE_FAILOVER_STRATEGY"] = enabled
 
     def get_use_streaming_pipeline(self) -> bool:
-        return False
+        return bool(self._local_state.get("PROXY_USE_STREAMING_PIPELINE", False))
 
     def set_use_streaming_pipeline(self, enabled: bool) -> None:
-        pass
+        self._local_state["PROXY_USE_STREAMING_PIPELINE"] = enabled
 
     def get_functional_backends(self) -> list[str]:
-        return []
+        val = self._local_state.get("functional_backends", [])
+        return val if isinstance(val, list) else []
 
     def set_functional_backends(self, backends: list[str]) -> None:
-        pass
+        self._local_state["functional_backends"] = backends
 
     def get_backend_type(self) -> str | None:
-        return None
+        bt = self._local_state.get("backend_type")
+        return bt if isinstance(bt, str) else None
 
     def set_backend_type(self, backend_type: str | None) -> None:
-        pass
+        self._local_state["backend_type"] = backend_type
 
     def get_backend(self) -> Any:
-        return None
+        return self._local_state.get("backend")
 
     def set_backend(self, backend: Any) -> None:
-        pass
+        self._local_state["backend"] = backend
 
     def get_model_defaults(self) -> dict[str, Any]:
-        return {}
+        md = self._local_state.get("model_defaults", {})
+        return md if isinstance(md, dict) else {}
 
     def set_model_defaults(self, defaults: dict[str, Any]) -> None:
-        pass
+        self._local_state["model_defaults"] = defaults
 
     def set_failover_route(self, name: str, route_config: dict[str, Any]) -> None:
         current_backend_config = cast(

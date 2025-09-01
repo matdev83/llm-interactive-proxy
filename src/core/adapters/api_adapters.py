@@ -19,7 +19,7 @@ from src.core.domain.chat import (
 logger = logging.getLogger(__name__)
 
 
-from fastapi import HTTPException  # Add this import
+from fastapi import HTTPException  # Framework-specific for compatibility tests
 
 # ... (rest of the file)
 
@@ -39,6 +39,7 @@ def dict_to_domain_chat_request(request_dict: dict[str, Any]) -> ChatRequest:
 
     # Add this check
     if not messages:
+        # Historical compatibility: tests assert FastAPI HTTPException here
         raise HTTPException(
             status_code=400,
             detail={
