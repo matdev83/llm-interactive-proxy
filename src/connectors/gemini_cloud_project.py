@@ -245,7 +245,10 @@ class GeminiCloudProjectConnector(GeminiBackend):
                 return google.auth.transport.requests.AuthorizedSession(credentials)
             except Exception as e:
                 logger.warning(
-                    "Failed to load service account credentials from %s: %s", sa_path, e
+                    "Failed to load service account credentials from %s: %s",
+                    sa_path,
+                    e,
+                    exc_info=True,
                 )
 
         # Fall back to ADC (supports gcloud ADC, workload identity, etc.)
@@ -429,7 +432,9 @@ class GeminiCloudProjectConnector(GeminiBackend):
                 f"for project: {self.gcp_project_id}"
             )
         except Exception as e:
-            logger.error(f"Failed to validate project or load models: {e}")
+            logger.error(
+                f"Failed to validate project or load models: {e}", exc_info=True
+            )
             self.is_functional = False
 
     async def _validate_project_access(self) -> None:
@@ -471,7 +476,7 @@ class GeminiCloudProjectConnector(GeminiBackend):
                 f"Successfully validated access to project: {self.gcp_project_id}"
             )
         except Exception as e:
-            logger.error(f"Failed to validate project access: {e}")
+            logger.error(f"Failed to validate project access: {e}", exc_info=True)
             raise
 
     async def _resolve_gemini_api_config(
@@ -536,7 +541,7 @@ class GeminiCloudProjectConnector(GeminiBackend):
                 return False
 
         except Exception as e:
-            logger.error(f"Health check failed - unexpected error: {e}")
+            logger.error(f"Health check failed - unexpected error: {e}", exc_info=True)
             return False
 
     async def _ensure_healthy(self) -> None:
@@ -604,7 +609,10 @@ class GeminiCloudProjectConnector(GeminiBackend):
         except (AuthenticationError, BackendError):
             raise
         except Exception as e:
-            logger.error(f"Error in Gemini Cloud Project chat_completions: {e}")
+            logger.error(
+                f"Error in Gemini Cloud Project chat_completions: {e}",
+                exc_info=True,
+            )
             raise BackendError(
                 message=f"Gemini Cloud Project chat completion failed: {e!s}"
             ) from e
@@ -708,7 +716,7 @@ class GeminiCloudProjectConnector(GeminiBackend):
         except (AuthenticationError, BackendError):
             raise
         except Exception as e:
-            logger.error(f"Unexpected error during API call: {e}")
+            logger.error(f"Unexpected error during API call: {e}", exc_info=True)
             raise BackendError(f"Unexpected error during API call: {e}")
 
     async def _chat_completions_streaming(
@@ -833,7 +841,9 @@ class GeminiCloudProjectConnector(GeminiBackend):
         except (AuthenticationError, BackendError):
             raise
         except Exception as e:
-            logger.error(f"Unexpected error during streaming API call: {e}")
+            logger.error(
+                f"Unexpected error during streaming API call: {e}", exc_info=True
+            )
             raise BackendError(f"Unexpected error during streaming API call: {e}")
 
     def _build_generation_config(self, request_data: Any) -> dict[str, Any]:

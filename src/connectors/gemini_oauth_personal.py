@@ -210,8 +210,8 @@ class GeminiOAuthPersonalConnector(GeminiBackend):
             with open(creds_path, "w", encoding="utf-8") as f:
                 json.dump(credentials, f, indent=4)
             logger.info(f"Gemini OAuth credentials saved to {creds_path}")
-        except Exception as e:
-            logger.error(f"Error saving Gemini OAuth credentials: {e}")
+        except OSError as e:
+            logger.error(f"Error saving Gemini OAuth credentials: {e}", exc_info=True)
 
     async def _load_oauth_credentials(self) -> bool:
         """Load OAuth credentials from oauth_creds.json file."""
@@ -256,10 +256,13 @@ class GeminiOAuthPersonalConnector(GeminiBackend):
             logger.info("Successfully loaded Gemini OAuth credentials.")
             return True
         except json.JSONDecodeError as e:
-            logger.error(f"Error decoding Gemini OAuth credentials JSON: {e}")
+            logger.error(
+                f"Error decoding Gemini OAuth credentials JSON: {e}",
+                exc_info=True,
+            )
             return False
-        except Exception as e:
-            logger.error(f"Error loading Gemini OAuth credentials: {e}")
+        except OSError as e:
+            logger.error(f"Error loading Gemini OAuth credentials: {e}", exc_info=True)
             return False
 
     async def initialize(self, **kwargs: Any) -> None:
@@ -304,7 +307,9 @@ class GeminiOAuthPersonalConnector(GeminiBackend):
                 f"Gemini OAuth Personal backend initialized with {len(self.available_models)} models."
             )
         except Exception as e:
-            logger.error(f"Failed to load models during initialization: {e}")
+            logger.error(
+                f"Failed to load models during initialization: {e}", exc_info=True
+            )
             # Even if model loading fails, mark as functional if we have credentials
             self.is_functional = True
             logger.info(
@@ -397,13 +402,15 @@ class GeminiOAuthPersonalConnector(GeminiBackend):
                 return False
 
         except AuthenticationError as e:
-            logger.error(f"Health check failed - authentication error: {e}")
+            logger.error(
+                f"Health check failed - authentication error: {e}", exc_info=True
+            )
             return False
         except BackendError as e:
-            logger.error(f"Health check failed - backend error: {e}")
+            logger.error(f"Health check failed - backend error: {e}", exc_info=True)
             return False
         except Exception as e:
-            logger.error(f"Health check failed - unexpected error: {e}")
+            logger.error(f"Health check failed - unexpected error: {e}", exc_info=True)
             return False
 
     async def _ensure_healthy(self) -> None:
@@ -494,7 +501,10 @@ class GeminiOAuthPersonalConnector(GeminiBackend):
             raise
         except Exception as e:
             # Convert other exceptions to BackendError
-            logger.error(f"Error in Gemini OAuth Personal chat_completions: {e}")
+            logger.error(
+                f"Error in Gemini OAuth Personal chat_completions: {e}",
+                exc_info=True,
+            )
             raise BackendError(
                 message=f"Gemini OAuth Personal chat completion failed: {e!s}"
             ) from e
@@ -622,13 +632,13 @@ class GeminiOAuthPersonalConnector(GeminiBackend):
             )
 
         except AuthenticationError as e:
-            logger.error(f"Authentication error during API call: {e}")
+            logger.error(f"Authentication error during API call: {e}", exc_info=True)
             raise
         except BackendError as e:
-            logger.error(f"Backend error during API call: {e}")
+            logger.error(f"Backend error during API call: {e}", exc_info=True)
             raise
         except Exception as e:
-            logger.error(f"Unexpected error during API call: {e}")
+            logger.error(f"Unexpected error during API call: {e}", exc_info=True)
             raise BackendError(f"Unexpected error during API call: {e}")
 
     async def _chat_completions_code_assist_streaming(
@@ -755,7 +765,10 @@ class GeminiOAuthPersonalConnector(GeminiBackend):
                                         source_format="raw_text",  # Or a more specific raw format
                                     )
                         except Exception as chunk_error:
-                            logger.error(f"Error processing stream line: {chunk_error}")
+                            logger.error(
+                                f"Error processing stream line: {chunk_error}",
+                                exc_info=True,
+                            )
                             continue
 
                     # Ensure the stream is properly closed with a DONE signal
@@ -765,7 +778,7 @@ class GeminiOAuthPersonalConnector(GeminiBackend):
                     )
 
                 except Exception as e:
-                    logger.error(f"Error in streaming generator: {e}")
+                    logger.error(f"Error in streaming generator: {e}", exc_info=True)
                     # Yield an error chunk or ensure stream ends gracefully
                     yield self.translation_service.to_domain_stream_chunk(
                         chunk=None,  # Indicate end of stream due to error
@@ -783,13 +796,18 @@ class GeminiOAuthPersonalConnector(GeminiBackend):
             )
 
         except AuthenticationError as e:
-            logger.error(f"Authentication error during streaming API call: {e}")
+            logger.error(
+                f"Authentication error during streaming API call: {e}",
+                exc_info=True,
+            )
             raise
         except BackendError as e:
-            logger.error(f"Backend error during streaming API call: {e}")
+            logger.error(f"Backend error during streaming API call: {e}", exc_info=True)
             raise
         except Exception as e:
-            logger.error(f"Unexpected error during streaming API call: {e}")
+            logger.error(
+                f"Unexpected error during streaming API call: {e}", exc_info=True
+            )
             raise BackendError(f"Unexpected error during streaming API call: {e}")
 
     def _convert_to_code_assist_format(
@@ -1069,7 +1087,7 @@ class GeminiOAuthPersonalConnector(GeminiBackend):
             return str(self._project_id)
 
         except Exception as e:
-            logger.error(f"Failed to discover project ID: {e}")
+            logger.error(f"Failed to discover project ID: {e}", exc_info=True)
             # Fall back to default
             self._project_id = initial_project_id
             return str(self._project_id)

@@ -68,7 +68,12 @@ async def get_backend_service() -> IBackendService:
         service_provider = get_service_provider()
         service = service_provider.get_required_service(IBackendService)  # type: ignore[type-abstract]
         return service  # type: ignore[no-any-return]
-    except Exception:
+    except Exception as e:
+        logger.warning(
+            "Global service provider unavailable: %s; trying request context",
+            e,
+            exc_info=True,
+        )
         # Try to get from current request context (for FastAPI dependency injection)
         try:
             from starlette.context import _request_context  # type: ignore[import]
@@ -80,8 +85,10 @@ async def get_backend_service() -> IBackendService:
                 ):
                     service = connection.app.state.service_provider.get_required_service(IBackendService)  # type: ignore[type-abstract]
                     return service  # type: ignore[no-any-return]
-        except Exception:
-            pass
+        except Exception as ctx_err:
+            logger.debug(
+                "Request-context provider lookup failed: %s", ctx_err, exc_info=True
+            )
 
         raise HTTPException(
             status_code=503, detail=HTTP_503_SERVICE_UNAVAILABLE_MESSAGE
@@ -99,7 +106,12 @@ def get_config_service() -> IConfig:
 
         service_provider = get_service_provider()
         return service_provider.get_required_service(IConfig)  # type: ignore[type-abstract,no-any-return]
-    except KeyError:
+    except KeyError as e:
+        logger.debug(
+            "IConfig not registered in global provider: %s; trying request context",
+            e,
+            exc_info=True,
+        )
         # Try to get from current request context (for FastAPI dependency injection)
         try:
             from starlette.context import _request_context  # type: ignore[import]
@@ -110,8 +122,10 @@ def get_config_service() -> IConfig:
                     connection.app.state, "service_provider"
                 ):
                     return connection.app.state.service_provider.get_required_service(IConfig)  # type: ignore[type-abstract,no-any-return]
-        except Exception:
-            pass
+        except Exception as ctx_err:
+            logger.debug(
+                "Request-context config lookup failed: %s", ctx_err, exc_info=True
+            )
 
         # Final fallback to default config if IConfig is not registered (for testing)
         from src.core.config.app_config import AppConfig
@@ -136,7 +150,12 @@ def get_backend_factory_service() -> BackendFactory:
 
         service_provider = get_service_provider()
         return service_provider.get_required_service(BackendFactory)  # type: ignore[no-any-return]
-    except (KeyError, Exception):
+    except (KeyError, Exception) as e:
+        logger.debug(
+            "BackendFactory not available via DI: %s; falling back to explicit construction",
+            e,
+            exc_info=True,
+        )
         # Try to get from current request context (for FastAPI dependency injection)
         try:
             from starlette.context import _request_context  # type: ignore[import]
@@ -147,8 +166,12 @@ def get_backend_factory_service() -> BackendFactory:
                     connection.app.state, "service_provider"
                 ):
                     return connection.app.state.service_provider.get_required_service(BackendFactory)  # type: ignore[no-any-return]
-        except Exception:
-            pass
+        except Exception as ctx_err:
+            logger.debug(
+                "Request-context BackendFactory lookup failed: %s",
+                ctx_err,
+                exc_info=True,
+            )
 
         # Final fallback: create factory using the same pattern as BackendService
         # This ensures consistency with the DI container's factory methods

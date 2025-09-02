@@ -332,7 +332,7 @@ def register_versioned_endpoints(app: FastAPI) -> None:
                 ]
             }
         except Exception as e:
-            logger.exception(f"Error getting Gemini models: {e}")
+            logger.exception(f"Error getting Gemini models: {e}", exc_info=True)
             raise HTTPException(
                 status_code=500, detail=HTTP_500_INTERNAL_SERVER_ERROR_MESSAGE
             )
@@ -480,11 +480,14 @@ def register_versioned_endpoints(app: FastAPI) -> None:
             }
         except HTTPException as http_exc:
             # Re-raise HTTP exceptions with their original status code
-            logger.exception(f"HTTP error in Gemini generate content: {http_exc}")
+            logger.exception(
+                f"HTTP error in Gemini generate content: {http_exc}",
+                exc_info=True,
+            )
             raise http_exc
         except Exception as e:
             # For other exceptions, return a 500 error
-            logger.exception(f"Error in Gemini generate content: {e}")
+            logger.exception(f"Error in Gemini generate content: {e}", exc_info=True)
             raise HTTPException(
                 status_code=500, detail=HTTP_500_INTERNAL_SERVER_ERROR_MESSAGE
             )
@@ -634,7 +637,9 @@ def register_versioned_endpoints(app: FastAPI) -> None:
 
                         yield b"data: [DONE]\n\n"
                 except Exception as stream_error:
-                    logger.error(f"Error in stream generation: {stream_error}")
+                    logger.error(
+                        f"Error in stream generation: {stream_error}", exc_info=True
+                    )
                     error_format = {
                         "error": {
                             "message": f"Error generating stream: {stream_error!s}"
@@ -645,7 +650,9 @@ def register_versioned_endpoints(app: FastAPI) -> None:
 
             return StreamingResponse(generate_stream(), media_type="text/event-stream")
         except Exception as e:
-            logger.exception(f"Error in Gemini stream generate content: {e}")
+            logger.exception(
+                f"Error in Gemini stream generate content: {e}", exc_info=True
+            )
             raise HTTPException(
                 status_code=500, detail=HTTP_500_INTERNAL_SERVER_ERROR_MESSAGE
             )
@@ -720,7 +727,7 @@ def _register_anthropic_endpoints(app: FastAPI, prefix: str) -> None:
 
             return {"object": "list", "data": anthropic_models}
         except Exception as e:
-            logger.exception(f"Error getting Anthropic models: {e}")
+            logger.exception(f"Error getting Anthropic models: {e}", exc_info=True)
             raise HTTPException(
                 status_code=500, detail=HTTP_500_INTERNAL_SERVER_ERROR_MESSAGE
             )
