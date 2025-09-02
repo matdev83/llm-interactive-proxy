@@ -93,7 +93,7 @@ class RequestProcessor(IRequestProcessor):
                 return await self._response_manager.process_command_result(
                     command_result, session
                 )
-        except Exception:
+        except (AttributeError, TypeError):
             # Fall back to default path on any issue
             logger.debug("Cline agent fast-path failed; continuing", exc_info=True)
 
@@ -130,7 +130,7 @@ class RequestProcessor(IRequestProcessor):
                 if self._app_state is not None:
                     try:
                         app_config = self._app_state.get_setting("app_config")
-                    except Exception:
+                    except (AttributeError, KeyError, TypeError):
                         app_config = None
 
                 # Only apply if feature flag is enabled (default True)
@@ -138,7 +138,7 @@ class RequestProcessor(IRequestProcessor):
                 try:
                     if app_config is not None and hasattr(app_config, "auth"):
                         should_redact = bool(app_config.auth.redact_api_keys_in_prompts)
-                except Exception:
+                except (AttributeError, TypeError, ValueError):
                     # Be conservative: keep redaction enabled on errors
                     should_redact = True
 
@@ -152,7 +152,7 @@ class RequestProcessor(IRequestProcessor):
                             if app_config is not None
                             else None
                         )
-                    except Exception:
+                    except (AttributeError, TypeError):
                         command_prefix = None
 
                     # Check if commands are disabled
@@ -173,7 +173,7 @@ class RequestProcessor(IRequestProcessor):
                     backend_request = await redaction.process(
                         backend_request, redaction_context
                     )
-            except Exception:
+            except (AttributeError, TypeError, ValueError):
                 # Redaction is best-effort; never block requests on failure
                 if logger.isEnabledFor(logging.DEBUG):
                     logger.debug(
@@ -194,6 +194,7 @@ class RequestProcessor(IRequestProcessor):
                 cfg_min_top_p: float | None = 0.3
                 exclude_agents_regex: str | None = None
                 cfg_override_top_p = False
+                cfg_target_top_k: int | None = None
                 if self._app_state is not None:
                     try:
                         app_config = self._app_state.get_setting("app_config")
@@ -220,9 +221,14 @@ class RequestProcessor(IRequestProcessor):
                             exclude_agents_regex = getattr(
                                 ep, "exclude_agents_regex", None
                             )
-                    except Exception:
+                    except (AttributeError, TypeError, ValueError):
                         # Keep defaults on error
                         cfg_enabled = True
+                        cfg_temp = 0.1
+                        cfg_override_top_p = False
+                        cfg_min_top_p = None
+                        cfg_target_top_k = None
+                        exclude_agents_regex = None
 
                 # Respect agent exclusion regex if configured
                 if (
@@ -272,7 +278,7 @@ class RequestProcessor(IRequestProcessor):
                                     pending_count,
                                     pending_map.get(session_id, 0),
                                 )
-                except Exception as e:
+                except (AttributeError, TypeError, ValueError) as e:
                     logger.debug(
                         "Could not resolve edit_precision_pending: %s", e, exc_info=True
                     )
@@ -287,7 +293,7 @@ class RequestProcessor(IRequestProcessor):
                     try:
                         if cfg_target_top_k is not None:
                             edit_precision._target_top_k = int(cfg_target_top_k)
-                    except Exception as e:
+                    except (AttributeError, TypeError, ValueError) as e:
                         logger.debug(
                             "Could not set target_top_k on edit_precision middleware: %s",
                             e,
@@ -300,7 +306,7 @@ class RequestProcessor(IRequestProcessor):
                             "agent": getattr(session, "agent", None),
                         },
                     )
-            except Exception:
+            except (AttributeError, TypeError, ValueError):
                 # Never block on precision tuning; proceed with original request
                 if logger.isEnabledFor(logging.DEBUG):
                     logger.debug(

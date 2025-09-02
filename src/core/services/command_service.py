@@ -292,7 +292,7 @@ class CommandService(ICommandService):
                         if getattr(result, "new_state", None):
                             try:
                                 session.update_state(result.new_state)
-                            except Exception as e:
+                            except (AttributeError, TypeError) as e:
                                 # Fallback to direct state assignment; log for visibility
                                 logger.debug(
                                     "Session.update_state failed, assigning state directly: %s",
@@ -401,7 +401,7 @@ class CommandService(ICommandService):
                                     if getattr(result, "new_state", None):
                                         try:
                                             session.update_state(result.new_state)
-                                        except Exception as e:
+                                        except (AttributeError, TypeError) as e:
                                             logger.debug(
                                                 "Session.update_state failed, assigning state directly: %s",
                                                 e,

@@ -925,7 +925,7 @@ def register_core_services(
                 from src.core.services.failover_strategy import DefaultFailoverStrategy
 
                 failover_strategy = DefaultFailoverStrategy(failover_coordinator)
-        except Exception as e:
+        except (AttributeError, ImportError, TypeError) as e:
             logging.getLogger(__name__).debug(
                 "Failed to enable failover strategy: %s", e, exc_info=True
             )

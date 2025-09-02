@@ -289,6 +289,6 @@ def _safe_json_dump(obj: Any) -> str:
             if hasattr(obj, "model_dump"):
                 return json.dumps(obj.model_dump(), ensure_ascii=False, indent=2)  # type: ignore[attr-defined]
             return json.dumps(obj.__dict__, ensure_ascii=False, indent=2)
-        except Exception as e:
+        except (TypeError, ValueError, AttributeError) as e:
             logger.debug("Falling back to str() during JSON dump: %s", e, exc_info=True)
             return str(obj)
