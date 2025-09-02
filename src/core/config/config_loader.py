@@ -36,12 +36,6 @@ def _collect_api_keys(base_name: str) -> dict[str, str]:
     return numbered_keys
 
 
-def _keys_for(backend_name: str, cfg: dict[str, Any]) -> list[str]:
-    """Get API keys for a given backend from config."""
-    key_name: str = f"{backend_name.lower()}_api_keys"
-    return list(cfg.get(key_name, {}).values())
-
-
 def get_openrouter_headers(cfg: dict[str, Any], api_key: str) -> dict[str, str]:
     """Construct headers for OpenRouter requests.
 

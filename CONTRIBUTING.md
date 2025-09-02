@@ -72,6 +72,31 @@ python -m black src
 python -m mypy src
 ```
 
+## Operational Exception Mapping (for developers)
+
+The proxy centralizes exception handling so transports remain thin and domain-centric:
+
+- DomainExceptionMiddleware translates `LLMProxyError` subclasses to HTTP JSON:
+  `{ "error": { "message": str, "type": str, "code?": str, "details?": any } }` with the exception `status_code`.
+- FastAPI exception handlers map common third‑party errors:
+  - Upstream connectivity (httpx) → `503 Service Unavailable`.
+  - Malformed JSON → `400 Bad Request`.
+  - Pydantic validation → `422 Unprocessable Entity` with `details`.
+- Registration is done in `src/core/app/middleware_config.py`.
+
+## Failover Strategy Toggle (for operators and developers)
+
+- The DI wiring in `src/core/di/services.py` can enable a strategy-based failover plan when the application state flag is set:
+  - Flag: `IApplicationState.get_use_failover_strategy()` (e.g., via `PROXY_USE_FAILOVER_STRATEGY=true`).
+  - Default: false (uses coordinator-provided attempts).
+  - When true and a coordinator is available, a `DefaultFailoverStrategy` is injected to compute the plan.
+
+## Constants / Public API Surface
+
+- Constants in `src/core/constants/` are not considered public API unless called out in user documentation or tests.
+- We actively trim unused constants to reduce the public surface and avoid accidental coupling. Prefer domain models or enums over string constants.
+- If you introduce a new constant intended for external use, document it in README and reference it from tests.
+
 ### Dependency Injection Container Usage Analysis
 
 The project includes a comprehensive DI container usage scanner that analyzes the codebase for violations of dependency injection principles.

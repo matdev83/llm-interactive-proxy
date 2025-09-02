@@ -82,6 +82,29 @@ def configure_middleware(app: FastAPI, config: Any) -> None:
             "Failed to register DomainExceptionMiddleware: %s", e, exc_info=True
         )
 
+    # Third-party exception handlers (connectivity, JSON decoding, validation)
+    try:
+        import httpx
+
+        from src.core.app.exception_handlers import (
+            httpx_request_error_handler,
+            json_decode_error_handler,
+            pydantic_validation_error_handler,
+        )
+
+        app.add_exception_handler(httpx.RequestError, httpx_request_error_handler)
+
+        import json as _json
+
+        from pydantic import ValidationError as _PydanticValidationError
+
+        app.add_exception_handler(_json.JSONDecodeError, json_decode_error_handler)
+        app.add_exception_handler(
+            _PydanticValidationError, pydantic_validation_error_handler
+        )
+    except Exception as e:  # pragma: no cover - defensive
+        logger.warning("Failed to register exception handlers: %s", e, exc_info=True)
+
     # Request/response logging middleware (if enabled)
     request_logging = (
         config.logging.request_logging if hasattr(config, "logging") else False

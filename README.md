@@ -21,6 +21,25 @@ The LLM Interactive Proxy is an advanced middleware service that provides a unif
 - **Empty Response Recovery**: Automatically detects empty LLM responses (no text, no tool call) and retries the request with a corrective prompt to guide the LLM.
 - **Tool Call Reactor**: Event-driven system for reacting to tool calls from LLMs, with pluggable handlers that can provide steering instructions or modify responses.
 
+### Error Mapping (API Behavior)
+
+- Domain errors produced by the proxy are mapped to HTTP with a consistent JSON body:
+  - `{ "error": { "message": str, "type": str, "code?": str, "details?": any } }`
+- Connectivity failures (e.g., upstream connection issues) return `503 Service Unavailable`.
+- Malformed JSON payloads return `400 Bad Request`.
+- Validation errors return `422 Unprocessable Entity` and include validation `details`.
+
+This makes client integrations easier to debug without inspecting server logs.
+
+### Failover Strategy (optional)
+
+- Two modes are available when a backend/model is unavailable:
+  - Default: use the configured coordinator to produce fallback attempts.
+  - Optional (flagged): enable a strategy that computes an ordered plan of `(backend, model)` attempts.
+- Enable via config/flag (e.g., `PROXY_USE_FAILOVER_STRATEGY=true`). Default is disabled.
+
+For internals and wiring details, see `CONTRIBUTING.md`.
+
 #### Automated Edit-Precision Tuning (new)
 
 - Detects failed file-edit attempts from popular coding agents (Cline, Roo/Kilo, Gemini-CLI, Aider, Crush, OpenCode) and automatically lowers sampling parameters for the next model call to improve literal matching and patch precision.

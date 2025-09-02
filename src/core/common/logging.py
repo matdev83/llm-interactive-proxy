@@ -4,25 +4,11 @@ Structured logging configuration.
 This module provides utilities for configuring and using structured logging.
 """
 
-import logging
-import os
-import sys
 from datetime import datetime
 from enum import Enum
-from pathlib import Path
 from typing import Any
 
 import structlog
-from structlog.dev import ConsoleRenderer
-from structlog.processors import (
-    EventRenamer,
-    JSONRenderer,
-    StackInfoRenderer,
-    TimeStamper,
-    format_exc_info,
-)
-
-from src.core.config.app_config import AppConfig
 
 
 class LogFormat(str, Enum):
@@ -33,105 +19,12 @@ class LogFormat(str, Enum):
     PLAIN = "plain"
 
 
-def setup_logging(
-    config: AppConfig | None = None,
-    log_level: str | int | None = None,
-    log_format: str | None = None,
-    log_file: str | None = None,
-) -> None:
-    """Set up structured logging.
+def setup_logging(*args: Any, **kwargs: Any) -> None:
+    """Deprecated: configure logging via application bootstrap.
 
-    Args:
-        config: Optional application configuration
-        log_level: Override log level
-        log_format: Override log format
-        log_file: Override log file
+    This no-op remains for backward compatibility with legacy entry points.
     """
-    # Get configuration
-    if config is None:
-        config = AppConfig()
-
-    # Get log level
-    level = log_level or (
-        config.logging.level.value if config.logging is not None else "INFO"
-    )
-    if isinstance(level, str):
-        level = getattr(logging, level.upper(), logging.INFO)
-
-    # Get log format
-    format_str = log_format or os.environ.get("LOG_FORMAT", "console")
-    if format_str not in [e.value for e in LogFormat]:
-        format_str = LogFormat.CONSOLE.value
-
-    # Get log file
-    file_path = log_file or (
-        config.logging.log_file if config.logging is not None else None
-    )
-
-    # Configure structlog
-    processors: list = [
-        structlog.stdlib.add_log_level,
-        structlog.stdlib.add_logger_name,
-        structlog.stdlib.PositionalArgumentsFormatter(),
-        TimeStamper(fmt="iso"),
-        StackInfoRenderer(),
-        format_exc_info,
-        EventRenamer(to="event"),
-    ]
-
-    # Add renderer based on format
-    if format_str == LogFormat.JSON.value:
-        processors.append(JSONRenderer())
-    elif format_str == LogFormat.CONSOLE.value:
-        processors.append(ConsoleRenderer(colors=sys.stderr.isatty()))
-    else:  # PLAIN
-        processors.append(structlog.dev.ConsoleRenderer(colors=False))
-
-    structlog.configure(
-        processors=processors,
-        context_class=dict,
-        logger_factory=structlog.stdlib.LoggerFactory(),
-        wrapper_class=structlog.stdlib.BoundLogger,
-        cache_logger_on_first_use=True,
-    )
-
-    # Set up Python's standard logging
-    handlers: list[logging.Handler] = [logging.StreamHandler()]
-
-    # Add file handler if log file is specified
-    if file_path:
-        try:
-            # Ensure directory exists
-            log_dir = Path(file_path).parent
-            log_dir.mkdir(parents=True, exist_ok=True)
-
-            file_handler = logging.FileHandler(file_path)
-            handlers.append(file_handler)
-        except Exception as e:
-            # Log to console if file logging fails
-            console_logger = logging.getLogger(__name__)
-            console_logger.error(f"Failed to set up file logging: {e}")
-
-    # Configure the root logger
-    logging.basicConfig(level=level, format="%(message)s", handlers=handlers)
-
-    # Get the root logger
-    root_logger = logging.getLogger()
-    root_logger.setLevel(level)
-
-    # Set log levels for specific loggers
-    logging.getLogger("httpx").setLevel(logging.WARNING)
-    logging.getLogger("urllib3").setLevel(logging.WARNING)
-
-    # Log startup info
-    logger = get_logger()
-    logger.info(
-        "Logging configured",
-        level=level,
-        format=format_str,
-        file=file_path,
-        env=os.environ.get("ENVIRONMENT", "development"),
-    )
+    return None
 
 
 def get_logger(name: str | None = None) -> structlog.stdlib.BoundLogger:

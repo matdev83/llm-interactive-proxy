@@ -147,7 +147,7 @@ def _load_gemini_oauth_client_config() -> tuple[str, str | None, list[str]]:
 
 # Code Assist API endpoint (same as personal OAuth)
 CODE_ASSIST_ENDPOINT = "https://cloudcode-pa.googleapis.com"
-CODE_ASSIST_API_VERSION = "v1internal"
+# Code Assist API version: v1internal (documented for clarity)
 
 # Scopes for Code Assist API (used with Google ADC)
 CODE_ASSIST_SCOPES: list[str] = [

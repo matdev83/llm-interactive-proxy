@@ -89,14 +89,7 @@ class ApplicationBuilder:
             .add_stage(ControllerStage())
         )
 
-    def get_stages(self) -> dict[str, InitializationStage]:
-        """
-        Get all registered stages.
-
-        Returns:
-            Dictionary mapping stage names to stage instances
-        """
-        return self._stages.copy()
+    # get_stages() removed: prefer observing via logs or extend builder for inspection
 
     def _get_execution_order(self) -> list[str]:
         """

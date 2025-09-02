@@ -78,7 +78,4 @@ def build_app_with_config(
     return app, config
 
 
-# Backward compatibility wrapper for tests that expect only the app
-def build_app_compat(config: AppConfig | dict[str, Any] | None = None) -> FastAPI:
-    """Deprecated compatibility wrapper; prefer build_app()."""
-    return build_app(config)
+# Backward compatibility wrapper removed; use build_app()
