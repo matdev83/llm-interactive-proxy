@@ -326,7 +326,7 @@ class DIViolationScanner:
 class TestDIContainerUsage:
     """Test that the codebase follows DI container usage patterns."""
 
-    @pytest.fixture
+    @pytest.fixture(scope="session")
     def scanner(self) -> "DIViolationScanner":
         """Create a DI violation scanner."""
         src_path = Path(__file__).parent.parent.parent / "src"
