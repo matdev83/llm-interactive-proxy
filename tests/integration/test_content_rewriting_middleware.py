@@ -10,7 +10,7 @@ from src.core.app.middleware.content_rewriting_middleware import (
 )
 from src.core.services.content_rewriter_service import ContentRewriterService
 from starlette.datastructures import Headers
-from starlette.responses import Response
+from starlette.responses import Response, StreamingResponse
 
 
 class TestContentRewritingMiddleware(unittest.TestCase):
@@ -137,6 +137,7 @@ class TestContentRewritingMiddleware(unittest.TestCase):
             request._body = await get_body()
 
             call_next = AsyncMock()
+            call_next.return_value = Response("OK")
 
             await middleware.dispatch(request, call_next)
 
@@ -214,6 +215,7 @@ class TestContentRewritingMiddleware(unittest.TestCase):
             request._body = await get_body()
 
             call_next = AsyncMock()
+            call_next.return_value = Response("OK")
 
             await middleware.dispatch(request, call_next)
 
@@ -295,6 +297,69 @@ class TestContentRewritingMiddleware(unittest.TestCase):
             self.assertEqual(
                 new_body["choices"][0]["message"]["content"],
                 "This is a very rewritten lengthy reply that should be rewritten.",
+            )
+
+        import asyncio
+
+        asyncio.run(run_test())
+
+    def test_streaming_reply_rewriting(self):
+        """Verify that streaming replies are rewritten correctly."""
+
+        async def run_test():
+            # Create a new rule for a streaming reply
+            os.makedirs(
+                os.path.join(self.test_config_dir, "replies", "003"),
+                exist_ok=True,
+            )
+            with open(
+                os.path.join(self.test_config_dir, "replies", "003", "SEARCH.txt"), "w"
+            ) as f:
+                f.write("original streaming reply")
+            with open(
+                os.path.join(self.test_config_dir, "replies", "003", "REPLACE.txt"), "w"
+            ) as f:
+                f.write("rewritten streaming reply")
+
+            rewriter = ContentRewriterService(config_path=self.test_config_dir)
+            middleware = ContentRewritingMiddleware(app=None, rewriter=rewriter)
+
+            async def stream_generator():
+                yield b"This is an original streaming reply."
+
+            async def call_next(request):
+                return StreamingResponse(
+                    stream_generator(),
+                    media_type="text/event-stream",
+                )
+
+            async def receive():
+                return {"type": "http.request", "body": b""}
+
+            request = Request(
+                {
+                    "type": "http",
+                    "method": "POST",
+                    "headers": Headers({"content-type": "application/json"}).raw,
+                    "http_version": "1.1",
+                    "server": ("testserver", 80),
+                    "client": ("testclient", 123),
+                    "scheme": "http",
+                    "root_path": "",
+                    "path": "/test",
+                    "raw_path": b"/test",
+                    "query_string": b"",
+                },
+                receive=receive,
+            )
+
+            response = await middleware.dispatch(request, call_next)
+            self.assertIsInstance(response, StreamingResponse)
+            response_body = b""
+            async for chunk in response.body_iterator:
+                response_body += chunk
+            self.assertEqual(
+                response_body.decode(), "This is an rewritten streaming reply."
             )
 
         import asyncio

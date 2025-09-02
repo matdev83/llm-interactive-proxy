@@ -70,6 +70,13 @@ class ContentRewriterService:
             with open(search_file, encoding="utf-8") as f:
                 search_text = f.read()
 
+            if len(search_text) < 8:
+                logger.warning(
+                    f"Search pattern in {search_file} is too short. "
+                    f"Skipping this rule."
+                )
+                continue
+
             with open(mode_file_path, encoding="utf-8") as f:
                 action_text = f.read()
 

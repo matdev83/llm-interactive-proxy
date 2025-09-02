@@ -982,3 +982,87 @@ Environment and routing:
 Troubleshooting:
 - 401/403: Ensure `auth.json` exists in a default path or set `openai_oauth_path` to its directory.
 - Invalid credentials: File must contain `tokens.access_token` or `OPENAI_API_KEY`.
+### Content Rewriting
+
+The LLM Interactive Proxy provides a powerful content rewriting feature that allows you to modify incoming and outgoing messages on the fly. This functionality is configured through a simple directory structure and supports several rewriting modes.
+
+#### Directory Structure
+
+The content rewriting rules are defined in the `config/replacements` directory. The structure is as follows:
+
+```
+config/
+└── replacements/
+    ├── prompts/
+    │   ├── system/
+    │   │   └── 001/
+    │   │       ├── SEARCH.txt
+    │   │       └── REPLACE.txt
+    │   └── user/
+    │       └── 001/
+    │           ├── SEARCH.txt
+    │           └── APPEND.txt
+    └── replies/
+        └── 001/
+            ├── SEARCH.txt
+            └── PREPEND.txt
+```
+
+- **`prompts`**: Contains rules for rewriting outgoing prompts.
+  - **`system`**: Rules for system-level prompts.
+  - **`user`**: Rules for user-level prompts.
+- **`replies`**: Contains rules for rewriting incoming replies from the LLM.
+
+Each rule is defined in its own numbered subdirectory (e.g., `001`, `002`).
+
+#### Rewriting Modes
+
+The content rewriting feature supports the following modes:
+
+- **`REPLACE`**: Replaces the content of `SEARCH.txt` with the content of `REPLACE.txt`.
+- **`PREPEND`**: Prepends the content of `PREPEND.txt` to the content of `SEARCH.txt`.
+- **`APPEND`**: Appends the content of `APPEND.txt` to the content of `SEARCH.txt`.
+
+Each rule directory must contain a `SEARCH.txt` file and one of the mode files (`REPLACE.txt`, `PREPEND.txt`, or `APPEND.txt`).
+
+#### Sanity Checks
+
+To ensure the quality of the rewriting rules, the following sanity checks are in place:
+
+- **Search Pattern Length**: The content of `SEARCH.txt` must be at least 8 characters long. Rules with shorter search patterns will be ignored.
+- **Unique Mode Files**: Each rule directory can only contain one mode file. If multiple mode files are found, the rule will be ignored.
+
+#### Examples
+
+**Example 1: Replacing a system prompt**
+
+- `config/replacements/prompts/system/001/SEARCH.txt`:
+  ```
+  You are a helpful assistant.
+  ```
+- `config/replacements/prompts/system/001/REPLACE.txt`:
+  ```
+  You are a very helpful assistant.
+  ```
+
+**Example 2: Appending to a user prompt**
+
+- `config/replacements/prompts/user/001/SEARCH.txt`:
+  ```
+  What is the weather in London?
+  ```
+- `config/replacements/prompts/user/001/APPEND.txt`:
+  ```
+  in Celsius
+  ```
+
+**Example 3: Prepending to a reply**
+
+- `config/replacements/replies/001/SEARCH.txt`:
+  ```
+  The weather in London is 20 degrees.
+  ```
+- `config/replacements/replies/001/PREPEND.txt`:
+  ```
+  According to my sources, 
+  ```

@@ -112,7 +112,9 @@ def configure_middleware(app: FastAPI, config: Any) -> None:
         )
         from src.core.services.content_rewriter_service import ContentRewriterService
 
-        rewriter = app.state.service_provider.get(ContentRewriterService)
+        rewriter = app.state.service_provider.get_required_service(
+            ContentRewriterService
+        )
         app.add_middleware(ContentRewritingMiddleware, rewriter=rewriter)
         logger.info("Content rewriting middleware is enabled.")
 

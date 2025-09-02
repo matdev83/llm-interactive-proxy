@@ -51,19 +51,23 @@ class ContentRewritingMiddleware(BaseHTTPMiddleware):
         response = await call_next(request_for_next_call)
 
         # Step 3: Potentially rewrite the response
-        if response.headers.get("content-type") == "application/json":
-            # Read the response body, consuming it
-            if isinstance(response, StreamingResponse):
+        if isinstance(response, StreamingResponse):
+
+            async def new_iterator():
                 response_body = b""
                 async for chunk in response.body_iterator:
-                    if isinstance(chunk, str):
-                        response_body += chunk.encode("utf-8")
-                    else:
-                        response_body += chunk
-            else:
-                response_body = response.body
+                    response_body += chunk
+                rewritten_body = self.rewriter.rewrite_reply(response_body.decode())
+                yield rewritten_body.encode("utf-8")
 
-            # Attempt to rewrite
+            return StreamingResponse(
+                new_iterator(),
+                status_code=response.status_code,
+                headers=dict(response.headers),
+                media_type=response.media_type,
+            )
+        else:
+            response_body = response.body
             try:
                 data = json.loads(response_body)
                 is_rewritten = False
@@ -79,28 +83,11 @@ class ContentRewritingMiddleware(BaseHTTPMiddleware):
                                 is_rewritten = True
 
                 if is_rewritten:
-                    # If rewritten, create a new response with the modified body
                     new_body = json.dumps(data).encode("utf-8")
-                    headers = dict(response.headers)
-                    headers["content-length"] = str(len(new_body))
-                    return Response(
-                        content=new_body,
-                        status_code=response.status_code,
-                        headers=headers,
-                        media_type=response.media_type,
-                    )
+                    response.body = new_body
+                    response.headers["content-length"] = str(len(new_body))
 
             except json.JSONDecodeError:
-                # Not a JSON response, do nothing to the body
                 pass
-
-            # If we are here, the body was read but not rewritten.
-            # We must return a new response with the original body.
-            return Response(
-                content=response_body,
-                status_code=response.status_code,
-                headers=dict(response.headers),
-                media_type=response.media_type,
-            )
 
         return response

@@ -193,3 +193,29 @@ class TestContentRewriterService(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+    def test_ignore_rule_with_short_search_pattern(self):
+        """Verify that a rule with a short search pattern is ignored."""
+        # Create a rule with a search pattern shorter than 8 characters
+        os.makedirs(
+            os.path.join(self.test_config_dir, "prompts", "user", "002"),
+            exist_ok=True,
+        )
+        with open(
+            os.path.join(self.test_config_dir, "prompts", "user", "002", "SEARCH.txt"),
+            "w",
+        ) as f:
+            f.write("short")
+        with open(
+            os.path.join(self.test_config_dir, "prompts", "user", "002", "REPLACE.txt"),
+            "w",
+        ) as f:
+            f.write("rewritten")
+
+        rewriter = ContentRewriterService(config_path=self.test_config_dir)
+        self.assertEqual(len(rewriter.prompt_user_rules), 1)
+
+        # The rule with the short search pattern should be ignored
+        prompt = "This is a short test."
+        rewritten_prompt = rewriter.rewrite_prompt(prompt, "user")
+        self.assertEqual(rewritten_prompt, "This is a short test.")

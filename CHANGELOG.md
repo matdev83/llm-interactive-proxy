@@ -2,6 +2,15 @@
 
 This document outlines significant changes and updates to the LLM Interactive Proxy.
 
+## 2025-09-02 - Content Rewriting
+
+- **New Feature**: Added a content rewriting middleware that allows for the modification of incoming and outgoing messages.
+  - **Rule-Based Rewriting**: Rules are defined in the `config/replacements` directory, with support for `prompts/system`, `prompts/user`, and `replies`.
+  - **Multiple Rewriting Modes**: Supports `REPLACE`, `PREPEND`, and `APPEND` modes.
+  - **Streaming Support**: Correctly handles and rewrites streaming responses.
+  - **Sanity Checks**: Ensures that search patterns are at least 8 characters long and that each rule has a unique mode file.
+  - **Documentation**: Added a new section to the `README.md` file with detailed usage examples and configuration options.
+
 ## 2025-08-31 – Trusted IP Authorization Bypass
 
 - **New Feature**: Added `--trusted-ip` command-line parameter for bypassing API key authentication from specified IP addresses

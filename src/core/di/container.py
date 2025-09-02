@@ -362,6 +362,7 @@ class ServiceCollection(IServiceCollection):
         from src.core.services.command_service import (
             CommandService,  # type: ignore[import-untyped]
         )
+        from src.core.services.content_rewriter_service import ContentRewriterService
         from src.core.services.request_processor_service import RequestProcessor
         from src.core.services.response_parser_service import ResponseParser
         from src.core.services.session_service import (
@@ -382,6 +383,7 @@ class ServiceCollection(IServiceCollection):
         self.add_singleton(IUsageTrackingService, UsageTrackingService)
         self.add_singleton(ISessionService, SessionService)
         self.add_singleton(ICommandService, CommandService)
+        self.add_singleton(ContentRewriterService, ContentRewriterService)
         self.add_singleton(IToolCallHandler, ToolCallHandler)
 
         self.add_scoped(IBackendProcessor, BackendProcessor)
