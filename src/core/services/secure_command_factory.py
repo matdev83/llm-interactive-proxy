@@ -104,7 +104,7 @@ class SecureCommandFactory:
                 f"Failed to create command {command_name} due to a type error: {e}",
                 "Ensure command constructor accepts required dependencies (e.g., state_reader, state_modifier).",
             ) from e
-        except Exception as e:
+        except (AttributeError, ValueError, KeyError) as e:
             if logger.isEnabledFor(logging.ERROR):
                 logger.error(
                     f"An unexpected error occurred while creating command {command_name}: {e}",
@@ -113,6 +113,7 @@ class SecureCommandFactory:
             raise CommandCreationError(
                 message=f"An unexpected error occurred while creating command {command_name}: {e}",
                 command_name=command_name,
+                details={"error_type": type(e).__name__},
             ) from e
 
     def get_created_commands(self) -> dict[str, SecureCommandBase]:

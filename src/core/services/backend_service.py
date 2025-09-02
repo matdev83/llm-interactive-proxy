@@ -216,7 +216,12 @@ class BackendService(IBackendService):
                         )
                 except Exception:
                     if logger.isEnabledFor(logging.DEBUG):
-                        logger.debug("Wire capture (request) failed", exc_info=True)
+                        logger.debug(
+                            "Wire capture (request) failed for backend %s with model %s",
+                            backend_type,
+                            effective_model,
+                            exc_info=True,
+                        )
                 result: ResponseEnvelope | StreamingResponseEnvelope = (
                     await backend.chat_completions(
                         request_data=domain_request,
@@ -261,7 +266,12 @@ class BackendService(IBackendService):
                             )
                 except Exception:
                     if logger.isEnabledFor(logging.DEBUG):
-                        logger.debug("Wire capture (response) failed", exc_info=True)
+                        logger.debug(
+                            "Wire capture (response) failed for backend %s with model %s",
+                            backend_type,
+                            effective_model,
+                            exc_info=True,
+                        )
                 return result
             except (
                 Exception
@@ -300,7 +310,7 @@ class BackendService(IBackendService):
         except Exception as e:
             # Catch any other unexpected exceptions and wrap them
             raise BackendError(
-                message=f"An unexpected error occurred during backend call: {e!s}",
+                message=f"An unexpected error occurred during backend call to {backend_type}: {e!s}",
                 backend_name=backend_type,
             ) from e
 
