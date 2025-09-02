@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import inspect
+import logging
+import os
 from collections.abc import Callable
 from typing import Any, TypeVar
 
@@ -140,6 +142,12 @@ class ServiceProvider(IServiceProvider):
         """
         self._descriptors = descriptors
         self._singleton_instances: dict[type, Any] = {}
+        self._diagnostics = os.getenv("DI_STRICT_DIAGNOSTICS", "false").lower() in (
+            "true",
+            "1",
+            "yes",
+        )
+        self._diag_logger = logging.getLogger("llm.di")
 
     def get_service(self, service_type: type[T]) -> T | None:
         """Get a service of the given type if registered."""
@@ -165,6 +173,13 @@ class ServiceProvider(IServiceProvider):
         """Internal method to get a service of the given type."""
         descriptor = self._descriptors.get(service_type)
         if descriptor is None:
+            if self._diagnostics:
+                type_name = getattr(service_type, "__name__", str(service_type))
+                self._diag_logger.warning(
+                    "DI: no descriptor for %s; registered=%d",
+                    type_name,
+                    len(self._descriptors),
+                )
             return None
 
         # Check if it's a singleton with existing instance

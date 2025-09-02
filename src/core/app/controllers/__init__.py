@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import contextlib
 import logging
+import os
 from collections.abc import AsyncGenerator
 from typing import Any, cast
 
@@ -28,6 +29,7 @@ from src.core.app.controllers.models_controller import (
 )
 from src.core.app.controllers.models_controller import router as models_router
 from src.core.app.controllers.usage_controller import router as usage_router
+from src.core.common.exceptions import ServiceResolutionError
 
 # Import HTTP status constants
 from src.core.constants import (
@@ -43,6 +45,12 @@ from src.core.interfaces.di_interface import IServiceProvider
 from src.core.interfaces.request_processor_interface import IRequestProcessor
 
 logger = logging.getLogger(__name__)
+# Strict controller error mode (off by default). Honors either env for compatibility.
+_STRICT_CONTROLLER_ERRORS = os.getenv("STRICT_CONTROLLER_ERRORS", "false").lower() in (
+    "true",
+    "1",
+    "yes",
+) or os.getenv("STRICT_CONTROLLER_DI", "false").lower() in ("true", "1", "yes")
 
 
 async def get_chat_controller_if_available(request: Request) -> ChatController:
@@ -59,6 +67,11 @@ async def get_chat_controller_if_available(request: Request) -> ChatController:
     """
     service_provider = getattr(request.app.state, "service_provider", None)
     if not service_provider:
+        if _STRICT_CONTROLLER_ERRORS:
+            raise ServiceResolutionError(
+                message="Service provider not available in app state",
+                service_name="IServiceProvider",
+            )
         raise HTTPException(
             status_code=503, detail=HTTP_503_SERVICE_UNAVAILABLE_MESSAGE
         )
@@ -75,7 +88,15 @@ async def get_chat_controller_if_available(request: Request) -> ChatController:
             return cast(ChatController, chat_controller)
         return cast(ChatController, get_chat_controller(service_provider))
     except Exception as e:
-        logger.exception(f"Failed to get ChatController from service provider: {e}")
+        logger.exception(
+            f"Failed to get ChatController from service provider: {e}",
+            exc_info=True,
+        )
+        if _STRICT_CONTROLLER_ERRORS:
+            raise ServiceResolutionError(
+                message="Failed to resolve ChatController",
+                service_name="ChatController",
+            ) from e
         raise HTTPException(
             status_code=500, detail=HTTP_500_INTERNAL_SERVER_ERROR_MESSAGE
         )
@@ -97,6 +118,11 @@ async def get_anthropic_controller_if_available(
     """
     service_provider = getattr(request.app.state, "service_provider", None)
     if not service_provider:
+        if _STRICT_CONTROLLER_ERRORS:
+            raise ServiceResolutionError(
+                message="Service provider not available in app state",
+                service_name="IServiceProvider",
+            )
         raise HTTPException(
             status_code=503, detail=HTTP_503_SERVICE_UNAVAILABLE_MESSAGE
         )
@@ -142,8 +168,14 @@ async def get_anthropic_controller_if_available(
             return AnthropicController(request_processor)
     except Exception as e:
         logger.exception(
-            f"Failed to get AnthropicController from service provider: {e}"
+            f"Failed to get AnthropicController from service provider: {e}",
+            exc_info=True,
         )
+        if _STRICT_CONTROLLER_ERRORS:
+            raise ServiceResolutionError(
+                message="Failed to resolve AnthropicController",
+                service_name="AnthropicController",
+            ) from e
         raise HTTPException(
             status_code=500, detail=HTTP_500_INTERNAL_SERVER_ERROR_MESSAGE
         )
@@ -163,6 +195,11 @@ async def get_service_provider_dependency(request: Request) -> IServiceProvider:
     """
     service_provider = getattr(request.app.state, "service_provider", None)
     if not service_provider:
+        if _STRICT_CONTROLLER_ERRORS:
+            raise ServiceResolutionError(
+                message="Service provider not available in app state",
+                service_name="IServiceProvider",
+            )
         raise HTTPException(
             status_code=503, detail=HTTP_503_SERVICE_UNAVAILABLE_MESSAGE
         )
@@ -178,8 +215,19 @@ async def get_chat_controller_dependency(request: Request) -> ChatController:
     Returns:
         A configured chat controller
     """
-    service_provider = await get_service_provider_dependency(request)
-    return get_chat_controller(service_provider)
+    try:
+        service_provider = await get_service_provider_dependency(request)
+        return get_chat_controller(service_provider)
+    except Exception as e:
+        logger.error(f"Error getting chat controller dependency: {e}", exc_info=True)
+        if _STRICT_CONTROLLER_ERRORS:
+            raise ServiceResolutionError(
+                message="Failed to resolve ChatController in dependency",
+                service_name="ChatController",
+            ) from e
+        raise HTTPException(
+            status_code=500, detail=HTTP_500_INTERNAL_SERVER_ERROR_MESSAGE
+        )
 
 
 def register_routes(app: FastAPI) -> None:

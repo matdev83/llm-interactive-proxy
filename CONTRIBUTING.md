@@ -59,6 +59,31 @@ python -m pytest tests/unit/test_backend_service.py
 python -m pytest --cov=src
 ```
 
+### Strict Modes and Diagnostics
+
+To improve safety without breaking default behavior, several strict/diagnostic modes are available via environment variables. These are OFF by default and only change behavior when explicitly enabled:
+
+- `STRICT_CONTROLLER_ERRORS` (also honors `STRICT_CONTROLLER_DI`):
+  - When enabled, controller dependency resolution raises `ServiceResolutionError` instead of returning HTTP 503/500 fallbacks.
+- `STRICT_PERSISTENCE_ERRORS`:
+  - When enabled, persistence operations raise `ConfigurationError`/`ServiceResolutionError` for I/O/DI issues instead of only logging.
+- `STRICT_SERVICES_ERRORS`:
+  - When enabled, selected services raise on internal failures that are otherwise logged and ignored (e.g., `AppSettings` state access).
+- `DI_STRICT_DIAGNOSTICS`:
+  - When enabled, the DI layer emits diagnostic logs via logger `llm.di` for missing registrations and provider builds.
+
+Example (Windows PowerShell):
+
+```powershell
+$env:STRICT_CONTROLLER_ERRORS = "true"
+$env:STRICT_PERSISTENCE_ERRORS = "true"
+$env:STRICT_SERVICES_ERRORS = "true"
+$env:DI_STRICT_DIAGNOSTICS = "true"
+python -m pytest -q
+```
+
+Note: The default test suite runs with these flags disabled to preserve current behavior. Targeted tests may set flags to verify strict-mode surfaces.
+
 ### Linting and Formatting
 
 ```bash

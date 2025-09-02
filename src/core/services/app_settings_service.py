@@ -7,11 +7,17 @@ This module provides the implementation of the application settings interface.
 from __future__ import annotations
 
 import logging
+import os
 from typing import Any
 
 from src.core.interfaces.app_settings_interface import IAppSettings
 
 logger = logging.getLogger(__name__)
+_STRICT_SERVICES_ERRORS = os.getenv("STRICT_SERVICES_ERRORS", "false").lower() in (
+    "true",
+    "1",
+    "yes",
+)
 
 
 class AppSettings(IAppSettings):
@@ -56,6 +62,8 @@ class AppSettings(IAppSettings):
                     app_state.disable_interactive_commands
                 )
         except Exception as e:
+            if _STRICT_SERVICES_ERRORS:
+                raise
             logger.warning(f"Error initializing settings from app_state: {e}")
 
     def get_setting(self, key: str, default: Any = None) -> Any:
@@ -78,7 +86,10 @@ class AppSettings(IAppSettings):
                 if hasattr(self._app_state, key):
                     return getattr(self._app_state, key)
             except Exception:
-                pass
+                if _STRICT_SERVICES_ERRORS:
+                    raise
+                # Best-effort fallback when not strict
+                return default
 
         # Return default
         return default
@@ -98,6 +109,8 @@ class AppSettings(IAppSettings):
             try:
                 setattr(self._app_state, key, value)
             except Exception as e:
+                if _STRICT_SERVICES_ERRORS:
+                    raise
                 logger.warning(f"Error setting {key} in app_state: {e}")
 
     def has_setting(self, key: str) -> bool:
@@ -118,7 +131,9 @@ class AppSettings(IAppSettings):
             try:
                 return hasattr(self._app_state, key)
             except Exception:
-                pass
+                if _STRICT_SERVICES_ERRORS:
+                    raise
+                return False
 
         return False
 
@@ -143,6 +158,8 @@ class AppSettings(IAppSettings):
                     if key not in all_settings:
                         all_settings[key] = getattr(self._app_state, key)
             except Exception as e:
+                if _STRICT_SERVICES_ERRORS:
+                    raise
                 logger.warning(f"Error getting all settings from app_state: {e}")
 
         return all_settings

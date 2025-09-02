@@ -19,6 +19,13 @@ from src.core.interfaces.application_state_interface import IApplicationState
 from src.core.interfaces.di_interface import IServiceProvider
 
 logger = logging.getLogger(__name__)
+_STRICT_PERSISTENCE_ERRORS = os.getenv(
+    "STRICT_PERSISTENCE_ERRORS", "false"
+).lower() in (
+    "true",
+    "1",
+    "yes",
+)
 
 
 class ConfigManager:
@@ -282,12 +289,27 @@ class ConfigManager:
                         )
                     )
 
-            except Exception as e:
+            except ServiceResolutionError as e:
                 logger.debug(
                     "DI resolution for IBackendService failed in failover validation: %s",
                     e,
                     exc_info=True,
                 )
+                if _STRICT_PERSISTENCE_ERRORS:
+                    raise ServiceResolutionError(
+                        "Failed to resolve IBackendService during failover validation",
+                        service_name="IBackendService",
+                    ) from e
+            except Exception as e:
+                logger.debug(
+                    "Unexpected error during DI resolution in failover validation: %s",
+                    e,
+                    exc_info=True,
+                )
+                if _STRICT_PERSISTENCE_ERRORS:
+                    raise ConfigurationError(
+                        "Unexpected error validating failover element",
+                    ) from e
 
         if not valid_model:
             return (
@@ -369,7 +391,15 @@ class ConfigManager:
                 interactive_mode = getattr(
                     session_service, "default_interactive_mode", False
                 )
+            except ServiceResolutionError as e:
+                if _STRICT_PERSISTENCE_ERRORS:
+                    raise
+                logger.warning(f"Failed to get interactive mode: {e}")
             except Exception as e:
+                if _STRICT_PERSISTENCE_ERRORS:
+                    raise ConfigurationError(
+                        "Unexpected error reading interactive mode from session service."
+                    ) from e
                 logger.warning(f"Failed to get interactive mode: {e}")
 
         config_data: dict[str, Any] = {
@@ -410,5 +440,23 @@ class ConfigManager:
     def save(self) -> None:
         self.path.parent.mkdir(parents=True, exist_ok=True)
         data = self.collect()
-        with self.path.open("w") as f:
-            json.dump(data, f, indent=2)
+        try:
+            with self.path.open("w", encoding="utf-8") as f:
+                json.dump(data, f, indent=2)
+        except OSError as e:
+            logger.error(
+                "Failed to write config file %s: %s", self.path, e, exc_info=True
+            )
+            raise ConfigurationError(
+                f"Failed to write config file {self.path.name}."
+            ) from e
+        except TypeError as e:
+            logger.error(
+                "Failed to serialize config data to JSON for %s: %s",
+                self.path,
+                e,
+                exc_info=True,
+            )
+            raise ConfigurationError(
+                f"Failed to serialize configuration to JSON for {self.path.name}."
+            ) from e

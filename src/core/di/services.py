@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import contextlib
 import logging
+import os
 from collections.abc import Callable
 from typing import Any, TypeVar, cast
 
@@ -111,6 +112,11 @@ T = TypeVar("T")
 # Global service collection
 _service_collection: ServiceCollection | None = None
 _service_provider: IServiceProvider | None = None
+_DI_DIAGNOSTICS = os.getenv("DI_STRICT_DIAGNOSTICS", "false").lower() in (
+    "true",
+    "1",
+    "yes",
+)
 
 
 def get_service_collection() -> ServiceCollection:
@@ -142,6 +148,11 @@ def get_or_build_service_provider() -> IServiceProvider:
     """
     global _service_provider
     if _service_provider is None:
+        if _DI_DIAGNOSTICS:
+            logging.getLogger("llm.di").info(
+                "Building service provider; descriptors=%d",
+                len(get_service_collection()._descriptors),
+            )
         _service_provider = get_service_collection().build_service_provider()
     return _service_provider
 

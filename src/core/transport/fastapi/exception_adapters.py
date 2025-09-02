@@ -47,7 +47,15 @@ def map_domain_exception_to_http_exception(exc: LLMProxyError) -> HTTPException:
     elif isinstance(exc, ServiceUnavailableError):
         status_code = status.HTTP_503_SERVICE_UNAVAILABLE
     elif isinstance(exc, BackendError):
-        status_code = status.HTTP_502_BAD_GATEWAY
+        # Preserve specific BackendError subclasses' status_code if provided
+        explicit = getattr(exc, "status_code", None)
+        if (
+            isinstance(explicit, int)
+            and explicit != status.HTTP_500_INTERNAL_SERVER_ERROR
+        ):
+            status_code = explicit
+        else:
+            status_code = status.HTTP_502_BAD_GATEWAY
     elif isinstance(exc, RateLimitExceededError):
         status_code = status.HTTP_429_TOO_MANY_REQUESTS
     elif isinstance(exc, LoopDetectionError):
