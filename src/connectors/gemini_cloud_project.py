@@ -56,10 +56,16 @@ import google.auth.transport.requests
 import google.oauth2.credentials
 import google.oauth2.service_account
 import httpx
+import requests  # type: ignore[import-untyped]
 from fastapi import HTTPException
 from google.auth.exceptions import RefreshError
 
-from src.core.common.exceptions import AuthenticationError, BackendError
+from src.core.common.exceptions import (
+    APIConnectionError,
+    APITimeoutError,
+    AuthenticationError,
+    BackendError,
+)
 from src.core.config.app_config import AppConfig
 from src.core.domain.responses import (
     ProcessedResponse,
@@ -528,7 +534,17 @@ class GeminiCloudProjectConnector(GeminiBackend):
             # Refresh underlying credentials to ensure valid token
             session.credentials.refresh(request)  # type: ignore[attr-defined]
             headers = {"Authorization": f"Bearer {session.credentials.token}"}  # type: ignore[attr-defined]
-            response = await self.client.get(url, headers=headers)
+            try:
+                response = await self.client.get(url, headers=headers, timeout=10.0)
+            except httpx.TimeoutException as te:
+                logger.error(f"Health check timeout calling {url}: {te}", exc_info=True)
+                return False
+            except httpx.RequestError as rexc:
+                logger.error(
+                    f"Health check connection error calling {url}: {rexc}",
+                    exc_info=True,
+                )
+                return False
 
             if response.status_code == 200:
                 logger.info("Health check passed - API connectivity verified")
@@ -646,15 +662,26 @@ class GeminiCloudProjectConnector(GeminiBackend):
             url = f"{self.gemini_api_base_url}/v1internal:streamGenerateContent"
             logger.info(f"Making Code Assist API call with project {project_id}")
 
-            response = await asyncio.to_thread(
-                auth_session.request,
-                method="POST",
-                url=url,
-                params={"alt": "sse"},
-                json=request_body,
-                headers={"Content-Type": "application/json"},
-                timeout=60,
-            )
+            try:
+                response = await asyncio.to_thread(
+                    auth_session.request,
+                    method="POST",
+                    url=url,
+                    params={"alt": "sse"},
+                    json=request_body,
+                    headers={"Content-Type": "application/json"},
+                    timeout=60,
+                )
+            except requests.exceptions.Timeout as te:  # type: ignore[attr-defined]
+                raise APITimeoutError(
+                    message="Code Assist API call timed out",
+                    backend_name=self.name,
+                ) from te
+            except requests.exceptions.RequestException as rexc:  # type: ignore[attr-defined]
+                raise APIConnectionError(
+                    message="Failed to connect to Code Assist API",
+                    backend_name=self.name,
+                ) from rexc
 
             if response.status_code >= 400:
                 try:
@@ -753,15 +780,33 @@ class GeminiCloudProjectConnector(GeminiBackend):
             async def stream_generator() -> AsyncGenerator[ProcessedResponse, None]:
                 response = None
                 try:
-                    response = await asyncio.to_thread(
-                        auth_session.request,
-                        method="POST",
-                        url=url,
-                        params={"alt": "sse"},
-                        json=request_body,
-                        headers={"Content-Type": "application/json"},
-                        timeout=60,
-                    )
+                    try:
+                        response = await asyncio.to_thread(
+                            auth_session.request,
+                            method="POST",
+                            url=url,
+                            params={"alt": "sse"},
+                            json=request_body,
+                            headers={"Content-Type": "application/json"},
+                            timeout=60,
+                        )
+                    except requests.exceptions.Timeout as te:  # type: ignore[attr-defined]
+                        logger.error(
+                            f"Streaming timeout calling {url}: {te}", exc_info=True
+                        )
+                        yield self.translation_service.to_domain_stream_chunk(
+                            chunk=None, source_format="code_assist"
+                        )
+                        return
+                    except requests.exceptions.RequestException as rexc:  # type: ignore[attr-defined]
+                        logger.error(
+                            f"Streaming connection error calling {url}: {rexc}",
+                            exc_info=True,
+                        )
+                        yield self.translation_service.to_domain_stream_chunk(
+                            chunk=None, source_format="code_assist"
+                        )
+                        return
 
                     if response.status_code >= 400:
                         try:

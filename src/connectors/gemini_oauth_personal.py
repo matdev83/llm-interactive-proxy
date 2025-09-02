@@ -68,9 +68,15 @@ import google.auth
 import google.auth.transport.requests
 import google.oauth2.credentials
 import httpx
+import requests  # type: ignore[import-untyped]
 from fastapi import HTTPException
 
-from src.core.common.exceptions import AuthenticationError, BackendError
+from src.core.common.exceptions import (
+    APIConnectionError,
+    APITimeoutError,
+    AuthenticationError,
+    BackendError,
+)
 from src.core.config.app_config import AppConfig
 from src.core.domain.responses import (
     ProcessedResponse,
@@ -389,7 +395,17 @@ class GeminiOAuthPersonalConnector(GeminiBackend):
                 "Authorization": f"Bearer {self._oauth_credentials['access_token']}"
             }
 
-            response = await self.client.get(url, headers=headers)
+            try:
+                response = await self.client.get(url, headers=headers, timeout=10.0)
+            except httpx.TimeoutException as te:
+                logger.error(f"Health check timeout calling {url}: {te}", exc_info=True)
+                return False
+            except httpx.RequestError as rexc:
+                logger.error(
+                    f"Health check connection error calling {url}: {rexc}",
+                    exc_info=True,
+                )
+                return False
 
             if response.status_code == 200:
                 logger.info("Health check passed - API connectivity verified")
@@ -569,15 +585,26 @@ class GeminiOAuthPersonalConnector(GeminiBackend):
 
             # Use the auth_session.request exactly like KiloCode
             # Add ?alt=sse for server-sent events streaming
-            response = await asyncio.to_thread(
-                auth_session.request,
-                method="POST",
-                url=url,
-                params={"alt": "sse"},  # Important: KiloCode uses SSE streaming
-                json=request_body,
-                headers={"Content-Type": "application/json"},
-                timeout=60,  # Changed to int
-            )
+            try:
+                response = await asyncio.to_thread(
+                    auth_session.request,
+                    method="POST",
+                    url=url,
+                    params={"alt": "sse"},  # Important: KiloCode uses SSE streaming
+                    json=request_body,
+                    headers={"Content-Type": "application/json"},
+                    timeout=60,
+                )
+            except requests.exceptions.Timeout as te:  # type: ignore[attr-defined]
+                raise APITimeoutError(
+                    message="Code Assist API call timed out",
+                    backend_name=self.name,
+                ) from te
+            except requests.exceptions.RequestException as rexc:  # type: ignore[attr-defined]
+                raise APIConnectionError(
+                    message="Failed to connect to Code Assist API",
+                    backend_name=self.name,
+                ) from rexc
 
             # Process the response
             if response.status_code >= 400:
@@ -706,15 +733,36 @@ class GeminiOAuthPersonalConnector(GeminiBackend):
                 try:
                     # Use the auth_session.request exactly like KiloCode
                     # Add ?alt=sse for server-sent events streaming
-                    response = await asyncio.to_thread(
-                        auth_session.request,
-                        method="POST",
-                        url=url,
-                        params={"alt": "sse"},  # Important: KiloCode uses SSE streaming
-                        json=request_body,
-                        headers={"Content-Type": "application/json"},
-                        timeout=60,  # Changed to int
-                    )
+                    try:
+                        response = await asyncio.to_thread(
+                            auth_session.request,
+                            method="POST",
+                            url=url,
+                            params={
+                                "alt": "sse"
+                            },  # Important: KiloCode uses SSE streaming
+                            json=request_body,
+                            headers={"Content-Type": "application/json"},
+                            timeout=60,
+                        )
+                    except requests.exceptions.Timeout as te:  # type: ignore[attr-defined]
+                        logger.error(
+                            f"Streaming timeout calling {url}: {te}", exc_info=True
+                        )
+                        # End stream gracefully
+                        yield self.translation_service.to_domain_stream_chunk(
+                            chunk=None, source_format="code_assist"
+                        )
+                        return
+                    except requests.exceptions.RequestException as rexc:  # type: ignore[attr-defined]
+                        logger.error(
+                            f"Streaming connection error calling {url}: {rexc}",
+                            exc_info=True,
+                        )
+                        yield self.translation_service.to_domain_stream_chunk(
+                            chunk=None, source_format="code_assist"
+                        )
+                        return
 
                     # Process the response
                     if response.status_code >= 400:
