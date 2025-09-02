@@ -144,21 +144,11 @@ class ZAIConnector(OpenAIConnector):
         ):
             from collections.abc import AsyncGenerator, AsyncIterator
 
-            async def _bytes_to_str(
-                stream: AsyncIterator[bytes],
-            ) -> AsyncGenerator[str, None]:
-                async for chunk in stream:
-                    yield chunk.decode("utf-8", errors="ignore")
-
-            async def _str_to_bytes(
-                stream: AsyncGenerator[str, None],
-            ) -> AsyncIterator[bytes]:
-                async for chunk in stream:
-                    yield chunk.encode("utf-8")
-
             from src.core.interfaces.response_processor_interface import (
                 ProcessedResponse,
             )
+
+            # No-op helpers previously used for byte<->str conversions removed
 
             async def _process_stream(
                 stream: AsyncIterator[ProcessedResponse],

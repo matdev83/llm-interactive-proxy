@@ -82,15 +82,12 @@ from src.core.services.translation_service import TranslationService
 
 from .gemini import GeminiBackend
 
-# Code Assist API endpoint (matching the CLI's endpoint)
+# Code Assist API endpoint (matching the CLI's endpoint):
+#   https://cloudcode-pa.googleapis.com
 CODE_ASSIST_ENDPOINT = "https://cloudcode-pa.googleapis.com"
-CODE_ASSIST_API_VERSION = "v1internal"
-
-# Model to use with Code Assist API (must match available models)
-CODE_ASSIST_MODEL = "codechat-bison"
-
-# Default project for free tier used in UserTierId enum
-FREE_TIER_ID = "free-tier"
+# API version: v1internal
+# Default model example: "codechat-bison"
+# Default project for free tier used in UserTierId enum: "free-tier"
 
 logger = logging.getLogger(__name__)
 

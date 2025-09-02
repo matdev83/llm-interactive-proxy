@@ -13,15 +13,6 @@ BACKEND_QWEN_OAUTH = "qwen-oauth"
 BACKEND_ZAI = "zai"
 
 # Backend display names
-BACKEND_DISPLAY_OPENAI = "openai"
-BACKEND_DISPLAY_ANTHROPIC = "anthropic"
-BACKEND_DISPLAY_GEMINI = "gemini"
-BACKEND_DISPLAY_OPENROUTER = "openrouter"
-BACKEND_DISPLAY_QWEN = "qwen"
-BACKEND_DISPLAY_ZAI = "zai"
-
-# Common backend prefixes
-BACKEND_PREFIX_OPENAI = "openai/"
-BACKEND_PREFIX_ANTHROPIC = "anthropic/"
-BACKEND_PREFIX_GEMINI = "gemini/"
-BACKEND_PREFIX_OPENROUTER = "openrouter:"
+# Display names removed to minimize public surface; use backend type constants instead.
+# Note: Additional display names and prefixes have been removed to
+# reduce the public surface area. Reintroduce as needed by callers.
