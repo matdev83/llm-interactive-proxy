@@ -1,19 +1,21 @@
 import pytest
-from src.core.repositories.in_memory_session_repository import InMemorySessionRepository
-from src.core.services.session_service_impl import SessionService
+from src.core.app.test_builder import build_minimal_test_app
+from src.core.interfaces.session_service_interface import ISessionService
 
 
 @pytest.fixture
 def session_service():
     """Create a session service for testing."""
-    repository = InMemorySessionRepository()
-    return SessionService(repository)
+    app = build_minimal_test_app()
+    service_provider = app.state.service_provider
+    return service_provider.get_required_service(ISessionService)
 
 
 def test_session_service_can_create_sessions():
     """Test that session service can create and manage sessions."""
-    repository = InMemorySessionRepository()
-    service = SessionService(repository)
+    app = build_minimal_test_app()
+    service_provider = app.state.service_provider
+    service = service_provider.get_required_service(ISessionService)
 
     # This is a basic test to verify the service works
     assert service is not None

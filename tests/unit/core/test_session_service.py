@@ -1,19 +1,16 @@
-"""
-Tests for the SessionService implementation.
-"""
-
 import pytest
+from src.core.app.test_builder import build_minimal_test_app
 from src.core.domain.session import SessionInteraction
-from src.core.repositories.session_repository import InMemorySessionRepository
-from src.core.services.session_service_impl import SessionService
+from src.core.interfaces.session_service_interface import ISessionService
 
 
 @pytest.mark.asyncio
 async def test_session_creation():
     """Test creating a new session."""
     # Arrange
-    repository = InMemorySessionRepository()
-    service = SessionService(repository)
+    app = build_minimal_test_app()
+    service_provider = app.state.service_provider
+    service = service_provider.get_required_service(ISessionService)
     session_id = "test-session-id"
 
     # Act
@@ -29,8 +26,9 @@ async def test_session_creation():
 async def test_session_retrieval():
     """Test retrieving an existing session."""
     # Arrange
-    repository = InMemorySessionRepository()
-    service = SessionService(repository)
+    app = build_minimal_test_app()
+    service_provider = app.state.service_provider
+    service = service_provider.get_required_service(ISessionService)
     session_id = "test-session-id"
 
     # Create a session first
@@ -49,8 +47,9 @@ async def test_session_retrieval():
 async def test_session_update():
     """Test updating a session."""
     # Arrange
-    repository = InMemorySessionRepository()
-    service = SessionService(repository)
+    app = build_minimal_test_app()
+    service_provider = app.state.service_provider
+    service = service_provider.get_required_service(ISessionService)
     session_id = "test-session-id"
 
     # Create a session
@@ -78,8 +77,9 @@ async def test_session_update():
 async def test_session_deletion():
     """Test deleting a session."""
     # Arrange
-    repository = InMemorySessionRepository()
-    service = SessionService(repository)
+    app = build_minimal_test_app()
+    service_provider = app.state.service_provider
+    service = service_provider.get_required_service(ISessionService)
     session_id = "test-session-id"
 
     # Create a session
@@ -102,8 +102,9 @@ async def test_session_deletion():
 async def test_get_all_sessions():
     """Test getting all sessions."""
     # Arrange
-    repository = InMemorySessionRepository()
-    service = SessionService(repository)
+    app = build_minimal_test_app()
+    service_provider = app.state.service_provider
+    service = service_provider.get_required_service(ISessionService)
 
     # Create multiple sessions
     await service.get_session("session1")

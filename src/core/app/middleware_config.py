@@ -105,6 +105,17 @@ def configure_middleware(app: FastAPI, config: Any) -> None:
     except Exception as e:  # pragma: no cover - defensive
         logger.warning("Failed to register exception handlers: %s", e, exc_info=True)
 
+    # Content rewriting middleware (if enabled)
+    if config.rewriting.enabled:
+        from src.core.app.middleware.content_rewriting_middleware import (
+            ContentRewritingMiddleware,
+        )
+        from src.core.services.content_rewriter_service import ContentRewriterService
+
+        rewriter = app.state.service_provider.get(ContentRewriterService)
+        app.add_middleware(ContentRewritingMiddleware, rewriter=rewriter)
+        logger.info("Content rewriting middleware is enabled.")
+
     # Request/response logging middleware (if enabled)
     request_logging = (
         config.logging.request_logging if hasattr(config, "logging") else False

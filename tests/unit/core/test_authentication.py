@@ -408,7 +408,10 @@ class TestAppIntegration:
             app = MagicMock(spec=FastAPI)
 
             # Configure middleware
-            configure_middleware(app, {"disable_auth": True})
+            from src.core.config.app_config import AppConfig
+
+            app_config = AppConfig(auth={"disable_auth": True})
+            configure_middleware(app, app_config)
 
             # Verify
             mock_middleware.assert_not_called()
@@ -425,7 +428,12 @@ class TestAppIntegration:
             app = MagicMock(spec=FastAPI)
 
             # Configure middleware
-            configure_middleware(app, {"disable_auth": False, "api_keys": ["test-key"]})
+            from src.core.config.app_config import AppConfig
+
+            app_config = AppConfig(
+                auth={"disable_auth": False, "api_keys": ["test-key"]}
+            )
+            configure_middleware(app, app_config)
 
             # Verify
             # In the new architecture, we verify that configure_middleware is called correctly
@@ -441,9 +449,12 @@ class TestAppIntegration:
         app = MagicMock(spec=FastAPI)
 
         # Configure middleware with proper auth settings
-        configure_middleware(
-            app, {"auth_token": "test-token", "disable_auth": False, "api_keys": []}
+        from src.core.config.app_config import AppConfig
+
+        app_config = AppConfig(
+            auth={"auth_token": "test-token", "disable_auth": False, "api_keys": []}
         )
+        configure_middleware(app, app_config)
 
         # Verify
         # Get all calls to add_middleware

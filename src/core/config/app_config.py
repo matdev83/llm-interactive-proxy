@@ -178,6 +178,13 @@ class EmptyResponseConfig(DomainModel):
     """Maximum number of retries for empty responses."""
 
 
+class RewritingConfig(DomainModel):
+    """Configuration for content rewriting."""
+
+    enabled: bool = False
+    config_path: str = "config/replacements"
+
+
 class EditPrecisionConfig(DomainModel):
     """Configuration for automated edit-precision tuning.
 
@@ -365,6 +372,9 @@ class AppConfig(DomainModel, IConfig):
     # Edit-precision tuning settings
     edit_precision: EditPrecisionConfig = Field(default_factory=EditPrecisionConfig)
 
+    # Rewriting settings
+    rewriting: RewritingConfig = Field(default_factory=RewritingConfig)
+
     def save(self, path: str | Path) -> None:
         """Save the current configuration to a file."""
         with open(path, "w") as f:
@@ -498,6 +508,13 @@ class AppConfig(DomainModel, IConfig):
             ),
             "exclude_agents_regex": os.environ.get(
                 "EDIT_PRECISION_EXCLUDE_AGENTS_REGEX"
+            ),
+        }
+
+        config["rewriting"] = {
+            "enabled": _env_bool("REWRITING_ENABLED", False),
+            "config_path": os.environ.get(
+                "REWRITING_CONFIG_PATH", "config/replacements"
             ),
         }
 
