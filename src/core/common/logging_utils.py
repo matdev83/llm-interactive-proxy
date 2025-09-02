@@ -396,6 +396,11 @@ def log_call(
 
     Returns:
         A decorator function
+
+    Notes:
+        Intentional extension hook. This utility is provided for teams wanting
+        lightweight call logging without introducing cross-cutting concerns in
+        business code. It is safe to keep even if not used everywhere.
     """
 
     def decorator(func: Callable[..., T]) -> Callable[..., T]:
@@ -438,6 +443,10 @@ def log_async_call(
 
     Returns:
         A decorator function
+
+    Notes:
+        Intentional extension hook. Async counterpart of log_call used where
+        structured timing/trace logs are useful. Kept as a public helper.
     """
 
     def decorator(func: Callable[..., T]) -> Callable[..., T]:

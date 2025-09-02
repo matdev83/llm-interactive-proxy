@@ -109,10 +109,12 @@ class OpenAIOAuthConnector(OpenAIConnector):
             self.api_key = token
             return True
         except json.JSONDecodeError as e:
-            logger.error(f"Malformed auth.json for OpenAI OAuth: {e}")
+            logger.error("Malformed auth.json for OpenAI OAuth: %s", e, exc_info=True)
             return False
         except Exception as e:
-            logger.error(f"Failed to load OpenAI OAuth credentials: {e}")
+            logger.error(
+                "Failed to load OpenAI OAuth credentials: %s", e, exc_info=True
+            )
             return False
 
     async def initialize(self, **kwargs: Any) -> None:  # type: ignore[override]

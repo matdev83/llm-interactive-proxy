@@ -19,7 +19,7 @@ from src.core.domain.chat import (
 logger = logging.getLogger(__name__)
 
 
-from fastapi import HTTPException  # Framework-specific for compatibility tests
+from src.core.common.exceptions import InvalidRequestError
 
 # ... (rest of the file)
 
@@ -39,17 +39,11 @@ def dict_to_domain_chat_request(request_dict: dict[str, Any]) -> ChatRequest:
 
     # Add this check
     if not messages:
-        # Historical compatibility: tests assert FastAPI HTTPException here
-        raise HTTPException(
-            status_code=400,
-            detail={
-                "error": {
-                    "message": "At least one message is required.",
-                    "type": "invalid_request_error",
-                    "param": "messages",
-                    "code": "empty_messages",
-                }
-            },
+        # Domain-centric: raise project InvalidRequestError; transports map to HTTP
+        raise InvalidRequestError(
+            message="At least one message is required.",
+            param="messages",
+            code="empty_messages",
         )
     # End of new block
 

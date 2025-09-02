@@ -8,7 +8,6 @@ and the internal domain models.
 from typing import Any
 
 import pytest
-from fastapi import HTTPException
 from src.core.adapters.api_adapters import (
     _convert_tool_calls,
     _convert_tools,
@@ -17,6 +16,7 @@ from src.core.adapters.api_adapters import (
     gemini_to_domain_chat_request,
     openai_to_domain_chat_request,
 )
+from src.core.common.exceptions import InvalidRequestError
 from src.core.domain.chat import (
     ChatMessage,
     ChatRequest,
@@ -46,17 +46,17 @@ class TestDictToDomainChatRequest:
         assert result.temperature == 0.7
 
     def test_empty_messages_raises_error(self) -> None:
-        """Test that empty messages raises HTTPException."""
+        """Test that empty messages raises a domain InvalidRequestError."""
         request_dict = {
             "model": "gpt-4",
             "messages": [],
         }
 
-        with pytest.raises(HTTPException) as exc_info:
+        with pytest.raises(InvalidRequestError) as exc_info:
             dict_to_domain_chat_request(request_dict)
-
+        # Validate domain error properties
         assert exc_info.value.status_code == 400
-        assert "messages" in exc_info.value.detail["error"]["param"]
+        assert getattr(exc_info.value, "param", None) == "messages"
 
     def test_convert_existing_chat_messages(self) -> None:
         """Test conversion with existing ChatMessage objects."""

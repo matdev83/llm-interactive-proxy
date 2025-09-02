@@ -82,7 +82,9 @@ class GeminiBackend(LLMBackend):
                 ]
             except Exception as e:
                 if logger.isEnabledFor(logging.WARNING):
-                    logger.warning(f"Failed to fetch Gemini models: {e}")
+                    logger.warning(
+                        "Failed to fetch Gemini models: %s", e, exc_info=True
+                    )
                 # Return empty list on failure, don't crash
                 self.available_models = []
 
@@ -96,7 +98,12 @@ class GeminiBackend(LLMBackend):
         return list(self.available_models)
 
     def _convert_stream_chunk(self, data: dict[str, Any], model: str) -> dict[str, Any]:
-        """Convert a Gemini streaming JSON chunk to OpenAI format."""
+        """Convert a Gemini streaming JSON chunk to OpenAI format.
+
+        Intentional extension hook. Translation is now handled by
+        TranslationService; this stub remains for backwards compatibility and
+        to document the former customization point.
+        """
         # This method is no longer needed as translation is handled by TranslationService
         raise DeprecationWarning(
             "GeminiBackend._convert_stream_chunk is deprecated and will be removed."
@@ -105,7 +112,12 @@ class GeminiBackend(LLMBackend):
     def _convert_full_response(
         self, data: dict[str, Any], model: str
     ) -> dict[str, Any]:
-        """Convert a Gemini JSON response to OpenAI format, including function calls."""
+        """Convert a Gemini JSON response to OpenAI format, including function calls.
+
+        Intentional extension hook. Translation is now handled by
+        TranslationService; this stub remains for backwards compatibility and
+        to document the former customization point.
+        """
         # This method is no longer needed as translation is handled by TranslationService
         raise DeprecationWarning(
             "GeminiBackend._convert_full_response is deprecated and will be removed."

@@ -70,6 +70,18 @@ def configure_middleware(app: FastAPI, config: Any) -> None:
     # Response retry-after middleware
     app.add_middleware(RetryAfterMiddleware)
 
+    # Domain exception mapping middleware (translate domain errors to HTTP)
+    try:
+        from src.core.app.middleware.exception_middleware import (
+            DomainExceptionMiddleware,
+        )
+
+        app.add_middleware(DomainExceptionMiddleware)
+    except Exception as e:
+        logger.warning(
+            "Failed to register DomainExceptionMiddleware: %s", e, exc_info=True
+        )
+
     # Request/response logging middleware (if enabled)
     request_logging = (
         config.logging.request_logging if hasattr(config, "logging") else False
