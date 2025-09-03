@@ -7,7 +7,11 @@ rather than being manually instantiated.
 """
 
 import ast
+import contextlib
+import hashlib
+import json
 import re
+import time
 from pathlib import Path
 from typing import Any
 
@@ -27,6 +31,13 @@ class DIViolationScanner:
         self.violations: list[dict[str, Any]] = []
         # Cache file contents to avoid redundant reads
         self._file_cache: dict[Path, str] = {}
+
+        # Setup scan result caching
+        self._cache_dir = src_path.parent / ".pytest_cache"
+        self._cache_dir.mkdir(exist_ok=True)
+        self._cache_file = self._cache_dir / "di_violations_cache.json"
+        self._cache_timeout = 3600  # 1 hour in seconds
+
         self.service_interfaces = self._get_service_interfaces()
         self.service_implementations = self._get_service_implementations()
 
@@ -38,6 +49,33 @@ class DIViolationScanner:
             except Exception:
                 self._file_cache[file_path] = ""
         return self._file_cache[file_path]
+
+    def _calculate_codebase_hash(self) -> str:
+        """Calculate hash of all Python files in the codebase for caching."""
+        hasher = hashlib.sha256()
+        file_paths = []
+
+        # Collect all Python files to scan
+        for py_file in self.src_path.rglob("*.py"):
+            if not self._should_skip_file(py_file):
+                file_paths.append(py_file)
+
+        # Sort for consistent hashing
+        file_paths.sort()
+
+        for file_path in file_paths:
+            try:
+                content = self._read_file_cached(file_path)
+                hasher.update(str(file_path).encode())
+                hasher.update(content.encode())
+                hasher.update(str(file_path.stat().st_mtime).encode())
+            except Exception:
+                # If we can't read a file, include its path and mtime anyway
+                hasher.update(str(file_path).encode())
+                with contextlib.suppress(Exception):
+                    hasher.update(str(file_path.stat().st_mtime).encode())
+
+        return hasher.hexdigest()
 
     def _get_service_interfaces(self) -> set[str]:
         """Get all service interface names from the codebase."""
@@ -116,6 +154,34 @@ class DIViolationScanner:
 
     def scan_for_violations(self) -> list[dict[str, Any]]:
         """Scan the codebase for DI violations."""
+        current_time = time.time()
+
+        # Check cache first
+        if self._cache_file.exists():
+            try:
+                with open(self._cache_file, encoding="utf-8") as f:
+                    cache_data = json.load(f)
+
+                cached_hash = cache_data.get("codebase_hash")
+                cached_time = cache_data.get("timestamp", 0)
+                current_hash = self._calculate_codebase_hash()
+
+                # Use cached results if hash matches and cache is not too old
+                if (
+                    cached_hash == current_hash
+                    and current_time - cached_time < self._cache_timeout
+                ):
+                    cached_violations: list[dict[str, Any]] = cache_data.get(
+                        "violations", []
+                    )
+                    return (
+                        cached_violations if isinstance(cached_violations, list) else []
+                    )
+            except (OSError, json.JSONDecodeError, KeyError):
+                # If cache is corrupted or invalid, proceed with fresh scan
+                pass
+
+        # Perform fresh scan
         self.violations = []
 
         # Collect files to process first to avoid multiple directory scans
@@ -138,6 +204,19 @@ class DIViolationScanner:
                         "severity": "error",
                     }
                 )
+
+        # Cache the results
+        try:
+            cache_data = {
+                "codebase_hash": self._calculate_codebase_hash(),
+                "timestamp": current_time,
+                "violations": self.violations,
+            }
+            with open(self._cache_file, "w", encoding="utf-8") as f:
+                json.dump(cache_data, f, indent=2)
+        except OSError:
+            # If we can't write cache, just continue - not a scanning failure
+            pass
 
         return self.violations
 
@@ -171,7 +250,7 @@ class DIViolationScanner:
 
     def _analyze_file(self, file_path: Path) -> list[dict[str, Any]]:
         """Analyze a single file for DI violations."""
-        violations = []
+        violations: list[dict[str, Any]] = []
 
         try:
             content = self._read_file_cached(file_path)

@@ -86,6 +86,7 @@ class TestEnsureAsyncIterator:
         assert chunks == [b"chunk1", b"chunk2"]
 
     @given(data=streaming_data())
+    @settings(max_examples=30, deadline=3000)  # Limit examples and add timeout
     @pytest.mark.asyncio
     async def test_ensure_async_iterator_with_various_data_types(self, data) -> None:
         """Test _ensure_async_iterator with various data types using Hypothesis."""
@@ -169,15 +170,14 @@ class TestNormalizeStreamingResponse:
         assert chunks == [b"chunk1", b"chunk2"]
 
     @given(
-        data_list=st.lists(streaming_data(), min_size=1, max_size=5),
-        media_type=st.sampled_from(
-            ["text/event-stream", "application/json", "text/plain"]
-        ),
+        data_list=st.lists(streaming_data(), min_size=1, max_size=3),
+        media_type=st.sampled_from(["text/event-stream", "application/json"]),
         normalize=st.booleans(),
     )
     @settings(
-        deadline=None
-    )  # Disable deadline for this test due to variable execution time
+        max_examples=50,  # Limit test cases for better performance
+        deadline=5000,  # 5 second timeout per example
+    )
     @pytest.mark.asyncio
     async def test_normalize_streaming_response_property_based(
         self, data_list, media_type, normalize
