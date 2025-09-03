@@ -48,9 +48,13 @@ def check_architectural_patterns(files: list[str]) -> bool:
     Returns:
         True if all checks pass, False otherwise
     """
-    # Get the path to the architectural linter
+    # Get the path to the enhanced architectural linter
     repo_root = Path(__file__).resolve().parents[1]
-    linter_path = repo_root / "tools" / "architectural_linter.py"
+    linter_path = repo_root / "tools" / "architectural_linter_enhanced.py"
+
+    # Fall back to the original linter if the enhanced one doesn't exist
+    if not linter_path.exists():
+        linter_path = repo_root / "tools" / "architectural_linter.py"
 
     # Verify the linter exists
     if not linter_path.exists():
@@ -112,7 +116,9 @@ def main() -> int:
     else:
         print("\nERROR: Architectural violations found!")
         print("Please fix these issues before committing.")
-        print("Run tools/architectural_linter.py on your files for more details.")
+        print(
+            "Run tools/architectural_linter_enhanced.py on your files for more details."
+        )
         return 1
 
 

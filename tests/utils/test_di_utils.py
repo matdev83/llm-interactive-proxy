@@ -64,6 +64,7 @@ def configure_test_state(
     disable_interactive_commands: bool = True,
     command_prefix: str = "!/",
     api_key_redaction_enabled: bool = False,
+    force_set_project: bool = False,
     backends: dict[str, Mock] | None = None,
     available_models: dict[str, list[str]] | None = None,
     functional_backends: list[str] | None = None,
@@ -97,6 +98,7 @@ def configure_test_state(
     app_state.set_disable_interactive_commands(disable_interactive_commands)
     app_state.set_command_prefix(command_prefix)
     app_state.set_api_key_redaction_enabled(api_key_redaction_enabled)
+    app_state.set_setting("force_set_project", force_set_project)
 
     # Set up functional backends
     if functional_backends:

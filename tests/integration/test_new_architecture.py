@@ -222,10 +222,9 @@ def test_command_processing(client: TestClient) -> None:
                 command_results=[mock_command_response],
             )
 
-            # We can't modify the ProcessedResult object directly
-            # Instead, patch the request processor to use our mock response directly
+            # Set up the response manager to return our mock response
             with patch(
-                "src.core.services.request_processor_service.RequestProcessor._process_command_result"
+                "src.core.services.response_manager_service.ResponseManager.process_command_result"
             ) as mock_process_result:
                 mock_process_result.return_value = mock_command_response
 

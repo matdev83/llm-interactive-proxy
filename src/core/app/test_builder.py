@@ -117,67 +117,6 @@ class ApplicationTestBuilder(ApplicationBuilder):
         self.add_stage(replacement_stage)
         return self
 
-    async def _initialize_services(self, app: FastAPI, config: AppConfig) -> Any:
-        """
-        Legacy compatibility method for tests that directly call _initialize_services.
-
-        This method provides backward compatibility for tests that were written
-        against the old API. It builds a new app using the staged approach and
-        then returns the service provider.
-
-        Args:
-            app: The FastAPI application
-            config: The application configuration
-
-        Returns:
-            The service provider
-        """
-        logger.warning(
-            "Using deprecated _initialize_services method. "
-            "Please update tests to use the staged initialization approach."
-        )
-
-        # Use the staged approach to build a new app
-        builder = self.add_test_stages()
-        new_app = await builder.build(config)
-
-        # Copy the service provider and other state to the original app
-        if hasattr(new_app.state, "service_provider"):
-            app.state.service_provider = new_app.state.service_provider
-
-        # Copy important state attributes directly (test-only compatibility)
-        for attr in ["app_config", "httpx_client", "disable_auth"]:
-            if hasattr(new_app.state, attr):
-                value = getattr(new_app.state, attr)
-                setattr(app.state, attr, value)
-
-        # Return the service provider for backward compatibility
-        return app.state.service_provider
-
-    async def _initialize_backends(self, app: FastAPI, config: AppConfig) -> None:
-        """
-        Legacy compatibility method for tests that directly call _initialize_backends.
-
-        This method provides backward compatibility for tests that were written
-        against the old API. It builds a new app using the staged approach and
-        ensures the backends are properly initialized.
-
-        Args:
-            app: The FastAPI application
-            config: The application configuration
-        """
-        logger.warning(
-            "Using deprecated _initialize_backends method. "
-            "Please update tests to use the staged initialization approach."
-        )
-
-        # First make sure services are initialized
-        if not hasattr(app.state, "service_provider") or not app.state.service_provider:
-            await self._initialize_services(app, config)
-
-        # The backends should already be initialized by the MockBackendStage
-        # during the _initialize_services call, so no further action is needed
-
 
 # Convenience functions for common test scenarios
 

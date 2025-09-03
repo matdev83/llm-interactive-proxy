@@ -19,14 +19,6 @@ class LogFormat(str, Enum):
     PLAIN = "plain"
 
 
-def setup_logging(*args: Any, **kwargs: Any) -> None:
-    """Deprecated: configure logging via application bootstrap.
-
-    This no-op remains for backward compatibility with legacy entry points.
-    """
-    return None
-
-
 def get_logger(name: str | None = None) -> structlog.stdlib.BoundLogger:
     """Get a structured logger.
 

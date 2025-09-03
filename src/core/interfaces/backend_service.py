@@ -12,10 +12,6 @@ class BackendError(Exception):
     """Exception raised when a backend operation fails."""
 
 
-# Legacy alias for backward compatibility
-BackendException = BackendError
-
-
 class IBackendService(ABC):
     """Interface for LLM backend service operations.
 
@@ -41,7 +37,7 @@ class IBackendService(ABC):
             Either a complete response or an async iterator of response chunks
 
         Raises:
-            BackendException: If the backend call fails
+            BackendError: If the backend call fails
         """
 
     @abstractmethod

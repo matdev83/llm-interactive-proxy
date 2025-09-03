@@ -143,20 +143,6 @@ class SecureCommandBase(BaseCommand):
         return method(value)  # type: ignore
 
     @final
-    def _block_direct_state_access(self, context: Any) -> None:
-        """Block any attempts to access state directly from context.
-
-        This method is now a no-op since security is handled by
-        SecurityMiddleware in the infrastructure layer. Keeping
-        this method to maintain API compatibility.
-
-        Args:
-            context: The context object that should not be used for state access
-        """
-        # Security enforcement has been moved to SecurityMiddleware
-        # This method remains for backwards compatibility
-
-    @final
     def _increment_execution_count(self) -> None:
         """Track command execution for monitoring."""
         self._execution_count += 1
