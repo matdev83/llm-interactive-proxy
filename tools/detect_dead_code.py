@@ -35,7 +35,7 @@ class DeadCodeDetector:
     def __init__(
         self,
         min_confidence: int = 80,
-        exclude_patterns: list[str] = None,
+        exclude_patterns: list[str] | None = None,
         verbose: bool = False,
         quiet: bool = False,
     ):
@@ -132,10 +132,7 @@ class DeadCodeDetector:
         """
         from fnmatch import fnmatch
 
-        for pattern in self.exclude_patterns:
-            if fnmatch(path, pattern):
-                return True
-        return False
+        return any(fnmatch(path, pattern) for pattern in self.exclude_patterns)
 
     def print_results(self, results: list[dict]) -> None:
         """Print the results in a human-readable format.

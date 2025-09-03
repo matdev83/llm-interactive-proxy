@@ -84,6 +84,7 @@ ignore = [
     "B904",  # Within an except clause, raise exceptions with raise ... from err
     "SIM108", # Use ternary operator instead of if-else-block
     "RUF012", # Mutable class attributes should be annotated with `typing.ClassVar`
+    "N806", # Variable in function should be lowercase (for test constants)
 ]
 
 # Allow fix for all enabled rules (except those in unfixable)

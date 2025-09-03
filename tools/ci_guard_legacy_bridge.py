@@ -32,9 +32,7 @@ ALLOWLIST = {
 def is_code_file(path: Path) -> bool:
     if not path.is_file():
         return False
-    if path.suffix not in {".py"}:
-        return False
-    return True
+    return path.suffix in {".py"}
 
 
 def scan_file(path: Path) -> list[str]:

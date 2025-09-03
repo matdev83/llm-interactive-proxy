@@ -32,9 +32,7 @@ def collect_candidates(dirpath: Path, suffix: str) -> dict[str, str]:
 
 def should_ignore(path: Path) -> bool:
     parts = set(path.parts)
-    if ".venv" in parts or "venv" in parts or path.match("**/node_modules/**"):
-        return True
-    return False
+    return bool(".venv" in parts or "venv" in parts or path.match("**/node_modules/**"))
 
 
 def main() -> int:

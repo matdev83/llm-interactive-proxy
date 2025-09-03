@@ -83,12 +83,7 @@ def is_legacy_module(module_name: str, legacy_prefixes: list[str]) -> bool:
 
 def analyze_imports(
     directory: str | Path,
-    legacy_prefixes: list[str] = [
-        "src.proxy_logic",
-        "src.command_parser",
-        "src.command_processor",
-        "src.session",
-    ],
+    legacy_prefixes: list[str] | None = None,
 ) -> dict[str, list[str]]:
     """Analyze imports in a directory.
 
@@ -99,6 +94,8 @@ def analyze_imports(
     Returns:
         Dictionary mapping module paths to lists of imported legacy modules
     """
+    if legacy_prefixes is None:
+        legacy_prefixes = ["src.proxy_logic", "src.command_parser", "src.command_processor", "src.session"]
     dependencies = {}
     directory_path = Path(directory)
 

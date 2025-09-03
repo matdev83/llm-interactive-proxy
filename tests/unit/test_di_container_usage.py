@@ -25,38 +25,28 @@ class DIViolationScanner:
         """
         self.src_path = src_path
         self.violations: list[dict[str, Any]] = []
+        # Cache file contents to avoid redundant reads
+        self._file_cache: dict[Path, str] = {}
         self.service_interfaces = self._get_service_interfaces()
         self.service_implementations = self._get_service_implementations()
+
+    def _read_file_cached(self, file_path: Path) -> str:
+        """Read file content with caching to avoid redundant reads."""
+        if file_path not in self._file_cache:
+            try:
+                self._file_cache[file_path] = file_path.read_text(encoding="utf-8")
+            except Exception:
+                self._file_cache[file_path] = ""
+        return self._file_cache[file_path]
 
     def _get_service_interfaces(self) -> set[str]:
         """Get all service interface names from the codebase."""
         interfaces = set()
 
-        # Common service interface patterns
-        interface_patterns = [
-            "I[A-Z][a-zA-Z]*Service",
-            "I[A-Z][a-zA-Z]*Processor",
-            "I[A-Z][a-zA-Z]*Factory",
-            "I[A-Z][a-zA-Z]*Handler",
-            "I[A-Z][a-zA-Z]*Resolver",
-            "I[A-Z][a-zA-Z]*Provider",
-        ]
+        # Combined pattern for better performance
+        interface_pattern = r"\bI[A-Z][a-zA-Z]*(?:Service|Processor|Factory|Handler|Resolver|Provider)\b"
 
-        # Scan interface files
-        for pattern in interface_patterns:
-            for file_path in self.src_path.rglob("*.py"):
-                if (
-                    "interface" in file_path.name.lower()
-                    or "interfaces" in file_path.parts
-                ):
-                    try:
-                        content = file_path.read_text()
-                        matches = re.findall(pattern, content)
-                        interfaces.update(matches)
-                    except Exception:
-                        continue
-
-        # Add known interfaces
+        # Add known interfaces first
         known_interfaces = {
             "IBackendService",
             "ISessionService",
@@ -76,33 +66,48 @@ class DIViolationScanner:
         }
         interfaces.update(known_interfaces)
 
+        # Scan interface files once with combined pattern
+        interface_files = []
+        for file_path in self.src_path.rglob("*.py"):
+            if (
+                "interface" in file_path.name.lower() or "interfaces" in file_path.parts
+            ) and not any(
+                skip in str(file_path) for skip in ["test", "__pycache__", ".git"]
+            ):
+                interface_files.append(file_path)
+
+        # Process files with cached reads
+        for file_path in interface_files:
+            content = self._read_file_cached(file_path)
+            if content:  # Only process if we could read the file
+                matches = re.findall(interface_pattern, content)
+                interfaces.update(matches)
+
         return interfaces
 
     def _get_service_implementations(self) -> set[str]:
         """Get all service implementation class names."""
         implementations = set()
 
-        # Common implementation patterns
-        impl_patterns = [
-            "[A-Z][a-zA-Z]*Service",
-            "[A-Z][a-zA-Z]*Processor",
-            "[A-Z][a-zA-Z]*Factory",
-            "[A-Z][a-zA-Z]*Handler",
-            "[A-Z][a-zA-Z]*Resolver",
-            "[A-Z][a-zA-Z]*Provider",
-        ]
+        # Combined pattern for better performance
+        impl_pattern = (
+            r"\b[A-Z][a-zA-Z]*(?:Service|Processor|Factory|Handler|Resolver|Provider)\b"
+        )
 
-        for pattern in impl_patterns:
-            for file_path in self.src_path.rglob("*.py"):
-                if not any(
-                    skip in str(file_path) for skip in ["test", "__pycache__", ".git"]
-                ):
-                    try:
-                        content = file_path.read_text()
-                        matches = re.findall(pattern, content)
-                        implementations.update(matches)
-                    except Exception:
-                        continue
+        # Collect all non-test files once
+        files_to_process = []
+        for file_path in self.src_path.rglob("*.py"):
+            if not any(
+                skip in str(file_path) for skip in ["test", "__pycache__", ".git"]
+            ):
+                files_to_process.append(file_path)
+
+        # Process files with cached reads
+        for file_path in files_to_process:
+            content = self._read_file_cached(file_path)
+            if content:  # Only process if we could read the file
+                matches = re.findall(impl_pattern, content)
+                implementations.update(matches)
 
         # Filter out interfaces and keep only implementations
         implementations = {name for name in implementations if not name.startswith("I")}
@@ -113,10 +118,14 @@ class DIViolationScanner:
         """Scan the codebase for DI violations."""
         self.violations = []
 
+        # Collect files to process first to avoid multiple directory scans
+        files_to_process = []
         for py_file in self.src_path.rglob("*.py"):
-            if self._should_skip_file(py_file):
-                continue
+            if not self._should_skip_file(py_file):
+                files_to_process.append(py_file)
 
+        # Process files with progress tracking
+        for py_file in files_to_process:
             try:
                 violations = self._analyze_file(py_file)
                 self.violations.extend(violations)
@@ -165,8 +174,9 @@ class DIViolationScanner:
         violations = []
 
         try:
-            with open(file_path, encoding="utf-8") as f:
-                content = f.read()
+            content = self._read_file_cached(file_path)
+            if not content:
+                return violations
 
             tree = ast.parse(content, filename=str(file_path))
 

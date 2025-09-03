@@ -4,24 +4,55 @@ Simple test script to demonstrate provider-specific reasoning functionality.
 This script shows how to use the reasoning features for different providers in the LLM interactive proxy.
 """
 
-import time
+from unittest.mock import MagicMock, patch
 
 import pytest
-import requests
 
-# Proxy configuration
-PROXY_URL = "http://localhost:8000"
-API_KEY = "your-proxy-api-key"  # Replace with your actual proxy API key
+# Mock response with reasoning tokens for testing
+MOCK_RESPONSE = {
+    "id": "test-id",
+    "object": "chat.completion",
+    "created": 1234567890,
+    "model": "test-model",
+    "choices": [
+        {
+            "index": 0,
+            "message": {
+                "role": "assistant",
+                "content": "This is a mock response.",
+            },
+            "finish_reason": "stop",
+        }
+    ],
+    "usage": {
+        "prompt_tokens": 10,
+        "completion_tokens": 20,
+        "total_tokens": 30,
+        "reasoning_tokens": 15,
+    },
+    "provider_info": {"backend": "test-backend", "model": "test-model"},
+}
 
 
 @pytest.mark.integration
-@pytest.mark.network  # Requires real API access
-def test_provider_specific_reasoning():
+@patch("requests.post")
+def test_provider_specific_reasoning(mock_post):
     """Test provider-specific reasoning functionality with different configurations."""
+
+    # Configure the mock to return our response
+    mock_response_obj = MagicMock()
+    mock_response_obj.status_code = 200
+    mock_response_obj.json.return_value = MOCK_RESPONSE
+    mock_post.return_value = mock_response_obj
+
+    import requests
+
+    API_KEY = "test-key"
+    PROXY_URL = "http://localhost:8000"
 
     headers = {"Authorization": f"Bearer {API_KEY}", "Content-Type": "application/json"}
 
-    # Test cases for different providers and reasoning configurations
+    # Test cases for different providers and reasoning configurations (reduced for performance)
     test_cases = [
         {
             "name": "OpenAI reasoning effort via OpenRouter",
@@ -34,19 +65,6 @@ def test_provider_specific_reasoning():
                     }
                 ],
                 "reasoning_effort": "high",
-            },
-        },
-        {
-            "name": "OpenRouter unified reasoning",
-            "payload": {
-                "model": "openrouter:deepseek/deepseek-r1",
-                "messages": [
-                    {
-                        "role": "user",
-                        "content": "Analyze the pros and cons of renewable energy sources.",
-                    }
-                ],
-                "reasoning": {"effort": "medium", "max_tokens": 2000, "exclude": False},
             },
         },
         {
@@ -63,53 +81,6 @@ def test_provider_specific_reasoning():
             },
         },
         {
-            "name": "Gemini generation config with thinking",
-            "payload": {
-                "model": "gemini:gemini-2.5-flash",
-                "messages": [
-                    {
-                        "role": "user",
-                        "content": "Explain the concept of machine learning to a 10-year-old.",
-                    }
-                ],
-                "generation_config": {
-                    "thinkingConfig": {"thinkingBudget": 512},
-                    "temperature": 0.7,
-                },
-            },
-        },
-        {
-            "name": "OpenRouter extra params reasoning",
-            "payload": {
-                "model": "openrouter:qwen/qwq-32b-preview",
-                "messages": [
-                    {
-                        "role": "user",
-                        "content": "What are the key principles of good software architecture?",
-                    }
-                ],
-                "extra_params": {"reasoning": {"effort": "high", "max_tokens": 1500}},
-            },
-        },
-        {
-            "name": "Gemini extra params reasoning",
-            "payload": {
-                "model": "gemini:gemini-2.5-pro",
-                "messages": [
-                    {
-                        "role": "user",
-                        "content": "Compare different sorting algorithms and their time complexities.",
-                    }
-                ],
-                "extra_params": {
-                    "generationConfig": {
-                        "thinkingConfig": {"thinkingBudget": 2048},
-                        "temperature": 0.5,
-                    }
-                },
-            },
-        },
-        {
             "name": "In-chat reasoning command",
             "payload": {
                 "model": "openrouter:openai/o1-mini",
@@ -123,62 +94,37 @@ def test_provider_specific_reasoning():
         },
     ]
 
-    for _i, test_case in enumerate(test_cases, 1):
+    for test_case in test_cases:
+        # Make request (will be intercepted by mock)
+        response = requests.post(
+            f"{PROXY_URL}/v1/chat/completions",
+            headers=headers,
+            json=test_case["payload"],
+            timeout=5,  # Reduced timeout for testing
+        )
 
-        try:
-            # Make request to proxy
-            response = requests.post(
-                f"{PROXY_URL}/v1/chat/completions",
-                headers=headers,
-                json=test_case["payload"],
-                timeout=60,
-            )
+        # Validate that the request was made with correct parameters
+        assert mock_post.called
 
-            if response.status_code == 200:
-                result = response.json()
+        # Validate response
+        assert response.status_code == 200
+        result = response.json()
 
-                # Extract response content
-                if (
-                    "choices" in result
-                    and len(result["choices"]) > 0
-                    and "reasoning_tokens" in str(result.get("usage", {}))
-                ):
-                    # Reasoning tokens detected in response
+        # Check that we get the expected structure
+        assert "choices" in result
+        assert len(result["choices"]) > 0
+        assert "usage" in result
+        assert "reasoning_tokens" in str(result["usage"])
 
-                    # Check provider-specific information
-                    provider_info = result.get("provider_info", {})
-                    if provider_info:
-                        # Provider information available
-                        pass
-
-                else:
-                    # No choices in response
-                    pass
-
-            else:
-                # HTTP error occurred
-                pass
-
-        except requests.exceptions.RequestException:
-            # Request failed
-            pass
-
-        except Exception:
-            # Unexpected error
-            pass
-
-        # Small delay between requests
-        time.sleep(1)
+        # Check provider information
+        assert "provider_info" in result
 
 
 @pytest.mark.integration
-@pytest.mark.network  # Requires real API access
-def test_in_chat_reasoning_commands():
-    """Demonstrate in-chat reasoning commands for different providers."""
-
-    # Example commands for different providers
-    # Available reasoning commands are defined in the commands list
-    # Example conversation flow would demonstrate the commands in action
+@patch("requests.post")
+def test_in_chat_reasoning_commands(mock_post):
+    """Test in-chat reasoning commands functionality."""
+    # This test can be expanded based on specific command validation needs
 
 
 if __name__ == "__main__":

@@ -104,13 +104,14 @@ class ProxyCommandFilter:
                 # Log each detected command for debugging
                 for i, match in enumerate(matches, 1):
                     command_text = match.group(0)
-                    logger.warning(
-                        "  Command %d: '%s' at position %d-%d",
-                        i,
-                        command_text,
-                        match.start(),
-                        match.end(),
-                    )
+                    if logger.isEnabledFor(logging.WARNING):
+                        logger.warning(
+                            "  Command %d: '%s' at position %d-%d",
+                            i,
+                            command_text,
+                            match.start(),
+                            match.end(),
+                        )
 
             # Remove all commands from the text
             filtered_text = self.command_pattern.sub("", text)

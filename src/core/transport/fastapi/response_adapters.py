@@ -117,13 +117,15 @@ def _sanitize_json_content(obj: Any) -> Any:
             if asyncio.iscoroutine(o):
                 return str(o)
         except TypeError:
-            logger.debug("Sanitize: Could not check for coroutine: %s", o)
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug("Sanitize: Could not check for coroutine: %s", o)
         if async_mock is not None:
             try:
                 if isinstance(o, async_mock):
                     return str(o)
             except TypeError:
-                logger.debug("Sanitize: Could not check for async_mock: %s", o)
+                if logger.isEnabledFor(logging.DEBUG):
+                    logger.debug("Sanitize: Could not check for async_mock: %s", o)
         try:
             json.dumps(o)
             return o

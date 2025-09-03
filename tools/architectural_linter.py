@@ -280,7 +280,7 @@ def lint_file(file_path: str) -> list[ArchitecturalViolation]:
 
 
 def lint_directory(
-    directory: str, patterns: list[str] = None
+    directory: str, patterns: list[str] | None = None
 ) -> list[ArchitecturalViolation]:
     """Lint all Python files in a directory."""
     if patterns is None:

@@ -23,11 +23,15 @@ class TranslationService:
                 "openai": Translation.openai_to_domain_request,
                 "openrouter": Translation.openrouter_to_domain_request,
                 "anthropic": Translation.anthropic_to_domain_request,
+                "code_assist": Translation.code_assist_to_domain_request,
+                "raw_text": Translation.raw_text_to_domain_request,
             },
             "response": {
                 "gemini": Translation.gemini_to_domain_response,
                 "openai": Translation.openai_to_domain_response,
                 "anthropic": Translation.anthropic_to_domain_response,
+                "code_assist": Translation.code_assist_to_domain_response,
+                "raw_text": Translation.raw_text_to_domain_response,
             },
         }
 
@@ -79,6 +83,10 @@ class TranslationService:
             return Translation.openrouter_to_domain_request(request)
         elif source_format == "anthropic":
             return Translation.anthropic_to_domain_request(request)
+        elif source_format == "code_assist":
+            return Translation.code_assist_to_domain_request(request)
+        elif source_format == "raw_text":
+            return Translation.raw_text_to_domain_request(request)
         converter = self._converters["request"].get(source_format)
         if not converter:
             raise NotImplementedError(
@@ -132,6 +140,10 @@ class TranslationService:
             return Translation.openai_to_domain_response(response)
         elif source_format == "anthropic":
             return Translation.anthropic_to_domain_response(response)
+        elif source_format == "code_assist":
+            return Translation.code_assist_to_domain_response(response)
+        elif source_format == "raw_text":
+            return Translation.raw_text_to_domain_response(response)
         converter = self._converters["response"].get(source_format)
         if not converter:
             raise NotImplementedError(
@@ -177,6 +189,10 @@ class TranslationService:
             return Translation.openai_to_domain_stream_chunk(chunk)
         elif source_format == "anthropic":
             return Translation.anthropic_to_domain_stream_chunk(chunk)
+        elif source_format == "code_assist":
+            return Translation.code_assist_to_domain_stream_chunk(chunk)
+        elif source_format == "raw_text":
+            return Translation.raw_text_to_domain_stream_chunk(chunk)
         # Add more specific stream chunk converters here as needed
         raise NotImplementedError(
             f"Stream chunk converter for format '{source_format}' not implemented."

@@ -192,10 +192,11 @@ class RuntimePatternChecker:
                     )
             except (AttributeError, TypeError) as e:
                 # Can't test, skip
-                logger.debug(
-                    f"Could not check service registration for {service_type.__name__}: {e}",
-                    exc_info=True,
-                )
+                if logger.isEnabledFor(logging.DEBUG):
+                    logger.debug(
+                        f"Could not check service registration for {service_type.__name__}: {e}",
+                        exc_info=True,
+                    )
 
         # Check for AsyncMock in sync contexts
         from unittest.mock import AsyncMock
@@ -243,7 +244,8 @@ class RuntimePatternChecker:
                     )
                     warnings.extend(service_warnings)
             except (AttributeError, TypeError) as e:
-                logger.debug(f"Could not validate test app: {e}", exc_info=True)
+                if logger.isEnabledFor(logging.DEBUG):
+                    logger.debug(f"Could not validate test app: {e}", exc_info=True)
 
         return warnings
 
@@ -316,21 +318,24 @@ if __name__ == "__main__":
     if path.is_file():
         issues = checker.check_file(path)
         if issues:
-            logger.info(f"Issues found in {path}:")
-            for issue in issues:
-                logger.info(f"  - {issue}")
+            if logger.isEnabledFor(logging.INFO):
+                logger.info(f"Issues found in {path}:")
+                for issue in issues:
+                    logger.info(f"  - {issue}")
             sys.exit(1)
     elif path.is_dir():
         results = checker.check_directory(path, args.pattern)
         if results:
-            logger.info("Issues found:")
-            for file_path, issues in results.items():
-                logger.info(f"\n{file_path}:")
-                for issue in issues:
-                    logger.info(f"  - {issue}")
+            if logger.isEnabledFor(logging.INFO):
+                logger.info("Issues found:")
+                for file_path, issues in results.items():
+                    logger.info(f"\n{file_path}:")
+                    for issue in issues:
+                        logger.info(f"  - {issue}")
             sys.exit(1)
     else:
         logger.error(f"Path {path} does not exist")
         sys.exit(1)
 
-    logger.info("No issues found!")
+    if logger.isEnabledFor(logging.INFO):
+        logger.info("No issues found!")

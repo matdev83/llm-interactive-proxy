@@ -828,3 +828,266 @@ class Translation:
                 payload["metadata"] = metadata
 
         return payload
+
+    @staticmethod
+    def code_assist_to_domain_request(request: Any) -> CanonicalChatRequest:
+        """
+        Translate a Code Assist API request to a CanonicalChatRequest.
+
+        The Code Assist API uses the same format as OpenAI for the core request,
+        but with additional project field and different endpoint.
+        """
+        # Code Assist API request format is essentially the same as OpenAI
+        # but may include a "project" field
+        if isinstance(request, dict):
+            # Remove Code Assist specific fields and treat as OpenAI format
+            cleaned_request = {k: v for k, v in request.items() if k != "project"}
+            return Translation.openai_to_domain_request(cleaned_request)
+        else:
+            # Handle object format by extracting fields
+            return Translation.openai_to_domain_request(request)
+
+    @staticmethod
+    def code_assist_to_domain_response(response: Any) -> CanonicalChatResponse:
+        """
+        Translate a Code Assist API response to a CanonicalChatResponse.
+
+        The Code Assist API wraps the response in a "response" object and uses
+        different structure than standard Gemini API.
+        """
+        import time
+
+        if not isinstance(response, dict):
+            # Handle non-dict responses
+            return CanonicalChatResponse(
+                id=f"chatcmpl-code-assist-{int(time.time())}",
+                object="chat.completion",
+                created=int(time.time()),
+                model="unknown",
+                choices=[
+                    ChatCompletionChoice(
+                        index=0,
+                        message=ChatCompletionChoiceMessage(
+                            role="assistant", content=str(response)
+                        ),
+                        finish_reason="stop",
+                    )
+                ],
+                usage={"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},
+            )
+
+        # Extract from Code Assist response wrapper
+        response_wrapper = response.get("response", {})
+        candidates = response_wrapper.get("candidates", [])
+        generated_text = ""
+
+        if candidates and len(candidates) > 0:
+            candidate = candidates[0]
+            content = candidate.get("content", {})
+            parts = content.get("parts", [])
+
+            if parts and len(parts) > 0:
+                generated_text = parts[0].get("text", "")
+
+        # Create canonical response
+        return CanonicalChatResponse(
+            id=f"chatcmpl-code-assist-{int(time.time())}",
+            object="chat.completion",
+            created=int(time.time()),
+            model=response.get("model", "code-assist-model"),
+            choices=[
+                ChatCompletionChoice(
+                    index=0,
+                    message=ChatCompletionChoiceMessage(
+                        role="assistant", content=generated_text
+                    ),
+                    finish_reason="stop",
+                )
+            ],
+            usage={"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},
+        )
+
+    @staticmethod
+    def code_assist_to_domain_stream_chunk(chunk: Any) -> dict[str, Any]:
+        """
+        Translate a Code Assist API streaming chunk to a canonical dictionary format.
+
+        Code Assist API uses Server-Sent Events (SSE) format with "data: " prefix.
+        """
+        import time
+        import uuid
+
+        if chunk is None:
+            # Handle end of stream
+            return {
+                "id": f"chatcmpl-{uuid.uuid4().hex[:16]}",
+                "object": "chat.completion.chunk",
+                "created": int(time.time()),
+                "model": "code-assist-model",
+                "choices": [
+                    {
+                        "index": 0,
+                        "delta": {},
+                        "finish_reason": "stop",
+                    }
+                ],
+            }
+
+        if not isinstance(chunk, dict):
+            return {"error": "Invalid chunk format: expected a dictionary"}
+
+        response_id = f"chatcmpl-{uuid.uuid4().hex[:16]}"
+        created = int(time.time())
+        model = "code-assist-model"
+
+        content = ""
+        finish_reason = None
+
+        # Extract from Code Assist response wrapper
+        response_wrapper = chunk.get("response", {})
+        candidates = response_wrapper.get("candidates", [])
+
+        if candidates and len(candidates) > 0:
+            candidate = candidates[0]
+            content_obj = candidate.get("content", {})
+            parts = content_obj.get("parts", [])
+
+            if parts and len(parts) > 0:
+                content = parts[0].get("text", "")
+
+            if "finishReason" in candidate:
+                finish_reason = candidate["finishReason"]
+
+        return {
+            "id": response_id,
+            "object": "chat.completion.chunk",
+            "created": created,
+            "model": model,
+            "choices": [
+                {
+                    "index": 0,
+                    "delta": {"role": "assistant", "content": content},
+                    "finish_reason": finish_reason,
+                }
+            ],
+        }
+
+    @staticmethod
+    def raw_text_to_domain_request(request: Any) -> CanonicalChatRequest:
+        """
+        Translate a raw text request to a CanonicalChatRequest.
+
+        Raw text format is typically used for simple text processing where
+        the input is just a plain text string.
+        """
+
+        if isinstance(request, str):
+            # Create a simple request with the text as user message
+            from src.core.domain.chat import ChatMessage
+
+            return CanonicalChatRequest(
+                model="text-model",
+                messages=[ChatMessage(role="user", content=request)],
+            )
+        elif isinstance(request, dict):
+            # If it's already a dict, treat it as OpenAI format
+            return Translation.openai_to_domain_request(request)
+        else:
+            # Handle object format
+            return Translation.openai_to_domain_request(request)
+
+    @staticmethod
+    def raw_text_to_domain_response(response: Any) -> CanonicalChatResponse:
+        """
+        Translate a raw text response to a CanonicalChatResponse.
+
+        Raw text format is typically used for simple text responses.
+        """
+        import time
+
+        if isinstance(response, str):
+            return CanonicalChatResponse(
+                id=f"chatcmpl-raw-text-{int(time.time())}",
+                object="chat.completion",
+                created=int(time.time()),
+                model="text-model",
+                choices=[
+                    ChatCompletionChoice(
+                        index=0,
+                        message=ChatCompletionChoiceMessage(
+                            role="assistant", content=response
+                        ),
+                        finish_reason="stop",
+                    )
+                ],
+                usage={"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},
+            )
+        elif isinstance(response, dict):
+            # If it's already a dict, treat it as OpenAI format
+            return Translation.openai_to_domain_response(response)
+        else:
+            # Handle object format
+            return Translation.openai_to_domain_response(response)
+
+    @staticmethod
+    def raw_text_to_domain_stream_chunk(chunk: Any) -> dict[str, Any]:
+        """
+        Translate a raw text stream chunk to a canonical dictionary format.
+
+        Raw text chunks are typically plain text strings.
+        """
+        import time
+        import uuid
+
+        if chunk is None:
+            # Handle end of stream
+            return {
+                "id": f"chatcmpl-{uuid.uuid4().hex[:16]}",
+                "object": "chat.completion.chunk",
+                "created": int(time.time()),
+                "model": "text-model",
+                "choices": [
+                    {
+                        "index": 0,
+                        "delta": {},
+                        "finish_reason": "stop",
+                    }
+                ],
+            }
+
+        if isinstance(chunk, str):
+            # Raw text chunk
+            return {
+                "id": f"chatcmpl-{uuid.uuid4().hex[:16]}",
+                "object": "chat.completion.chunk",
+                "created": int(time.time()),
+                "model": "text-model",
+                "choices": [
+                    {
+                        "index": 0,
+                        "delta": {"role": "assistant", "content": chunk},
+                        "finish_reason": None,
+                    }
+                ],
+            }
+        elif isinstance(chunk, dict):
+            # Check if it's a wrapped text dict like {"text": "content"}
+            if "text" in chunk and isinstance(chunk["text"], str):
+                return {
+                    "id": f"chatcmpl-{uuid.uuid4().hex[:16]}",
+                    "object": "chat.completion.chunk",
+                    "created": int(time.time()),
+                    "model": "text-model",
+                    "choices": [
+                        {
+                            "index": 0,
+                            "delta": {"role": "assistant", "content": chunk["text"]},
+                            "finish_reason": None,
+                        }
+                    ],
+                }
+            else:
+                # If it's already a dict, treat it as OpenAI format
+                return Translation.openai_to_domain_stream_chunk(chunk)
+        else:
+            return {"error": "Invalid raw text chunk format"}
