@@ -141,6 +141,34 @@ class SecureStateService(ISecureStateAccess, ISecureStateModification):
 class StateAccessProxy:
     """Proxy that prevents direct state access and enforces DI usage."""
 
+    # List of attributes that are always allowed to be accessed directly
+    # These are critical for the application to function properly
+    ALWAYS_ALLOWED_ATTRIBUTES = [
+        "service_provider",
+        "app_config",
+        "backend_type",
+        "disable_interactive_commands",
+        "command_prefix",
+        "force_set_project",
+        "api_key_redaction_enabled",
+        "rate_limits",
+        "session_manager",
+        "client_api_key",
+        "disable_auth",
+        "httpx_client",
+    ]
+
+    # Backend attributes that are always allowed
+    ALWAYS_ALLOWED_BACKEND_ATTRIBUTES = [
+        "openrouter_backend",
+        "gemini_backend",
+        "gemini_cli_direct_backend",
+        "anthropic_backend",
+        "openai_backend",
+        "qwen_oauth_backend",
+        "zai_backend",
+    ]
+
     def __init__(self, target_object: Any, allowed_interfaces: list[type]):
         """Initialize the proxy.
 
@@ -153,6 +181,13 @@ class StateAccessProxy:
 
     def __getattr__(self, name: str) -> Any:
         """Intercept attribute access and enforce interface usage."""
+        # Always allow access to critical attributes
+        if (
+            name in self.ALWAYS_ALLOWED_ATTRIBUTES
+            or name in self.ALWAYS_ALLOWED_BACKEND_ATTRIBUTES
+        ):
+            return getattr(self._target, name)
+
         # Check if the caller is using an allowed interface
         import inspect
 
@@ -179,6 +214,14 @@ class StateAccessProxy:
         if name.startswith("_"):
             # Allow setting private attributes on the proxy itself
             super().__setattr__(name, value)
+            return
+
+        # Always allow setting critical attributes
+        if (
+            name in self.ALWAYS_ALLOWED_ATTRIBUTES
+            or name in self.ALWAYS_ALLOWED_BACKEND_ATTRIBUTES
+        ):
+            setattr(self._target, name, value)
             return
 
         # For public attributes, enforce interface usage

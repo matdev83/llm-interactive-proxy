@@ -14,7 +14,6 @@ adhering to proper separation of concerns and SOLID principles.
 
 from __future__ import annotations
 
-import os
 from collections.abc import Awaitable, Callable
 from typing import TypeVar
 
@@ -25,7 +24,6 @@ from src.core.interfaces.state_provider_interface import (
     ISecureStateModification,
 )
 from src.core.services.secure_state_service import StateAccessProxy
-from src.core.services.test_state_access_proxy import TestStateAccessProxy
 
 T = TypeVar("T")
 
@@ -73,20 +71,8 @@ class SecurityMiddleware:
         # Replace app.state with the secure proxy before processing
         original_state = request.app.state
 
-        # Determine if we're running in a test environment
-        is_test = os.environ.get("PYTEST_CURRENT_TEST") is not None
-
-        # Apply the appropriate proxy based on environment
-        if is_test:
-            # Use test-friendly proxy in test environments
-            request.app.state = TestStateAccessProxy(
-                original_state, self.allowed_interfaces
-            )
-        else:
-            # Use strict proxy in production environments
-            request.app.state = StateAccessProxy(
-                original_state, self.allowed_interfaces
-            )
+        # Use strict proxy in all environments
+        request.app.state = StateAccessProxy(original_state, self.allowed_interfaces)
 
         try:
             # Process the request with secure state
