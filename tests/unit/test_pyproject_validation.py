@@ -134,6 +134,10 @@ class PyProjectTOMLValidator:
 class DependencyChecker:
     """Checker for dependency installation status."""
 
+    # Class-level cache to share installed packages across instances
+    _installed_packages_cache: dict[str, set[str]] = {}
+    _cache_timestamps: dict[str, float] = {}
+
     def __init__(self, pyproject_path: Path, venv_path: Path):
         """Initialize dependency checker.
 
@@ -143,11 +147,12 @@ class DependencyChecker:
         """
         self.pyproject_path = pyproject_path
         self.venv_path = venv_path
-        self._installed_packages: set[str] | None = None
         self._cache_file = pyproject_path.parent / ".dependency_check_cache"
         self._pyproject_mtime = (
             pyproject_path.stat().st_mtime if pyproject_path.exists() else 0
         )
+        # Create a cache key based on venv path
+        self._cache_key = str(venv_path)
 
     def _get_cache_key(self) -> str:
         """Generate cache key based on pyproject.toml modification time."""
@@ -176,43 +181,63 @@ class DependencyChecker:
             pass
 
     def _get_installed_packages(self) -> set[str]:
-        """Get set of installed package names using pip from venv.
+        """Get set of installed package names using importlib.metadata.
 
         Returns:
             Set of installed package names (normalized to lowercase)
         """
-        if self._installed_packages is not None:
-            return self._installed_packages
+        # Check if we have a valid cache for this venv
+        current_time = self._pyproject_mtime
+        if (
+            self._cache_key in self._installed_packages_cache
+            and self._cache_key in self._cache_timestamps
+            and self._cache_timestamps[self._cache_key] >= current_time
+        ):
+            return self._installed_packages_cache[self._cache_key]
 
         try:
-            pip_exe = self.venv_path / "Scripts" / "python.exe"
-            if not pip_exe.exists():
-                # Try Linux/macOS path
-                pip_exe = self.venv_path / "bin" / "python"
+            # Try to use importlib.metadata first (faster)
+            try:
+                import importlib.metadata
 
-            if not pip_exe.exists():
-                raise FileNotFoundError(
-                    f"Python executable not found in venv: {pip_exe}"
+                installed = {
+                    dist.metadata["Name"].lower()
+                    for dist in importlib.metadata.distributions()
+                }
+            except ImportError:
+                # Fallback to subprocess method for older Python versions
+                pip_exe = self.venv_path / "Scripts" / "python.exe"
+                if not pip_exe.exists():
+                    # Try Linux/macOS path
+                    pip_exe = self.venv_path / "bin" / "python"
+
+                if not pip_exe.exists():
+                    raise FileNotFoundError(
+                        f"Python executable not found in venv: {pip_exe}"
+                    )
+
+                # Use pip show to get installed packages with a shorter timeout
+                result = subprocess.run(
+                    [str(pip_exe), "-m", "pip", "list", "--format=freeze"],
+                    capture_output=True,
+                    text=True,
+                    timeout=15,  # Reduced timeout
                 )
 
-            # Use pip show to get installed packages
-            result = subprocess.run(
-                [str(pip_exe), "-m", "pip", "list", "--format=freeze"],
-                capture_output=True,
-                text=True,
-                timeout=30,
-            )
+                if result.returncode != 0:
+                    raise subprocess.SubprocessError(
+                        f"pip list failed: {result.stderr}"
+                    )
 
-            if result.returncode != 0:
-                raise subprocess.SubprocessError(f"pip list failed: {result.stderr}")
+                installed = set()
+                for line in result.stdout.strip().split("\n"):
+                    if "==" in line:
+                        package_name = line.split("==")[0].lower()
+                        installed.add(package_name)
 
-            installed = set()
-            for line in result.stdout.strip().split("\n"):
-                if "==" in line:
-                    package_name = line.split("==")[0].lower()
-                    installed.add(package_name)
-
-            self._installed_packages = installed
+            # Cache the result
+            self._installed_packages_cache[self._cache_key] = installed
+            self._cache_timestamps[self._cache_key] = current_time
             return installed
 
         except (

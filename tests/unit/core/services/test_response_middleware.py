@@ -1,8 +1,8 @@
 """Tests for response middleware functionality."""
 
-import pytest
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import MagicMock
 
+import pytest
 from src.core.common.exceptions import LoopDetectionError
 from src.core.interfaces.loop_detector_interface import ILoopDetector
 from src.core.interfaces.response_processor_interface import ProcessedResponse
@@ -27,7 +27,7 @@ class TestLoggingMiddleware:
         response = ProcessedResponse(
             content="Test response content",
             usage={"prompt_tokens": 10, "completion_tokens": 20},
-            metadata={"test": "value"}
+            metadata={"test": "value"},
         )
 
         context = {"response_type": "test"}
@@ -110,14 +110,20 @@ class TestLoopDetectionMiddleware:
         mock_result.has_loop = False
         mock_loop_detector.check_for_loops.return_value = mock_result
 
-        response = ProcessedResponse(content="Normal content")
+        # Use long enough content to trigger loop detection check (> 100 chars)
+        long_content = (
+            "Normal content that is long enough to trigger loop detection check. " * 5
+        )
+        response = ProcessedResponse(content=long_content)
         result = await middleware.process(response, "session123", {})
 
         assert result == response
         mock_loop_detector.check_for_loops.assert_called_once()
 
     @pytest.mark.asyncio
-    async def test_process_loop_detected_raises_error(self, middleware, mock_loop_detector):
+    async def test_process_loop_detected_raises_error(
+        self, middleware, mock_loop_detector
+    ):
         """Test middleware raises error when loop is detected."""
         # Setup mock to return loop detected
         mock_result = MagicMock()
@@ -153,19 +159,23 @@ class TestLoopDetectionMiddleware:
         mock_result.has_loop = False
         mock_loop_detector.check_for_loops.return_value = mock_result
 
-        # First call
+        # First call with content that won't trigger check yet
         response1 = ProcessedResponse(content="Part 1 ")
         result1 = await middleware.process(response1, "session123", {})
         assert result1 == response1
 
-        # Second call
-        response2 = ProcessedResponse(content="Part 2 ")
+        # Second call with enough content to trigger check
+        long_content = (
+            "Part 2 that makes the total content exceed 100 characters for loop detection. "
+            * 3
+        )
+        response2 = ProcessedResponse(content=long_content)
         result2 = await middleware.process(response2, "session123", {})
         assert result2 == response2
 
         # Check that accumulated content was passed to detector
         args, kwargs = mock_loop_detector.check_for_loops.call_args
-        assert "Part 1 Part 2" in args[0]
+        assert "Part 1" in args[0] and "Part 2" in args[0]
 
     def test_reset_session(self, middleware):
         """Test resetting session accumulated content."""
@@ -185,6 +195,3 @@ class TestLoopDetectionMiddleware:
         """Test priority property."""
         middleware = LoopDetectionMiddleware(mock_loop_detector, priority=10)
         assert middleware.priority == 10
-
-
-

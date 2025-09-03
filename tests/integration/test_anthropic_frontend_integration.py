@@ -6,16 +6,10 @@ Tests the complete flow using the official Anthropic SDK against the proxy.
 import contextlib
 
 import pytest
+
+# Import the official Anthropic SDK for testing (required dependency)
+from anthropic import Anthropic, AsyncAnthropic
 from fastapi.testclient import TestClient
-
-# Import the official Anthropic SDK for testing
-try:
-    from anthropic import Anthropic, AsyncAnthropic
-
-    ANTHROPIC_AVAILABLE = True
-except ImportError:
-    ANTHROPIC_AVAILABLE = False
-
 from src.core.app.test_builder import build_test_app as build_app
 from src.core.config.app_config import (
     AppConfig,
@@ -133,7 +127,6 @@ class TestAnthropicFrontendIntegration:
             with contextlib.suppress(Exception):
                 p.stop()
 
-    @pytest.mark.skipif(not ANTHROPIC_AVAILABLE, reason="Anthropic SDK not installed")
     def test_anthropic_sdk_client_creation(self):
         """Test that Anthropic SDK client can be created with proxy URL."""
         client = Anthropic(api_key=self.test_api_key, base_url=self.proxy_base_url)
@@ -142,7 +135,6 @@ class TestAnthropicFrontendIntegration:
         assert self.proxy_base_url in str(client._client.base_url)
 
     @pytest.mark.asyncio
-    @pytest.mark.skipif(not ANTHROPIC_AVAILABLE, reason="Anthropic SDK not installed")
     async def test_async_anthropic_sdk_client_creation(self):
         """Test that AsyncAnthropic SDK client can be created with proxy URL."""
         client = AsyncAnthropic(api_key=self.test_api_key, base_url=self.proxy_base_url)

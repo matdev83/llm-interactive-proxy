@@ -129,9 +129,8 @@ class Blob:
         self.mime_type = mime_type
 
 
-# Use mock client instead of real one
+# Use mock client instead of real one (google-genai is a required dependency)
 genai = MockGeminiClient()
-GENAI_AVAILABLE = True
 
 
 class ProxyServer:
@@ -256,9 +255,6 @@ def test_app():
 @pytest.fixture
 def gemini_client(test_app):
     """Create Gemini client configured to use test app."""
-    if not GENAI_AVAILABLE:
-        pytest.skip("google.genai not available")
-
     # Configure client to use test app (no real server needed)
     genai.configure(api_key="test_key", base_url="http://testserver")
     return genai
@@ -270,9 +266,6 @@ class TestGeminiClientIntegration:
     @pytest.mark.integration
     def test_models_list_with_gemini_client(self, gemini_client, test_app):
         """Test listing models through Gemini client."""
-        if not GENAI_AVAILABLE:
-            pytest.skip("google.genai not available")
-
         # List models through Gemini client (uses mock)
         models = list(gemini_client.models.list())
 
@@ -627,9 +620,6 @@ class TestErrorHandling:
     # De-networked: uses mocked backend instead of real network
     async def test_authentication_error(self, test_app):
         """Test authentication error handling."""
-        if not GENAI_AVAILABLE:
-            pytest.skip("google.genai not available")
-
         # Mock the backend to return an authentication error
         from src.core.interfaces.backend_service_interface import IBackendService
 
@@ -688,7 +678,6 @@ class TestErrorHandling:
             await backend_service.call_completion(request)
 
 
-@pytest.mark.skipif(not GENAI_AVAILABLE, reason="google-genai not installed")
 class TestPerformanceAndReliability:
     """Test performance and reliability aspects."""
 

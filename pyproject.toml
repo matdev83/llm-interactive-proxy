@@ -78,7 +78,7 @@ package-dir = {"" = "src"}
 
 [tool.pytest.ini_options]
 pythonpath = ["src", "tests"]
-addopts = "-v --asyncio-mode=auto -m \"not network and not loop_detection\"  --ignore=tests/unit/core/services/test_response_middleware.py --ignore=tests/integration/test_phase2_integration.py --pyargs src --durations=0 --junit-xml=test-results.xml"
+addopts = "-v --asyncio-mode=auto -m \"not network and not loop_detection\"  --ignore=tests/integration/test_phase2_integration.py --pyargs src --durations=0 --junit-xml=test-results.xml"
 asyncio_default_fixture_loop_scope = "function"
 junit_duration_report = "call"
 # To run integration tests, use: pytest -m integration
