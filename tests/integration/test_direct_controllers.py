@@ -75,28 +75,18 @@ async def setup_app(app: FastAPI) -> AsyncGenerator[dict[str, Any], None]:
 
     # Add routes
     from fastapi import Body, Depends, Request
-    from src.anthropic_models import AnthropicMessagesRequest
     from src.core.app.controllers import (
-        get_anthropic_controller_if_available,
         get_chat_controller_if_available,
     )
     from src.core.domain.chat import ChatRequest
 
-    @app.post("/v2/chat/completions")
+    @app.post("/v1/chat/completions")
     async def chat_completions(
         request: Request,
         request_data: ChatRequest = Body(...),
         controller: ChatController = Depends(get_chat_controller_if_available),
     ) -> Response:
         return await controller.handle_chat_completion(request, request_data)
-
-    @app.post("/v2/anthropic/messages")
-    async def anthropic_messages(
-        request: Request,
-        request_data: AnthropicMessagesRequest = Body(...),
-        controller: Any = Depends(get_anthropic_controller_if_available),
-    ) -> Any:
-        return await controller.handle_anthropic_messages(request, request_data)
 
     yield {
         "app": app,
@@ -112,7 +102,7 @@ async def test_chat_controller(setup_app: dict[str, Any]) -> None:
 
     # Make a request to the endpoint
     response = client.post(
-        "/v2/chat/completions",
+        "/v1/chat/completions",
         json={
             "model": "test-model",
             "messages": [{"role": "user", "content": "Test message"}],
@@ -145,7 +135,7 @@ async def test_chat_controller_error_handling(setup_app: dict[str, Any]) -> None
 
     # Make a request that should trigger error handling
     response = client.post(
-        "/v2/chat/completions",
+        "/v1/chat/completions",
         json={
             "model": "test-model",
             "messages": [{"role": "user", "content": "Test message"}],

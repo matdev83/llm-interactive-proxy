@@ -332,15 +332,6 @@ def register_versioned_endpoints(app: FastAPI) -> None:
     # Anthropic compatibility endpoints (messages, models, health, info)
     _register_anthropic_endpoints(app, prefix="/anthropic")
 
-    # New v2 endpoints
-    @app.post("/v2/chat/completions")
-    async def chat_completions_v2(
-        request: Request,
-        request_data: DomainChatRequest,
-        controller: ChatController = Depends(get_chat_controller_if_available),
-    ) -> Response:
-        return await controller.handle_chat_completion(request, request_data)
-
     # Gemini API v1beta endpoints
     @app.get("/v1beta/models")
     async def gemini_models(

@@ -194,7 +194,7 @@ async def test_hello_command_integration(app):
 
         # Send a Hello command
         response = client.post(
-            "/v2/chat/completions",
+            "/v1/chat/completions",
             json={
                 "model": "gpt-3.5-turbo",
                 "messages": [{"role": "user", "content": "!/hello"}],

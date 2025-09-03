@@ -631,8 +631,8 @@ The Tool Call Reactor provides statistics through the reactor service:
 
 The API is versioned using URL path prefixes:
 
-- `/v1/` - Legacy API (compatible with OpenAI/Anthropic) - **REMOVED** (Use `/v2/` instead)
-- `/v2/` - New SOLID architecture API (recommended and current)
+- `/v1/` - Primary API (compatible with OpenAI/Anthropic) - (Recommended and current)
+- `/v2/` - Legacy API (Removed)
 
 All endpoints require authentication unless the server is started with `--disable-auth` or the request comes from a trusted IP address. Authentication is performed using the `Authorization` header with a bearer token: `Authorization: Bearer <api-key>`.
 
@@ -674,13 +674,13 @@ Sessions are identified using the `x-session-id` header. If not provided, a new 
 
 #### Chat Completions
 
-- **Primary Endpoint (Recommended)**: `POST /v2/chat/completions`
-- **Legacy Endpoint (Removed)**: `POST /v1/chat/completions`
+- **Primary Endpoint (Recommended)**: `POST /v1/chat/completions`
+- **Legacy Endpoint (Removed)**: `POST /v2/chat/completions`
 
 #### Anthropic Messages API
 
-- **Primary Endpoint (Recommended)**: `POST /v2/messages`
-- **Legacy Endpoint (Removed)**: `POST /v1/messages`
+- **Primary Endpoint (Recommended)**: `POST /v1/messages`
+- **Legacy Endpoint (Removed)**: `POST /v2/messages`
 
 #### Gemini API
 
@@ -688,13 +688,13 @@ Sessions are identified using the `x-session-id` header. If not provided, a new 
 
 #### Model Listing
 
-- **OpenAI-Compatible Models**: `GET /v2/models`
-- **Gemini Models**: `GET /v2/models/list`
+- **OpenAI-Compatible Models**: `GET /v1/models`
+- **Gemini Models**: `GET /v1/models/list`
 
 #### Usage Statistics
 
-- **Usage Stats**: `GET /v2/usage/stats`
-- **Recent Usage**: `GET /v2/usage/recent`
+- **Usage Stats**: `GET /v1/usage/stats`
+- **Recent Usage**: `GET /v1/usage/recent`
 
 #### Dedicated Anthropic Server
 
@@ -720,7 +720,7 @@ If the `ANTHROPIC_PORT` is not set, it will default to the main port + 1.
 
 #### Audit Logs
 
-- `GET /v2/audit/logs`
+- `GET /v1/audit/logs`
 
 ## In-Chat Commands
 

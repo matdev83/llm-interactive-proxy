@@ -27,8 +27,11 @@ def detect_frontend_api(request_path: str) -> str:
         return "anthropic"
     elif request_path.startswith("/v1beta/"):
         return "gemini"
+    elif request_path.startswith("/v2/"):
+        # Legacy /v2/ endpoint
+        return "openai"
     else:
-        # Default to OpenAI for all other paths
+        # Default to OpenAI /v1/ for all other paths
         return "openai"
 
 

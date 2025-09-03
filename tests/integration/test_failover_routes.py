@@ -69,7 +69,7 @@ def test_failover_route_commands(app, monkeypatch):
 
         # Create a new failover route
         response = client.post(
-            "/v2/chat/completions",
+            "/v1/chat/completions",
             json={
                 "model": "gpt-3.5-turbo",
                 "messages": [
@@ -90,7 +90,7 @@ def test_failover_route_commands(app, monkeypatch):
 
         # Append an element to the route
         response = client.post(
-            "/v2/chat/completions",
+            "/v1/chat/completions",
             json={
                 "model": "gpt-3.5-turbo",
                 "messages": [
@@ -111,7 +111,7 @@ def test_failover_route_commands(app, monkeypatch):
 
         # List the route elements
         response = client.post(
-            "/v2/chat/completions",
+            "/v1/chat/completions",
             json={
                 "model": "gpt-3.5-turbo",
                 "messages": [
@@ -126,7 +126,7 @@ def test_failover_route_commands(app, monkeypatch):
 
         # Prepend an element to the route
         response = client.post(
-            "/v2/chat/completions",
+            "/v1/chat/completions",
             json={
                 "model": "gpt-3.5-turbo",
                 "messages": [
@@ -147,7 +147,7 @@ def test_failover_route_commands(app, monkeypatch):
 
         # List all routes
         response = client.post(
-            "/v2/chat/completions",
+            "/v1/chat/completions",
             json={
                 "model": "gpt-3.5-turbo",
                 "messages": [{"role": "user", "content": "!/list-failover-routes"}],
@@ -160,7 +160,7 @@ def test_failover_route_commands(app, monkeypatch):
 
         # Clear the route
         response = client.post(
-            "/v2/chat/completions",
+            "/v1/chat/completions",
             json={
                 "model": "gpt-3.5-turbo",
                 "messages": [
@@ -178,7 +178,7 @@ def test_failover_route_commands(app, monkeypatch):
 
         # Delete the route
         response = client.post(
-            "/v2/chat/completions",
+            "/v1/chat/completions",
             json={
                 "model": "gpt-3.5-turbo",
                 "messages": [
