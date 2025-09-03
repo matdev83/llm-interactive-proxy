@@ -1,9 +1,12 @@
 from __future__ import annotations
 
 import logging
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-from src.core.interfaces.loop_detector import (
+if TYPE_CHECKING:
+    from src.loop_detection.event import LoopDetectionEvent
+
+from src.core.interfaces.loop_detector_interface import (
     ILoopDetector,
     LoopDetectionResult,
 )
@@ -143,7 +146,7 @@ class LoopDetector(ILoopDetector):
         """
         return True
 
-    def process_chunk(self, chunk: str) -> Any:
+    def process_chunk(self, chunk: str) -> LoopDetectionEvent | None:
         """
         Processes a single chunk of text for loop detection.
 
@@ -161,7 +164,7 @@ class LoopDetector(ILoopDetector):
         This should be called before processing a new sequence of chunks.
         """
 
-    def get_loop_history(self) -> list[Any]:
+    def get_loop_history(self) -> list[LoopDetectionEvent]:
         """
         Retrieves the history of detected loops.
 

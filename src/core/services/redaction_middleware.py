@@ -146,7 +146,12 @@ class ProxyCommandFilter:
             # Process matches in reverse to avoid index shifting
             for match in reversed(matches):
                 start, end = match.span()
-                filtered_text = filtered_text[:start] + filtered_text[end:]
+                # Preserve whitespace around the command
+                before = filtered_text[:start]
+                after = filtered_text[end:]
+                # For now, just remove the command without stripping whitespace
+                # This preserves any trailing whitespace before the command
+                filtered_text = before + after
 
             # If text became empty or whitespace-only after filtering, insert a benign placeholder
             if not filtered_text.strip():

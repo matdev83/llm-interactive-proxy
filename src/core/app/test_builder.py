@@ -28,6 +28,7 @@ from src.core.app.stages.test_stages import (
     MockBackendStage,
     RealBackendTestStage,
 )
+from src.core.app.test_utils import get_app_config_from_state
 from src.core.config.app_config import AppConfig
 
 logger = logging.getLogger(__name__)
@@ -217,11 +218,7 @@ async def build_test_app_async(config: AppConfig | None = None) -> FastAPI:
         )
 
         # Use IApplicationState to get config for API key discovery
-        app_config = None
-        if hasattr(app, "state") and hasattr(
-            app.state, "app_config"
-        ):  # noqa: DIP-violation-test-utility
-            app_config = app.state.app_config
+        app_config = get_app_config_from_state(app)
         api_keys = discover_api_keys_from_config_and_env(app_config)
         install_api_key_redaction_filter(api_keys)
     except Exception:
@@ -288,11 +285,7 @@ async def build_minimal_test_app_async(config: AppConfig | None = None) -> FastA
         )
 
         # Use IApplicationState to get config for API key discovery
-        app_config = None
-        if hasattr(app, "state") and hasattr(
-            app.state, "app_config"
-        ):  # noqa: DIP-violation-test-utility
-            app_config = app.state.app_config
+        app_config = get_app_config_from_state(app)
         api_keys = discover_api_keys_from_config_and_env(app_config)
         install_api_key_redaction_filter(api_keys)
     except Exception:

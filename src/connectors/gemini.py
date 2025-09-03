@@ -97,31 +97,7 @@ class GeminiBackend(LLMBackend):
         await self._ensure_models_loaded()
         return list(self.available_models)
 
-    def _convert_stream_chunk(self, data: dict[str, Any], model: str) -> dict[str, Any]:
-        """Convert a Gemini streaming JSON chunk to OpenAI format.
-
-        Intentional extension hook. Translation is now handled by
-        TranslationService; this stub remains for backwards compatibility and
-        to document the former customization point.
-        """
-        # This method is no longer needed as translation is handled by TranslationService
-        raise DeprecationWarning(
-            "GeminiBackend._convert_stream_chunk is deprecated and will be removed."
-        )
-
-    def _convert_full_response(
-        self, data: dict[str, Any], model: str
-    ) -> dict[str, Any]:
-        """Convert a Gemini JSON response to OpenAI format, including function calls.
-
-        Intentional extension hook. Translation is now handled by
-        TranslationService; this stub remains for backwards compatibility and
-        to document the former customization point.
-        """
-        # This method is no longer needed as translation is handled by TranslationService
-        raise DeprecationWarning(
-            "GeminiBackend._convert_full_response is deprecated and will be removed."
-        )
+    # Translation is now handled by TranslationService
 
     def _convert_part_for_gemini(
         self, part: MessageContentPartText | MessageContentPartImage

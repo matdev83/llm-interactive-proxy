@@ -55,13 +55,12 @@ def dict_to_domain_chat_request(request_dict: dict[str, Any]) -> ChatRequest:
         elif isinstance(message, ChatMessage):
             domain_messages.append(message)
         else:
-            # Try to convert to dict or legacy model
+            # Convert to dict using a standardized approach
             if hasattr(message, "model_dump"):
                 msg_dict = message.model_dump()
-            elif hasattr(message, "dict"):
-                msg_dict = message.dict()
             else:
-                msg_dict = message
+                # Try direct conversion, raising TypeError if not compatible
+                msg_dict = dict(message)
             domain_messages.append(ChatMessage(**msg_dict))
 
     # Create a copy of the request dict and update messages
@@ -254,13 +253,14 @@ def _convert_tool_calls(
             # Dict format - convert directly
             converted_tool_calls.append(ToolCall(**tool_call))
         else:
-            # Legacy model object - try to convert via model_dump
+            # Convert object to dictionary using standard approach
             if hasattr(tool_call, "model_dump"):
                 tool_call_dict = tool_call.model_dump()
-                converted_tool_calls.append(ToolCall(**tool_call_dict))
             else:
-                # Fallback - try to convert directly
-                converted_tool_calls.append(ToolCall(**tool_call))
+                # Convert directly, will raise appropriate error if incompatible
+                tool_call_dict = dict(tool_call)
+
+            converted_tool_calls.append(ToolCall(**tool_call_dict))
 
     return converted_tool_calls
 
@@ -284,12 +284,13 @@ def _convert_tools(tools: list[dict[str, Any]] | None) -> list[dict[str, Any]] |
             # Already in dict format
             converted_tools.append(tool)
         else:
-            # Legacy model object - try to convert via model_dump
+            # Convert using standard approach
             if hasattr(tool, "model_dump"):
                 tool_dict = tool.model_dump()
-                converted_tools.append(tool_dict)
             else:
-                # Fallback - try to convert directly
-                converted_tools.append(dict(tool))
+                # Convert directly without fallback
+                tool_dict = dict(tool)
+
+            converted_tools.append(tool_dict)
 
     return converted_tools

@@ -152,18 +152,28 @@ class SecureCommandBase(BaseCommand):
         Raises:
             StateAccessViolationError: If direct state access is attempted
         """
-        if context and hasattr(context, "app"):
-            # Replace the app object with a proxy that blocks state access
+        # Note: This method is security-critical and intentionally uses reflection
+        # to enforce security boundaries. Future work should move this functionality
+        # to a proper security middleware that's outside the domain layer.
+        #
+        # Security override comment required - DO NOT REMOVE OR BYPASS
+        # noqa: DIP-violation-required-for-security-enforcement
+
+        if context and hasattr(context, "app") and hasattr(context.app, "state"):
+            # Get security-critical imports
+            from src.core.interfaces.state_provider_interface import (
+                ISecureStateAccess,
+                ISecureStateModification,
+            )
             from src.core.services.secure_state_service import StateAccessProxy
 
-            # Security mechanism: Direct state access required to install proxy
-            # This is intentionally bypassing DIP for security enforcement
-            if hasattr(
-                context.app, "state"
-            ):  # noqa: DIP-violation-required-for-security
-                context.app.state = StateAccessProxy(
-                    context.app.state, [ISecureStateAccess, ISecureStateModification]
-                )
+            # Install security proxy - this is a legitimate exception to DIP for security
+            # enforcement. Moving to a true DI approach would require a complete
+            # rewrite of the security boundary system.
+            context.app.state = StateAccessProxy(  # noqa: DIP-violation-security
+                context.app.state,  # noqa: DIP-violation-security
+                [ISecureStateAccess, ISecureStateModification],
+            )
 
     @final
     def _increment_execution_count(self) -> None:

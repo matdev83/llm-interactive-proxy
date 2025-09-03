@@ -71,8 +71,6 @@ class CommandRegistry:
     def __init__(self) -> None:
         """Initialize the command registry."""
         self._commands: dict[str, BaseCommand] = {}
-        # Maintain internal-only test hook; avoid bridging in production
-        CommandRegistry._instance = self
 
     def register(self, command: BaseCommand) -> None:
         """Register a command handler.
@@ -124,34 +122,8 @@ class CommandRegistry:
         """
         return self.get(name)
 
-    # Static instance for bridging
-    _instance: "CommandRegistry | None" = None
-
-    @staticmethod
-    def get_instance() -> "CommandRegistry | None":
-        """Internal-only hook for tests to access a registry instance.
-
-        Use DI to obtain the registry in application code.
-        """
-        return CommandRegistry._instance
-
-    @staticmethod
-    def set_instance(registry: "CommandRegistry") -> None:
-        """Set the global instance (test-only)."""
-        CommandRegistry._instance = registry
-
-    @staticmethod
-    def clear_instance() -> None:
-        """Clear the global instance (test-only)."""
-        CommandRegistry._instance = None
-
-    @staticmethod
-    def ensure_instance() -> "CommandRegistry":
-        """Ensure a global instance exists (test-only)."""
-        if CommandRegistry._instance is None:
-            logger.debug("Creating new CommandRegistry instance for tests")
-            CommandRegistry._instance = CommandRegistry()
-        return CommandRegistry._instance
+    # NOTE: Legacy static instance access has been removed.
+    # All command registry access should use proper DI via ICommandRegistry interface.
 
 
 class CommandService(ICommandService):
@@ -240,6 +212,9 @@ class CommandService(ICommandService):
                 # Remove the command from message text
                 message.content = before + remaining
 
+                # Store the before content for later use
+                before_content = before
+
                 cmd = self._registry.get(cmd_name)
                 if cmd:
                     args: dict[str, Any] = {}
@@ -306,13 +281,15 @@ class CommandService(ICommandService):
                     command_executed = True
 
                     if remaining:
-                        modified_messages[i].content = " " + remaining.strip()
+                        modified_messages[i].content = (
+                            before_content + remaining.strip()
+                        )
                     else:
-                        modified_messages[i].content = " "
+                        modified_messages[i].content = before_content
                 else:
                     # Unknown command
                     if not self._preserve_unknown:
-                        modified_messages[i].content = " "
+                        modified_messages[i].content = before_content
                     command_executed = True
                 break
 

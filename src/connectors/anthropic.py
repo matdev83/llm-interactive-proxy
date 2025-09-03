@@ -357,32 +357,7 @@ class AnthropicBackend(LLMBackend):
 
     # -----------------------------------------------------------
     # Converters
-    # -----------------------------------------------------------
-    def _convert_stream_chunk(self, data: dict[str, Any], model: str) -> dict[str, Any]:
-        """Convert Anthropic delta event to OpenAI chat.completion.chunk format.
-
-        Intentional extension hook. Translation is now handled by
-        TranslationService; this stub remains for backwards compatibility and
-        to document the former customization point.
-        """
-        # This method is no longer needed as translation is handled by TranslationService
-        raise NotImplementedError(
-            "AnthropicBackend._convert_stream_chunk is deprecated."
-        )
-
-    def _convert_full_response(
-        self, data: dict[str, Any], model: str
-    ) -> dict[str, Any]:
-        """Convert full Anthropic message response to OpenAI format.
-
-        Intentional extension hook. Translation is now handled by
-        TranslationService; this stub remains for backwards compatibility and
-        to document the former customization point.
-        """
-        # This method is no longer needed as translation is handled by TranslationService
-        raise NotImplementedError(
-            "AnthropicBackend._convert_full_response is deprecated."
-        )
+    # Translation is now handled by TranslationService
 
     # -----------------------------------------------------------
     # Model listing

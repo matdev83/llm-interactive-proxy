@@ -391,7 +391,15 @@ class RequestProcessor(IRequestProcessor):
         """Compatibility wrapper used by legacy tests to process command-only results.
 
         Delegates to the injected response manager.
+
+        DEPRECATED: This method is a legacy compatibility layer and should be removed
+                   once all tests are migrated to use the proper IResponseManager
+                   interface directly.
+
+        TODO: Remove this method once all tests are migrated to use proper DI.
         """
+        # This method should no longer be used. All new code should use the
+        # injected response manager directly through proper dependency injection.
         return await self._response_manager.process_command_result(
             command_result, session
         )
