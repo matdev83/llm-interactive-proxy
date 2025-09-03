@@ -1,5 +1,5 @@
 import os
-from unittest.mock import patch
+from unittest.mock import ANY, patch
 
 import pytest
 
@@ -12,31 +12,20 @@ def test_cli_disable_auth_forces_localhost():
         patch("uvicorn.run") as mock_uvicorn,
         patch("src.core.cli.logging.basicConfig"),
         patch("src.core.cli._check_privileges"),
+        patch("src.core.app.application_builder.build_app"),
     ):
         # This should work without error (localhost is allowed)
         from src.core.cli import main
 
-        mock_app = object()
-
-        def mock_build_app(cfg, config_file=None):  # type: ignore
-            # The config_file parameter is intentionally unused in this mock
-            return mock_app
-
         # Test with localhost - should work
-        main(
-            ["--disable-auth", "--host", "127.0.0.1", "--port", "8080"],
-            build_app_fn=mock_build_app,
-        )
-        mock_uvicorn.assert_called_with(mock_app, host="127.0.0.1", port=8080)
+        main(["--disable-auth", "--host", "127.0.0.1", "--port", "8080"])
+        mock_uvicorn.assert_called_with(ANY, host="127.0.0.1", port=8080)
 
         mock_uvicorn.reset_mock()
 
         # Test with different host - should be forced to localhost
-        main(
-            ["--disable-auth", "--host", "0.0.0.0", "--port", "8081"],
-            build_app_fn=mock_build_app,
-        )
-        mock_uvicorn.assert_called_with(mock_app, host="127.0.0.1", port=8081)
+        main(["--disable-auth", "--host", "0.0.0.0", "--port", "8081"])
+        mock_uvicorn.assert_called_with(ANY, host="127.0.0.1", port=8081)
 
 
 def test_env_disable_auth_forces_localhost():
@@ -50,17 +39,12 @@ def test_env_disable_auth_forces_localhost():
         patch("uvicorn.run") as mock_uvicorn,
         patch("src.core.cli.logging.basicConfig"),
         patch("src.core.cli._check_privileges"),
+        patch("src.core.app.application_builder.build_app"),
     ):
         from src.core.cli import main
 
-        mock_app = object()
-
-        def mock_build_app(cfg, config_file=None):  # type: ignore
-            # The config_file parameter is intentionally unused in this mock
-            return mock_app
-
-        main(["--port", "8080"], build_app_fn=mock_build_app)
-        mock_uvicorn.assert_called_with(mock_app, host="127.0.0.1", port=8080)
+        main(["--port", "8080"])
+        mock_uvicorn.assert_called_with(ANY, host="127.0.0.1", port=8080)
 
 
 def test_auth_enabled_allows_custom_host():
@@ -74,17 +58,12 @@ def test_auth_enabled_allows_custom_host():
         patch("uvicorn.run") as mock_uvicorn,
         patch("src.core.cli.logging.basicConfig"),
         patch("src.core.cli._check_privileges"),
+        patch("src.core.app.application_builder.build_app"),
     ):
         from src.core.cli import main
 
-        mock_app = object()
-
-        def mock_build_app(cfg, config_file=None):  # type: ignore
-            # The config_file parameter is intentionally unused in this mock
-            return mock_app
-
-        main(["--port", "8080"], build_app_fn=mock_build_app)
-        mock_uvicorn.assert_called_with(mock_app, host="0.0.0.0", port=8080)
+        main(["--port", "8080"])
+        mock_uvicorn.assert_called_with(ANY, host="0.0.0.0", port=8080)
 
 
 def test_config_disable_auth_forces_localhost():

@@ -287,7 +287,6 @@ def _apply_security_flags(cfg: AppConfig) -> None:
 
 
 import argparse
-from collections.abc import Callable  # Added cast to this import
 from typing import cast
 
 from fastapi import FastAPI  # Added this import
@@ -302,7 +301,6 @@ from src.core.config.app_config import AppConfig
 
 def main(
     argv: list[str] | None = None,
-    build_app_fn: Callable[[AppConfig, str | None], FastAPI] | None = None,
 ) -> None:
     if os.name == "nt":
         colorama.init()
@@ -323,10 +321,7 @@ def main(
     # `build_app_fn`. The test mocks expect to be called with cfg and
     # the config_file keyword argument.
     app: FastAPI  # Declare app here
-    if build_app_fn is not None:
-        app = build_app_fn(cfg, args.config_file)
-    else:
-        app = build_app(cfg)
+    app = build_app(cfg)
 
     # Log trusted IPs information if configured
     if cfg.auth.trusted_ips:
