@@ -146,34 +146,15 @@ class SecureCommandBase(BaseCommand):
     def _block_direct_state_access(self, context: Any) -> None:
         """Block any attempts to access state directly from context.
 
+        This method is now a no-op since security is handled by
+        SecurityMiddleware in the infrastructure layer. Keeping
+        this method to maintain API compatibility.
+
         Args:
             context: The context object that should not be used for state access
-
-        Raises:
-            StateAccessViolationError: If direct state access is attempted
         """
-        # Note: This method is security-critical and intentionally uses reflection
-        # to enforce security boundaries. Future work should move this functionality
-        # to a proper security middleware that's outside the domain layer.
-        #
-        # Security override comment required - DO NOT REMOVE OR BYPASS
-        # noqa: DIP-violation-required-for-security-enforcement
-
-        if context and hasattr(context, "app") and hasattr(context.app, "state"):
-            # Get security-critical imports
-            from src.core.interfaces.state_provider_interface import (
-                ISecureStateAccess,
-                ISecureStateModification,
-            )
-            from src.core.services.secure_state_service import StateAccessProxy
-
-            # Install security proxy - this is a legitimate exception to DIP for security
-            # enforcement. Moving to a true DI approach would require a complete
-            # rewrite of the security boundary system.
-            context.app.state = StateAccessProxy(  # noqa: DIP-violation-security
-                context.app.state,  # noqa: DIP-violation-security
-                [ISecureStateAccess, ISecureStateModification],
-            )
+        # Security enforcement has been moved to SecurityMiddleware
+        # This method remains for backwards compatibility
 
     @final
     def _increment_execution_count(self) -> None:

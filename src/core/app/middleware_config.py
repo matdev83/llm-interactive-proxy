@@ -70,6 +70,15 @@ def configure_middleware(app: FastAPI, config: Any) -> None:
     # Response retry-after middleware
     app.add_middleware(RetryAfterMiddleware)
 
+    # Security middleware to enforce state access through interfaces
+    try:
+        from src.core.app.middleware.security_middleware import add_security_middleware
+
+        add_security_middleware(app)
+        logger.info("Security middleware is enabled")
+    except Exception as e:
+        logger.warning("Failed to register SecurityMiddleware: %s", e, exc_info=True)
+
     # Domain exception mapping middleware (translate domain errors to HTTP)
     try:
         from src.core.app.middleware.exception_middleware import (
