@@ -9,8 +9,9 @@ command_prefix: "!/"
 # Authentication
 auth:
   disable_auth: false  # Set to true to disable API key authentication
-  api_keys: 
-    - "your-api-key-here"  # List of valid API keys
+  # NOTE: API keys should NEVER be stored in config files for security reasons
+  # Instead, set them via environment variables (see README.md)
+  api_keys: []  # API keys are read from environment variables only
   auth_token: null  # Optional auth token
 
 # Session management
@@ -29,40 +30,51 @@ logging:
   log_file: null  # Optional log file path
 
 # Backend settings
+# IMPORTANT SECURITY NOTE:
+# API keys should NEVER be stored in configuration files!
+# All API keys must be set via environment variables only:
+# - OPENROUTER_API_KEY for OpenRouter
+# - GEMINI_API_KEY for Gemini
+# - ANTHROPIC_API_KEY for Anthropic
+# - ZAI_API_KEY for ZAI
+# - GOOGLE_CLOUD_PROJECT for Google Cloud Project ID
+# See README.md and config/sample.env for examples
+
 backends:
   default_backend: "openai"
-  
+
   openai:
-    api_key: ""  # Your OpenAI API key
+    # API key set via OPENROUTER_API_KEY environment variable
     api_url: null  # Optional custom API URL
     timeout: 120
     models:
       - "gpt-3.5-turbo"
       - "gpt-4"
       - "gpt-4-turbo"
-  
+
   openrouter:
-    api_key: ""  # Your OpenRouter API key
+    # API key set via OPENROUTER_API_KEY environment variable
     api_url: "https://openrouter.ai/api/v1"
     timeout: 180
-  
+
   anthropic:
-    api_key: ""  # Your Anthropic API key
+    # API key set via ANTHROPIC_API_KEY environment variable
     timeout: 150
-  
+
   gemini:
-    api_key: ""  # Your Gemini API key
+    # API key set via GEMINI_API_KEY environment variable
     timeout: 120
-  
+
   qwen_oauth:
-    api_key: ""  # Your Qwen OAuth API key
+    # API key set via environment variables (OAuth flow)
     timeout: 120
     extra:
-      client_id: ""  # Client ID for OAuth
-      client_secret: ""  # Client secret for OAuth
-  
+      # OAuth credentials configured via environment variables
+      client_id: null
+      client_secret: null
+
   zai:
-    api_key: ""  # Your ZAI API key
+    # API key set via ZAI_API_KEY environment variable
     timeout: 120
 
 # Model-specific defaults

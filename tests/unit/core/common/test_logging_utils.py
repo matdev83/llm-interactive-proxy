@@ -134,9 +134,9 @@ class TestDiscoverApiKeysFromConfigAndEnv:
         # Check that normal values were not discovered
         assert "this is a normal value" not in keys
 
-    def test_discover_from_config(self):
-        """Test discovering API keys from config object."""
-        # Create a mock config object
+    def test_discover_from_config_with_security_warnings(self):
+        """Test that API keys are discovered from config with security warnings."""
+        # Create a mock config object with API keys in it
         mock_config = MagicMock()
         mock_config.auth.api_keys = ["sk-config-1234567890abcdefg"]
 
@@ -156,11 +156,22 @@ class TestDiscoverApiKeysFromConfigAndEnv:
             mock_config.backends = mock_backends
 
             # Discover API keys
-            keys = discover_api_keys_from_config_and_env(mock_config)
+            with patch("logging.getLogger") as mock_get_logger:
+                mock_logger = MagicMock()
+                mock_get_logger.return_value = mock_logger
 
-            # Check that keys from config were discovered
-            assert any("sk-config-1234567890abcdefg" in k for k in keys)
-            assert any("sk-backend-1234567890abcdefg" in k for k in keys)
+                keys = discover_api_keys_from_config_and_env(mock_config)
+
+                # API keys from config should be discovered for redaction purposes
+                assert any("sk-config-1234567890abcdefg" in k for k in keys)
+                assert any("sk-backend-1234567890abcdefg" in k for k in keys)
+
+                # Security warnings should be logged
+                mock_logger.warning.assert_called()
+                warning_calls = [
+                    call.args[0] for call in mock_logger.warning.call_args_list
+                ]
+                assert any("SECURITY WARNING" in call for call in warning_calls)
 
 
 class TestInstallApiKeyRedactionFilter:

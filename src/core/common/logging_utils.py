@@ -260,7 +260,14 @@ def install_api_key_redaction_filter(
 def _discover_api_keys_from_config_auth(
     config: AppConfig | None, found: set[str]
 ) -> None:
-    """Discover API keys from config.auth.api_keys."""
+    """Discover API keys from config.auth.api_keys for redaction purposes.
+
+    SECURITY WARNING: This function is used by the redaction middleware to know
+    which API keys to redact from requests and logs. However, API keys should
+    NEVER be stored in config files - they should only be set via environment
+    variables. This function reads from the in-memory AppConfig object, not
+    from files on disk.
+    """
     try:
         if config is not None and getattr(config, "auth", None):
             ak = getattr(config.auth, "api_keys", None)
@@ -268,6 +275,14 @@ def _discover_api_keys_from_config_auth(
                 for k in ak if isinstance(ak, list | tuple) else [ak]:
                     if k:
                         found.add(str(k))
+                        # SECURITY WARNING: Log when API keys are found in config
+                        import logging
+
+                        logger = logging.getLogger(__name__)
+                        logger.warning(
+                            "SECURITY WARNING: API key found in config.auth.api_keys. "
+                            "API keys should only be set via environment variables, not config files."
+                        )
     except Exception as e:
         # Suppress errors to ensure logging continues; add debug context
         get_logger(__name__).debug(
@@ -278,7 +293,14 @@ def _discover_api_keys_from_config_auth(
 def _discover_api_keys_from_config_backends(
     config: AppConfig | None, found: set[str]
 ) -> None:
-    """Discover API keys from config.backends.<backend>.api_key."""
+    """Discover API keys from config.backends.<backend>.api_key for redaction purposes.
+
+    SECURITY WARNING: This function is used by the redaction middleware to know
+    which API keys to redact from requests and logs. However, API keys should
+    NEVER be stored in config files - they should only be set via environment
+    variables. This function reads from the in-memory AppConfig object, not
+    from files on disk.
+    """
     try:
         if config is not None and getattr(config, "backends", None):
             backends = config.backends
@@ -303,8 +325,24 @@ def _discover_api_keys_from_config_backends(
                             for k in ak:
                                 if k:
                                     found.add(str(k))
+                                    # SECURITY WARNING: Log when API keys are found in config
+                                    import logging
+
+                                    logger = logging.getLogger(__name__)
+                                    logger.warning(
+                                        f"SECURITY WARNING: API key found in config.backends.{b}.api_key. "
+                                        "API keys should only be set via environment variables, not config files."
+                                    )
                         else:
                             found.add(str(ak))
+                            # SECURITY WARNING: Log when API keys are found in config
+                            import logging
+
+                            logger = logging.getLogger(__name__)
+                            logger.warning(
+                                f"SECURITY WARNING: API key found in config.backends.{b}.api_key. "
+                                "API keys should only be set via environment variables, not config files."
+                            )
                 except Exception as e:
                     # If backend attribute is missing or malformed, skip
                     get_logger(__name__).debug(
@@ -371,16 +409,32 @@ def _discover_api_keys_from_environment(found: set[str]) -> None:
 
 
 def discover_api_keys_from_config_and_env(config: AppConfig | None = None) -> list[str]:
-    """Discover API keys from AppConfig-like objects and the environment.
+    """Discover API keys from both in-memory config and environment variables for redaction.
 
-    This inspects the provided `config` for known locations (auth.api_keys,
-    backends.<name>.api_key) and also scans environment variables for any
-    values that match typical API key patterns. Returns a list of unique keys.
+    SECURITY NOTICE: This function reads API keys from the in-memory AppConfig object
+    (NOT from files on disk) for redaction purposes. API keys should NEVER be stored
+    in config files - they should only be set via environment variables.
+
+    The function scans:
+    1. In-memory AppConfig object for redaction middleware
+    2. Environment variables for all API keys
+
+    Required environment variables:
+    - OPENROUTER_API_KEY for OpenRouter
+    - GEMINI_API_KEY for Gemini
+    - ANTHROPIC_API_KEY for Anthropic
+    - ZAI_API_KEY for ZAI
+    - LLM_INTERACTIVE_PROXY_API_KEY for proxy authentication
+
+    SECURITY WARNING: If API keys are found in the config object, warnings are logged.
     """
     found: set[str] = set()
 
+    # Read from in-memory config for redaction (with security warnings)
     _discover_api_keys_from_config_auth(config, found)
     _discover_api_keys_from_config_backends(config, found)
+
+    # Always read from environment variables
     _discover_api_keys_from_environment(found)
 
     return list(found)

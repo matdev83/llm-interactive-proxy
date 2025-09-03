@@ -71,6 +71,7 @@ data/accounting.sqlite3
 *.state
 WARP.md
 CLAUDE.md
+QWEN.md
 .hypothesis/
 .dev/
 dev/

@@ -166,15 +166,44 @@ Notes:
 - API key “name” is derived by matching configured keys to env vars (e.g., `OPENROUTER_API_KEY_1`), never logging secret values.
 - Redaction: if prompt redaction is enabled, capture contains post-redaction payloads.
 
-### Security: API Key Redaction
+## 🔒 Security & API Key Management
+
+### CRITICAL SECURITY NOTICE
+**NEVER store API keys in configuration files!** This is a major security risk that can lead to accidental exposure of sensitive credentials.
+
+All API keys must be set via **environment variables only**:
+
+- `OPENROUTER_API_KEY` - OpenRouter API key
+- `GEMINI_API_KEY` - Google Gemini API key
+- `ANTHROPIC_API_KEY` - Anthropic API key
+- `ZAI_API_KEY` - ZAI API key
+- `LLM_INTERACTIVE_PROXY_API_KEY` - Proxy authentication key
+- `GOOGLE_CLOUD_PROJECT` - Google Cloud Project ID
+
+**Example configuration:**
+```bash
+export OPENROUTER_API_KEY="sk-or-v1-..."
+export GEMINI_API_KEY="AIza..."
+export ANTHROPIC_API_KEY="sk-ant-..."
+```
+
+See `config/sample.env` for complete examples of environment variable setup.
+
+### API Key Redaction Security Features
 
 - **Outbound Request Redaction**: Before any request reaches a backend, a request redaction middleware scans user message content (including text parts in multimodal messages) and replaces any discovered API keys with a placeholder `(API_KEY_HAS_BEEN_REDACTED)`. It also strips proxy commands (e.g., `!/hello`) to prevent command leakage to providers.
 - **Logging Redaction**: A global logging filter automatically masks API keys and bearer tokens in all log messages and handler outputs.
-- **Key Discovery**: Keys are discovered from `auth.api_keys`, `backends.<name>.api_key`, and environment variables (pattern-based, including `Bearer ...`).
+- **Key Discovery**: Keys are discovered from environment variables only (pattern-based, including `Bearer ...`).
 - **Configuration**:
   - Enable/disable prompt redaction via `auth.redact_api_keys_in_prompts` (default: true).
   - CLI toggle: `--disable-redact-api-keys-in-prompts`.
 - **Wire Capture Note**: If request/response wire capture is enabled, outbound requests are captured after redaction, so captured payloads are sanitized.
+
+### Why Environment Variables Only?
+- **Security**: Environment variables are not stored in files that might be committed to version control
+- **Flexibility**: Different environments (dev, staging, prod) can have different keys
+- **Best Practice**: Industry standard for sensitive configuration
+- **Automatic Protection**: The proxy automatically discovers and redacts keys from environment variables
 
 ## Backend Support
 

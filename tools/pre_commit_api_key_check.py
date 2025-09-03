@@ -65,7 +65,7 @@ def get_staged_files_content():
 
 
 def main():
-    config_path = project_root / "config.example.yaml"
+    config_path = project_root / "config" / "config.example.yaml"
     if not config_path.exists():
         print(f"Error: config.example.yaml not found at {config_path}", file=sys.stderr)
         sys.exit(1)
