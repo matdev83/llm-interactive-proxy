@@ -95,8 +95,8 @@ class ModelDefaults(DomainModel):
     limits: ModelLimits | None = Field(
         None,
         description=(
-            "Limits and constraints for this model, such as max_input_tokens and "
-            "max_output_tokens (applied at the front-end)."
+            "Limits and constraints for this model, such as max_input_tokens "
+            "(applied at the front-end)."
         ),
     )
 
