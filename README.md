@@ -1,6 +1,6 @@
 # LLM Interactive Proxy
 
-A drop-in proxy that lets you use one OpenAI-compatible endpoint with many LLM providers. It adds reliability, safety, and quality-of-life features without changing your tools.
+A unified LLM proxy that presents multiple compatible front-ends (OpenAI, Anthropic, Gemini) while routing to many providers. It adds reliability, safety, and quality-of-life features without changing your tools.
 
 ## Contents
 
