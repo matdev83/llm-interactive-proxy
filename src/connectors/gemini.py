@@ -259,10 +259,7 @@ class GeminiBackend(LLMBackend):
             gemini_api_base_url, openrouter_api_base_url, api_key, **kwargs
         )
         if identity:
-            if identity.url:
-                headers["HTTP-Referer"] = identity.url
-            if identity.title:
-                headers["X-Title"] = identity.title
+            headers.update(identity.get_resolved_headers(None))
 
         # Translate incoming request to CanonicalChatRequest using the translation service
         domain_request = self.translation_service.to_domain_request(

@@ -30,7 +30,7 @@ class MockBackend(LLMBackend):
     def get_headers(self) -> dict[str, str]:
         if not self.identity:
             return {}
-        return {"HTTP-Referer": self.identity.url, "X-Title": self.identity.title}
+        return self.identity.get_resolved_headers(None)
 
 
 import httpx

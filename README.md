@@ -21,7 +21,7 @@ The LLM Interactive Proxy is an advanced middleware service that provides a unif
 - **Empty Response Recovery**: Automatically detects empty LLM responses (no text, no tool call) and retries the request with a corrective prompt to guide the LLM.
 - **Tool Call Reactor**: Event-driven system for reacting to tool calls from LLMs, with pluggable handlers that can provide steering instructions or modify responses.
 - **Context Window Size Overrides**: Enforce per-model context window limits at the proxy level.
-- **Context Window Size Overrides**: Enforce per-model context window limits at the proxy level.
+- **Header Override Support**: Configure how application identity headers (title, URL, User-Agent) are handled for outgoing requests.
 
 ### Error Mapping (API Behavior)
 
@@ -576,6 +576,149 @@ Additional tips:
 - If using a service account, ensure the path in `GOOGLE_APPLICATION_CREDENTIALS` is absolute and accessible by the process.
 - On Windows, use double backslashes in paths in PowerShell when setting env vars, or single backslashes inside quotes.
 - For local development, `gcloud auth application-default login` is usually the fastest path; remember to set `GOOGLE_CLOUD_PROJECT` as well.
+
+## Header Override Support
+
+The proxy now supports flexible configuration of application identity headers (title, URL, and User-Agent) that are sent to LLM backends. This feature allows you to control how these headers are handled for outgoing requests.
+
+### Header Configuration Modes
+
+Each header can be configured with one of three modes:
+
+- **PASSTHROUGH**: Use a header value from the incoming request
+- **OVERRIDE**: Use a specific value for the header
+- **DISABLED**: Don't send the header at all
+
+### Header Types
+
+The proxy supports overriding three types of headers:
+
+- **Title** (`X-Title`): The application title sent to the LLM backend
+- **URL** (`HTTP-Referer`): The application URL sent to the LLM backend
+- **User-Agent**: The User-Agent header sent to the LLM backend
+
+### Configuration
+
+Header overrides can be configured in your `config.yaml` file:
+
+```yaml
+identity:
+  title:
+    value: "My Custom App Title"
+    mode: "override"
+  url:
+    value: "https://myapp.example.com"
+    mode: "override"
+  user_agent:
+    passthrough_name: "User-Agent"
+    mode: "passthrough"
+```
+
+Or via environment variables:
+
+```bash
+export APP_TITLE="My Custom App Title"
+export APP_TITLE_MODE="override"
+export APP_URL="https://myapp.example.com"
+export APP_URL_MODE="override"
+export APP_USER_AGENT_MODE="passthrough"
+```
+
+### Per-Backend Identity
+
+You can also configure identity headers for specific backends:
+
+```yaml
+backends:
+  openai:
+    identity:
+      title:
+        value: "My App - OpenAI"
+        mode: "override"
+      url:
+        value: "https://myapp.example.com/openai"
+        mode: "override"
+      user_agent:
+        value: "MyApp/1.0 (OpenAI)"
+        mode: "override"
+  anthropic:
+    identity:
+      title:
+        mode: "disabled"
+      url:
+        mode: "disabled"
+      user_agent:
+        passthrough_name: "User-Agent"
+        mode: "passthrough"
+```
+
+### Header Resolution Order
+
+When resolving header values, the proxy follows this priority order:
+
+1. Backend-specific identity configuration (if available)
+2. Global identity configuration
+3. Default values (if no configuration is provided)
+
+This allows you to set global defaults while overriding specific headers for individual backends.
+
+### Examples
+
+**Example 1: Global Override Configuration**
+
+To set a global application title and URL while passing through the User-Agent:
+
+```yaml
+identity:
+  title:
+    value: "My Coding Assistant"
+    mode: "override"
+  url:
+    value: "https://myapp.example.com/coding"
+    mode: "override"
+  user_agent:
+    passthrough_name: "User-Agent"
+    mode: "passthrough"
+```
+
+**Example 2: Backend-Specific Configuration**
+
+To use different titles for different backends:
+
+```yaml
+identity:
+  title:
+    value: "My General App"
+    mode: "override"
+
+backends:
+  openai:
+    identity:
+      title:
+        value: "My App - OpenAI"
+        mode: "override"
+  anthropic:
+    identity:
+      title:
+        value: "My App - Anthropic"
+        mode: "override"
+```
+
+In this example, OpenAI requests will use "My App - OpenAI" as the title, Anthropic requests will use "My App - Anthropic", and all other backends will use "My General App".
+
+**Example 3: Disabling Headers**
+
+To disable sending certain headers to a specific backend:
+
+```yaml
+backends:
+  gemini:
+    identity:
+      title:
+        mode: "disabled"
+      url:
+        mode: "disabled"
+```
 
 ## Tool Call Reactor
 

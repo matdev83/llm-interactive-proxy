@@ -165,10 +165,7 @@ class AnthropicBackend(LLMBackend):
             "content-type": "application/json",
         }
         if identity:
-            if identity.url:
-                request_headers["HTTP-Referer"] = identity.url
-            if identity.title:
-                request_headers["X-Title"] = identity.title
+            request_headers.update(identity.get_resolved_headers(None))
 
         if logger.isEnabledFor(logging.INFO):
             logger.info(

@@ -4,6 +4,7 @@ import pytest
 from src.core.config.app_config import AppConfig, BackendConfig, BackendSettings
 from src.core.domain.chat import ChatMessage, ChatRequest
 from src.core.domain.configuration.app_identity_config import AppIdentityConfig
+from src.core.domain.configuration.header_config import HeaderConfig
 from src.core.interfaces.application_state_interface import IApplicationState
 from src.core.interfaces.rate_limiter_interface import IRateLimiter, RateLimitInfo
 from src.core.services.backend_service import BackendService
@@ -34,7 +35,12 @@ async def test_default_identity_headers():
     """Verify that default identity headers are sent."""
     # Arrange
     app_config = AppConfig(
-        identity=AppIdentityConfig(title="Test App", url="https://test.app"),
+        identity=AppIdentityConfig(
+            title=HeaderConfig(default_value="Test App", passthrough_name="x-title"),
+            url=HeaderConfig(
+                default_value="https://test.app", passthrough_name="http-referer"
+            ),
+        ),
         backends=BackendSettings(openai=BackendConfig(api_key=["test-key"])),
     )
     factory = MockBackendFactory()
@@ -57,8 +63,13 @@ async def test_default_identity_headers():
 
     # Assert
     backend = factory.get_backend("openai")
-    assert backend.last_request_headers["HTTP-Referer"] == "https://test.app"
-    assert backend.last_request_headers["X-Title"] == "Test App"
+    # Get the identity config to resolve headers
+    identity_config = app_config.identity
+    resolved_headers = identity_config.get_resolved_headers(None)
+    assert (
+        backend.last_request_headers["HTTP-Referer"] == resolved_headers["HTTP-Referer"]
+    )
+    assert backend.last_request_headers["X-Title"] == resolved_headers["X-Title"]
 
 
 @pytest.mark.asyncio
@@ -66,12 +77,25 @@ async def test_backend_specific_identity_headers():
     """Verify that backend-specific identity headers override defaults."""
     # Arrange
     app_config = AppConfig(
-        identity=AppIdentityConfig(title="Default Title", url="https://default.url"),
+        identity=AppIdentityConfig(
+            title=HeaderConfig(
+                default_value="Default Title", passthrough_name="x-title"
+            ),
+            url=HeaderConfig(
+                default_value="https://default.url", passthrough_name="http-referer"
+            ),
+        ),
         backends=BackendSettings(
             openai=BackendConfig(
                 api_key=["test-key"],
                 identity=AppIdentityConfig(
-                    title="OpenAI Title", url="https://openai.url"
+                    title=HeaderConfig(
+                        default_value="OpenAI Title", passthrough_name="x-title"
+                    ),
+                    url=HeaderConfig(
+                        default_value="https://openai.url",
+                        passthrough_name="http-referer",
+                    ),
                 ),
             )
         ),
@@ -96,5 +120,10 @@ async def test_backend_specific_identity_headers():
 
     # Assert
     backend = factory.get_backend("openai")
-    assert backend.last_request_headers["HTTP-Referer"] == "https://openai.url"
-    assert backend.last_request_headers["X-Title"] == "OpenAI Title"
+    # Get the backend-specific identity config to resolve headers
+    backend_identity_config = app_config.backends.openai.identity
+    resolved_headers = backend_identity_config.get_resolved_headers(None)
+    assert (
+        backend.last_request_headers["HTTP-Referer"] == resolved_headers["HTTP-Referer"]
+    )
+    assert backend.last_request_headers["X-Title"] == resolved_headers["X-Title"]

@@ -81,8 +81,7 @@ class OpenAIConnector(LLMBackend):
             return {}
         headers = {"Authorization": f"Bearer {self.api_key}"}
         if self.identity:
-            headers["HTTP-Referer"] = self.identity.url
-            headers["X-Title"] = self.identity.title
+            headers.update(self.identity.get_resolved_headers(None))
         return headers
 
     async def initialize(self, **kwargs: Any) -> None:

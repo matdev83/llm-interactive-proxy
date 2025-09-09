@@ -47,8 +47,7 @@ class OpenRouterBackend(OpenAIConnector):
             )
         headers = self.headers_provider(self.key_name, self.api_key)
         if self.identity:
-            headers["HTTP-Referer"] = self.identity.url
-            headers["X-Title"] = self.identity.title
+            headers.update(self.identity.get_resolved_headers(None))
         logger.info(
             f"OpenRouter headers: Authorization: Bearer {self.api_key[:20]}..., HTTP-Referer: {headers.get('HTTP-Referer', 'NOT_SET')}, X-Title: {headers.get('X-Title', 'NOT_SET')}"
         )

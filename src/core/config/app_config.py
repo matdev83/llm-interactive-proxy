@@ -523,10 +523,16 @@ class AppConfig(DomainModel, IConfig):
         }
 
         config["identity"] = {
-            "title": os.environ.get("APP_TITLE", "llm-interactive-proxy"),
-            "url": os.environ.get(
-                "APP_URL", "https://github.com/matdev83/llm-interactive-proxy"
-            ),
+            "title": {
+                "value": os.environ.get("APP_TITLE", "llm-interactive-proxy"),
+                "mode": "override",
+            },
+            "url": {
+                "value": os.environ.get(
+                    "APP_URL", "https://github.com/matdev83/llm-interactive-proxy"
+                ),
+                "mode": "override",
+            },
         }
 
         # Log the determined default_backend

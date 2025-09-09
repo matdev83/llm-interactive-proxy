@@ -38,26 +38,18 @@ class IConfig(abc.ABC):
 class IAppIdentityConfig(abc.ABC):
     """Interface for application identity configuration."""
 
-    @property
     @abc.abstractmethod
-    def title(self) -> str:
-        """The title of the application."""
-        ...
+    def get_resolved_headers(
+        self, incoming_headers: dict[str, Any] | None
+    ) -> dict[str, str]:
+        """Get the resolved headers for the application identity.
 
-    @property
-    @abc.abstractmethod
-    def url(self) -> str:
-        """The URL of the application."""
-        ...
+        Args:
+            incoming_headers: The headers from the incoming request.
 
-    @abc.abstractmethod
-    def with_title(self, title: str) -> IAppIdentityConfig:
-        """Create a new config with an updated title."""
-        ...
-
-    @abc.abstractmethod
-    def with_url(self, url: str) -> IAppIdentityConfig:
-        """Create a new config with an updated URL."""
+        Returns:
+            A dictionary of resolved headers.
+        """
         ...
 
 

@@ -2,6 +2,14 @@
 
 This document outlines significant changes and updates to the LLM Interactive Proxy.
 
+## 2025-09-09 - Header Override Feature
+
+- **New Feature**: Added support for overriding application title, URL, and User-Agent headers
+  - **Header Configuration**: Introduced `HeaderConfig` class to encapsulate header configuration with multiple modes (PASSTHROUGH, OVERRIDE, DISABLED)
+  - **Flexible Header Handling**: Headers can now be configured to pass through from incoming requests, overridden with specific values, or completely disabled
+  - **Backward Compatibility**: Existing configurations continue to work while new override capabilities are available
+  - **Per-Backend Identity**: Each backend can now have its own identity configuration for more granular control
+
 ## 2025-09-09 - ZAI Coding Plan Backend
 
 - **New Backend**: Added `zai-coding-plan` backend to integrate with the ZAI Coding Plan API.

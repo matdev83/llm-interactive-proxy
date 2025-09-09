@@ -20,13 +20,14 @@ from src.core.common.exceptions import (
 )
 from src.core.config.app_config import AppConfig
 from src.core.domain.responses import ResponseEnvelope, StreamingResponseEnvelope
+from src.core.interfaces.configuration_interface import IAppIdentityConfig
 from src.core.interfaces.model_bases import DomainModel, InternalDTO
 from src.core.services.backend_registry import backend_registry
 
 from .openai import OpenAIConnector
 
 if TYPE_CHECKING:
-    from src.core.domain.configuration.app_identity_config import IAppIdentityConfig
+    pass
 
     # No legacy ChatCompletionRequest here; connectors should use domain ChatRequest
 
