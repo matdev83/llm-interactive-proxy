@@ -12,6 +12,10 @@ from pydantic import ConfigDict, Field, field_validator
 
 from src.core.config.config_loader import _collect_api_keys
 from src.core.domain.configuration.app_identity_config import AppIdentityConfig
+from src.core.domain.configuration.header_config import (
+    HeaderConfig,
+    HeaderOverrideMode,
+)
 from src.core.interfaces.configuration_interface import IConfig
 from src.core.interfaces.model_bases import DomainModel
 
@@ -522,18 +526,30 @@ class AppConfig(DomainModel, IConfig):
             "default_backend": os.environ.get("LLM_BACKEND", "openai")
         }
 
-        config["identity"] = {
-            "title": {
-                "value": os.environ.get("APP_TITLE", "llm-interactive-proxy"),
-                "mode": "override",
-            },
-            "url": {
-                "value": os.environ.get(
-                    "APP_URL", "https://github.com/matdev83/llm-interactive-proxy"
+        config["identity"] = AppIdentityConfig(
+            title=HeaderConfig(
+                override_value=os.environ.get("APP_TITLE"),
+                mode=HeaderOverrideMode(
+                    os.environ.get("APP_TITLE_MODE", "passthrough")
                 ),
-                "mode": "override",
-            },
-        }
+                default_value="llm-interactive-proxy",
+                passthrough_name="x-title",
+            ),
+            url=HeaderConfig(
+                override_value=os.environ.get("APP_URL"),
+                mode=HeaderOverrideMode(os.environ.get("APP_URL_MODE", "passthrough")),
+                default_value="https://github.com/matdev83/llm-interactive-proxy",
+                passthrough_name="http-referer",
+            ),
+            user_agent=HeaderConfig(
+                override_value=os.environ.get("APP_USER_AGENT"),
+                mode=HeaderOverrideMode(
+                    os.environ.get("APP_USER_AGENT_MODE", "passthrough")
+                ),
+                default_value="llm-interactive-proxy",
+                passthrough_name="user-agent",
+            ),
+        )
 
         # Log the determined default_backend
         logger.info(

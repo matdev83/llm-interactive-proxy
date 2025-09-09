@@ -41,6 +41,9 @@ class HeaderConfig(ValueObject):
         if self.mode == HeaderOverrideMode.OVERRIDE and self.override_value is not None:
             return self.override_value
 
+        if self.mode == HeaderOverrideMode.DEFAULT:
+            return self.default_value
+
         if (
             self.mode == HeaderOverrideMode.PASSTHROUGH
             and incoming_headers
