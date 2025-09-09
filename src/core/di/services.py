@@ -10,6 +10,7 @@ from __future__ import annotations
 import contextlib
 import logging
 import os
+import asyncio
 from collections.abc import Callable
 from typing import Any, TypeVar, cast
 
@@ -851,8 +852,6 @@ def register_core_services(
                 )
 
                 # Register synchronously since we're in the factory
-                import asyncio
-
                 try:
                     loop = asyncio.get_event_loop()
                     if not loop.is_running():

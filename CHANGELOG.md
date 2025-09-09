@@ -232,6 +232,7 @@ This document outlines significant changes and updates to the LLM Interactive Pr
 ## New Features
 
 ### Empty Response Recovery
+
 - Implements automated detection and recovery for empty responses from remote LLMs.
 - **Detection Criteria**: HTTP 200 OK, empty/whitespace content, no tool calls.
 - **Recovery Mechanism**: Reads recovery prompt from `config/prompts/empty_response_auto_retry_prompt.md`, retries the request, or generates HTTP error if retry fails.
