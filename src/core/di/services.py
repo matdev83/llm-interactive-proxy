@@ -68,6 +68,7 @@ from src.core.services.backend_processor import BackendProcessor
 from src.core.services.backend_request_manager_service import BackendRequestManager
 from src.core.services.backend_service import BackendService
 from src.core.services.command_processor import CommandProcessor
+from src.core.services.failover_service import FailoverService
 from src.core.services.json_repair_service import JsonRepairService
 from src.core.services.middleware_application_manager import (
     MiddlewareApplicationManager,
@@ -106,6 +107,7 @@ from src.core.services.tool_call_reactor_service import (
     ToolCallReactorService,
 )
 from src.core.services.tool_call_repair_service import ToolCallRepairService
+from src.core.services.translation_service import TranslationService
 
 T = TypeVar("T")
 
@@ -770,6 +772,14 @@ def register_core_services(
         ToolCallRepairService, implementation_factory=_tool_call_repair_service_factory
     )
 
+    # Register TranslationService (dependency of BackendService)
+    def _translation_service_factory(provider: IServiceProvider) -> TranslationService:
+        return TranslationService()
+
+    _add_singleton(
+        TranslationService, implementation_factory=_translation_service_factory
+    )
+
     with contextlib.suppress(Exception):
         services.add_singleton(
             cast(type, IToolCallRepairService),
@@ -878,7 +888,28 @@ def register_core_services(
         # Get or create dependencies
         httpx_client: httpx.AsyncClient | None = provider.get_service(httpx.AsyncClient)
         if httpx_client is None:
-            httpx_client = httpx.AsyncClient()
+            try:
+                httpx_client = httpx.AsyncClient(
+                    http2=True,
+                    timeout=httpx.Timeout(
+                        connect=10.0, read=60.0, write=60.0, pool=60.0
+                    ),
+                    limits=httpx.Limits(
+                        max_connections=100, max_keepalive_connections=20
+                    ),
+                    trust_env=False,
+                )
+            except ImportError:
+                httpx_client = httpx.AsyncClient(
+                    http2=False,
+                    timeout=httpx.Timeout(
+                        connect=10.0, read=60.0, write=60.0, pool=60.0
+                    ),
+                    limits=httpx.Limits(
+                        max_connections=100, max_keepalive_connections=20
+                    ),
+                    trust_env=False,
+                )
 
         # Get app config
         app_config: AppConfig = provider.get_required_service(AppConfig)
@@ -950,6 +981,13 @@ def register_core_services(
         services.add_singleton(
             cast(type, IBackendService), implementation_factory=_backend_service_factory
         )  # type: ignore[type-abstract]
+
+    # Register FailoverService first (dependency of FailoverCoordinator)
+    def _failover_service_factory(provider: IServiceProvider) -> FailoverService:
+        # FailoverService constructor takes failover_routes dict, defaulting to empty
+        return FailoverService(failover_routes={})
+
+    _add_singleton(FailoverService, implementation_factory=_failover_service_factory)
 
     # Register failover coordinator (if not already registered elsewhere as a concrete type)
     def _failover_coordinator_factory(

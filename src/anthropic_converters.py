@@ -43,15 +43,33 @@ def anthropic_to_openai_request(
 def openai_to_anthropic_response(openai_response: Any) -> dict[str, Any]:
     """Convert an OpenAI chat completion response into Anthropic format."""
     oai_dict = _normalize_openai_response_to_dict(openai_response)
-    choice = oai_dict["choices"][0]
-    message = choice["message"]
+    # Defensive: handle empty or missing choices gracefully
+    choices = oai_dict.get("choices") or []
+    if not choices:
+        # Produce a minimal Anthropic-like message with empty text and usage mapping
+        usage = oai_dict.get("usage", {})
+        return {
+            "id": oai_dict.get("id", "msg_unk"),
+            "type": "message",
+            "role": "assistant",
+            "model": oai_dict.get("model", "unknown"),
+            "stop_reason": None,
+            "content": [{"type": "text", "text": ""}],
+            "usage": {
+                "input_tokens": usage.get("prompt_tokens", 0),
+                "output_tokens": usage.get("completion_tokens", 0),
+            },
+        }
+
+    choice = choices[0]
+    message = choice.get("message", {})
     content_blocks = _build_content_blocks(choice, message)
     usage = oai_dict.get("usage", {})
     return {
-        "id": oai_dict["id"],
+        "id": oai_dict.get("id", "msg_unk"),
         "type": "message",
         "role": "assistant",
-        "model": oai_dict["model"],
+        "model": oai_dict.get("model", "unknown"),
         "stop_reason": _map_finish_reason(choice.get("finish_reason")),
         "content": content_blocks,
         "usage": {

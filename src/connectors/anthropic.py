@@ -52,6 +52,7 @@ class AnthropicBackend(LLMBackend):
         self.config = config  # Stored config
         self.translation_service = translation_service
         self.available_models: list[str] = []
+        self.auth_header_name = "x-api-key"
 
     # -----------------------------------------------------------
     # Public helpers
@@ -61,6 +62,7 @@ class AnthropicBackend(LLMBackend):
         self.anthropic_api_base_url = kwargs.get("anthropic_api_base_url")
         self.key_name = kwargs.get("key_name")
         self.api_key = kwargs.get("api_key")
+        self.auth_header_name = kwargs.get("auth_header_name", "x-api-key")
 
         if not self.key_name or not self.api_key:
             raise ConfigurationError(
@@ -121,6 +123,7 @@ class AnthropicBackend(LLMBackend):
         api_key: str | None = None,
         project: str | None = None,
         agent: str | None = None,
+        headers: dict[str, str] | None = None,
         **kwargs: Any,
     ) -> ResponseEnvelope | StreamingResponseEnvelope:
         """Send request to Anthropic Messages endpoint and return domain response envelope."""
@@ -131,13 +134,22 @@ class AnthropicBackend(LLMBackend):
                 message="Anthropic API key not configured", code="missing_api_key"
             )
 
-        base_url = (openrouter_api_base_url or ANTHROPIC_DEFAULT_BASE_URL).rstrip("/")
-        url = f"{base_url}/messages"
+        url = self._get_request_url(
+            openrouter_api_base_url or getattr(self, "anthropic_api_base_url", None)
+        )
 
         # Translate incoming request to CanonicalChatRequest using the translation service
-        domain_request = self.translation_service.to_domain_request(
-            request_data, source_format="anthropic"
-        )
+        try:
+            ts = self.translation_service
+        except Exception:
+            ts = None
+        if ts is None:
+            from src.core.services.translation_service import TranslationService
+
+            ts = TranslationService()
+            self.translation_service = ts  # type: ignore[assignment]
+
+        domain_request = ts.to_domain_request(request_data, source_format="anthropic")
 
         # request_data is a domain ChatRequest; connectors can rely on adapter helpers
         anthropic_payload = self._prepare_anthropic_payload(
@@ -147,16 +159,16 @@ class AnthropicBackend(LLMBackend):
             project=project,
         )
 
-        headers = {
-            "x-api-key": effective_api_key,
+        request_headers = headers or {
+            self.auth_header_name: effective_api_key,
             "anthropic-version": ANTHROPIC_VERSION_HEADER,
             "content-type": "application/json",
         }
         if identity:
             if identity.url:
-                headers["HTTP-Referer"] = identity.url
+                request_headers["HTTP-Referer"] = identity.url
             if identity.title:
-                headers["X-Title"] = identity.title
+                request_headers["X-Title"] = identity.title
 
         if logger.isEnabledFor(logging.INFO):
             logger.info(
@@ -171,7 +183,7 @@ class AnthropicBackend(LLMBackend):
 
         if domain_request.stream:
             stream_iterator = await self._handle_streaming_response(
-                url, anthropic_payload, headers, effective_model
+                url, anthropic_payload, request_headers, effective_model
             )
             # Return a domain-level streaming envelope
             return StreamingResponseEnvelope(
@@ -179,7 +191,7 @@ class AnthropicBackend(LLMBackend):
             )
         else:
             response_envelope = await self._handle_non_streaming_response(
-                url, anthropic_payload, headers, effective_model
+                url, anthropic_payload, request_headers, domain_request.model
             )
             # Return a domain-level ResponseEnvelope
             return response_envelope
@@ -274,13 +286,23 @@ class AnthropicBackend(LLMBackend):
             payload["reasoning_effort"] = request_data.reasoning_effort
         return payload
 
+    def _get_request_url(self, api_base_url: str | None) -> str:
+        """Construct the request URL, appending /messages."""
+        base_url = (api_base_url or ANTHROPIC_DEFAULT_BASE_URL).rstrip("/")
+        if base_url.endswith("/messages"):
+            return base_url
+        return f"{base_url}/messages"
+
     # -----------------------------------------------------------
     # Non-streaming handling
     # -----------------------------------------------------------
     async def _handle_non_streaming_response(
-        self, url: str, payload: dict, headers: dict, model: str
+        self, url: str, payload: dict, headers: dict, original_model: str
     ) -> ResponseEnvelope:
         try:
+            logger.info(
+                f"Sending request to {url} with headers: {headers} and payload: {payload}"
+            )
             response = await self.client.post(url, json=payload, headers=headers)
         except httpx.RequestError as e:
             raise ServiceUnavailableError(
@@ -384,7 +406,10 @@ class AnthropicBackend(LLMBackend):
             )
 
         url = f"{base.rstrip('/')}/models"
-        headers = {"x-api-key": key_api, "anthropic-version": ANTHROPIC_VERSION_HEADER}
+        headers = {
+            self.auth_header_name: key_api,
+            "anthropic-version": ANTHROPIC_VERSION_HEADER,
+        }
         try:
             response = await self.client.get(url, headers=headers)
         except httpx.RequestError as e:

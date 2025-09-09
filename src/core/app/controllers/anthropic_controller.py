@@ -145,14 +145,44 @@ class AnthropicController:
                     body_content = body_content.tobytes()
                 openai_response_data = json.loads(body_content.decode())
 
-                # Convert to Anthropic format if it has the expected OpenAI structure
-                # Otherwise, pass through the response as is
-                if "choices" in openai_response_data:
-                    anthropic_response_data = openai_to_anthropic_response(
-                        openai_response_data
-                    )
-                else:
-                    anthropic_response_data = openai_response_data
+                # Preferred path: if we still have access to the domain ChatResponse,
+                # format Anthropic directly from it to preserve content reliably.
+                try:
+                    from src.core.domain.chat import ChatResponse as _ChatResponse
+
+                    if hasattr(response, "content") and isinstance(
+                        response.content, _ChatResponse
+                    ):
+                        cr: _ChatResponse = response.content
+                        first = cr.choices[0] if cr.choices else None
+                        text = first.message.content if first and first.message else ""
+                        usage = cr.usage or {}
+                        anthropic_response_data = {
+                            "id": cr.id,
+                            "type": "message",
+                            "role": "assistant",
+                            "content": [{"type": "text", "text": text or ""}],
+                            "model": cr.model,
+                            "stop_reason": first.finish_reason if first else "stop",
+                            "stop_sequence": None,
+                            "usage": {
+                                "input_tokens": usage.get("prompt_tokens", 0),
+                                "output_tokens": usage.get("completion_tokens", 0),
+                            },
+                        }
+                    else:
+                        # Fallback: convert from OpenAI-shaped dict defensively
+                        if "choices" in openai_response_data and (
+                            isinstance(openai_response_data.get("choices"), list)
+                        ):
+                            anthropic_response_data = openai_to_anthropic_response(
+                                openai_response_data
+                            )
+                        else:
+                            anthropic_response_data = dict(openai_response_data)
+                except Exception:
+                    # On any error, fallback to dict(openai_response_data)
+                    anthropic_response_data = dict(openai_response_data)
 
             # Check if streaming was requested
             is_streaming = anthropic_request.stream
@@ -191,7 +221,10 @@ class AnthropicController:
                     logger.info(f"Returning JSON response: {anthropic_response_data}")
 
                 # If we're using the OpenAI format (choices), convert it to Anthropic format
-                if "choices" in anthropic_response_data:
+                if (
+                    isinstance(anthropic_response_data, dict)
+                    and "choices" in anthropic_response_data
+                ):
                     # Convert OpenAI format to Anthropic format
                     first_choice = anthropic_response_data["choices"][0]
                     anthropic_formatted = {
@@ -210,17 +243,40 @@ class AnthropicController:
                             "usage", {"input_tokens": 0, "output_tokens": 0}
                         ),
                     }
+                    # Sanitize headers to remove compression hints that can confuse clients
+                    raw_headers = getattr(adapted_response, "headers", {})
+                    safe_headers = {
+                        k: v
+                        for k, v in raw_headers.items()
+                        if k.lower()
+                        not in (
+                            "content-encoding",
+                            "transfer-encoding",
+                            "content-length",
+                        )
+                    }
                     return FastAPIResponse(
                         content=json.dumps(anthropic_formatted),
                         media_type="application/json",
-                        headers=adapted_response.headers,
+                        headers=safe_headers,
                     )
                 else:
                     # Already in Anthropic format or custom format
+                    raw_headers = getattr(adapted_response, "headers", {})
+                    safe_headers = {
+                        k: v
+                        for k, v in raw_headers.items()
+                        if k.lower()
+                        not in (
+                            "content-encoding",
+                            "transfer-encoding",
+                            "content-length",
+                        )
+                    }
                     return FastAPIResponse(
                         content=json.dumps(anthropic_response_data),
                         media_type="application/json",
-                        headers=adapted_response.headers,
+                        headers=safe_headers,
                     )
         except LLMProxyError as e:
             # Map domain exceptions to HTTP exceptions

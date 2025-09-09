@@ -358,4 +358,26 @@ KNOWN_MODEL_CAPABILITIES = {
         ),
         pricing=ModelPricing(input_cost_per_1k=0.015, output_cost_per_1k=0.075),
     ),
+    "zai-coding-plan": ModelCapabilities(
+        model_id="claude-sonnet-4-20250514",
+        backend_type="zai-coding-plan",
+        metadata=ModelMetadata(
+            name="zai-coding-plan",
+            display_name="ZAI Coding Plan",
+            description="ZAI's coding plan model (Anthropic compatible)",
+            provider="ZAI",
+            version="20250514",
+            model_type="chat",
+            tags=["general", "reasoning", "coding", "creative", "analysis"],
+        ),
+        capabilities=[
+            ModelCapability.CHAT,
+            ModelCapability.STREAMING,
+            ModelCapability.REASONING,
+        ],
+        limits=ModelLimits(
+            max_tokens=120000,
+            context_window=120000,
+        ),
+    ),
 }

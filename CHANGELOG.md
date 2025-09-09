@@ -2,15 +2,18 @@
 
 This document outlines significant changes and updates to the LLM Interactive Proxy.
 
-## 2025-09-09 - Context Window Size Overrides
+## 2025-09-09 - ZAI Coding Plan Backend
 
-- **New Feature**: Added context window size overrides to enforce per-model context window limits at the proxy level.
-  - **Per-Model Overrides**: Add `ModelDefaults.limits` (`ModelLimits`) for per-model overrides.
-  - **Output Capping**: Enforce an output cap (`max_output_tokens`).
-  - **Input Hard Error**: Enforce an input hard error (`max_input_tokens`).
-  - **Structured Error Payload**: Provides a structured error payload with the code `input_limit_exceeded`.
-  - **Token Counting Utility**: Includes a token counting utility with `tiktoken` fallback.
-  - **Documentation**: Added a new section to the `README.md` file with detailed usage examples and configuration options.
+- **New Backend**: Added `zai-coding-plan` backend to integrate with the ZAI Coding Plan API.
+  - **Inheritance**: Inherits from the `AnthropicBackend` to reuse existing logic.
+  - **Custom URL**: Overrides the Anthropic API URL to `https://api.z.ai/api/anthropic`.
+  - **Authentication**: Uses the `Authorization` header with a Bearer token for API key authentication.
+  - **KiloCode Integration**: Includes proper application identification headers for ZAI server compatibility.
+  - **Model Rewriting**: Hardcodes the model name to `claude-sonnet-4-20250514` and rewrites any other model names.
+  - **Local Model List**: Serves a hardcoded list of models containing only `claude-sonnet-4-20250514`.
+  - **Error Handling**: Correctly surfaces a `BackendError` when the ZAI API returns ZAI-specific error responses.
+  - **Testing**: Comprehensive unit and integration tests with real API validation.
+  - **Documentation**: Complete setup guide with configuration examples and troubleshooting.
 
 ## 2025-09-09 - Context Window Size Overrides
 

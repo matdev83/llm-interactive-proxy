@@ -7,6 +7,7 @@ replacing production services with mocks and test doubles.
 
 from __future__ import annotations
 
+import contextlib
 import logging
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock
@@ -223,8 +224,30 @@ class MockBackendStage(InitializationStage):
                     except Exception:
                         translation_service = TranslationService()
 
+                    try:
+                        client = httpx.AsyncClient(
+                            http2=True,
+                            timeout=httpx.Timeout(
+                                connect=10.0, read=60.0, write=60.0, pool=60.0
+                            ),
+                            limits=httpx.Limits(
+                                max_connections=100, max_keepalive_connections=20
+                            ),
+                            trust_env=False,
+                        )
+                    except ImportError:
+                        client = httpx.AsyncClient(
+                            http2=False,
+                            timeout=httpx.Timeout(
+                                connect=10.0, read=60.0, write=60.0, pool=60.0
+                            ),
+                            limits=httpx.Limits(
+                                max_connections=100, max_keepalive_connections=20
+                            ),
+                            trust_env=False,
+                        )
                     real_backend = AnthropicBackend(
-                        httpx.AsyncClient(), AppConfig(), translation_service
+                        client, AppConfig(), translation_service
                     )
                     # Call connector using a minimal processed_messages list and
                     # the request.model as effective_model when available.
@@ -315,8 +338,30 @@ class MockBackendStage(InitializationStage):
                         except Exception:
                             translation_service = TranslationService()
 
+                        try:
+                            client = httpx.AsyncClient(
+                                http2=True,
+                                timeout=httpx.Timeout(
+                                    connect=10.0, read=60.0, write=60.0, pool=60.0
+                                ),
+                                limits=httpx.Limits(
+                                    max_connections=100, max_keepalive_connections=20
+                                ),
+                                trust_env=False,
+                            )
+                        except ImportError:
+                            client = httpx.AsyncClient(
+                                http2=False,
+                                timeout=httpx.Timeout(
+                                    connect=10.0, read=60.0, write=60.0, pool=60.0
+                                ),
+                                limits=httpx.Limits(
+                                    max_connections=100, max_keepalive_connections=20
+                                ),
+                                trust_env=False,
+                            )
                         real_backend = AnthropicBackend(
-                            httpx.AsyncClient(), AppConfig(), translation_service
+                            client, AppConfig(), translation_service
                         )
                         # If the connector was patched in tests, its methods will
                         # already reflect the patch. Cache and return the real
@@ -387,7 +432,28 @@ class MockBackendStage(InitializationStage):
             # that directly access this attribute
             import httpx
 
-            httpx_client = httpx.AsyncClient()
+            try:
+                httpx_client = httpx.AsyncClient(
+                    http2=True,
+                    timeout=httpx.Timeout(
+                        connect=10.0, read=60.0, write=60.0, pool=60.0
+                    ),
+                    limits=httpx.Limits(
+                        max_connections=100, max_keepalive_connections=20
+                    ),
+                    trust_env=False,
+                )
+            except ImportError:
+                httpx_client = httpx.AsyncClient(
+                    http2=False,
+                    timeout=httpx.Timeout(
+                        connect=10.0, read=60.0, write=60.0, pool=60.0
+                    ),
+                    limits=httpx.Limits(
+                        max_connections=100, max_keepalive_connections=20
+                    ),
+                    trust_env=False,
+                )
             mock_factory._client = httpx_client
 
             # Always register the mock factory instance to ensure it overrides any
@@ -429,6 +495,24 @@ class MockBackendStage(InitializationStage):
                     cast(type, IApplicationState)
                 )
 
+                # Get optional failover coordinator
+                failover_coordinator: IFailoverCoordinator | None = None
+                with contextlib.suppress(Exception):
+                    from src.core.interfaces.failover_interface import (
+                        IFailoverCoordinator,
+                    )
+
+                    failover_coordinator = provider.get_service(
+                        cast(type, IFailoverCoordinator)
+                    )
+
+                # Get wire capture service
+                wire_capture: IWireCapture | None = None
+                with contextlib.suppress(Exception):
+                    from src.core.interfaces.wire_capture_interface import IWireCapture
+
+                    wire_capture = provider.get_service(cast(type, IWireCapture))
+
                 return BackendService(
                     backend_factory,
                     rate_limiter,
@@ -436,6 +520,8 @@ class MockBackendStage(InitializationStage):
                     provider.get_required_service(SessionService),
                     app_state,
                     backend_config_provider=backend_config_provider,
+                    failover_coordinator=failover_coordinator,
+                    wire_capture=wire_capture,
                 )
 
             # Register BackendService with factory

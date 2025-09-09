@@ -8,7 +8,7 @@ The LLM Interactive Proxy is an advanced middleware service that provides a unif
 
 ### Key Features
 
-- **Multi-Backend Support**: Seamlessly integrate with OpenAI, Anthropic, Anthropic OAuth, Google Gemini, OpenRouter, custom backends, and Gemini CLI OAuth.
+- **Multi-Backend Support**: Seamlessly integrate with OpenAI, Anthropic, Anthropic OAuth, Google Gemini, OpenRouter, ZAI Coding Plan, custom backends, and Gemini CLI OAuth.
   - Included OAuth-style backends: Anthropic OAuth, OpenAI OAuth
 - **Intelligent Failover**: Automatic fallback to alternative models/backends on failure.
 - **Command Processing**: Interactive commands embedded in chat messages.
@@ -178,7 +178,7 @@ All API keys must be set via **environment variables only**:
 - `OPENROUTER_API_KEY` - OpenRouter API key
 - `GEMINI_API_KEY` - Google Gemini API key
 - `ANTHROPIC_API_KEY` - Anthropic API key
-- `ZAI_API_KEY` - ZAI API key
+- `ZAI_API_KEY` - ZAI Coding Plan API key
 - `LLM_INTERACTIVE_PROXY_API_KEY` - Proxy authentication key
 - `GOOGLE_CLOUD_PROJECT` - Google Cloud Project ID
 
@@ -187,6 +187,7 @@ All API keys must be set via **environment variables only**:
 export OPENROUTER_API_KEY="sk-or-v1-..."
 export GEMINI_API_KEY="AIza..."
 export ANTHROPIC_API_KEY="sk-ant-..."
+export ZAI_API_KEY="your-zai-api-key"
 ```
 
 See `config/sample.env` for complete examples of environment variable setup.
@@ -240,6 +241,59 @@ You can also set the context window size using interactive commands:
 - **Automatic Protection**: The proxy automatically discovers and redacts keys from environment variables
 
 ## Backend Support
+
+### ZAI Coding Plan Backend
+
+The `zai-coding-plan` backend provides integration with ZAI's specialized coding plan API, which offers access to Claude Sonnet 4 through a partnership arrangement. This backend is designed for coding agents and development workflows that require high-quality code generation capabilities.
+
+#### Key Features
+
+- **Claude Sonnet 4 Access**: Direct access to `claude-sonnet-4-20250514` through ZAI's specialized endpoint
+- **Anthropic Compatibility**: Built on the Anthropic backend for seamless integration with existing workflows
+- **KiloCode Integration**: Designed to work with KiloCode and other coding agents through proper application identification
+- **Model Hardcoding**: Automatically rewrites any model request to use `claude-sonnet-4-20250514`
+- **Specialized Billing**: Uses ZAI's subscription-based billing model instead of standard metered billing
+
+#### Configuration
+
+```yaml
+backends:
+  zai-coding-plan:
+    type: zai-coding-plan
+    # API key is read from ZAI_API_KEY environment variable
+```
+
+**Environment Variables:**
+```bash
+export ZAI_API_KEY="your-zai-api-key"
+```
+
+#### Usage
+
+```bash
+# Set as default backend
+!/backend(zai-coding-plan)
+
+# Use with specific model (automatically hardcoded to claude-sonnet-4-20250514)
+!/model(claude-sonnet-4-20250514)
+
+# One-off request
+!/oneoff(zai-coding-plan:claude-sonnet-4-20250514)
+```
+
+#### Technical Details
+
+- **Base URL**: `https://api.z.ai/api/anthropic`
+- **Authentication**: Bearer token via `Authorization` header
+- **Model Rewriting**: All model requests are hardcoded to `claude-sonnet-4-20250514`
+- **Application Headers**: Includes KiloCode identification headers for proper API access
+- **Error Handling**: Properly handles ZAI-specific error responses
+
+#### Troubleshooting
+
+- **404 Errors**: Ensure your API key is valid and has access to the ZAI Coding Plan
+- **Authentication Issues**: Verify `ZAI_API_KEY` environment variable is set correctly
+- **Model Availability**: The backend only supports `claude-sonnet-4-20250514`
 
 ### Gemini Backends Overview
 

@@ -41,8 +41,8 @@ class SOLIDViolationDetector(ast.NodeVisitor):
         self.violations: list[ArchitecturalViolation] = []
         self.is_domain_layer = "/domain/" in file_path
         self.is_service_layer = "/services/" in file_path
-        self.current_class = None
-        self.current_method = None
+        self.current_class: str | None = None
+        self.current_method: str | None = None
 
     def visit_ClassDef(self, node: ast.ClassDef):
         """Visit class definitions."""
@@ -71,29 +71,27 @@ class SOLIDViolationDetector(ast.NodeVisitor):
     def visit_Attribute(self, node: ast.Attribute):
         """Visit attribute access."""
         # Check for direct app.state access
-        if self._is_app_state_access(node):
-            # Check if there's a noqa comment for DIP violations
-            if not self._has_dip_noqa_comment(node):
-                if self.is_domain_layer:
-                    self.violations.append(
-                        ArchitecturalViolation(
-                            self.file_path,
-                            node.lineno,
-                            node.col_offset,
-                            "Domain layer should not directly access app.state. Use IApplicationState through DI.",
-                            "error",
-                        )
+        if self._is_app_state_access(node) and not self._has_dip_noqa_comment(node):
+            if self.is_domain_layer:
+                self.violations.append(
+                    ArchitecturalViolation(
+                        self.file_path,
+                        node.lineno,
+                        node.col_offset,
+                        "Domain layer should not directly access app.state. Use IApplicationState through DI.",
+                        "error",
                     )
-                elif self.is_service_layer:
-                    self.violations.append(
-                        ArchitecturalViolation(
-                            self.file_path,
-                            node.lineno,
-                            node.col_offset,
-                            "Service layer should use IApplicationState abstraction instead of direct app.state access.",
-                            "warning",
-                        )
+                )
+            elif self.is_service_layer:
+                self.violations.append(
+                    ArchitecturalViolation(
+                        self.file_path,
+                        node.lineno,
+                        node.col_offset,
+                        "Service layer should use IApplicationState abstraction instead of direct app.state access.",
+                        "warning",
                     )
+                )
 
         # Check for context.app_state access
         if self._is_context_app_state_access(node):
@@ -112,33 +110,35 @@ class SOLIDViolationDetector(ast.NodeVisitor):
     def visit_Call(self, node: ast.Call):
         """Visit function calls."""
         # Check for hasattr/getattr/setattr on app.state
-        if isinstance(node.func, ast.Name) and node.func.id in [
-            "hasattr",
-            "getattr",
-            "setattr",
-        ]:
-            if len(node.args) >= 2:
-                first_arg = node.args[0]
-                second_arg = node.args[1]
+        if (
+            isinstance(node.func, ast.Name)
+            and node.func.id
+            in [
+                "hasattr",
+                "getattr",
+                "setattr",
+            ]
+            and len(node.args) >= 2
+        ):
+            first_arg = node.args[0]
+            second_arg = node.args[1]
 
-                if (
-                    isinstance(second_arg, ast.Constant)
-                    and isinstance(second_arg.value, str)
-                    and "state" in second_arg.value
-                ):
-
-                    if self._references_app_object(first_arg):
-                        # Check if there's a noqa comment for DIP violations
-                        if not self._has_dip_noqa_comment_for_call(node):
-                            self.violations.append(
-                                ArchitecturalViolation(
-                                    self.file_path,
-                                    node.lineno,
-                                    node.col_offset,
-                                    f"Avoid {node.func.id}() on app.state. Use IApplicationState service.",
-                                    "warning",
-                                )
-                            )
+            if (
+                isinstance(second_arg, ast.Constant)
+                and isinstance(second_arg.value, str)
+                and "state" in second_arg.value
+                and self._references_app_object(first_arg)
+                and not self._has_dip_noqa_comment_for_call(node)
+            ):
+                self.violations.append(
+                    ArchitecturalViolation(
+                        self.file_path,
+                        node.lineno,
+                        node.col_offset,
+                        f"Avoid {node.func.id}() on app.state. Use IApplicationState service.",
+                        "warning",
+                    )
+                )
 
         self.generic_visit(node)
 
@@ -153,9 +153,12 @@ class SOLIDViolationDetector(ast.NodeVisitor):
 
     def _is_context_app_state_access(self, node: ast.Attribute) -> bool:
         """Check if this is context.app_state access."""
-        if node.attr == "app_state":
-            if isinstance(node.value, ast.Name) and node.value.id == "context":
-                return True
+        if (
+            node.attr == "app_state"
+            and isinstance(node.value, ast.Name)
+            and node.value.id == "context"
+        ):
+            return True
         return False
 
     def _references_app_object(self, node: ast.AST) -> bool:
@@ -198,20 +201,19 @@ class SOLIDViolationDetector(ast.NodeVisitor):
         """Check for domain layer class violations."""
         # Domain classes should not have web framework dependencies
         for base in node.bases:
-            if isinstance(base, ast.Name):
-                if any(
-                    framework in base.id.lower()
-                    for framework in ["fastapi", "flask", "django"]
-                ):
-                    self.violations.append(
-                        ArchitecturalViolation(
-                            self.file_path,
-                            node.lineno,
-                            node.col_offset,
-                            f"Domain class {node.name} should not inherit from web framework classes.",
-                            "error",
-                        )
+            if isinstance(base, ast.Name) and any(
+                framework in base.id.lower()
+                for framework in ["fastapi", "flask", "django"]
+            ):
+                self.violations.append(
+                    ArchitecturalViolation(
+                        self.file_path,
+                        node.lineno,
+                        node.col_offset,
+                        f"Domain class {node.name} should not inherit from web framework classes.",
+                        "error",
                     )
+                )
 
     def _check_service_method_violations(self, node: ast.FunctionDef):
         """Check for service layer method violations."""
