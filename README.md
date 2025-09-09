@@ -1,1715 +1,265 @@
 # LLM Interactive Proxy
 
-This document provides an overview of the LLM Interactive Proxy, its features, API reference, and troubleshooting information.
+A drop-in proxy that lets you use one OpenAI-compatible endpoint with many LLM providers. It adds reliability, safety, and quality-of-life features without changing your tools.
 
-## Overview
+## Contents
 
-The LLM Interactive Proxy is an advanced middleware service that provides a unified interface to multiple Large Language Model (LLM) backends. It acts as an intelligent proxy layer between client applications and various LLM providers, offering enhanced features beyond simple request forwarding.
+- [Highlights](#highlights)
+- [Why This Proxy](#why-this-proxy)
+- [Killer Features](#killer-features)
+- [Supported APIs (Front-Ends) and Providers (Back-Ends)](#supported-apis-front-ends-and-providers-back-ends)
+- [Gemini Backends Overview](#gemini-backends-overview)
+- [Quick Start](#quick-start)
+- [Using It Day-To-Day](#using-it-day-to-day)
+- [Security](#security)
+- [Debugging (Wire Capture)](#debugging-wire-capture)
+- [Optional Capabilities (Short List)](#optional-capabilities-short-list)
+- [Example Config (minimal)](#example-config-minimal)
+- [Popular Scenarios](#popular-scenarios)
+- [Errors and Troubleshooting](#errors-and-troubleshooting)
+- [Support](#support)
+- [Changelog](#changelog)
 
-### Key Features
+## Highlights
 
-- **Multi-Backend Support**: Seamlessly integrate with OpenAI, Anthropic, Anthropic OAuth, Google Gemini, OpenRouter, ZAI Coding Plan, custom backends, and Gemini CLI OAuth.
-  - Included OAuth-style backends: Anthropic OAuth, OpenAI OAuth
-- **Intelligent Failover**: Automatic fallback to alternative models/backends on failure.
-- **Command Processing**: Interactive commands embedded in chat messages.
-- **Rate Limiting**: Protect backends and manage usage quotas.
-- **Session Management**: Maintain conversation state and context.
-- **Loop Detection**: Prevent infinite loops in agent interactions (text and tool-call focused).
-- **Tool Call Repair**: Converts malformed textual tool/function calls into OpenAI-compatible `tool_calls`.
-- **JSON Repair**: Centralized in the streaming pipeline and enabled for non-streaming responses too. Uses `json_repair` library; supports schema validation and strict gating.
-- **Unified API**: OpenAI-compatible API for all backends.
-- **Empty Response Recovery**: Automatically detects empty LLM responses (no text, no tool call) and retries the request with a corrective prompt to guide the LLM.
-- **Tool Call Reactor**: Event-driven system for reacting to tool calls from LLMs, with pluggable handlers that can provide steering instructions or modify responses.
-- **Dangerous Command Prevention**: Blocks destructive git commands issued via local shell execution tool calls. Runs after tool-call/JSON repair and loop detection, just before forwarding to the client. Configurable steering message returned to the LLM.
-- **Context Window Size Overrides**: Enforce per-model context window limits at the proxy level.
-- **Header Override Support**: Configure how application identity headers (title, URL, User-Agent) are handled for outgoing requests.
-- **Content Rewriting**: Modify incoming and outgoing messages using configurable replacement rules with support for REPLACE, PREPEND, and APPEND modes.
+- OpenAI-compatible API surface for clients and agents
+- Works with multiple providers at once (OpenAI, Anthropic, Gemini, OpenRouter, ZAI, Qwen)
+- Quick model/backend switching in-chat (`!/backend(...)`, `!/model(...)`)
+- Optional failover and retries (graceful fallback to other models)
+- Streaming and non‑streaming supported across providers
+- Tool-call and JSON repair to fix malformed model outputs
+- Loop detection and dangerous-command prevention for safer tool use
+- API key redaction in prompts and logs
+- Optional request/response wire capture to a file for debugging
+- Lightweight rate limiting and context window enforcement
 
-### Error Mapping (API Behavior)
+## Why This Proxy
 
-- Domain errors produced by the proxy are mapped to HTTP with a consistent JSON body:
-  - `{ "error": { "message": str, "type": str, "code?": str, "details?": any } }`
-- Connectivity failures (e.g., upstream connection issues) return `503 Service Unavailable`.
-- Malformed JSON payloads return `400 Bad Request`.
-- Validation errors return `422 Unprocessable Entity` and include validation `details`.
+This project is a swiss-army knife for anyone working with language models and agentic workflows. It sits between any LLM-aware client and any LLM backend, presenting multiple front-end APIs (OpenAI, Anthropic, Gemini) while routing to whichever provider you choose. With the proxy you can translate, reroute, and augment requests on the fly, execute chat-embedded commands, override models, rotate API keys, prevent leaks, and inspect traffic — all from a single drop-in gateway.
 
-This makes client integrations easier to debug without inspecting server logs.
+## Killer Features
 
-### Failover Strategy (optional)
+- Automated API key rotation - Configure multiple keys and let the proxy rotate usage across them to reduce throttling and extend free-tier allowances.
+- Force model override - Make clients use the model you choose without changing client code.
+- Failover routing - Fall back to alternate models/providers when rate limits or outages occur.
+- Gemini OAuth personal gateway - Use Google's free personal OAuth (Gemini CLI/KiloCode style) through an OpenAI-compatible endpoint.
+- Usage logging and audit trail - Track requests, responses, and token usage; optionally capture full wire data to a file.
+- Automatic loop detection - Detect repeated patterns and stop infinite loops to save resources.
 
-- Two modes are available when a backend/model is unavailable:
-  - Default: use the configured coordinator to produce fallback attempts.
-  - Optional (flagged): enable a strategy that computes an ordered plan of `(backend, model)` attempts.
-- Enable via config/flag (e.g., `PROXY_USE_FAILOVER_STRATEGY=true`). Default is disabled.
+## Supported APIs (Front-Ends) and Providers (Back-Ends)
 
-For internals and wiring details, see `CONTRIBUTING.md`.
+These are ready out of the box. Front-ends are the client-facing APIs the proxy exposes; back-ends are the providers the proxy calls.
 
-#### Automated Edit-Precision Tuning (new)
+Front-ends
 
-- Detects failed file-edit attempts from popular coding agents (Cline, Roo/Kilo, Gemini-CLI, Aider, Crush, OpenCode) and automatically lowers sampling parameters for the next model call to improve literal matching and patch precision.
-- Request-side detection: scans incoming user messages for known failure prompts (e.g., SEARCH/REPLACE no match, unified diff hunk failures).
-- Optional response-side detection: inspects model responses (e.g., `diff_error`) and flags a one‑shot tuning for the next request.
-- Single-call override only: tuned parameters apply to the very next backend call and then reset to normal.
-- Config:
-  - `edit_precision.enabled` (default: true)
-  - `edit_precision.temperature` (default: 0.1)
-  - `edit_precision.override_top_p` (default: false) and `edit_precision.min_top_p` (used only when override_top_p is true)
-  - `edit_precision.override_top_k` (default: false) and `edit_precision.target_top_k` (used only when override_top_k is true, applied on providers that support `top_k`, e.g., Gemini)
-  - `edit_precision.exclude_agents_regex` to disable tuning for specific agents (e.g., `^(cline|roocode)$`)
-  - Patterns externalized at `conf/edit_precision_patterns.yaml`; override path with `EDIT_PRECISION_PATTERNS_PATH`.
+| API surface | Path(s) | Typical clients | Notes |
+| - | - | - | - |
+| OpenAI Chat Completions | `/v1/chat/completions` | Most OpenAI SDKs/tools, coding agents | Default front-end |
+| Anthropic Messages | `/anthropic/v1/messages` (+ `/anthropic/v1/models`, `/health`, `/info`) | Claude Code, Anthropic SDK | Also available on a dedicated port (see Setup) |
+| Google Gemini v1beta | `/v1beta/models`, `:generateContent`, `:streamGenerateContent` | KiloCode, Gemini-compatible SDKs | Translates to your chosen provider |
 
-- Env vars:
-  - `EDIT_PRECISION_ENABLED` (true/false)
-  - `EDIT_PRECISION_TEMPERATURE` (float)
-  - `EDIT_PRECISION_OVERRIDE_TOP_P` (true/false)
-  - `EDIT_PRECISION_MIN_TOP_P` (float)
-  - `EDIT_PRECISION_OVERRIDE_TOP_K` (true/false)
-  - `EDIT_PRECISION_TARGET_TOP_K` (integer; used only when override_top_k is true)
-  - `EDIT_PRECISION_EXCLUDE_AGENTS_REGEX` (regex string)
-  - `EDIT_PRECISION_PATTERNS_PATH` (file path to YAML patterns)
+Back-ends
 
-When does tuning trigger?
+| Backend ID | Provider | Authentication | Notes |
+| - | - | - | - |
+| `openai` | OpenAI | `OPENAI_API_KEY` | Standard OpenAI API |
+| `openai-oauth` | OpenAI (ChatGPT/Codex OAuth) | Local `.codex/auth.json` | Uses ChatGPT login token instead of API key |
+| `anthropic` | Anthropic | `ANTHROPIC_API_KEY` | Claude models via Messages API |
+| `anthropic-oauth` | Anthropic (OAuth) | Local OAuth token | Claude via OAuth credential flow |
+| `gemini` | Google Gemini | `GEMINI_API_KEY` | Metered API key |
+| `gemini-cli-oauth-personal` | Google Gemini (CLI) | OAuth (no key) | Free-tier personal OAuth like KiloCode/Gemini CLI |
+| `gemini-cli-cloud-project` | Google Gemini (GCP) | OAuth + `GOOGLE_CLOUD_PROJECT` (+ ADC) | Bills to your GCP project |
+| `openrouter` | OpenRouter | `OPENROUTER_API_KEY` | Access to many hosted models |
+| `zai` | ZAI | `ZAI_API_KEY` | Zhipu/Z.ai access (OpenAI-compatible) |
+| `zai-coding-plan` | ZAI Coding Plan | `ZAI_API_KEY` | Works with any supported front-end and coding agent |
+| `qwen-oauth` | Alibaba Qwen | Local `oauth_creds.json` | Qwen CLI OAuth; OpenAI-compatible endpoint |
 
-- LLMs often miss exact search/replace matches or produce ambiguous diffs. When an agent indicates a failure (e.g., “The SEARCH block … does not match”, “hunk failed to apply”), the proxy adjusts sampling (lower temperature, optionally lower top_p and top_k) to bias toward exact matches and reduce “creative” drift.
+## Gemini Backends Overview
 
-Backend semantics
+Choose the Gemini integration that fits your environment.
 
-- OpenAI-compatible (OpenAI/OpenRouter/ZAI/Qwen): applies top-level `temperature` and `top_p`.
-- Anthropic-compatible: applies top-level `temperature` and `top_p` to Messages API.
-- Gemini (all variants): applies `generationConfig.temperature` (clamped to [0,1] for public), `generationConfig.topP`, and, when configured, `generationConfig.topK`.
+| Backend | Authentication | Cost | Best for |
+| - | - | - | - |
+| `gemini` | API key (`GEMINI_API_KEY`) | Metered (pay-per-use) | Production apps, high-volume usage |
+| `gemini-cli-oauth-personal` | OAuth (no API key) | Free tier with limits | Local development, testing, personal use |
+| `gemini-cli-cloud-project` | OAuth + `GOOGLE_CLOUD_PROJECT` (ADC/service account) | Billed to your GCP project | Enterprise, team workflows, central billing |
 
-Logging
+Notes
 
-- Response-side detection logs when a trigger is matched (session id, pattern, new pending count).
-- Request-side tuning logs when overrides are applied (session id, force_apply, original→applied `temperature`/`top_p`/`top_k`).
-- Pending flag consumption logs the counter decrement before the tuned request is sent.
+- Personal OAuth uses credentials from the local Google CLI/Code Assist-style flow and does not require a `GEMINI_API_KEY`.
+- Cloud Project requires `GOOGLE_CLOUD_PROJECT` and Application Default Credentials (or a service account file).
 
-Triggers and sources
+Quick setup
 
-- Request-side: scans inbound messages (what the agent sends to the LLM) for known edit-failure prompts.
-- Response-side: scans model output (non-streaming and streaming chunks) for failure markers such as `diff_error` and unified-diff hunk failures; sets a one-shot pending flag that tunes the very next request.
-- Reference list of agent prompts captured from popular agents is maintained in `dev/agents-edit-error-prompts.md`.
+For `gemini` (API key)
 
-### Wire-Level Capture (Request/Reply Logging)
-
-- Purpose: Capture all outbound LLM requests and inbound replies/streams to a separate structured JSON log. Useful for debugging, auditing, and reproducing issues. The capture runs across all backends without backend-specific code.
-- How it works:
-  - Implemented as a cross-cutting `IWireCapture` service; integrated at the central backend call path.
-  - Each communication is logged as a structured JSON object on a single line (JSON Lines format).
-  - Communication flow is clearly marked (frontend_to_backend or backend_to_frontend) with source and destination.
-  - Non-streaming responses are logged in full. Streaming responses are wrapped with start/chunk/end markers.
-  - Includes ISO and human-readable timestamps based on local timezone.
-  - Includes byte count for all payloads.
-  - Automatically extracts and separately logs system prompts when present.
-  - JSON schema available at [`src/core/services/wire_capture_schema.json`](src/core/services/wire_capture_schema.json).
-- Enable via CLI: `--capture-file path/to/capture.log` (disabled by default). When omitted, no capture occurs.
-- Configure via environment: set `CAPTURE_FILE` to a path to enable capture.
-- Rotation and truncation options:
-  - `CAPTURE_MAX_BYTES` (int): If set, rotates the current capture file to `<file>.1` when size would exceed this limit, then starts fresh. Rotation is best-effort and overwrites any existing `.1`.
-  - `CAPTURE_TRUNCATE_BYTES` (int): If set, truncates each captured streaming chunk to this many bytes in the capture log. Stream data sent to the client is never truncated.
-
-#### JSON Format Structure
-
-Each captured message follows this JSON structure:
-
-```json
-{
-  "timestamp": {
-    "iso": "2023-06-15T13:45:30.123Z",
-    "human_readable": "2023-06-15 15:45:30"
-  },
-  "communication": {
-    "flow": "frontend_to_backend",  // or "backend_to_frontend"
-    "direction": "request",  // or "response", "response_stream_start", "response_stream_chunk", "response_stream_end"
-    "source": "127.0.0.1",  // Source of the message (client or backend)
-    "destination": "openai"  // Destination of the message (backend or client)
-  },
-  "metadata": {
-    "session_id": "user-session-123",
-    "agent": "agent-name",
-    "backend": "openai",
-    "model": "gpt-4",
-    "key_name": "OPENAI_API_KEY",
-    "byte_count": 1024,
-    "system_prompt": "You are a helpful assistant."  // If present in the request
-  },
-  "payload": {
-    // The actual request or response payload
-  }
-}
-```
-  - `CAPTURE_MAX_FILES` (int): If set `> 0`, keeps up to N rotated files using suffixes `.1..N`. When rotation occurs, the oldest file is dropped and others are shifted.
-  - CLI mirrors:
-    - `--capture-max-bytes N`
-    - `--capture-truncate-bytes N`
-    - `--capture-max-files N`
-- Example output:
-
-```
------ REQUEST 2025-08-28T12:34:56Z -----
-client=127.0.0.1 session=abc123 -> backend=openrouter model=gpt-4 key=OPENROUTER_API_KEY_1
-{
-  "model": "gpt-4",
-  "messages": [
-    {"role": "user", "content": "Hello"}
-  ],
-  "stream": true
-}
------ REPLY-STREAM 2025-08-28T12:34:57Z -----
-client=127.0.0.1 session=abc123 -> backend=openrouter model=gpt-4 key=OPENROUTER_API_KEY_1
-data: {"choices":[{"delta":{"content":"Hi"}}]}
-
-data: {"choices":[{"delta":{"content":" there"}}]}
-
-data: [DONE]
-```
-
-Notes:
-
-- Capture uses best-effort file I/O and never blocks or impacts request processing.
-- API key “name” is derived by matching configured keys to env vars (e.g., `OPENROUTER_API_KEY_1`), never logging secret values.
-- Redaction: if prompt redaction is enabled, capture contains post-redaction payloads.
-
-## 🔒 Security & API Key Management
-
-### CRITICAL SECURITY NOTICE
-**NEVER store API keys in configuration files!** This is a major security risk that can lead to accidental exposure of sensitive credentials.
-
-All API keys must be set via **environment variables only**:
-
-- `OPENROUTER_API_KEY` - OpenRouter API key
-- `GEMINI_API_KEY` - Google Gemini API key
-- `ANTHROPIC_API_KEY` - Anthropic API key
-- `ZAI_API_KEY` - ZAI Coding Plan API key
-- `LLM_INTERACTIVE_PROXY_API_KEY` - Proxy authentication key
-- `GOOGLE_CLOUD_PROJECT` - Google Cloud Project ID
-
-**Example configuration:**
 ```bash
-export OPENROUTER_API_KEY="sk-or-v1-..."
 export GEMINI_API_KEY="AIza..."
-export ANTHROPIC_API_KEY="sk-ant-..."
-export ZAI_API_KEY="your-zai-api-key"
+python -m src.core.cli --default-backend gemini
 ```
 
-See `config/sample.env` for complete examples of environment variable setup.
-
-### API Key Redaction Security Features
-
-- **Outbound Request Redaction**: Before any request reaches a backend, a request redaction middleware scans user message content (including text parts in multimodal messages) and replaces any discovered API keys with a placeholder `(API_KEY_HAS_BEEN_REDACTED)`. It also strips proxy commands (e.g., `!/hello`) to prevent command leakage to providers.
-- **Logging Redaction**: A global logging filter automatically masks API keys and bearer tokens in all log messages and handler outputs.
-
-### Context Window Size Overrides
-
-The proxy can enforce per-model context window limits at the request processor level. This allows you to set custom context window sizes as a soft-limit, which is enforced at the proxy level.
-
-**Key Features:**
-- **Per-Model Overrides**: Add `ModelDefaults.limits` (`ModelLimits`) for per-model overrides.
-- **Input Hard Error**: Enforce an input hard error (`max_input_tokens`).
-- **Structured Error Payload**: Provides a structured error payload with the code `input_limit_exceeded`.
-- **Token Counting Utility**: Includes a token counting utility with `tiktoken` fallback.
-
-**Configuration:**
-
-To configure context window size overrides, you can add a `limits` section to your model defaults in your `config.yaml` file:
-
-```yaml
-models:
-  defaults:
-    your-model-name:
-      limits:
-        max_input_tokens: 8192
-```
-
-**Interactive Commands:**
-
-You can also set the context window size using interactive commands:
-
-```
-!/set(max-context=128K)
-```
-- **Key Discovery**: Keys are discovered from environment variables only (pattern-based, including `Bearer ...`).
-- **Configuration**:
-  - Enable/disable prompt redaction via `auth.redact_api_keys_in_prompts` (default: true).
-  - CLI toggle: `--disable-redact-api-keys-in-prompts`.
-- **Wire Capture Note**: If request/response wire capture is enabled, outbound requests are captured after redaction, so captured payloads are sanitized.
-
-### Why Environment Variables Only?
-- **Security**: Environment variables are not stored in files that might be committed to version control
-- **Flexibility**: Different environments (dev, staging, prod) can have different keys
-- **Best Practice**: Industry standard for sensitive configuration
-- **Automatic Protection**: The proxy automatically discovers and redacts keys from environment variables
-
-## Backend Support
-
-### ZAI Coding Plan Backend
-
-The `zai-coding-plan` backend provides integration with ZAI's specialized coding plan API, which offers access to Claude Sonnet 4 through a partnership arrangement. This backend is designed for coding agents and development workflows that require high-quality code generation capabilities.
-
-#### Key Features
-
-- **Claude Sonnet 4 Access**: Direct access to `claude-sonnet-4-20250514` through ZAI's specialized endpoint
-- **Anthropic Compatibility**: Built on the Anthropic backend for seamless integration with existing workflows
-- **KiloCode Integration**: Designed to work with KiloCode and other coding agents through proper application identification
-- **Model Hardcoding**: Automatically rewrites any model request to use `claude-sonnet-4-20250514`
-- **Specialized Billing**: Uses ZAI's subscription-based billing model instead of standard metered billing
-
-#### Configuration
-
-```yaml
-backends:
-  zai-coding-plan:
-    type: zai-coding-plan
-    # API key is read from ZAI_API_KEY environment variable
-```
-
-**Environment Variables:**
-```bash
-export ZAI_API_KEY="your-zai-api-key"
-```
-
-#### Usage
+For `gemini-cli-oauth-personal` (free personal OAuth)
 
 ```bash
-# Set as default backend
-!/backend(zai-coding-plan)
+# Install and authenticate with the Google Gemini CLI (one-time):
+gemini auth
 
-# Use with specific model (automatically hardcoded to claude-sonnet-4-20250514)
-!/model(claude-sonnet-4-20250514)
-
-# One-off request
-!/oneoff(zai-coding-plan:claude-sonnet-4-20250514)
+# Then start the proxy using the personal OAuth backend
+python -m src.core.cli --default-backend gemini-cli-oauth-personal
 ```
 
-#### Technical Details
+For `gemini-cli-cloud-project` (GCP-billed)
 
-- **Base URL**: `https://api.z.ai/api/anthropic`
-- **Authentication**: Bearer token via `Authorization` header
-- **Model Rewriting**: All model requests are hardcoded to `claude-sonnet-4-20250514`
-- **Application Headers**: Includes KiloCode identification headers for proper API access
-- **Error Handling**: Properly handles ZAI-specific error responses
+```bash
+export GOOGLE_CLOUD_PROJECT="your-project-id"
 
-#### Troubleshooting
+# Provide Application Default Credentials via one of the following:
+# Option A: User credentials (interactive)
+gcloud auth application-default login
 
-- **404 Errors**: Ensure your API key is valid and has access to the ZAI Coding Plan
-- **Authentication Issues**: Verify `ZAI_API_KEY` environment variable is set correctly
-- **Model Availability**: The backend only supports `claude-sonnet-4-20250514`
+# Option B: Service account file
+export GOOGLE_APPLICATION_CREDENTIALS="/absolute/path/to/service-account.json"
 
-### Use Case: Z.ai GLM Coding Plan with Any Agentic Coding App
+python -m src.core.cli --default-backend gemini-cli-cloud-project
+```
 
-The ZAI Coding Plan backend can be used with **any** agentic coding application (not just Claude Code) to provide access to Claude Sonnet 4 through ZAI's specialized endpoint. This enables you to use high-quality code generation with coding agents like Cline, Roo/Kilo, Aider, or any other OpenAI-compatible coding assistant.
+## Quick Start
 
-#### Configuration for Generic Coding Apps
+1) Export provider keys (only for the back-ends you plan to use)
 
-To use ZAI Coding Plan with any coding agent, you need to configure the proxy to present itself as a compatible endpoint:
+```bash
+export OPENAI_API_KEY=...
+export ANTHROPIC_API_KEY=...
+export GEMINI_API_KEY=...
+export OPENROUTER_API_KEY=...
+export ZAI_API_KEY=...
+# GCP-based Gemini back-end
+export GOOGLE_CLOUD_PROJECT=your-project-id
+```
+
+2) Start the proxy
+
+```bash
+python -m src.core.cli --default-backend openai
+```
+
+Useful flags
+
+- `--host 0.0.0.0` and `--port 8000` to change bind address
+- `--config config/config.example.yaml` to load a saved config
+- `--capture-file wire.log` to record requests/replies (see Debugging)
+- `--disable-auth` for local only (forces host=127.0.0.1)
+
+3) Point your client at the proxy
+
+- OpenAI-compatible tools: set `OPENAI_API_BASE=http://localhost:8000/v1` and `OPENAI_API_KEY` to your proxy key if auth is enabled
+- Claude Code (Anthropic): set `ANTHROPIC_API_URL=http://localhost:8001` and `ANTHROPIC_API_KEY` to your proxy key
+- Gemini clients: call the `/v1beta/...` endpoints on `http://localhost:8000`
+
+Tip: Anthropic compatibility is exposed both at `/anthropic/...` on the main port and, if configured, on a dedicated Anthropic port (defaults to main port + 1). Override via `ANTHROPIC_PORT`.
+
+## Using It Day-To-Day
+
+- Switch back-end or model on the fly in the chat input:
+  - `!/backend(openai)`
+  - `!/model(gpt-4o-mini)`
+  - `!/oneoff(openrouter:qwen/qwen3-coder)`
+- Keep your existing tools; just point them to the proxy endpoint.
+- The proxy handles streaming, retries/failover (if enabled), and output repair.
+
+## Security
+
+- Do not store provider API keys in config files; use environment variables only.
+- Common keys: `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `GEMINI_API_KEY`, `OPENROUTER_API_KEY`, `ZAI_API_KEY`, `GOOGLE_CLOUD_PROJECT`.
+- Optional proxy auth: set `LLM_INTERACTIVE_PROXY_API_KEY` and require clients to send `Authorization: Bearer <key>`.
+- Built-in redaction masks API keys in prompts and logs.
+
+## Debugging (Wire Capture)
+
+Write outbound requests and inbound replies/streams to a rotating file for troubleshooting.
+
+- CLI: `--capture-file wire.jsonl` plus optional rotation caps:
+  - `--capture-rotate-interval SECONDS`
+  - `--capture-total-max-bytes N`
+  - `--capture-max-files N`
+- The capture records source/destination, headers and payloads, and keeps secrets redacted when prompt redaction is enabled.
+
+## Optional Capabilities (Short List)
+
+- Failover and retries: route requests to a next-best model when one fails
+- JSON repair: fix common JSON formatting issues (streaming and non‑streaming)
+- Tool-call repair: convert textual tool calls to proper `tool_calls`
+- Loop detection: stop repeated identical tool calls
+- Dangerous-command prevention: steer away from destructive shell actions
+- Identity header override: control X-Title/Referer/User-Agent per back-end
+- Content rewriting: REPLACE/PREPEND/APPEND rules on inbound/outbound content
+- Context window enforcement: per-model token limits with friendly errors
+
+## Example Config (minimal)
 
 ```yaml
 # config.yaml
 backends:
-  zai-coding-plan:
-    type: zai-coding-plan
-    # API key is read from ZAI_API_KEY environment variable
-
-# Set as default backend
-default_backend: zai-coding-plan
-
-# Configure identity headers for compatibility
-identity:
-  title:
-    value: "Claude Code"
-    mode: "override"
-  url:
-    value: "https://claude.ai/code"
-    mode: "override"
-  user_agent:
-    value: "Claude Code/1.0"
-    mode: "override"
-```
-
-#### Environment Setup
-
-```bash
-# Set your ZAI API key
-export ZAI_API_KEY="your-zai-api-key"
-
-# Start the proxy
-python -m src.core.cli --config config.yaml
-```
-
-#### Usage with Different Coding Agents
-
-**For Cline:**
-```bash
-# Configure Cline to use your proxy endpoint
-export OPENAI_API_BASE="http://localhost:8000/v1"
-export OPENAI_API_KEY="your-proxy-api-key"
-```
-
-**For Roo/Kilo:**
-```bash
-# Configure Roo/Kilo to use the proxy
-export ANTHROPIC_API_KEY="your-proxy-api-key"
-export ANTHROPIC_API_URL="http://localhost:8000/v1"
-```
-
-**For Aider:**
-```bash
-# Configure Aider to use the proxy
-aider --model claude-sonnet-4-20250514 --api-base http://localhost:8000/v1 --api-key your-proxy-api-key
-```
-
-**For Generic OpenAI-Compatible Agents:**
-```bash
-# Most agents can be configured with these standard environment variables
-export OPENAI_API_BASE="http://localhost:8000/v1"
-export OPENAI_API_KEY="your-proxy-api-key"
-export OPENAI_MODEL="claude-sonnet-4-20250514"
-```
-
-#### Complete Working Example
-
-Here's a complete configuration that works with most coding agents:
-
-```yaml
-# config/zai-coding-only.yaml
-backends:
-  zai-coding-plan:
-    type: zai-coding-plan
-
-# Use ZAI as default
-default_backend: zai-coding-plan
-
-# Configure proxy settings
-proxy:
-  port: 8000
-  host: "0.0.0.0"
-
-# Set identity headers that work well with coding agents
-identity:
-  title:
-    value: "Coding Assistant"
-    mode: "override"
-  url:
-    value: "https://localhost:8000"
-    mode: "override"
-  user_agent:
-    value: "CodingAgent/1.0"
-    mode: "override"
-
-# Authentication settings
-auth:
-  disable_auth: false  # Set to true for local development
-  api_key_header: "Authorization"
-```
-
-**Start the proxy:**
-```bash
-export ZAI_API_KEY="your-zai-api-key"
-export LLM_INTERACTIVE_PROXY_API_KEY="proxy-key-for-auth"
-python -m src.core.cli --config config/zai-coding-only.yaml
-```
-
-**Use with your coding agent:**
-```bash
-# Example for a generic coding agent
-export OPENAI_API_BASE="http://localhost:8000/v1"
-export OPENAI_API_KEY="proxy-key-for-auth"
-export OPENAI_MODEL="claude-sonnet-4-20250514"
-
-# Start your coding agent - it will now use Claude Sonnet 4 via ZAI
-```
-
-#### Benefits of This Approach
-
-- **Universal Compatibility**: Works with any OpenAI-compatible coding agent
-- **Cost-Effective**: Utilize ZAI's subscription-based billing model
-- **Flexible**: Easy to switch between different coding agents without changing your ZAI setup
-- **Centralized Management**: Single proxy configuration for multiple coding tools
-
-#### Troubleshooting for Generic Apps
-
-- **Agent Compatibility**: Ensure your coding agent supports custom API endpoints
-- **Model Name**: Some agents may require the model name to be in a specific format
-- **Authentication**: Check that your proxy API key is correctly configured in the agent
-- **Headers**: Some agents may require additional headers - use the identity configuration to match what the agent expects
-
-### Use Case: Claude Code with Any Model/Provider
-
-The LLM Interactive Proxy can enable Claude Code (Anthropic's official CLI-based coding agent) to work with **any** LLM model or provider, not just Anthropic models or specialized Anthropic-compatible endpoints. This breaks down the walled garden and allows you to use Claude Code's excellent interface with models from OpenAI, Google Gemini, OpenRouter, or any other supported provider.
-
-#### How It Works
-
-The proxy achieves this by:
-1. **Running an Anthropic-compatible front-end** on a dedicated port
-2. **Intercepting Claude Code's requests** that would normally go to Anthropic's API
-3. **Translating and routing** these requests to your chosen model/provider
-4. **Returning responses** in the format Claude Code expects
-
-#### Configuration Setup
-
-**Step 1: Configure your preferred backend**
-
-```yaml
-# config/claude-code-universal.yaml
-backends:
-  # Use OpenAI models with Claude Code
   openai:
     type: openai
-    # API key from OPENAI_API_KEY environment variable
-  
-  # Or use Google Gemini models
-  gemini:
-    type: gemini
-    # API key from GEMINI_API_KEY environment variable
-  
-  # Or use OpenRouter for access to many models
-  openrouter:
-    type: openrouter
-    # API key from OPENROUTER_API_KEY environment variable
-
-# Set your preferred default backend
-default_backend: openai  # or gemini, openrouter, etc.
-
-# Configure proxy settings
-proxy:
-  port: 8000
-  
-# Dedicated Anthropic server settings
-anthropic_server:
-  port: 8001  # Will run on port 8001 (main port + 1)
-```
-
-**Step 2: Set up environment variables**
-
-```bash
-# Your chosen provider's API key
-export OPENAI_API_KEY="your-openai-api-key"
-# or
-export GEMINI_API_KEY="your-gemini-api-key"
-# or
-export OPENROUTER_API_KEY="your-openrouter-api-key"
-
-# Proxy authentication (optional but recommended)
-export LLM_INTERACTIVE_PROXY_API_KEY="your-proxy-key"
-
-# Anthropic server port (optional, defaults to main port + 1)
-export ANTHROPIC_PORT=8001
-```
-
-**Step 3: Start the proxy**
-
-```bash
-python -m src.core.cli --config config/claude-code-universal.yaml
-```
-
-**Step 4: Configure Claude Code to use the proxy**
-
-```bash
-# Override Claude Code's API endpoint to point to your proxy
-export ANTHROPIC_API_URL="http://localhost:8001"
-
-# Set Claude Code's API key to your proxy key
-export ANTHROPIC_API_KEY="your-proxy-key"
-
-# Now start Claude Code - it will use your chosen model/provider!
-claude
-```
-
-#### Complete Working Example
-
-Here's a complete setup to use Claude Code with OpenAI's GPT-5:
-
-```yaml
-# config/claude-with-gpt5.yaml
-backends:
-  openai:
-    type: openai
-
 default_backend: openai
-
 proxy:
+  host: 0.0.0.0
   port: 8000
-
-anthropic_server:
-  port: 8001
-
-# Optional: Configure identity headers
-identity:
-  title:
-    value: "Claude Code"
-    mode: "override"
-  url:
-    value: "https://claude.ai/code"
-    mode: "override"
-```
-
-**Setup commands:**
-```bash
-# Set API keys
-export OPENAI_API_KEY="your-openai-api-key"
-export LLM_INTERACTIVE_PROXY_API_KEY="proxy-auth-key"
-
-# Start the proxy
-python -m src.core.cli --config config/claude-with-gpt4.yaml
-
-# In another terminal, configure and run Claude Code
-export ANTHROPIC_API_URL="http://localhost:8001"
-export ANTHROPIC_API_KEY="proxy-auth-key"
-
-# Launch Claude Code - it will now use GPT-5 through OpenAI!
-claude
-```
-
-#### Advanced Usage: Dynamic Model Switching
-
-You can even switch between different models/providers within Claude Code using in-chat commands:
-
-```bash
-# Start with OpenAI GPT-5
-!/backend(openai)
-!/model(gpt-5)
-
-# Switch to Gemini mid-conversation
-!/backend(gemini)
-!/model(gemini-2.5-pro)
-
-# Use OpenRouter for Qwen 3 Coder
-!/backend(openrouter)
-!/model(qwen/qwen3-coder)
-```
-
-#### Model/Provider Compatibility
-
-| Provider | Compatible Models | Notes |
-|----------|------------------|-------|
-| **OpenAI** | gpt-5, gpt-4o, gpt-4o-mini | Full compatibility |
-| **Google Gemini** | gemini-2.5-pro, gemini-2.5-flash | Excellent code generation |
-| **OpenRouter** | qwen/qwen3-coder, claude-3.5-sonnet, gpt-4o | Access to multiple models |
-| **ZAI** | GLM-4.5 | Subscription-based billing |
-
-#### Benefits of This Approach
-
-- **Break Free from Vendor Lock-in**: Use Claude Code's interface with any model you prefer
-- **Cost Optimization**: Choose the most cost-effective model for your needs
-- **Model Specialization**: Use different models for different types of tasks
-- **Unified Interface**: Single, polished coding agent interface for all your models
-- **Easy Switching**: Change models without leaving your coding session
-- **Future-Proof**: Add new providers as they become available
-
-#### Troubleshooting
-
-- **Connection Issues**: Ensure the proxy is running on the correct port and Claude Code is pointing to `http://localhost:8001`
-- **Authentication**: Verify both your provider API key and proxy key are correctly set
-- **Model Compatibility**: Some models may have different capabilities or response formats
-- **Rate Limits**: Be aware of rate limits for your chosen provider
-- **Command Recognition**: Ensure in-chat commands are enabled in your proxy configuration
-
-#### Performance Considerations
-
-- **Latency**: There may be slight additional latency due to the proxy layer
-- **Streaming**: The proxy maintains full streaming support for real-time responses
-- **Session Management**: Claude Code's session features work seamlessly through the proxy
-- **Tool Use**: Most models support tool use, but capabilities may vary between providers
-
-### Gemini Backends Overview
-
-The proxy supports three different Gemini backends, each with its own authentication method and use case:
-
-| Backend | Authentication | Cost | Best For |
-|---------|---------------|------|
-----------|
-| `gemini` | API Key | Pay-per-use (metered) | Production apps, high-volume usage |
-| `gemini-cli-oauth-personal` | OAuth 2.0 (free tier) | Free with limits | Development, testing, personal projects |
-| `gemini-cli-cloud-project` | OAuth 2.0 + GCP Project | Billed to GCP project | Enterprise, production with GCP integration |
-
-#### Key Differences
-
-**Gemini (API Key)**
-
-- **Setup**: Requires a Google AI Studio API key from [makersuite.google.com](https://makersuite.google.com/app/apikey)
-- **Billing**: Pay-as-you-go pricing based on tokens used
-- **Limits**: Higher rate limits and quotas
-- **Models**: Access to all Gemini models including latest releases
-- **Use Case**: Production applications, commercial projects
-
-**Gemini CLI OAuth Personal**
-
-- **Setup**: Uses OAuth credentials from the Gemini CLI tool (no API key needed)
-- **Billing**: Free tier with usage limits (uses Google-managed project)
-- **Limits**: Lower rate limits suitable for development
-- **Models**: Access to Gemini models through Code Assist API
-- **Use Case**: Personal projects, development, testing, learning
-
-**Gemini CLI Cloud Project**
-
-- **Setup**: OAuth credentials + your own Google Cloud Project ID
-- **Billing**: Usage billed to your GCP project (standard or enterprise tier)
-- **Limits**: Higher quotas based on your GCP project settings
-- **Models**: Access to all Code Assist API models with enterprise features
-- **Use Case**: Production apps with GCP integration, enterprise deployments
-
-### Gemini CLI OAuth Personal Backend
-
-The `gemini-cli-oauth-personal` backend provides seamless integration with Google's Gemini API using OAuth 2.0 credentials obtained through the Gemini CLI tool. This backend is ideal for developers who want to use Gemini without setting up billing or managing API keys.
-
-#### Prerequisites
-
-1. **Install Gemini CLI**: Install the Gemini CLI tool from [Google's official repository](https://github.com/google/gemini-cli)
-2. **Authenticate**: Run `gemini auth` to authenticate with Google and obtain OAuth credentials
-3. **Credential Storage**: The CLI will create `~/.gemini/oauth_creds.json` with your OAuth tokens
-
-#### Configuration
-
-Add to your `config.yaml`:
-
-```yaml
-backends:
-  # For OAuth-based authentication (free tier)
-  gemini-cli-oauth-personal:
-    type: gemini-cli-oauth-personal
-    gemini_api_base_url: https://cloudcode-pa.googleapis.com  # Code Assist endpoint
-    
-  # For OAuth with your own GCP project (billed to project)
-  gemini-cli-cloud-project:
-    type: gemini-cli-cloud-project
-    gcp_project_id: your-gcp-project-id  # Required: Your GCP project ID
-    credentials_path: ~/.gemini  # Optional: Path to credentials directory
-    gemini_api_base_url: https://cloudcode-pa.googleapis.com
-    
-  # For API key-based authentication (paid/metered)
-  gemini:
-    type: gemini
-    api_key: your-gemini-api-key  # From Google AI Studio
-    gemini_api_base_url: https://generativelanguage.googleapis.com
-```
-
-#### Usage
-
-```bash
-# For OAuth backend (free tier)
-!/backend(gemini-cli-oauth-personal)
-!/model(gemini-1.5-flash-002)  # Use Code Assist model names
-
-# For OAuth with GCP project (billed to project)
-!/backend(gemini-cli-cloud-project)
-!/model(gemini-1.5-flash-002)  # Use Code Assist model names
-
-# For API key backend (paid)
-!/backend(gemini)
-!/model(gemini-1.5-pro)  # Use standard Gemini model names
-
-# Or use with one-off requests
-!/oneoff(gemini-cli-oauth-personal:gemini-1.5-flash-002)
-!/oneoff(gemini-cli-cloud-project:gemini-1.5-flash-002)
-!/oneoff(gemini:gemini-1.5-pro)
-```
-
-#### Features
-
-- **Zero-Cost Development**: Use Gemini's free tier without setting up billing
-- **Automatic Token Refresh**: Handles OAuth token expiration automatically
-- **Health Checks**: Performs lightweight connectivity and authentication validation
-- **Error Handling**: Comprehensive error handling for authentication and API issues
-- **Cross-Platform**: Works on Windows, Linux, and macOS
-- **No API Key Management**: Eliminates the need to manage and secure API keys
-
-#### Troubleshooting
-
-- **Authentication Errors**: Ensure `~/.gemini/oauth_creds.json` exists and contains valid tokens
-- **Model Not Found**: Use Code Assist model names (e.g., `gemini-1.5-flash-002`) not standard names
-- **Rate Limits**: Free tier has lower limits; consider switching to API key backend for production
-- **Token Expiration**: The backend handles refresh automatically; manual re-authentication is rarely needed
-
-### Gemini CLI Cloud Project Backend
-
-The `gemini-cli-cloud-project` backend provides enterprise-grade integration with Google Cloud Platform, using your own GCP project for billing and quota management. This backend is ideal for production deployments where you need:
-
-- Full control over billing and usage
-- Higher quotas than free tier
-- Integration with existing GCP infrastructure
-- Enterprise support and SLAs
-
-#### What you need (plain English)
-
-- A Google account (Gmail or Google Workspace).
-- A Google Cloud Project (a container for billing, APIs, and permissions).
-- Billing enabled on that project.
-- The Cloud AI Companion API enabled.
-- One of these two authentication methods:
-  - Option A: A Service Account key file (.json) with permissions on your project, or
-  - Option B: Your own user account authenticated locally via gcloud (ADC).
-
-Glossary:
-
-- Service Account: A non-human identity used by apps/servers. You can create keys for it (JSON file) and grant it roles on your project.
-- ADC (Application Default Credentials): A Google standard where tools pick credentials from your environment automatically (service account file, gcloud login, or workload identity).
-- GOOGLE_CLOUD_PROJECT: The environment variable that specifies which GCP project to use (e.g., `my-project-123`).
-- GOOGLE_APPLICATION_CREDENTIALS: The environment variable that points to a Service Account JSON file for ADC.
-
-#### Step-by-step setup
-
-1) Create or choose a Google Cloud Project
-
-- Go to `https://console.cloud.google.com/`, create a project (note the Project ID, e.g., `my-project-123`).
-- Ensure billing is enabled for the project.
-
-2) Enable required API
-
-```bash
-gcloud services enable cloudaicompanion.googleapis.com --project=YOUR_PROJECT_ID
-```
-
-3) Grant permissions (to your user or to a service account)
-
-Grant the role `roles/cloudaicompanion.user`.
-
-- If you will authenticate as your own user (Option B):
-
-```bash
-gcloud projects add-iam-policy-binding YOUR_PROJECT_ID \
-  --member="user:YOUR_EMAIL@gmail.com" \
-  --role="roles/cloudaicompanion.user"
-```
-
-- If you will use a Service Account (Option A):
-
-```bash
-# Create a service account (choose a name)
-gcloud iam service-accounts create gemini-agent --project=YOUR_PROJECT_ID
-
-# Grant it the required role
-gcloud projects add-iam-policy-binding YOUR_PROJECT_ID \
-  --member="serviceAccount:gemini-agent@YOUR_PROJECT_ID.iam.gserviceaccount.com" \
-  --role="roles/cloudaicompanion.user"
-```
-
-4) Choose your authentication method
-
-- Option A: Service Account (recommended for servers/CI)
-  1. Create a JSON key for the service account:
-
-  ```bash
-  gcloud iam service-accounts keys create sa-key.json \
-    --iam-account=gemini-agent@YOUR_PROJECT_ID.iam.gserviceaccount.com \
-    --project=YOUR_PROJECT_ID
-  ```
-
-  2. Set environment variables so the backend can find the key and your project:
-  - Windows PowerShell:
-
-    ```powershell
-    $env:GOOGLE_APPLICATION_CREDENTIALS = "C:\\path\\to\\sa-key.json"
-    $env:GOOGLE_CLOUD_PROJECT = "YOUR_PROJECT_ID"
-    ```
-
-  - Linux/macOS:
-
-    ```bash
-    export GOOGLE_APPLICATION_CREDENTIALS="/absolute/path/sa-key.json"
-    export GOOGLE_CLOUD_PROJECT="YOUR_PROJECT_ID"
-    ```
-
-- Option B: Your User account via gcloud (local development)
-  1. Install gcloud: `https://cloud.google.com/sdk/docs/install`
-  2. Authenticate for Application Default Credentials (ADC):
-
-  ```bash
-  gcloud auth application-default login
-  ```
-
-  3. Tell the backend which project to use:
-  - Windows PowerShell:
-
-    ```powershell
-    $env:GOOGLE_CLOUD_PROJECT = "YOUR_PROJECT_ID"
-    ```
-
-  - Linux/macOS:
-
-    ```bash
-    export GOOGLE_CLOUD_PROJECT="YOUR_PROJECT_ID"
-    ```
-
-Notes:
-
-- ADC means the backend will automatically pick credentials from either the service account file (`GOOGLE_APPLICATION_CREDENTIALS`) or your local gcloud login.
-- Do not commit the `sa-key.json` file to source control.
-
-5) Configure the backend (proxy)
-
-- Using environment variables only:
-  - Set `GOOGLE_CLOUD_PROJECT` as above.
-  - If using a service account key, set `GOOGLE_APPLICATION_CREDENTIALS` as above.
-
-- Using `config.yaml` (optional):
-
-```yaml
-backends:
-  gemini-cli-cloud-project:
-    type: gemini-cli-cloud-project
-    gcp_project_id: YOUR_PROJECT_ID            # Optional if GOOGLE_CLOUD_PROJECT is set
-    gemini_api_base_url: https://cloudcode-pa.googleapis.com
-    # credentials_path: C:/path/sa-key.json    # Optional; if set, the backend will try this SA file first
-```
-
-6) Verify your setup
-
-- Minimal check (env present):
-
-```bash
-echo $env:GOOGLE_CLOUD_PROJECT  # PowerShell
-echo $GOOGLE_CLOUD_PROJECT      # bash/zsh
-```
-
-- Run the proxy or a small test that uses the `gemini-cli-cloud-project` backend and requests a simple completion. Ensure the first call may trigger onboarding (standard-tier) and might take a few seconds.
-
-If you see 403 errors, double-check:
-
-- Cloud AI Companion API is enabled.
-- Billing is enabled.
-- The identity (user or service account) has `roles/cloudaicompanion.user` on the project.
-- `GOOGLE_CLOUD_PROJECT` matches your actual Project ID.
-
-#### Key Differences from Other Backends
-
-| Aspect | Cloud Project | Personal OAuth | API Key |
-|--------|--------------|----------------|---------|
-| **Project** | Your GCP project | Google-managed | N/A |
-| **Billing** | To your GCP account | Free (limited) | Pay-per-use |
-| **Tier** | standard/enterprise | free-tier | N/A |
-| **Quotas** | Project-defined | Limited | API-defined |
-| **Setup** | GCP project + OAuth | OAuth only | API key only |
-
-#### Troubleshooting Cloud Project Backend
-
-- **403 Permission Denied**: Enable Cloud AI Companion API, check IAM permissions, verify billing
-- **Project Not Found**: Verify project ID (not name), ensure project is active
-- **Onboarding Fails**: Project must support standard-tier, billing must be enabled
-- **Wrong Tier**: Backend requires standard or enterprise tier, not free tier
-
-Additional tips:
-
-- If using a service account, ensure the path in `GOOGLE_APPLICATION_CREDENTIALS` is absolute and accessible by the process.
-- On Windows, use double backslashes in paths in PowerShell when setting env vars, or single backslashes inside quotes.
-- For local development, `gcloud auth application-default login` is usually the fastest path; remember to set `GOOGLE_CLOUD_PROJECT` as well.
-
-## Header Override Support
-
-The proxy now supports flexible configuration of application identity headers (title, URL, and User-Agent) that are sent to LLM backends. This feature allows you to control how these headers are handled for outgoing requests.
-
-### Header Configuration Modes
-
-Each header can be configured with one of three modes:
-
-- **PASSTHROUGH**: Use a header value from the incoming request
-- **OVERRIDE**: Use a specific value for the header
-- **DISABLED**: Don't send the header at all
-
-### Header Types
-
-The proxy supports overriding three types of headers:
-
-- **Title** (`X-Title`): The application title sent to the LLM backend
-- **URL** (`HTTP-Referer`): The application URL sent to the LLM backend
-- **User-Agent**: The User-Agent header sent to the LLM backend
-
-### Configuration
-
-Header overrides can be configured in your `config.yaml` file:
-
-```yaml
-identity:
-  title:
-    value: "My Custom App Title"
-    mode: "override"
-  url:
-    value: "https://myapp.example.com"
-    mode: "override"
-  user_agent:
-    passthrough_name: "User-Agent"
-    mode: "passthrough"
-```
-
-Or via environment variables:
-
-```bash
-export APP_TITLE="My Custom App Title"
-export APP_TITLE_MODE="override"
-export APP_URL="https://myapp.example.com"
-export APP_URL_MODE="override"
-export APP_USER_AGENT_MODE="passthrough"
-```
-
-### Per-Backend Identity
-
-You can also configure identity headers for specific backends:
-
-```yaml
-backends:
-  openai:
-    identity:
-      title:
-        value: "My App - OpenAI"
-        mode: "override"
-      url:
-        value: "https://myapp.example.com/openai"
-        mode: "override"
-      user_agent:
-        value: "MyApp/1.0 (OpenAI)"
-        mode: "override"
-  anthropic:
-    identity:
-      title:
-        mode: "disabled"
-      url:
-        mode: "disabled"
-      user_agent:
-        passthrough_name: "User-Agent"
-        mode: "passthrough"
-```
-
-### Header Resolution Order
-
-When resolving header values, the proxy follows this priority order:
-
-1. Backend-specific identity configuration (if available)
-2. Global identity configuration
-3. Default values (if no configuration is provided)
-
-This allows you to set global defaults while overriding specific headers for individual backends.
-
-### Examples
-
-**Example 1: Global Override Configuration**
-
-To set a global application title and URL while passing through the User-Agent:
-
-```yaml
-identity:
-  title:
-    value: "My Coding Assistant"
-    mode: "override"
-  url:
-    value: "https://myapp.example.com/coding"
-    mode: "override"
-  user_agent:
-    passthrough_name: "User-Agent"
-    mode: "passthrough"
-```
-
-**Example 2: Backend-Specific Configuration**
-
-To use different titles for different backends:
-
-```yaml
-identity:
-  title:
-    value: "My General App"
-    mode: "override"
-
-backends:
-  openai:
-    identity:
-      title:
-        value: "My App - OpenAI"
-        mode: "override"
-  anthropic:
-    identity:
-      title:
-        value: "My App - Anthropic"
-        mode: "override"
-```
-
-In this example, OpenAI requests will use "My App - OpenAI" as the title, Anthropic requests will use "My App - Anthropic", and all other backends will use "My General App".
-
-**Example 3: Disabling Headers**
-
-To disable sending certain headers to a specific backend:
-
-```yaml
-backends:
-  gemini:
-    identity:
-      title:
-        mode: "disabled"
-      url:
-        mode: "disabled"
-```
-
-## Tool Call Reactor
-
-The Tool Call Reactor is an event-driven system that allows you to react to tool calls made by LLMs in real-time. It provides a pluggable architecture for creating custom handlers that can monitor, modify, or replace tool call responses.
-
-### Key Concepts
-
-- **Event-Driven Architecture**: Handlers are triggered when LLMs make tool calls
-- **Pluggable Handlers**: Create custom handlers for specific tool call patterns
-- **Two Handler Modes**:
-  - **Active Mode**: Can swallow tool calls and provide replacement responses
-  - **Passive Mode**: Only observe tool calls without modifying responses
-- **Rate Limiting**: Built-in rate limiting to prevent spam
-- **Session Awareness**: Per-session state and rate limiting
-
-### Built-in Handlers
-
-#### Apply Diff Steering Handler
-
-The `ApplyDiffHandler` monitors for `apply_diff` tool calls and provides steering instructions to use `patch_file` instead, which is considered superior due to automated QA checks.
-
-**Features:**
-- Monitors all `apply_diff` tool calls
-- Rate limiting: Only provides steering once per minute per session
-- Customizable steering message
-- Session-aware rate limiting
-
-**Example Response:**
-```
-You tried to use apply_diff tool. Please prefer to use patch_file tool instead, as it is superior to apply_diff and provides automated Python QA checks.
-```
-
-### Execution Order
-
-The Tool Call Reactor is designed to run **after** other response processing middleware to ensure proper tool call handling:
-
-1. **JSON Repair** → Fixes malformed JSON responses
-2. **Tool Call Repair** → Converts plain-text tool calls to structured format
-3. **Tool Call Loop Detection** → Prevents infinite loops
-4. **Tool Call Reactor** → Applies custom handlers and steering logic
-
-This order ensures that the reactor receives properly formatted tool calls and can focus on business logic rather than format repair.
-
-### Configuration
-
-The Tool Call Reactor is automatically enabled and configured in the proxy. The default `ApplyDiffHandler` is registered with:
-- Rate limit: 1 steering message per 60 seconds per session
-- Priority: 100 (high priority)
-- Tool pattern: `apply_diff`
-
-#### Environment Variables
-
-- `TOOL_CALL_REACTOR_ENABLED=true|false` - Enable/disable the entire Tool Call Reactor system
-- `APPLY_DIFF_STEERING_ENABLED=true|false` - Enable/disable the apply_diff steering handler
-- `APPLY_DIFF_STEERING_RATE_LIMIT_SECONDS=60` - Rate limit window in seconds for steering messages
-- `APPLY_DIFF_STEERING_MESSAGE="Custom message"` - Custom steering message (optional)
-
-#### JSON/YAML Configuration
-
-```json
-{
-  "session": {
-    "tool_call_reactor": {
-      "enabled": true,
-      "apply_diff_steering_enabled": true,
-      "apply_diff_steering_rate_limit_seconds": 60,
-      "apply_diff_steering_message": "Custom steering message here",
-      "steering_rules": [
-        {
-          "name": "apply_diff_to_patch_file",
-          "enabled": true,
-          "priority": 100,
-          "triggers": {
-            "tool_names": ["apply_diff"],
-            "phrases": []
-          },
-          "message": "You tried to use apply_diff tool. Please prefer to use patch_file tool instead, as it is superior to apply_diff and provides automated Python QA checks.",
-          "rate_limit": { "calls_per_window": 1, "window_seconds": 60 }
-        }
-      ]
-    }
-  }
-}
-```
-
-```yaml
-session:
-  tool_call_reactor:
-    enabled: true
-    apply_diff_steering_enabled: true
-    apply_diff_steering_rate_limit_seconds: 60
-    apply_diff_steering_message: "Custom steering message here"
-    steering_rules:
-      - name: apply_diff_to_patch_file
-        enabled: true
-        priority: 100
-        triggers:
-          tool_names: ["apply_diff"]
-          phrases: []
-        message: "You tried to use apply_diff tool. Please prefer to use patch_file tool instead, as it is superior to apply_diff and provides automated Python QA checks."
-        rate_limit:
-          calls_per_window: 1
-          window_seconds: 60
-
-With `steering_rules` set, a generic `config_steering_handler` is registered which can swallow tool calls and return the configured message when triggers match. Rules can trigger on exact tool names or on phrases contained in the tool name or arguments. The legacy `ApplyDiffHandler` remains available for backward compatibility and will be used as a fallback when no matching config rule is provided.
-```
-
-### Creating Custom Handlers
-
-You can create custom handlers by implementing the `IToolCallHandler` interface:
-
-```python
-from src.core.interfaces.tool_call_reactor_interface import (
-    IToolCallHandler,
-    ToolCallContext,
-    ToolCallReactionResult,
-)
-
-class MyCustomHandler(IToolCallHandler):
-    @property
-    def name(self) -> str:
-        return "my_custom_handler"
-
-    @property
-    def priority(self) -> int:
-        return 50
-
-    async def can_handle(self, context: ToolCallContext) -> bool:
-        # Return True if this handler should process the tool call
-        return context.tool_name == "my_tool"
-
-    async def handle(self, context: ToolCallContext) -> ToolCallReactionResult:
-        # Process the tool call and return reaction
-        return ToolCallReactionResult(
-            should_swallow=True,
-            replacement_response="Custom steering message",
-            metadata={"handler": self.name}
-        )
-```
-
-### Handler Registration
-
-Handlers are registered through the DI container. To add a custom handler:
-
-1. Create your handler class
-2. Register it in the DI container in `src/core/di/services.py`
-3. The handler will be automatically picked up by the reactor
-
-### Use Cases
-
-- **Tool Migration**: Guide users away from deprecated tools toward better alternatives
-- **Security Filtering**: Block or modify potentially harmful tool calls
-- **Usage Analytics**: Track and analyze tool call patterns
-- **Quality Assurance**: Provide automated feedback on tool usage
-- **Custom Workflows**: Implement domain-specific tool call processing
-
-### Monitoring and Statistics
-
-The Tool Call Reactor provides statistics through the reactor service:
-- Total tool calls processed
-- Tool calls swallowed by handlers
-- Handler execution counts
-- Rate limiting events
-- Per-session statistics
-
-## API Reference
-
-The API is versioned using URL path prefixes:
-
-- `/v1/` - Primary API (compatible with OpenAI/Anthropic) - (Recommended and current)
-- `/v2/` - Legacy API (Removed)
-
-All endpoints require authentication unless the server is started with `--disable-auth` or the request comes from a trusted IP address. Authentication is performed using the `Authorization` header with a bearer token: `Authorization: Bearer <api-key>`.
-
-#### Trusted IP Addresses
-
-The proxy supports bypassing authentication for requests originating from specified trusted IP addresses. This feature is useful for:
-- Internal network access
-- Load balancers or reverse proxies
-- Development and testing environments
-- CI/CD pipelines
-
-**Command Line Usage:**
-```bash
-# Single trusted IP
-./.venv/Scripts/python.exe -m src.core.cli --trusted-ip 192.168.1.100
-
-# Multiple trusted IPs
-./.venv/Scripts/python.exe -m src.core.cli --trusted-ip 192.168.1.100 --trusted-ip 10.0.0.50 --trusted-ip 172.16.0.100
-```
-
-**Configuration:**
-```yaml
 auth:
-  trusted_ips:
-    - "192.168.1.100"
-    - "10.0.0.0/8"
-    - "172.16.0.0/12"
+  # Set LLM_INTERACTIVE_PROXY_API_KEY env var to enable
+  disable_auth: false
 ```
 
-**Notes:**
-- CIDR notation is supported for IP ranges (e.g., `10.0.0.0/8`)
-- Trusted IP bypass only applies when authentication is enabled (`--disable-auth` is not set)
-- The proxy logs when authentication is bypassed for trusted IPs
-- This feature does not affect API key validation for other security measures
+Run: `python -m src.core.cli --config config.yaml`
 
-Sessions are identified using the `x-session-id` header. If not provided, a new session ID will be generated.
+## Popular Scenarios
 
-### Endpoints
+Claude Code with any model/provider
 
-#### Chat Completions
-
-- **Primary Endpoint (Recommended)**: `POST /v1/chat/completions`
-- **Legacy Endpoint (Removed)**: `POST /v2/chat/completions`
-
-#### Anthropic Messages API
-
-- **Primary Endpoint (Recommended)**: `POST /v1/messages`
-- **Legacy Endpoint (Removed)**: `POST /v2/messages`
-
-#### Gemini API
-
-- **Generate Content**: `POST /v2/models/{model}:generateContent`
-
-#### Model Listing
-
-- **OpenAI-Compatible Models**: `GET /v1/models`
-- **Gemini Models**: `GET /v1/models/list`
-
-#### Usage Statistics
-
-- **Usage Stats**: `GET /v1/usage/stats`
-- **Recent Usage**: `GET /v1/usage/recent`
-
-#### Dedicated Anthropic Server
-
-To accommodate clients that cannot use custom URI paths, the Anthropic front-end can be run on a dedicated port. When running on a dedicated port, the `/anthropic` path prefix is not required.
-
-To run the dedicated Anthropic server, set the `ANTHROPIC_PORT` environment variable to the desired port number and run the following command:
+1) Start the proxy with your preferred back-end (e.g., OpenAI or OpenRouter)
+2) Ensure Anthropic front-end is reachable (main port `/anthropic/...` or `ANTHROPIC_PORT`)
+3) Set
 
 ```bash
-python -m src.anthropic_server
+export ANTHROPIC_API_URL=http://localhost:8001
+export ANTHROPIC_API_KEY=<your-proxy-key>
 ```
 
-#### Dedicated Anthropic Server
+Then launch `claude`. You can switch models during a session:
 
-To accommodate clients that cannot use custom URI paths, the Anthropic front-end can be run on a dedicated port. When running on a dedicated port, the `/anthropic` path prefix is not required.
-
-To run the dedicated Anthropic server, set the `ANTHROPIC_PORT` environment variable to the desired port number and run the following command:
-
-```bash
-python -m src.anthropic_server
+```
+!/backend(openrouter)
+!/model(claude-3-5-sonnet-20241022)
 ```
 
-If the `ANTHROPIC_PORT` is not set, it will default to the main port + 1.
+ZAI Coding Plan with coding agents
 
-#### Audit Logs
+- Use back-end `zai-coding-plan`; it works with any supported front-end and any coding agent
+- Point OpenAI-compatible tools at `http://localhost:8000/v1`
 
-- `GET /v1/audit/logs`
+Gemini options
 
-## In-Chat Commands
+- Metered API key (`gemini`), free personal OAuth (`gemini-cli-oauth-personal`), or GCP‑billed (`gemini-cli-cloud-project`). Pick one and set the required env vars.
 
-The LLM Interactive Proxy supports in-chat commands that can be used to control the proxy's behavior. Commands are prefixed with `!/` by default.
+## Errors and Troubleshooting
 
-### Core Commands
+- 401/403 from proxy: missing/invalid `Authorization` header when proxy auth is enabled
+- 400 Bad Request: malformed payload; ensure you send an OpenAI/Anthropic/Gemini-compatible body
+- 422 Unprocessable Entity: validation error; check error details for the field
+- 503 Service Unavailable: upstream provider is unreachable; try another model or enable failover
+- Model not found: ensure the model name exists for the selected back-end
 
-| Command | Description | Example |
-|---------|-------------|---------|
-| `!/hello` | Shows welcome message and session info | `!/hello` |
-| `!/help` | Shows available commands | `!/help` |
-| `!/set` | Sets a session parameter | `!/set(project=myproject)` |
-| `!/unset` | Unsets a session parameter | `!/unset(project)` |
-| `!/backend` | Sets backend for the session | `!/backend(openai)` |
-| `!/model` | Sets model for the session | `!/model(gpt-4)` |
-| `!/oneoff` | Sets backend and model for one request | `!/oneoff(anthropic:claude-3)` |
-| `!/interactive` | Toggles interactive mode | `!/interactive(true)` |
-| `!/temperature` | Sets temperature for generation | `!/temperature(0.7)` |
-| `!/pwd` | Shows current project directory | `!/pwd` |
+Tips
 
-### Failover Commands
-
-| Command | Description | Example |
-|---------|-------------|---------|
-| `!/route-list` | Lists configured routes | `!/route-list` |
-| `!/route-clear` | Clears a route | `!/route-clear(gpt-4)` |
-| `!/route-append` | Appends a route | `!/route-append(gpt-4, anthropic:claude-3)` |
-| `!/route-prepend` | Prepends a route | `!/route-prepend(gpt-4, openai:gpt-3.5-turbo)` |
-
-## Troubleshooting
-
-### Installation Issues
-
-- **Package Installation Fails**: Ensure Python version compatibility (3.9+), create a fresh virtual environment, install with verbose output (`pip install -e ".[dev]" -v`), check for system dependencies.
-- **Import Errors After Installation**: Verify package is installed in development mode (`pip list | grep llm-interactive-proxy`), check `PYTHONPATH`, reinstall.
-
-### Configuration Problems
-
-- **Missing or Invalid Configuration**: Create/verify `config.yaml`, set required environment variables, check configuration path, validate format.
-- **Backend Configuration Problems**: Check `backends` section in `config.yaml`, verify API keys, set default backend.
-- **Gemini API Key Issues**: Ensure API key is valid from Google AI Studio, check for typos, verify billing is enabled.
-- **Gemini CLI OAuth Issues**: Verify `~/.gemini/oauth_creds.json` exists and contains valid tokens, ensure Gemini CLI is properly authenticated, use correct Code Assist model names.
-
-### API Authentication Issues
-
-- **Unauthorized Access**: Check `Authorization` header format (`Bearer <api-key>`), disable authentication for testing (`--disable-auth`), verify API key in configuration.
-- **Invalid API Key Format**: Check API key format for specific backend (e.g., OpenAI starts with "sk-"), remove whitespace or quotes.
-
-### Backend Connection Problems
-
-- **Connection Timeout**: Increase timeout settings in `config.yaml` (`proxy_timeout`), check network connectivity, use proxy if needed.
-- **Invalid Backend or Model**: List available models (`curl http://localhost:8000/v2/models`), check model format (e.g., `openai:gpt-4`), specify backend and model explicitly.
-
-### Command Processing Errors
-
-- **Commands Not Recognized**: Check command prefix (`!/`), verify command format (`!/set(project=myproject)`), enable interactive mode, ensure interactive commands are not disabled.
-- **Command Arguments Not Parsed Correctly**: Check argument syntax (no spaces around `=`), quote string values with spaces, use proper comma separation.
-
-### Session Management Issues
-
-- **Session State Not Persisting**: Provide `x-session-id` header in requests, check session repository configuration (`in_memory` vs `file`), use persistent session repository.
-- **Session ID Conflicts**: Use unique session IDs (e.g., UUIDs), namespace session IDs for different clients.
-
-### Streaming Response Problems
-
-- **Streaming Responses Not Working**: Set `stream` parameter to `true` in request, check client streaming support (SSE), disable response buffering.
-- **Streaming Responses Cut Off**: Increase proxy timeout, increase client timeout, check for network issues.
-
-### Loop Detection Issues
-
-- **False Positives in Loop Detection**: Adjust `min_pattern_length`, `max_pattern_length`, `min_repetitions` in `loop_detection` config, disable for specific sessions, tune thresholds.
-- **Loop Detection Not Working**: Enable loop detection in `config.yaml`, check `min_pattern_length`, verify middleware registration.
-
-### Tool Call Loop Detection Problems
-
-- **Tool Call Loops Not Detected**: Enable tool call loop detection in `config.yaml`, set session-level configuration, check tool call format.
-- **False Positives in Tool Call Loop Detection**: Increase `max_repeats`, use `chance_then_block` mode, increase `ttl_seconds`.
-
-### Tool Call Repair
-
-- **What it does**: Some providers or model outputs occasionally return tool/function calls as plain text instead of structured `tool_calls`. The proxy detects common patterns (JSON objects, code blocks, or textual directives like "TOOL CALL: ...") and converts them to proper OpenAI-style `tool_calls` before returning to the client.
-- **Non-streaming**: Repair runs on complete responses and updates `choices[0].message` with `tool_calls` and `finish_reason="tool_calls"` while clearing conflicting `content`.
-- **Streaming**: A streaming repair processor accumulates minimal context to detect and emit `tool_calls` safely. The buffer is capped to prevent memory growth.
-- **Enable/disable**: Controlled via config and env vars (see below). Enabled by default.
-- **Buffer cap**: Per-session buffer is limited (default 64 KB). Increase only if your tool-call payloads are unusually large.
-
-#### Configuration
-
-- Config path: `AppConfig.session`
-  - `tool_call_repair_enabled` (bool, default `true`)
-  - `tool_call_repair_buffer_cap_bytes` (int, default `65536`)
-
-- Environment variables
-  - `TOOL_CALL_REPAIR_ENABLED=true|false`
-  - `TOOL_CALL_REPAIR_BUFFER_CAP_BYTES=65536`
-
-Example (YAML-like):
-
-```yaml
-session:
-  tool_call_repair_enabled: true
-  tool_call_repair_buffer_cap_bytes: 65536
-```
-
-Notes:
-
-- Repair is conservative and only activates when patterns are confidently detected. If detection fails, the response is passed through unchanged.
-- For streaming, trailing free text immediately after a repaired tool call is not emitted by the repair processor to avoid ambiguity; the client will see the repaired tool call with `finish_reason="tool_calls"`.
-
-### JSON Repair
-
-- **What it does**: Automatically detects and repairs malformed JSON in model responses. Can optionally validate and coerce data into a target schema (JSON Schema). Works for both non-streaming and streaming pipelines.
-- **Detection & Repair**: Prefers fenced ```json blocks, otherwise scans for balanced braces. Repairs common issues like single quotes, trailing commas, unbalanced braces/brackets, and stray control characters.
-- **Schema Coercion**: Using jsonschema with coercion (e.g., "42" → 42). Supports type coercion, defaults injection, and unknown property handling.
-- **Enable/disable**: Controlled via config and env vars (see below). Enabled by default.
-- **Buffer cap**: Per-session buffer is limited (default 64 KB). Increase only if your JSON payloads are unusually large.
-
-#### Configuration
-
-- Config path: `AppConfig.session`
-- `json_repair_enabled` (bool, default `true`)
-- `json_repair_buffer_cap_bytes` (int, default `65536`)
-- `json_repair_strict_mode` (bool, default `false`)
-- `json_coercion_enabled` (bool, default `true`)
-- `json_schema_sources` (dict[str, Any], default `{}`)
-
-- Environment variables
-  - `JSON_REPAIR_ENABLED=true|false`
-  - `JSON_REPAIR_BUFFER_CAP_BYTES=65536`
-  - `JSON_REPAIR_STRICT_MODE=true|false`
-  - `JSON_COERCION_ENABLED=true|false`
-
-Example (YAML-like):
-
-```yaml
-session:
-  json_repair_enabled: true
-  json_repair_buffer_cap_bytes: 65536
-  json_repair_strict_mode: false
-  json_coercion_enabled: true
- json_schema_sources: {}
-```
-
-Notes:
-
-- Repair is conservative and only activates when patterns are confidently detected. If detection fails, the response is passed through unchanged.
-- For streaming, trailing free text immediately after a repaired JSON is not emitted by default to avoid ambiguity.
-- Schema coercion can be enabled/disabled independently of JSON repair.
-
-### Rate Limiting Issues
-
-- **Rate Limit Exceeded**: Check rate limit configuration, use multiple API keys, implement backoff and retry logic.
-- **Uneven API Key Usage**: Use round-robin policy for API keys, configure failover routes.
-
-### Performance Problems
-
-- **High Latency**: Use faster models, monitor performance with tracking, enable response caching.
-- **Memory Leaks**: Limit session history, implement session expiry, monitor memory usage.
+- Enable wire capture for tricky issues: `--capture-file wire.jsonl`
+- Use in-chat `!/backend(...)` and `!/model(...)` to isolate provider/model problems
+- Check environment variables are set for the back-end you selected
 
 ## Support
 
-- Issues: [GitHub Issues](https://github.com/your-org/llm-interactive-proxy/issues)
-- Changelog: [CHANGELOG.md](CHANGELOG.md)
+- Issues: open a ticket in the repository’s issue tracker
 
-## Processing & Repair Pipeline
+## Changelog
 
-- **Streaming order**: JSON repair → text loop detection → tool-call repair → middleware → accumulation. This order ensures:
-  - Loop detection runs on human-visible text, avoiding false positives from JSON scaffolding.
-  - Tool-call repair operates after normalization.
-
-- **Non-streaming repairs**:
-  - JSON repair and tool-call repair are applied via middleware on final content.
-  - Tool-call loop detection middleware can stop repeated tool calls (configurable; defaults enabled).
-
-### JSON Repair Strict Mode (Non-Streaming)
-
-- Strict mode is enabled when any of the following are true:
-  - `session.json_repair_strict_mode` is true (global opt-in)
-  - Response Content-Type is `application/json`
-  - `expected_json=True` is set in response metadata (see helpers below)
-  - A `session.json_repair_schema` is configured
-
-- Otherwise, repairs are best-effort: failures don’t raise and original content is preserved.
-
-### Convenience Helpers (expected_json)
-
-- Location: `src/core/utils/json_intent.py`
-  - `set_expected_json(metadata, True)`: marks a non-streaming response as JSON for strict repair
-  - `infer_expected_json(metadata, content)`: detects JSON intent from Content-Type or JSON-looking content
-  - `set_json_response_metadata(metadata, content_type='application/json; charset=utf-8')`: sets Content-Type and expected_json in one call
-
-- The proxy auto-inferrs `expected_json` for non-streaming responses if not provided, based on Content-Type or payload shape. You can always override by calling `set_expected_json` on response metadata in controllers/adapters.
-
-### Metrics
-
-- Module: `src/core/services/metrics_service.py` (in-memory counters)
-- Counters recorded:
-  - `json_repair.streaming.[strict|best_effort]_{success|fail}`
-  - `json_repair.non_streaming.[strict|best_effort]_{success|fail}`
-
-### Tool-Call Loop Detection
-
-- Detects 4 identical tool calls (same name + args) in a row within a TTL; sends guidance (chance) or breaks based on mode.
-- Configurable with `LoopDetectionConfiguration` and `ToolCallLoopConfig`.
-
-### Anthropic OAuth Backend
-
-The `anthropic-oauth` backend enables Anthropic usage without placing API keys in your proxy config. It reads a local OAuth-style credential file (commonly produced by tools like Claude Code) and uses its token as the `x-api-key`.
-
-Key points:
-- Credentials file name: `oauth_creds.json`
-- Default search paths (first found wins):
-  - Windows: `%APPDATA%/Claude/oauth_creds.json`
-  - Cross‑platform: `~/.anthropic/oauth_creds.json`, `~/.claude/oauth_creds.json`, `~/.config/claude/oauth_creds.json`
-- Expected fields: `access_token` (preferred) or `api_key`
-- Base URL default: `https://api.anthropic.com/v1` (override with `anthropic_api_base_url`)
-
-Configuration (config.yaml):
-
-```yaml
-backends:
-  anthropic-oauth:
-    type: anthropic-oauth
-    # Optional: directory path that contains oauth_creds.json
-    anthropic_oauth_path: C:\\Users\\YourUser\\.anthropic
-    # Optional: override Anthropic API base URL
-    anthropic_api_base_url: https://api.anthropic.com/v1
-
-  # Example alongside other backends
-  openai:
-    type: openai
-    api_key: sk-...
-
-# Optional: make anthropic-oauth the default backend for the proxy
-# backends:
-#   default_backend: anthropic-oauth
-```
-
-Environment and routing:
-- Set `LLM_BACKEND=anthropic-oauth` to select it at startup.
-- Route per-request via model name prefix: `model: anthropic-oauth:claude-3-5-sonnet-20241022`.
-
-Environment variable alternative:
-- You can override the Anthropic base URL using `ANTHROPIC_API_BASE_URL` instead of the YAML field `anthropic_api_base_url`.
-
-Troubleshooting:
-- 401/403: Ensure `oauth_creds.json` exists in a default path or set `anthropic_oauth_path` to its directory.
-- Invalid credentials: File must contain `access_token` or `api_key`.
-- Model names: Use Anthropic Messages API models (e.g., `claude-3-5-sonnet-20241022`).
-
-### OpenAI OAuth Backend
-
-The `openai-oauth` backend lets you use OpenAI without storing an API key in your proxy config. It reads the ChatGPT/Codex `auth.json` file created by the Codex CLI and uses the contained token as the `Authorization: Bearer ...` header for OpenAI API calls.
-
-Key points:
-- Credentials file name: `auth.json`
-- Default search paths (first found wins):
-  - Windows: `%USERPROFILE%/.codex/auth.json`
-  - Cross‑platform: `~/.codex/auth.json`
-- Token priority: `tokens.access_token` (preferred), then `OPENAI_API_KEY` as fallback
-- Base URL default: `https://api.openai.com/v1` (override with `openai_api_base_url` or env `OPENAI_BASE_URL` if your environment uses one)
-
-Configuration (config.yaml):
-
-```yaml
-backends:
-  openai-oauth:
-    type: openai-oauth
-    # Optional: directory path that contains auth.json
-    openai_oauth_path: C:\\Users\\YourUser\\.codex
-    # Optional: override OpenAI API base URL
-    openai_api_base_url: https://api.openai.com/v1
-
-  # Example alongside other backends
-  openai:
-    type: openai
-    api_key: sk-...
-
-# Optional: make openai-oauth the default backend for the proxy
-# backends:
-#   default_backend: openai-oauth
-```
-
-Environment and routing:
-- Set `LLM_BACKEND=openai-oauth` to select it at startup.
-- Route per-request via model name prefix: `model: openai-oauth:gpt-4o-mini`.
-
-Troubleshooting:
-- 401/403: Ensure `auth.json` exists in a default path or set `openai_oauth_path` to its directory.
-- Invalid credentials: File must contain `tokens.access_token` or `OPENAI_API_KEY`.
-### Content Rewriting
-
-The LLM Interactive Proxy provides a powerful content rewriting feature that allows you to modify incoming and outgoing messages on the fly. This functionality is configured through a simple directory structure and supports several rewriting modes.
-
-#### Directory Structure
-
-The content rewriting rules are defined in the `config/replacements` directory. The structure is as follows:
-
-```
-config/
-└── replacements/
-    ├── prompts/
-    │   ├── system/
-    │   │   └── 001/
-    │   │       ├── SEARCH.txt
-    │   │       └── REPLACE.txt
-    │   └── user/
-    │       └── 001/
-    │           ├── SEARCH.txt
-    │           └── APPEND.txt
-    └── replies/
-        └── 001/
-            ├── SEARCH.txt
-            └── PREPEND.txt
-```
-
-- **`prompts`**: Contains rules for rewriting outgoing prompts.
-  - **`system`**: Rules for system-level prompts.
-  - **`user`**: Rules for user-level prompts.
-- **`replies`**: Contains rules for rewriting incoming replies from the LLM.
-
-Each rule is defined in its own numbered subdirectory (e.g., `001`, `002`).
-
-#### Rewriting Modes
-
-The content rewriting feature supports the following modes:
-
-- **`REPLACE`**: Replaces the content of `SEARCH.txt` with the content of `REPLACE.txt`.
-- **`PREPEND`**: Prepends the content of `PREPEND.txt` to the content of `SEARCH.txt`.
-- **`APPEND`**: Appends the content of `APPEND.txt` to the content of `SEARCH.txt`.
-
-Each rule directory must contain a `SEARCH.txt` file and one of the mode files (`REPLACE.txt`, `PREPEND.txt`, or `APPEND.txt`).
-
-#### Configuration
-
-To enable content rewriting, add the following to your `config.yaml`:
-
-```yaml
-rewriting:
-  enabled: true
-  config_path: "config/replacements"
-```
-
-Or use environment variables:
-```bash
-export REWRITING_ENABLED=true
-export REWRITING_CONFIG_PATH="config/replacements"
-```
-
-#### Getting Started
-
-The proxy includes example content rewriting rules in the `config/replacements/` directory:
-
-- **`config/replacements/prompts/system/001_example/`** - System prompt enhancement
-- **`config/replacements/prompts/user/001_example/`** - User prompt refinement  
-- **`config/replacements/replies/001_example/`** - Response modification
-
-These examples demonstrate:
-- `REPLACE` mode for complete text replacement
-- Professional prompt enhancement
-- Response confidence improvement
-
-See `config/replacements/README.md` for detailed documentation and more examples.
-
-#### Sanity Checks
-
-To ensure the quality of the rewriting rules, the following sanity checks are in place:
-
-- **Search Pattern Length**: The content of `SEARCH.txt` must be at least 8 characters long. Rules with shorter search patterns will be ignored.
-- **Unique Mode Files**: Each rule directory can only contain one mode file. If multiple mode files are found, the rule will be ignored.
-
-#### Examples
-
-**Example 1: Replacing a system prompt**
-
-- `config/replacements/prompts/system/001/SEARCH.txt`:
-  ```
-  You are a helpful assistant.
-  ```
-- `config/replacements/prompts/system/001/REPLACE.txt`:
-  ```
-  You are a very helpful assistant.
-  ```
-
-**Example 2: Appending to a user prompt**
-
-- `config/replacements/prompts/user/001/SEARCH.txt`:
-  ```
-  What is the weather in London?
-  ```
-- `config/replacements/prompts/user/001/APPEND.txt`:
-  ```
-  in Celsius
-  ```
-
-**Example 3: Prepending to a reply**
-
-- `config/replacements/replies/001/SEARCH.txt`:
-  ```
-  The weather in London is 20 degrees.
-  ```
-- `config/replacements/replies/001/PREPEND.txt`:
-  ```
-  According to my sources, 
-  ```
-# Test change
-# Another test
-#### Dangerous Command Prevention
-
-- Purpose: Prevent LLM agents from executing destructive git operations through local exec tools (e.g., `bash`, `exec_command`, `shell`).
-- Scope: Intercepts tool calls with dangerous git patterns (hard reset, force push, branch/tag delete, prune/gc, worktree/submodule destructive ops, history rewrites, etc.).
-- Behavior: Swallows the tool call and returns a steering message instructing the LLM to ask the user to manually run such commands and warn about consequences. Logs a WARNING with the matched rule and command.
-- Configuration:
-  - `session.dangerous_command_prevention_enabled` (default: true)
-  - `session.dangerous_command_steering_message` (optional custom message)
-  - Env vars:
-    - `DANGEROUS_COMMAND_PREVENTION_ENABLED` (true/false)
-    - `DANGEROUS_COMMAND_STEERING_MESSAGE` (string)
-- Tool names matched (contains): `bash`, `exec_command`, `execute_command`, `run_shell_command`, `shell`, `local_shell`, `container.exec`
+- See the full change history in [CHANGELOG.md](CHANGELOG.md)
