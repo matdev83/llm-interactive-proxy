@@ -1,11 +1,9 @@
 # LLM Interactive Proxy
 
-A unified LLM proxy that presents multiple compatible front-ends (OpenAI, Anthropic, Gemini) while routing to many providers. It adds reliability, safety, and quality-of-life features without changing your tools.
+This project is a swiss-army knife for anyone working with language models and agentic workflows. It sits between any LLM-aware client and any LLM backend, presenting multiple front-end APIs (OpenAI, Anthropic, Gemini) while routing to whichever provider you choose. With the proxy you can translate, reroute, and augment requests on the fly, execute chat-embedded commands, override models, rotate API keys, prevent leaks, and inspect traffic — all from a single drop-in gateway.
 
 ## Contents
 
-- [Highlights](#highlights)
-- [Why This Proxy](#why-this-proxy)
 - [Killer Features](#killer-features)
 - [Supported APIs (Front-Ends) and Providers (Back-Ends)](#supported-apis-front-ends-and-providers-back-ends)
 - [Gemini Backends Overview](#gemini-backends-overview)
@@ -20,31 +18,36 @@ A unified LLM proxy that presents multiple compatible front-ends (OpenAI, Anthro
 - [Support](#support)
 - [Changelog](#changelog)
 
-## Highlights
-
-- OpenAI-compatible API surface for clients and agents
-- Works with multiple providers at once (OpenAI, Anthropic, Gemini, OpenRouter, ZAI, Qwen)
-- Quick model/backend switching in-chat (`!/backend(...)`, `!/model(...)`)
-- Optional failover and retries (graceful fallback to other models)
-- Streaming and non‑streaming supported across providers
-- Tool-call and JSON repair to fix malformed model outputs
-- Loop detection and dangerous-command prevention for safer tool use
-- API key redaction in prompts and logs
-- Optional request/response wire capture to a file for debugging
-- Lightweight rate limiting and context window enforcement
-
-## Why This Proxy
-
-This project is a swiss-army knife for anyone working with language models and agentic workflows. It sits between any LLM-aware client and any LLM backend, presenting multiple front-end APIs (OpenAI, Anthropic, Gemini) while routing to whichever provider you choose. With the proxy you can translate, reroute, and augment requests on the fly, execute chat-embedded commands, override models, rotate API keys, prevent leaks, and inspect traffic — all from a single drop-in gateway.
-
 ## Killer Features
 
-- Automated API key rotation - Configure multiple keys and let the proxy rotate usage across them to reduce throttling and extend free-tier allowances.
-- Force model override - Make clients use the model you choose without changing client code.
-- Failover routing - Fall back to alternate models/providers when rate limits or outages occur.
-- Gemini OAuth personal gateway - Use Google's free personal OAuth (Gemini CLI/KiloCode style) through an OpenAI-compatible endpoint.
-- Usage logging and audit trail - Track requests, responses, and token usage; optionally capture full wire data to a file.
-- Automatic loop detection - Detect repeated patterns and stop infinite loops to save resources.
+Compatibility
+
+- Multiple front-ends, many providers: exposes OpenAI, Anthropic, and Gemini APIs while routing to OpenAI, Anthropic, Gemini, OpenRouter, ZAI, Qwen, and more
+- OpenAI compatibility: drop-in `/v1/chat/completions` for most clients and coding agents
+- Streaming everywhere: consistent streaming and non‑streaming support across providers
+- Gemini OAuth personal gateway: use Google’s free personal OAuth (CLI-style) through an OpenAI-compatible endpoint
+
+Reliability
+
+- Failover routing: fall back to alternate models/providers on rate limits or outages
+- Automated API key rotation: rotate across multiple keys to reduce throttling and extend free-tier allowances
+- Rate limits and context: lightweight rate limiting and per-model context window enforcement
+
+Safety & Integrity
+
+- Loop detection: detect repeated patterns and halt infinite loops
+- Dangerous-command prevention: steer away from destructive shell actions
+- Key hygiene: redact API keys in prompts and logs
+- Repair helpers: tool-call and JSON repair to fix malformed model outputs
+
+Control & Ergonomics
+
+- In-chat switching: change back-end and model on the fly with `!/backend(...)` and `!/model(...)`
+- Force model override: make clients use the model you choose without changing client code
+
+Observability
+
+- Wire capture and audit: optional request/response capture file plus usage tracking
 
 ## Supported APIs (Front-Ends) and Providers (Back-Ends)
 
@@ -56,7 +59,7 @@ Front-ends
 | - | - | - | - |
 | OpenAI Chat Completions | `/v1/chat/completions` | Most OpenAI SDKs/tools, coding agents | Default front-end |
 | Anthropic Messages | `/anthropic/v1/messages` (+ `/anthropic/v1/models`, `/health`, `/info`) | Claude Code, Anthropic SDK | Also available on a dedicated port (see Setup) |
-| Google Gemini v1beta | `/v1beta/models`, `:generateContent`, `:streamGenerateContent` | KiloCode, Gemini-compatible SDKs | Translates to your chosen provider |
+| Google Gemini v1beta | `/v1beta/models`, `:generateContent`, `:streamGenerateContent` | Gemini-compatible tools/SDKs | Translates to your chosen provider |
 
 Back-ends
 
@@ -67,7 +70,7 @@ Back-ends
 | `anthropic` | Anthropic | `ANTHROPIC_API_KEY` | Claude models via Messages API |
 | `anthropic-oauth` | Anthropic (OAuth) | Local OAuth token | Claude via OAuth credential flow |
 | `gemini` | Google Gemini | `GEMINI_API_KEY` | Metered API key |
-| `gemini-cli-oauth-personal` | Google Gemini (CLI) | OAuth (no key) | Free-tier personal OAuth like KiloCode/Gemini CLI |
+| `gemini-cli-oauth-personal` | Google Gemini (CLI) | OAuth (no key) | Free-tier personal OAuth like the Gemini CLI |
 | `gemini-cli-cloud-project` | Google Gemini (GCP) | OAuth + `GOOGLE_CLOUD_PROJECT` (+ ADC) | Bills to your GCP project |
 | `openrouter` | OpenRouter | `OPENROUTER_API_KEY` | Access to many hosted models |
 | `zai` | ZAI | `ZAI_API_KEY` | Zhipu/Z.ai access (OpenAI-compatible) |
