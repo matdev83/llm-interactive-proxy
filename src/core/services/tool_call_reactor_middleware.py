@@ -79,8 +79,17 @@ class ToolCallReactorMiddleware(IResponseMiddleware):
         if not hasattr(response, "content") or not response.content:
             return response
 
-        # Extract tool calls from the response
-        tool_calls = self._extract_tool_calls(response.content)
+        # Extract tool calls from metadata first, then from content as fallback
+        tool_calls: list[dict[str, Any]] = []
+        try:
+            meta_calls = getattr(response, "metadata", {}).get("tool_calls")
+            if isinstance(meta_calls, list):
+                tool_calls.extend([tc for tc in meta_calls if isinstance(tc, dict)])
+        except Exception:
+            pass
+
+        if not tool_calls:
+            tool_calls = self._extract_tool_calls(response.content)
         if not tool_calls:
             return response
 

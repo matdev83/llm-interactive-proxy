@@ -170,6 +170,8 @@ class SessionConfig(DomainModel):
     tool_call_reactor: ToolCallReactorConfig = Field(
         default_factory=ToolCallReactorConfig
     )
+    dangerous_command_prevention_enabled: bool = True
+    dangerous_command_steering_message: str | None = None
 
 
 class EmptyResponseConfig(DomainModel):
@@ -379,6 +381,9 @@ class AppConfig(DomainModel, IConfig):
     # Rewriting settings
     rewriting: RewritingConfig = Field(default_factory=RewritingConfig)
 
+    # FastAPI app instance
+    app: Any = None
+
     def save(self, path: str | Path) -> None:
         """Save the current configuration to a file."""
         with open(path, "w") as f:
@@ -445,6 +450,13 @@ class AppConfig(DomainModel, IConfig):
             "json_repair_schema": json.loads(
                 os.environ.get("JSON_REPAIR_SCHEMA", "null")
             ),  # Added
+            "dangerous_command_prevention_enabled": os.environ.get(
+                "DANGEROUS_COMMAND_PREVENTION_ENABLED", "true"
+            ).lower()
+            == "true",
+            "dangerous_command_steering_message": os.environ.get(
+                "DANGEROUS_COMMAND_STEERING_MESSAGE"
+            ),
         }
 
         config["logging"] = {

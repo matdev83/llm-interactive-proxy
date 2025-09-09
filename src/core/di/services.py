@@ -68,6 +68,7 @@ from src.core.services.backend_processor import BackendProcessor
 from src.core.services.backend_request_manager_service import BackendRequestManager
 from src.core.services.backend_service import BackendService
 from src.core.services.command_processor import CommandProcessor
+from src.core.services.dangerous_command_service import DangerousCommandService
 from src.core.services.failover_service import FailoverService
 from src.core.services.json_repair_service import JsonRepairService
 from src.core.services.middleware_application_manager import (
@@ -435,6 +436,9 @@ def register_core_services(
                 f"Error configuring ToolCallReactorMiddleware: {e}", exc_info=True
             )
 
+        # Dangerous command prevention will be handled by Tool Call Reactor handler.
+        # Keeping old middleware disabled to avoid duplicate processing.
+
         return MiddlewareApplicationManager(middlewares)
 
     _add_singleton(
@@ -505,6 +509,12 @@ def register_core_services(
             implementation_factory=_response_processor_factory,
         )  # type: ignore[type-abstract]
 
+    def _application_state_factory(
+        provider: IServiceProvider,
+    ) -> ApplicationStateService:
+        # Create application state service
+        return ApplicationStateService()
+
     # Register app settings
     def _app_settings_factory(provider: IServiceProvider) -> AppSettings:
         # Get app_state from IApplicationState if available
@@ -528,25 +538,7 @@ def register_core_services(
         )  # type: ignore[type-abstract]
 
     # Register application state service
-    def _application_state_factory(
-        provider: IServiceProvider,
-    ) -> ApplicationStateService:
-        # Check if we already have a cached singleton instance (e.g., from test setup)
-        descriptors = getattr(provider, "_descriptors", {})
-        descriptor = descriptors.get(ApplicationStateService)
-        if descriptor and descriptor.instance is not None:
-            return cast(ApplicationStateService, descriptor.instance)
-
-        # Create a single ApplicationStateService and also sync it to the
-        # global default to maintain compatibility with tests that use
-        # get_default_application_state() to mutate flags.
-        instance = ApplicationStateService()
-
-        return instance
-
-    _add_singleton(
-        ApplicationStateService, implementation_factory=_application_state_factory
-    )
+    _add_singleton(ApplicationStateService)
 
     with contextlib.suppress(Exception):
         services.add_singleton(
@@ -798,6 +790,26 @@ def register_core_services(
         implementation_factory=_tool_call_repair_processor_factory,
     )
 
+    # Register dangerous command service
+    def _dangerous_command_service_factory(
+        provider: IServiceProvider,
+    ) -> DangerousCommandService:
+        from src.core.config.app_config import AppConfig
+        from src.core.domain.configuration.dangerous_command_config import (
+            DEFAULT_DANGEROUS_COMMAND_CONFIG,
+        )
+        from src.core.services.dangerous_command_service import (
+            DangerousCommandService,
+        )
+
+        provider.get_required_service(AppConfig)
+        return DangerousCommandService(DEFAULT_DANGEROUS_COMMAND_CONFIG)
+
+    _add_singleton(
+        DangerousCommandService,
+        implementation_factory=_dangerous_command_service_factory,
+    )
+
     # Register tool call reactor services
     def _tool_call_history_tracker_factory(
         provider: IServiceProvider,
@@ -826,6 +838,9 @@ def register_core_services(
             from src.core.services.tool_call_handlers.apply_diff_handler import (
                 ApplyDiffHandler,
             )
+            from src.core.services.tool_call_handlers.dangerous_command_handler import (
+                DangerousCommandHandler,
+            )
 
             if reactor_config.apply_diff_steering_enabled:
                 # Create handler with configuration
@@ -850,6 +865,39 @@ def register_core_services(
                     logger.debug(
                         "Could not register handler due to missing event loop: %s", e
                     )
+
+            # Register DangerousCommandHandler if enabled in session config
+            try:
+                if getattr(
+                    app_config.session, "dangerous_command_prevention_enabled", True
+                ):
+                    dangerous_service = provider.get_required_service(
+                        DangerousCommandService
+                    )
+                    dangerous_handler = DangerousCommandHandler(
+                        dangerous_service,
+                        steering_message=getattr(
+                            app_config.session,
+                            "dangerous_command_steering_message",
+                            None,
+                        ),
+                        enabled=True,
+                    )
+                    try:
+                        loop = asyncio.get_event_loop()
+                        if not loop.is_running():
+                            loop.run_until_complete(
+                                reactor.register_handler(dangerous_handler)
+                            )
+                    except RuntimeError as e:
+                        logger.debug(
+                            "Could not register dangerous command handler due to missing event loop: %s",
+                            e,
+                        )
+            except Exception as e:
+                logger.warning(
+                    f"Failed to register DangerousCommandHandler: {e}", exc_info=True
+                )
 
         return reactor
 

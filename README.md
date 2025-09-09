@@ -20,6 +20,7 @@ The LLM Interactive Proxy is an advanced middleware service that provides a unif
 - **Unified API**: OpenAI-compatible API for all backends.
 - **Empty Response Recovery**: Automatically detects empty LLM responses (no text, no tool call) and retries the request with a corrective prompt to guide the LLM.
 - **Tool Call Reactor**: Event-driven system for reacting to tool calls from LLMs, with pluggable handlers that can provide steering instructions or modify responses.
+- **Dangerous Command Prevention**: Blocks destructive git commands issued via local shell execution tool calls. Runs after tool-call/JSON repair and loop detection, just before forwarding to the client. Configurable steering message returned to the LLM.
 - **Context Window Size Overrides**: Enforce per-model context window limits at the proxy level.
 - **Header Override Support**: Configure how application identity headers (title, URL, User-Agent) are handled for outgoing requests.
 
@@ -1328,3 +1329,15 @@ To ensure the quality of the rewriting rules, the following sanity checks are in
   ```
 # Test change
 # Another test
+#### Dangerous Command Prevention
+
+- Purpose: Prevent LLM agents from executing destructive git operations through local exec tools (e.g., `bash`, `exec_command`, `shell`).
+- Scope: Intercepts tool calls with dangerous git patterns (hard reset, force push, branch/tag delete, prune/gc, worktree/submodule destructive ops, history rewrites, etc.).
+- Behavior: Swallows the tool call and returns a steering message instructing the LLM to ask the user to manually run such commands and warn about consequences. Logs a WARNING with the matched rule and command.
+- Configuration:
+  - `session.dangerous_command_prevention_enabled` (default: true)
+  - `session.dangerous_command_steering_message` (optional custom message)
+  - Env vars:
+    - `DANGEROUS_COMMAND_PREVENTION_ENABLED` (true/false)
+    - `DANGEROUS_COMMAND_STEERING_MESSAGE` (string)
+- Tool names matched (contains): `bash`, `exec_command`, `execute_command`, `run_shell_command`, `shell`, `local_shell`, `container.exec`

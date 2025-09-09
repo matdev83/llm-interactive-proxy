@@ -1,5 +1,15 @@
 # Changelog
 
+## 2025-09-09 – Dangerous Git Command Prevention (Reactor-based)
+
+- New Feature: Configurable prevention layer that intercepts dangerous git commands issued via local execution tool calls in LLM responses.
+  - Implemented as a Tool Call Reactor handler (`dangerous_command_handler`) that runs after JSON and tool-call repair and loop detection, just before forwarding.
+  - Swallows matching tool calls and returns an instructive steering message back to the LLM; logs a WARNING with matched rule and command.
+  - Comprehensive pattern coverage: hard reset, clean -f (except dry-run), destructive restore/checkout forms, forced switch/checkout, orphan checkout, git rm --force (no --cached), rebase, commit --amend, filter-branch, filter-repo, replace, force/force-with-lease push, remote delete (including legacy `:ref`), push --mirror, local branch/tag deletion, update-ref -d, aggressive reflog expiration, prune/gc/repack/lfs prune, worktree remove/prune, submodule deinit/foreach clean -f.
+  - Configurable steering message via `session.dangerous_command_steering_message` or env `DANGEROUS_COMMAND_STEERING_MESSAGE`.
+  - Feature flag: `session.dangerous_command_prevention_enabled` (env `DANGEROUS_COMMAND_PREVENTION_ENABLED`, default true).
+  - Tests: Extensive unit and integration coverage for detection patterns, argument extraction (raw/JSON/arrays/nested), and DI-driven steering message configuration.
+
 This document outlines significant changes and updates to the LLM Interactive Proxy.
 
 ## 2025-09-09 - Header Override Feature
