@@ -13,10 +13,14 @@ def _should_run_real() -> bool:
     )
 
 
-pytestmark = pytest.mark.skipif(
-    not _should_run_real(),
-    reason="Set RUN_REAL_ZAI=1 and provide ZAI_API_KEY to run real tests",
-)
+pytestmark = [
+    pytest.mark.integration,
+    pytest.mark.network,
+    pytest.mark.skipif(
+        not _should_run_real(),
+        reason="Set RUN_REAL_ZAI=1 and provide ZAI_API_KEY to run real tests",
+    ),
+]
 
 
 @pytest.mark.anyio
