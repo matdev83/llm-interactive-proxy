@@ -212,11 +212,17 @@ class RequestProcessor(IRequestProcessor):
 
                     # Enforce input token limit as a hard error
                     try:
-                        max_in = (
-                            limits.get("max_input_tokens")
-                            if isinstance(limits, dict)
-                            else getattr(limits, "max_input_tokens", None)
-                        )
+                        # Determine effective input token limit. Prefer explicit max_input_tokens,
+                        # but fall back to context_window when only that is configured.
+                        max_in = None
+                        if isinstance(limits, dict):
+                            max_in = limits.get("max_input_tokens") or limits.get(
+                                "context_window"
+                            )
+                        else:
+                            max_in = getattr(
+                                limits, "max_input_tokens", None
+                            ) or getattr(limits, "context_window", None)
                         if max_in is not None and max_in > 0:
                             text = extract_prompt_text(
                                 getattr(backend_request, "messages", []) or []

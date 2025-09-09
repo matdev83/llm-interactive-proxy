@@ -80,3 +80,25 @@ class TestContextWindowLimits:
         details = err.get("details", {})
         assert isinstance(details.get("measured"), int)
         assert isinstance(details.get("limit"), int) and details["limit"] == 1
+
+    def test_context_window_aliases_to_input_limit_hard_error(self) -> None:
+        """Ensure context_window acts as an input limit without duplicating logic."""
+        client = self._setup_app_with_defaults(
+            "openai:gpt-4", ModelLimits(context_window=1)
+        )
+
+        payload = {
+            "model": "openai:gpt-4",
+            "messages": [
+                {"role": "user", "content": "This should exceed one token as well."}
+            ],
+        }
+        resp = client.post("/v1/chat/completions", json=payload)
+        assert resp.status_code == 400
+        body = resp.json()
+        detail = body.get("detail", {})
+        err = detail.get("error", {}) if isinstance(detail, dict) else {}
+        assert err.get("code") == "input_limit_exceeded"
+        details = err.get("details", {})
+        assert isinstance(details.get("measured"), int)
+        assert isinstance(details.get("limit"), int) and details["limit"] == 1

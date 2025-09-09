@@ -95,7 +95,12 @@ def analyze_imports(
         Dictionary mapping module paths to lists of imported legacy modules
     """
     if legacy_prefixes is None:
-        legacy_prefixes = ["src.proxy_logic", "src.command_parser", "src.command_processor", "src.session"]
+        legacy_prefixes = [
+            "src.proxy_logic",
+            "src.command_parser",
+            "src.command_processor",
+            "src.session",
+        ]
     dependencies = {}
     directory_path = Path(directory)
 

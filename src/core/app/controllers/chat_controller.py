@@ -77,23 +77,27 @@ class ChatController:
             ):
                 try:
                     # Build AnthropicMessagesRequest from the OpenAI-style ChatRequest
+                    from typing import cast as _cast
+
                     from src.anthropic_models import (
                         AnthropicMessage,
                         AnthropicMessagesRequest,
                     )
-
-                    # Local import to avoid mypy module duplication issues
                     from src.core.app.controllers.anthropic_controller import (
-                        get_anthropic_controller_if_available,
+                        get_anthropic_controller,
                     )
                     from src.core.services.translation_service import (
                         TranslationService,
                     )
 
-                    anth_messages = [
-                        AnthropicMessage(role=m.role, content=m.content or "")
-                        for m in domain_request.messages
-                    ]
+                    # Normalize message content to str for AnthropicMessage
+                    anth_messages = []
+                    for m in domain_request.messages:
+                        content_str = m.content if isinstance(m.content, str) else ""
+                        anth_messages.append(
+                            AnthropicMessage(role=m.role, content=content_str)
+                        )
+
                     anth_req = AnthropicMessagesRequest(
                         model="claude-sonnet-4-20250514",
                         messages=anth_messages,
@@ -104,14 +108,19 @@ class ChatController:
                         top_k=getattr(domain_request, "top_k", None),
                     )
 
-                    # Delegate to Anthropic controller
-                    anthropic_controller = await get_anthropic_controller_if_available(
-                        request
+                    # Resolve controller via DI
+                    from src.core.app.controllers import (
+                        get_service_provider_dependency as _gspd,
                     )
-                    anth_response = (
-                        await anthropic_controller.handle_anthropic_messages(
-                            request, anth_req
-                        )
+                    from src.core.interfaces.di_interface import IServiceProvider
+
+                    sp = await _gspd(request)
+                    anth_controller = get_anthropic_controller(
+                        _cast(IServiceProvider, sp)
+                    )
+
+                    anth_response = await anth_controller.handle_anthropic_messages(
+                        request, anth_req
                     )
 
                     # Extract JSON body
@@ -123,16 +132,20 @@ class ChatController:
 
                         anth_json = _json.loads(body_content.decode())
                     except Exception:
-                        return anth_response  # Fallback: return as-is
+                        return anth_response  # type: ignore[return-value]
 
                     # Convert Anthropic JSON to domain then to OpenAI shape
                     ts = TranslationService()
                     domain_resp = ts.to_domain_response(anth_json, "anthropic")
                     openai_json = ts.from_domain_to_openai_response(domain_resp)
 
-                    from fastapi.responses import JSONResponse as _JSONResponse
+                    from fastapi import Response as _Response
 
-                    return _JSONResponse(content=openai_json, status_code=200)
+                    return _Response(
+                        content=_json.dumps(openai_json),
+                        media_type="application/json",
+                        status_code=200,
+                    )
                 except Exception as _e:  # On any failure, fall back to default path
                     logger.debug(
                         f"ZAI delegation fallback due to error: {_e}", exc_info=True
