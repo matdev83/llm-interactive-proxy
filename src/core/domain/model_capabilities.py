@@ -376,8 +376,9 @@ KNOWN_MODEL_CAPABILITIES = {
             ModelCapability.REASONING,
         ],
         limits=ModelLimits(
-            max_tokens=120000,
-            context_window=120000,
+            max_tokens=128000,
+            max_input_tokens=120000,
+            context_window=128000,
         ),
     ),
 }

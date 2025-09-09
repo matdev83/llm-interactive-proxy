@@ -27,9 +27,10 @@ class TestContextWindowLimits:
         app.state.disable_auth = True
         return TestClient(app)
 
-    def test_output_limit_caps_max_tokens(
+    def test_output_limit_no_longer_enforced(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
+        """Test that max_output_tokens is no longer enforced (removed as redundant)."""
         client = self._setup_app_with_defaults(
             "openai:gpt-4", ModelLimits(max_output_tokens=50)
         )
@@ -60,7 +61,8 @@ class TestContextWindowLimits:
 
         assert captured, "Expected backend request to be captured"
         called_req = captured[0]["request"]
-        assert getattr(called_req, "max_tokens", None) == 50
+        # max_tokens should no longer be capped since max_output_tokens enforcement was removed
+        assert getattr(called_req, "max_tokens", None) == 100
 
     def test_input_limit_hard_error(self) -> None:
         client = self._setup_app_with_defaults(

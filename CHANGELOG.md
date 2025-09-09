@@ -37,7 +37,6 @@ This document outlines significant changes and updates to the LLM Interactive Pr
 
 - **New Feature**: Added context window size overrides to enforce per-model context window limits at the proxy level.
   - **Per-Model Overrides**: Add `ModelDefaults.limits` (`ModelLimits`) for per-model overrides.
-  - **Output Capping**: Enforce an output cap (`max_output_tokens`).
   - **Input Hard Error**: Enforce an input hard error (`max_input_tokens`).
   - **Structured Error Payload**: Provides a structured error payload with the code `input_limit_exceeded`.
   - **Token Counting Utility**: Includes a token counting utility with `tiktoken` fallback.

@@ -184,31 +184,9 @@ class RequestProcessor(IRequestProcessor):
                     )
                 )
                 if limits is not None:
-                    # Cap output tokens if requested above limit
-                    try:
-                        max_out = (
-                            limits.get("max_output_tokens")
-                            if isinstance(limits, dict)
-                            else getattr(limits, "max_output_tokens", None)
-                        )
-                        if (
-                            max_out is not None
-                            and backend_request.max_tokens is not None
-                            and int(backend_request.max_tokens) > int(max_out)
-                        ):
-                            # Mutate request to respect output token cap
-                            logger.info(
-                                "Capping max_tokens from %s to %s for model '%s'",
-                                getattr(backend_request, "max_tokens", None),
-                                int(max_out),
-                                requested_model,
-                            )
-                            backend_request = backend_request.model_copy(
-                                update={"max_tokens": int(max_out)}
-                            )
-                    except Exception:
-                        # Best-effort capping; don't fail on errors
-                        pass
+                    # Note: max_output_tokens enforcement removed as it's redundant with backend limits
+                    # and provides limited practical value. Backend providers already enforce
+                    # their own output limits, and models naturally stop when complete.
 
                     # Enforce input token limit as a hard error
                     try:

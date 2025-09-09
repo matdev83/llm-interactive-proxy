@@ -205,7 +205,6 @@ The proxy can enforce per-model context window limits at the request processor l
 
 **Key Features:**
 - **Per-Model Overrides**: Add `ModelDefaults.limits` (`ModelLimits`) for per-model overrides.
-- **Output Capping**: Enforce an output cap (`max_output_tokens`).
 - **Input Hard Error**: Enforce an input hard error (`max_input_tokens`).
 - **Structured Error Payload**: Provides a structured error payload with the code `input_limit_exceeded`.
 - **Token Counting Utility**: Includes a token counting utility with `tiktoken` fallback.
@@ -220,7 +219,6 @@ models:
     your-model-name:
       limits:
         max_input_tokens: 8192
-        max_output_tokens: 4096
 ```
 
 **Interactive Commands:**
