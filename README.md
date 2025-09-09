@@ -20,6 +20,8 @@ The LLM Interactive Proxy is an advanced middleware service that provides a unif
 - **Unified API**: OpenAI-compatible API for all backends.
 - **Empty Response Recovery**: Automatically detects empty LLM responses (no text, no tool call) and retries the request with a corrective prompt to guide the LLM.
 - **Tool Call Reactor**: Event-driven system for reacting to tool calls from LLMs, with pluggable handlers that can provide steering instructions or modify responses.
+- **Context Window Size Overrides**: Enforce per-model context window limits at the proxy level.
+- **Context Window Size Overrides**: Enforce per-model context window limits at the proxy level.
 
 ### Error Mapping (API Behavior)
 
@@ -193,6 +195,38 @@ See `config/sample.env` for complete examples of environment variable setup.
 
 - **Outbound Request Redaction**: Before any request reaches a backend, a request redaction middleware scans user message content (including text parts in multimodal messages) and replaces any discovered API keys with a placeholder `(API_KEY_HAS_BEEN_REDACTED)`. It also strips proxy commands (e.g., `!/hello`) to prevent command leakage to providers.
 - **Logging Redaction**: A global logging filter automatically masks API keys and bearer tokens in all log messages and handler outputs.
+
+### Context Window Size Overrides
+
+The proxy can enforce per-model context window limits at the request processor level. This allows you to set custom context window sizes as a soft-limit, which is enforced at the proxy level.
+
+**Key Features:**
+- **Per-Model Overrides**: Add `ModelDefaults.limits` (`ModelLimits`) for per-model overrides.
+- **Output Capping**: Enforce an output cap (`max_output_tokens`).
+- **Input Hard Error**: Enforce an input hard error (`max_input_tokens`).
+- **Structured Error Payload**: Provides a structured error payload with the code `input_limit_exceeded`.
+- **Token Counting Utility**: Includes a token counting utility with `tiktoken` fallback.
+
+**Configuration:**
+
+To configure context window size overrides, you can add a `limits` section to your model defaults in your `config.yaml` file:
+
+```yaml
+models:
+  defaults:
+    your-model-name:
+      limits:
+        max_input_tokens: 8192
+        max_output_tokens: 4096
+```
+
+**Interactive Commands:**
+
+You can also set the context window size using interactive commands:
+
+```
+!/set(max-context=128K)
+```
 - **Key Discovery**: Keys are discovered from environment variables only (pattern-based, including `Bearer ...`).
 - **Configuration**:
   - Enable/disable prompt redaction via `auth.redact_api_keys_in_prompts` (default: true).
