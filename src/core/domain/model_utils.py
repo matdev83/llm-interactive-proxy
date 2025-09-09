@@ -10,6 +10,7 @@ from typing import Any
 
 from pydantic import Field
 
+from src.core.domain.model_capabilities import ModelLimits
 from src.core.interfaces.model_bases import DomainModel
 
 
@@ -88,6 +89,15 @@ class ModelDefaults(DomainModel):
 
     reasoning: ModelReasoningConfig | None = Field(
         None, description="Reasoning configuration defaults for this model"
+    )
+
+    # Per-model token/context limits that can be enforced at the front-end
+    limits: ModelLimits | None = Field(
+        None,
+        description=(
+            "Limits and constraints for this model, such as max_input_tokens and "
+            "max_output_tokens (applied at the front-end)."
+        ),
     )
 
     # Loop detection default override for this model (backend/model or model)

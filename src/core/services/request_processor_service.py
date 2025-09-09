@@ -115,6 +115,151 @@ class RequestProcessor(IRequestProcessor):
             request_data, command_result
         )
 
+        # Enforce per-model context window limits (front-end enforcement)
+        if backend_request is not None and self._app_state is not None:
+            try:
+                from src.core.common.exceptions import InvalidRequestError
+                from src.core.domain.model_utils import (
+                    ModelDefaults,
+                    parse_model_backend,
+                )
+                from src.core.utils.token_count import count_tokens, extract_prompt_text
+
+                model_defaults_map: dict[str, Any] = (
+                    self._app_state.get_model_defaults() or {}
+                )
+                # Resolve backend and model name
+                backend_type: str | None = None
+                try:
+                    backend_type = self._app_state.get_backend_type()
+                except Exception:
+                    backend_type = None
+
+                _rm = getattr(backend_request, "model", None) or getattr(
+                    request_data, "model", ""
+                )
+                requested_model: str = str(_rm)
+                backend_key, model_name = parse_model_backend(
+                    requested_model, (backend_type or "")
+                )
+
+                # Candidate keys to look up defaults
+                candidate_keys: list[str] = []
+                if requested_model:
+                    candidate_keys.append(requested_model)
+                if backend_key and model_name:
+                    candidate_keys.append(f"{backend_key}:{model_name}")
+                    candidate_keys.append(f"{backend_key}/{model_name}")
+                if model_name:
+                    candidate_keys.append(model_name)
+
+                model_defaults: ModelDefaults | dict[str, Any] | None = None
+                for k in candidate_keys:
+                    md = model_defaults_map.get(k)
+                    if md is None:
+                        continue
+                    # Accept either a ModelDefaults instance or a plain dict-like
+                    if isinstance(md, (ModelDefaults, dict)):  # noqa: UP038
+                        model_defaults = md
+                        break
+
+                if logger.isEnabledFor(logging.INFO):
+                    logger.info(
+                        "Model limits lookup: requested_model=%s backend=%s model=%s candidates=%s found=%s",
+                        requested_model,
+                        backend_key,
+                        model_name,
+                        candidate_keys,
+                        bool(model_defaults),
+                    )
+
+                limits = (
+                    getattr(model_defaults, "limits", None)
+                    if model_defaults is not None
+                    and not isinstance(model_defaults, dict)
+                    else (
+                        model_defaults.get("limits")
+                        if isinstance(model_defaults, dict)
+                        else None
+                    )
+                )
+                if limits is not None:
+                    # Cap output tokens if requested above limit
+                    try:
+                        max_out = (
+                            limits.get("max_output_tokens")
+                            if isinstance(limits, dict)
+                            else getattr(limits, "max_output_tokens", None)
+                        )
+                        if (
+                            max_out is not None
+                            and backend_request.max_tokens is not None
+                            and int(backend_request.max_tokens) > int(max_out)
+                        ):
+                            # Mutate request to respect output token cap
+                            logger.info(
+                                "Capping max_tokens from %s to %s for model '%s'",
+                                getattr(backend_request, "max_tokens", None),
+                                int(max_out),
+                                requested_model,
+                            )
+                            backend_request = backend_request.model_copy(
+                                update={"max_tokens": int(max_out)}
+                            )
+                    except Exception:
+                        # Best-effort capping; don't fail on errors
+                        pass
+
+                    # Enforce input token limit as a hard error
+                    try:
+                        max_in = (
+                            limits.get("max_input_tokens")
+                            if isinstance(limits, dict)
+                            else getattr(limits, "max_input_tokens", None)
+                        )
+                        if max_in is not None and max_in > 0:
+                            text = extract_prompt_text(
+                                getattr(backend_request, "messages", []) or []
+                            )
+                            measured = int(count_tokens(text, model=model_name))
+                            if measured > int(max_in):
+                                logger.info(
+                                    "Input token limit exceeded: measured=%s limit=%s model=%s",
+                                    measured,
+                                    int(max_in),
+                                    requested_model,
+                                )
+                                raise InvalidRequestError(
+                                    message="Input token limit exceeded",
+                                    code="input_limit_exceeded",
+                                    param="messages",
+                                    details={
+                                        "model": requested_model or model_name,
+                                        "limit": int(max_in),
+                                        "measured": measured,
+                                    },
+                                )
+                    except InvalidRequestError:
+                        # Re-raise structured invalid request
+                        raise
+                    except Exception:
+                        # Best-effort enforcement; don't fail on unexpected issues
+                        if logger.isEnabledFor(logging.DEBUG):
+                            logger.debug(
+                                "Failed to enforce input token limit; continuing",
+                                exc_info=True,
+                            )
+            except InvalidRequestError:
+                # Bubble up to FastAPI exception handlers
+                raise
+            except Exception:
+                # If anything in enforcement fails, continue without blocking
+                if logger.isEnabledFor(logging.DEBUG):
+                    logger.debug(
+                        "Model limits enforcement encountered an error; proceeding",
+                        exc_info=True,
+                    )
+
         # Apply request redaction middleware (API keys and proxy commands)
         # just before calling the backend, so both original and command-modified
         # messages are covered.

@@ -12,7 +12,12 @@
       "Bash(vulture src/ --min-confidence 60 --sort-by-size)",
       "Bash(vulture:*)",
       "Bash(.venv pytest --tb=short -q)",
-      "Bash(./.venv/bin/pytest)"
+      "Bash(./.venv/bin/pytest)",
+      "Bash(./.venv/Scripts/pytest.exe)",
+      "Bash(./.venv/Scripts/pytest.exe tests/unit/core/services/test_context_window_limits.py::TestContextWindowLimits::test_output_limit_caps_max_tokens -v)",
+      "Bash(./.venv/Scripts/pytest.exe tests/unit/core/services/test_context_window_limits.py::TestContextWindowLimits::test_input_limit_hard_error -v)",
+      "Bash(./.venv/Scripts/pytest.exe tests/unit/test_test_quality.py::test_ruff_linting_on_tests -v)",
+      "Bash(./.venv/Scripts/pytest.exe tests/unit/test_test_quality.py::test_black_formatting_on_tests -v)"
     ],
     "deny": [],
     "ask": []
