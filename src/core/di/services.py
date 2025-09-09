@@ -7,10 +7,10 @@ and resolving services from the container.
 
 from __future__ import annotations
 
+import asyncio
 import contextlib
 import logging
 import os
-import asyncio
 from collections.abc import Callable
 from typing import Any, TypeVar, cast
 

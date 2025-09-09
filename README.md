@@ -296,6 +296,322 @@ export ZAI_API_KEY="your-zai-api-key"
 - **Authentication Issues**: Verify `ZAI_API_KEY` environment variable is set correctly
 - **Model Availability**: The backend only supports `claude-sonnet-4-20250514`
 
+### Use Case: Z.ai GLM Coding Plan with Any Agentic Coding App
+
+The ZAI Coding Plan backend can be used with **any** agentic coding application (not just Claude Code) to provide access to Claude Sonnet 4 through ZAI's specialized endpoint. This enables you to use high-quality code generation with coding agents like Cline, Roo/Kilo, Aider, or any other OpenAI-compatible coding assistant.
+
+#### Configuration for Generic Coding Apps
+
+To use ZAI Coding Plan with any coding agent, you need to configure the proxy to present itself as a compatible endpoint:
+
+```yaml
+# config.yaml
+backends:
+  zai-coding-plan:
+    type: zai-coding-plan
+    # API key is read from ZAI_API_KEY environment variable
+
+# Set as default backend
+default_backend: zai-coding-plan
+
+# Configure identity headers for compatibility
+identity:
+  title:
+    value: "Claude Code"
+    mode: "override"
+  url:
+    value: "https://claude.ai/code"
+    mode: "override"
+  user_agent:
+    value: "Claude Code/1.0"
+    mode: "override"
+```
+
+#### Environment Setup
+
+```bash
+# Set your ZAI API key
+export ZAI_API_KEY="your-zai-api-key"
+
+# Start the proxy
+python -m src.core.cli --config config.yaml
+```
+
+#### Usage with Different Coding Agents
+
+**For Cline:**
+```bash
+# Configure Cline to use your proxy endpoint
+export OPENAI_API_BASE="http://localhost:8000/v1"
+export OPENAI_API_KEY="your-proxy-api-key"
+```
+
+**For Roo/Kilo:**
+```bash
+# Configure Roo/Kilo to use the proxy
+export ANTHROPIC_API_KEY="your-proxy-api-key"
+export ANTHROPIC_API_URL="http://localhost:8000/v1"
+```
+
+**For Aider:**
+```bash
+# Configure Aider to use the proxy
+aider --model claude-sonnet-4-20250514 --api-base http://localhost:8000/v1 --api-key your-proxy-api-key
+```
+
+**For Generic OpenAI-Compatible Agents:**
+```bash
+# Most agents can be configured with these standard environment variables
+export OPENAI_API_BASE="http://localhost:8000/v1"
+export OPENAI_API_KEY="your-proxy-api-key"
+export OPENAI_MODEL="claude-sonnet-4-20250514"
+```
+
+#### Complete Working Example
+
+Here's a complete configuration that works with most coding agents:
+
+```yaml
+# config/zai-coding-only.yaml
+backends:
+  zai-coding-plan:
+    type: zai-coding-plan
+
+# Use ZAI as default
+default_backend: zai-coding-plan
+
+# Configure proxy settings
+proxy:
+  port: 8000
+  host: "0.0.0.0"
+
+# Set identity headers that work well with coding agents
+identity:
+  title:
+    value: "Coding Assistant"
+    mode: "override"
+  url:
+    value: "https://localhost:8000"
+    mode: "override"
+  user_agent:
+    value: "CodingAgent/1.0"
+    mode: "override"
+
+# Authentication settings
+auth:
+  disable_auth: false  # Set to true for local development
+  api_key_header: "Authorization"
+```
+
+**Start the proxy:**
+```bash
+export ZAI_API_KEY="your-zai-api-key"
+export LLM_INTERACTIVE_PROXY_API_KEY="proxy-key-for-auth"
+python -m src.core.cli --config config/zai-coding-only.yaml
+```
+
+**Use with your coding agent:**
+```bash
+# Example for a generic coding agent
+export OPENAI_API_BASE="http://localhost:8000/v1"
+export OPENAI_API_KEY="proxy-key-for-auth"
+export OPENAI_MODEL="claude-sonnet-4-20250514"
+
+# Start your coding agent - it will now use Claude Sonnet 4 via ZAI
+```
+
+#### Benefits of This Approach
+
+- **Universal Compatibility**: Works with any OpenAI-compatible coding agent
+- **Cost-Effective**: Utilize ZAI's subscription-based billing model
+- **Flexible**: Easy to switch between different coding agents without changing your ZAI setup
+- **Centralized Management**: Single proxy configuration for multiple coding tools
+
+#### Troubleshooting for Generic Apps
+
+- **Agent Compatibility**: Ensure your coding agent supports custom API endpoints
+- **Model Name**: Some agents may require the model name to be in a specific format
+- **Authentication**: Check that your proxy API key is correctly configured in the agent
+- **Headers**: Some agents may require additional headers - use the identity configuration to match what the agent expects
+
+### Use Case: Claude Code with Any Model/Provider
+
+The LLM Interactive Proxy can enable Claude Code (Anthropic's official CLI-based coding agent) to work with **any** LLM model or provider, not just Anthropic models or specialized Anthropic-compatible endpoints. This breaks down the walled garden and allows you to use Claude Code's excellent interface with models from OpenAI, Google Gemini, OpenRouter, or any other supported provider.
+
+#### How It Works
+
+The proxy achieves this by:
+1. **Running an Anthropic-compatible front-end** on a dedicated port
+2. **Intercepting Claude Code's requests** that would normally go to Anthropic's API
+3. **Translating and routing** these requests to your chosen model/provider
+4. **Returning responses** in the format Claude Code expects
+
+#### Configuration Setup
+
+**Step 1: Configure your preferred backend**
+
+```yaml
+# config/claude-code-universal.yaml
+backends:
+  # Use OpenAI models with Claude Code
+  openai:
+    type: openai
+    # API key from OPENAI_API_KEY environment variable
+  
+  # Or use Google Gemini models
+  gemini:
+    type: gemini
+    # API key from GEMINI_API_KEY environment variable
+  
+  # Or use OpenRouter for access to many models
+  openrouter:
+    type: openrouter
+    # API key from OPENROUTER_API_KEY environment variable
+
+# Set your preferred default backend
+default_backend: openai  # or gemini, openrouter, etc.
+
+# Configure proxy settings
+proxy:
+  port: 8000
+  
+# Dedicated Anthropic server settings
+anthropic_server:
+  port: 8001  # Will run on port 8001 (main port + 1)
+```
+
+**Step 2: Set up environment variables**
+
+```bash
+# Your chosen provider's API key
+export OPENAI_API_KEY="your-openai-api-key"
+# or
+export GEMINI_API_KEY="your-gemini-api-key"
+# or
+export OPENROUTER_API_KEY="your-openrouter-api-key"
+
+# Proxy authentication (optional but recommended)
+export LLM_INTERACTIVE_PROXY_API_KEY="your-proxy-key"
+
+# Anthropic server port (optional, defaults to main port + 1)
+export ANTHROPIC_PORT=8001
+```
+
+**Step 3: Start the proxy**
+
+```bash
+python -m src.core.cli --config config/claude-code-universal.yaml
+```
+
+**Step 4: Configure Claude Code to use the proxy**
+
+```bash
+# Override Claude Code's API endpoint to point to your proxy
+export ANTHROPIC_API_URL="http://localhost:8001"
+
+# Set Claude Code's API key to your proxy key
+export ANTHROPIC_API_KEY="your-proxy-key"
+
+# Now start Claude Code - it will use your chosen model/provider!
+claude
+```
+
+#### Complete Working Example
+
+Here's a complete setup to use Claude Code with OpenAI's GPT-5:
+
+```yaml
+# config/claude-with-gpt5.yaml
+backends:
+  openai:
+    type: openai
+
+default_backend: openai
+
+proxy:
+  port: 8000
+
+anthropic_server:
+  port: 8001
+
+# Optional: Configure identity headers
+identity:
+  title:
+    value: "Claude Code"
+    mode: "override"
+  url:
+    value: "https://claude.ai/code"
+    mode: "override"
+```
+
+**Setup commands:**
+```bash
+# Set API keys
+export OPENAI_API_KEY="your-openai-api-key"
+export LLM_INTERACTIVE_PROXY_API_KEY="proxy-auth-key"
+
+# Start the proxy
+python -m src.core.cli --config config/claude-with-gpt4.yaml
+
+# In another terminal, configure and run Claude Code
+export ANTHROPIC_API_URL="http://localhost:8001"
+export ANTHROPIC_API_KEY="proxy-auth-key"
+
+# Launch Claude Code - it will now use GPT-5 through OpenAI!
+claude
+```
+
+#### Advanced Usage: Dynamic Model Switching
+
+You can even switch between different models/providers within Claude Code using in-chat commands:
+
+```bash
+# Start with OpenAI GPT-5
+!/backend(openai)
+!/model(gpt-5)
+
+# Switch to Gemini mid-conversation
+!/backend(gemini)
+!/model(gemini-2.5-pro)
+
+# Use OpenRouter for Qwen 3 Coder
+!/backend(openrouter)
+!/model(qwen/qwen3-coder)
+```
+
+#### Model/Provider Compatibility
+
+| Provider | Compatible Models | Notes |
+|----------|------------------|-------|
+| **OpenAI** | gpt-5, gpt-4o, gpt-4o-mini | Full compatibility |
+| **Google Gemini** | gemini-2.5-pro, gemini-2.5-flash | Excellent code generation |
+| **OpenRouter** | qwen/qwen3-coder, claude-3.5-sonnet, gpt-4o | Access to multiple models |
+| **ZAI** | GLM-4.5 | Subscription-based billing |
+
+#### Benefits of This Approach
+
+- **Break Free from Vendor Lock-in**: Use Claude Code's interface with any model you prefer
+- **Cost Optimization**: Choose the most cost-effective model for your needs
+- **Model Specialization**: Use different models for different types of tasks
+- **Unified Interface**: Single, polished coding agent interface for all your models
+- **Easy Switching**: Change models without leaving your coding session
+- **Future-Proof**: Add new providers as they become available
+
+#### Troubleshooting
+
+- **Connection Issues**: Ensure the proxy is running on the correct port and Claude Code is pointing to `http://localhost:8001`
+- **Authentication**: Verify both your provider API key and proxy key are correctly set
+- **Model Compatibility**: Some models may have different capabilities or response formats
+- **Rate Limits**: Be aware of rate limits for your chosen provider
+- **Command Recognition**: Ensure in-chat commands are enabled in your proxy configuration
+
+#### Performance Considerations
+
+- **Latency**: There may be slight additional latency due to the proxy layer
+- **Streaming**: The proxy maintains full streaming support for real-time responses
+- **Session Management**: Claude Code's session features work seamlessly through the proxy
+- **Tool Use**: Most models support tool use, but capabilities may vary between providers
+
 ### Gemini Backends Overview
 
 The proxy supports three different Gemini backends, each with its own authentication method and use case:

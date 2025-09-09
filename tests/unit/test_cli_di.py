@@ -118,27 +118,6 @@ def test_main_log_file(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     assert recorded.get("filename") == str(log_file)
 
 
-# Skip this test as it's already covered by the original test_cli.py
-@pytest.mark.skip(reason="Already covered by test_cli.py, keeping for reference")
-def test_build_app_uses_env(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
-    for i in range(1, 21):
-        monkeypatch.delenv(f"GEMINI_API_KEY_{i}", raising=False)
-    monkeypatch.setenv("LLM_BACKEND", "gemini")
-    monkeypatch.setenv("GEMINI_API_KEY", "KEY")
-    monkeypatch.setenv("COMMAND_PREFIX", "??/")
-    app = app_main_build_app()
-
-    with TestClient(app):  # Ensure lifespan runs
-        # For this specific test, we'll use the direct app.state access
-        # since we're testing the environment variable loading which happens
-        # before the DI container is fully set up
-        assert app.state.app_config.backends.default_backend == "gemini"
-        assert app.state.app_config.command_prefix == "??/"
-
-    monkeypatch.delenv("COMMAND_PREFIX", raising=False)
-
-
 @pytest.mark.asyncio
 async def test_build_app_uses_interactive_env(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("GEMINI_API_KEY", raising=False)
