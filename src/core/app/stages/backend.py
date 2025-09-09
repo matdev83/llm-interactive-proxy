@@ -180,9 +180,12 @@ class BackendStage(InitializationStage):
 
             def backend_service_factory(provider: IServiceProvider) -> BackendService:
                 """Factory function for creating BackendService with all dependencies."""
+                import contextlib
                 from typing import cast
 
                 from src.core.config.app_config import AppConfig
+                from src.core.interfaces.failover_interface import IFailoverCoordinator
+                from src.core.interfaces.wire_capture_interface import IWireCapture
                 from src.core.services.backend_factory import BackendFactory
 
                 backend_factory: BackendFactory = provider.get_required_service(
@@ -200,6 +203,18 @@ class BackendStage(InitializationStage):
                     cast(type, IApplicationState)
                 )
 
+                # Get optional failover coordinator
+                failover_coordinator: IFailoverCoordinator | None = None
+                with contextlib.suppress(Exception):
+                    failover_coordinator = provider.get_service(
+                        cast(type, IFailoverCoordinator)
+                    )
+
+                # Get wire capture service
+                wire_capture: IWireCapture = provider.get_required_service(
+                    cast(type, IWireCapture)
+                )
+
                 return BackendService(
                     backend_factory,
                     rate_limiter,
@@ -207,6 +222,8 @@ class BackendStage(InitializationStage):
                     session_service,
                     app_state,
                     backend_config_provider=backend_config_provider,
+                    failover_coordinator=failover_coordinator,
+                    wire_capture=wire_capture,
                 )
 
             services.add_singleton(

@@ -44,7 +44,10 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def find_legacy_endpoints(base_path: str) -> list[dict[str, str]]:
+from typing import Any
+
+
+def find_legacy_endpoints(base_path: str) -> list[dict[str, Any]]:
     """Find legacy API endpoints in the codebase.
 
     Args:
@@ -113,7 +116,7 @@ def find_legacy_endpoints(base_path: str) -> list[dict[str, str]]:
 
 
 def apply_deprecation_warnings(
-    endpoints: list[dict[str, str]], sunset_date: str
+    endpoints: list[dict[str, Any]], sunset_date: str
 ) -> None:
     """Apply deprecation warnings to legacy endpoints.
 
@@ -128,7 +131,7 @@ def apply_deprecation_warnings(
                 content = f.readlines()
 
             # Line where the endpoint is defined
-            line_num = endpoint["line"] - 1
+            line_num = int(endpoint["line"]) - 1
 
             # Check if deprecation has already been applied
             if line_num < len(content) and "DEPRECATED" in content[line_num]:
@@ -164,7 +167,7 @@ def apply_deprecation_warnings(
                 # JSON response - add warning to the dict
                 new_response_line = (
                     f"{indent}# DEPRECATED: This endpoint will be removed on {sunset_date}\n"
-                    f"{indent}response_data = {content[response_line].strip('return ').strip()}\n"
+                    f"{indent}response_data = {content[response_line].lstrip('return ').rstrip()}\n"
                     f"{indent}if isinstance(response_data, dict):\n"
                     f"{indent}    response_data['deprecated'] = True\n"
                     f"{indent}    response_data['sunset_date'] = '{sunset_date}'\n"
@@ -181,7 +184,7 @@ def apply_deprecation_warnings(
                 # Response object - add warning header
                 warning_lines = [
                     f"{indent}# DEPRECATED: This endpoint will be removed on {sunset_date}\n",
-                    f"{indent}response = {content[response_line].strip('return ').strip()}\n",
+                    f"{indent}response = {content[response_line].lstrip('return ').rstrip()}\n",
                     f"{indent}response.headers['Deprecation'] = 'true'\n",
                     f"{indent}response.headers['Sunset'] = '{sunset_date}'\n",
                     f"{indent}return response\n",

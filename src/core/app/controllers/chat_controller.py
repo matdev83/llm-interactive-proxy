@@ -10,7 +10,7 @@ import logging
 from fastapi import HTTPException, Request, Response
 
 from src.core.common.exceptions import InitializationError, LLMProxyError
-from src.core.domain.chat import ChatRequest
+from src.core.domain.chat import ChatRequest, ChatResponse
 from src.core.interfaces.backend_request_manager_interface import IBackendRequestManager
 from src.core.interfaces.di_interface import IServiceProvider
 from src.core.interfaces.request_processor_interface import IRequestProcessor
@@ -53,14 +53,90 @@ class ChatController:
             An HTTP response
         """
         try:
-            # Parse the request body as JSON
-            domain_request = ChatRequest(**await request.json())
+            # Use already-validated request_data instead of re-parsing
+            domain_request = request_data
 
             logger.info(
                 f"Handling chat completion request: model={domain_request.model}, processor_type={type(self._processor).__name__}, processor_id={id(self._processor)}"
             )
             if self._processor is None:
                 raise HTTPException(status_code=500, detail="Processor is None")
+
+            # Special-case ZAI: delegate non-streaming calls through Anthropic controller path
+            # to ensure identical headers/payload behavior as /anthropic/v1/messages
+            try:
+                from src.core.domain.model_utils import parse_model_backend
+            except Exception:
+                parse_model_backend = None  # type: ignore[assignment]
+
+            if (
+                not getattr(domain_request, "stream", False)
+                and parse_model_backend is not None
+                and parse_model_backend(str(domain_request.model or ""))[0]
+                in ("zai-coding-plan", "zai_coding_plan")
+            ):
+                try:
+                    # Build AnthropicMessagesRequest from the OpenAI-style ChatRequest
+                    from src.anthropic_models import (
+                        AnthropicMessage,
+                        AnthropicMessagesRequest,
+                    )
+
+                    # Local import to avoid mypy module duplication issues
+                    from src.core.app.controllers.anthropic_controller import (
+                        get_anthropic_controller_if_available,
+                    )
+                    from src.core.services.translation_service import (
+                        TranslationService,
+                    )
+
+                    anth_messages = [
+                        AnthropicMessage(role=m.role, content=m.content or "")
+                        for m in domain_request.messages
+                    ]
+                    anth_req = AnthropicMessagesRequest(
+                        model="claude-sonnet-4-20250514",
+                        messages=anth_messages,
+                        max_tokens=domain_request.max_tokens or 1024,
+                        stream=False,
+                        temperature=domain_request.temperature,
+                        top_p=domain_request.top_p,
+                        top_k=getattr(domain_request, "top_k", None),
+                    )
+
+                    # Delegate to Anthropic controller
+                    anthropic_controller = await get_anthropic_controller_if_available(
+                        request
+                    )
+                    anth_response = (
+                        await anthropic_controller.handle_anthropic_messages(
+                            request, anth_req
+                        )
+                    )
+
+                    # Extract JSON body
+                    body_content = getattr(anth_response, "body", b"")
+                    if isinstance(body_content, memoryview):
+                        body_content = body_content.tobytes()
+                    try:
+                        import json as _json
+
+                        anth_json = _json.loads(body_content.decode())
+                    except Exception:
+                        return anth_response  # Fallback: return as-is
+
+                    # Convert Anthropic JSON to domain then to OpenAI shape
+                    ts = TranslationService()
+                    domain_resp = ts.to_domain_response(anth_json, "anthropic")
+                    openai_json = ts.from_domain_to_openai_response(domain_resp)
+
+                    from fastapi.responses import JSONResponse as _JSONResponse
+
+                    return _JSONResponse(content=openai_json, status_code=200)
+                except Exception as _e:  # On any failure, fall back to default path
+                    logger.debug(
+                        f"ZAI delegation fallback due to error: {_e}", exc_info=True
+                    )
 
             # Convert FastAPI Request to RequestContext and process via core processor
             ctx = fastapi_to_domain_request_context(request, attach_original=True)
@@ -76,9 +152,96 @@ class ChatController:
             # Ensure OpenAI Chat Completions JSON schema for non-streaming responses
             def _ensure_openai_chat_schema(content: object) -> object:
                 try:
+                    # If domain ChatResponse, convert to dict first
+                    if isinstance(content, ChatResponse):
+                        content = content.model_dump()
+
                     # If already in expected schema, return as-is
                     if isinstance(content, dict) and "choices" in content:
                         return content
+
+                    # Handle Anthropic-style message dict -> OpenAI chat.completion
+                    if (
+                        isinstance(content, dict)
+                        and content.get("type") == "message"
+                        and isinstance(content.get("content"), list)
+                    ):
+                        import json as _json
+                        import time as _time
+                        import uuid as _uuid
+
+                        # Extract text blocks
+                        text_parts: list[str] = []
+                        tool_calls: list[dict] = []
+                        for block in content.get("content", []):
+                            if not isinstance(block, dict):
+                                continue
+                            btype = block.get("type")
+                            if btype == "text":
+                                part_text = block.get("text") or ""
+                                if part_text:
+                                    text_parts.append(str(part_text))
+                            elif btype == "tool_use":
+                                # Map to OpenAI tool_calls structure
+                                fn_name = block.get("name") or "tool"
+                                fn_args = block.get("input") or {}
+                                tool_calls.append(
+                                    {
+                                        "id": str(
+                                            block.get("id")
+                                            or f"call_{_uuid.uuid4().hex[:16]}"
+                                        ),
+                                        "type": "function",
+                                        "function": {
+                                            "name": str(fn_name),
+                                            "arguments": _json.dumps(fn_args),
+                                        },
+                                    }
+                                )
+
+                        text = "\n\n".join(text_parts).strip()
+                        stop_reason = content.get("stop_reason") or "stop"
+                        if stop_reason == "end_turn":
+                            finish_reason = "stop"
+                        elif stop_reason == "max_tokens":
+                            finish_reason = "length"
+                        elif stop_reason == "tool_use":
+                            finish_reason = "tool_calls"
+                        else:
+                            finish_reason = str(stop_reason)
+
+                        usage = content.get("usage") or {}
+                        openai_usage = {
+                            "prompt_tokens": usage.get("input_tokens", 0),
+                            "completion_tokens": usage.get("output_tokens", 0),
+                            "total_tokens": (usage.get("input_tokens", 0) or 0)
+                            + (usage.get("output_tokens", 0) or 0),
+                        }
+
+                        message_obj: dict[str, object] = {"role": "assistant"}
+                        if text:
+                            message_obj["content"] = text
+                        if tool_calls:
+                            message_obj["tool_calls"] = tool_calls
+
+                        return {
+                            "id": content.get(
+                                "id", f"chatcmpl-{_uuid.uuid4().hex[:16]}"
+                            ),
+                            "object": "chat.completion",
+                            "created": int(_time.time()),
+                            "model": content.get(
+                                "model", getattr(domain_request, "model", "gpt-4")
+                            ),
+                            "choices": [
+                                {
+                                    "index": 0,
+                                    "message": message_obj,
+                                    "finish_reason": finish_reason,
+                                }
+                            ],
+                            "usage": openai_usage,
+                        }
 
                     import json as _json
                     import time

@@ -27,9 +27,9 @@ for fp in files:
         continue
 
     new_text = text
-    replacements = []
+    replacements: list[tuple[str, str]] = []
 
-    def repl(m: re.Match) -> str:
+    def repl(m: re.Match, replacements=replacements) -> str:
         var = m.group("var")
         attr = m.group("attr")
         backend_name = attr.replace("_", "-")

@@ -62,8 +62,29 @@ class InfrastructureStage(InitializationStage):
         try:
             import httpx
 
-            # Create shared HTTP client instance
-            shared_httpx_client = httpx.AsyncClient()
+            # Create shared HTTP client instance with http2 fallback
+            try:
+                shared_httpx_client = httpx.AsyncClient(
+                    http2=True,
+                    timeout=httpx.Timeout(
+                        connect=10.0, read=60.0, write=60.0, pool=60.0
+                    ),
+                    limits=httpx.Limits(
+                        max_connections=100, max_keepalive_connections=20
+                    ),
+                    trust_env=False,
+                )
+            except ImportError:
+                shared_httpx_client = httpx.AsyncClient(
+                    http2=False,
+                    timeout=httpx.Timeout(
+                        connect=10.0, read=60.0, write=60.0, pool=60.0
+                    ),
+                    limits=httpx.Limits(
+                        max_connections=100, max_keepalive_connections=20
+                    ),
+                    trust_env=False,
+                )
 
             # Register as singleton instance
             services.add_instance(httpx.AsyncClient, shared_httpx_client)

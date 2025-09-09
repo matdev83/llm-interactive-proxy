@@ -7,6 +7,7 @@ from .openai_oauth import OpenAIOAuthConnector
 from .openrouter import OpenRouterBackend
 from .qwen_oauth import QwenOAuthConnector
 from .zai import ZAIConnector
+from .zai_coding_plan import ZaiCodingPlanBackend
 
 __all__ = [
     "AnthropicBackend",
@@ -18,4 +19,5 @@ __all__ = [
     "OpenRouterBackend",
     "QwenOAuthConnector",
     "ZAIConnector",
+    "ZaiCodingPlanBackend",
 ]

@@ -17,7 +17,7 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 def collect_candidates(dirpath: Path, suffix: str) -> dict[str, str]:
-    mapping = {}
+    mapping: dict[str, str] = {}
     if not dirpath.exists():
         return mapping
     for p in dirpath.iterdir():
@@ -73,20 +73,28 @@ def main() -> int:
     for p in py_files:
         text = p.read_text(encoding="utf-8")
         new_text = text
+
+        def create_iface_replacer(replacement):
+            def replacer(m):
+                return m.group(0).replace(
+                    m.group(0).split()[1], f"src.core.interfaces.{replacement}"
+                )
+
+            return replacer
+
         for rx, repl in iface_patterns:
-            new_text = rx.sub(
-                lambda m: m.group(0).replace(
-                    m.group(0).split()[1], f"src.core.interfaces.{repl}"
-                ),
-                new_text,
-            )
+            new_text = rx.sub(create_iface_replacer(repl), new_text)
+
+        def create_svc_replacer(replacement):
+            def replacer(m):
+                return m.group(0).replace(
+                    m.group(0).split()[1], f"src.core.services.{replacement}"
+                )
+
+            return replacer
+
         for rx, repl in svc_patterns:
-            new_text = rx.sub(
-                lambda m: m.group(0).replace(
-                    m.group(0).split()[1], f"src.core.services.{repl}"
-                ),
-                new_text,
-            )
+            new_text = rx.sub(create_svc_replacer(repl), new_text)
 
         # replace dotted references
         for rx, repl in iface_dot_patterns:

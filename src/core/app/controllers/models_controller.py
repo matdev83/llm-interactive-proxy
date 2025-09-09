@@ -182,8 +182,24 @@ def get_backend_factory_service() -> BackendFactory:
         from src.core.services.backend_registry import backend_registry
         from src.core.services.translation_service import TranslationService
 
-        httpx_client = httpx.AsyncClient()
+        try:
+            httpx_client = httpx.AsyncClient(
+                http2=True,
+                timeout=httpx.Timeout(connect=10.0, read=60.0, write=60.0, pool=60.0),
+                limits=httpx.Limits(max_connections=100, max_keepalive_connections=20),
+                trust_env=False,
+            )
+        except ImportError:
+            httpx_client = httpx.AsyncClient(
+                http2=False,
+                timeout=httpx.Timeout(connect=10.0, read=60.0, write=60.0, pool=60.0),
+                limits=httpx.Limits(max_connections=100, max_keepalive_connections=20),
+                trust_env=False,
+            )
         config = AppConfig()  # Use default config as fallback
+        # Get translation service from DI container if available, otherwise create new instance
+        # Note: This function is used as a FastAPI dependency, so we create a new instance
+        # for simplicity. In production, this should ideally use DI.
         translation_service = TranslationService()
         return BackendFactory(
             httpx_client, backend_registry, config, translation_service

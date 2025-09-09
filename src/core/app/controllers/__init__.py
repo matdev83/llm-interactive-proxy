@@ -393,8 +393,10 @@ def register_versioned_endpoints(app: FastAPI) -> None:
             if "model" not in request_data:
                 request_data["model"] = model
 
-            # Create translation service instance
-            translation_service = TranslationService()
+            # Get translation service from DI container
+            translation_service = service_provider.get_required_service(
+                TranslationService
+            )
 
             # Convert Gemini request to canonical domain request
             domain_request = translation_service.to_domain_request(
@@ -555,8 +557,10 @@ def register_versioned_endpoints(app: FastAPI) -> None:
             if "stream" not in request_data:
                 request_data["stream"] = True
 
-            # Create translation service instance
-            translation_service = TranslationService()
+            # Get translation service from DI container
+            translation_service = service_provider.get_required_service(
+                TranslationService
+            )
 
             # Convert Gemini request to canonical domain request
             domain_request = translation_service.to_domain_request(
