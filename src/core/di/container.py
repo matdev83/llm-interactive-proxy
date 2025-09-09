@@ -368,8 +368,8 @@ class ServiceCollection(IServiceCollection):
         from src.core.services.session_service import (
             SessionService,  # type: ignore[import-untyped]
         )
-        from src.core.services.tool_call_handlers.apply_diff_handler import (
-            ApplyDiffHandler as ToolCallHandler,  # type: ignore[import-untyped]
+        from src.core.services.tool_call_handlers.config_steering_handler import (
+            ConfigSteeringHandler as ToolCallHandler,  # type: ignore[import-untyped]
         )
         from src.core.services.usage_tracking_service import (
             UsageTrackingService,  # type: ignore[import-untyped]

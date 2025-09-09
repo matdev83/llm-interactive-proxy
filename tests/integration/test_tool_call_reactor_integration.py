@@ -36,21 +36,26 @@ class TestToolCallReactorIntegration:
         self, reactor_service, reactor_middleware
     ):
         """Test end-to-end apply_diff steering functionality."""
-        # Check if ApplyDiffHandler is already registered (from DI container setup)
+        # Ensure a config-based steering handler is present (DI normally provides it)
         handlers = reactor_service.get_registered_handlers()
-        if "apply_diff_steering_handler" not in handlers:
-            # Manually register the ApplyDiffHandler for this test
-            from src.core.services.tool_call_handlers.apply_diff_handler import (
-                ApplyDiffHandler,
-            )
-            from src.core.services.tool_call_reactor_service import (
-                InMemoryToolCallHistoryTracker,
+        if "config_steering_handler" not in handlers:
+            from src.core.services.tool_call_handlers.config_steering_handler import (
+                ConfigSteeringHandler,
             )
 
-            history_tracker = InMemoryToolCallHistoryTracker()
-            apply_diff_handler = ApplyDiffHandler(history_tracker)
-
-            await reactor_service.register_handler(apply_diff_handler)
+            config_handler = ConfigSteeringHandler(
+                rules=[
+                    {
+                        "name": "apply_diff_to_patch_file",
+                        "enabled": True,
+                        "priority": 100,
+                        "triggers": {"tool_names": ["apply_diff"], "phrases": []},
+                        "message": "You tried to use apply_diff tool. Please prefer to use patch_file tool instead, as it is superior to apply_diff and provides automated Python QA checks.",
+                        "rate_limit": {"calls_per_window": 1, "window_seconds": 60},
+                    }
+                ]
+            )
+            await reactor_service.register_handler(config_handler)
 
         # Create a response with apply_diff tool call
         tool_call_response = {
@@ -114,21 +119,26 @@ class TestToolCallReactorIntegration:
     @pytest.mark.asyncio
     async def test_rate_limiting_integration(self, reactor_service, reactor_middleware):
         """Test rate limiting functionality in integration."""
-        # Check if ApplyDiffHandler is already registered (from DI container setup)
+        # Ensure a config-based steering handler is present
         handlers = reactor_service.get_registered_handlers()
-        if "apply_diff_steering_handler" not in handlers:
-            # Manually register the ApplyDiffHandler for this test
-            from src.core.services.tool_call_handlers.apply_diff_handler import (
-                ApplyDiffHandler,
-            )
-            from src.core.services.tool_call_reactor_service import (
-                InMemoryToolCallHistoryTracker,
+        if "config_steering_handler" not in handlers:
+            from src.core.services.tool_call_handlers.config_steering_handler import (
+                ConfigSteeringHandler,
             )
 
-            history_tracker = InMemoryToolCallHistoryTracker()
-            apply_diff_handler = ApplyDiffHandler(history_tracker)
-
-            await reactor_service.register_handler(apply_diff_handler)
+            config_handler = ConfigSteeringHandler(
+                rules=[
+                    {
+                        "name": "apply_diff_to_patch_file",
+                        "enabled": True,
+                        "priority": 100,
+                        "triggers": {"tool_names": ["apply_diff"], "phrases": []},
+                        "message": "You tried to use apply_diff tool. Please prefer to use patch_file tool instead, as it is superior to apply_diff and provides automated Python QA checks.",
+                        "rate_limit": {"calls_per_window": 1, "window_seconds": 60},
+                    }
+                ]
+            )
+            await reactor_service.register_handler(config_handler)
         tool_call_response = {
             "choices": [
                 {
@@ -212,21 +222,26 @@ class TestToolCallReactorIntegration:
     @pytest.mark.asyncio
     async def test_multiple_tool_calls_mixed(self, reactor_service, reactor_middleware):
         """Test processing multiple tool calls with mixed handling."""
-        # Check if ApplyDiffHandler is already registered (from DI container setup)
+        # Ensure a config-based steering handler is present
         handlers = reactor_service.get_registered_handlers()
-        if "apply_diff_steering_handler" not in handlers:
-            # Manually register the ApplyDiffHandler for this test
-            from src.core.services.tool_call_handlers.apply_diff_handler import (
-                ApplyDiffHandler,
-            )
-            from src.core.services.tool_call_reactor_service import (
-                InMemoryToolCallHistoryTracker,
+        if "config_steering_handler" not in handlers:
+            from src.core.services.tool_call_handlers.config_steering_handler import (
+                ConfigSteeringHandler,
             )
 
-            history_tracker = InMemoryToolCallHistoryTracker()
-            apply_diff_handler = ApplyDiffHandler(history_tracker)
-
-            await reactor_service.register_handler(apply_diff_handler)
+            config_handler = ConfigSteeringHandler(
+                rules=[
+                    {
+                        "name": "apply_diff_to_patch_file",
+                        "enabled": True,
+                        "priority": 100,
+                        "triggers": {"tool_names": ["apply_diff"], "phrases": []},
+                        "message": "You tried to use apply_diff tool. Please prefer to use patch_file tool instead, as it is superior to apply_diff and provides automated Python QA checks.",
+                        "rate_limit": {"calls_per_window": 1, "window_seconds": 60},
+                    }
+                ]
+            )
+            await reactor_service.register_handler(config_handler)
         tool_call_response = {
             "choices": [
                 {
@@ -279,21 +294,26 @@ class TestToolCallReactorIntegration:
         self, reactor_service, reactor_middleware
     ):
         """Test that rate limiting works independently per session."""
-        # Check if ApplyDiffHandler is already registered (from DI container setup)
+        # Ensure a config-based steering handler is present
         handlers = reactor_service.get_registered_handlers()
-        if "apply_diff_steering_handler" not in handlers:
-            # Manually register the ApplyDiffHandler for this test
-            from src.core.services.tool_call_handlers.apply_diff_handler import (
-                ApplyDiffHandler,
-            )
-            from src.core.services.tool_call_reactor_service import (
-                InMemoryToolCallHistoryTracker,
+        if "config_steering_handler" not in handlers:
+            from src.core.services.tool_call_handlers.config_steering_handler import (
+                ConfigSteeringHandler,
             )
 
-            history_tracker = InMemoryToolCallHistoryTracker()
-            apply_diff_handler = ApplyDiffHandler(history_tracker)
-
-            await reactor_service.register_handler(apply_diff_handler)
+            config_handler = ConfigSteeringHandler(
+                rules=[
+                    {
+                        "name": "apply_diff_to_patch_file",
+                        "enabled": True,
+                        "priority": 100,
+                        "triggers": {"tool_names": ["apply_diff"], "phrases": []},
+                        "message": "You tried to use apply_diff tool. Please prefer to use patch_file tool instead, as it is superior to apply_diff and provides automated Python QA checks.",
+                        "rate_limit": {"calls_per_window": 1, "window_seconds": 60},
+                    }
+                ]
+            )
+            await reactor_service.register_handler(config_handler)
         tool_call_response = {
             "choices": [
                 {
@@ -377,28 +397,33 @@ class TestToolCallReactorIntegration:
 
     def test_middleware_configuration(self, reactor_service, reactor_middleware):
         """Test middleware configuration and handler management."""
-        # Check if ApplyDiffHandler is already registered (from DI container setup)
+        # Ensure a config-based steering handler is present
         handlers = reactor_service.get_registered_handlers()
-        if "apply_diff_steering_handler" not in handlers:
-            # Manually register handler for testing
+        if "config_steering_handler" not in handlers:
+            from src.core.services.tool_call_handlers.config_steering_handler import (
+                ConfigSteeringHandler,
+            )
+
+            config_handler = ConfigSteeringHandler(
+                rules=[
+                    {
+                        "name": "apply_diff_to_patch_file",
+                        "enabled": True,
+                        "priority": 100,
+                        "triggers": {"tool_names": ["apply_diff"], "phrases": []},
+                        "message": "You tried to use apply_diff tool. Please prefer to use patch_file tool instead, as it is superior to apply_diff and provides automated Python QA checks.",
+                        "rate_limit": {"calls_per_window": 1, "window_seconds": 60},
+                    }
+                ]
+            )
+            # Register handler synchronously for this test
             import asyncio
 
-            from src.core.services.tool_call_handlers.apply_diff_handler import (
-                ApplyDiffHandler,
-            )
-            from src.core.services.tool_call_reactor_service import (
-                InMemoryToolCallHistoryTracker,
-            )
-
-            history_tracker = InMemoryToolCallHistoryTracker()
-            apply_diff_handler = ApplyDiffHandler(history_tracker)
-
-            # Register handler synchronously for this test
             loop = asyncio.new_event_loop()
             asyncio.set_event_loop(loop)
             try:
                 loop.run_until_complete(
-                    reactor_service.register_handler(apply_diff_handler)
+                    reactor_service.register_handler(config_handler)
                 )
             finally:
                 loop.close()
@@ -406,7 +431,7 @@ class TestToolCallReactorIntegration:
         # Check that handlers are registered
         handlers = reactor_middleware.get_registered_handlers()
         assert len(handlers) > 0
-        assert "apply_diff_steering_handler" in handlers
+        assert "config_steering_handler" in handlers
 
         # Test enabling/disabling
         reactor_middleware.set_enabled(False)

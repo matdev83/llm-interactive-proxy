@@ -836,34 +836,74 @@ def register_core_services(
 
         # Register default handlers if enabled
         if reactor_config.enabled:
-            from src.core.services.tool_call_handlers.apply_diff_handler import (
-                ApplyDiffHandler,
+            from src.core.services.tool_call_handlers.config_steering_handler import (
+                ConfigSteeringHandler,
             )
             from src.core.services.tool_call_handlers.dangerous_command_handler import (
                 DangerousCommandHandler,
             )
 
-            if reactor_config.apply_diff_steering_enabled:
-                # Create handler with configuration
-                apply_diff_handler = ApplyDiffHandler(
-                    history_tracker=history_tracker,
-                    rate_limit_window_seconds=reactor_config.apply_diff_steering_rate_limit_seconds,
-                    steering_message=reactor_config.apply_diff_steering_message,
-                )
+            # Register config-driven steering handler (includes synthesized legacy apply_diff rule when enabled)
+            try:
+                # Build effective rules from config using a deep copy so that
+                # we never retain references to the raw AppConfig structures.
+                import copy
 
-                # Register synchronously since we're in the factory
-                try:
-                    loop = asyncio.get_event_loop()
-                    if not loop.is_running():
-                        loop.run_until_complete(
-                            reactor.register_handler(apply_diff_handler)
+                effective_rules = copy.deepcopy(reactor_config.steering_rules or [])
+
+                # Synthesize legacy apply_diff rule if enabled and missing
+                if getattr(reactor_config, "apply_diff_steering_enabled", True):
+                    has_apply_rule = False
+                    for r in effective_rules:
+                        triggers = (r or {}).get("triggers") or {}
+                        tnames = triggers.get("tool_names") or []
+                        phrases = triggers.get("phrases") or []
+                        if "apply_diff" in tnames or any(
+                            isinstance(p, str) and "apply_diff" in p for p in phrases
+                        ):
+                            has_apply_rule = True
+                            break
+                    if not has_apply_rule:
+                        effective_rules.append(
+                            {
+                                "name": "apply_diff_to_patch_file",
+                                "enabled": True,
+                                "priority": 100,
+                                "triggers": {
+                                    "tool_names": ["apply_diff"],
+                                    "phrases": [],
+                                },
+                                "message": (
+                                    reactor_config.apply_diff_steering_message
+                                    or (
+                                        "You tried to use apply_diff tool. Please prefer to use patch_file tool instead, "
+                                        "as it is superior to apply_diff and provides automated Python QA checks."
+                                    )
+                                ),
+                                "rate_limit": {
+                                    "calls_per_window": 1,
+                                    "window_seconds": reactor_config.apply_diff_steering_rate_limit_seconds,
+                                },
+                            }
                         )
-                    # If loop is running, handler will be registered later
-                except RuntimeError as e:
-                    # No event loop, handler will be registered later
-                    logger.debug(
-                        "Could not register handler due to missing event loop: %s", e
-                    )
+
+                if effective_rules:
+                    config_handler = ConfigSteeringHandler(rules=effective_rules)
+                    try:
+                        loop = asyncio.get_event_loop()
+                        if not loop.is_running():
+                            loop.run_until_complete(
+                                reactor.register_handler(config_handler)
+                            )
+                    except RuntimeError as e:
+                        logger.debug(
+                            "Could not register config steering handler due to missing event loop: %s",
+                            e,
+                        )
+            except Exception as e:
+                logger.warning(
+                    "Failed to register steering handlers: %s", e, exc_info=True
+                )
 
             # Register DangerousCommandHandler if enabled in session config
             try:

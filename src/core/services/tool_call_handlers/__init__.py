@@ -5,6 +5,6 @@ This package contains implementations of tool call handlers for the
 tool call reactor system.
 """
 
-from .apply_diff_handler import ApplyDiffHandler
+from .config_steering_handler import ConfigSteeringHandler
 
-__all__ = ["ApplyDiffHandler"]
+__all__ = ["ConfigSteeringHandler"]

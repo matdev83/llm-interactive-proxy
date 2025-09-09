@@ -23,6 +23,7 @@ The LLM Interactive Proxy is an advanced middleware service that provides a unif
 - **Dangerous Command Prevention**: Blocks destructive git commands issued via local shell execution tool calls. Runs after tool-call/JSON repair and loop detection, just before forwarding to the client. Configurable steering message returned to the LLM.
 - **Context Window Size Overrides**: Enforce per-model context window limits at the proxy level.
 - **Header Override Support**: Configure how application identity headers (title, URL, User-Agent) are handled for outgoing requests.
+- **Content Rewriting**: Modify incoming and outgoing messages using configurable replacement rules with support for REPLACE, PREPEND, and APPEND modes.
 
 ### Error Mapping (API Behavior)
 
@@ -1102,7 +1103,20 @@ The Tool Call Reactor is automatically enabled and configured in the proxy. The 
       "enabled": true,
       "apply_diff_steering_enabled": true,
       "apply_diff_steering_rate_limit_seconds": 60,
-      "apply_diff_steering_message": "Custom steering message here"
+      "apply_diff_steering_message": "Custom steering message here",
+      "steering_rules": [
+        {
+          "name": "apply_diff_to_patch_file",
+          "enabled": true,
+          "priority": 100,
+          "triggers": {
+            "tool_names": ["apply_diff"],
+            "phrases": []
+          },
+          "message": "You tried to use apply_diff tool. Please prefer to use patch_file tool instead, as it is superior to apply_diff and provides automated Python QA checks.",
+          "rate_limit": { "calls_per_window": 1, "window_seconds": 60 }
+        }
+      ]
     }
   }
 }
@@ -1115,6 +1129,19 @@ session:
     apply_diff_steering_enabled: true
     apply_diff_steering_rate_limit_seconds: 60
     apply_diff_steering_message: "Custom steering message here"
+    steering_rules:
+      - name: apply_diff_to_patch_file
+        enabled: true
+        priority: 100
+        triggers:
+          tool_names: ["apply_diff"]
+          phrases: []
+        message: "You tried to use apply_diff tool. Please prefer to use patch_file tool instead, as it is superior to apply_diff and provides automated Python QA checks."
+        rate_limit:
+          calls_per_window: 1
+          window_seconds: 60
+
+With `steering_rules` set, a generic `config_steering_handler` is registered which can swallow tool calls and return the configured message when triggers match. Rules can trigger on exact tool names or on phrases contained in the tool name or arguments. The legacy `ApplyDiffHandler` remains available for backward compatibility and will be used as a fallback when no matching config rule is provided.
 ```
 
 ### Creating Custom Handlers
@@ -1601,6 +1628,37 @@ The content rewriting feature supports the following modes:
 - **`APPEND`**: Appends the content of `APPEND.txt` to the content of `SEARCH.txt`.
 
 Each rule directory must contain a `SEARCH.txt` file and one of the mode files (`REPLACE.txt`, `PREPEND.txt`, or `APPEND.txt`).
+
+#### Configuration
+
+To enable content rewriting, add the following to your `config.yaml`:
+
+```yaml
+rewriting:
+  enabled: true
+  config_path: "config/replacements"
+```
+
+Or use environment variables:
+```bash
+export REWRITING_ENABLED=true
+export REWRITING_CONFIG_PATH="config/replacements"
+```
+
+#### Getting Started
+
+The proxy includes example content rewriting rules in the `config/replacements/` directory:
+
+- **`config/replacements/prompts/system/001_example/`** - System prompt enhancement
+- **`config/replacements/prompts/user/001_example/`** - User prompt refinement  
+- **`config/replacements/replies/001_example/`** - Response modification
+
+These examples demonstrate:
+- `REPLACE` mode for complete text replacement
+- Professional prompt enhancement
+- Response confidence improvement
+
+See `config/replacements/README.md` for detailed documentation and more examples.
 
 #### Sanity Checks
 

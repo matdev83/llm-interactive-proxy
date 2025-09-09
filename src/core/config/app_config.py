@@ -134,19 +134,33 @@ class ToolCallReactorConfig(DomainModel):
     """Whether the Tool Call Reactor is enabled."""
 
     apply_diff_steering_enabled: bool = True
-    """Whether the apply_diff steering handler is enabled."""
+    """Whether the legacy apply_diff steering handler is enabled."""
 
     apply_diff_steering_rate_limit_seconds: int = 60
-    """Rate limit window for apply_diff steering in seconds.
+    """Legacy rate limit window for apply_diff steering in seconds.
 
     Controls how often steering messages are shown for apply_diff tool calls
     within the same session. Default: 60 seconds (1 message per minute).
     """
 
     apply_diff_steering_message: str | None = None
-    """Custom steering message for apply_diff tool calls.
+    """Legacy custom steering message for apply_diff tool calls.
 
     If None, uses the default message. Can be customized to fit your workflow.
+    """
+
+    # New: fully configurable steering rules
+    steering_rules: list[dict[str, Any]] = Field(default_factory=list)
+    """Configurable steering rules.
+
+    Each rule is a dict describing when to trigger steering and what message to
+    return. See README for details. Minimal fields:
+      - name: Unique rule name
+      - enabled: bool
+      - triggers: { tool_names: [..], phrases: [..] }
+      - message: Replacement content when swallowed
+      - rate_limit: { calls_per_window: int, window_seconds: int }
+      - priority: int (optional; higher runs first)
     """
 
 
