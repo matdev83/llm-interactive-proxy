@@ -3,8 +3,6 @@
 ![CI](https://img.shields.io/github/actions/workflow/status/matdev83/llm-interactive-proxy/ci.yml?branch=main&label=CI)
 ![Architecture Check](https://img.shields.io/github/actions/workflow/status/matdev83/llm-interactive-proxy/architecture-check.yml?branch=main&label=Architecture)
 [![Coverage](https://codecov.io/gh/matdev83/llm-interactive-proxy/branch/main/graph/badge.svg)](https://codecov.io/gh/matdev83/llm-interactive-proxy)
-[![pre-commit.ci](https://results.pre-commit.ci/badge/github/matdev83/llm-interactive-proxy/main.svg)](https://results.pre-commit.ci/latest/github/matdev83/llm-interactive-proxy/main)
-![GitHub Checks](https://img.shields.io/github/checks-status/matdev83/llm-interactive-proxy/main?label=Checks)
 ![Python](https://img.shields.io/badge/python-3.10%2B-blue)
 [![License](https://img.shields.io/github/license/matdev83/llm-interactive-proxy?color=blue)](LICENSE)
 ![Last Commit](https://img.shields.io/github/last-commit/matdev83/llm-interactive-proxy?label=Last%20commit)
