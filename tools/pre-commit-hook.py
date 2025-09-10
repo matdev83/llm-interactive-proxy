@@ -96,6 +96,41 @@ def check_architectural_patterns(files: list[str]) -> bool:
     return not any_errors
 
 
+def run_secret_scan() -> bool:
+    """Run pre-commit API key check to prevent secret leaks.
+
+    Returns True if no secrets are detected; False otherwise.
+    """
+    repo_root = Path(__file__).resolve().parents[1]
+    checker_path = repo_root / "tools" / "pre_commit_api_key_check.py"
+
+    if not checker_path.exists():
+        # If checker is missing, do not block commits
+        print(f"Warning: Secret checker not found at {checker_path}. Skipping.")
+        return True
+
+    # Prefer project venv interpreter
+    venv_python = repo_root / ".venv" / "Scripts" / "python.exe"
+    python_path = venv_python if venv_python.exists() else Path(sys.executable)
+
+    print("Running secret scan on staged files...")
+    result = subprocess.run(
+        [str(python_path), str(checker_path)], capture_output=True, text=True
+    )
+    if result.returncode != 0:
+        # Surface the tool's output for the user
+        if result.stdout:
+            print(result.stdout)
+        if result.stderr:
+            print(result.stderr, file=sys.stderr)
+        return False
+
+    # Optional verbosity
+    if result.stdout.strip():
+        print(result.stdout.strip())
+    return True
+
+
 def main() -> int:
     """
     Main entry point for the pre-commit hook.
@@ -103,6 +138,13 @@ def main() -> int:
     Returns:
         0 if successful, non-zero otherwise
     """
+    # 1) Run secret scanning first to prevent leaks regardless of file type
+    if not run_secret_scan():
+        print("\nERROR: Secret scan failed; potential API keys detected.")
+        print("Please remove sensitive values from staged files before committing.")
+        return 1
+
+    # 2) Architectural checks for changed Python files
     changed_files = get_changed_python_files()
 
     if not changed_files:
