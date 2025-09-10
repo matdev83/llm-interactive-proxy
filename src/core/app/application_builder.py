@@ -61,7 +61,8 @@ class ApplicationBuilder:
             raise ValueError(f"Stage '{stage.name}' is already registered")
 
         self._stages[stage.name] = stage
-        logger.debug(f"Added stage: {stage}")
+        if logger.isEnabledFor(logging.DEBUG):
+            logger.debug(f"Added stage: {stage}")
         return self
 
     def add_default_stages(self) -> ApplicationBuilder:
@@ -285,12 +286,16 @@ class ApplicationBuilder:
 
             # Use the discovery function to find all API keys from config and environment
             api_keys: list[str] = discover_api_keys_from_config_and_env(config)
-            logger.debug(f"Discovered {len(api_keys)} API keys for redaction")
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug(f"Discovered {len(api_keys)} API keys for redaction")
 
             install_api_key_redaction_filter(api_keys)
         except Exception:
             # Don't fail app creation if logging redaction cannot be installed
-            logger.debug("Failed to install API key redaction filter", exc_info=True)
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug(
+                    "Failed to install API key redaction filter", exc_info=True
+                )
 
         # Register routes
         self._register_routes(app)

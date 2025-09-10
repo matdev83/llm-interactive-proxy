@@ -88,8 +88,11 @@ class TestQwenOAuthEnhancedErrorHandling:
         )
         processed_messages = [ChatMessage(role="user", content="Hello")]
 
-        # Mock token refresh to succeed and parent class method to raise an exception
+        # Mock validation to pass, token refresh to succeed and parent class method to raise an exception
         with (
+            patch.object(
+                connector, "_validate_runtime_credentials", AsyncMock(return_value=True)
+            ),
             patch.object(connector, "_refresh_token_if_needed", return_value=True),
             patch(
                 "src.connectors.openai.OpenAIConnector.chat_completions",
@@ -118,8 +121,11 @@ class TestQwenOAuthEnhancedErrorHandling:
         )
         processed_messages = [{"role": "user", "content": "Hello"}]
 
-        # Mock token refresh to succeed and parent class method
+        # Mock validation to pass, token refresh to succeed and parent class method
         with (
+            patch.object(
+                connector, "_validate_runtime_credentials", AsyncMock(return_value=True)
+            ),
             patch.object(connector, "_refresh_token_if_needed", return_value=True),
             patch(
                 "src.connectors.openai.OpenAIConnector.chat_completions",
@@ -151,9 +157,12 @@ class TestQwenOAuthEnhancedErrorHandling:
         )
         processed_messages = [{"role": "user", "content": "Hello"}]
 
-        # Mock token refresh to succeed and parent class to raise HTTPException
+        # Mock validation to pass, token refresh to succeed and parent class to raise HTTPException
         http_exception = HTTPException(status_code=429, detail="Rate limited")
         with (
+            patch.object(
+                connector, "_validate_runtime_credentials", AsyncMock(return_value=True)
+            ),
             patch.object(connector, "_refresh_token_if_needed", return_value=True),
             patch(
                 "src.connectors.openai.OpenAIConnector.chat_completions",
@@ -182,8 +191,13 @@ class TestQwenOAuthEnhancedErrorHandling:
         )
         processed_messages = [{"role": "user", "content": "Hello"}]
 
-        # Mock token refresh to fail
-        with patch.object(connector, "_refresh_token_if_needed", return_value=False):
+        # Mock validation to pass and token refresh to fail
+        with (
+            patch.object(
+                connector, "_validate_runtime_credentials", AsyncMock(return_value=True)
+            ),
+            patch.object(connector, "_refresh_token_if_needed", return_value=False),
+        ):
             # Verify that HTTPException is raised with 401 status code
             with pytest.raises(HTTPException) as exc_info:
                 await connector.chat_completions(

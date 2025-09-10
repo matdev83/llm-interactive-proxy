@@ -121,6 +121,12 @@ class LoggingConfig(DomainModel):
     # Total disk cap across current capture file and rotated files. If set <= 0,
     # disabled. Default is 100 MiB.
     capture_total_max_bytes: int = 104857600
+    # Buffer size for wire capture writes (bytes). Default 64KB.
+    capture_buffer_size: int = 65536
+    # How often to flush buffer to disk (seconds). Default 1.0 second.
+    capture_flush_interval: float = 1.0
+    # Maximum entries to buffer before forcing flush. Default 100.
+    capture_max_entries_per_flush: int = 100
 
 
 class ToolCallReactorConfig(DomainModel):
@@ -512,6 +518,15 @@ class AppConfig(DomainModel, IConfig):
             "capture_total_max_bytes": (
                 int(os.environ.get("CAPTURE_TOTAL_MAX_BYTES", "104857600"))
             ),
+            "capture_buffer_size": (
+                int(os.environ.get("CAPTURE_BUFFER_SIZE", "65536"))
+            ),
+            "capture_flush_interval": (
+                float(os.environ.get("CAPTURE_FLUSH_INTERVAL", "1.0"))
+            ),
+            "capture_max_entries_per_flush": (
+                int(os.environ.get("CAPTURE_MAX_ENTRIES_PER_FLUSH", "100"))
+            ),
         }
 
         config["empty_response"] = {
@@ -736,16 +751,22 @@ def load_config(config_path: str | Path | None = None) -> AppConfig:
             try:
                 from pathlib import Path as _Path
 
+                from src.core.config.semantic_validation import (
+                    validate_config_semantics,
+                )
                 from src.core.config.yaml_validation import validate_yaml_against_schema
 
                 schema_path = (
                     _Path.cwd() / "config" / "schemas" / "app_config.schema.yaml"
                 )
+                # First validate JSON schema
                 validate_yaml_against_schema(_Path(path), schema_path)
+
+                # Then validate semantic correctness
+                validate_config_semantics(file_config, path)
+
             except Exception as _ex:  # pragma: no cover
-                logger.critical(
-                    "Config YAML validation failed for %s: %s", str(path), _ex
-                )
+                logger.critical("Config validation failed for %s: %s", str(path), _ex)
                 raise
 
             # Merge file config with environment defaults, preferring file values

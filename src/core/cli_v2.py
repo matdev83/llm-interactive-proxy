@@ -94,10 +94,11 @@ def apply_cli_args(args: argparse.Namespace) -> AppConfig:
 
 def configure_logging(config: AppConfig) -> None:
     """Configure logging based on configuration."""
-    logging.basicConfig(
+    from src.core.common.logging_utils import configure_logging_with_environment_tagging
+
+    configure_logging_with_environment_tagging(
         level=getattr(logging, config.logging.level.value),
-        format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-        filename=config.logging.log_file,
+        log_file=config.logging.log_file,
     )
 
 
@@ -117,9 +118,8 @@ def handle_daemon_mode(args: argparse.Namespace) -> bool:
         # Remove --daemon from args and restart
         args_list = [arg for arg in sys.argv[1:] if not arg.startswith("--daemon")]
         command = [sys.executable, "-m", "src.core.cli_v2", *args_list]
-        subprocess.Popen(
-            command, creationflags=subprocess.DETACHED_PROCESS, close_fds=True
-        )
+        creation_flags = getattr(subprocess, "DETACHED_PROCESS", 0)
+        subprocess.Popen(command, creationflags=creation_flags, close_fds=True)
         time.sleep(2)
         return True
     else:

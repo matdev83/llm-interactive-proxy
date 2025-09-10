@@ -2,96 +2,61 @@ import asyncio
 import logging
 from collections.abc import Generator
 from typing import Any
-from unittest.mock import AsyncMock, MagicMock, Mock
 
-# Targeted fix for specific AsyncMock coroutine warning patterns
-# Store original AsyncMock for safe usage
+# Basic imports - heavy imports delayed until needed
 import httpx
 import pytest
 import requests
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
+from unittest.mock import AsyncMock, MagicMock, Mock
+# Delay heavy imports until they're actually needed
 
-# Import the testing framework for automatic validation
+# Delay heavy imports until they're actually needed
+# These will be imported lazily in fixtures
 
-# Only patch specific problematic test modules that we know cause issues
-# This preserves legitimate AsyncMock usage while fixing the problematic patterns
+# SmartAsyncMock class for handling specific test scenarios
+# Only imported when needed to avoid expensive frame inspection
 _PROBLEMATIC_TEST_MODULES = {
     "tests.unit.openrouter_connector_tests.test_headers_plumbing",
     "tests.unit.core.app.test_application_factory",
 }
 
-
-class SmartAsyncMock(AsyncMock):  # Inherit directly from AsyncMock
-    """AsyncMock that converts to regular Mock for problematic patterns.
-
-    This implementation uses a cached module check for better performance.
-    """
-
-    # Cache for module decisions to avoid repeated frame inspection
-    _module_decision_cache = {}
-
-    def __new__(cls, *args, **kwargs):
-        import inspect
-
-        # Check the calling context
-        frame = inspect.currentframe()
-        if frame and frame.f_back:
-            try:
-                calling_module = frame.f_back.f_globals.get("__name__", "")
-
-                # Use cached decision if available
-                if calling_module in cls._module_decision_cache:
-                    use_regular_mock = cls._module_decision_cache[calling_module]
-                    if use_regular_mock:
-                        return Mock(*args, **kwargs)
-                else:
-                    # If we're in a known problematic module, use regular Mock
-                    use_regular_mock = calling_module in _PROBLEMATIC_TEST_MODULES
-                    # Cache the decision
-                    cls._module_decision_cache[calling_module] = use_regular_mock
-                    if use_regular_mock:
-                        return Mock(*args, **kwargs)
-            except Exception:
-                pass
-
-        # Default to real AsyncMock for legitimate async testing
-        return super().__new__(
-            cls, *args, **kwargs
-        )  # Pass args and kwargs to super().__new__
-
-    # __init__ is implicitly called by __new__ for AsyncMock, no need to override if no extra init logic
-    # def __init__(self, *args, **kwargs):
-    #     super().__init__(*args, **kwargs)
-
-
-# Replace AsyncMock with our smart class (preserves isinstance() compatibility)
-# No need to store original AsyncMock as it's directly imported for SmartAsyncMock
-from unittest.mock import AsyncMock  # Explicitly import AsyncMock for SmartAsyncMock
-
-from src.connectors.base import LLMBackend
-
-# Delay heavy app builder import to fixture time to avoid startup cycles
-from src.core.config.app_config import (
-    AppConfig,
-    AuthConfig,
-    BackendConfig,
-    BackendSettings,
-    LoggingConfig,
-    LogLevel,
-    SessionConfig,
-)
-from src.core.di.container import ServiceCollection
-from src.core.domain.responses import (
-    StreamingResponseEnvelope,  # Added for AsyncIterBytes in global mock
-)
-from src.core.interfaces.backend_service_interface import IBackendService
-from src.core.interfaces.session_service_interface import ISessionService
-
-# Import shared fixtures
-
-# Silence logging during tests
-logging.getLogger().setLevel(logging.WARNING)
+def _create_smart_async_mock():
+    """Create SmartAsyncMock only when needed."""
+    import inspect
+    
+    class SmartAsyncMock(AsyncMock):
+        """AsyncMock that converts to regular Mock for problematic patterns."""
+        
+        _module_decision_cache = {}
+        
+        def __new__(cls, *args, **kwargs):
+            # Check the calling context
+            frame = inspect.currentframe()
+            if frame and frame.f_back:
+                try:
+                    calling_module = frame.f_back.f_globals.get("__name__", "")
+                    
+                    # Use cached decision if available
+                    if calling_module in cls._module_decision_cache:
+                        use_regular_mock = cls._module_decision_cache[calling_module]
+                        if use_regular_mock:
+                            return Mock(*args, **kwargs)
+                    else:
+                        # If we're in a known problematic module, use regular Mock
+                        use_regular_mock = calling_module in _PROBLEMATIC_TEST_MODULES
+                        # Cache the decision
+                        cls._module_decision_cache[calling_module] = use_regular_mock
+                        if use_regular_mock:
+                            return Mock(*args, **kwargs)
+                except Exception:
+                    pass
+            
+            # Default to real AsyncMock for legitimate async testing
+            return super().__new__(cls, *args, **kwargs)
+    
+    return SmartAsyncMock
 
 
 # Ensure Response.iter_lines yields bytes for downstream tests that expect bytes
@@ -327,23 +292,36 @@ def test_session_state(test_session) -> Any:
 
 
 @pytest.fixture
-def test_service_collection() -> Generator[ServiceCollection, None, None]:
+def test_service_collection() -> Generator[Any, None, None]:
     """Create a test service collection.
 
     Returns:
         Generator: A test service collection
     """
+    from src.core.di.container import ServiceCollection
+    
     collection = ServiceCollection()
     yield collection
 
 
 @pytest.fixture
-def test_app_config() -> AppConfig:
+def test_app_config() -> Any:
     """Create a test app config.
 
     Returns:
         AppConfig: A test app config
     """
+    # Lazy import to avoid slow startup
+    from src.core.config.app_config import (
+        AppConfig,
+        AuthConfig,
+        BackendConfig,
+        BackendSettings,
+        LoggingConfig,
+        LogLevel,
+        SessionConfig,
+    )
+    
     # Create backend settings with just the openai backend to avoid attribute errors
     backends = BackendSettings()
     backends.set("openai", BackendConfig(api_key=["test-key"]))
@@ -399,7 +377,7 @@ def test_session_service(test_service_provider) -> Generator[Any, None, None]:
 def test_backend_service(
     test_service_provider: Any,
     test_backend_factory: Any,
-    test_app_config: AppConfig,
+    test_app_config: Any,
     test_session_service: Any,
 ) -> Generator[Any, None, None]:
     """Create a test backend service.

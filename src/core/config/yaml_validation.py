@@ -49,7 +49,7 @@ def validate_yaml_against_schema(yaml_path: Path, schema_path: Path) -> None:
     schema = _load_yaml_schema(schema_path)
 
     validator = Draft7Validator(schema)
-    errors = sorted(validator.iter_errors(instance), key=lambda e: e.path)
+    errors = sorted(validator.iter_errors(instance), key=lambda e: str(e.path))
     if not errors:
         return
 
@@ -96,7 +96,7 @@ def validate_static_yaml_configs(project_root: Path) -> None:
         ):
             tmp = data["session"]["tool_call_reactor"]
             validator = Draft7Validator(_load_yaml_schema(reactor_schema))
-            errs = sorted(validator.iter_errors(tmp), key=lambda e: e.path)
+            errs = sorted(validator.iter_errors(tmp), key=lambda e: str(e.path))
             if errs:
 
                 def _fmt(e: ValidationError) -> str:

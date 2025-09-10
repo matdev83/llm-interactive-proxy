@@ -77,9 +77,8 @@ class TestContextWindowLimits:
         assert resp.status_code == 400
         body = resp.json()
         detail = body.get("detail", {})
-        err = detail.get("error", {}) if isinstance(detail, dict) else {}
-        assert err.get("code") == "input_limit_exceeded"
-        details = err.get("details", {})
+        assert detail.get("code") == "input_limit_exceeded"
+        details = detail.get("details", {})
         assert isinstance(details.get("measured"), int)
         assert isinstance(details.get("limit"), int) and details["limit"] == 1
 
@@ -99,8 +98,7 @@ class TestContextWindowLimits:
         assert resp.status_code == 400
         body = resp.json()
         detail = body.get("detail", {})
-        err = detail.get("error", {}) if isinstance(detail, dict) else {}
-        assert err.get("code") == "input_limit_exceeded"
-        details = err.get("details", {})
+        assert detail.get("code") == "input_limit_exceeded"
+        details = detail.get("details", {})
         assert isinstance(details.get("measured"), int)
         assert isinstance(details.get("limit"), int) and details["limit"] == 1

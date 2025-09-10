@@ -1,17 +1,29 @@
 $schema: "http://json-schema.org/draft-07/schema#"
 title: App Config
 type: object
-additionalProperties: true
+additionalProperties: false
 properties:
   host: { type: string }
   port: { type: integer, minimum: 1 }
+  anthropic_port: { type: integer, minimum: 1 }
   proxy_timeout: { type: integer, minimum: 0 }
   command_prefix: { type: string }
+  default_rate_limit: { type: integer, minimum: 0 }
+  default_rate_window: { type: integer, minimum: 0 }
+  model_defaults: { type: object, additionalProperties: true }
+  failover_routes: { type: object, additionalProperties: true }
+  identity: { type: object, additionalProperties: true }
+  empty_response: { type: object, additionalProperties: true }
+  edit_precision: { type: object, additionalProperties: true }
+  rewriting: { type: object, additionalProperties: true }
+  app: { type: ["object", "null"] }
   logging:
     type: object
-    additionalProperties: true
+    additionalProperties: false
     properties:
       level: { type: string, enum: [DEBUG, INFO, WARNING, ERROR, CRITICAL] }
+      request_logging: { type: boolean }
+      response_logging: { type: boolean }
       log_file: { type: ["string", "null"] }
       capture_file: { type: ["string", "null"] }
       capture_max_bytes: { type: ["integer", "null"], minimum: 0 }
@@ -19,9 +31,12 @@ properties:
       capture_max_files: { type: ["integer", "null"], minimum: 0 }
       capture_rotate_interval_seconds: { type: ["integer", "null"], minimum: 0 }
       capture_total_max_bytes: { type: ["integer", "null"], minimum: 0 }
+      capture_buffer_size: { type: ["integer", "null"], minimum: 1024 }
+      capture_flush_interval: { type: ["number", "null"], minimum: 0.1 }
+      capture_max_entries_per_flush: { type: ["integer", "null"], minimum: 1 }
   auth:
     type: object
-    additionalProperties: true
+    additionalProperties: false
     properties:
       disable_auth: { type: boolean }
       api_keys:
@@ -34,14 +49,18 @@ properties:
         items: { type: string }
   session:
     type: object
-    additionalProperties: true
+    additionalProperties: false
     properties:
+      cleanup_enabled: { type: boolean }
+      cleanup_interval: { type: integer, minimum: 0 }
+      max_age: { type: integer, minimum: 0 }
       default_interactive_mode: { type: boolean }
       force_set_project: { type: boolean }
       disable_interactive_commands: { type: boolean }
       tool_call_repair_enabled: { type: boolean }
       json_repair_enabled: { type: boolean }
       json_repair_strict_mode: { type: boolean }
+      json_repair_schema: { type: ["string", "null"] }
       json_repair_buffer_cap_bytes: { type: integer, minimum: 0 }
       tool_call_repair_buffer_cap_bytes: { type: integer, minimum: 0 }
       dangerous_command_prevention_enabled: { type: boolean }

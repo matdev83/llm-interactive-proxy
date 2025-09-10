@@ -201,7 +201,7 @@ class DependencyChecker:
                 import importlib.metadata
 
                 installed = {
-                    dist.metadata["Name"].lower()
+                    dist.metadata["Name"].lower().replace("-", "_")
                     for dist in importlib.metadata.distributions()
                 }
             except ImportError:
@@ -232,7 +232,7 @@ class DependencyChecker:
                 installed = set()
                 for line in result.stdout.strip().split("\n"):
                     if "==" in line:
-                        package_name = line.split("==")[0].lower()
+                        package_name = line.split("==")[0].lower().replace("-", "_")
                         installed.add(package_name)
 
             # Cache the result
@@ -277,7 +277,9 @@ class DependencyChecker:
                 # Handle extras syntax like package[extra]
                 if "[" in package_name and "]" in package_name:
                     package_name = package_name.split("[")[0]
-                dependencies.add(package_name.lower())
+                # Normalize package name: lowercase and replace hyphens with underscores
+                normalized_name = package_name.lower().replace("-", "_")
+                dependencies.add(normalized_name)
 
         # Extract optional dependencies
         if "project" in content and "optional-dependencies" in content["project"]:
@@ -295,7 +297,9 @@ class DependencyChecker:
                     # Handle extras syntax like package[extra]
                     if "[" in package_name and "]" in package_name:
                         package_name = package_name.split("[")[0]
-                    dependencies.add(package_name.lower())
+                    # Normalize package name: lowercase and replace hyphens with underscores
+                    normalized_name = package_name.lower().replace("-", "_")
+                    dependencies.add(normalized_name)
 
         return dependencies
 

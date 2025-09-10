@@ -90,7 +90,8 @@ class JsonRepairMiddleware(IResponseMiddleware):
                 metrics.inc("json_repair.non_streaming.strict_fail")
                 raise
             if repaired_json:
-                logger.info(f"JSON detected and repaired for session {session_id}")
+                if logger.isEnabledFor(logging.INFO):
+                    logger.info(f"JSON detected and repaired for session {session_id}")
                 response.content = json.dumps(repaired_json)
                 response.metadata["repaired"] = True
 

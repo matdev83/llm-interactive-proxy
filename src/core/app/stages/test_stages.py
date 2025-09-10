@@ -115,6 +115,116 @@ class MockBackendStage(InitializationStage):
                 """Mock chat completions that returns a standard response."""
                 request = kwargs.get("request_data") or (args[0] if args else None)
 
+                # Check if there's a configured mock backend that we should delegate to
+                # This allows tests to inject their own mock responses
+                try:
+                    from typing import cast
+
+                    from src.core.services.backend_service import BackendService
+
+                    provider = services.build_service_provider()
+                    backend_service = cast(BackendService, provider.get_required_service(IBackendService))  # type: ignore[type-abstract]
+
+                    # Check if the backend service has test-configured backends
+                    if (
+                        hasattr(backend_service, "_backends")
+                        and "openrouter" in backend_service._backends
+                    ):
+                        backend = backend_service._backends["openrouter"]
+
+                        if hasattr(backend, "chat_completions"):
+                            chat_completions = backend.chat_completions
+
+                            if (
+                                hasattr(chat_completions, "side_effect")
+                                and chat_completions.side_effect is not None
+                            ):
+                                side_effect = chat_completions.side_effect
+
+                                if callable(side_effect):
+                                    result = await side_effect(*args, **kwargs)
+                                    # Cast the result to the expected type
+                                    if isinstance(
+                                        result,
+                                        ResponseEnvelope | StreamingResponseEnvelope,
+                                    ):
+                                        return result
+                                    # If it's a dict, wrap it in a ResponseEnvelope
+                                    if isinstance(result, dict):
+                                        return ResponseEnvelope(
+                                            content=result,
+                                            headers={
+                                                "content-type": "application/json"
+                                            },
+                                            status_code=200,
+                                        )
+                                    return result  # type: ignore[no-any-return]
+                                else:
+                                    # side_effect is a list/iterator of responses
+                                    try:
+                                        # Try to get the next response from the side_effect
+                                        response = next(side_effect)
+
+                                        # Wrap the response in a ResponseEnvelope if it's not already
+                                        if isinstance(response, dict):
+                                            return ResponseEnvelope(
+                                                content=response,
+                                                headers={
+                                                    "content-type": "application/json"
+                                                },
+                                                status_code=200,
+                                            )
+                                        return response  # type: ignore[no-any-return]
+                                    except StopIteration:
+                                        # Iterator exhausted, fall back to default behavior
+                                        pass
+                            elif (
+                                hasattr(chat_completions, "return_value")
+                                and chat_completions.return_value is not None
+                            ):
+                                return_value = chat_completions.return_value
+
+                                # Wrap the response in a ResponseEnvelope if it's not already
+                                if isinstance(return_value, dict):
+                                    return ResponseEnvelope(
+                                        content=return_value,
+                                        headers={"content-type": "application/json"},
+                                        status_code=200,
+                                    )
+                                return return_value  # type: ignore[no-any-return]
+                except Exception:
+                    # If we can't get the backend or it fails, fall back to default behavior
+                    pass
+
+                # Check if tools are requested
+                tools = getattr(request, "tools", None) if request else None
+                tool_choice = getattr(request, "tool_choice", None) if request else None
+                has_tools = bool(tools or tool_choice)
+
+                # Create message content based on whether tools are requested
+                if has_tools:
+                    message_content = {
+                        "role": "assistant",
+                        "content": "Mock response from test backend",
+                        "tool_calls": [
+                            {
+                                "id": "call_mock_123",
+                                "type": "function",
+                                "function": {
+                                    "name": "get_weather",
+                                    "arguments": '{"location": "New York"}',
+                                },
+                            }
+                        ],
+                    }
+                    finish_reason = "tool_calls"
+                else:
+                    message_content = {
+                        "role": "assistant",
+                        "content": "Mock response from test backend",
+                    }
+                    finish_reason = "stop"
+
                 response_data = {
                     "id": "mock-response-1",
                     "object": "chat.completion",
@@ -127,21 +237,8 @@ class MockBackendStage(InitializationStage):
                     "choices": [
                         {
                             "index": 0,
-                            "message": {
-                                "role": "assistant",
-                                "content": "Mock response from test backend",
-                                "tool_calls": [
-                                    {
-                                        "id": "call_mock_123",
-                                        "type": "function",
-                                        "function": {
-                                            "name": "get_weather",
-                                            "arguments": '{"location": "New York"}',
-                                        },
-                                    }
-                                ],
-                            },
-                            "finish_reason": "tool_calls",
+                            "message": message_content,
+                            "finish_reason": finish_reason,
                         }
                     ],
                     "usage": {

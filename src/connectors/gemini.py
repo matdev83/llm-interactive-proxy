@@ -191,11 +191,12 @@ class GeminiBackend(LLMBackend):
                     # Close response if supported
                     if hasattr(response, "aclose"):
                         await response.aclose()
-                logger.error(
-                    "HTTP error during Gemini stream: %s - %s",
-                    response.status_code,
-                    body_text,
-                )
+                if logger.isEnabledFor(logging.ERROR):
+                    logger.error(
+                        "HTTP error during Gemini stream: %s - %s",
+                        response.status_code,
+                        body_text,
+                    )
                 raise BackendError(
                     message=f"Gemini stream error: {response.status_code} - {body_text}",
                     code="gemini_error",
@@ -399,9 +400,10 @@ class GeminiBackend(LLMBackend):
         if temperature is not None:
             # Clamp temperature to [0,1] range for Gemini
             if float(temperature) > 1.0:
-                logger.warning(
-                    f"Temperature {temperature} > 1.0 for Gemini, clamping to 1.0"
-                )
+                if logger.isEnabledFor(logging.WARNING):
+                    logger.warning(
+                        f"Temperature {temperature} > 1.0 for Gemini, clamping to 1.0"
+                    )
                 temperature = 1.0
             generation_config["temperature"] = float(temperature)
 
@@ -414,19 +416,23 @@ class GeminiBackend(LLMBackend):
             generation_config["stopSequences"] = request_data.stop
 
         # Unsupported parameters
-        if request_data.seed is not None:
+        if request_data.seed is not None and logger.isEnabledFor(logging.WARNING):
             logger.warning("GeminiBackend does not support the 'seed' parameter.")
-        if request_data.presence_penalty is not None:
+        if request_data.presence_penalty is not None and logger.isEnabledFor(
+            logging.WARNING
+        ):
             logger.warning(
                 "GeminiBackend does not support the 'presence_penalty' parameter."
             )
-        if request_data.frequency_penalty is not None:
+        if request_data.frequency_penalty is not None and logger.isEnabledFor(
+            logging.WARNING
+        ):
             logger.warning(
                 "GeminiBackend does not support the 'frequency_penalty' parameter."
             )
-        if request_data.logit_bias is not None:
+        if request_data.logit_bias is not None and logger.isEnabledFor(logging.WARNING):
             logger.warning("GeminiBackend does not support the 'logit_bias' parameter.")
-        if request_data.user is not None:
+        if request_data.user is not None and logger.isEnabledFor(logging.WARNING):
             logger.warning("GeminiBackend does not support the 'user' parameter.")
 
     def _normalize_model_name(self, effective_model: str) -> str:

@@ -24,7 +24,11 @@ def _check_privileges() -> None:
         try:
             import ctypes
 
-            if ctypes.windll.shell32.IsUserAnAdmin() != 0:
+            if (
+                hasattr(ctypes, "windll")
+                and hasattr(ctypes.windll, "shell32")
+                and ctypes.windll.shell32.IsUserAnAdmin() != 0
+            ):
                 raise SystemExit("Refusing to run with administrative privileges")
         except Exception:
             pass
@@ -353,9 +357,8 @@ def _maybe_run_as_daemon(args: argparse.Namespace, cfg: AppConfig) -> bool:
             arg for arg in sys.argv[1:] if not arg.startswith("--daemon")
         ]
         command: list[str] = [sys.executable, "-m", "src.core.cli", *args_list]
-        subprocess.Popen(
-            command, creationflags=subprocess.DETACHED_PROCESS, close_fds=True
-        )
+        creation_flags = getattr(subprocess, "DETACHED_PROCESS", 0)
+        subprocess.Popen(command, creationflags=creation_flags, close_fds=True)
         time.sleep(2)
         sys.exit(0)
     _daemonize()
@@ -363,10 +366,11 @@ def _maybe_run_as_daemon(args: argparse.Namespace, cfg: AppConfig) -> bool:
 
 
 def _configure_logging(cfg: AppConfig) -> None:
-    logging.basicConfig(
+    from src.core.common.logging_utils import configure_logging_with_environment_tagging
+
+    configure_logging_with_environment_tagging(
         level=getattr(logging, cfg.logging.level.value),
-        format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-        filename=cfg.logging.log_file,
+        log_file=cfg.logging.log_file,
     )
 
 

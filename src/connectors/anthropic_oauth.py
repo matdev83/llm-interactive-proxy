@@ -104,9 +104,10 @@ class AnthropicOAuthBackend(AnthropicBackend):
         """
         creds_path = self._discover_credentials_path()
         if creds_path is None:
-            logger.warning(
-                "Anthropic OAuth credentials file not found in default paths"
-            )
+            if logger.isEnabledFor(logging.WARNING):
+                logger.warning(
+                    "Anthropic OAuth credentials file not found in default paths"
+                )
             return False
 
         self._credentials_path = creds_path
@@ -139,9 +140,10 @@ class AnthropicOAuthBackend(AnthropicBackend):
                 )
 
             if not token:
-                logger.warning(
-                    "Anthropic OAuth credentials missing access_token/api_key"
-                )
+                if logger.isEnabledFor(logging.WARNING):
+                    logger.warning(
+                        "Anthropic OAuth credentials missing access_token/api_key"
+                    )
                 return False
 
             self._oauth_credentials = data
@@ -151,10 +153,12 @@ class AnthropicOAuthBackend(AnthropicBackend):
             return True
 
         except json.JSONDecodeError as e:
-            logger.error(f"Malformed Anthropic OAuth credentials JSON: {e}")
+            if logger.isEnabledFor(logging.ERROR):
+                logger.error(f"Malformed Anthropic OAuth credentials JSON: {e}")
             return False
         except Exception as e:
-            logger.error(f"Error loading Anthropic OAuth credentials: {e}")
+            if logger.isEnabledFor(logging.ERROR):
+                logger.error(f"Error loading Anthropic OAuth credentials: {e}")
             return False
 
     # -----------------------------

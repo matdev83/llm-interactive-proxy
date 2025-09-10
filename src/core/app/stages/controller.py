@@ -44,7 +44,8 @@ class ControllerStage(InitializationStage):
 
     async def execute(self, services: ServiceCollection, config: AppConfig) -> None:
         """Register controller services."""
-        logger.info("Initializing controller services...")
+        if logger.isEnabledFor(logging.INFO):
+            logger.info("Initializing controller services...")
 
         # Register chat controller
         self._register_chat_controller(services)
@@ -58,7 +59,8 @@ class ControllerStage(InitializationStage):
         # Register usage controller
         self._register_usage_controller(services)
 
-        logger.info("Controller services initialized successfully")
+        if logger.isEnabledFor(logging.INFO):
+            logger.info("Controller services initialized successfully")
 
     def _register_chat_controller(self, services: ServiceCollection) -> None:
         """Register chat controller with request processor dependency."""
@@ -79,7 +81,8 @@ class ControllerStage(InitializationStage):
             ChatController, implementation_factory=chat_controller_factory
         )
 
-        logger.debug("Registered chat controller")
+        if logger.isEnabledFor(logging.DEBUG):
+            logger.debug("Registered chat controller")
 
     def _register_anthropic_controller(self, services: ServiceCollection) -> None:
         """Register anthropic controller with request processor dependency."""
@@ -102,7 +105,8 @@ class ControllerStage(InitializationStage):
             AnthropicController, implementation_factory=anthropic_controller_factory
         )
 
-        logger.debug("Registered anthropic controller")
+        if logger.isEnabledFor(logging.DEBUG):
+            logger.debug("Registered anthropic controller")
 
     def _register_models_controller(self, services: ServiceCollection) -> None:
         """Register models controller with backend service dependency."""
@@ -123,7 +127,8 @@ class ControllerStage(InitializationStage):
             ModelsController, implementation_factory=models_controller_factory
         )
 
-        logger.debug("Registered models controller")
+        if logger.isEnabledFor(logging.DEBUG):
+            logger.debug("Registered models controller")
 
     def _register_usage_controller(self, services: ServiceCollection) -> None:
         """Register usage controller with usage tracking dependency."""
@@ -145,7 +150,8 @@ class ControllerStage(InitializationStage):
             UsageController, implementation_factory=usage_controller_factory
         )
 
-        logger.debug("Registered usage controller")
+        if logger.isEnabledFor(logging.DEBUG):
+            logger.debug("Registered usage controller")
 
     async def validate(self, services: ServiceCollection, config: AppConfig) -> bool:
         """Validate that controller services can be registered."""
@@ -161,9 +167,11 @@ class ControllerStage(InitializationStage):
                 _ = ModelsController
                 _ = UsageController
             except ImportError:
-                logger.info("Optional controllers (models, usage) not available")
+                if logger.isEnabledFor(logging.INFO):
+                    logger.info("Optional controllers (models, usage) not available")
 
             return True
         except ImportError as e:
-            logger.error(f"Controller services validation failed: {e}")
+            if logger.isEnabledFor(logging.ERROR):
+                logger.error(f"Controller services validation failed: {e}")
             return False

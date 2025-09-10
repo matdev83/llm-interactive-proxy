@@ -98,7 +98,7 @@ def test_gemini_models_endpoint_format(gemini_client):
 
 def test_gemini_generate_content_endpoint_format(gemini_app):
     """Test that generate content endpoint accepts and returns Gemini format."""
-    # Mock the backend to return a response
+    # Mock the backend to return a response with tool calls
     mock_backend = Mock()
     mock_backend.chat_completions = AsyncMock(
         return_value={
@@ -112,8 +112,18 @@ def test_gemini_generate_content_endpoint_format(gemini_app):
                     "message": {
                         "role": "assistant",
                         "content": "Hello! This is a test response.",
+                        "tool_calls": [
+                            {
+                                "id": "call_test_123",
+                                "type": "function",
+                                "function": {
+                                    "name": "hello",
+                                    "arguments": "{}",
+                                },
+                            }
+                        ],
                     },
-                    "finish_reason": "stop",
+                    "finish_reason": "tool_calls",
                 }
             ],
             "usage": {"prompt_tokens": 10, "completion_tokens": 15, "total_tokens": 25},

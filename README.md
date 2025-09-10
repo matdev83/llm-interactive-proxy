@@ -203,13 +203,150 @@ Tip: Anthropic compatibility is exposed both at `/anthropic/...` on the main por
 
 ## Debugging (Wire Capture)
 
-Write outbound requests and inbound replies/streams to a rotating file for troubleshooting.
+The proxy can capture all HTTP traffic between clients and LLM backends for debugging and analysis. Wire capture records the exact requests and responses without logging contamination.
 
-- CLI: `--capture-file wire.jsonl` plus optional rotation caps:
-  - `--capture-rotate-interval SECONDS`
-  - `--capture-total-max-bytes N`
-  - `--capture-max-files N`
-- The capture records source/destination, headers and payloads, and keeps secrets redacted when prompt redaction is enabled.
+### Quick Start
+
+```bash
+# Enable wire capture via CLI
+python -m src.core.cli --capture-file logs/wire_capture.log
+
+# Or via configuration
+logging:
+  capture_file: "logs/wire_capture.log"
+```
+
+### Wire Capture Formats
+
+The proxy has evolved through multiple wire capture formats. **Currently active: Buffered JSON Lines format.**
+
+> ⚠️ **Format Compatibility**: Different versions of the proxy use different wire capture formats. Check the format before processing files with external tools.
+
+#### Buffered JSON Lines Format (Current Default)
+High-performance format with structured JSON entries, one per line:
+
+```json
+{
+  "timestamp_iso": "2025-01-10T15:58:41.039145+00:00",
+  "timestamp_unix": 1736524721.039145,
+  "direction": "outbound_request",
+  "source": "127.0.0.1(Cline/1.0)",
+  "destination": "qwen-oauth",
+  "session_id": "session-123",
+  "backend": "qwen-oauth",
+  "model": "qwen3-coder-plus",
+  "key_name": "primary",
+  "content_type": "json",
+  "content_length": 1247,
+  "payload": {
+    "messages": [{"role": "user", "content": "..."}],
+    "model": "qwen3-coder-plus",
+    "temperature": 0.7
+  },
+  "metadata": {
+    "client_host": "127.0.0.1",
+    "user_agent": "Cline/1.0",
+    "request_id": "req_abc123"
+  }
+}
+```
+
+**Direction values**: `outbound_request`, `inbound_response`, `stream_start`, `stream_chunk`, `stream_end`
+
+#### Legacy Formats
+
+<details>
+<summary>Click to see legacy wire capture formats (for reference)</summary>
+
+**Human-Readable Format** (legacy):
+```
+----- REQUEST 2025-01-10T15:58:41Z -----
+client=127.0.0.1 agent=Cline/1.0 session=session-123 -> backend=qwen-oauth model=qwen3-coder-plus
+{
+  "messages": [...],
+  "model": "qwen3-coder-plus"
+}
+
+----- REPLY 2025-01-10T15:58:42Z -----
+client=127.0.0.1 agent=Cline/1.0 session=session-123 -> backend=qwen-oauth model=qwen3-coder-plus
+{
+  "choices": [...]
+}
+```
+
+**Structured JSON Format** (legacy):
+```json
+{
+  "timestamp": {
+    "iso": "2025-01-10T15:58:41.123Z",
+    "human_readable": "2025-01-10 15:58:41"
+  },
+  "communication": {
+    "flow": "frontend_to_backend",
+    "direction": "request",
+    "source": "127.0.0.1",
+    "destination": "qwen-oauth"
+  },
+  "metadata": {
+    "session_id": "session-123",
+    "backend": "qwen-oauth",
+    "model": "qwen3-coder-plus",
+    "byte_count": 1247
+  },
+  "payload": { ... }
+}
+```
+
+</details>
+
+#### Service Registration
+
+- The active wire capture implementation is `BufferedWireCapture`.
+- It is registered via the `CoreServicesStage` as the implementation for `IWireCapture`.
+- Legacy DI registration of `StructuredWireCapture` has been removed to prevent format mismatch.
+- Initialization is resilient in sync contexts: the background flush task starts lazily when an event loop is available.
+
+### Configuration Options
+
+```yaml
+logging:
+  capture_file: "logs/wire_capture.log"
+  # Performance tuning
+  capture_buffer_size: 65536          # 64KB buffer (default)
+  capture_flush_interval: 1.0         # Flush every 1 second
+  capture_max_entries_per_flush: 100  # Max entries per flush
+  # Rotation
+  capture_max_bytes: 104857600         # 100MB per file
+  capture_max_files: 5                # Keep 5 rotated files
+  capture_total_max_bytes: 524288000   # 500MB total cap
+```
+
+### Processing Wire Capture Files
+
+```bash
+# Count requests by backend
+jq -r 'select(.direction=="outbound_request") | .backend' logs/wire_capture.log | sort | uniq -c
+
+# Extract all user messages
+jq -r 'select(.direction=="outbound_request") | .payload.messages[]? | select(.role=="user") | .content' logs/wire_capture.log
+
+# Find failed requests (look for error responses)
+jq 'select(.direction=="inbound_response" and (.payload.error or .payload.choices == null))' logs/wire_capture.log
+
+# Calculate token usage by model
+jq -r 'select(.direction=="inbound_response" and .payload.usage) | "\(.model) \(.payload.usage.total_tokens // (.payload.usage.prompt_tokens + .payload.usage.completion_tokens))"' logs/wire_capture.log
+```
+
+### Security Notes
+
+- Wire capture respects prompt redaction settings - API keys in prompts are masked
+- The `key_name` field shows which environment variable was used, not the actual key
+- Capture files may contain sensitive conversation data - secure appropriately
+- Consider using `capture_total_max_bytes` to prevent unbounded disk usage
+
+### Advanced Wire Capture Documentation
+
+For detailed information about wire capture formats, migration between versions, and processing examples, see [docs/wire_capture_formats.md](docs/wire_capture_formats.md).
 
 ## Optional Capabilities (Short List)
 

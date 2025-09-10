@@ -95,7 +95,7 @@ MODEL = "gemini-2.0-flash-lite-preview-02-05"
 
 
 def test_gemini_basic(tmp_path):
-    port = random.randint(8100, 8200)
+    port = random.randint(1024, 65535)
     assert os.getenv("GEMINI_API_KEY_1"), "GEMINI_API_KEY_1 missing"
     server = _start_server(port)
     try:
@@ -116,7 +116,7 @@ def test_gemini_basic(tmp_path):
 
 
 def test_gemini_interactive_banner(tmp_path):
-    port = random.randint(8201, 8300)
+    port = random.randint(1024, 65535)
     assert os.getenv("GEMINI_API_KEY_1"), "GEMINI_API_KEY_1 missing"
     server = _start_server(port)
     try:

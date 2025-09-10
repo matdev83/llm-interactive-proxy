@@ -42,7 +42,8 @@ class CommandStage(InitializationStage):
 
     async def execute(self, services: ServiceCollection, config: AppConfig) -> None:
         """Register command services."""
-        logger.info("Initializing command services...")
+        if logger.isEnabledFor(logging.INFO):
+            logger.info("Initializing command services...")
 
         # Register command registry
         self._register_command_registry(services)
@@ -53,7 +54,8 @@ class CommandStage(InitializationStage):
         # Register command service
         self._register_command_service(services)
 
-        logger.info("Command services initialized successfully")
+        if logger.isEnabledFor(logging.INFO):
+            logger.info("Command services initialized successfully")
 
     async def validate(self, services: ServiceCollection, config: AppConfig) -> bool:
         """Validate that command services can be registered."""
@@ -61,12 +63,15 @@ class CommandStage(InitializationStage):
             # Check that required modules are available
 
             # Validate config has command settings
-            if not hasattr(config, "command_prefix"):
+            if not hasattr(config, "command_prefix") and logger.isEnabledFor(
+                logging.WARNING
+            ):
                 logger.warning("Config missing command_prefix")
 
             return True
         except ImportError as e:
-            logger.error(f"Command services validation failed: {e}")
+            if logger.isEnabledFor(logging.ERROR):
+                logger.error(f"Command services validation failed: {e}")
             return False
 
     def _register_command_registry(self, services: ServiceCollection) -> None:
@@ -76,9 +81,11 @@ class CommandStage(InitializationStage):
 
             # Register CommandRegistry as singleton
             services.add_singleton(CommandRegistry)
-            logger.debug("Registered CommandRegistry service")
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug("Registered CommandRegistry service")
         except ImportError as e:
-            logger.warning(f"Could not register CommandRegistry: {e}")
+            if logger.isEnabledFor(logging.WARNING):
+                logger.warning(f"Could not register CommandRegistry: {e}")
 
     def _register_command_settings_service(
         self, services: ServiceCollection, config: AppConfig
@@ -102,9 +109,11 @@ class CommandStage(InitializationStage):
             services.add_instance(CommandSettingsService, cmd_settings)
             services.add_instance(ICommandSettingsService, cmd_settings)  # type: ignore[type-abstract] # Mypy incorrectly flags interface as abstract for instance registration
 
-            logger.debug("Registered command settings service")
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug("Registered command settings service")
         except ImportError as e:
-            logger.warning(f"Could not register command settings service: {e}")
+            if logger.isEnabledFor(logging.WARNING):
+                logger.warning(f"Could not register command settings service: {e}")
 
     def _register_command_service(self, services: ServiceCollection) -> None:
         """Register command service with dependencies."""
@@ -137,9 +146,13 @@ class CommandStage(InitializationStage):
             services.add_singleton(CommandParser)
             services.add_singleton(ICommandParser, CommandParser)
 
-            logger.debug("Registered new command service and parser with dependencies")
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug(
+                    "Registered new command service and parser with dependencies"
+                )
         except Exception as e:
-            logger.warning(f"Could not register command service or parser: {e}")
+            if logger.isEnabledFor(logging.WARNING):
+                logger.warning(f"Could not register command service or parser: {e}")
 
     def _register_default_commands(self, services: ServiceCollection) -> None:
         """Register default commands including failover commands."""
@@ -221,10 +234,12 @@ class CommandStage(InitializationStage):
                     registry.register(RouteListCommand(state_service, state_service))
                     registry.register(RoutePrependCommand(state_service, state_service))
 
-                    logger.debug("Registered default failover commands")
+                    if logger.isEnabledFor(logging.DEBUG):
+                        logger.debug("Registered default failover commands")
 
                 except Exception as e:
-                    logger.warning(f"Could not register default commands: {e}")
+                    if logger.isEnabledFor(logging.WARNING):
+                        logger.warning(f"Could not register default commands: {e}")
 
                 return None
 
@@ -233,6 +248,8 @@ class CommandStage(InitializationStage):
                 type(None), implementation_factory=populate_commands_factory
             )
 
-            logger.debug("Registered default commands factory")
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug("Registered default commands factory")
         except Exception as e:
-            logger.warning(f"Could not register default commands factory: {e}")
+            if logger.isEnabledFor(logging.WARNING):
+                logger.warning(f"Could not register default commands factory: {e}")

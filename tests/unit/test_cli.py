@@ -120,7 +120,11 @@ def test_main_log_file(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
 
     cli.main(["--log", str(log_file)])
 
-    assert recorded.get("filename") == str(log_file)
+    # Check that handlers were configured with a FileHandler pointing to our log file
+    handlers = recorded.get("handlers", [])
+    file_handlers = [h for h in handlers if isinstance(h, cli.logging.FileHandler)]
+    assert len(file_handlers) == 1
+    assert file_handlers[0].baseFilename == str(log_file)
 
 
 def test_build_app_uses_env(monkeypatch: pytest.MonkeyPatch) -> None:

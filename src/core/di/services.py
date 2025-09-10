@@ -102,7 +102,6 @@ from src.core.services.streaming.stream_normalizer import StreamNormalizer
 from src.core.services.streaming.tool_call_repair_processor import (
     ToolCallRepairProcessor,
 )
-from src.core.services.structured_wire_capture_service import StructuredWireCapture
 from src.core.services.tool_call_reactor_middleware import ToolCallReactorMiddleware
 from src.core.services.tool_call_reactor_service import (
     InMemoryToolCallHistoryTracker,
@@ -744,16 +743,9 @@ def register_core_services(
         JsonRepairProcessor, implementation_factory=_json_repair_processor_factory
     )
 
-    # Register wire-capture service (singleton)
-    def _wire_capture_factory(provider: IServiceProvider) -> StructuredWireCapture:
-        cfg: AppConfig = provider.get_required_service(AppConfig)
-        return StructuredWireCapture(cfg)
-
-    _add_singleton(StructuredWireCapture, implementation_factory=_wire_capture_factory)
-    with contextlib.suppress(Exception):
-        services.add_singleton(
-            cast(type, IWireCapture), implementation_factory=_wire_capture_factory
-        )  # type: ignore[type-abstract]
+    # Wire capture service is registered in CoreServicesStage using BufferedWireCapture.
+    # Intentionally avoid legacy StructuredWireCapture registration here to keep
+    # the active format consistent across the app.
 
     # Register tool call repair service (if not already registered elsewhere as a concrete type)
     def _tool_call_repair_service_factory(

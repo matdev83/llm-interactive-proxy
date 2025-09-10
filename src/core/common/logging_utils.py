@@ -6,6 +6,7 @@ This module provides utilities for logging, including:
 - Redaction of sensitive information
 - Consistent log level usage
 - Enhanced context information
+- Test/production environment tagging
 """
 
 # type: ignore[unreachable]
@@ -13,9 +14,10 @@ import contextlib
 import logging
 import os
 import re
+import sys
 from collections.abc import Callable
 from functools import wraps
-from typing import Any, TypeVar, cast
+from typing import Any, TypeVar, cast, Literal
 
 import structlog
 
@@ -23,6 +25,58 @@ from src.core.config.app_config import AppConfig
 
 # Type variable for generic functions
 T = TypeVar("T")
+
+
+# Environment detection
+def _is_running_under_pytest() -> bool:
+    """Detect if we're running under pytest.
+
+    Returns:
+        True if running under pytest, False otherwise
+    """
+    return "pytest" in sys.modules or os.getenv("PYTEST_CURRENT_TEST") is not None
+
+
+def _get_environment_tag() -> str:
+    """Get the environment tag for logging.
+
+    Returns:
+        'test' if running under pytest, 'prod' otherwise
+    """
+    return "test" if _is_running_under_pytest() else "prod"
+
+
+class EnvironmentTaggingFilter(logging.Filter):
+    """Logging filter that adds environment tags to log records."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self._env_tag = _get_environment_tag()
+
+    def filter(self, record: logging.LogRecord) -> bool:  # type: ignore[override]
+        """Add environment tag to log record.
+
+        Args:
+            record: The log record to filter
+
+        Returns:
+            True to include the record
+        """
+        record.env_tag = self._env_tag
+        return True
+
+
+class EnvironmentTaggingFormatter(logging.Formatter):
+    """Logging formatter that includes environment tags."""
+
+    def __init__(
+        self, fmt: str | None = None, datefmt: str | None = None, style: Literal["%", "{", "$"] = "%"
+    ) -> None:
+        # Set default format if none provided - match project format with env_tag after loglevel
+        if fmt is None:
+            fmt = "%(asctime)s [%(levelname)-8s] [%(env_tag)s] %(name)s:%(lineno)d %(message)s"
+        super().__init__(fmt, datefmt, style=style)
+
 
 # Default set of fields to redact
 DEFAULT_REDACTED_FIELDS = {
@@ -227,6 +281,83 @@ class ApiKeyRedactionFilter(logging.Filter):
             # Never let logging filtering raise
             return True
         return True
+
+
+def install_environment_tagging() -> None:
+    """Install environment tagging filter on the root logger and its handlers."""
+    try:
+        root = logging.getLogger()
+        filter_instance = EnvironmentTaggingFilter()
+
+        # Add to root logger
+        root.addFilter(filter_instance)
+
+        # Add to existing handlers
+        for handler in list(root.handlers):
+            try:
+                handler.addFilter(filter_instance)
+                # Update formatter to include environment tag
+                if isinstance(handler.formatter, logging.Formatter):
+                    # Use the environment tagging formatter
+                    new_formatter = EnvironmentTaggingFormatter(
+                        fmt=handler.formatter._fmt, datefmt=handler.formatter.datefmt
+                    )
+                    handler.setFormatter(new_formatter)
+            except Exception as e:
+                get_logger(__name__).debug(
+                    "Failed to update handler for environment tagging: %s",
+                    e,
+                    exc_info=True,
+                )
+                continue
+    except Exception as e:
+        get_logger(__name__).debug(
+            "Failed to install environment tagging filter: %s", e, exc_info=True
+        )
+
+
+def configure_logging_with_environment_tagging(
+    level: int = logging.INFO,
+    log_format: str | None = None,
+    log_file: str | None = None,
+) -> None:
+    """Configure logging with environment tagging.
+
+    Args:
+        level: Logging level
+        log_format: Optional log format string
+        log_file: Optional log file path
+    """
+    # Use default format with environment tag if none provided - match project format with env_tag after loglevel
+    if log_format is None:
+        log_format = "%(asctime)s [%(levelname)-8s] [%(env_tag)s] %(name)s:%(lineno)d %(message)s"
+
+    # Create formatter with environment tag support
+    formatter = EnvironmentTaggingFormatter(fmt=log_format)
+
+    # Create handlers
+    handlers: list[logging.Handler] = []
+
+    # Console handler
+    console_handler = logging.StreamHandler()
+    console_handler.setFormatter(formatter)
+    handlers.append(console_handler)
+
+    # File handler if specified
+    if log_file:
+        file_handler = logging.FileHandler(log_file)
+        file_handler.setFormatter(formatter)
+        handlers.append(file_handler)
+
+    # Configure root logger
+    logging.basicConfig(
+        level=level,
+        handlers=handlers,
+        force=True,  # Override any existing configuration
+    )
+
+    # Install environment tagging filter
+    install_environment_tagging()
 
 
 def install_api_key_redaction_filter(

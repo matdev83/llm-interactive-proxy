@@ -1,5 +1,17 @@
 # Changelog
 
+## 2025-09-10 – Wire Capture Format Unification and Stability
+
+- Unified wire capture handling to consistently use the Buffered JSON Lines format
+  - Removed legacy `StructuredWireCapture` service registration from `src/core/di/services.py` to avoid conflicting registrations.
+  - `IWireCapture` is now bound exclusively to `BufferedWireCapture` via `CoreServicesStage`.
+- Improved `BufferedWireCapture` initialization
+  - Background flush task now starts lazily only when an event loop is running, preventing runtime warnings ("coroutine was never awaited") in sync contexts.
+  - Capture remains enabled as soon as a file path is configured; background flushing starts on first async use.
+- Tests and docs updated
+  - Integration tests adjusted to assert the active buffered format semantics.
+  - README updated with service registration notes and initialization behavior.
+
 ## 2025-09-09 – Dangerous Git Command Prevention (Reactor-based)
 
 - New Feature: Configurable prevention layer that intercepts dangerous git commands issued via local execution tool calls in LLM responses.

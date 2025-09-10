@@ -256,17 +256,21 @@ class AnthropicBackend(LLMBackend):
             payload.setdefault("metadata", {})["user_id"] = request_data.user
 
         # Unsupported parameters
-        if request_data.seed is not None:
+        if request_data.seed is not None and logger.isEnabledFor(logging.WARNING):
             logger.warning("AnthropicBackend does not support the 'seed' parameter.")
-        if request_data.presence_penalty is not None:
+        if request_data.presence_penalty is not None and logger.isEnabledFor(
+            logging.WARNING
+        ):
             logger.warning(
                 "AnthropicBackend does not support the 'presence_penalty' parameter."
             )
-        if request_data.frequency_penalty is not None:
+        if request_data.frequency_penalty is not None and logger.isEnabledFor(
+            logging.WARNING
+        ):
             logger.warning(
                 "AnthropicBackend does not support the 'frequency_penalty' parameter."
             )
-        if request_data.logit_bias is not None:
+        if request_data.logit_bias is not None and logger.isEnabledFor(logging.WARNING):
             logger.warning(
                 "AnthropicBackend does not support the 'logit_bias' parameter."
             )
@@ -297,9 +301,10 @@ class AnthropicBackend(LLMBackend):
         self, url: str, payload: dict, headers: dict, original_model: str
     ) -> ResponseEnvelope:
         try:
-            logger.info(
-                f"Sending request to {url} with headers: {headers} and payload: {payload}"
-            )
+            if logger.isEnabledFor(logging.INFO):
+                logger.info(
+                    f"Sending request to {url} with headers: {headers} and payload: {payload}"
+                )
             response = await self.client.post(url, json=payload, headers=headers)
         except httpx.RequestError as e:
             raise ServiceUnavailableError(

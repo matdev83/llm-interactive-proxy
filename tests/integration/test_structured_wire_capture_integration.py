@@ -10,7 +10,7 @@ from fastapi.testclient import TestClient
 from src.core.app.application_builder import ApplicationBuilder
 from src.core.config.app_config import AppConfig
 from src.core.interfaces.wire_capture_interface import IWireCapture
-from src.core.services.structured_wire_capture_service import StructuredWireCapture
+from src.core.services.buffered_wire_capture_service import BufferedWireCapture
 
 
 @pytest.fixture
@@ -50,12 +50,12 @@ def client(test_app):
 
 
 def test_wire_capture_integration(client, test_app):
-    """Test that wire capture works through the application's middleware stack."""
+    """Test that wire capture works through the application's middleware stack (buffered format)."""
     app, capture_file = test_app
 
     # Get the wire capture service from DI to verify it's configured
     wire_capture = app.state.service_provider.get_service(IWireCapture)
-    assert isinstance(wire_capture, StructuredWireCapture)
+    assert isinstance(wire_capture, BufferedWireCapture)
     assert wire_capture.enabled() is True
 
     # Mock backend response
@@ -120,30 +120,50 @@ def test_wire_capture_integration(client, test_app):
     # Run the simulation
     asyncio.run(simulate_request_and_response())
 
-    # Read and validate the capture file
+    # Force flush to ensure data is written
+    wire_capture = app.state.service_provider.get_service(IWireCapture)
+    asyncio.run(wire_capture._flush_buffer())  # type: ignore[attr-defined]
+
+    # Read and validate the capture file (buffered JSON lines format)
     with open(capture_file) as f:
         lines = f.readlines()
-        assert len(lines) == 2  # Request and response
 
-        # Validate request entry
-        request_entry = json.loads(lines[0])
-        assert request_entry["communication"]["flow"] == "frontend_to_backend"
-        assert request_entry["communication"]["direction"] == "request"
-        assert "You are a helpful assistant." in str(request_entry["payload"])
-        assert (
-            request_entry["metadata"]["system_prompt"] == "You are a helpful assistant."
-        )
+    # Should have at least 3 entries: system_init + request + response
+    assert len(lines) >= 3
 
-        # Validate response entry
-        response_entry = json.loads(lines[1])
-        assert response_entry["communication"]["flow"] == "backend_to_frontend"
-        assert response_entry["communication"]["direction"] == "response"
-        assert "Hello! How can I help you today?" in str(response_entry["payload"])
+    # Parse entries and find our request/response for the session
+    entries = [json.loads(line) for line in lines]
+    req = next(
+        (
+            e
+            for e in entries
+            if e.get("direction") == "outbound_request"
+            and e.get("session_id") == "test-integration-session"
+        ),
+        None,
+    )
+    resp = next(
+        (
+            e
+            for e in entries
+            if e.get("direction") == "inbound_response"
+            and e.get("session_id") == "test-integration-session"
+        ),
+        None,
+    )
+    assert req is not None and resp is not None
+    assert req["backend"] == "openai" and req["model"] == "gpt-4"
+    assert "You are a helpful assistant." in json.dumps(
+        req["payload"]
+    )  # system prompt present
+    assert "Hello! How can I help you today?" in json.dumps(
+        resp["payload"]
+    )  # response present
 
 
 @pytest.mark.asyncio
 async def test_streaming_response_integration(test_app):
-    """Test streaming response capture."""
+    """Test streaming response capture (buffered format)."""
     app, capture_file = test_app
 
     # Get the wire capture service from DI
@@ -189,26 +209,29 @@ async def test_streaming_response_integration(test_app):
     # Verify chunks unchanged
     assert result == chunks
 
-    # Read the capture file to verify entries
+    # Force flush to ensure data is written
+    await wire_capture._flush_buffer()  # type: ignore[attr-defined]
+
+    # Read the capture file to verify entries (buffered JSON lines)
     with open(capture_file) as f:
         lines = f.readlines()
 
-        # We expect stream start + 3 chunks + stream end = 5 entries
-        assert len(lines) >= 5
+    entries = [json.loads(line) for line in lines]
+    stream_entries = [
+        e
+        for e in entries
+        if e.get("session_id") == "test-stream-session"
+        and "stream" in e.get("direction", "")
+    ]
 
-        # Check first entry is stream start
-        start_entry = json.loads(lines[0])
-        assert start_entry["communication"]["direction"] == "response_stream_start"
-
-        # Check middle entries are chunks
-        for i in range(1, 4):
-            chunk_entry = json.loads(lines[i])
-            assert chunk_entry["communication"]["direction"] == "response_stream_chunk"
-            assert chunk_entry["metadata"]["byte_count"] > 0
-
-        # Check last entry is stream end
-        end_entry = json.loads(lines[4])
-        assert end_entry["communication"]["direction"] == "response_stream_end"
-        assert end_entry["metadata"]["byte_count"] == sum(
-            len(chunk) for chunk in chunks
-        )
+    # Expect stream_start + 3 chunks + stream_end
+    assert len(stream_entries) == 5
+    assert stream_entries[0]["direction"] == "stream_start"
+    for i in range(1, 4):
+        chunk_entry = stream_entries[i]
+        assert chunk_entry["direction"] == "stream_chunk"
+        assert chunk_entry["metadata"]["chunk_number"] == i
+        assert chunk_entry["metadata"]["chunk_bytes"] > 0
+    assert stream_entries[4]["direction"] == "stream_end"
+    assert stream_entries[4]["payload"]["total_chunks"] == 3
+    assert stream_entries[4]["payload"]["total_bytes"] == sum(len(c) for c in chunks)

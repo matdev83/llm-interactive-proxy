@@ -8,7 +8,7 @@ import time
 import pytest
 import requests
 
-pytestmark = [pytest.mark.integration]
+pytestmark = [pytest.mark.integration, pytest.mark.no_global_mock]
 
 
 def _wait_port(port: int, host: str = "127.0.0.1", timeout: float = 10.0) -> None:
@@ -34,6 +34,8 @@ def _wait_port(port: int, host: str = "127.0.0.1", timeout: float = 10.0) -> Non
 def _start_server(port: int, log_file: str) -> subprocess.Popen:
     """Start the proxy via CLI in a subprocess so logging is configured."""
     env = os.environ.copy()
+    # Ensure at least one backend is functional for smoke test
+    env["OPENROUTER_API_KEY_1"] = "test-key-for-smoke-test"
     # Run the real CLI so it configures logging/file handlers
     proc = subprocess.Popen(
         [
@@ -54,8 +56,49 @@ def _start_server(port: int, log_file: str) -> subprocess.Popen:
         text=True,
         env=env,
     )
-    _wait_port(port)
-    return proc
+
+    try:
+        _wait_port(port)
+        return proc
+    except RuntimeError as e:
+        # If port wait failed, capture process output for debugging
+        output = ""
+        exit_code = None
+
+        # Check if process is still running
+        if proc.poll() is None:
+            # Process is still running, terminate it
+            try:
+                proc.terminate()
+                try:
+                    exit_code = proc.wait(timeout=5)
+                except subprocess.TimeoutExpired:
+                    proc.kill()
+                    exit_code = proc.wait(timeout=2)
+            except Exception:
+                pass
+        else:
+            # Process already exited
+            exit_code = proc.returncode
+
+        # Get output
+        if proc.stdout is not None:
+            try:
+                output = proc.stdout.read() or ""
+            except Exception:
+                output = ""
+
+        # Also try to read the log file
+        log_content = ""
+        try:
+            with open(log_file, "r") as f:
+                log_content = f.read()
+        except Exception:
+            pass
+
+        raise RuntimeError(
+            f"{e}\nProcess exit code: {exit_code}\nProcess output:\n{output}\nLog file content:\n{log_content}"
+        )
 
 
 def _stop_server(proc: subprocess.Popen) -> str:
@@ -76,7 +119,7 @@ def _stop_server(proc: subprocess.Popen) -> str:
     return out
 
 
-def _pick_port(low: int = 8400, high: int = 8800) -> int:
+def _pick_port(low: int = 1024, high: int = 65535) -> int:
     return random.randint(low, high)
 
 

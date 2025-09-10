@@ -184,23 +184,26 @@ class GeminiOAuthPersonalConnector(GeminiBackend):
             if not self._is_token_expired():
                 return True
 
-            logger.info(
-                "Access token expired or near expiry; reloading CLI credentials..."
-            )
+            if logger.isEnabledFor(logging.INFO):
+                logger.info(
+                    "Access token expired or near expiry; reloading CLI credentials..."
+                )
 
             # Attempt to reload the credentials file; the CLI should refresh it
             reloaded = await self._load_oauth_credentials()
             if not reloaded:
-                logger.warning(
-                    "Failed to reload Gemini OAuth credentials from ~/.gemini."
-                )
+                if logger.isEnabledFor(logging.WARNING):
+                    logger.warning(
+                        "Failed to reload Gemini OAuth credentials from ~/.gemini."
+                    )
                 return False
 
             # After reload, consider token valid if not expired
             if self._is_token_expired():
-                logger.warning(
-                    "Reloaded credentials are still expired. Please run 'gemini auth' to refresh."
-                )
+                if logger.isEnabledFor(logging.WARNING):
+                    logger.warning(
+                        "Reloaded credentials are still expired. Please run 'gemini auth' to refresh."
+                    )
                 return False
 
             return True
@@ -215,9 +218,13 @@ class GeminiOAuthPersonalConnector(GeminiBackend):
 
             with open(creds_path, "w", encoding="utf-8") as f:
                 json.dump(credentials, f, indent=4)
-            logger.info(f"Gemini OAuth credentials saved to {creds_path}")
+            if logger.isEnabledFor(logging.INFO):
+                logger.info(f"Gemini OAuth credentials saved to {creds_path}")
         except OSError as e:
-            logger.error(f"Error saving Gemini OAuth credentials: {e}", exc_info=True)
+            if logger.isEnabledFor(logging.ERROR):
+                logger.error(
+                    f"Error saving Gemini OAuth credentials: {e}", exc_info=True
+                )
 
     async def _load_oauth_credentials(self) -> bool:
         """Load OAuth credentials from oauth_creds.json file."""
@@ -231,7 +238,10 @@ class GeminiOAuthPersonalConnector(GeminiBackend):
             self._credentials_path = creds_path
 
             if not creds_path.exists():
-                logger.warning(f"Gemini OAuth credentials not found at {creds_path}")
+                if logger.isEnabledFor(logging.WARNING):
+                    logger.warning(
+                        f"Gemini OAuth credentials not found at {creds_path}"
+                    )
                 return False
 
             # Check if file has been modified since last load
@@ -239,9 +249,10 @@ class GeminiOAuthPersonalConnector(GeminiBackend):
                 current_modified = creds_path.stat().st_mtime
                 if current_modified == self._last_modified and self._oauth_credentials:
                     # File hasn't changed and credentials are in memory, no need to reload
-                    logger.debug(
-                        "Gemini OAuth credentials file not modified, using cached."
-                    )
+                    if logger.isEnabledFor(logging.DEBUG):
+                        logger.debug(
+                            "Gemini OAuth credentials file not modified, using cached."
+                        )
                     return True
                 self._last_modified = current_modified
             except OSError:
@@ -253,22 +264,28 @@ class GeminiOAuthPersonalConnector(GeminiBackend):
 
             # Validate essential fields
             if "access_token" not in credentials:
-                logger.warning(
-                    "Malformed Gemini OAuth credentials: missing access_token"
-                )
+                if logger.isEnabledFor(logging.WARNING):
+                    logger.warning(
+                        "Malformed Gemini OAuth credentials: missing access_token"
+                    )
                 return False
 
             self._oauth_credentials = credentials
-            logger.info("Successfully loaded Gemini OAuth credentials.")
+            if logger.isEnabledFor(logging.INFO):
+                logger.info("Successfully loaded Gemini OAuth credentials.")
             return True
         except json.JSONDecodeError as e:
-            logger.error(
-                f"Error decoding Gemini OAuth credentials JSON: {e}",
-                exc_info=True,
-            )
+            if logger.isEnabledFor(logging.ERROR):
+                logger.error(
+                    f"Error decoding Gemini OAuth credentials JSON: {e}",
+                    exc_info=True,
+                )
             return False
         except OSError as e:
-            logger.error(f"Error loading Gemini OAuth credentials: {e}", exc_info=True)
+            if logger.isEnabledFor(logging.ERROR):
+                logger.error(
+                    f"Error loading Gemini OAuth credentials: {e}", exc_info=True
+                )
             return False
 
     async def initialize(self, **kwargs: Any) -> None:

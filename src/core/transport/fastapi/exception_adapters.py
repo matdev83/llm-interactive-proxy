@@ -68,7 +68,12 @@ def map_domain_exception_to_http_exception(exc: LLMProxyError) -> HTTPException:
 
     # If the exception has additional details, include them
     if hasattr(exc, "to_dict"):
-        detail = exc.to_dict()
+        dict_result = exc.to_dict()
+        # If to_dict() returns {"error": {...}}, unwrap it for HTTPException detail
+        if isinstance(dict_result, dict) and "error" in dict_result:
+            detail = dict_result["error"]
+        else:
+            detail = dict_result
     elif hasattr(exc, "details") and exc.details:
         if isinstance(detail, str):
             detail = {"message": detail, "details": exc.details}
