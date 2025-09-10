@@ -245,7 +245,7 @@ async def list_models(
                     )
 
                     # Get available models from the backend
-                    models: list[str] = backend_instance.get_available_models()
+                    models: list[str] = await backend_instance.get_available_models()
 
                     # Add models to the list with proper formatting
                     for model in models:

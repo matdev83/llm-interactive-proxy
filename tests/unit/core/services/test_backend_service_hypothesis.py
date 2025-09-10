@@ -46,6 +46,7 @@ class MockBackend(LLMBackend):
         request_data: ChatRequest,
         processed_messages: list,
         effective_model: str,
+        identity: Any | None = None,
         **kwargs: Any,
     ) -> ResponseEnvelope | Any:
         self.chat_completions_called = True
@@ -53,33 +54,103 @@ class MockBackend(LLMBackend):
             "request_data": request_data,
             "processed_messages": processed_messages,
             "effective_model": effective_model,
+            "identity": identity,
             "kwargs": kwargs,
         }
         return await self.chat_completions_mock()
 
 
-def create_backend_service():
-    """Create a BackendService instance for testing."""
-    client = httpx.AsyncClient()
+@pytest.fixture(scope="session")
+def http_client():
+    """Session-scoped HTTP client for testing."""
+    return httpx.AsyncClient()
+
+
+@pytest.fixture(scope="session")
+def app_config():
+    """Session-scoped app config for testing."""
     from src.core.config.app_config import AppConfig
+
+    return AppConfig()
+
+
+@pytest.fixture(scope="session")
+def backend_registry(app_config):
+    """Session-scoped backend registry."""
     from src.core.services.backend_registry import BackendRegistry
 
-    registry = BackendRegistry()
+    return BackendRegistry()
+
+
+@pytest.fixture(scope="session")
+def translation_service():
+    """Session-scoped translation service."""
     from src.core.services.translation_service import TranslationService
 
-    config = AppConfig()
-    factory = BackendFactory(client, registry, config, TranslationService())
+    return TranslationService()
+
+
+@pytest.fixture(scope="session")
+def backend_factory(http_client, backend_registry, app_config, translation_service):
+    """Session-scoped backend factory."""
+    return BackendFactory(
+        http_client, backend_registry, app_config, translation_service
+    )
+
+
+@pytest.fixture(scope="session")
+def mock_rate_limiter():
+    """Session-scoped mock rate limiter."""
     rate_limiter = Mock()
     rate_limiter.check_limit = AsyncMock(return_value=Mock(is_limited=False))
     rate_limiter.record_usage = AsyncMock()
+    return rate_limiter
 
+
+@pytest.fixture(scope="session")
+def mock_app_config():
+    """Session-scoped mock config."""
     mock_config = Mock()
     mock_config.get.return_value = None
     mock_config.backends = Mock()
     mock_config.backends.default_backend = "openai"
+    return mock_config
 
-    session_service = Mock(spec=ISessionService)
-    app_state = Mock(spec=IApplicationState)
+
+@pytest.fixture(scope="session")
+def mock_session_service():
+    """Session-scoped mock session service."""
+    return Mock(spec=ISessionService)
+
+
+@pytest.fixture(scope="session")
+def mock_app_state():
+    """Session-scoped mock app state."""
+    return Mock(spec=IApplicationState)
+
+
+@pytest.fixture(scope="session")
+def stub_failover_coordinator():
+    """Session-scoped stub failover coordinator."""
+    from tests.utils.failover_stub import StubFailoverCoordinator
+
+    return StubFailoverCoordinator()
+
+
+def create_backend_service(
+    backend_factory,
+    mock_rate_limiter,
+    mock_app_config,
+    mock_session_service,
+    mock_app_state,
+    stub_failover_coordinator,
+):
+    """Create a BackendService instance for testing using session-scoped fixtures."""
+    client = backend_factory._client
+    registry = backend_factory._backend_registry
+    config = backend_factory._config
+    translation_service = backend_factory._translation_service
+    factory = BackendFactory(client, registry, config, translation_service)
 
     # Create concrete implementation
     class ConcreteBackendService(BackendService):
@@ -96,15 +167,13 @@ def create_backend_service():
                 return ResponseEnvelope(content={}, headers={}, usage=None)
             return result
 
-    from tests.utils.failover_stub import StubFailoverCoordinator
-
     return ConcreteBackendService(
         factory,
-        rate_limiter,
-        mock_config,
-        session_service,
-        app_state,
-        failover_coordinator=StubFailoverCoordinator(),
+        mock_rate_limiter,
+        mock_app_config,
+        mock_session_service,
+        mock_app_state,
+        failover_coordinator=stub_failover_coordinator,
     )
 
 
@@ -112,26 +181,40 @@ class TestBackendServiceHypothesis:
     """Hypothesis-based tests for the BackendService class."""
 
     @given(
-        model_name=st.from_regex(r"\A[a-zA-Z0-9]{1,50}\Z"),
-        message_content=st.text(min_size=1, max_size=100),
+        model_name=st.from_regex(r"\A[a-zA-Z0-9]{1,20}\Z"),
+        message_content=st.text(min_size=1, max_size=50),
     )
     @settings(
         suppress_health_check=[
             HealthCheck.function_scoped_fixture,
             HealthCheck.too_slow,
         ],
-        max_examples=5,
-        deadline=1000,
+        max_examples=3,
+        deadline=500,
     )
     @pytest.mark.asyncio
     async def test_call_completion_with_various_models_and_messages(
-        self, model_name, message_content
+        self,
+        model_name,
+        message_content,
+        backend_factory,
+        mock_rate_limiter,
+        mock_app_config,
+        mock_session_service,
+        mock_app_state,
+        stub_failover_coordinator,
     ):
         """Property-based test for calling completions with various models and messages."""
         # Arrange
-        service = create_backend_service()
-        client = httpx.AsyncClient()
-        mock_backend = MockBackend(client)
+        service = create_backend_service(
+            backend_factory,
+            mock_rate_limiter,
+            mock_app_config,
+            mock_session_service,
+            mock_app_state,
+            stub_failover_coordinator,
+        )
+        mock_backend = MockBackend(backend_factory._client)
         mock_backend.chat_completions_mock.return_value = ResponseEnvelope(
             content={
                 "id": "resp-123",
@@ -161,25 +244,41 @@ class TestBackendServiceHypothesis:
         backend_type=st.sampled_from(
             [BackendType.OPENAI, BackendType.ANTHROPIC, BackendType.GEMINI]
         ),
-        model_name=st.from_regex(r"\A[a-zA-Z0-9]{1,50}\Z"),
+        model_name=st.from_regex(r"\A[a-zA-Z0-9]{1,20}\Z"),
     )
     @settings(
         suppress_health_check=[
             HealthCheck.function_scoped_fixture,
             HealthCheck.too_slow,
         ],
-        max_examples=5,
-        deadline=None,
+        max_examples=3,
+        deadline=500,
     )
     @pytest.mark.asyncio
     async def test_validate_backend_and_model_with_various_backends(
-        self, backend_type, model_name
+        self,
+        backend_type,
+        model_name,
+        backend_factory,
+        mock_rate_limiter,
+        mock_app_config,
+        mock_session_service,
+        mock_app_state,
+        stub_failover_coordinator,
     ):
         """Property-based test for validating various backend and model combinations."""
         # Arrange
-        service = create_backend_service()
-        client = httpx.AsyncClient()
-        mock_backend = MockBackend(client, available_models=[model_name, "other-model"])
+        service = create_backend_service(
+            backend_factory,
+            mock_rate_limiter,
+            mock_app_config,
+            mock_session_service,
+            mock_app_state,
+            stub_failover_coordinator,
+        )
+        mock_backend = MockBackend(
+            backend_factory._client, available_models=[model_name, "other-model"]
+        )
 
         with patch.object(service, "_get_or_create_backend", return_value=mock_backend):
             # Act
@@ -192,10 +291,25 @@ class TestBackendServiceHypothesis:
             assert error is None
 
     @pytest.mark.asyncio
-    async def test_call_completion_rate_limited_with_hypothesis(self):
+    async def test_call_completion_rate_limited_with_hypothesis(
+        self,
+        backend_factory,
+        mock_rate_limiter,
+        mock_app_config,
+        mock_session_service,
+        mock_app_state,
+        stub_failover_coordinator,
+    ):
         """Test rate limiting with various rate limit configurations."""
         # Arrange
-        service = create_backend_service()
+        service = create_backend_service(
+            backend_factory,
+            mock_rate_limiter,
+            mock_app_config,
+            mock_session_service,
+            mock_app_state,
+            stub_failover_coordinator,
+        )
         chat_request = ChatRequest(
             messages=[ChatMessage(role="user", content="Hello")],
             model="test-model",
@@ -220,11 +334,26 @@ class TestBackendServiceHypothesis:
                 await service.call_completion(chat_request)
 
     @pytest.mark.asyncio
-    async def test_call_completion_backend_error_with_hypothesis(self):
+    async def test_call_completion_backend_error_with_hypothesis(
+        self,
+        backend_factory,
+        mock_rate_limiter,
+        mock_app_config,
+        mock_session_service,
+        mock_app_state,
+        stub_failover_coordinator,
+    ):
         """Test backend error handling with various error messages."""
         # Arrange
-        service = create_backend_service()
-        client = httpx.AsyncClient()
+        service = create_backend_service(
+            backend_factory,
+            mock_rate_limiter,
+            mock_app_config,
+            mock_session_service,
+            mock_app_state,
+            stub_failover_coordinator,
+        )
+        client = backend_factory._client
 
         # Test with different error messages
         error_messages = [

@@ -330,7 +330,7 @@ class TestModelsDiscovery:
         )
 
         # Mock OpenAI backend
-        mock_openai = MagicMock()
+        mock_openai = AsyncMock()
         mock_openai.get_available_models.return_value = [
             "gpt-4-turbo-preview",
             "gpt-4",
@@ -345,7 +345,7 @@ class TestModelsDiscovery:
 
         # Get backend and discover models
         backend = await service._get_or_create_backend("openai")  # Used string literal
-        models = backend.get_available_models()
+        models = await backend.get_available_models()
 
         assert len(models) == 4
         assert "gpt-4" in models
@@ -382,7 +382,7 @@ class TestModelsDiscovery:
         )
 
         # Mock Anthropic backend
-        mock_anthropic = MagicMock()
+        mock_anthropic = AsyncMock()
         mock_anthropic.get_available_models.return_value = [
             "claude-3-opus-20240229",
             "claude-3-sonnet-20240229",
@@ -399,7 +399,7 @@ class TestModelsDiscovery:
         backend = await service._get_or_create_backend(
             "anthropic"
         )  # Used string literal
-        models = backend.get_available_models()
+        models = await backend.get_available_models()
 
         assert len(models) == 4
         assert "claude-3-opus-20240229" in models
@@ -446,7 +446,7 @@ class TestModelsDiscovery:
         # First call fails
         mock_backend_factory.create_backend.side_effect = [
             ValueError("API key invalid"),
-            MagicMock(
+            AsyncMock(
                 get_available_models=lambda: ["openrouter/gpt-4", "openrouter/claude-3"]
             ),
         ]
@@ -456,7 +456,7 @@ class TestModelsDiscovery:
         mock_backend_factory.ensure_backend = AsyncMock(
             side_effect=[
                 ValueError("API key invalid"),
-                MagicMock(
+                AsyncMock(
                     get_available_models=lambda: [
                         "openrouter/gpt-4",
                         "openrouter/claude-3",
