@@ -24,7 +24,7 @@ This project is a swiss-army knife for anyone working with language models and a
 -   **Override Hardcoded Models**: Force an application to use a model of your choice, even if the developers didn't provide an option to change it.
 -   **Inspect and Debug Prompts**: Capture and analyze the exact prompts your agent sends to the LLM provider to debug and refine interactions.
 -   **Customize System Prompts**: Rewrite or modify an agent's system prompt to better suit your specific needs and improve its performance.
--   **Leverage Your LLM Subscriptions**: Use your personal subscriptions, like OpenAI Plus/Pro or Anthropic Pro/MAX, with any third-party application, not just those developed by the LLM vendor.
+-   **Leverage Your LLM Subscriptions**: Use your personal subscriptions, like OpenAI Plus/Pro or Anthropic Pro/MAX plans, with any third-party application, not just those developed by the LLM vendor.
 -   **Automated Model Tuning for Precision**: The proxy automatically detects when a model struggles with tasks like precise file edits and adjusts its parameters to improve accuracy on subsequent attempts.
 -   **Automatic Tool Call Repair**: If a model generates invalid tool calls, the proxy automatically corrects them before they can cause errors in your agent.
 -   **Automated Error Detection and Steering**: Detect when an LLM is stuck in a loop or fails to follow instructions, and automatically generate steering commands to get it back on track.
@@ -89,55 +89,6 @@ These are ready out of the box. Front-ends are the client-facing APIs the proxy 
 | `zai` | ZAI | `ZAI_API_KEY` | Zhipu/Z.ai access (OpenAI-compatible) |
 | `zai-coding-plan` | ZAI Coding Plan | `ZAI_API_KEY` | Works with any supported front-end and coding agent |
 | `qwen-oauth` | Alibaba Qwen | Local `oauth_creds.json` | Qwen CLI OAuth; OpenAI-compatible endpoint |
-
-## Gemini Backends Overview
-
-Choose the Gemini integration that fits your environment.
-
-| Backend | Authentication | Cost | Best for |
-| - | - | - | - |
-| `gemini` | API key (`GEMINI_API_KEY`) | Metered (pay-per-use) | Production apps, high-volume usage |
-| `gemini-cli-oauth-personal` | OAuth (no API key) | Free tier with limits | Local development, testing, personal use |
-| `gemini-cli-cloud-project` | OAuth + `GOOGLE_CLOUD_PROJECT` (ADC/service account) | Billed to your GCP project | Enterprise, team workflows, central billing |
-
-Notes
-
-- Personal OAuth uses credentials from the local Google CLI/Code Assist-style flow and does not require a `GEMINI_API_KEY`.
-- Cloud Project requires `GOOGLE_CLOUD_PROJECT` and Application Default Credentials (or a service account file).
-
-Quick setup
-
-For `gemini` (API key)
-
-```bash
-export GEMINI_API_KEY="AIza..."
-python -m src.core.cli --default-backend gemini
-```
-
-For `gemini-cli-oauth-personal` (free personal OAuth)
-
-```bash
-# Install and authenticate with the Google Gemini CLI (one-time):
-gemini auth
-
-# Then start the proxy using the personal OAuth backend
-python -m src.core.cli --default-backend gemini-cli-oauth-personal
-```
-
-For `gemini-cli-cloud-project` (GCP-billed)
-
-```bash
-export GOOGLE_CLOUD_PROJECT="your-project-id"
-
-# Provide Application Default Credentials via one of the following:
-# Option A: User credentials (interactive)
-gcloud auth application-default login
-
-# Option B: Service account file
-export GOOGLE_APPLICATION_CREDENTIALS="/absolute/path/to/service-account.json"
-
-python -m src.core.cli --default-backend gemini-cli-cloud-project
-```
 
 ## Quick Start
 
@@ -211,6 +162,55 @@ Write outbound requests and inbound replies/streams to a rotating file for troub
 - Content rewriting: REPLACE/PREPEND/APPEND rules on inbound/outbound content
 - Context window enforcement: per-model token limits with friendly errors
 
+## Gemini Backends Overview
+
+Choose the Gemini integration that fits your environment.
+
+| Backend | Authentication | Cost | Best for |
+| - | - | - | - |
+| `gemini` | API key (`GEMINI_API_KEY`) | Metered (pay-per-use) | Production apps, high-volume usage |
+| `gemini-cli-oauth-personal` | OAuth (no API key) | Free tier with limits | Local development, testing, personal use |
+| `gemini-cli-cloud-project` | OAuth + `GOOGLE_CLOUD_PROJECT` (ADC/service account) | Billed to your GCP project | Enterprise, team workflows, central billing |
+
+Notes
+
+- Personal OAuth uses credentials from the local Google CLI/Code Assist-style flow and does not require a `GEMINI_API_KEY`.
+- Cloud Project requires `GOOGLE_CLOUD_PROJECT` and Application Default Credentials (or a service account file).
+
+Quick setup
+
+For `gemini` (API key)
+
+```bash
+export GEMINI_API_KEY="AIza..."
+python -m src.core.cli --default-backend gemini
+```
+
+For `gemini-cli-oauth-personal` (free personal OAuth)
+
+```bash
+# Install and authenticate with the Google Gemini CLI (one-time):
+gemini auth
+
+# Then start the proxy using the personal OAuth backend
+python -m src.core.cli --default-backend gemini-cli-oauth-personal
+```
+
+For `gemini-cli-cloud-project` (GCP-billed)
+
+```bash
+export GOOGLE_CLOUD_PROJECT="your-project-id"
+
+# Provide Application Default Credentials via one of the following:
+# Option A: User credentials (interactive)
+gcloud auth application-default login
+
+# Option B: Service account file
+export GOOGLE_APPLICATION_CREDENTIALS="/absolute/path/to/service-account.json"
+
+python -m src.core.cli --default-backend gemini-cli-cloud-project
+```
+
 ## Example Config (minimal)
 
 ```yaml
@@ -229,9 +229,9 @@ auth:
 
 Run: `python -m src.core.cli --config config.yaml`
 
-## Popular Scenarios
+## Popular Usage Scenarios
 
-Claude Code with any model/provider
+### Claude Code with any model/provider
 
 1) Start the proxy with your preferred back-end (e.g., OpenAI or OpenRouter)
 2) Ensure Anthropic front-end is reachable (main port `/anthropic/...` or `ANTHROPIC_PORT`)
@@ -249,12 +249,12 @@ Then launch `claude`. You can switch models during a session:
 !/model(claude-3-5-sonnet-20241022)
 ```
 
-ZAI Coding Plan with coding agents
+### Z.AI Coding Plan with coding agents
 
 - Use back-end `zai-coding-plan`; it works with any supported front-end and any coding agent
 - Point OpenAI-compatible tools at `http://localhost:8000/v1`
 
-Gemini options
+### Gemini options
 
 - Metered API key (`gemini`), free personal OAuth (`gemini-cli-oauth-personal`), or GCP‑billed (`gemini-cli-cloud-project`). Pick one and set the required env vars.
 
@@ -266,7 +266,7 @@ Gemini options
 - 503 Service Unavailable: upstream provider is unreachable; try another model or enable failover
 - Model not found: ensure the model name exists for the selected back-end
 
-Tips
+## Tips
 
 - Enable wire capture for tricky issues: `--capture-file wire.jsonl`
 - Use in-chat `!/backend(...)` and `!/model(...)` to isolate provider/model problems
