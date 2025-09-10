@@ -2,9 +2,9 @@ name: CI
 
 on:
   push:
-    branches: [ main ]
+    branches: [ main, dev ]
   pull_request:
-    branches: [ main ]
+    branches: [ main, dev ]
 
 permissions:
   contents: write
@@ -59,14 +59,14 @@ jobs:
         verbose: true
         fail_ci_if_error: false
 
-    - name: Generate tests badge JSON (main/dev)
+    - name: Generate tests badge JSON (unit, main/dev)
       if: ${{ github.ref == 'refs/heads/main' || github.ref == 'refs/heads/dev' }}
       run: |
         python - <<'PY'
         import os, xml.etree.ElementTree as ET, json, sys
         p = 'test-results.xml'
         branch = os.environ.get('GITHUB_REF_NAME', '')
-        out = 'tests-badge.json' if branch == 'main' else 'tests-dev-badge.json'
+        out = 'tests-unit-badge.json' if branch == 'main' else 'tests-dev-unit-badge.json'
         try:
             root = ET.parse(p).getroot()
         except Exception:
@@ -91,7 +91,7 @@ jobs:
         open(out,'w').write(json.dumps(data))
         PY
 
-    - name: Publish tests badge to badges branch (main/dev)
+    - name: Publish unit tests badge to badges branch (main/dev)
       if: ${{ github.ref == 'refs/heads/main' || github.ref == 'refs/heads/dev' }}
       run: |
         git config user.name "github-actions"
@@ -104,16 +104,17 @@ jobs:
         fi
         mkdir -p badges
         if [ "${GITHUB_REF_NAME}" = "main" ]; then
-          mv -f tests-badge.json badges/tests.json
-          git add badges/tests.json
+          mv -f tests-unit-badge.json badges/tests-unit.json
+          git add badges/tests-unit.json
         else
-          mv -f tests-dev-badge.json badges/tests-dev.json
-          git add badges/tests-dev.json
+          mv -f tests-dev-unit-badge.json badges/tests-dev-unit.json
+          git add badges/tests-dev-unit.json
         fi
         git commit -m "Update tests badge [skip ci]" || echo "No changes to commit"
         git push origin badges
 
   integration:
+    needs: test
     runs-on: ubuntu-latest
     strategy:
       matrix:
@@ -121,6 +122,8 @@ jobs:
 
     steps:
     - uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
 
     - name: Set up Python ${{ matrix.python-version }}
       uses: actions/setup-python@v5
@@ -134,7 +137,7 @@ jobs:
         pip install -e .[dev]
         if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
 
-    - name: Run integration tests
+    - name: Run integration tests (coverage append)
       env:
         # Set some default dummy values for the integration tests
         OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY || 'dummy_key' }}
@@ -142,7 +145,87 @@ jobs:
         ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY || 'dummy_key' }}
         OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY || 'dummy_key' }}
       run: |
-        python -m pytest tests/integration -v
+        python -m pytest --cov --cov-branch --cov-append --cov-report=xml -v tests/integration
+
+    - name: Upload coverage reports to Codecov (integration)
+      if: ${{ always() }}
+      uses: codecov/codecov-action@v5
+      with:
+        token: ${{ secrets.CODECOV_TOKEN }}
+        slug: matdev83/llm-interactive-proxy
+        files: ./coverage.xml
+        flags: integration
+        verbose: true
+        fail_ci_if_error: false
+
+    - name: Generate integration tests badge JSON (main/dev)
+      if: ${{ github.ref == 'refs/heads/main' || github.ref == 'refs/heads/dev' }}
+      run: |
+        python - <<'PY'
+        import os, xml.etree.ElementTree as ET, json, sys
+        p = 'test-results.xml'
+        branch = os.environ.get('GITHUB_REF_NAME', '')
+        out = 'tests-int-badge.json' if branch == 'main' else 'tests-dev-int-badge.json'
+        try:
+            root = ET.parse(p).getroot()
+        except Exception:
+            data = {"schemaVersion":1, "label":"tests", "message":"0 passing", "color":"lightgrey"}
+            open(out,'w').write(json.dumps(data))
+            sys.exit(0)
+
+        tests = int(root.get('tests') or 0)
+        failures = int(root.get('failures') or 0)
+        errors = int(root.get('errors') or 0)
+        skipped = int(root.get('skipped') or 0)
+        if tests == 0:
+            for ts in root.iter('testsuite'):
+                tests += int(ts.get('tests') or 0)
+                failures += int(ts.get('failures') or 0)
+                errors += int(ts.get('errors') or 0)
+                skipped += int(ts.get('skipped') or 0)
+        passed = max(tests - failures - errors - skipped, 0)
+        color = 'brightgreen' if failures == 0 and errors == 0 else 'red'
+        data = {"schemaVersion":1, "label":"tests", "message":f"{passed} passing", "color":color}
+        open(out,'w').write(json.dumps(data))
+        PY
+
+    - name: Combine unit+integration test badges and publish (main/dev)
+      if: ${{ github.ref == 'refs/heads/main' || github.ref == 'refs/heads/dev' }}
+      run: |
+        git config user.name "github-actions"
+        git config user.email "github-actions@github.com"
+        git fetch origin
+        if git show-ref --verify --quiet refs/remotes/origin/badges; then
+          git checkout -b badges origin/badges
+        else
+          git checkout -b badges
+        fi
+        python - <<'PY'
+        import json, os, re, sys
+        branch = os.environ.get('GITHUB_REF_NAME', '')
+        unit_path = 'badges/tests-unit.json' if branch == 'main' else 'badges/tests-dev-unit.json'
+        int_tmp = 'tests-int-badge.json' if branch == 'main' else 'tests-dev-int-badge.json'
+        def extract_passed(p):
+            try:
+                with open(p, 'r') as f:
+                    d = json.load(f)
+                m = re.search(r"(\d+)\s+passing", d.get('message',''))
+                return int(m.group(1)) if m else 0
+            except Exception:
+                return 0
+        unit = extract_passed(unit_path)
+        integ = extract_passed(int_tmp)
+        total = unit + integ
+        data = {"schemaVersion":1, "label":"tests", "message":f"{total} passing", "color":"brightgreen"}
+        out_path = 'badges/tests.json' if branch == 'main' else 'badges/tests-dev.json'
+        os.makedirs('badges', exist_ok=True)
+        with open(out_path, 'w') as f:
+            json.dump(data, f)
+        PY
+        git add badges/tests.json || true
+        git add badges/tests-dev.json || true
+        git commit -m "Update combined tests badge [skip ci]" || echo "No changes to commit"
+        git push origin badges
 
   check-docs:
     runs-on: ubuntu-latest
@@ -154,10 +237,16 @@ jobs:
       with:
         python-version: '3.10'
 
-    - name: Install dependencies
+    - name: Install mdformat only
       run: |
         python -m pip install --upgrade pip
-        pip install mkdocs mkdocs-material mkdocstrings[python] mdformat
+        pip install mdformat
+
+    - name: Install mkdocs dependencies (if mkdocs config present)
+      if: ${{ hashFiles('mkdocs.yml', 'mkdocs.yaml') != '' }}
+      run: |
+        python -m pip install --upgrade pip
+        pip install mkdocs mkdocs-material mkdocstrings[python]
 
     - name: Autoformat documentation (mdformat)
       run: |

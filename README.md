@@ -3,6 +3,7 @@
 ![CI](https://img.shields.io/github/actions/workflow/status/matdev83/llm-interactive-proxy/ci.yml?branch=main&label=CI)
 ![CI (dev)](https://img.shields.io/github/actions/workflow/status/matdev83/llm-interactive-proxy/ci.yml?branch=dev&label=CI%20(dev))
 ![Architecture Check](https://img.shields.io/github/actions/workflow/status/matdev83/llm-interactive-proxy/architecture-check.yml?branch=main&label=Architecture)
+[![Architecture (dev)](https://img.shields.io/github/actions/workflow/status/matdev83/llm-interactive-proxy/architecture-check.yml?branch=dev&label=Architecture%20(dev))](https://github.com/matdev83/llm-interactive-proxy/actions/workflows/architecture-check.yml)
 [![Coverage](https://codecov.io/gh/matdev83/llm-interactive-proxy/branch/main/graph/badge.svg)](https://codecov.io/gh/matdev83/llm-interactive-proxy)
 [![Coverage (dev)](https://codecov.io/gh/matdev83/llm-interactive-proxy/branch/dev/graph/badge.svg)](https://codecov.io/gh/matdev83/llm-interactive-proxy/branch/dev)
 ![Python](https://img.shields.io/badge/python-3.10%2B-blue)
