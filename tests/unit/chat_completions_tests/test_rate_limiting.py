@@ -62,7 +62,7 @@ def test_rate_limit_memory(
     # Mock the Gemini responses using a callback to handle multiple requests
     httpx_mock.add_response(
         url=re.compile(
-            r"https://generativelanguage.googleapis.com/v1beta/models/gemini-1:generateContent.*"
+            r"https://generativelanguage\.googleapis\.com/v1beta/models/gemini-1:generateContent.*"
         ),
         method="POST",
         status_code=429,
@@ -70,7 +70,7 @@ def test_rate_limit_memory(
     )
     httpx_mock.add_response(
         url=re.compile(
-            r"https://generativelanguage.googleapis.com/v1beta/models/gemini-1:generateContent.*"
+            r"https://generativelanguage\.googleapis\.com/v1beta/models/gemini-1:generateContent.*"
         ),
         method="POST",
         status_code=200,
