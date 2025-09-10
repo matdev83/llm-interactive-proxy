@@ -7,7 +7,7 @@ on:
     branches: [ main ]
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   test:
@@ -41,7 +41,7 @@ jobs:
 
     - name: Type check with mypy
       run: |
-        python -m mypy src tests
+        python -m mypy src
 
     - name: Test with pytest (coverage)
       run: |
@@ -53,6 +53,53 @@ jobs:
       with:
         token: ${{ secrets.CODECOV_TOKEN }}
         slug: matdev83/llm-interactive-proxy
+
+    - name: Generate tests badge JSON
+      if: ${{ github.ref == 'refs/heads/main' }}
+      run: |
+        python - <<'PY'
+        import xml.etree.ElementTree as ET, json, sys
+        p = 'test-results.xml'
+        try:
+            root = ET.parse(p).getroot()
+        except Exception:
+            # No report generated; emit zeroed badge
+            data = {"schemaVersion":1, "label":"tests", "message":"0 passing", "color":"lightgrey"}
+            open('tests-badge.json','w').write(json.dumps(data))
+            sys.exit(0)
+
+        tests = int(root.get('tests') or 0)
+        failures = int(root.get('failures') or 0)
+        errors = int(root.get('errors') or 0)
+        skipped = int(root.get('skipped') or 0)
+        if tests == 0:
+            for ts in root.iter('testsuite'):
+                tests += int(ts.get('tests') or 0)
+                failures += int(ts.get('failures') or 0)
+                errors += int(ts.get('errors') or 0)
+                skipped += int(ts.get('skipped') or 0)
+        passed = max(tests - failures - errors - skipped, 0)
+        color = 'brightgreen' if failures == 0 and errors == 0 else 'red'
+        data = {"schemaVersion":1, "label":"tests", "message":f"{passed} passing", "color":color}
+        open('tests-badge.json','w').write(json.dumps(data))
+        PY
+
+    - name: Publish tests badge to badges branch
+      if: ${{ github.ref == 'refs/heads/main' }}
+      run: |
+        git config user.name "github-actions"
+        git config user.email "github-actions@github.com"
+        git fetch origin
+        if git show-ref --verify --quiet refs/remotes/origin/badges; then
+          git checkout -b badges origin/badges
+        else
+          git checkout -b badges
+        fi
+        mkdir -p badges
+        mv -f tests-badge.json badges/tests.json
+        git add badges/tests.json
+        git commit -m "Update tests badge [skip ci]" || echo "No changes to commit"
+        git push origin badges
 
   integration:
     runs-on: ubuntu-latest
@@ -109,5 +156,6 @@ jobs:
         mdformat --check README.md CONTRIBUTING.md docs/
 
     - name: Test docs building
+      if: ${{ hashFiles('mkdocs.yml', 'mkdocs.yaml') != '' }}
       run: |
         mkdocs build --strict

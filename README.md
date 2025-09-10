@@ -7,6 +7,7 @@
 [![License](https://img.shields.io/github/license/matdev83/llm-interactive-proxy?color=blue)](LICENSE)
 ![Last Commit](https://img.shields.io/github/last-commit/matdev83/llm-interactive-proxy?label=Last%20commit)
 ![Open Issues](https://img.shields.io/github/issues/matdev83/llm-interactive-proxy?label=Open%20issues)
+[![Tests](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/matdev83/llm-interactive-proxy/badges/badges/tests.json)](https://github.com/matdev83/llm-interactive-proxy/actions/workflows/ci.yml)
 
 This project is a swiss-army knife for anyone working with language models and agentic workflows. It sits between any LLM-aware client and any LLM backend, presenting multiple front-end APIs (OpenAI, Anthropic, Gemini) while routing to whichever provider you choose. With the proxy you can translate, reroute, and augment requests on the fly, execute chat-embedded commands, override models, rotate API keys, prevent leaks, and inspect traffic — all from a single drop-in gateway.
 
