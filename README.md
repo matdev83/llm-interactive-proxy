@@ -1,182 +1,288 @@
-# Interactive LLM Proxy Server
+# LLM Interactive Proxy
 
-This project is a *swiss-army knife* for anyone hacking on language models and agentic workflows. It sits between your LLM-aware client and any LLM backend, allowing you to translate, reroute, and augment requests on the fly. With the proxy, you can execute chat-embedded commands, override models, rotate API keys, prevent loops, and inspect every token exchanged—all from a single, drop-in gateway.
+This project is a swiss-army knife for anyone working with language models and agentic workflows. It sits between any LLM-aware client and any LLM backend, presenting multiple front-end APIs (OpenAI, Anthropic, Gemini) while routing to whichever provider you choose. With the proxy you can translate, reroute, and augment requests on the fly, execute chat-embedded commands, override models, rotate API keys, prevent leaks, and inspect traffic — all from a single drop-in gateway.
 
-## Core Features
+## Contents
 
-- **Multi-Protocol Gateway**: Use any client (OpenAI, Anthropic, Gemini) with any backend. The proxy handles the protocol conversion automatically.
-- **Dynamic Model Override**: Force an application to use a specific model via in-chat commands (`!/set(model=...)`) without changing client code.
-- **Automated API Key Rotation**: Configure multiple API keys for a backend (e.g., `GEMINI_API_KEY_1`, `GEMINI_API_KEY_2`). The proxy automatically rotates them to maximize usage and bypass rate limits.
-- **Resilient Failover Routing**: Define fallback rules to automatically switch to different models or backends if a request fails. See the example use case below.
-- **Gemini CLI Gateway**: Expose your local, free-tier Gemini CLI as a standard API endpoint for any client to use.
-- **Advanced Loop Detection**: Automatically detects and halts repetitive loops in real-time. Enabled by default and configurable via `LOOP_DETECTION_*` environment variables.
-- **Comprehensive Usage Tracking**: Logs all requests to a local database with endpoints (`/usage/stats`, `/usage/recent`) for monitoring costs and performance.
-- **In-Chat Command System**: Control the proxy on the fly using commands inside your prompts (e.g., `!/help`, `!/set(backend=...)`).
-- **Security**: Automatically redacts API keys and other secrets from prompts before they are sent to the LLM.
-- **Unified Reasoning & Temperature Control**: The proxy understands and translates reasoning parameters (e.g., `reasoning_effort`, `thinking_budget`) and `temperature` settings across different backends, providing consistent control.
+- [Killer Features](#killer-features)
+- [Supported APIs (Front-Ends) and Providers (Back-Ends)](#supported-apis-front-ends-and-providers-back-ends)
+- [Gemini Backends Overview](#gemini-backends-overview)
+- [Quick Start](#quick-start)
+- [Using It Day-To-Day](#using-it-day-to-day)
+- [Security](#security)
+- [Debugging (Wire Capture)](#debugging-wire-capture)
+- [Optional Capabilities (Short List)](#optional-capabilities-short-list)
+- [Example Config (minimal)](#example-config-minimal)
+- [Popular Scenarios](#popular-scenarios)
+- [Errors and Troubleshooting](#errors-and-troubleshooting)
+- [Support](#support)
+- [Changelog](#changelog)
+ - [License](#license)
 
-## Supported APIs & Protocol Conversion
+## Use Cases
 
-The proxy normalises requests internally, meaning **any front-end can be wired to any back-end**. This unlocks powerful protocol-conversion scenarios.
+-   **Connect Any App to Any Model**: Seamlessly route requests from any LLM-powered application to any model, even across different protocols. Use clients like Anthropic's Claude Code CLI with a Gemini 2.5 Pro model, or Codex CLI with a Kimi K2 model.
+-   **Override Hardcoded Models**: Force an application to use a model of your choice, even if the developers didn't provide an option to change it.
+-   **Inspect and Debug Prompts**: Capture and analyze the exact prompts your agent sends to the LLM provider to debug and refine interactions.
+-   **Customize System Prompts**: Rewrite or modify an agent's system prompt to better suit your specific needs and improve its performance.
+-   **Leverage Your LLM Subscriptions**: Use your personal subscriptions, like OpenAI Plus/Pro or Anthropic Pro/MAX plans, with any third-party application, not just those developed by the LLM vendor.
+-   **Automated Model Tuning for Precision**: The proxy automatically detects when a model struggles with tasks like precise file edits and adjusts its parameters to improve accuracy on subsequent attempts.
+-   **Automatic Tool Call Repair**: If a model generates invalid tool calls, the proxy automatically corrects them before they can cause errors in your agent.
+-   **Automated Error Detection and Steering**: Detect when an LLM is stuck in a loop or fails to follow instructions, and automatically generate steering commands to get it back on track.
+-   **Block Harmful Tool Calls**: Prevent potentially destructive actions, such as deleting your git repository, by detecting and blocking harmful tool calls at the proxy level.
+-   **Maximize Free Tiers with API Key Rotation**: Aggregate all your API keys and use auto-rotation to seamlessly switch between them, allowing you to take full advantage of multiple free-tier allowances.
 
-| Client-Side (front-end) Protocol | Path prefix       | Typical SDK    |
-| -------------------------------- | ----------------- | -------------- |
-| OpenAI / OpenRouter              | `/v1/*`           | `openai`       |
-| Anthropic Messages API           | `/anthropic/v1/*` | `anthropic`    |
-| Google Gemini Generative AI      | `/v1beta/*`       | `google-genai` |
+## Killer Features
 
-**Examples:**
-- **Anthropic SDK ➜ OpenRouter**: Set `base_url="http://proxy/anthropic/v1"` and request model `openrouter:gpt-4`.
-- **OpenAI client ➜ Gemini model**: Request model `gemini:gemini-1.5-pro` with your OpenAI client.
-- **Any client ➜ Gemini CLI**: Route heavy workloads to your local free-tier CLI by requesting a model like `gemini-cli-direct:gemini-1.5-pro`.
+### Compatibility
 
-## Example Use Cases
+- Multiple front-ends, many providers: exposes OpenAI, Anthropic, and Gemini APIs while routing to OpenAI, Anthropic, Gemini, OpenRouter, ZAI, Qwen, and more
+- OpenAI compatibility: drop-in `/v1/chat/completions` for most clients and coding agents
+- Streaming everywhere: consistent streaming and non‑streaming support across providers
+- Gemini OAuth personal gateway: use Google’s free personal OAuth (CLI-style) through an OpenAI-compatible endpoint
 
-1.  **Leverage Free Tiers with Key Rotation**
-    - **Scenario**: You have multiple free-tier accounts for Gemini and want to combine their limits.
-    - **Configuration (`.env` file)**:
-      ```env
-      GEMINI_API_KEY_1="first_free_tier_key"
-      GEMINI_API_KEY_2="second_free_tier_key"
-      GEMINI_API_KEY_3="third_free_tier_key"
-      ```
-    - **How it works**: The proxy will automatically cycle through these keys. If a request with `GEMINI_API_KEY_1` gets rate-limited, the next request will automatically use `GEMINI_API_KEY_2`, maximizing your free usage.
+### Reliability
 
-2.  **Build Resilient Workflows with Failover Routing**
-    - **Scenario**: You want to use a powerful but expensive model like GPT-4, but fall back to a cheaper model if it fails or is unavailable.
-    - **Action (In-chat command)**:
-      ```
-      !/create-failover-route(name=main_fallback, policy=m)
-      !/route-append(name=main_fallback, openrouter:gpt-4, openrouter:sonnet-3.5)
-      ```
-    - **How it works**: When you request the model `main_fallback`, the proxy first tries `openrouter:gpt-4`. If that request fails, it automatically retries the request with `openrouter:sonnet-3.5` without any change needed in your client application.
+- Failover routing: fall back to alternate models/providers on rate limits or outages
+- Automated API key rotation: rotate across multiple keys to reduce throttling and extend free-tier allowances
+- Rate limits and context: lightweight rate limiting and per-model context window enforcement
 
-3.  **Monitor Costs and Usage**
-    - **Scenario**: You need to track token usage for a specific project or user.
-    - **Action**: After running some requests, query the built-in usage API.
-      ```bash
-      curl -H "Authorization: Bearer your_proxy_key" "http://localhost:8000/usage/stats?project=my-project"
-      ```
-    - **How it works**: The proxy logs every request to a local database. The `/usage/stats` and `/usage/recent` endpoints provide immediate access to detailed analytics, helping you monitor costs and performance without any external setup.
+### Safety & Integrity
 
-## Getting Started
+- Loop detection: detect repeated patterns and halt infinite loops
+- Dangerous-command prevention: steer away from destructive shell actions
+- Key hygiene: redact API keys in prompts and logs
+- Repair helpers: tool-call and JSON repair to fix malformed model outputs
 
-### Prerequisites
+### Control & Ergonomics
 
-- Python 3.8+
-- `pip` for installing packages
-- For the `gemini-cli-direct` backend: [Google Gemini CLI](https://github.com/google-gemini/gemini-cli) installed and authenticated.
+- In-chat switching: change back-end and model on the fly with `!/backend(...)` and `!/model(...)`
+- Force model override: make clients use the model you choose without changing client code
 
-### Installation
+### Observability
 
-1.  **Clone the repository:**
-    ```bash
-    git clone https://github.com/matdev83/llm-interactive-proxy.git
-    cd llm-interactive-proxy
-    ```
+- Wire capture and audit: optional request/response capture file plus usage tracking
 
-2.  **Create a virtual environment and activate it:**
-    ```bash
-    python -m venv .venv
-    # On Linux/macOS
-    source .venv/bin/activate
-    # On Windows
-    .venv\Scripts\activate
-    ```
+## Supported LLM APIs
 
-3.  **Install dependencies:**
-    ```bash
-    pip install -e .[dev]
-    ```
+These are ready out of the box. Front-ends are the client-facing APIs the proxy exposes; back-ends are the providers the proxy calls.
 
-### Configuration
+### Front-ends
 
-1.  **Create a `.env` file** in the project root.
-2.  **Add your backend API keys**. The proxy supports single keys or numbered keys for rotation (e.g., `OPENROUTER_API_KEY_1`, `OPENROUTER_API_KEY_2`).
-    ```env
-    # Example for OpenRouter
-    OPENROUTER_API_KEY="your_openrouter_api_key"
+| API surface | Path(s) | Typical clients | Notes |
+| - | - | - | - |
+| OpenAI Chat Completions | `/v1/chat/completions` | Most OpenAI SDKs/tools, coding agents | Default front-end |
+| Anthropic Messages | `/anthropic/v1/messages` (+ `/anthropic/v1/models`, `/health`, `/info`) | Claude Code, Anthropic SDK | Also available on a dedicated port (see Setup) |
+| Google Gemini v1beta | `/v1beta/models`, `:generateContent`, `:streamGenerateContent` | Gemini-compatible tools/SDKs | Translates to your chosen provider |
 
-    # Example for Gemini (supports rotation)
-    GEMINI_API_KEY_1="first_gemini_key"
-    GEMINI_API_KEY_2="second_gemini_key"
+### Back-ends
 
-    # Example for Anthropic
-    ANTHROPIC_API_KEY="your_anthropic_key"
+| Backend ID | Provider | Authentication | Notes |
+| - | - | - | - |
+| `openai` | OpenAI | `OPENAI_API_KEY` | Standard OpenAI API |
+| `openai-oauth` | OpenAI (ChatGPT/Codex OAuth) | Local `.codex/auth.json` | Uses ChatGPT login token instead of API key |
+| `anthropic` | Anthropic | `ANTHROPIC_API_KEY` | Claude models via Messages API |
+| `anthropic-oauth` | Anthropic (OAuth) | Local OAuth token | Claude via OAuth credential flow |
+| `gemini` | Google Gemini | `GEMINI_API_KEY` | Metered API key |
+| `gemini-cli-oauth-personal` | Google Gemini (CLI) | OAuth (no key) | Free-tier personal OAuth like the Gemini CLI |
+| `gemini-cli-cloud-project` | Google Gemini (GCP) | OAuth + `GOOGLE_CLOUD_PROJECT` (+ ADC) | Bills to your GCP project |
+| `openrouter` | OpenRouter | `OPENROUTER_API_KEY` | Access to many hosted models |
+| `zai` | ZAI | `ZAI_API_KEY` | Zhipu/Z.ai access (OpenAI-compatible) |
+| `zai-coding-plan` | ZAI Coding Plan | `ZAI_API_KEY` | Works with any supported front-end and coding agent |
+| `qwen-oauth` | Alibaba Qwen | Local `oauth_creds.json` | Qwen CLI OAuth; OpenAI-compatible endpoint |
 
-    # Required for Gemini CLI backends
-    GOOGLE_CLOUD_PROJECT="your-google-cloud-project-id"
+## Quick Start
 
-    # Set a key for clients to access this proxy
-    LLM_INTERACTIVE_PROXY_API_KEY="a_secret_key_for_your_clients"
-    ```
-3.  **Select the default backend** (optional, defaults to the first one configured).
-    ```env
-    LLM_BACKEND=gemini
-    ```
-
-### Running the Server
-
-Start the proxy server from the project's root directory:
+1) Export provider keys (only for the back-ends you plan to use)
 
 ```bash
-python src/core/cli.py
+export OPENAI_API_KEY=...
+export ANTHROPIC_API_KEY=...
+export GEMINI_API_KEY=...
+export OPENROUTER_API_KEY=...
+export ZAI_API_KEY=...
+# GCP-based Gemini back-end
+export GOOGLE_CLOUD_PROJECT=your-project-id
 ```
 
-The server will start on `http://127.0.0.1:8000`. For a full list of CLI arguments and environment variables for advanced configuration, run `python src/core/cli.py --help`.
+2) Start the proxy
 
-## Usage
+```bash
+python -m src.core.cli --default-backend openai
+```
 
-### Client Configuration
+Useful flags
 
-Configure your LLM client to use the proxy's URL and API key.
+- `--host 0.0.0.0` and `--port 8000` to change bind address
+ - `--config config/config.example.yaml` to load a saved config
+ 
+### Configuration Format
+- Configuration files are YAML-only. JSON configs are deprecated and not supported by the loader.
+- Keep `pyproject.toml` for packaging/tooling, and JSON for wire-capture logs only.
+- On startup, the server validates YAML files and refuses to start on syntax/schema errors.
+- `--capture-file wire.log` to record requests/replies (see Debugging)
+- `--disable-auth` for local only (forces host=127.0.0.1)
 
-- **API Base URL**:
-  - For OpenAI/OpenRouter clients: `http://localhost:8000/v1`
-  - For Anthropic clients: `http://localhost:8000/anthropic/v1`
-  - For Gemini clients: `http://localhost:8000/v1beta`
-- **API Key**: Use the `LLM_INTERACTIVE_PROXY_API_KEY` you defined in your `.env` file.
+3) Point your client at the proxy
 
-### In-Chat Commands
+- OpenAI-compatible tools: set `OPENAI_API_BASE=http://localhost:8000/v1` and `OPENAI_API_KEY` to your proxy key if auth is enabled
+- Claude Code (Anthropic): set `ANTHROPIC_API_URL=http://localhost:8001` and `ANTHROPIC_API_KEY` to your proxy key
+- Gemini clients: call the `/v1beta/...` endpoints on `http://localhost:8000`
 
-Control the proxy on the fly by embedding commands in your prompts (default prefix `!/`).
+Tip: Anthropic compatibility is exposed both at `/anthropic/...` on the main port and, if configured, on a dedicated Anthropic port (defaults to main port + 1). Override via `ANTHROPIC_PORT`.
 
-**Common Commands:**
-- `!/help`: List all available commands.
-- `!/set(model=backend:model_name)`: Override the model for the current session.
-- `!/set(backend=openrouter)`: Switch the backend for the current session.
-- `!/oneoff(gemini-cli-direct:gemini-1.5-pro)`: Use a specific backend/model for the next request only.
-- `!/create-failover-route(...)`: Define custom failover logic.
+## Using It Day-To-Day
 
-## Roadmap
+- Switch back-end or model on the fly in the chat input:
+  - `!/backend(openai)`
+  - `!/model(gpt-4o-mini)`
+  - `!/oneoff(openrouter:qwen/qwen3-coder)`
+- Keep your existing tools; just point them to the proxy endpoint.
+- The proxy handles streaming, retries/failover (if enabled), and output repair.
 
-- Zero-knowledge key provisioning
-- SSO authentication and a web management UI
-- ML-based semantic loop detection
-- On-the-fly prompt compression
-- Command aliases and deep observability hooks
+## Security
 
-## Contributing
+- Do not store provider API keys in config files; use environment variables only.
+- Common keys: `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `GEMINI_API_KEY`, `OPENROUTER_API_KEY`, `ZAI_API_KEY`, `GOOGLE_CLOUD_PROJECT`.
+- Optional proxy auth: set `LLM_INTERACTIVE_PROXY_API_KEY` and require clients to send `Authorization: Bearer <key>`.
+- Built-in redaction masks API keys in prompts and logs.
 
-Contributions are welcome! Please follow the standard fork-and-pull-request workflow.
+## Debugging (Wire Capture)
 
-1.  Fork the repository.
-2.  Create a new feature branch.
-3.  Make your changes and add tests.
-4.  Submit a pull request.
+Write outbound requests and inbound replies/streams to a rotating file for troubleshooting.
 
-## Project Structure
+- CLI: `--capture-file wire.jsonl` plus optional rotation caps:
+  - `--capture-rotate-interval SECONDS`
+  - `--capture-total-max-bytes N`
+  - `--capture-max-files N`
+- The capture records source/destination, headers and payloads, and keeps secrets redacted when prompt redaction is enabled.
+
+## Optional Capabilities (Short List)
+
+- Failover and retries: route requests to a next-best model when one fails
+- JSON repair: fix common JSON formatting issues (streaming and non‑streaming)
+- Tool-call repair: convert textual tool calls to proper `tool_calls`
+- Loop detection: stop repeated identical tool calls
+- Dangerous-command prevention: steer away from destructive shell actions
+- Identity header override: control X-Title/Referer/User-Agent per back-end
+- Content rewriting: REPLACE/PREPEND/APPEND rules on inbound/outbound content
+- Context window enforcement: per-model token limits with friendly errors
+
+## Gemini Backends Overview
+
+Choose the Gemini integration that fits your environment.
+
+| Backend | Authentication | Cost | Best for |
+| - | - | - | - |
+| `gemini` | API key (`GEMINI_API_KEY`) | Metered (pay-per-use) | Production apps, high-volume usage |
+| `gemini-cli-oauth-personal` | OAuth (no API key) | Free tier with limits | Local development, testing, personal use |
+| `gemini-cli-cloud-project` | OAuth + `GOOGLE_CLOUD_PROJECT` (ADC/service account) | Billed to your GCP project | Enterprise, team workflows, central billing |
+
+Notes
+
+- Personal OAuth uses credentials from the local Google CLI/Code Assist-style flow and does not require a `GEMINI_API_KEY`.
+- Cloud Project requires `GOOGLE_CLOUD_PROJECT` and Application Default Credentials (or a service account file).
+
+Quick setup
+
+For `gemini` (API key)
+
+```bash
+export GEMINI_API_KEY="AIza..."
+python -m src.core.cli --default-backend gemini
+```
+
+For `gemini-cli-oauth-personal` (free personal OAuth)
+
+```bash
+# Install and authenticate with the Google Gemini CLI (one-time):
+gemini auth
+
+# Then start the proxy using the personal OAuth backend
+python -m src.core.cli --default-backend gemini-cli-oauth-personal
+```
+
+For `gemini-cli-cloud-project` (GCP-billed)
+
+```bash
+export GOOGLE_CLOUD_PROJECT="your-project-id"
+
+# Provide Application Default Credentials via one of the following:
+# Option A: User credentials (interactive)
+gcloud auth application-default login
+
+# Option B: Service account file
+export GOOGLE_APPLICATION_CREDENTIALS="/absolute/path/to/service-account.json"
+
+python -m src.core.cli --default-backend gemini-cli-cloud-project
+```
+
+## Example Config (minimal)
+
+```yaml
+# config.yaml
+backends:
+  openai:
+    type: openai
+
+default_backend: openai
+proxy:
+  host: 0.0.0.0
+  port: 8000
+auth:
+  # Set LLM_INTERACTIVE_PROXY_API_KEY env var to enable
+  disable_auth: false
+```
+
+Run: `python -m src.core.cli --config config.yaml`
+
+## Popular Usage Scenarios
+
+### Claude Code with any model/provider
+
+1) Start the proxy with your preferred back-end (e.g., OpenAI or OpenRouter)
+2) Ensure Anthropic front-end is reachable (main port `/anthropic/...` or `ANTHROPIC_PORT`)
+3) Set
+
+```bash
+export ANTHROPIC_API_URL=http://localhost:8001
+export ANTHROPIC_API_KEY=<your-proxy-key>
+```
+
+Then launch `claude`. You can switch models during a session:
 
 ```
-.
-├── src/                  # Source code
-│   ├── commands/         # In-chat command implementations
-│   ├── connectors/       # Backend connectors (OpenRouter, Gemini, etc.)
-│   ├── core/             # Core application logic (CLI, config)
-│   ├── main.py           # FastAPI application and endpoints
-│   └── proxy_logic.py    # Core logic for command parsing, state management
-├── tests/                # Automated tests
-├── .env                  # Your local environment configuration (create this)
-├── pyproject.toml        # Project metadata and dependencies
-└── README.md             # This file
+!/backend(openrouter)
+!/model(claude-3-5-sonnet-20241022)
 ```
+
+### Z.AI Coding Plan with coding agents
+
+- Use back-end `zai-coding-plan`; it works with any supported front-end and any coding agent
+- Point OpenAI-compatible tools at `http://localhost:8000/v1`
+
+### Gemini options
+
+- Metered API key (`gemini`), free personal OAuth (`gemini-cli-oauth-personal`), or GCP‑billed (`gemini-cli-cloud-project`). Pick one and set the required env vars.
+
+## Errors and Troubleshooting
+
+- 401/403 from proxy: missing/invalid `Authorization` header when proxy auth is enabled
+- 400 Bad Request: malformed payload; ensure you send an OpenAI/Anthropic/Gemini-compatible body
+- 422 Unprocessable Entity: validation error; check error details for the field
+- 503 Service Unavailable: upstream provider is unreachable; try another model or enable failover
+- Model not found: ensure the model name exists for the selected back-end
+
+## Tips
+
+- Enable wire capture for tricky issues: `--capture-file wire.jsonl`
+- Use in-chat `!/backend(...)` and `!/model(...)` to isolate provider/model problems
+- Check environment variables are set for the back-end you selected
+
+## Support
+
+- Issues: open a ticket in the repository’s issue tracker
+
+## Changelog
+
+- See the full change history in [CHANGELOG.md](CHANGELOG.md)

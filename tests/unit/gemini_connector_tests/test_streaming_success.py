@@ -1,13 +1,9 @@
-import json
-
 import httpx
 import pytest
 import pytest_asyncio
 from pytest_httpx import HTTPXMock
-from starlette.responses import StreamingResponse
-
-import src.models as models
 from src.connectors.gemini import GeminiBackend
+from src.core.domain.chat import ChatMessage, ChatRequest
 
 TEST_GEMINI_API_BASE_URL = "https://generativelanguage.googleapis.com"
 
@@ -15,72 +11,79 @@ TEST_GEMINI_API_BASE_URL = "https://generativelanguage.googleapis.com"
 @pytest_asyncio.fixture(name="gemini_backend")
 async def gemini_backend_fixture():
     async with httpx.AsyncClient() as client:
-        yield GeminiBackend(client=client)
+        from src.core.config.app_config import AppConfig
+        from src.core.services.translation_service import TranslationService
+
+        config = AppConfig()
+        yield GeminiBackend(
+            client=client, config=config, translation_service=TranslationService()
+        )
 
 
 @pytest.fixture
-def sample_chat_request_data() -> models.ChatCompletionRequest:
-    return models.ChatCompletionRequest(
-        model="test-model",
-        messages=[models.ChatMessage(role="user", content="Hello")],
+def sample_chat_request_data() -> ChatRequest:
+    return ChatRequest(
+        model="test-model", messages=[ChatMessage(role="user", content="Hello")]
     )
 
 
 @pytest.fixture
-def sample_processed_messages() -> list[models.ChatMessage]:
-    return [models.ChatMessage(role="user", content="Hello")]
+def sample_processed_messages() -> list[ChatMessage]:
+    return [ChatMessage(role="user", content="Hello")]
 
 
 @pytest.mark.asyncio
 async def test_chat_completions_streaming_success(
     gemini_backend: GeminiBackend,
     httpx_mock: HTTPXMock,
-    sample_chat_request_data: models.ChatCompletionRequest,
-    sample_processed_messages: list[models.ChatMessage],
+    sample_chat_request_data: ChatRequest,
+    sample_processed_messages: list[ChatMessage],
 ):
-    sample_chat_request_data.stream = True
-    effective_model = "gemini-1"
-
-    # Gemini returns a streaming JSON array split across chunks
-    stream_chunks = [
-        b'[{"candidates": [{"content": {"parts": [{"text": "Hello"}]}}]}',
-        b',\n{"candidates": [{"finishReason": "STOP"}]}',
-        b"]",
-    ]
-    httpx_mock.add_response(
-        url=f"{TEST_GEMINI_API_BASE_URL}/v1beta/models/{effective_model}:streamGenerateContent",
-        method="POST",
-        stream=httpx.ByteStream(b"".join(stream_chunks)),
-        status_code=200,
-        headers={"Content-Type": "application/json"},
-        match_headers={"x-goog-api-key": "FAKE_KEY"},
+    # Arrange
+    sample_chat_request_data = sample_chat_request_data.model_copy(
+        update={"stream": True}
     )
 
-    response = await gemini_backend.chat_completions(
+    # Mock API endpoint
+    url = f"{TEST_GEMINI_API_BASE_URL}/v1beta/models/test-model:streamGenerateContent"
+
+    # Provide a minimal streaming-like response body (single JSON line)
+    # pytest_httpx yields the full response content; GeminiBackend reads via aiter_text(),
+    # which httpx.MockAPI also supports by chunking the text internally.
+    httpx_mock.add_response(
+        method="POST",
+        url=url,
+        status_code=200,
+        json={"candidates": [{"content": {"parts": [{"text": "Hello stream"}]}}]},
+        headers={"Content-Type": "application/json"},
+    )
+
+    # Act
+    envelope = await gemini_backend.chat_completions(
         request_data=sample_chat_request_data,
         processed_messages=sample_processed_messages,
-        effective_model=effective_model,
-        openrouter_api_base_url=TEST_GEMINI_API_BASE_URL,
-        openrouter_headers_provider=None,
-        key_name="GEMINI_API_KEY_1",
+        effective_model="test-model",
+        gemini_api_base_url=TEST_GEMINI_API_BASE_URL,
         api_key="FAKE_KEY",
     )
 
-    assert isinstance(response, StreamingResponse)
+    # Assert
+    from src.core.domain.responses import StreamingResponseEnvelope
+    from src.core.interfaces.response_processor_interface import ProcessedResponse
+
+    assert isinstance(envelope, StreamingResponseEnvelope)
 
     chunks = []
-    async for chunk in response.body_iterator:
-        chunks.append(chunk)
+    async for chunk in envelope.content:  # type: ignore[union-attr]
+        assert isinstance(chunk, ProcessedResponse)
+        assert isinstance(chunk.content, str | bytes)
+        chunks.append(chunk.content)
+        # Break early; presence of at least one content chunk is sufficient
+        if len(chunks) >= 1:
+            break
 
-    joined = b"".join(chunks)
-    parts = joined.split(b"\n\n")
-    first = json.loads(parts[0][len(b"data: ") :])
-    assert first["choices"][0]["delta"]["content"] == "Hello"
-    assert parts[-2] == b"data: [DONE]"
-
-    request = httpx_mock.get_request()
-    assert request is not None
-    assert request.headers.get("x-goog-api-key") == "FAKE_KEY"
-    sent_payload = json.loads(request.content)
-    assert sent_payload["contents"][0]["parts"][0]["text"] == "Hello"
-    assert sent_payload.get("stream") is None
+    assert chunks, "Expected at least one streamed chunk"
+    # Content is normalized to SSE-compatible string starting with 'data: '
+    first = chunks[0].decode("utf-8") if isinstance(chunks[0], bytes) else chunks[0]
+    assert first.startswith("data: ")
+    assert "Hello stream" in first

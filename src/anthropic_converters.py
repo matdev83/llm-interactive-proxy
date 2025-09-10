@@ -1,16 +1,15 @@
-
 """Converter functions between Anthropic API format and OpenAI format."""
+
 import json
 import logging
-from typing import Any, Dict, List
+from typing import Any
 
-from src.anthropic_models import (
-    AnthropicMessage,
-    AnthropicMessagesRequest,
-)
+from src.anthropic_models import AnthropicMessage, AnthropicMessagesRequest
 
 
-def anthropic_to_openai_request(anthropic_request: AnthropicMessagesRequest) -> Dict[str, Any]:
+def anthropic_to_openai_request(
+    anthropic_request: AnthropicMessagesRequest,
+) -> dict[str, Any]:
     """Convert Anthropic `MessagesRequest` into the *dict* shape expected by the
     OpenAI Chat Completions endpoint.
 
@@ -18,7 +17,7 @@ def anthropic_to_openai_request(anthropic_request: AnthropicMessagesRequest) -> 
     return a plain dictionary - not a ``ChatCompletionRequest`` object.
     """
 
-    messages: List[Dict[str, str]] = []
+    messages: list[dict[str, Any]] = []
 
     # Optional system message comes first
     if anthropic_request.system:
@@ -28,7 +27,7 @@ def anthropic_to_openai_request(anthropic_request: AnthropicMessagesRequest) -> 
     for msg in anthropic_request.messages:
         messages.append({"role": msg.role, "content": msg.content})
 
-    return {
+    result: dict[str, Any] = {
         "model": anthropic_request.model,
         "messages": messages,
         "max_tokens": anthropic_request.max_tokens,
@@ -38,57 +37,115 @@ def anthropic_to_openai_request(anthropic_request: AnthropicMessagesRequest) -> 
         "stop": anthropic_request.stop_sequences,
         "stream": anthropic_request.stream or False,
     }
+    return result
 
 
-def openai_to_anthropic_response(openai_response: Any) -> Dict[str, Any]:
-    """Convert an OpenAI chat completion *response* into Anthropic format.
-
-    The helper copes with two input styles used in the code-base:
-
-    1. A raw ``dict`` coming from a REST call.
-    2. A ``ChatCompletionResponse`` pydantic model.
-    """
-
-    # Normalise to a dictionary first
-    if not isinstance(openai_response, dict):
-        # pydantic-model - use attribute access
-        _dict = {
-            "id": openai_response.id,
-            "model": openai_response.model,
-            "choices": [
-                {
-                    "message": {
-                        "role": openai_response.choices[0].message.role,
-                        "content": openai_response.choices[0].message.content,
-                    },
-                    "finish_reason": openai_response.choices[0].finish_reason,
-                }
-            ],
+def openai_to_anthropic_response(openai_response: Any) -> dict[str, Any]:
+    """Convert an OpenAI chat completion response into Anthropic format."""
+    oai_dict = _normalize_openai_response_to_dict(openai_response)
+    # Defensive: handle empty or missing choices gracefully
+    choices = oai_dict.get("choices") or []
+    if not choices:
+        # Produce a minimal Anthropic-like message with empty text and usage mapping
+        usage = oai_dict.get("usage", {})
+        return {
+            "id": oai_dict.get("id", "msg_unk"),
+            "type": "message",
+            "role": "assistant",
+            "model": oai_dict.get("model", "unknown"),
+            "stop_reason": None,
+            "content": [{"type": "text", "text": ""}],
             "usage": {
-                "prompt_tokens": openai_response.usage.prompt_tokens,
-                "completion_tokens": openai_response.usage.completion_tokens,
+                "input_tokens": usage.get("prompt_tokens", 0),
+                "output_tokens": usage.get("completion_tokens", 0),
             },
         }
-    else:
-        _dict = openai_response
 
-    choice = _dict["choices"][0]
-    message = choice["message"]
-
+    choice = choices[0]
+    message = choice.get("message", {})
+    content_blocks = _build_content_blocks(choice, message)
+    usage = oai_dict.get("usage", {})
     return {
-        "id": _dict["id"],
+        "id": oai_dict.get("id", "msg_unk"),
         "type": "message",
         "role": "assistant",
-        "model": _dict["model"],
+        "model": oai_dict.get("model", "unknown"),
         "stop_reason": _map_finish_reason(choice.get("finish_reason")),
-        "content": [
-            {"type": "text", "text": message["content"]},
-        ],
+        "content": content_blocks,
         "usage": {
-            "input_tokens": _dict.get("usage", {}).get("prompt_tokens", 0),
-            "output_tokens": _dict.get("usage", {}).get("completion_tokens", 0),
+            "input_tokens": usage.get("prompt_tokens", 0),
+            "output_tokens": usage.get("completion_tokens", 0),
         },
     }
+
+
+def _normalize_openai_response_to_dict(openai_response: Any) -> dict[str, Any]:
+    if isinstance(openai_response, dict):
+        return openai_response
+    # pydantic-like model path
+    first_choice = openai_response.choices[0]
+    msg_obj: dict[str, Any] = {
+        "role": first_choice.message.role,
+        "content": first_choice.message.content,
+    }
+    tool_calls = getattr(first_choice.message, "tool_calls", None)
+    if tool_calls:
+        try:
+            msg_obj["tool_calls"] = [
+                tc.model_dump(exclude_none=True) for tc in tool_calls
+            ]
+        except Exception:
+            msg_obj["tool_calls"] = list(tool_calls or [])
+    usage_obj = getattr(openai_response, "usage", None)
+    return {
+        "id": openai_response.id,
+        "model": openai_response.model,
+        "choices": [{"message": msg_obj, "finish_reason": first_choice.finish_reason}],
+        "usage": {
+            "prompt_tokens": getattr(usage_obj, "prompt_tokens", 0) if usage_obj else 0,
+            "completion_tokens": (
+                getattr(usage_obj, "completion_tokens", 0) if usage_obj else 0
+            ),
+        },
+    }
+
+
+def _build_content_blocks(
+    choice: dict[str, Any], message: dict[str, Any]
+) -> list[dict[str, Any]]:
+    content_blocks: list[dict[str, Any]] = []
+    tool_calls = _extract_tool_calls(choice, message)
+    if tool_calls:
+        tc = tool_calls[0]
+        fn = tc.get("function", {})
+        name = fn.get("name", "tool")
+        args_raw = fn.get("arguments", "{}")
+        try:
+            args = json.loads(args_raw) if isinstance(args_raw, str) else args_raw
+        except Exception:
+            args = {"_raw": args_raw}
+        content_blocks.append(
+            {
+                "type": "tool_use",
+                "id": tc.get("id") or "toolu_0",
+                "name": name,
+                "input": args,
+            }
+        )
+        return content_blocks
+    if message.get("content") is not None:
+        content_blocks.append({"type": "text", "text": message["content"]})
+    return content_blocks
+
+
+def _extract_tool_calls(
+    choice: dict[str, Any], message: dict[str, Any]
+) -> list[dict[str, Any]] | None:
+    if isinstance(message, dict) and message.get("tool_calls"):
+        return message.get("tool_calls")
+    if isinstance(choice, dict) and choice.get("tool_calls"):
+        return choice.get("tool_calls")
+    return None
 
 
 def openai_to_anthropic_stream_chunk(chunk_data: str, id: str, model: str) -> str:
@@ -100,11 +157,11 @@ def openai_to_anthropic_stream_chunk(chunk_data: str, id: str, model: str) -> st
 
         # Terminal marker
         if chunk_data.strip() == "[DONE]":
-            return "event: message_stop\ndata: {\"type\": \"message_stop\"}\n\n"
+            return 'event: message_stop\ndata: {"type": "message_stop"}\n\n'
 
-        openai_chunk: Dict[str, Any] = json.loads(chunk_data)
-        choice: Dict[str, Any] = openai_chunk.get("choices", [{}])[0]
-        delta: Dict[str, Any] = choice.get("delta", {})
+        openai_chunk: dict[str, Any] = json.loads(chunk_data)
+        choice: dict[str, Any] = openai_chunk.get("choices", [{}])[0]
+        delta: dict[str, Any] = choice.get("delta", {})
 
         # Content delta
         if delta.get("content"):
@@ -131,9 +188,14 @@ def openai_to_anthropic_stream_chunk(chunk_data: str, id: str, model: str) -> st
         logging.getLogger(__name__).debug("Failed to convert stream chunk: %s", e)
         return ""
 
+    # If we get here, it's an unhandled case - return empty string to keep stream alive
+    return ""
+
+
 # --- Added helper functions for Anthropic frontend compatibility ---
 
-def extract_anthropic_usage(response: Any) -> Dict[str, int]:
+
+def extract_anthropic_usage(response: Any) -> dict[str, int]:
     """Extract usage information from an Anthropic API response.
 
     The helper is intentionally defensive - it works with either a raw
@@ -157,7 +219,9 @@ def extract_anthropic_usage(response: Any) -> Dict[str, int]:
             input_tokens = int(getattr(usage_obj, "input_tokens", 0) or 0)
             output_tokens = int(getattr(usage_obj, "output_tokens", 0) or 0)
     except Exception:  # pragma: no cover - never break caller on edge-cases
-        logging.getLogger(__name__).debug("Failed to extract anthropic usage", exc_info=True)
+        logging.getLogger(__name__).debug(
+            "Failed to extract anthropic usage", exc_info=True
+        )
 
     return {
         "input_tokens": input_tokens,
@@ -171,6 +235,7 @@ _FINISH_REASON_MAP = {
     "length": "max_tokens",
     "content_filter": "stop_sequence",
     "function_call": "tool_use",
+    "tool_calls": "tool_use",
 }
 
 
@@ -194,13 +259,15 @@ def openai_stream_to_anthropic_stream(chunk_data: str) -> str:
     """
     # Preserve the original *data:* prefix - tests assert on it.
     prefix = "data: "
-    payload_str = chunk_data[len(prefix):] if chunk_data.startswith("data: ") else chunk_data
+    payload_str = (
+        chunk_data[len(prefix) :] if chunk_data.startswith("data: ") else chunk_data
+    )
 
     try:
         if payload_str.strip() == "[DONE]":
             return chunk_data  # pass through - not currently asserted on
 
-        openai_chunk: Dict[str, Any] = json.loads(payload_str)
+        openai_chunk: dict[str, Any] = json.loads(payload_str)
         choice = openai_chunk.get("choices", [{}])[0]
         delta = choice.get("delta", {})
 
@@ -238,7 +305,7 @@ def openai_stream_to_anthropic_stream(chunk_data: str) -> str:
     return chunk_data
 
 
-def get_anthropic_models() -> Dict[str, Any]:
+def get_anthropic_models() -> dict[str, Any]:
     """Return a hard-coded model list that satisfies the unit test expectations."""
     models = [
         {
@@ -275,20 +342,22 @@ def get_anthropic_models() -> Dict[str, Any]:
 
     return {"object": "list", "data": models}
 
+
 # Backwards-compat alias so existing imports still resolve
-openai_to_anthropic_stream = openai_stream_to_anthropic_stream  # type: ignore
+# openai_to_anthropic_stream = openai_stream_to_anthropic_stream  # type: ignore
 
 # Re-export commonly used pydantic models for convenience so that tests and
-# legacy code can simply "from src.anthropic_converters import AnthropicMessage"
+# Re-export for convenience
 # without having to know the internal module structure.
 
 __all__ = [
+    # Re-exported pydantic models
     "AnthropicMessage",
     "AnthropicMessagesRequest",
     # Conversion helpers
     "anthropic_to_openai_request",
     "extract_anthropic_usage",
+    "openai_stream_to_anthropic_stream",
     "openai_to_anthropic_response",
     "openai_to_anthropic_stream_chunk",
-    "openai_stream_to_anthropic_stream",
 ]

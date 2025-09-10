@@ -2,20 +2,31 @@ from __future__ import annotations
 
 import json
 import logging
-import time
-from typing import Any, AsyncGenerator
+from collections.abc import AsyncGenerator, Callable
+from typing import Any, cast
 
 import httpx
 from fastapi import HTTPException
-from starlette.responses import StreamingResponse
 
 from src.connectors.base import LLMBackend
-from src.models import (
-    ChatCompletionRequest,
+from src.core.common.exceptions import BackendError, ServiceUnavailableError
+from src.core.config.app_config import AppConfig  # Added
+from src.core.domain.chat import (
+    ChatRequest,
     MessageContentPartImage,
     MessageContentPartText,
 )
-from src.security import APIKeyRedactor, ProxyCommandFilter
+from src.core.domain.responses import ResponseEnvelope, StreamingResponseEnvelope
+from src.core.interfaces.configuration_interface import IAppIdentityConfig
+from src.core.interfaces.model_bases import DomainModel, InternalDTO
+from src.core.interfaces.response_processor_interface import ProcessedResponse
+from src.core.services.backend_registry import backend_registry
+from src.core.services.translation_service import TranslationService
+
+# Legacy ChatCompletionRequest removed from connector signatures; use domain ChatRequest
+
+# API key redaction and command filtering are now handled by middleware
+# from src.security import APIKeyRedactor, ProxyCommandFilter
 
 logger = logging.getLogger(__name__)
 
@@ -23,110 +34,78 @@ logger = logging.getLogger(__name__)
 class GeminiBackend(LLMBackend):
     """LLMBackend implementation for Google's Gemini API."""
 
-    def __init__(self, client: httpx.AsyncClient) -> None:
-        self.client = client
-        self.available_models: list[str] = []
+    backend_type: str = "gemini"
 
-    async def initialize(
+    def __init__(
         self,
-        *,
-        gemini_api_base_url: str,
-        key_name: str,
-        api_key: str,
+        client: httpx.AsyncClient,
+        config: AppConfig,
+        translation_service: TranslationService,
     ) -> None:
-        """Fetch available models and cache them."""
-        data = await self.list_models(
-            gemini_api_base_url=gemini_api_base_url,
-            key_name=key_name,
-            api_key=api_key,
-        )
-        self.available_models = [
-            m.get("name") for m in data.get("models", []) if m.get("name")
-        ]
+        self.client = client
+        self.config = config  # Stored config
+        self.translation_service = translation_service
+        self.available_models: list[str] = []
+        self.api_keys: list[str] = []
+
+    async def initialize(self, **kwargs: Any) -> None:
+        """Store configuration for lazy initialization."""
+        self.gemini_api_base_url = kwargs.get("gemini_api_base_url")
+        self.key_name = kwargs.get("key_name")
+        self.api_key = kwargs.get("api_key")
+
+        if not self.gemini_api_base_url or not self.key_name or not self.api_key:
+            raise ValueError(
+                "gemini_api_base_url, key_name, and api_key are required for GeminiBackend"
+            )
+
+        # Don't make HTTP calls during initialization
+        # Models will be fetched on first use
+
+    async def _ensure_models_loaded(self) -> None:
+        """Fetch models if not already cached."""
+        if (
+            not self.available_models
+            and hasattr(self, "api_key")
+            and self.gemini_api_base_url
+            and self.key_name
+            and self.api_key
+        ):
+            try:
+                data = await self.list_models(
+                    gemini_api_base_url=self.gemini_api_base_url,
+                    key_name=self.key_name,
+                    api_key=self.api_key,
+                )
+                self.available_models = [
+                    m.get("name") for m in data.get("models", []) if m.get("name")
+                ]
+            except Exception as e:
+                if logger.isEnabledFor(logging.WARNING):
+                    logger.warning(
+                        "Failed to fetch Gemini models: %s", e, exc_info=True
+                    )
+                # Return empty list on failure, don't crash
+                self.available_models = []
 
     def get_available_models(self) -> list[str]:
-        """Return cached Gemini model names."""
+        """Return cached Gemini model names. For immediate use, prefer async version."""
         return list(self.available_models)
 
-    def _convert_stream_chunk(
-            self, data: dict[str, Any], model: str) -> dict[str, Any]:
-        """Convert a Gemini streaming JSON chunk to OpenAI format."""
-        candidate = {}
-        text = ""
-        if data.get("candidates"):
-            candidate = data["candidates"][0] or {}
-            parts = candidate.get("content", {}).get("parts", [])
-            for part in parts:
-                if isinstance(part, dict) and "text" in part:
-                    text += part["text"]
-        finish = candidate.get("finishReason")
-        return {
-            "id": data.get("id", ""),
-            "object": "chat.completion.chunk",
-            "created": int(time.time()),
-            "model": model,
-            "choices": [
-                {
-                    "index": candidate.get("index", 0),
-                    "delta": {"content": text},
-                    "finish_reason": (
-                        finish.lower() if isinstance(finish, str) else None
-                    ),
-                }
-            ],
-        }
+    async def get_available_models_async(self) -> list[str]:
+        """Return Gemini model names, fetching them if not cached."""
+        await self._ensure_models_loaded()
+        return list(self.available_models)
 
-    def _convert_full_response(
-        self, data: dict[str, Any], model: str
-    ) -> dict[str, Any]:
-        """Convert a Gemini JSON response to OpenAI format."""
-        candidate = {}
-        text = ""
-        if data.get("candidates"):
-            candidate = data["candidates"][0] or {}
-            parts = candidate.get("content", {}).get("parts", [])
-            for part in parts:
-                if isinstance(part, dict) and "text" in part:
-                    text += part["text"]
-        finish = candidate.get("finishReason")
-        usage = data.get("usageMetadata", {})
-        return {
-            "id": data.get("id", ""),
-            "object": "chat.completion",
-            "created": int(time.time()),
-            "model": model,
-            "choices": [
-                {
-                    "index": candidate.get("index", 0),
-                    "message": {"role": "assistant", "content": text},
-                    "finish_reason": (
-                        finish.lower() if isinstance(finish, str) else None
-                    ),
-                }
-            ],
-            "usage": {
-                "prompt_tokens": usage.get("promptTokenCount", 0),
-                "completion_tokens": usage.get("candidatesTokenCount", 0),
-                "total_tokens": usage.get("totalTokenCount", 0),
-            },
-        }
+    # Translation is now handled by TranslationService
 
     def _convert_part_for_gemini(
-        self,
-        part: MessageContentPartText | MessageContentPartImage,
-        prompt_redactor: APIKeyRedactor | None,
-        command_filter: ProxyCommandFilter | None = None,
+        self, part: MessageContentPartText | MessageContentPartImage
     ) -> dict[str, Any]:
         """Convert a MessageContentPart into Gemini API format."""
         if isinstance(part, MessageContentPartText):
-            text = part.text
-            # Apply command filter first (emergency filter)
-            if command_filter:
-                text = command_filter.filter_commands(text)
-            # Apply API key redaction second
-            if prompt_redactor:
-                text = prompt_redactor.redact(text)
-            return {"text": text}
+            # Text content is already processed by middleware
+            return {"text": part.text}
         if isinstance(part, MessageContentPartImage):
             url = part.image_url.url
             # Data URL -> inlineData
@@ -140,25 +119,16 @@ class GeminiBackend(LLMBackend):
                 return {"inlineData": {"mimeType": mime, "data": b64_data}}
             # Otherwise treat as remote file URI
             return {
-                "fileData": {
-                    "mimeType": "application/octet-stream",
-                    "fileUri": url}}
+                "fileData": {"mimeType": "application/octet-stream", "fileUri": url}
+            }
         data = part.model_dump(exclude_unset=True)
         if data.get("type") == "text" and "text" in data:
-            # Apply command filter first (emergency filter)
-            if command_filter:
-                data["text"] = command_filter.filter_commands(data["text"])
-            # Apply API key redaction second
-            if prompt_redactor:
-                data["text"] = prompt_redactor.redact(data["text"])
+            # Text content is already processed by middleware
             data.pop("type", None)
         return data
 
     def _prepare_gemini_contents(
-        self,
-        processed_messages: list,
-        prompt_redactor: APIKeyRedactor | None,
-        command_filter: ProxyCommandFilter | None = None,
+        self, processed_messages: list[Any]
     ) -> list[dict[str, Any]]:
         payload_contents = []
         for msg in processed_messages:
@@ -167,42 +137,33 @@ class GeminiBackend(LLMBackend):
                 continue
 
             if isinstance(msg.content, str):
-                text = msg.content
-                # Apply command filter first (emergency filter)
-                if command_filter:
-                    text = command_filter.filter_commands(text)
-                # Apply API key redaction second
-                if prompt_redactor:
-                    text = prompt_redactor.redact(text)
-                parts = [{"text": text}]
+                # If this is a tool or function role, represent it as functionResponse for Gemini
+                if msg.role in ["tool", "function"]:
+                    # Try to parse JSON payload; otherwise wrap string
+                    try:
+                        input_obj = json.loads(msg.content)
+                    except Exception:
+                        input_obj = {"output": msg.content}
+                    parts: list[dict[str, Any]] = [
+                        {
+                            "functionResponse": {
+                                "name": getattr(msg, "name", "tool") or "tool",
+                                "response": input_obj,
+                            }
+                        }
+                    ]
+                else:
+                    # Content is already processed by middleware
+                    parts = [{"text": msg.content}]
             else:
-                parts = [
-                    self._convert_part_for_gemini(part, prompt_redactor, command_filter)
-                    for part in msg.content
-                ]
+                parts = [self._convert_part_for_gemini(part) for part in msg.content]
 
             # Map roles to 'user' or 'model' as required by Gemini API
             if msg.role == "user":
                 gemini_role = "user"
             elif msg.role in ["tool", "function"]:
+                # Tool/function results are treated as coming from the user side in Gemini
                 gemini_role = "user"
-                # For tool/function messages, wrap content in a tool_response part
-                # This part seems to construct a text representation and also pass structured content.
-                # Ensuring `msg.content` is serializable if it's complex.
-                try:
-                    tool_content_str = json.dumps(msg.content)
-                except TypeError:
-                    tool_content_str = str(msg.content) # Fallback if not directly serializable
-
-                parts = [
-                    {
-                        # Consider if "text" part should be a more structured representation or just a summary
-                        "text": f"tool_code: {tool_content_str}",
-                        # Assuming 'tool_response' is the expected field name by Gemini for this.
-                        # If Gemini expects a specific structure for tool responses, this needs to align.
-                        "tool_response": msg.content,
-                    }
-                ]
             else:  # e.g., assistant
                 gemini_role = "model"
 
@@ -210,148 +171,265 @@ class GeminiBackend(LLMBackend):
         return payload_contents
 
     async def _handle_gemini_streaming_response(
-        self,
-        base_url: str,
-        payload: dict,
-        headers: dict,
-        effective_model: str,
-    ) -> StreamingResponse:
+        self, base_url: str, payload: dict, headers: dict, effective_model: str
+    ) -> StreamingResponseEnvelope:
         url = f"{base_url}:streamGenerateContent"
         try:
-            request = self.client.build_request(
-                "POST", url, json=payload, headers=headers
-            )
-            response = await self.client.send(request, stream=True)
+            # Use simple POST call to ease testing with mocked clients
+            response = await self.client.post(url, json=payload, headers=headers)
             if response.status_code >= 400:
                 try:
-                    body_text = (await response.aread()).decode("utf-8")
+                    # Attempt to read body text for logging if available
+                    if hasattr(response, "aread"):
+                        body_bytes = await response.aread()  # type: ignore[no-untyped-call]
+                    else:
+                        body_bytes = b""
+                    body_text = body_bytes.decode("utf-8", errors="ignore")
                 except Exception:
                     body_text = ""
                 finally:
-                    await response.aclose()
+                    # Close response if supported
+                    if hasattr(response, "aclose"):
+                        await response.aclose()
                 logger.error(
                     "HTTP error during Gemini stream: %s - %s",
                     response.status_code,
                     body_text,
                 )
-                raise HTTPException(
+                raise BackendError(
+                    message=f"Gemini stream error: {response.status_code} - {body_text}",
+                    code="gemini_error",
                     status_code=response.status_code,
-                    detail={
-                        "message": f"Gemini stream error: {response.status_code} - {body_text}",
-                        "type": "gemini_error",
-                        "code": response.status_code,
-                    },
                 )
 
-            async def stream_generator() -> AsyncGenerator[bytes, None]:
-                decoder = json.JSONDecoder()
-                buffer = ""
+            async def stream_generator() -> AsyncGenerator[ProcessedResponse, None]:
+                # Forward raw text stream; central pipeline will handle normalization/repairs
+                processed_stream = response.aiter_text()
+
                 try:
-                    async for chunk in response.aiter_text():
-                        buffer += chunk
-                        while True:
-                            buffer = buffer.lstrip()
-                            if not buffer:
-                                break
-                            try:
-                                obj, idx = decoder.raw_decode(buffer)
-                            except json.JSONDecodeError:
-                                break
-
-                            if isinstance(obj, list):
-                                for item in obj:
-                                    if isinstance(item, dict):
-                                        converted = self._convert_stream_chunk(
-                                            item, effective_model)
-                                        yield f"data: {json.dumps(converted)}\n\n".encode()
-                                    else:
-                                        logger.warning(
-                                            f"Unexpected item type in Gemini stream: {type(item)}"
-                                        )
-                            elif isinstance(obj, dict): # Ensure obj is a dict before processing
-                                converted = self._convert_stream_chunk(
-                                    obj, effective_model
+                    async for chunk in processed_stream:
+                        # If JSON repair is enabled, the processor yields repaired JSON strings
+                        # or raw text. If disabled, it yields raw text.
+                        # Convert Gemini format to OpenAI format for consistency
+                        if chunk.startswith(("data: ", "id: ", ":")):
+                            yield ProcessedResponse(
+                                content=self.translation_service.to_domain_stream_chunk(
+                                    chunk, source_format="gemini"
                                 )
-                                yield f"data: {json.dumps(converted)}\n\n".encode()
-                            else:
-                                logger.warning(
-                                    f"Unexpected object type in Gemini stream: {type(obj)}"
+                            )
+                        else:
+                            yield ProcessedResponse(
+                                content=self.translation_service.to_domain_stream_chunk(
+                                    f"data: {chunk}", source_format="gemini"
                                 )
+                            )
 
-                            buffer = buffer[idx:]
-                            if buffer.startswith(","):
-                                buffer = buffer[1:]
-                    yield b"data: [DONE]\n\n"
+                    yield ProcessedResponse(content="data: [DONE]\n\n")
                 finally:
-                    await response.aclose()
+                    if hasattr(response, "aclose"):
+                        await response.aclose()
 
-            return StreamingResponse(
-                stream_generator(), media_type="text/event-stream"
+            return StreamingResponseEnvelope(
+                content=stream_generator(),
+                media_type="text/event-stream",
+                headers=dict(response.headers),
             )
         except httpx.RequestError as e:
-            logger.error(
-                f"Request error connecting to Gemini: {e}", exc_info=True)
-            raise HTTPException(
-                status_code=503,
-                detail=f"Service unavailable: Could not connect to Gemini ({e})",
-            )
+            if logger.isEnabledFor(logging.ERROR):
+                logger.error("Request error connecting to Gemini: %s", e, exc_info=True)
+            raise ServiceUnavailableError(message=f"Could not connect to Gemini ({e})")
 
-    async def chat_completions(
+    async def chat_completions(  # type: ignore[override]
         self,
-        request_data: ChatCompletionRequest,
-        processed_messages: list,
+        request_data: DomainModel | InternalDTO | dict[str, Any],
+        processed_messages: list[Any],
         effective_model: str,
-        openrouter_api_base_url: str | None = None,  # absorb unused param
-        openrouter_headers_provider: object = None,  # absorb unused param
+        identity: IAppIdentityConfig | None = None,
+        openrouter_api_base_url: str | None = None,
+        openrouter_headers_provider: Callable[[str, str], dict[str, str]] | None = None,
         key_name: str | None = None,
         api_key: str | None = None,
         project: str | None = None,
-        prompt_redactor: APIKeyRedactor | None = None,
-        command_filter: ProxyCommandFilter | None = None,
-        **kwargs,
-    ) -> dict[str, Any] | StreamingResponse:
-        gemini_api_base_url = openrouter_api_base_url or kwargs.get(
-            "gemini_api_base_url"
+        agent: str | None = None,
+        gemini_api_base_url: str | None = None,
+        **kwargs: Any,
+    ) -> ResponseEnvelope | StreamingResponseEnvelope:
+        # Resolve base configuration
+        base_api_url, headers = await self._resolve_gemini_api_config(
+            gemini_api_base_url, openrouter_api_base_url, api_key, **kwargs
         )
-        if not gemini_api_base_url or not api_key:
+        if identity:
+            headers.update(identity.get_resolved_headers(None))
+
+        # Translate incoming request to CanonicalChatRequest using the translation service
+        domain_request = self.translation_service.to_domain_request(
+            request_data, source_format="gemini"
+        )
+
+        # Translate CanonicalChatRequest to Gemini request using the translation service
+        payload = self.translation_service.from_domain_request(
+            domain_request, target_format="gemini"
+        )
+
+        # Apply generation config including temperature clamping
+        self._apply_generation_config(payload, domain_request)
+
+        # Apply contents and extra_body
+        payload["contents"] = self._prepare_gemini_contents(processed_messages)
+        if domain_request.extra_body:
+            # Merge extra_body with payload, but be careful with generationConfig.
+            # We support both legacy placement under 'generation_config' and
+            # the external 'generationConfig' key that Gemini expects.
+            # Normalize: prefer explicit generation_config on ChatRequest, then
+            # merge any 'generationConfig' present in extra_body on top.
+            extra_body_copy = dict(domain_request.extra_body)
+
+            # If caller placed generation_config on ChatRequest it was already
+            # merged by _apply_generation_config into payload['generationConfig'].
+            # Now merge any generationConfig from extra_body on top of what we
+            # already have (extra body should be able to override specific keys).
+            # Accept either CamelCase 'generationConfig' (as used in tests and
+            # by external callers) or legacy snake_case 'generation_config'
+            extra_gen_cfg = extra_body_copy.pop("generationConfig", None)
+            if extra_gen_cfg is None:
+                extra_gen_cfg = extra_body_copy.pop("generation_config", None)
+            if extra_gen_cfg:
+                # merge by creating a new dict so we don't retain old references
+                existing = payload.get("generationConfig", {})
+                merged = dict(existing)
+
+                # Handle nested structures like thinkingConfig
+                for key, value in extra_gen_cfg.items():
+                    if (
+                        key == "thinkingConfig"
+                        and isinstance(value, dict)
+                        and "thinkingConfig" in merged
+                        and isinstance(merged["thinkingConfig"], dict)
+                    ):
+                        # Deep merge thinkingConfig
+                        merged["thinkingConfig"].update(value)
+                    elif key == "maxOutputTokens" and "maxOutputTokens" not in merged:
+                        # Add maxOutputTokens if not present
+                        merged["maxOutputTokens"] = value
+                    else:
+                        # Regular update for other keys
+                        merged[key] = value
+
+                # Ensure extra_body overrides win for temperature specifically
+                if "temperature" in extra_gen_cfg:
+                    merged["temperature"] = extra_gen_cfg["temperature"]
+                payload["generationConfig"] = merged
+
+            # Finally update payload with remaining extra body fields
+            if extra_body_copy:
+                payload.update(extra_body_copy)
+        # Remove generation_config (legacy key) if present; we've migrated it
+        # into 'generationConfig' in _apply_generation_config.
+        payload.pop("generation_config", None)
+        # Debug output
+        if logger.isEnabledFor(logging.DEBUG):
+            logger.debug("Final payload: %s", payload)
+
+        # Normalize model id and construct URL
+        model_name = self._normalize_model_name(effective_model)
+        if logger.isEnabledFor(logging.DEBUG):
+            logger.debug("Constructing Gemini API URL with model_name: %s", model_name)
+        model_url = f"{base_api_url}/v1beta/models/{model_name}"
+
+        # Streaming vs non-streaming
+        if domain_request.stream:
+            return await self._handle_gemini_streaming_response(
+                model_url, payload, headers, effective_model
+            )
+
+        return await self._handle_gemini_non_streaming_response(
+            model_url, payload, headers, effective_model
+        )
+
+    async def _resolve_gemini_api_config(
+        self,
+        gemini_api_base_url: str | None,
+        openrouter_api_base_url: str | None,
+        api_key: str | None,
+        **kwargs: Any,
+    ) -> tuple[str, dict[str, str]]:
+        # Prefer explicit params, then kwargs, then instance attributes set during initialize
+        base = (
+            gemini_api_base_url
+            or openrouter_api_base_url
+            or kwargs.get("gemini_api_base_url")
+            or getattr(self, "gemini_api_base_url", None)
+        )
+        key = api_key or kwargs.get("api_key") or getattr(self, "api_key", None)
+        if not base or not key:
             raise HTTPException(
                 status_code=500,
                 detail="Gemini API base URL and API key must be provided.",
             )
+        return base.rstrip("/"), {"x-goog-api-key": key}
 
-        payload_contents = self._prepare_gemini_contents(
-            processed_messages, prompt_redactor, command_filter
-        )
-        payload = {"contents": payload_contents}
+    def _apply_generation_config(
+        self, payload: dict[str, Any], request_data: ChatRequest
+    ) -> None:
+        # Initialize generationConfig
+        generation_config = payload.setdefault("generationConfig", {})
 
-        # Handle Gemini-specific reasoning parameters
-        if hasattr(request_data, 'thinking_budget') and request_data.thinking_budget:
-            if "generationConfig" not in payload:
-                payload["generationConfig"] = {}
-            if "thinkingConfig" not in payload["generationConfig"]:
-                payload["generationConfig"]["thinkingConfig"] = {}
-            payload["generationConfig"]["thinkingConfig"]["thinkingBudget"] = request_data.thinking_budget
+        # thinking budget
+        if getattr(request_data, "thinking_budget", None):
+            thinking_config = generation_config.setdefault("thinkingConfig", {})
+            thinking_config["thinkingBudget"] = request_data.thinking_budget  # type: ignore[index]
 
-        if hasattr(request_data, 'generation_config') and request_data.generation_config:
-            if "generationConfig" not in payload:
-                payload["generationConfig"] = {}
-            payload["generationConfig"].update(request_data.generation_config)
+        # top_k
+        if getattr(request_data, "top_k", None) is not None:
+            generation_config["topK"] = request_data.top_k
 
-        # Handle temperature parameter
-        if hasattr(request_data, 'temperature') and request_data.temperature is not None:
-            if "generationConfig" not in payload:
-                payload["generationConfig"] = {}
-            # Validate temperature range for Gemini (0.0 to 1.0)
-            temperature = request_data.temperature
-            if temperature > 1.0:
-                logger.warning(f"Temperature {temperature} > 1.0 for Gemini, clamping to 1.0")
+        # reasoning_effort
+        if getattr(request_data, "reasoning_effort", None) is not None:
+            thinking_config = generation_config.setdefault("thinkingConfig", {})
+            thinking_config["reasoning_effort"] = request_data.reasoning_effort
+
+        # generation config blob - merge with existing config
+        if getattr(request_data, "generation_config", None):
+            # Deep merge the generation_config into generationConfig
+            for key, value in request_data.generation_config.items():  # type: ignore[union-attr]
+                generation_config[key] = value
+
+        # temperature clamped to [0,1]
+        temperature = getattr(request_data, "temperature", None)
+        if temperature is not None:
+            # Clamp temperature to [0,1] range for Gemini
+            if float(temperature) > 1.0:
+                logger.warning(
+                    f"Temperature {temperature} > 1.0 for Gemini, clamping to 1.0"
+                )
                 temperature = 1.0
-            payload["generationConfig"]["temperature"] = temperature
+            generation_config["temperature"] = float(temperature)
 
-        # Add extra parameters (may override or supplement the above)
-        if request_data.extra_params:
-            payload.update(request_data.extra_params)
+        # top_p
+        if request_data.top_p is not None:
+            generation_config["topP"] = request_data.top_p
 
+        # stop sequences
+        if request_data.stop:
+            generation_config["stopSequences"] = request_data.stop
+
+        # Unsupported parameters
+        if request_data.seed is not None:
+            logger.warning("GeminiBackend does not support the 'seed' parameter.")
+        if request_data.presence_penalty is not None:
+            logger.warning(
+                "GeminiBackend does not support the 'presence_penalty' parameter."
+            )
+        if request_data.frequency_penalty is not None:
+            logger.warning(
+                "GeminiBackend does not support the 'frequency_penalty' parameter."
+            )
+        if request_data.logit_bias is not None:
+            logger.warning("GeminiBackend does not support the 'logit_bias' parameter.")
+        if request_data.user is not None:
+            logger.warning("GeminiBackend does not support the 'user' parameter.")
+
+    def _normalize_model_name(self, effective_model: str) -> str:
         model_name = effective_model
         if model_name.startswith("gemini:"):
             model_name = model_name.split(":", 1)[1]
@@ -359,28 +437,18 @@ class GeminiBackend(LLMBackend):
             model_name = model_name.split("/", 1)[1]
         if model_name.startswith("gemini/"):
             model_name = model_name.split("/", 1)[1]
-
-        logger.debug(f"Constructing Gemini API URL with model_name: {model_name}")
-        base_api_url = f"{gemini_api_base_url.rstrip('/')}/v1beta/models/{model_name}"
-        headers = {"x-goog-api-key": api_key}
-
-        if request_data.stream:
-            return await self._handle_gemini_streaming_response(
-                base_api_url, payload, headers, effective_model
-            )
-
-        response_json = await self._handle_gemini_non_streaming_response(
-            base_api_url, payload, headers, effective_model
-        )
-        return response_json
+        if "/" in model_name:
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug(
+                    "Detected provider prefix in model name '%s'. Using last path segment as Gemini model id.",
+                    model_name,
+                )
+            model_name = model_name.rsplit("/", 1)[-1]
+        return model_name
 
     async def _handle_gemini_non_streaming_response(
-        self,
-        base_url: str,
-        payload: dict,
-        headers: dict,
-        effective_model: str,
-    ) -> dict[str, Any]:
+        self, base_url: str, payload: dict, headers: dict, effective_model: str
+    ) -> ResponseEnvelope:
         url = f"{base_url}:generateContent"
         try:
             response = await self.client.post(url, json=payload, headers=headers)
@@ -389,26 +457,28 @@ class GeminiBackend(LLMBackend):
                     error_detail = response.json()
                 except Exception:
                     error_detail = response.text
-                raise HTTPException(
-                    status_code=response.status_code, detail=error_detail
+                raise BackendError(
+                    message=str(error_detail),
+                    code="gemini_error",
+                    status_code=response.status_code,
                 )
             data = response.json()
-            logger.debug(f"Gemini response headers: {dict(response.headers)}")
-            return self._convert_full_response(data, effective_model)
-        except httpx.RequestError as e:
-            logger.error(
-                f"Request error connecting to Gemini: {e}", exc_info=True)
-            raise HTTPException(
-                status_code=503,
-                detail=f"Service unavailable: Could not connect to Gemini ({e})",
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug("Gemini response headers: %s", dict(response.headers))
+            return ResponseEnvelope(
+                content=self.translation_service.to_domain_response(
+                    data, source_format="gemini"
+                ),
+                headers=dict(response.headers),
+                status_code=response.status_code,
             )
+        except httpx.RequestError as e:
+            if logger.isEnabledFor(logging.ERROR):
+                logger.error("Request error connecting to Gemini: %s", e, exc_info=True)
+            raise ServiceUnavailableError(message=f"Could not connect to Gemini ({e})")
 
     async def list_models(
-        self,
-        *,
-        gemini_api_base_url: str,
-        key_name: str,
-        api_key: str,
+        self, *, gemini_api_base_url: str, key_name: str, api_key: str
     ) -> dict[str, Any]:
         headers = {"x-goog-api-key": api_key}
         url = f"{gemini_api_base_url.rstrip('/')}/v1beta/models"
@@ -419,15 +489,16 @@ class GeminiBackend(LLMBackend):
                     error_detail = response.json()
                 except Exception:
                     error_detail = response.text
-                raise HTTPException(
-                    status_code=response.status_code, detail=error_detail
+                raise BackendError(
+                    message=str(error_detail),
+                    code="gemini_error",
+                    status_code=response.status_code,
                 )
-            return response.json()
+            return cast(dict[str, Any], response.json())
         except httpx.RequestError as e:
-            logger.error(
-                f"Request error connecting to Gemini: {e}",
-                exc_info=True)
-            raise HTTPException(
-                status_code=503,
-                detail=f"Service unavailable: Could not connect to Gemini ({e})",
-            )
+            if logger.isEnabledFor(logging.ERROR):
+                logger.error("Request error connecting to Gemini: %s", e, exc_info=True)
+            raise ServiceUnavailableError(message=f"Could not connect to Gemini ({e})")
+
+
+backend_registry.register_backend("gemini", GeminiBackend)

@@ -1,0 +1,89 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "LLM-Interactive-Proxy Wire Capture Schema",
+  "description": "Schema for structured wire capture format capturing communication between frontend clients and backend LLM providers",
+  "type": "object",
+  "required": ["timestamp", "communication", "metadata", "payload"],
+  "properties": {
+    "timestamp": {
+      "type": "object",
+      "description": "Timestamp information for the captured event",
+      "required": ["iso", "human_readable"],
+      "properties": {
+        "iso": {
+          "type": "string",
+          "description": "ISO-8601 format timestamp in UTC with millisecond precision and Z suffix",
+          "examples": ["2023-06-15T13:45:30.123Z"]
+        },
+        "human_readable": {
+          "type": "string", 
+          "description": "Human-readable timestamp in local timezone (YYYY-MM-DD HH:MM:SS format)",
+          "examples": ["2023-06-15 15:45:30"]
+        }
+      }
+    },
+    "communication": {
+      "type": "object",
+      "description": "Details about the communication flow and direction",
+      "required": ["flow", "direction", "source", "destination"],
+      "properties": {
+        "flow": {
+          "type": "string",
+          "description": "High-level flow direction",
+          "enum": ["frontend_to_backend", "backend_to_frontend"]
+        },
+        "direction": {
+          "type": "string",
+          "description": "Specific direction of the message",
+          "enum": ["request", "response", "response_stream_start", "response_stream_chunk", "response_stream_end"]
+        },
+        "source": {
+          "type": "string",
+          "description": "Source of the message (client hostname or backend name)"
+        },
+        "destination": {
+          "type": "string",
+          "description": "Destination of the message (client hostname or backend name)"
+        }
+      }
+    },
+    "metadata": {
+      "type": "object",
+      "description": "Metadata about the communication",
+      "required": ["session_id", "backend", "model", "byte_count"],
+      "properties": {
+        "session_id": {
+          "type": ["string", "null"],
+          "description": "Session identifier if available"
+        },
+        "agent": {
+          "type": ["string", "null"],
+          "description": "Agent identifier if available"
+        },
+        "backend": {
+          "type": "string",
+          "description": "Backend LLM provider (e.g., openai, anthropic, gemini)"
+        },
+        "model": {
+          "type": "string",
+          "description": "Model name being used"
+        },
+        "key_name": {
+          "type": ["string", "null"],
+          "description": "Name of the API key environment variable used (not the actual key)"
+        },
+        "byte_count": {
+          "type": "integer",
+          "description": "Size of the payload in bytes"
+        },
+        "system_prompt": {
+          "type": ["string", "null"],
+          "description": "System prompt if present in the request"
+        }
+      }
+    },
+    "payload": {
+      "description": "The actual payload of the request or response"
+    }
+  }
+}

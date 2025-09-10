@@ -3,7 +3,7 @@ name = "llm-interactive-proxy"
 version = "0.1.0"
 description = "A short description of my project." # Pyroma might suggest a longer one, but this is fine for now.
 authors = [
-    { name = "Your Name", email = "your.email@example.com" },
+    { name = "Mateusz B.", email = "matdev83@github.com" },
 ]
 dependencies = [
     "fastapi",
@@ -19,16 +19,21 @@ dependencies = [
     "tiktoken",
     "google-genai",
     "anthropic",
+    "structlog",
+    "pyyaml",
+    "jsonschema>=4.19.0",
+    "google-auth>=2.27.0",
+    "google-auth-oauthlib>=1.2.0",
 ]
 requires-python = ">=3.10"
 readme = "README.md"
-license = { text = "MIT" } # License specified here
+# License per PEP 621: string SPDX identifier
+license = "AGPL-3.0-or-later"
 keywords = ["llm", "proxy", "interactive", "api", "ai", "chatgpt", "openai", "gemini", "openrouter"]
-urls = { Home = "https://github.com/example-user/llm-interactive-proxy" } # Example URL
+urls = { Home = "https://github.com/matdev83/llm-interactive-proxy" } # Example URL
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Intended Audience :: Developers",
-    "License :: OSI Approved :: MIT License", # License classifier added
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
@@ -38,19 +43,67 @@ classifiers = [
     "Operating System :: OS Independent", # Common classifier
 ]
 
+[project.scripts]
+restart-service = "dev.tools.restart_service:main"
+test-request = "dev.tools.test_request:main"
+analyze-logs = "dev.tools.analyze_logs:main"
+
 [project.optional-dependencies]
 dev = [
     "pytest",
     "pytest-asyncio",
+    "pytest-cov",
     "pytest-httpx",
+    "pytest-mock",
     "ruff",
     "black",
     "requests",
+    "bandit",
+    "mdformat",
+    "types-PyYAML",
+    "respx",
+    "dependency-injector",
+    "vulture",
+    "pytest-snapshot",
+    "mypy",
+    "hypothesis",
+    "xenon",
+    "radon",
 ]
 
 [build-system]
 requires = ["setuptools>=61.0"]
 build-backend = "setuptools.build_meta"
 
+[tool.setuptools]
+package-dir = {"" = "src"}
+
 [tool.pytest.ini_options]
-pythonpath = "."
+pythonpath = ["src", "tests"]
+addopts = "-v --asyncio-mode=auto -m \"not network and not loop_detection\"  --ignore=tests/integration/test_phase2_integration.py --pyargs src --durations=0 --junit-xml=test-results.xml"
+asyncio_default_fixture_loop_scope = "function"
+junit_duration_report = "call"
+# To run integration tests, use: pytest -m integration
+# To run command tests, use: pytest -m command
+# To run session tests, use: pytest -m session
+# To run backend tests, use: pytest -m backend
+# To run DI tests, use: pytest -m di
+# To run tests without global mock, use: pytest -m no_global_mock
+markers = [
+    "integration: marks tests as integration tests (deselect with '-m \"not integration\"')",
+    "unit: marks tests as unit tests",
+    "network: marks tests that require network access (deselect with '-m \"not network\"')",
+    "regression: marks tests as regression tests",
+    "backends: marks tests that need specific backends to be initialized",
+    "backend: marks tests that need a specific backend to be initialized",
+    "custom_backend_mock: marks tests that use custom backend mocking strategies",
+    "httpx_mock: marks tests that use httpx mocking (provided by pytest-httpx plugin)",
+    "no_global_mock: marks tests that should not use global mocking",
+    "command: marks tests related to command handling",
+    "session: marks tests related to session state management",
+    "di: marks tests that use the dependency injection architecture",
+    "loop_detection: marks tests related to loop detection",
+    "multimodal: marks tests related to multimodal content",
+]
+
+

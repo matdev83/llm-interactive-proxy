@@ -29,7 +29,6 @@ GEMINI.md
 .agent.md
 .kiro/
 
-
 # Test and coverage artifacts
 .pytest_cache/
 htmlcov/
@@ -38,6 +37,7 @@ htmlcov/
 # Logs and temporary files
 logs/
 *.log
+*.txt
 debug.log
 temp/
 tmp/
@@ -53,17 +53,34 @@ config.ini
 settings.py
 local_settings.py
 db.sqlite3
+*.db
+*.sqlite
+*.sqlite3
 
 # Other common ignores
 celerybeat-schedule
 pip-log.txt
 
 # Project-specific ignores (already present)
-dev/
-.dev/
+#dev/
+#.dev/
 .cursor/
-data/
-venv/
-venv/*
-venv
-
+# Keep data folder in repo but ignore its contents
+data/*
+!data/.gitkeep
+data/accounting.sqlite3
+*.lock
+*.state
+WARP.md
+CLAUDE.md
+QWEN.md
+.hypothesis/
+.dev/
+dev/
+dev/thrdparty/
+.coverage
+.dependency_check_cache
+.dependency_check_cache/
+.claude/
+.kilocode/
+.python_qa_mcp_server/

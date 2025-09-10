@@ -1,5 +1,4 @@
 import json
-from typing import Dict, List  # Removed Any, Callable, Union
 
 import httpx
 import pytest
@@ -7,10 +6,9 @@ import pytest_asyncio
 
 # from fastapi import HTTPException # F401: Removed
 from pytest_httpx import HTTPXMock
-
-# from starlette.responses import StreamingResponse # F401: Removed
-import src.models as models
 from src.connectors.openrouter import OpenRouterBackend
+from src.core.domain.chat import ChatMessage, ChatRequest
+from src.core.domain.responses import ResponseEnvelope
 
 # Default OpenRouter settings for tests
 TEST_OPENROUTER_API_BASE_URL = (
@@ -18,44 +16,49 @@ TEST_OPENROUTER_API_BASE_URL = (
 )
 
 
-def mock_get_openrouter_headers(key_name: str, api_key: str) -> Dict[str, str]:
+def mock_get_openrouter_headers(_: str, api_key: str) -> dict[str, str]:
+    # Create a mock config dictionary for testing
+    mock_config = {
+        "app_site_url": "http://localhost:test",
+        "app_x_title": "TestProxy",
+    }
     return {
         "Authorization": f"Bearer {api_key}",
         "Content-Type": "application/json",
-        "HTTP-Referer": "http://localhost:test",
-        "X-Title": "TestProxy",
+        "HTTP-Referer": mock_config["app_site_url"],
+        "X-Title": mock_config["app_x_title"],
     }
 
 
 @pytest_asyncio.fixture(name="openrouter_backend")
 async def openrouter_backend_fixture():
     async with httpx.AsyncClient() as client:
-        yield OpenRouterBackend(client=client)
+        from src.core.config.app_config import AppConfig
+
+        config = AppConfig()
+        backend = OpenRouterBackend(client=client, config=config)
+        # Call initialize with required arguments
+        await backend.initialize(
+            api_key="test_key",  # A dummy API key for initialization
+            key_name="openrouter",
+            openrouter_headers_provider=mock_get_openrouter_headers,
+        )
+        yield backend
 
 
 @pytest.fixture
-def sample_chat_request_data() -> models.ChatCompletionRequest:
+def sample_chat_request_data() -> ChatRequest:
     """Return a minimal chat request without optional fields set."""
-    return models.ChatCompletionRequest(
+    return ChatRequest(
         model="test-model",
-        messages=[models.ChatMessage(role="user", content="Hello")],
-        temperature=None,
-        top_p=None,
-        n=None,
-        stream=False, # Explicitly set stream to False for non-streaming tests
-        stop=None,
-        max_tokens=None,
-        presence_penalty=None,
-        frequency_penalty=None,
-        logit_bias=None,
-        user=None,
-        extra_params=None,
+        messages=[ChatMessage(role="user", content="Hello")],
+        stream=False,
     )
 
 
 @pytest.fixture
-def sample_processed_messages() -> List[models.ChatMessage]:
-    return [models.ChatMessage(role="user", content="Hello")]
+def sample_processed_messages() -> list[ChatMessage]:
+    return [ChatMessage(role="user", content="Hello")]
 
 
 @pytest.mark.asyncio
@@ -64,10 +67,12 @@ def sample_processed_messages() -> List[models.ChatMessage]:
 async def test_chat_completions_non_streaming_success(
     openrouter_backend: OpenRouterBackend,
     httpx_mock: HTTPXMock,
-    sample_chat_request_data: models.ChatCompletionRequest,
-    sample_processed_messages: List[models.ChatMessage],
+    sample_chat_request_data: ChatRequest,
+    sample_processed_messages: list[ChatMessage],
 ):
-    sample_chat_request_data.stream = False
+    sample_chat_request_data = sample_chat_request_data.model_copy(
+        update={"stream": False}
+    )
     effective_model = "openai/gpt-3.5-turbo"
 
     # Mock successful response from OpenRouter
@@ -84,26 +89,19 @@ async def test_chat_completions_non_streaming_success(
         status_code=200,
     )
 
-    response_tuple = await openrouter_backend.chat_completions(
+    response_envelope = await openrouter_backend.chat_completions(
         request_data=sample_chat_request_data,
         processed_messages=sample_processed_messages,
         effective_model=effective_model,
         openrouter_api_base_url=TEST_OPENROUTER_API_BASE_URL,
         openrouter_headers_provider=mock_get_openrouter_headers,
-        key_name="OPENROUTER_API_KEY_1",
+        key_name="test_key",
         api_key="FAKE_KEY",
     )
-    # Explicitly cast to Tuple for type checking, as it's a non-streaming test
-    response: dict
-    if isinstance(response_tuple, tuple):
-        response, _ = response_tuple
-    else:
-        # This case should not happen for non-streaming requests, but for type safety
-        raise TypeError("Expected a tuple response for non-streaming request.")
-
-    assert isinstance(response, dict)
-    assert response["id"] == "test_completion_id"
-    assert response["choices"][0]["message"]["content"] == "Hi there!"
+    assert isinstance(response_envelope, ResponseEnvelope)
+    response_content = response_envelope.content
+    assert response_content["id"] == "test_completion_id"
+    assert response_content["choices"][0]["message"]["content"] == "Hi there!"
 
     # Verify request payload
     request = httpx_mock.get_request()

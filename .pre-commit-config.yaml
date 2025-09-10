@@ -1,0 +1,14 @@
+repos:
+-   repo: local
+    hooks:
+    -   id: api-key-check
+        name: API Key Check
+        entry: python scripts/pre_commit_api_key_check.py
+        language: python
+        types: [text]
+        pass_filenames: false
+        additional_dependencies:
+          - structlog
+          - PyYAML
+          - pydantic
+          - python-dotenv

@@ -1,0 +1,3 @@
+{
+  "output": "set - Set various parameters for the session\nFormat: set(parameter=value, ...)\nExamples: !/set(backend=openrouter), !/set(model=openrouter:claude-3-opus-20240229, temperature=0.8)"
+}

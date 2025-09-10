@@ -1,148 +1,82 @@
-# Project Structure for Software Development Agents
+# Agent Development Guidelines
 
-This document outlines the repository's structure and the purpose of its main components, specifically tailored for software development agents. The proxy is implemented using **FastAPI** and facilitates forwarding requests to configurable LLM backends.
+## Never Use Unicode Emojis
+- Use ASCII characters instead of emojis
+- Avoid using emojis in code comments or docstrings
 
-## Software Development Principles for Agents
+## Build/Lint/Test Commands
+- Install dependencies: `./.venv/Scripts/python.exe -m pip install -e .[dev]`
+- Run all tests: `./.venv/Scripts/python.exe -m pytest`
+- Run specific test: `./.venv/Scripts/python.exe -m pytest tests/unit/test_file.py::test_name`
+- Lint code: `./.venv/Scripts/python.exe -m ruff --fix check .`
+- Format code: `./.venv/Scripts/python.exe -m black .`
 
-All software development agents interacting with this codebase **MUST** adhere to the following principles to ensure maintainability, scalability, and high quality:
+## Code Style Guidelines
+- Follow PEP 8 and use type hints for all functions
+- Use ruff for linting (see ruff.toml) and black for formatting
+- Import order: standard library, third-party, local imports (separated by blank lines)
+- Naming conventions: snake_case for variables/functions, PascalCase for classes
+- Error handling: Use specific exceptions and include meaningful error messages
+- Prefer f-strings for string formatting
 
-- **Layered, Modular Architecture**: The codebase is designed with a clear separation of concerns. Agents should strive to maintain and enhance this modularity, ensuring that components are loosely coupled and highly cohesive. New functionalities should be introduced in a way that extends existing layers or creates new, well-defined modules.
+### Error Handling Strategy
 
-- **Pythonic Conventions and Standards**: All code contributions and modifications must strictly follow Pythonic conventions, including PEP 8 for style guidelines. Agents should prioritize readability, simplicity, and idiomatic Python.
+The project uses a custom exception hierarchy to provide detailed and consistent error information. All custom exceptions inherit from `LLMProxyError`.
 
-- **Test-Driven Development (TDD)**: This is a critical principle. Every enhanced, changed, or added functionality **MUST** be covered by related, comprehensive tests. Agents are strictly prohibited from introducing any changes that are not accompanied by extensive tests ensuring proper project maintenance and preventing regressions. This includes:
-  - Writing tests before writing the code that makes them pass.
-  - Ensuring high test coverage for all new or modified logic.
-  - Maintaining and updating existing tests as the codebase evolves.
+When handling errors, follow these guidelines:
 
-- **Software Architecture Principles**: Agents should employ the following principles in their development process:
-  - **TDD (Test-Driven Development)**: As detailed above, tests drive development.
-  - **SOLID**: Adhere to the SOLID principles to create robust, maintainable, and flexible designs:
-    - **Single Responsibility Principle (SRP)**: A class should have only one reason to change.
-    - **Open/Closed Principle (OCP)**: Software entities (classes, modules, functions, etc.) should be open for extension, but closed for modification.
-    - **Liskov Substitution Principle (LSP)**: Objects in a program should be replaceable with instances of their subtypes without altering the correctness of that program.
-    - **Interface Segregation Principle (ISP)**: Clients should not be forced to depend on interfaces they do not use.
-    - **Dependency Inversion Principle (DIP)**: High-level modules should not depend on low-level modules. Both should depend on abstractions. Abstractions should not depend on details. Details should depend on abstractions.
-  - **KISS (Keep It Simple, Stupid)**: Favor simplicity over complexity. Solutions should be as straightforward as possible while meeting requirements.
-  - **DRY (Don't Repeat Yourself)**: Avoid code duplication. Promote reusable components and abstractions.
+- **Catch specific exceptions** whenever possible. Avoid broad `except Exception` blocks.
+- If a broad exception must be caught, **log the error with `exc_info=True`** and re-raise a more specific custom exception.
+- Use the most specific exception class available from `src.core.common.exceptions` that accurately describes the error.
+- When creating new exceptions, ensure they inherit from the appropriate base class (e.g., `BackendError`, `CommandError`).
+- Provide clear, helpful error messages and include relevant details in the `details` dictionary of the exception.
 
-## Directory Overview
+## Development Workflow
+1. Write tests first (TDD)
+2. Run tests to confirm they fail: `./.venv/Scripts/python.exe -m pytest tests/unit/test_file.py::test_name`
+3. Implement minimal code to pass tests
+4. Run linter: `./.venv/Scripts/python.exe -m ruff --fix check .`
+5. Run all tests: `./.venv/Scripts/python.exe -m pytest`
 
-```text
-.
-├── dev/                     # Development utilities
-│   ├── example_config.json
-│   └── test_client.py
-├── src/
-│   ├── core/                # Core application logic and utilities
-│   │   ├── cli.py           # CLI argument parsing and application startup
-│   │   ├── config.py        # Configuration loading and management
-│   │   ├── metadata.py      # Project metadata loading
-│   │   └── persistence.py   # Configuration persistence (save/load)
-│   ├── main.py              # Application factory and HTTP endpoints
-│   ├── models.py            # Pydantic models for API payloads
-│   ├── proxy_logic.py       # ProxyState class and re-exports
-│   ├── command_parser.py    # Command parsing utilities
-│   ├── session.py           # Simple in-memory session/history tracking
-│   ├── agents.py            # Agent detection and response helpers
-│   ├── security.py          # Client authentication and API key redaction
-│   └── connectors/          # Concrete connector implementations and LLMBackend interface
-│       ├── __init__.py
-│       ├── base.py          # LLMBackend interface
-│       ├── gemini.py        # Google Gemini connector
-│       └── openrouter.py    # OpenRouter connector
-├── tests/                   # Automated tests
-│   ├── integration/
-│   │   └── chat_completions_tests/
-│   │       ├── test_basic_proxying.py
-│   │       ├── test_command_only_requests.py
-│   │       ├── test_error_handling.py
-│   │       ├── test_model_commands.py
-│   │       └── test_session_history.py
-│   └── unit/
-│       ├── test_cli.py
-│       ├── test_proxy_logic.py
-│       ├── test_session_manager.py
-│       ├── openrouter_connector_tests/
-│       │   ├── test_http_error_non_streaming.py
-│       │   ├── test_http_error_streaming.py
-│       │   ├── test_non_streaming_success.py
-│       │   ├── test_payload_construction_and_headers.py
-│       │   ├── test_request_error.py
-│       │   └── test_streaming_success.py
-│       └── proxy_logic_tests/
-│           ├── test_parse_arguments.py
-│           ├── test_process_commands_in_messages.py
-│           └── test_process_text_for_commands.py
-├── README.md
-├── pyproject.toml
-├── pytest.ini
-└── setup.py
-```
+## Code Quality Standards
+- Follow SOLID principles:
+  - Single Responsibility Principle (SRP): A class should have only one reason to change
+  - Open/Closed Principle (OCP): Software entities should be open for extension, but closed for modification
+  - Liskov Substitution Principle (LSP): Objects should be replaceable with instances of their subtypes
+  - Interface Segregation Principle (ISP): Clients should not be forced to depend on interfaces they do not use
+  - Dependency Inversion Principle (DIP): High-level modules should not depend on low-level modules
+- Apply DRY (Don't Repeat Yourself) principle to avoid code duplication
+- Maintain modular and layered architecture with clear separation of concerns
+- Ensure easy testability of all components
+- Write code that is maintainable and follows established patterns
 
-## Key Components
+## Project Improvement Guidelines
+- Agents should only make changes that improve the codebase:
+  - Add new functions/methods
+  - Improve existing functions/methods
+  - Improve code structure and maintainability
+  - Add new functionalities
+- Agents are NOT allowed to degrade the project by:
+  - Removing functions or functionalities
+  - Removing files or features
+  - Degrading code quality
+- Exceptions: Only remove code/features when EXPLICITLY requested by the user
 
-### `src/main.py`
+## Dependency Management
+- Agents are NOT allowed to manually install any modules by issuing `pip` commands
+- All dependency management MUST be done by modifications to the pyproject.toml file
+- After adding new dependency, install dependencies with: `./.venv/Scripts/python.exe -m pip install -e .[dev]`
 
-Creates the FastAPI application, loads configuration from environment variables or CLI arguments and exposes the OpenAI-compatible endpoints. During startup it initialises the selected backend connector (`openrouter` or `gemini`), sets up an `httpx.AsyncClient`, and stores a `SessionManager` for recording interactions. It also defines a welcome banner shown in interactive mode that lists the functional backends along with how many API keys and models were discovered for each.
+## Project Structure
+- src/: Source code
+- tests/: Unit and integration tests
+- config/: Configuration files
+- docs/: Documentation
+- examples/: Usage examples
 
-### `src/proxy_logic.py`
-
-Defines the `ProxyState` class, which manages the current model override, project context, and interactive mode state. It also re-exports command parsing helpers.
-
-### `src/commands/`
-
-Contains individual command implementations. Each command file registers itself
-via a decorator so that new commands can be added without modifying the parser.
-The `!/help` command lists them dynamically along with their descriptions and
-examples.
-
-### `src/command_parser.py`
-
-Implements the `CommandParser` class used to detect and handle proxy commands.
-Commands are identified using a configurable prefix (default `!/`). It loads all
-commands registered under `src/commands/` at runtime.
-
-### `src/session.py`
-
-Defines `Session` and `SessionManager` used to keep simple per-session history of prompts and backend replies. Session IDs are supplied via the `X-Session-ID` HTTP header. The `SessionManager` can be configured with a default interactive mode for new sessions.
-
-### `src/security.py`
-
-Contains `APIKeyRedactor` and client authentication logic. The proxy expects an API key in the `Authorization` header unless started with `--disable-auth`.
-
-### Connectors
-
-The abstract `LLMBackend` base class and its concrete implementations live under `src/connectors/`:
-
-- `openrouter.py` forwards requests to the OpenRouter API and supports streaming.
-- `gemini.py` connects to Google Gemini (non-streaming only).
-
-### Tests
-
-Integration tests cover request forwarding, command handling and session tracking. Unit tests validate the CLI utilities, command parsing logic and connector behaviour.
-
-This modular structure aims to keep backend specific code isolated while letting the FastAPI app orchestrate request processing and session management.
-
-## Testing and Debugging
-
-For effective testing and debugging of changes, especially those related to command-line argument parsing and application configuration, the `tests/unit/test_cli.py` script can be utilized. This script provides a dedicated test suite for the `src/core/cli.py` module, which handles CLI argument parsing and application startup.
-
-### How to Use `test_cli.py`
-
-You can run the tests within `test_cli.py` using `pytest`. To execute only these specific tests, navigate to the project root and run:
-
-```bash
-pytest tests/unit/test_cli.py
-```
-
-This will execute all tests defined in `test_cli.py`, allowing you to verify that CLI arguments are parsed and applied correctly, and that environment variables are set as expected.
-
-### Example Configuration Files
-
-The `dev/` directory contains example JSON configuration files that can be used to test various scenarios with the proxy. These files demonstrate how different settings (e.g., backend selection, API keys, command prefixes) can be configured. You can use these as a reference when developing or debugging:
-
-- `dev/example_config.json`: A general example configuration.
-- `dev/test_config.json`: Another example, potentially used for specific test cases.
-
-These configuration files can be loaded by the application to simulate different operational environments, which is particularly useful when testing the `cli.py` module's ability to correctly interpret and apply settings.
+## Important Notes
+- Development is being made on Windows PC
+- Linux based coding agents are using WSL and are expected to still use this Python binary: `./.venv/Scripts/python.exe` even if they believe they should use the linux-one
+- Make sure it is clear that all executions of Python based commands use this exact interpreter (exe file) from within the .venv folder
+- Always activate virtual environment from .venv before running commands
+- Prove code works by running tests before submitting tasks

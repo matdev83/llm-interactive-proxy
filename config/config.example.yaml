@@ -1,0 +1,94 @@
+# Example configuration for LLM Interactive Proxy
+
+# Server settings
+host: "0.0.0.0"
+port: 8000
+proxy_timeout: 120
+command_prefix: "!/"
+
+# Authentication
+auth:
+  disable_auth: false  # Set to true to disable API key authentication
+  # NOTE: API keys should NEVER be stored in config files for security reasons
+  # Instead, set them via environment variables (see README.md)
+  api_keys: []  # API keys are read from environment variables only
+  auth_token: null  # Optional auth token
+
+# Session management
+session:
+  cleanup_enabled: true
+  cleanup_interval: 3600  # 1 hour
+  max_age: 86400  # 1 day
+  default_interactive_mode: true
+  force_set_project: false
+
+# Logging
+logging:
+  level: "INFO"  # DEBUG, INFO, WARNING, ERROR, CRITICAL
+  request_logging: false
+  response_logging: false
+  log_file: null  # Optional log file path
+
+# Backend settings
+# IMPORTANT SECURITY NOTE:
+# API keys should NEVER be stored in configuration files!
+# All API keys must be set via environment variables only:
+# - OPENROUTER_API_KEY for OpenRouter
+# - GEMINI_API_KEY for Gemini
+# - ANTHROPIC_API_KEY for Anthropic
+# - ZAI_API_KEY for ZAI
+# - GOOGLE_CLOUD_PROJECT for Google Cloud Project ID
+# See README.md and config/sample.env for examples
+
+backends:
+  default_backend: "openai"
+
+  openai:
+    # API key set via OPENROUTER_API_KEY environment variable
+    api_url: null  # Optional custom API URL
+    timeout: 120
+    models:
+      - "gpt-3.5-turbo"
+      - "gpt-4"
+      - "gpt-4-turbo"
+
+  openrouter:
+    # API key set via OPENROUTER_API_KEY environment variable
+    api_url: "https://openrouter.ai/api/v1"
+    timeout: 180
+
+  anthropic:
+    # API key set via ANTHROPIC_API_KEY environment variable
+    timeout: 150
+
+  gemini:
+    # API key set via GEMINI_API_KEY environment variable
+    timeout: 120
+
+  qwen_oauth:
+    # API key set via environment variables (OAuth flow)
+    timeout: 120
+    extra:
+      # OAuth credentials configured via environment variables
+      client_id: null
+      client_secret: null
+
+  zai:
+    # API key set via ZAI_API_KEY environment variable
+    timeout: 120
+
+# Model-specific defaults
+model_defaults:
+  "gpt-4":  # Exact model name
+    temperature: 0.7
+  
+  "openrouter:claude-3-opus":  # Backend:model format
+    reasoning_effort: "high"
+
+# Failover routes
+failover_routes:
+  default:
+    policy: "ordered"
+    elements:
+      - "openai:gpt-4"
+      - "openrouter:anthropic/claude-3-opus-20240229"

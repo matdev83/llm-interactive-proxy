@@ -1,14 +1,18 @@
 import argparse
+
+# type: ignore[unreachable]
 import logging
 import os
 import sys
-from typing import Any, Callable, Dict, Optional
 
 import colorama
 import uvicorn
 
 from src.command_prefix import validate_command_prefix
-from src.core.config import _load_config
+from src.core.config.app_config import AppConfig, LogLevel, load_config
+
+# Import backend connectors to ensure they register themselves
+from src.core.services import backend_imports  # noqa: F401
 
 
 def _check_privileges() -> None:
@@ -21,60 +25,88 @@ def _check_privileges() -> None:
             import ctypes
 
             if ctypes.windll.shell32.IsUserAnAdmin() != 0:
-                raise SystemExit(
-                    "Refusing to run with administrative privileges")
+                raise SystemExit("Refusing to run with administrative privileges")
         except Exception:
             pass
 
 
-def _daemonize_unix() -> None:
+def _daemonize() -> None:
     """Daemonize the process on Unix-like systems."""
-    if os.fork() > 0:
-        sys.exit(0)  # exit first parent
+    if hasattr(os, "fork") and hasattr(os, "setsid"):
+        if os.fork() > 0:
+            sys.exit(0)  # exit first parent
 
-    os.chdir("/")
-    os.setsid()
-    os.umask(0)
+        os.chdir("/")
+        if hasattr(os, "setsid"):
+            os.setsid()  # type: ignore[attr-defined]
+        os.umask(0)
 
-    if os.fork() > 0:
-        sys.exit(0)  # exit second parent
+        if os.fork() > 0:
+            sys.exit(0)  # exit second parent
+    else:
+        # On Windows, we can't daemonize, so we just continue
+        pass
 
-    sys.stdout.flush()
-    sys.stderr.flush()
-    with open(os.devnull) as si, open(os.devnull, "a+") as so, open(os.devnull, "a+") as se:
-        os.dup2(si.fileno(), sys.stdin.fileno())
-        os.dup2(so.fileno(), sys.stdout.fileno())
-        os.dup2(se.fileno(), sys.stderr.fileno())
+
+from src.core.services.backend_registry import (
+    backend_registry,  # Updated import path
+)
+
+# ... (rest of the file)
 
 
 def parse_cli_args(argv: list[str] | None = None) -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Run the LLM proxy server")
+    parser: argparse.ArgumentParser = argparse.ArgumentParser(
+        description="Run the LLM proxy server"
+    )
+
+    # Dynamically get registered backends
+    registered_backends: list[str] = backend_registry.get_registered_backends()
+
     parser.add_argument(
         "--default-backend",
         dest="default_backend",
-        choices=["openrouter", "gemini", "gemini-cli-direct", "gemini-cli-batch", "gemini-cli-interactive"],
+        choices=registered_backends,  # Dynamically populated
         default=os.getenv("LLM_BACKEND"),
         help="Default backend when multiple backends are functional",
     )
     parser.add_argument(
         "--backend",
         dest="default_backend",
-        choices=["openrouter", "gemini", "gemini-cli-direct", "gemini-cli-batch", "gemini-cli-interactive"],
+        choices=registered_backends,  # Dynamically populated
         help=argparse.SUPPRESS,
     )
     parser.add_argument("--openrouter-api-key")
     parser.add_argument("--openrouter-api-base-url")
     parser.add_argument("--gemini-api-key")
     parser.add_argument("--gemini-api-base-url")
+    parser.add_argument("--zai-api-key")
     parser.add_argument("--host")
     parser.add_argument("--port", type=int)
     parser.add_argument("--timeout", type=int)
     parser.add_argument("--command-prefix")
     parser.add_argument(
-        "--log",
-        dest="log_file",
+        "--log", dest="log_file", metavar="FILE", help="Write logs to FILE"
+    )
+    parser.add_argument(
+        "--capture-file",
+        dest="capture_file",
         metavar="FILE",
-        help="Write logs to FILE",
+        help="Write raw LLM requests and replies to FILE (disabled if omitted)",
+    )
+    parser.add_argument(
+        "--capture-rotate-interval",
+        dest="capture_rotate_interval_seconds",
+        type=int,
+        metavar="SECONDS",
+        help="Time-based rotation period in seconds (env: CAPTURE_ROTATE_INTERVAL_SECONDS)",
+    )
+    parser.add_argument(
+        "--capture-total-max-bytes",
+        dest="capture_total_max_bytes",
+        type=int,
+        metavar="N",
+        help="Total disk cap across capture files in bytes (env: CAPTURE_TOTAL_MAX_BYTES)",
     )
     parser.add_argument(
         "--config",
@@ -137,109 +169,220 @@ def parse_cli_args(argv: list[str] | None = None) -> argparse.Namespace:
         default=False,
         help="Run the server as a daemon (in the background). Requires --log to be set.",
     )
+    parser.add_argument(
+        "--trusted-ip",
+        action="append",
+        dest="trusted_ips",
+        metavar="IP",
+        help="IP address to trust for bypassing authorization. Can be specified multiple times.",
+    )
     return parser.parse_args(argv)
 
 
-def apply_cli_args(args: argparse.Namespace) -> Dict[str, Any]:
-    mappings = {
-        "default_backend": "LLM_BACKEND",
-        "openrouter_api_key": "OPENROUTER_API_KEY",
-        "openrouter_api_base_url": "OPENROUTER_API_BASE_URL",
-        "gemini_api_key": "GEMINI_API_KEY",
-        "gemini_api_base_url": "GEMINI_API_BASE_URL",
-        "host": "PROXY_HOST",
-        "port": "PROXY_PORT",
-        "timeout": "PROXY_TIMEOUT",
-        "command_prefix": "COMMAND_PREFIX",
-        "disable_interactive_mode": "DISABLE_INTERACTIVE_MODE",
-        "disable_auth": "DISABLE_AUTH",
-        "force_set_project": "FORCE_SET_PROJECT",
-        "disable_interactive_commands": "DISABLE_INTERACTIVE_COMMANDS",
-        "disable_accounting": "DISABLE_ACCOUNTING",
-    }
-    for attr, env_name in mappings.items():
-        value = getattr(args, attr)
-        if value is not None:
-            os.environ[env_name] = str(value)
+def apply_cli_args(args: argparse.Namespace) -> AppConfig:
+    # Load base config (YAML only); pass through --config when provided
+    cfg: AppConfig = cast(
+        AppConfig,
+        (
+            load_config(args.config_file)
+            if getattr(args, "config_file", None)
+            else load_config()
+        ),
+    )
+
+    if args.host is not None:
+        cfg.host = args.host
+    if args.port is not None:
+        cfg.port = args.port
+        os.environ["PROXY_PORT"] = str(args.port)
+    if args.timeout is not None:
+        cfg.proxy_timeout = args.timeout
     if args.command_prefix is not None:
-        err = validate_command_prefix(str(args.command_prefix))
-        if err:
-            raise ValueError(f"Invalid command prefix: {err}")
-    if getattr(args, "disable_redact_api_keys_in_prompts", None):
-        os.environ["REDACT_API_KEYS_IN_PROMPTS"] = "false"
-    if getattr(args, "disable_auth", None):
-        os.environ["DISABLE_AUTH"] = "true"
-        # Security: Force localhost when auth is disabled via CLI
-        if getattr(args, "host", None) and args.host != "127.0.0.1":
-            logging.warning(
-                "Authentication disabled via CLI. Forcing host to 127.0.0.1 for security (was: %s)",
-                args.host,
-            )
-        os.environ["PROXY_HOST"] = "127.0.0.1"
-    if getattr(args, "force_set_project", None):
-        os.environ["FORCE_SET_PROJECT"] = "true"
-    if getattr(args, "disable_interactive_commands", None):
-        os.environ["DISABLE_INTERACTIVE_COMMANDS"] = "true"
-    if getattr(args, "disable_accounting", None):
-        os.environ["DISABLE_ACCOUNTING"] = "true"
-    return _load_config()
+        cfg.command_prefix = args.command_prefix
+        os.environ["COMMAND_PREFIX"] = args.command_prefix
+    if args.log_file is not None:
+        cfg.logging.log_file = args.log_file
+    if args.log_level is not None:
+        cfg.logging.level = LogLevel[args.log_level]
+    if getattr(args, "capture_file", None) is not None:
+        cfg.logging.capture_file = args.capture_file
+    if getattr(args, "capture_max_bytes", None) is not None:
+        cfg.logging.capture_max_bytes = args.capture_max_bytes
+    if getattr(args, "capture_truncate_bytes", None) is not None:
+        cfg.logging.capture_truncate_bytes = args.capture_truncate_bytes
+    if getattr(args, "capture_max_files", None) is not None:
+        cfg.logging.capture_max_files = args.capture_max_files
+    if getattr(args, "capture_rotate_interval_seconds", None) is not None:
+        cfg.logging.capture_rotate_interval_seconds = (
+            args.capture_rotate_interval_seconds
+        )
+    if getattr(args, "capture_total_max_bytes", None) is not None:
+        cfg.logging.capture_total_max_bytes = args.capture_total_max_bytes
+
+    # Backend-specific keys
+    if args.default_backend is not None:
+        cfg.backends.default_backend = args.default_backend
+        os.environ["LLM_BACKEND"] = args.default_backend
+    if args.openrouter_api_key is not None:
+        cfg.backends["openrouter"].api_key = args.openrouter_api_key
+    if args.openrouter_api_base_url is not None:
+        cfg.backends["openrouter"].api_url = args.openrouter_api_base_url
+    if args.gemini_api_key is not None:
+        cfg.backends["gemini"].api_key = args.gemini_api_key
+        os.environ["GEMINI_API_KEY"] = args.gemini_api_key
+    if args.gemini_api_base_url is not None:
+        cfg.backends["gemini"].api_url = args.gemini_api_base_url
+    if args.zai_api_key is not None:
+        cfg.backends["zai"].api_key = args.zai_api_key
+
+    # Inverted boolean logic flags
+    if args.disable_interactive_mode is not None:
+        cfg.session.default_interactive_mode = not args.disable_interactive_mode
+        os.environ["DISABLE_INTERACTIVE_MODE"] = (
+            "True" if args.disable_interactive_mode else "False"
+        )
+    if args.disable_auth is not None:
+        cfg.auth.disable_auth = args.disable_auth
+    if getattr(args, "trusted_ips", None) is not None:
+        cfg.auth.trusted_ips = args.trusted_ips
+    if args.force_set_project is not None:
+        cfg.session.force_set_project = args.force_set_project
+        os.environ["FORCE_SET_PROJECT"] = "true" if args.force_set_project else "false"
+
+    # These still rely on environment variables for now
+    if args.disable_redact_api_keys_in_prompts is not None:
+        cfg.auth.redact_api_keys_in_prompts = (
+            not args.disable_redact_api_keys_in_prompts
+        )
+    if args.disable_interactive_commands is not None:
+        cfg.session.disable_interactive_commands = args.disable_interactive_commands
+    if args.disable_accounting is not None:
+        os.environ["DISABLE_ACCOUNTING"] = (
+            "true" if args.disable_accounting else "false"
+        )
+
+    _validate_and_apply_prefix(cfg)
+    _apply_feature_flags(cfg)
+    _apply_security_flags(cfg)
+    return cfg
+
+
+# type: ignore[unreachable]
+def _validate_and_apply_prefix(cfg: AppConfig) -> None:
+    if cfg.command_prefix is None:
+        return  # type: ignore[unreachable]
+    err = validate_command_prefix(str(cfg.command_prefix))
+    if err:
+        raise ValueError(f"Invalid command prefix: {err}")
+
+
+def _apply_feature_flags(cfg: AppConfig) -> None:
+    # Apply other feature flags from cfg
+    # These flags are now directly applied in apply_cli_args
+    pass
+
+
+def _apply_security_flags(cfg: AppConfig) -> None:
+    if not cfg.auth.disable_auth:
+        return
+    # Security: Force localhost when auth is disabled via CLI
+    if cfg.host != "127.0.0.1":
+        logging.warning(
+            "Authentication disabled via CLI. Forcing host to 127.0.0.1 for security (was: %s)",
+            cfg.host,
+        )
+    cfg.host = "127.0.0.1"
+
+
+import argparse
+from typing import cast
+
+from fastapi import FastAPI  # Added this import
+
+from src.core.app.application_builder import (
+    build_app,  # Using new staged initialization
+)
+from src.core.config.app_config import AppConfig
+
+# ... (rest of the file)
 
 
 def main(
     argv: list[str] | None = None,
-    build_app_fn: Optional[Callable[[Dict[str, Any] | None], Any]] = None,
 ) -> None:
     if os.name == "nt":
         colorama.init()
 
-    args = parse_cli_args(argv)
+    args: argparse.Namespace = parse_cli_args(argv)
 
-    if args.daemon:
-        if not args.log_file:
-            raise SystemExit("--log must be specified when running in daemon mode.")
+    cfg: AppConfig = apply_cli_args(args)  # <--- cfg is assigned here
 
-        if os.name == "nt":
-            import subprocess
-            import time
-
-            args_list = [
-                arg for arg in sys.argv[1:] if not arg.startswith("--daemon")
-            ]
-            command = [sys.executable, "-m", "src.core.cli", *args_list]
-            subprocess.Popen(
-                command,
-                creationflags=subprocess.DETACHED_PROCESS,
-                close_fds=True,
-            )
-            time.sleep(2)  # Give the child process a moment to start
-            sys.exit(0)
-        else:
-            _daemonize_unix()
-
-    cfg = apply_cli_args(args)
-    logging.basicConfig(
-        level=getattr(logging, args.log_level),
-        format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-        filename=args.log_file,
-    )
+    if _maybe_run_as_daemon(args, cfg):
+        return
+    _configure_logging(cfg)
     if not args.allow_admin:
         _check_privileges()
 
-    # Security: Ensure localhost-only binding when authentication is disabled
-    if cfg.get("disable_auth"):
-        logging.warning("Client authentication is DISABLED")
-        if cfg.get("proxy_host") != "127.0.0.1":
-            logging.warning(
-                "Authentication disabled but host is %s. Forcing host to 127.0.0.1 for security.",
-                cfg.get("proxy_host"),
-            )
-            cfg["proxy_host"] = "127.0.0.1"
+    _enforce_localhost_if_auth_disabled(cfg)
 
-    if build_app_fn is None:
-        from src.main import build_app as build_app_fn
+    # Allow tests to inject a custom build_app function (mock) by passing
+    # `build_app_fn`. The test mocks expect to be called with cfg and
+    # the config_file keyword argument.
+    app: FastAPI  # Declare app here
+    app = build_app(cfg)
 
-    app = build_app_fn(cfg, config_file=args.config_file)
-    uvicorn.run(app, host=cfg["proxy_host"], port=cfg["proxy_port"])
+    # Log trusted IPs information if configured
+    if cfg.auth.trusted_ips:
+        logging.info(
+            f"Trusted IPs configured for bypassing authorization: {', '.join(cfg.auth.trusted_ips)}"
+        )
+
+    uvicorn.run(app, host=cfg.host, port=cfg.port)
+
+
+def _maybe_run_as_daemon(args: argparse.Namespace, cfg: AppConfig) -> bool:
+    if not args.daemon:
+        return False
+    if not cfg.logging.log_file:
+        raise SystemExit("--log must be specified when running in daemon mode.")
+    if os.name == "nt":
+        import subprocess
+        import time
+
+        args_list: list[str] = [
+            arg for arg in sys.argv[1:] if not arg.startswith("--daemon")
+        ]
+        command: list[str] = [sys.executable, "-m", "src.core.cli", *args_list]
+        subprocess.Popen(
+            command, creationflags=subprocess.DETACHED_PROCESS, close_fds=True
+        )
+        time.sleep(2)
+        sys.exit(0)
+    _daemonize()
+    return True
+
+
+def _configure_logging(cfg: AppConfig) -> None:
+    logging.basicConfig(
+        level=getattr(logging, cfg.logging.level.value),
+        format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+        filename=cfg.logging.log_file,
+    )
+
+
+from src.core.config.app_config import AppConfig
+
+
+def _enforce_localhost_if_auth_disabled(cfg: AppConfig) -> None:
+    if not cfg.auth.disable_auth:
+        return
+    logging.warning("Client authentication is DISABLED")
+    if cfg.host != "127.0.0.1":
+        logging.warning(
+            "Authentication disabled but host is %s. Forcing host to 127.0.0.1 for security.",
+            cfg.host,
+        )
+        cfg.host = "127.0.0.1"
 
 
 if __name__ == "__main__":

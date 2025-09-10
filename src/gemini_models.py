@@ -2,14 +2,18 @@
 Pydantic models for Google Gemini API request/response structures.
 These models match the official Gemini API format for compatibility.
 """
-from enum import Enum
-from typing import Any, Dict, List, Optional
 
-from pydantic import BaseModel, Field
+from enum import Enum
+from typing import Any
+
+from pydantic import Field
+
+from src.core.interfaces.model_bases import DomainModel
 
 
 class HarmCategory(str, Enum):
     """Harm categories for safety settings."""
+
     HARM_CATEGORY_UNSPECIFIED = "HARM_CATEGORY_UNSPECIFIED"
     HARM_CATEGORY_DEROGATORY = "HARM_CATEGORY_DEROGATORY"
     HARM_CATEGORY_TOXICITY = "HARM_CATEGORY_TOXICITY"
@@ -26,6 +30,7 @@ class HarmCategory(str, Enum):
 
 class HarmBlockThreshold(str, Enum):
     """Harm block thresholds for safety settings."""
+
     HARM_BLOCK_THRESHOLD_UNSPECIFIED = "HARM_BLOCK_THRESHOLD_UNSPECIFIED"
     BLOCK_LOW_AND_ABOVE = "BLOCK_LOW_AND_ABOVE"
     BLOCK_MEDIUM_AND_ABOVE = "BLOCK_MEDIUM_AND_ABOVE"
@@ -35,6 +40,7 @@ class HarmBlockThreshold(str, Enum):
 
 class HarmProbability(str, Enum):
     """Harm probability levels."""
+
     HARM_PROBABILITY_UNSPECIFIED = "HARM_PROBABILITY_UNSPECIFIED"
     NEGLIGIBLE = "NEGLIGIBLE"
     LOW = "LOW"
@@ -44,6 +50,7 @@ class HarmProbability(str, Enum):
 
 class FinishReason(str, Enum):
     """Finish reasons for candidate responses."""
+
     FINISH_REASON_UNSPECIFIED = "FINISH_REASON_UNSPECIFIED"
     STOP = "STOP"
     MAX_TOKENS = "MAX_TOKENS"
@@ -54,153 +61,183 @@ class FinishReason(str, Enum):
     OTHER = "OTHER"
 
 
-class SafetySetting(BaseModel):
+class SafetySetting(DomainModel):
     """Safety setting for a specific harm category."""
+
     category: HarmCategory
     threshold: HarmBlockThreshold
 
 
-class SafetyRating(BaseModel):
+class SafetyRating(DomainModel):
     """Safety rating for a specific harm category."""
+
     category: HarmCategory
     probability: HarmProbability
-    blocked: Optional[bool] = None
+    blocked: bool | None = None
 
 
-class Blob(BaseModel):
+class Blob(DomainModel):
     """Raw bytes data with MIME type."""
+
     mime_type: str
     data: str  # Base64 encoded data
 
 
-class FileData(BaseModel):
+class FileData(DomainModel):
     """Reference to a file uploaded via the File API."""
+
     mime_type: str
     file_uri: str
 
 
-class Part(BaseModel):
-    """A part of a content message."""
-    text: Optional[str] = None
-    inline_data: Optional[Blob] = None
-    file_data: Optional[FileData] = None
+class Part(DomainModel):
+    """A part of a content message.
+
+    Extended to support Gemini function calling protocol via ``functionCall`` and
+    ``functionResponse`` fields in addition to text and data parts.
+    """
+
+    model_config = {"populate_by_name": True}
+    text: str | None = None
+    inline_data: Blob | None = None
+    file_data: FileData | None = None
+    # Gemini tool-calling fields
+    function_call: dict[str, Any] | None = Field(None, alias="functionCall")
+    function_response: dict[str, Any] | None = Field(None, alias="functionResponse")
 
     def model_post_init(self, __context: Any) -> None:
-        """Ensure exactly one field is set."""
+        """Ensure only one kind of payload is present per part."""
+        # Explicitly acknowledge unused __context to satisfy vulture
+        _ = __context
         fields_set = sum(
             [
                 self.text is not None,
                 self.inline_data is not None,
                 self.file_data is not None,
+                self.function_call is not None,
+                self.function_response is not None,
             ]
         )
         if fields_set > 1:
             raise ValueError(
-                "Exactly one of text, inline_data, or file_data must be set"
+                "Exactly one of text, inline_data, file_data, functionCall, or functionResponse must be set"
             )
 
 
-class Content(BaseModel):
+class Content(DomainModel):
     """Content of a conversation turn."""
-    parts: List[Part]
-    role: Optional[str] = None  # "user", "model", or "function"
+
+    parts: list[Part]
+    role: str | None = None  # "user", "model", or "function"
 
 
-class GenerationConfig(BaseModel):
+class GenerationConfig(DomainModel):
     """Configuration options for model generation."""
+
     model_config = {"populate_by_name": True}
 
-    stop_sequences: Optional[List[str]] = Field(None, alias="stopSequences")
-    response_mime_type: Optional[str] = Field(None, alias="responseMimeType")
-    response_schema: Optional[Dict[str, Any]] = Field(None, alias="responseSchema")
-    candidate_count: Optional[int] = Field(None, alias="candidateCount")
-    max_output_tokens: Optional[int] = Field(None, alias="maxOutputTokens")
-    temperature: Optional[float] = None
-    top_p: Optional[float] = Field(None, alias="topP")
-    top_k: Optional[int] = Field(None, alias="topK")
+    stop_sequences: list[str] | None = Field(None, alias="stopSequences")
+    response_mime_type: str | None = Field(None, alias="responseMimeType")
+    response_schema: dict[str, Any] | None = Field(None, alias="responseSchema")
+    candidate_count: int | None = Field(None, alias="candidateCount")
+    max_output_tokens: int | None = Field(None, alias="maxOutputTokens")
+    temperature: float | None = None
+    top_p: float | None = Field(None, alias="topP")
+    top_k: int | None = Field(None, alias="topK")
 
 
-class GenerateContentRequest(BaseModel):
+class GenerateContentRequest(DomainModel):
     """Request for generating content with Gemini."""
+
     model_config = {"populate_by_name": True}
 
-    contents: List[Content]
-    tools: Optional[List[Dict[str, Any]]] = None
-    tool_config: Optional[Dict[str, Any]] = Field(None, alias="toolConfig")
-    safety_settings: Optional[List[SafetySetting]] = Field(None, alias="safetySettings")
-    system_instruction: Optional[Content] = Field(None, alias="systemInstruction")
-    generation_config: Optional[GenerationConfig] = Field(None, alias="generationConfig")
-    cached_content: Optional[str] = Field(None, alias="cachedContent")
+    contents: list[Content]
+    tools: list[dict[str, Any]] | None = None
+    tool_config: dict[str, Any] | None = Field(None, alias="toolConfig")
+    safety_settings: list[SafetySetting] | None = Field(None, alias="safetySettings")
+    system_instruction: Content | None = Field(None, alias="systemInstruction")
+    generation_config: GenerationConfig | None = Field(None, alias="generationConfig")
+    cached_content: str | None = Field(None, alias="cachedContent")
 
 
-class PromptFeedback(BaseModel):
+class PromptFeedback(DomainModel):
     """Feedback about the prompt."""
-    block_reason: Optional[str] = None
-    safety_ratings: Optional[List[SafetyRating]] = None
+
+    block_reason: str | None = None
+    safety_ratings: list[SafetyRating] | None = None
 
 
-class CitationMetadata(BaseModel):
+class CitationMetadata(DomainModel):
     """Citation metadata for generated content."""
-    citation_sources: Optional[List[Dict[str, Any]]] = None
+
+    citation_sources: list[dict[str, Any]] | None = None
 
 
-class Candidate(BaseModel):
+class Candidate(DomainModel):
     """A generated candidate response."""
+
     model_config = {"populate_by_name": True}
 
-    content: Optional[Content] = None
-    finish_reason: Optional[FinishReason] = Field(None, alias="finishReason")
-    index: Optional[int] = None
-    safety_ratings: Optional[List[SafetyRating]] = None
-    citation_metadata: Optional[CitationMetadata] = None
-    token_count: Optional[int] = None
-    grounding_attributions: Optional[List[Dict[str, Any]]] = None
+    content: Content | None = None
+    finish_reason: FinishReason | None = Field(None, alias="finishReason")
+    index: int | None = None
+    safety_ratings: list[SafetyRating] | None = None
+    citation_metadata: CitationMetadata | None = None
+    token_count: int | None = None
+    grounding_attributions: list[dict[str, Any]] | None = None
 
 
-class UsageMetadata(BaseModel):
+class UsageMetadata(DomainModel):
     """Usage metadata for the generation request."""
+
     model_config = {"populate_by_name": True}
 
-    prompt_token_count: Optional[int] = Field(None, alias="promptTokenCount")
-    candidates_token_count: Optional[int] = Field(None, alias="candidatesTokenCount")
-    total_token_count: Optional[int] = Field(None, alias="totalTokenCount")
-    cached_content_token_count: Optional[int] = Field(None, alias="cachedContentTokenCount")
+    prompt_token_count: int | None = Field(None, alias="promptTokenCount")
+    candidates_token_count: int | None = Field(None, alias="candidatesTokenCount")
+    total_token_count: int | None = Field(None, alias="totalTokenCount")
+    cached_content_token_count: int | None = Field(
+        None, alias="cachedContentTokenCount"
+    )
 
 
-class GenerateContentResponse(BaseModel):
+class GenerateContentResponse(DomainModel):
     """Response from generating content with Gemini."""
+
     model_config = {"populate_by_name": True}
 
-    candidates: Optional[List[Candidate]] = None
-    prompt_feedback: Optional[PromptFeedback] = Field(None, alias="promptFeedback")
-    usage_metadata: Optional[UsageMetadata] = Field(None, alias="usageMetadata")
+    candidates: list[Candidate] | None = None
+    prompt_feedback: PromptFeedback | None = Field(None, alias="promptFeedback")
+    usage_metadata: UsageMetadata | None = Field(None, alias="usageMetadata")
 
 
-class Model(BaseModel):
+class Model(DomainModel):
     """Information about a Gemini model."""
+
     name: str
-    base_model_id: Optional[str] = None
+    base_model_id: str | None = None
     version: str
     display_name: str
     description: str
     input_token_limit: int
     output_token_limit: int
-    supported_generation_methods: List[str]
-    temperature: Optional[float] = None
-    max_temperature: Optional[float] = None
-    top_p: Optional[float] = None
-    top_k: Optional[int] = None
+    supported_generation_methods: list[str]
+    temperature: float | None = None
+    max_temperature: float | None = None
+    top_p: float | None = None
+    top_k: int | None = None
 
 
-class ListModelsResponse(BaseModel):
+class ListModelsResponse(DomainModel):
     """Response from listing available models."""
-    models: List[Model]
-    next_page_token: Optional[str] = None
+
+    models: list[Model]
+    next_page_token: str | None = None
 
 
 # Streaming response models
-class GenerateContentStreamResponse(BaseModel):
+class GenerateContentStreamResponse(DomainModel):
     """Streaming response chunk from generating content."""
-    candidates: Optional[List[Candidate]] = None
-    prompt_feedback: Optional[PromptFeedback] = None
-    usage_metadata: Optional[UsageMetadata] = None
+
+    candidates: list[Candidate] | None = None
+    prompt_feedback: PromptFeedback | None = None
+    usage_metadata: UsageMetadata | None = None

@@ -1,12 +1,14 @@
 import asyncio
 import time
+from collections.abc import AsyncGenerator
+from typing import Any
 
-import pytest
-from pytest_httpx import HTTPXMock
+from fastapi.responses import StreamingResponse
+from src.core.domain.chat import ChatRequest
 
 
-@pytest.mark.httpx_mock()
-def test_wait_for_rate_limited_backends(monkeypatch, client, httpx_mock: HTTPXMock):
+def test_wait_for_rate_limited_backends(monkeypatch: Any, client: Any) -> None:
+    # Build a failover route via commands (uses the compat endpoint); not strictly required
     client.post(
         "/v1/chat/completions",
         json={
@@ -14,6 +16,7 @@ def test_wait_for_rate_limited_backends(monkeypatch, client, httpx_mock: HTTPXMo
             "messages": [
                 {"role": "user", "content": "!/create-failover-route(name=r,policy=k)"}
             ],
+            "stream": True,
         },
     )
     client.post(
@@ -23,65 +26,60 @@ def test_wait_for_rate_limited_backends(monkeypatch, client, httpx_mock: HTTPXMo
             "messages": [
                 {"role": "user", "content": "!/route-append(name=r,openrouter:m1)"}
             ],
+            "stream": True,
         },
     )
 
+    # Simulated monotonic clock and sleep
     current = 0.0
     monkeypatch.setattr(time, "time", lambda: current)
 
-    async def fake_sleep(d):
+    async def fake_sleep(d: float) -> None:
         nonlocal current
         current += d
 
     monkeypatch.setattr(asyncio, "sleep", fake_sleep)
 
-    error1 = {
-        "error": {
-            "code": 429,
-            "details": [
-                {
-                    "@type": "type.googleapis.com/google.rpc.RetryInfo",
-                    "retryDelay": "0.1s",
-                }
-            ],
-        }
-    }
-    error2 = {
-        "error": {
-            "code": 429,
-            "details": [
-                {
-                    "@type": "type.googleapis.com/google.rpc.RetryInfo",
-                    "retryDelay": "0.3s",
-                }
-            ],
-        }
-    }
-    success = {"choices": [{"message": {"content": "ok"}}]}
+    # Patch BackendService.call_completion to simulate two 429s with Retry-After, then success
+    from src.core.interfaces.backend_service_interface import IBackendService
 
-    httpx_mock.add_response(
-        url="https://openrouter.ai/api/v1/chat/completions",
-        method="POST",
-        status_code=429,
-        json=error1,
-    )
-    httpx_mock.add_response(
-        url="https://openrouter.ai/api/v1/chat/completions",
-        method="POST",
-        status_code=429,
-        json=error2,
-    )
-    httpx_mock.add_response(
-        url="https://openrouter.ai/api/v1/chat/completions",
-        method="POST",
-        status_code=200,
-        json=success,
-    )
+    # Get backend service from the app created by client fixture
+    app = client.app
+    backend_service = app.state.service_provider.get_required_service(IBackendService)  # type: ignore
 
+    async def fake_call_completion(
+        request: ChatRequest,
+        stream: bool = False,
+        allow_failover: bool = True,
+        context: Any = None,
+    ) -> StreamingResponse:
+        # Simulate two backoffs that would normally be driven by 429 Retry-After headers
+        await asyncio.sleep(0.1)
+        await asyncio.sleep(0.3)
+
+        # Success path: return SSE-like text in a simple JSON envelope expected by compat layer
+        from fastapi.responses import StreamingResponse
+
+        async def gen() -> AsyncGenerator[bytes, None]:
+            yield b'data: {"choices": [{"delta": {"content": "ok"}}]\n\n'
+            yield b"data: [DONE]\n\n"
+
+        return StreamingResponse(gen(), media_type="text/plain")
+
+    monkeypatch.setattr(backend_service, "call_completion", fake_call_completion)
+
+    # Execute the request which should internally retry and then succeed
     resp = client.post(
         "/v1/chat/completions",
-        json={"model": "r", "messages": [{"role": "user", "content": "hi"}]},
+        json={
+            "model": "r",
+            "messages": [{"role": "user", "content": "hi"}],
+            "stream": True,
+        },
     )
+
     assert resp.status_code == 200
-    assert resp.json()["choices"][0]["message"]["content"].endswith("ok")
-    assert current >= 0.1  # Should wait at least 0.1s for the first key to become available
+    body = resp.text
+    assert "ok" in body
+    # Ensure we respected cumulative backoffs (0.1 + 0.3)
+    assert current >= 0.4

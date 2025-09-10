@@ -1,0 +1,66 @@
+from __future__ import annotations
+
+import asyncio
+import logging
+from collections.abc import AsyncGenerator, AsyncIterator, Sequence
+from typing import Any
+
+from src.core.domain.streaming_response_processor import (
+    IStreamProcessor,
+    StreamingContent,
+)
+from src.core.interfaces.streaming_response_processor_interface import IStreamNormalizer
+
+logger = logging.getLogger(__name__)
+
+
+class StreamNormalizer(IStreamNormalizer):
+    """A service that normalizes streaming responses by applying a series of stream processors."""
+
+    def __init__(self, processors: Sequence[IStreamProcessor] | None = None) -> None:
+        """Initializes the StreamNormalizer.
+
+        Args:
+            processors: An optional sequence of IStreamProcessor instances to apply.
+        """
+        self._processors = list(processors) if processors is not None else []
+
+    async def process_stream(
+        self, stream: AsyncIterator[Any], output_format: str = "bytes"
+    ) -> AsyncGenerator[StreamingContent | bytes, None]:
+        """Process a stream and convert to the desired output format.
+
+        Args:
+            stream: The input stream to process.
+            output_format: The desired output format ("bytes" or "objects").
+
+        Yields:
+            An async iterator of the processed stream in the requested format.
+        """
+        async for chunk in stream:
+            # Convert raw chunk to StreamingContent
+            content = StreamingContent.from_raw(chunk)
+
+            # Skip empty chunks
+            if content.is_empty and not content.is_done:
+                continue
+
+            # Apply processors in sequence
+            for processor in self._processors:
+                content = await processor.process(content)
+
+                # Skip if processor made it empty
+                if content.is_empty and not content.is_done:
+                    break
+
+            # Yield if still has content or is done marker
+            if not content.is_empty or content.is_done:
+                if output_format == "bytes":
+                    yield content.to_bytes()
+                elif output_format == "objects":
+                    yield content
+                else:
+                    raise ValueError(f"Unsupported output_format: {output_format}")
+
+            # Small delay to prevent overwhelming the client
+            await asyncio.sleep(0.01)

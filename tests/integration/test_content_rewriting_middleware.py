@@ -1,0 +1,367 @@
+import json
+import os
+import shutil
+import unittest
+from unittest.mock import AsyncMock
+
+from fastapi import Request
+from src.core.app.middleware.content_rewriting_middleware import (
+    ContentRewritingMiddleware,
+)
+from src.core.services.content_rewriter_service import ContentRewriterService
+from starlette.datastructures import Headers
+from starlette.responses import Response, StreamingResponse
+
+
+class TestContentRewritingMiddleware(unittest.TestCase):
+    def setUp(self):
+        self.test_config_dir = "test_config_middleware"
+        os.makedirs(
+            os.path.join(self.test_config_dir, "prompts", "system", "001"),
+            exist_ok=True,
+        )
+        with open(
+            os.path.join(
+                self.test_config_dir, "prompts", "system", "001", "SEARCH.txt"
+            ),
+            "w",
+        ) as f:
+            f.write("original system")
+        with open(
+            os.path.join(
+                self.test_config_dir, "prompts", "system", "001", "REPLACE.txt"
+            ),
+            "w",
+        ) as f:
+            f.write("rewritten system")
+
+    def tearDown(self):
+        shutil.rmtree(self.test_config_dir)
+
+    def test_inbound_reply_rewriting(self):
+        """Verify that inbound replies are rewritten correctly."""
+        # Create a reply rule for this test
+        os.makedirs(os.path.join(self.test_config_dir, "replies", "001"), exist_ok=True)
+        with open(
+            os.path.join(self.test_config_dir, "replies", "001", "SEARCH.txt"), "w"
+        ) as f:
+            f.write("original reply")
+        with open(
+            os.path.join(self.test_config_dir, "replies", "001", "REPLACE.txt"), "w"
+        ) as f:
+            f.write("rewritten reply")
+
+        rewriter = ContentRewriterService(config_path=self.test_config_dir)
+        middleware = ContentRewritingMiddleware(app=None, rewriter=rewriter)
+
+        response_payload = {
+            "choices": [
+                {
+                    "message": {
+                        "role": "assistant",
+                        "content": "This is an original reply.",
+                    }
+                }
+            ]
+        }
+
+        async def call_next(request):
+            return Response(
+                content=json.dumps(response_payload), media_type="application/json"
+            )
+
+        async def receive():
+            return {"type": "http.request", "body": b""}
+
+        request = Request(
+            {
+                "type": "http",
+                "method": "POST",
+                "headers": Headers({"content-type": "application/json"}).raw,
+                "http_version": "1.1",
+                "server": ("testserver", 80),
+                "client": ("testclient", 123),
+                "scheme": "http",
+                "root_path": "",
+                "path": "/test",
+                "raw_path": b"/test",
+                "query_string": b"",
+            },
+            receive=receive,
+        )
+
+        async def run_test():
+            response = await middleware.dispatch(request, call_next)
+            new_body = json.loads(response.body)
+            self.assertEqual(
+                new_body["choices"][0]["message"]["content"],
+                "This is an rewritten reply.",
+            )
+
+        import asyncio
+
+        asyncio.run(run_test())
+
+    def test_outbound_prompt_rewriting(self):
+        """Verify that outbound prompts are rewritten correctly."""
+
+        async def run_test():
+            rewriter = ContentRewriterService(config_path=self.test_config_dir)
+            middleware = ContentRewritingMiddleware(app=None, rewriter=rewriter)
+
+            payload = {
+                "messages": [
+                    {"role": "system", "content": "This is an original system prompt."},
+                    {"role": "user", "content": "This is a user prompt."},
+                ]
+            }
+
+            async def get_body():
+                return json.dumps(payload).encode("utf-8")
+
+            request = Request(
+                {
+                    "type": "http",
+                    "method": "POST",
+                    "headers": Headers({"content-type": "application/json"}).raw,
+                    "http_version": "1.1",
+                    "server": ("testserver", 80),
+                    "client": ("testclient", 123),
+                    "scheme": "http",
+                    "root_path": "",
+                    "path": "/test",
+                    "raw_path": b"/test",
+                    "query_string": b"",
+                }
+            )
+            request._body = await get_body()
+
+            call_next = AsyncMock()
+            call_next.return_value = Response("OK")
+
+            await middleware.dispatch(request, call_next)
+
+            call_next.assert_called_once()
+            new_request = call_next.call_args[0][0]
+
+            new_body = await new_request.json()
+
+            self.assertEqual(
+                new_body["messages"][0]["content"],
+                "This is an rewritten system prompt.",
+            )
+            self.assertEqual(
+                new_body["messages"][1]["content"], "This is a user prompt."
+            )
+
+        import asyncio
+
+        asyncio.run(run_test())
+
+    def test_end_to_end_rewriting(self):
+        """Verify that a lengthy prompt is rewritten and propagated correctly."""
+
+        async def run_test():
+            # Create a new rule for a lengthy prompt
+            os.makedirs(
+                os.path.join(self.test_config_dir, "prompts", "user", "002"),
+                exist_ok=True,
+            )
+            with open(
+                os.path.join(
+                    self.test_config_dir, "prompts", "user", "002", "SEARCH.txt"
+                ),
+                "w",
+            ) as f:
+                f.write("long original prompt")
+            with open(
+                os.path.join(
+                    self.test_config_dir, "prompts", "user", "002", "REPLACE.txt"
+                ),
+                "w",
+            ) as f:
+                f.write("rewritten lengthy prompt")
+
+            rewriter = ContentRewriterService(config_path=self.test_config_dir)
+            middleware = ContentRewritingMiddleware(app=None, rewriter=rewriter)
+
+            long_prompt = (
+                "This is a very long original prompt that should be rewritten."
+            )
+            payload = {
+                "messages": [
+                    {"role": "user", "content": long_prompt},
+                ]
+            }
+
+            async def get_body():
+                return json.dumps(payload).encode("utf-8")
+
+            request = Request(
+                {
+                    "type": "http",
+                    "method": "POST",
+                    "headers": Headers({"content-type": "application/json"}).raw,
+                    "http_version": "1.1",
+                    "server": ("testserver", 80),
+                    "client": ("testclient", 123),
+                    "scheme": "http",
+                    "root_path": "",
+                    "path": "/test",
+                    "raw_path": b"/test",
+                    "query_string": b"",
+                }
+            )
+            request._body = await get_body()
+
+            call_next = AsyncMock()
+            call_next.return_value = Response("OK")
+
+            await middleware.dispatch(request, call_next)
+
+            call_next.assert_called_once()
+            new_request = call_next.call_args[0][0]
+
+            new_body = await new_request.json()
+
+            self.assertEqual(
+                new_body["messages"][0]["content"],
+                "This is a very rewritten lengthy prompt that should be rewritten.",
+            )
+
+        import asyncio
+
+        asyncio.run(run_test())
+
+    def test_end_to_end_reply_rewriting(self):
+        """Verify that a lengthy reply is rewritten and propagated correctly."""
+
+        async def run_test():
+            # Create a new rule for a lengthy reply
+            os.makedirs(
+                os.path.join(self.test_config_dir, "replies", "002"),
+                exist_ok=True,
+            )
+            with open(
+                os.path.join(self.test_config_dir, "replies", "002", "SEARCH.txt"), "w"
+            ) as f:
+                f.write("long original reply")
+            with open(
+                os.path.join(self.test_config_dir, "replies", "002", "REPLACE.txt"), "w"
+            ) as f:
+                f.write("rewritten lengthy reply")
+
+            rewriter = ContentRewriterService(config_path=self.test_config_dir)
+            middleware = ContentRewritingMiddleware(app=None, rewriter=rewriter)
+
+            long_reply = "This is a very long original reply that should be rewritten."
+            response_payload = {
+                "choices": [
+                    {
+                        "message": {
+                            "role": "assistant",
+                            "content": long_reply,
+                        }
+                    }
+                ]
+            }
+
+            async def call_next(request):
+                return Response(
+                    content=json.dumps(response_payload),
+                    media_type="application/json",
+                )
+
+            async def receive():
+                return {"type": "http.request", "body": b""}
+
+            request = Request(
+                {
+                    "type": "http",
+                    "method": "POST",
+                    "headers": Headers({"content-type": "application/json"}).raw,
+                    "http_version": "1.1",
+                    "server": ("testserver", 80),
+                    "client": ("testclient", 123),
+                    "scheme": "http",
+                    "root_path": "",
+                    "path": "/test",
+                    "raw_path": b"/test",
+                    "query_string": b"",
+                },
+                receive=receive,
+            )
+
+            response = await middleware.dispatch(request, call_next)
+            new_body = json.loads(response.body)
+            self.assertEqual(
+                new_body["choices"][0]["message"]["content"],
+                "This is a very rewritten lengthy reply that should be rewritten.",
+            )
+
+        import asyncio
+
+        asyncio.run(run_test())
+
+    def test_streaming_reply_rewriting(self):
+        """Verify that streaming replies are rewritten correctly."""
+
+        async def run_test():
+            # Create a new rule for a streaming reply
+            os.makedirs(
+                os.path.join(self.test_config_dir, "replies", "003"),
+                exist_ok=True,
+            )
+            with open(
+                os.path.join(self.test_config_dir, "replies", "003", "SEARCH.txt"), "w"
+            ) as f:
+                f.write("original streaming reply")
+            with open(
+                os.path.join(self.test_config_dir, "replies", "003", "REPLACE.txt"), "w"
+            ) as f:
+                f.write("rewritten streaming reply")
+
+            rewriter = ContentRewriterService(config_path=self.test_config_dir)
+            middleware = ContentRewritingMiddleware(app=None, rewriter=rewriter)
+
+            async def stream_generator():
+                yield b"This is an original streaming reply."
+
+            async def call_next(request):
+                return StreamingResponse(
+                    stream_generator(),
+                    media_type="text/event-stream",
+                )
+
+            async def receive():
+                return {"type": "http.request", "body": b""}
+
+            request = Request(
+                {
+                    "type": "http",
+                    "method": "POST",
+                    "headers": Headers({"content-type": "application/json"}).raw,
+                    "http_version": "1.1",
+                    "server": ("testserver", 80),
+                    "client": ("testclient", 123),
+                    "scheme": "http",
+                    "root_path": "",
+                    "path": "/test",
+                    "raw_path": b"/test",
+                    "query_string": b"",
+                },
+                receive=receive,
+            )
+
+            response = await middleware.dispatch(request, call_next)
+            self.assertIsInstance(response, StreamingResponse)
+            response_body = b""
+            async for chunk in response.body_iterator:
+                response_body += chunk
+            self.assertEqual(
+                response_body.decode(), "This is an rewritten streaming reply."
+            )
+
+        import asyncio
+
+        asyncio.run(run_test())

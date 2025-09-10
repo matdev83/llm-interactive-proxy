@@ -2,7 +2,7 @@ import logging
 import re
 from typing import Any
 
-from src import models
+from src.core.domain.chat import MessageContentPartText
 
 logger = logging.getLogger(__name__)
 
@@ -22,29 +22,53 @@ def is_content_effectively_empty(content: Any) -> bool:
         # If the list has any non-text part (e.g., image), it's not empty.
         # If all parts are text parts, then it's empty if all those text parts are empty.
         for part in content:
-            if not isinstance(part, models.MessageContentPartText):
+            if not isinstance(part, MessageContentPartText):
                 return False  # Contains a non-text part (like an image), so not empty
             if part.text.strip():
                 return False  # Contains a non-empty text part
         return True  # All parts are empty text parts, or list was empty initially
-    return False # Should not be reached if content is always str or list
+    return False  # Should not be reached if content is always str or list
 
 
-def is_original_purely_command(original_content: Any, command_pattern: re.Pattern) -> bool:
-    """Checks if the original message content was purely a command, ignoring comments."""
-    if not isinstance(original_content, str):
-        # Assuming commands can only be in string content for "purely command" messages
+def is_original_purely_command(
+    original_content: Any, command_pattern: re.Pattern
+) -> bool:
+    """Checks if the original message content was purely a command.
+
+    Rules:
+    - For string content: consider the message purely a command only if the
+      stripped text matches the command pattern exactly. Do NOT ignore
+      comment lines (e.g., lines starting with '#'): their presence means the
+      message is not purely a command.
+    - For list content: consider it purely a command if there is exactly one
+      text part and that text part's stripped text matches the command pattern
+      exactly. Any additional parts (e.g., images) make it not purely a command.
+    """
+    # String content case
+    if isinstance(original_content, str):
+        text = original_content.strip()
+        if not text:
+            return False
+        match = command_pattern.match(text)
+        return bool(match and text == match.group(0))
+
+    # List content case (multimodal)
+    if isinstance(original_content, list):
+        from src.core.domain.chat import MessageContentPartText
+
+        text_parts = [
+            p for p in original_content if isinstance(p, MessageContentPartText)
+        ]
+        # Exactly one part and it's a text part that is a pure command
+        if len(text_parts) == 1 and len(original_content) == 1:
+            text = text_parts[0].text.strip()
+            if not text:
+                return False
+            match = command_pattern.match(text)
+            return bool(match and text == match.group(0))
         return False
 
-    # Remove comment lines first
-    content_without_comments = COMMENT_LINE_PATTERN.sub("", original_content).strip()
-
-    if not content_without_comments: # If only comments or empty after stripping comments
-        return False
-
-    match = command_pattern.match(content_without_comments)
-    # Check if the entire content (after comment removal and stripping) is the command
-    return bool(match and content_without_comments == match.group(0))
+    return False
 
 
 def is_tool_call_result(text: str) -> bool:
@@ -55,9 +79,9 @@ def is_tool_call_result(text: str) -> bool:
     # "[read_file for 'filename'] Result:"
     tool_result_patterns = [
         r'^\s*\[[\w_]+(?:\s+for\s+[\'"][^\'"\]]+[\'"])?\]\s+Result:',
-        r'^\s*\[[\w_]+\]\s+Result:',
+        r"^\s*\[[\w_]+\]\s+Result:",
     ]
-    
+
     for pattern in tool_result_patterns:
         if re.match(pattern, text, re.IGNORECASE):
             logger.debug("Detected tool call result pattern: %s", pattern)
@@ -71,7 +95,7 @@ def extract_feedback_from_tool_result(text: str) -> str:
     # <feedback>
     # !/command or user input
     # </feedback>
-    feedback_pattern = r'<feedback>\s*(.*?)\s*</feedback>'
+    feedback_pattern = r"<feedback>\s*(.*?)\s*</feedback>"
     match = re.search(feedback_pattern, text, re.DOTALL | re.IGNORECASE)
     if match:
         feedback_content = match.group(1).strip()
@@ -87,8 +111,8 @@ def get_text_for_command_check(content: Any) -> str:
         text_to_check = content
     elif isinstance(content, list):
         for part in content:
-            if isinstance(part, models.MessageContentPartText):
-                text_to_check += part.text + " " # Add space to simulate separate words
+            if isinstance(part, MessageContentPartText):
+                text_to_check += part.text + " "  # Add space to simulate separate words
 
     # CRITICAL FIX: Handle tool call results with embedded feedback
     if is_tool_call_result(text_to_check):
@@ -97,7 +121,9 @@ def get_text_for_command_check(content: Any) -> str:
         if not feedback_text:
             logger.debug("Skipping command detection in tool call result content")
             return ""
-        logger.debug("Found feedback in tool call result, checking for commands in feedback")
+        logger.debug(
+            "Found feedback in tool call result, checking for commands in feedback"
+        )
         return COMMENT_LINE_PATTERN.sub("", feedback_text).strip()
 
     # Remove comments and strip whitespace for accurate command pattern matching

@@ -1,0 +1,25 @@
+request_patterns:
+  # Cline-style SEARCH/REPLACE failures
+  - "The\\s+SEARCH\\s+block.*does\\s+not\\s+match\\s+anything\\s+in\\s+the\\s+file"
+  - "This\\s+is\\s+likely\\s+because\\s+the\\s+SEARCH\\s+block\\s+content\\s+doesn't\\s+match\\s+exactly"
+  # Roo-Code / KiloCode fuzzy match failures
+  - "No\\s+sufficiently\\s+similar\\s+match\\s+found"
+  - "Unable\\s+to\\s+apply\\s+diff\\s+to\\s+file"
+  # Gemini-CLI edit-tool failures
+  - "Failed\\s+to\\s+edit,\\s+could\\s+not\\s+find\\s+the\\s+string\\s+to\\s+replace"
+  - "Failed\\s+to\\s+edit,\\s+expected\\s+\\d+\\s+(?:occurrence|occurrences)\\s+but\\s+found\\s+\\d+"
+  - "Failed\\s+to\\s+edit,\\s*0\\s+occurrences\\s+found"
+  # Aider unified diff failures
+  - "UnifiedDiffNoMatch:\\s+hunk\\s+failed\\s+to\\s+apply"
+  - "UnifiedDiffNotUnique:\\s+hunk\\s+failed\\s+to\\s+apply"
+  # Crush multi-edit failures
+  - "old_string\\s+not\\s+found\\s+in\\s+content"
+  - "old_string\\s+appears\\s+multiple\\s+times\\s+in\\s+the\\s+content"
+  # OpenCode patch fuzz
+  - "patch\\s+contains\\s+fuzzy\\s+matches\\s+\\(fuzz\\s+level:\\s*\\d+\\)"
+
+response_patterns:
+  - "<diff_error>|diff_error"
+  - "SEARCH\\s+block.*does\\s+not\\s+match"
+  - "No\\s+sufficiently\\s+similar\\s+match\\s+found"
+  - "hunk\\s+failed\\s+to\\s+apply"
