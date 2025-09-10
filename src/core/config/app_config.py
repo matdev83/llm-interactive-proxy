@@ -661,6 +661,19 @@ class AppConfig(DomainModel, IConfig):
                         os.environ.get("ZAI_TIMEOUT", "0")
                     )
 
+        openai_keys: dict[str, str] = _collect_api_keys("OPENAI_API_KEY")
+        if openai_keys:
+            config_backends["openai"] = config_backends.get("openai", {})
+            config_backends["openai"]["api_key"] = list(openai_keys.values())
+            config_backends["openai"]["api_url"] = os.environ.get(
+                "OPENAI_API_BASE_URL", "https://api.openai.com/v1"
+            )
+            if os.environ.get("OPENAI_TIMEOUT"):
+                with contextlib.suppress(ValueError):
+                    config_backends["openai"]["timeout"] = int(
+                        os.environ.get("OPENAI_TIMEOUT", "0")
+                    )
+
         # Handle default backend if it's not explicitly configured above
         default_backend_type: str = os.environ.get("LLM_BACKEND", "openai")
         if default_backend_type not in config_backends:

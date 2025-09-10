@@ -7,11 +7,15 @@ which can cause runtime failures that aren't caught by other tests.
 
 from __future__ import annotations
 
+import hashlib
 import importlib
 import importlib.util
+import json
+import os
 import re
 import subprocess
 import sys
+import time
 from pathlib import Path
 from typing import Any
 
@@ -31,6 +35,84 @@ class DependencyValidator:
         self.project_root = project_root
         self.pyproject_path = project_root / "pyproject.toml"
         self._pip_list_cache: list[str] | None = None
+
+    @classmethod
+    def get_session_pip_cache(cls) -> list[str]:
+        """Get session-scoped pip list cache from file.
+
+        Returns:
+            List of installed packages in 'package==version' format (lowercase)
+        """
+        cache_dir = Path(".pytest_cache")
+        cache_dir.mkdir(exist_ok=True)
+        cache_file = cache_dir / "pip_list_cache.json"
+
+        # Calculate cache key based on current environment
+        env_hash = cls._calculate_environment_hash()
+        current_time = time.time()
+        cache_timeout = 3600  # 1 hour
+
+        # Load existing cache if valid
+        if cache_file.exists():
+            try:
+                with open(cache_file, encoding="utf-8") as f:
+                    cache_data = json.load(f)
+
+                # Check if cache is still valid (same environment and not expired)
+                if (
+                    cache_data.get("env_hash") == env_hash
+                    and current_time - cache_data.get("timestamp", 0) < cache_timeout
+                    and "pip_list" in cache_data
+                ):
+                    return cache_data["pip_list"]
+            except (OSError, json.JSONDecodeError):
+                pass
+
+        # Generate new cache
+        try:
+            result = subprocess.run(
+                [sys.executable, "-m", "pip", "list", "--format=freeze"],
+                capture_output=True,
+                text=True,
+                timeout=10,
+            )
+            if result.returncode == 0:
+                pip_list = result.stdout.lower().splitlines()
+
+                # Save cache
+                cache_data = {
+                    "env_hash": env_hash,
+                    "timestamp": time.time(),
+                    "pip_list": pip_list,
+                }
+
+                try:
+                    with open(cache_file, "w", encoding="utf-8") as f:
+                        json.dump(cache_data, f, indent=2)
+                except OSError:
+                    pass  # Continue if cache write fails
+
+                return pip_list
+        except (subprocess.TimeoutExpired, subprocess.SubprocessError):
+            pass
+
+        return []
+
+    @staticmethod
+    def _calculate_environment_hash() -> str:
+        """Calculate a hash of the current Python environment for cache invalidation."""
+        hasher = hashlib.md5()
+
+        # Include Python executable path
+        hasher.update(sys.executable.encode())
+
+        # Include key environment variables that affect package installation
+        env_vars = ["VIRTUAL_ENV", "CONDA_DEFAULT_ENV", "PYTHONPATH"]
+        for var in env_vars:
+            value = os.environ.get(var, "")
+            hasher.update(value.encode())
+
+        return hasher.hexdigest()
 
     def _load_pyproject_toml(self) -> dict[str, Any]:
         """Load and parse the pyproject.toml file.
@@ -97,19 +179,8 @@ class DependencyValidator:
             List of installed packages in 'package==version' format (lowercase)
         """
         if self._pip_list_cache is None:
-            try:
-                result = subprocess.run(
-                    [sys.executable, "-m", "pip", "list", "--format=freeze"],
-                    capture_output=True,
-                    text=True,
-                    timeout=30,
-                )
-                if result.returncode == 0:
-                    self._pip_list_cache = result.stdout.lower().splitlines()
-                else:
-                    self._pip_list_cache = []
-            except (subprocess.TimeoutExpired, subprocess.SubprocessError):
-                self._pip_list_cache = []
+            # Use session-scoped cache for much better performance
+            self._pip_list_cache = self.get_session_pip_cache()
         return self._pip_list_cache
 
     def _get_import_name(self, package_name: str) -> str:
@@ -162,8 +233,8 @@ class DependencyValidator:
         """
         import_name = self._get_import_name(package_name)
 
+        # Try direct import first (fastest path)
         try:
-            # First try direct import
             importlib.import_module(import_name)
             return True
         except ImportError:
@@ -178,9 +249,8 @@ class DependencyValidator:
             except ImportError:
                 pass
 
-        # Try alternative import strategies for complex packages
+        # Try faster importlib.util check
         try:
-            # Check if it's available via importlib.util
             spec = importlib.util.find_spec(import_name)
             if spec is not None:
                 return True
@@ -190,11 +260,12 @@ class DependencyValidator:
         # As a last resort, check with cached pip list
         pip_list = self._get_pip_list_cache()
         if pip_list:
-            # Check both the original name and normalized name
+            # Use faster string search with precomputed prefixes
             package_line = f"{package_name}=="
             normalized_name = package_name.replace("-", "_")
             normalized_line = f"{normalized_name}=="
 
+            # Use any() with generator expression for better performance
             return any(
                 line.startswith((package_line, normalized_line)) for line in pip_list
             )

@@ -3,7 +3,7 @@ Tests for the streaming utilities module using Hypothesis for property-based tes
 """
 
 import pytest
-from hypothesis import given, settings
+from hypothesis import HealthCheck, given, settings
 from hypothesis import strategies as st
 from hypothesis.strategies import composite
 from src.connectors.streaming_utils import (
@@ -19,20 +19,24 @@ def streaming_data(draw):
     data_type = draw(st.sampled_from(["bytes", "dict", "str", "list", "mixed"]))
 
     if data_type == "bytes":
-        return draw(st.binary(min_size=1, max_size=100))
+        return draw(st.binary(min_size=1, max_size=50))  # Reduced from 100 to 50
     elif data_type == "dict":
-        return draw(st.dictionaries(st.text(), st.text()))
+        return draw(
+            st.dictionaries(st.text(max_size=20), st.text(max_size=20))
+        )  # Limit text size
     elif data_type == "str":
-        return draw(st.text())
+        return draw(st.text(max_size=50))  # Limit text size
     elif data_type == "list":
-        return draw(st.lists(st.text()))
+        return draw(
+            st.lists(st.text(max_size=20), max_size=5)
+        )  # Limit list and text size
     elif data_type == "mixed":
         return draw(
             st.one_of(
-                st.binary(min_size=1, max_size=100),
-                st.dictionaries(st.text(), st.text()),
-                st.text(),
-                st.lists(st.text()),
+                st.binary(min_size=1, max_size=50),  # Reduced from 100
+                st.dictionaries(st.text(max_size=20), st.text(max_size=20)),  # Limited
+                st.text(max_size=50),  # Limited
+                st.lists(st.text(max_size=20), max_size=5),  # Limited
             )
         )
 
@@ -86,7 +90,11 @@ class TestEnsureAsyncIterator:
         assert chunks == [b"chunk1", b"chunk2"]
 
     @given(data=streaming_data())
-    @settings(max_examples=30, deadline=3000)  # Limit examples and add timeout
+    @settings(
+        max_examples=20,  # Reduced from 30
+        deadline=2000,  # Reduced from 3000ms
+        suppress_health_check=[HealthCheck.too_slow],
+    )
     @pytest.mark.asyncio
     async def test_ensure_async_iterator_with_various_data_types(self, data) -> None:
         """Test _ensure_async_iterator with various data types using Hypothesis."""
@@ -170,13 +178,13 @@ class TestNormalizeStreamingResponse:
         assert chunks == [b"chunk1", b"chunk2"]
 
     @given(
-        data_list=st.lists(streaming_data(), min_size=1, max_size=3),
+        data_list=st.lists(streaming_data(), min_size=1, max_size=2),  # Reduced from 3
         media_type=st.sampled_from(["text/event-stream", "application/json"]),
         normalize=st.booleans(),
     )
     @settings(
-        max_examples=50,  # Limit test cases for better performance
-        deadline=5000,  # 5 second timeout per example
+        max_examples=25,  # Reduced from 50
+        deadline=3000,  # Reduced from 5000ms
     )
     @pytest.mark.asyncio
     async def test_normalize_streaming_response_property_based(

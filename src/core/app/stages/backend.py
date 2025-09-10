@@ -329,13 +329,17 @@ class BackendStage(InitializationStage):
             )
             if backend_config and backend_name not in configured_backends:
                 # Check for a direct API key or any numbered API key
-                if hasattr(backend_config, "api_key") and backend_config.api_key:
+                # An API key can be in the config or in the environment
+                has_config_key = (
+                    hasattr(backend_config, "api_key") and backend_config.api_key
+                )
+
+                # Check for numbered keys, e.g., OPENROUTER_API_KEY_1
+                env_prefix = f"{backend_name.upper().replace('-', '_')}_API_KEY"
+                has_env_key = any(key.startswith(env_prefix) for key in os.environ)
+
+                if has_config_key or has_env_key:
                     configured_backends.append(backend_name)
-                else:
-                    # Check for numbered keys, e.g., OPENROUTER_API_KEY_1
-                    env_prefix = f"{backend_name.upper().replace('-', '_')}_API_KEY_"
-                    if any(key.startswith(env_prefix) for key in os.environ):
-                        configured_backends.append(backend_name)
 
         if not configured_backends:
             logger.warning("No backends configured in app config")

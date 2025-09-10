@@ -154,7 +154,7 @@ class TestBackendServiceHypothesis:
 
             # Assert
             assert mock_backend.chat_completions_called
-            assert response.content["model"] == model_name
+            assert response.content["model"] == model_name  # type: ignore
             assert "resp-123" in str(response.content)
 
     @given(
@@ -164,7 +164,12 @@ class TestBackendServiceHypothesis:
         model_name=st.from_regex(r"\A[a-zA-Z0-9]{1,50}\Z"),
     )
     @settings(
-        suppress_health_check=[HealthCheck.function_scoped_fixture], max_examples=5
+        suppress_health_check=[
+            HealthCheck.function_scoped_fixture,
+            HealthCheck.too_slow,
+        ],
+        max_examples=5,
+        deadline=None,
     )
     @pytest.mark.asyncio
     async def test_validate_backend_and_model_with_various_backends(

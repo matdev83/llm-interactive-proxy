@@ -11,7 +11,7 @@ import requests
 pytestmark = [pytest.mark.integration, pytest.mark.no_global_mock]
 
 
-def _wait_port(port: int, host: str = "127.0.0.1", timeout: float = 30.0) -> None:
+def _wait_port(port: int, host: str = "127.0.0.1", timeout: float = 60.0) -> None:
     """Wait until a TCP port is accepting connections or timeout.
 
     Args:
@@ -22,12 +22,18 @@ def _wait_port(port: int, host: str = "127.0.0.1", timeout: float = 30.0) -> Non
         RuntimeError: If the port did not become ready in time
     """
     end = time.time() + timeout
+    # Use exponential backoff for more efficient waiting
+    backoff_time = 0.01  # Start with 10ms
+    max_backoff = 1.0  # Max 1 second between attempts
+
     while time.time() < end:
         try:
             with socket.create_connection((host, port), timeout=1):
                 return
         except OSError:
-            time.sleep(0.1)
+            # Use exponential backoff instead of fixed 0.1s sleep
+            time.sleep(backoff_time)
+            backoff_time = min(backoff_time * 1.5, max_backoff)
     raise RuntimeError("server did not start")
 
 
@@ -37,6 +43,9 @@ def _start_server(port: int, log_file: str) -> subprocess.Popen:
     # Ensure at least one backend is functional for smoke test
     env["OPENROUTER_API_KEY_1"] = "test-key-for-smoke-test"
     env["COMMAND_PREFIX"] = "!/"
+    # Optimize startup with faster logging and reduced checks
+    env["PYTHONUNBUFFERED"] = "1"
+    env["LOG_LEVEL"] = "WARNING"  # Reduce logging overhead
     # Run the real CLI so it configures logging/file handlers
     proc = subprocess.Popen(
         [
@@ -51,6 +60,8 @@ def _start_server(port: int, log_file: str) -> subprocess.Popen:
             "--log",
             log_file,
             "--allow-admin",
+            "--log-level",  # Add log level to reduce startup overhead
+            "WARNING",
         ],
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
@@ -59,7 +70,7 @@ def _start_server(port: int, log_file: str) -> subprocess.Popen:
     )
 
     try:
-        _wait_port(port)
+        _wait_port(port, timeout=15.0)  # Reduce timeout from 30s to 15s
         return proc
     except RuntimeError as e:
         # If port wait failed, capture process output for debugging
@@ -121,7 +132,9 @@ def _stop_server(proc: subprocess.Popen) -> str:
 
 
 def _pick_port(low: int = 1024, high: int = 65535) -> int:
-    return random.randint(low, high)
+    # Use a more predictable port range to avoid conflicts
+    # Test ports in the ephemeral range but avoid commonly used ports
+    return random.randint(8000, 9000)
 
 
 def _has_bad_output(s: str) -> bool:
@@ -155,8 +168,8 @@ def test_server_starts_and_logs_cleanly(tmp_path: "os.PathLike[str]") -> None:
     log_file = str(tmp_path / "server.log")
     proc = _start_server(port, log_file)
     try:
-        # Simple, dependency-free endpoint
-        r = requests.get(f"http://127.0.0.1:{port}/docs", timeout=5)
+        # Simple, dependency-free endpoint with reduced timeout
+        r = requests.get(f"http://127.0.0.1:{port}/docs", timeout=3)
         assert r.status_code == 200
     finally:
         output = _stop_server(proc)
