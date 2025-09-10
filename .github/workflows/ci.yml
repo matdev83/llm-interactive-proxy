@@ -46,19 +46,14 @@ jobs:
         python -m mypy src
 
     - name: Run unit tests with coverage
+      env:
+        # Default dummy values in case some unit tests touch env
+        OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY || 'dummy_key' }}
+        GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY || 'dummy_key' }}
+        ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY || 'dummy_key' }}
+        OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY || 'dummy_key' }}
       run: |
-        python -m pytest --cov --cov-branch --cov-report=xml:coverage-unit.xml -v tests/unit
-
-    - name: Upload unit coverage to Codecov
-      if: ${{ always() }}
-      uses: codecov/codecov-action@v5
-      with:
-        token: ${{ secrets.CODECOV_TOKEN }}
-        slug: matdev83/llm-interactive-proxy
-        files: ./coverage-unit.xml
-        flags: unit
-        verbose: true
-        fail_ci_if_error: false
+        python -m pytest -v tests/unit --cov=src --cov-branch --cov-report=xml:coverage.xml
 
     - name: Run integration tests with coverage append
       env:
@@ -68,16 +63,15 @@ jobs:
         ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY || 'dummy_key' }}
         OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY || 'dummy_key' }}
       run: |
-        python -m pytest --cov --cov-branch --cov-append --cov-report=xml:coverage-integration.xml -v tests/integration
+        python -m pytest -v tests/integration --cov=src --cov-branch --cov-append --cov-report=xml:coverage.xml
 
-    - name: Upload integration coverage to Codecov
+    - name: Upload combined coverage to Codecov
       if: ${{ always() }}
       uses: codecov/codecov-action@v5
       with:
         token: ${{ secrets.CODECOV_TOKEN }}
         slug: matdev83/llm-interactive-proxy
-        files: ./coverage-integration.xml
-        flags: integration
+        files: ./coverage.xml
         verbose: true
         fail_ci_if_error: false
     
