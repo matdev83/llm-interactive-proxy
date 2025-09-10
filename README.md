@@ -1,5 +1,14 @@
 # LLM Interactive Proxy
 
+![CI](https://img.shields.io/github/actions/workflow/status/matdev83/llm-interactive-proxy/ci.yml?branch=main&label=CI)
+![Architecture Check](https://img.shields.io/github/actions/workflow/status/matdev83/llm-interactive-proxy/architecture-check.yml?branch=main&label=Architecture)
+[![Coverage](https://codecov.io/gh/matdev83/llm-interactive-proxy/branch/main/graph/badge.svg)](https://codecov.io/gh/matdev83/llm-interactive-proxy)
+![Python](https://img.shields.io/badge/python-3.10%2B-blue)
+[![License](https://img.shields.io/github/license/matdev83/llm-interactive-proxy?color=blue)](LICENSE)
+![Last Commit](https://img.shields.io/github/last-commit/matdev83/llm-interactive-proxy?label=Last%20commit)
+![Open Issues](https://img.shields.io/github/issues/matdev83/llm-interactive-proxy?label=Open%20issues)
+
+
 This project is a swiss-army knife for anyone working with language models and agentic workflows. It sits between any LLM-aware client and any LLM backend, presenting multiple front-end APIs (OpenAI, Anthropic, Gemini) while routing to whichever provider you choose. With the proxy you can translate, reroute, and augment requests on the fly, execute chat-embedded commands, override models, rotate API keys, prevent leaks, and inspect traffic — all from a single drop-in gateway.
 
 ## Contents
@@ -280,7 +289,7 @@ Then launch `claude`. You can switch models during a session:
 
 ## License
 
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+This project is licensed under the AGPL-3.0-or-later (GNU Affero General Public License v3.0 or later) — see the [LICENSE](LICENSE) file for details.
 
 ## Changelog
 
