@@ -65,7 +65,9 @@ pip-log.txt
 #dev/
 #.dev/
 .cursor/
-data/
+# Keep data folder in repo but ignore its contents
+data/*
+!data/.gitkeep
 data/accounting.sqlite3
 *.lock
 *.state
@@ -77,6 +79,8 @@ QWEN.md
 dev/
 dev/thrdparty/
 .coverage
+.dependency_check_cache
+.dependency_check_cache/
 .claude/
 .kilocode/
 .python_qa_mcp_server/

@@ -37,6 +37,8 @@ DEFAULT_REDACTED_FIELDS = {
 
 # Regular expressions for redacting sensitive information
 API_KEY_PATTERN = re.compile(r"(sk-|ak-)[a-zA-Z0-9]{20,}")
+# ZAI-style keys: 32 hex chars, dot, 16+ mixed alphanum
+ZAI_KEY_PATTERN = re.compile(r"\b[0-9a-f]{32}\.[A-Za-z0-9]{16,}\b")
 BEARER_TOKEN_PATTERN = re.compile(r"Bearer\s+([a-zA-Z0-9._~+/-]+=*)")
 
 
@@ -172,6 +174,9 @@ class ApiKeyRedactionFilter(logging.Filter):
             self.patterns.append(API_KEY_PATTERN)
         with contextlib.suppress(Exception):
             self.patterns.append(BEARER_TOKEN_PATTERN)
+        # Include ZAI key pattern for redaction
+        with contextlib.suppress(Exception):
+            self.patterns.append(ZAI_KEY_PATTERN)
 
     def _sanitize(self, obj: object) -> object:
         """Recursively sanitize strings inside common containers."""

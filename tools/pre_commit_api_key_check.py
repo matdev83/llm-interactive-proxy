@@ -9,7 +9,11 @@ import yaml
 project_root = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(project_root))
 
-from src.core.common.logging_utils import discover_api_keys_from_config_and_env
+from src.core.common.logging_utils import (
+    API_KEY_PATTERN,
+    ZAI_KEY_PATTERN,
+    discover_api_keys_from_config_and_env,
+)
 
 
 def load_config_from_yaml(config_path: Path):
@@ -64,6 +68,27 @@ def get_staged_files_content():
         return {}
 
 
+def _scan_content_for_patterns(file_path: str, content: str) -> list[str]:
+    """Scan content for generic API token patterns.
+
+    Returns a list of matched sensitive snippets (masked) if any are found.
+    """
+    matches: list[str] = []
+    try:
+        for pat in (API_KEY_PATTERN, ZAI_KEY_PATTERN):
+            for m in pat.finditer(content):
+                token = m.group(0)
+                # Mask token for output (first/last 4 chars)
+                if len(token) > 10:
+                    masked = f"{token[:4]}...{token[-4:]}"
+                else:
+                    masked = token
+                matches.append(masked)
+    except Exception as e:
+        print(f"Warning: pattern scan failed for {file_path}: {e}", file=sys.stderr)
+    return matches
+
+
 def main():
     config_path = project_root / "config" / "config.example.yaml"
     if not config_path.exists():
@@ -107,6 +132,24 @@ def main():
                 break  # Found a key in this file, no need to check other keys or files
         if found_keys_in_staged_files:
             break
+
+    # 2) Pattern-based detection (generic + ZAI-specific)
+    if not found_keys_in_staged_files:
+        for file_path, content in staged_files_content.items():
+            pattern_hits = _scan_content_for_patterns(file_path, content)
+            if pattern_hits:
+                print(
+                    f"Error: Potential API token(s) detected by pattern scan in: {file_path}",
+                    file=sys.stderr,
+                )
+                for h in pattern_hits[:5]:  # show up to 5 masked hits
+                    print(f"  Token snippet: '{h}'", file=sys.stderr)
+                print(
+                    "If these are false positives, consider excluding this file or revising the pattern.",
+                    file=sys.stderr,
+                )
+                found_keys_in_staged_files = True
+                break
 
     if found_keys_in_staged_files:
         print("\nCommit aborted: Sensitive API keys detected in staged files.")
