@@ -18,6 +18,8 @@ jobs:
 
     steps:
     - uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
 
     - name: Set up Python ${{ matrix.python-version }}
       uses: actions/setup-python@v5
@@ -53,19 +55,24 @@ jobs:
       with:
         token: ${{ secrets.CODECOV_TOKEN }}
         slug: matdev83/llm-interactive-proxy
+        files: ./coverage.xml
+        verbose: true
+        fail_ci_if_error: false
 
-    - name: Generate tests badge JSON
-      if: ${{ github.ref == 'refs/heads/main' }}
+    - name: Generate tests badge JSON (main/dev)
+      if: ${{ github.ref == 'refs/heads/main' || github.ref == 'refs/heads/dev' }}
       run: |
         python - <<'PY'
-        import xml.etree.ElementTree as ET, json, sys
+        import os, xml.etree.ElementTree as ET, json, sys
         p = 'test-results.xml'
+        branch = os.environ.get('GITHUB_REF_NAME', '')
+        out = 'tests-badge.json' if branch == 'main' else 'tests-dev-badge.json'
         try:
             root = ET.parse(p).getroot()
         except Exception:
             # No report generated; emit zeroed badge
             data = {"schemaVersion":1, "label":"tests", "message":"0 passing", "color":"lightgrey"}
-            open('tests-badge.json','w').write(json.dumps(data))
+            open(out,'w').write(json.dumps(data))
             sys.exit(0)
 
         tests = int(root.get('tests') or 0)
@@ -81,11 +88,11 @@ jobs:
         passed = max(tests - failures - errors - skipped, 0)
         color = 'brightgreen' if failures == 0 and errors == 0 else 'red'
         data = {"schemaVersion":1, "label":"tests", "message":f"{passed} passing", "color":color}
-        open('tests-badge.json','w').write(json.dumps(data))
+        open(out,'w').write(json.dumps(data))
         PY
 
-    - name: Publish tests badge to badges branch
-      if: ${{ github.ref == 'refs/heads/main' }}
+    - name: Publish tests badge to badges branch (main/dev)
+      if: ${{ github.ref == 'refs/heads/main' || github.ref == 'refs/heads/dev' }}
       run: |
         git config user.name "github-actions"
         git config user.email "github-actions@github.com"
@@ -96,8 +103,13 @@ jobs:
           git checkout -b badges
         fi
         mkdir -p badges
-        mv -f tests-badge.json badges/tests.json
-        git add badges/tests.json
+        if [ "${GITHUB_REF_NAME}" = "main" ]; then
+          mv -f tests-badge.json badges/tests.json
+          git add badges/tests.json
+        else
+          mv -f tests-dev-badge.json badges/tests-dev.json
+          git add badges/tests-dev.json
+        fi
         git commit -m "Update tests badge [skip ci]" || echo "No changes to commit"
         git push origin badges
 
