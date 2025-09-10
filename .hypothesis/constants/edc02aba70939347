@@ -1,4 +1,0 @@
-# file: C:\Users\Mateusz\source\repos\llm-interactive-proxy\src\core\transport\fastapi\exception_adapters.py
-# hypothesis_version: 6.138.2
-
-[500, 'application/json', 'details', 'error', 'headers', 'message', 'server_error', 'status_code', 'to_dict', 'type']

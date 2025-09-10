@@ -1,4 +1,0 @@
-# file: C:\Users\Mateusz\source\repos\llm-interactive-proxy\src\loop_detection\detector.py
-# hypothesis_version: 6.138.2
-
-[1.0, 1.5, 1000, 2048, '```', 'buffer_size', 'config', 'content_chunk_size', 'is_active', 'long_threshold', 'max_history_length', 'max_pattern_length', 'medium_threshold', 'min_repetitions', 'min_total_length', 'short_threshold', 'utf-8']

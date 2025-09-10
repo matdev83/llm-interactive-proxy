@@ -1,4 +1,0 @@
-# file: C:\Users\Mateusz\source\repos\llm-interactive-proxy\src\core\cli.py
-# hypothesis_version: 6.138.2
-
-['--allow-admin', '--backend', '--command-prefix', '--config', '--daemon', '--default-backend', '--disable-accounting', '--disable-auth', '--force-set-project', '--gemini-api-key', '--host', '--log', '--log-level', '--openrouter-api-key', '--port', '--timeout', '--zai-api-key', '-m', '/', '127.0.0.1', 'COMMAND_PREFIX', 'CRITICAL', 'DEBUG', 'DISABLE_ACCOUNTING', 'ERROR', 'FILE', 'FORCE_SET_PROJECT', 'False', 'GEMINI_API_KEY', 'INFO', 'LLM_BACKEND', 'PROXY_PORT', 'True', 'WARNING', 'Write logs to FILE', '__main__', 'config_file', 'default_backend', 'false', 'fork', 'gemini', 'geteuid', 'log_file', 'log_level', 'nt', 'openrouter', 'setsid', 'src.core.cli', 'store_true', 'true', 'zai']

@@ -1,4 +1,0 @@
-# file: C:\Users\Mateusz\source\repos\llm-interactive-proxy\src\core\transport\fastapi\request_adapters.py
-# hypothesis_version: 6.138.2
-
-['authorization', 'client', 'client_host', 'headers', 'host', 'method', 'request_state', 'session_id', 'state', 'unknown', 'url', 'x-api-key', 'x-session-id']

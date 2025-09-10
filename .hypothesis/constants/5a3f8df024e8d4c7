@@ -1,4 +1,0 @@
-# file: C:\Users\Mateusz\source\repos\llm-interactive-proxy\src\core\domain\configuration\backend_config.py
-# hypothesis_version: 6.138.2
-
-['api_url', 'backend_type', 'elements', 'failover_routes_data', 'http://', 'https://', 'invalid_override', 'k', 'model', 'oneoff_backend', 'oneoff_model', 'openai_url', 'policy']

@@ -1,4 +1,0 @@
-# file: C:\Users\Mateusz\source\repos\llm-interactive-proxy\src\core\common\logging.py
-# hypothesis_version: 6.138.2
-
-[1000, '%(message)s', 'ENVIRONMENT', 'INFO', 'LOG_FORMAT', 'Logging configured', 'Request failed', 'Request received', 'Response sent', 'api', 'console', 'development', 'event', 'httpx', 'iso', 'json', 'plain', 'unknown', 'urllib3']

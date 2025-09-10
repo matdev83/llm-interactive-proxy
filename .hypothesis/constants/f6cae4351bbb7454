@@ -1,4 +1,0 @@
-# file: C:\Users\Mateusz\source\repos\llm-interactive-proxy\src\core\domain\configuration\gemini_config.py
-# hypothesis_version: 6.138.2
-
-[0.0, 1.0, 2.0, 'candidateCount', 'candidate_count', 'ignore', 'maxOutputTokens', 'max_output_tokens', 'safetySettings', 'safety_settings', 'stopSequences', 'stop_sequences', 'temperature', 'thinkingBudget', 'thinkingConfig', 'thinking_config', 'topK', 'topP', 'top_k', 'top_p']

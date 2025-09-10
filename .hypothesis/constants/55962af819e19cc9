@@ -1,4 +1,0 @@
-# file: C:\Users\Mateusz\source\repos\llm-interactive-proxy\src\core\transport\fastapi\response_adapters.py
-# hypothesis_version: 6.138.2
-
-[200, 'application/json', 'media_type', 'model_dump', 'text/event-stream', 'utf-8']

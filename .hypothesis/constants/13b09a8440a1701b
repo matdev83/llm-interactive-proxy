@@ -1,4 +1,0 @@
-# file: C:\Users\Mateusz\source\repos\llm-interactive-proxy\src\connectors\openai.py
-# hypothesis_version: 6.138.2
-
-[200, 400, 401, 'Authorization', 'POST', '__aiter__', '__await__', '__iter__', 'api_base_url', 'api_key', 'code', 'data', 'extra_body', 'headers_override', 'id', 'message', 'messages', 'model', 'model_dump', 'openai', 'openai_error', 'openai_url', 'openrouter', 'openrouter_error', 'status_code', 'text', 'text/event-stream', 'type', 'utf-8']

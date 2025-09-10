@@ -1,4 +1,0 @@
-# file: C:\Users\Mateusz\source\repos\llm-interactive-proxy\src\core\services\request_processor_service.py
-# hypothesis_version: 6.138.2
-
-[200, '<streaming>', '_', 'application/json', 'backend', 'backend_type', 'command_results', 'content', 'content-type', 'data', 'extra_body', 'id', 'max_tokens', 'message', 'messages', 'model', 'name', 'project', 'prompt', 'proxy', 'proxy_cmd_processed', 'role', 'session_id', 'success', 'temperature', 'top_p', 'user']

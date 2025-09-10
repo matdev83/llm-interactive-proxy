@@ -1,4 +1,0 @@
-# file: C:\Users\Mateusz\source\repos\llm-interactive-proxy\src\core\app\controllers\models_controller.py
-# hypothesis_version: 6.138.2
-
-[500, 503, '/models', '/v1/models', 'anthropic', 'data', 'gemini-1.5-flash', 'gemini-1.5-pro', 'google', 'gpt-3.5-turbo', 'gpt-4', 'id', 'list', 'model', 'models', 'object', 'openai', 'owned_by', 'service_provider']

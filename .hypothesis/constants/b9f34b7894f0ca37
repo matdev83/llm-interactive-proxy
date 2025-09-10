@@ -1,4 +1,0 @@
-# file: C:\Users\Mateusz\source\repos\llm-interactive-proxy\src\gemini_converters.py
-# hypothesis_version: 6.138.2
-
-[1.0, 2.0, 4096, 32768, ',', '-', '/models/', '001', ':', ';', '[DONE]', '_raw', 'args', 'arguments', 'assistant', 'candidates', 'choices', 'completion_tokens', 'content', 'content_filter', 'data:', 'data: ', 'data: [DONE]\n\n', 'data: {}\n\n', 'delta', 'finish_reason', 'function', 'function_call', 'function_response', 'gemini-pro', 'generateContent', 'id', 'index', 'length', 'model', 'name', 'prompt_tokens', 'stop', 'system', 'tool', 'tool_calls', 'total_tokens', 'user']

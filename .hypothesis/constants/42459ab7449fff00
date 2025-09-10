@@ -1,4 +1,0 @@
-# file: C:\Users\Mateusz\source\repos\llm-interactive-proxy\src\connectors\openrouter.py
-# hypothesis_version: 6.138.2
-
-['/', 'Authorization', '__dict__', 'api_key', 'extra_params', 'headers_override', 'include', 'key_name', 'm1', 'm2', 'missing_credentials', 'model', 'openai_url', 'openrouter', 'project', 'usage']

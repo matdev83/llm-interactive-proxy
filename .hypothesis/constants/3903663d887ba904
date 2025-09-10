@@ -1,4 +1,0 @@
-# file: C:\Users\Mateusz\source\repos\llm-interactive-proxy\src\core\domain\commands\unset_command.py
-# hypothesis_version: 6.138.2
-
-['!/', '!/unset(model)', '!/unset(temperature)', 'backend', 'command-prefix', 'command_prefix', 'interactive', 'interactive-mode', 'model', 'project', 'temperature', 'unset', 'unset(parameter)', 'unset: nothing to do']

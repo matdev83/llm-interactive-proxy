@@ -1,4 +1,0 @@
-# file: C:\Users\Mateusz\source\repos\llm-interactive-proxy\src\core\domain\multimodal.py
-# hypothesis_version: 6.138.2
-
-['[Multimodal content]', 'anthropic', 'assistant', 'audio', 'base64', 'content', 'custom', 'data', 'file', 'file_path', 'function', 'gemini', 'image', 'image/jpeg', 'image_url', 'inline_data', 'media_type', 'metadata', 'mime_type', 'model', 'name', 'openai', 'parts', 'role', 'source', 'system', 'text', 'text/plain', 'tool', 'tool_call_id', 'tool_calls', 'type', 'url', 'user', 'video']

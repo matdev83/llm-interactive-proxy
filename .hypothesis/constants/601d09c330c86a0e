@@ -1,4 +1,0 @@
-# file: C:\Users\Mateusz\source\repos\llm-interactive-proxy\src\core\domain\streaming_response_processor.py
-# hypothesis_version: 6.138.2
-
-[b'data: [DONE]\n\n', 0.01, '[', '[DONE]', 'bytes', 'choices', 'content', 'created', 'data: ', 'data: [DONE]', 'delta', 'error_type', 'id', 'message', 'model', 'parse_error', 'unknown', 'unknown_type', 'usage', 'utf-8', '{']

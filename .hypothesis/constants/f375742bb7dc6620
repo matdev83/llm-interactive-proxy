@@ -1,4 +1,0 @@
-# file: C:\Users\Mateusz\source\repos\llm-interactive-proxy\src\core\constants\command_output_constants.py
-# hypothesis_version: 6.138.2
-
-['Available commands:', 'Model set to {model}', 'Project unset', 'model unset']

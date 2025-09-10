@@ -1,4 +1,0 @@
-# file: C:\Users\Mateusz\source\repos\llm-interactive-proxy\src\core\domain\configuration\loop_detection_config.py
-# hypothesis_version: 6.138.2
-
-[100, 8000, 'max_pattern_length', 'min_pattern_length', 'tool_loop_mode']

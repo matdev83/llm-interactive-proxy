@@ -1,4 +1,0 @@
-# file: C:\Users\Mateusz\source\repos\llm-interactive-proxy\src\tool_call_loop\config.py
-# hypothesis_version: 6.138.2
-
-[120, '1', 'TOOL_LOOP_MODE', 'break', 'chance', 'chance_then_break', 'enabled', 'max_repeats', 'mode', 'true', 'ttl_seconds', 'yes']

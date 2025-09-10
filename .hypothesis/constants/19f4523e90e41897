@@ -1,4 +1,0 @@
-# file: C:\Users\Mateusz\source\repos\llm-interactive-proxy\src\connectors\zai.py
-# hypothesis_version: 6.138.2
-
-['Authorization', 'Content-Type', 'api_base_url', 'api_key', 'application/json', 'available_models', 'backends', 'config', 'data', 'default_models.json', 'glm-4.5', 'glm-4.5-air', 'glm-4.5-flash', 'id', 'missing_api_key', 'models', 'utf-8', 'zai']

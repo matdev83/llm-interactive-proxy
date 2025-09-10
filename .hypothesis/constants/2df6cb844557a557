@@ -1,4 +1,0 @@
-# file: C:\Users\Mateusz\source\repos\llm-interactive-proxy\src\connectors\anthropic.py
-# hypothesis_version: 6.138.2
-
-[b'data: [DONE]\n\n', 400, 1024, '/', '2023-06-01', ':', 'POST', '[DONE]', 'anthropic', 'anthropic-version', 'anthropic_error', 'api_key', 'application/json', 'assistant', 'chat.completion', 'choices', 'completion_tokens', 'content', 'content-type', 'content_block_delta', 'created', 'data: ', 'delta', 'finish_reason', 'id', 'index', 'input_tokens', 'key_name', 'max_tokens', 'message', 'message_delta', 'messages', 'metadata', 'missing_api_key', 'missing_config', 'model', 'models', 'name', 'object', 'output_tokens', 'project', 'prompt_tokens', 'role', 'stop_reason', 'stop_sequences', 'stream', 'system', 'temperature', 'text', 'text/event-stream', 'tools', 'top_p', 'total_tokens', 'type', 'usage', 'utf-8', 'x-api-key']

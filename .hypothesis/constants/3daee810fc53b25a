@@ -1,4 +1,0 @@
-# file: C:\Users\Mateusz\source\repos\llm-interactive-proxy\src\core\app\middleware_config.py
-# hypothesis_version: 6.138.2
-
-['*', '/docs', 'DISABLE_AUTH', 'api_keys', 'auth', 'auth_token', 'disable_auth', 'logging', 'request_logging', 'response_logging', 'true']

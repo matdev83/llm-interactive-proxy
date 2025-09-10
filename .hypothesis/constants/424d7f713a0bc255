@@ -1,4 +1,0 @@
-# file: C:\Users\Mateusz\source\repos\llm-interactive-proxy\src\core\constants\http_status_constants.py
-# hypothesis_version: 6.138.2
-
-['Accepted', 'Bad Gateway', 'Bad Request', 'Created', 'Forbidden', 'Gateway Timeout', 'No Content', 'Not Found', 'Not Implemented', 'OK', 'Service Unavailable', 'Too Many Requests', 'Unauthorized', 'Unprocessable Entity']

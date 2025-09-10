@@ -1,4 +1,0 @@
-# file: C:\Users\Mateusz\source\repos\llm-interactive-proxy\src\core\domain\chat.py
-# hypothesis_version: 6.138.2
-
-['ChatResponse', 'T', 'auto', 'before', 'chat.completion', 'choices', 'content', 'created', 'delta', 'extra_body', 'finish_reason', 'function', 'high', 'id', 'image_url', 'low', 'messages', 'model', 'name', 'role', 'session_id', 'stop_reason', 'system_fingerprint', 'text', 'tool_call_id', 'tool_calls', 'tools', 'type', 'unknown', 'usage']

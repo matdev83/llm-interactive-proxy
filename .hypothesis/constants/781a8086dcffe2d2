@@ -1,4 +1,0 @@
-# file: C:\Users\Mateusz\source\repos\llm-interactive-proxy\src\core\security\middleware.py
-# hypothesis_version: 6.138.2
-
-[401, '...', '/docs', '/openapi.json', '/redoc', 'Authorization', 'Bearer ', 'X-Auth-Token', 'api_key', 'app_config', 'auth', 'client_api_key', 'detail', 'disable_auth', 'unknown', 'x-goog-api-key']

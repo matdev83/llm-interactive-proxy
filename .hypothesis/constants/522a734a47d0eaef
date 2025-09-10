@@ -1,4 +1,0 @@
-# file: C:\Users\Mateusz\source\repos\llm-interactive-proxy\src\core\services\backend_processor.py
-# hypothesis_version: 6.138.2
-
-['_', 'backend', 'backend_type', 'content', 'failover_routes', 'max_tokens', 'model', 'model_dump', 'project', 'role', 'temperature', 'text', 'top_p', 'type', 'user']

@@ -1,4 +1,0 @@
-# file: C:\Users\Mateusz\source\repos\llm-interactive-proxy\src\core\services\backend_factory.py
-# hypothesis_version: 6.138.2
-
-['LLM_BACKEND', 'PYTEST_CURRENT_TEST', 'anthropic', 'api_base_url', 'api_key', 'gemini', 'key_name', 'openrouter']
