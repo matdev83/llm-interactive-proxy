@@ -288,7 +288,15 @@ class QwenOAuthConnector(OpenAIConnector):
         if self._file_observer:
             try:
                 self._file_observer.stop()
-                self._file_observer.join(timeout=5.0)
+                # Only join if the thread has been started to avoid "cannot join thread before it is started" error
+                if (
+                    hasattr(self._file_observer, "is_alive")
+                    and self._file_observer.is_alive()
+                ):
+                    self._file_observer.join(timeout=5.0)
+                elif not hasattr(self._file_observer, "is_alive"):
+                    # Fallback: always try to join if we can't check if it's alive
+                    self._file_observer.join(timeout=5.0)
                 logger.info("Stopped watching OAuth credentials file")
             except Exception as e:
                 if logger.isEnabledFor(logging.WARNING):
