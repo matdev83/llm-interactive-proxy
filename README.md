@@ -33,40 +33,40 @@ This project is a swiss-army knife for anyone working with language models and a
 
 ## Killer Features
 
-Compatibility
+### Compatibility
 
 - Multiple front-ends, many providers: exposes OpenAI, Anthropic, and Gemini APIs while routing to OpenAI, Anthropic, Gemini, OpenRouter, ZAI, Qwen, and more
 - OpenAI compatibility: drop-in `/v1/chat/completions` for most clients and coding agents
 - Streaming everywhere: consistent streaming and non‑streaming support across providers
 - Gemini OAuth personal gateway: use Google’s free personal OAuth (CLI-style) through an OpenAI-compatible endpoint
 
-Reliability
+### Reliability
 
 - Failover routing: fall back to alternate models/providers on rate limits or outages
 - Automated API key rotation: rotate across multiple keys to reduce throttling and extend free-tier allowances
 - Rate limits and context: lightweight rate limiting and per-model context window enforcement
 
-Safety & Integrity
+### Safety & Integrity
 
 - Loop detection: detect repeated patterns and halt infinite loops
 - Dangerous-command prevention: steer away from destructive shell actions
 - Key hygiene: redact API keys in prompts and logs
 - Repair helpers: tool-call and JSON repair to fix malformed model outputs
 
-Control & Ergonomics
+### Control & Ergonomics
 
 - In-chat switching: change back-end and model on the fly with `!/backend(...)` and `!/model(...)`
 - Force model override: make clients use the model you choose without changing client code
 
-Observability
+### Observability
 
 - Wire capture and audit: optional request/response capture file plus usage tracking
 
-## Supported APIs (Front-Ends) and Providers (Back-Ends)
+## Supported LLM APIs
 
 These are ready out of the box. Front-ends are the client-facing APIs the proxy exposes; back-ends are the providers the proxy calls.
 
-Front-ends
+### Front-ends
 
 | API surface | Path(s) | Typical clients | Notes |
 | - | - | - | - |
@@ -74,7 +74,7 @@ Front-ends
 | Anthropic Messages | `/anthropic/v1/messages` (+ `/anthropic/v1/models`, `/health`, `/info`) | Claude Code, Anthropic SDK | Also available on a dedicated port (see Setup) |
 | Google Gemini v1beta | `/v1beta/models`, `:generateContent`, `:streamGenerateContent` | Gemini-compatible tools/SDKs | Translates to your chosen provider |
 
-Back-ends
+### Back-ends
 
 | Backend ID | Provider | Authentication | Notes |
 | - | - | - | - |
