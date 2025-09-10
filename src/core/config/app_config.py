@@ -400,8 +400,17 @@ class AppConfig(DomainModel, IConfig):
 
     def save(self, path: str | Path) -> None:
         """Save the current configuration to a file."""
-        with open(path, "w") as f:
-            f.write(self.model_dump_json(indent=4))
+        p = Path(path)
+        data = self.model_dump(mode="json")
+        if p.suffix.lower() in {".yaml", ".yml"}:
+            import yaml
+
+            with p.open("w", encoding="utf-8") as f:
+                yaml.safe_dump(data, f, sort_keys=False)
+        else:
+            # Legacy: still allow JSON save if requested by extension
+            with p.open("w", encoding="utf-8") as f:
+                f.write(self.model_dump_json(indent=4))
 
     @classmethod
     def from_env(cls) -> AppConfig:
@@ -706,7 +715,6 @@ def load_config(config_path: str | Path | None = None) -> AppConfig:
     # Override with file configuration if provided
     if config_path:
         try:
-            import json
 
             import yaml
 
@@ -715,26 +723,54 @@ def load_config(config_path: str | Path | None = None) -> AppConfig:
                 logger.warning(f"Configuration file not found: {config_path}")
                 return config
 
-            with open(path) as f:
-                if path.suffix.lower() == ".json":
-                    file_config: dict[str, Any] = json.load(f)
-                elif path.suffix.lower() in [".yaml", ".yml"]:
-                    file_config = yaml.safe_load(f)
-                else:
-                    logger.warning(
-                        f"Unsupported configuration file format: {path.suffix}"
-                    )
-                    return config
+            # YAML-only configuration files
+            if path.suffix.lower() not in [".yaml", ".yml"]:
+                raise ValueError(
+                    f"Unsupported configuration file format: {path.suffix}. Use YAML (.yaml/.yml)."
+                )
 
-                # Merge file config with environment config
-                if isinstance(file_config, dict):
-                    env_dict: dict[str, Any] = config.model_dump()
-                    merged_config_dict: dict[str, Any] = _merge_dicts(
-                        env_dict, file_config
-                    )
-                    config = AppConfig.model_validate(merged_config_dict)
+            with open(path, encoding="utf-8") as f:
+                file_config: dict[str, Any] = yaml.safe_load(f)
+
+            # Validate against schema for helpful diagnostics
+            try:
+                from pathlib import Path as _Path
+
+                from src.core.config.yaml_validation import validate_yaml_against_schema
+
+                schema_path = (
+                    _Path.cwd() / "config" / "schemas" / "app_config.schema.yaml"
+                )
+                validate_yaml_against_schema(_Path(path), schema_path)
+            except Exception as _ex:  # pragma: no cover
+                logger.critical(
+                    "Config YAML validation failed for %s: %s", str(path), _ex
+                )
+                raise
+
+            # Merge file config with environment defaults, preferring file values
+            if isinstance(file_config, dict):
+                env_dict: dict[str, Any] = config.model_dump()
+
+                def _merge_missing(
+                    dst: dict[str, Any], src: dict[str, Any]
+                ) -> dict[str, Any]:
+                    for k, v in src.items():
+                        if k in dst:
+                            if isinstance(dst[k], dict) and isinstance(v, dict):
+                                _merge_missing(dst[k], v)
+                            # else: keep dst value (from file)
+                        else:
+                            dst[k] = v
+                    return dst
+
+                merged_config_dict: dict[str, Any] = _merge_missing(
+                    dict(file_config), env_dict
+                )
+                config = AppConfig.model_validate(merged_config_dict)
 
         except Exception as e:  # type: ignore[misc]
-            logger.error(f"Error loading configuration file: {e!s}")
+            logger.critical(f"Error loading configuration file: {e!s}")
+            raise
 
     return config

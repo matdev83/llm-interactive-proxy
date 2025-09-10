@@ -555,6 +555,25 @@ async def test_oauth_backend_health_check(self, mock_refresh, mock_home):
 - **Test-Driven Development (TDD)**: Write tests first.
 - **Error Handling**: Use specific exceptions and meaningful error messages.
 
+## Secret Scanning & Hooks
+
+To prevent accidental key leaks, the repository uses a mandatory pre-commit hook that runs a secret scan before allowing commits. The scan detects common API tokens and ZAI-style keys (32 hex chars + dot + 16+ alphanum) and blocks the commit if any are found.
+
+- Install hooks (Windows virtualenv):
+  - `./.venv/Scripts/python.exe scripts/install-hooks.py`
+- What runs on every commit:
+  - Secret scan: `scripts/pre_commit_api_key_check.py` (includes ZAI token pattern)
+  - Architectural checks: enhanced architectural linter on staged Python files
+- Run the secret scanner manually:
+  - `./.venv/Scripts/python.exe scripts/pre_commit_api_key_check.py`
+- False positives: If the scanner flags fixtures or generated files, remove the secret-like content or avoid staging those files.
+- Emergency bypass: Hooks installed as mandatory cannot be bypassed with `--no-verify`. If you must proceed locally, temporarily remove `.git/hooks/pre-commit`, then re-run the installer after fixing the issue.
+
+Security best practices:
+- Do not place real API keys in config files or test data. Use environment variables and placeholders only.
+- Keep `.env` files untracked and never commit them.
+- If a leak is suspected, rotate the affected key immediately and audit CI logs/artifacts.
+
 ## Contribution Process
 
 1. **Create a feature branch**: `git checkout -b feature/your-feature`

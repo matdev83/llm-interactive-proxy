@@ -21,18 +21,19 @@ dependencies = [
     "anthropic",
     "structlog",
     "pyyaml",
+    "jsonschema>=4.19.0",
     "google-auth>=2.27.0",
     "google-auth-oauthlib>=1.2.0",
 ]
 requires-python = ">=3.10"
 readme = "README.md"
-license = { text = "MIT" } # License specified here
+# License per PEP 621: string SPDX identifier
+license = "AGPL-3.0-or-later"
 keywords = ["llm", "proxy", "interactive", "api", "ai", "chatgpt", "openai", "gemini", "openrouter"]
 urls = { Home = "https://github.com/matdev83/llm-interactive-proxy" } # Example URL
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Intended Audience :: Developers",
-    "License :: OSI Approved :: MIT License", # License classifier added
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",

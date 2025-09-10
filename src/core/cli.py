@@ -180,7 +180,15 @@ def parse_cli_args(argv: list[str] | None = None) -> argparse.Namespace:
 
 
 def apply_cli_args(args: argparse.Namespace) -> AppConfig:
-    cfg: AppConfig = cast(AppConfig, load_config())
+    # Load base config (YAML only); pass through --config when provided
+    cfg: AppConfig = cast(
+        AppConfig,
+        (
+            load_config(args.config_file)
+            if getattr(args, "config_file", None)
+            else load_config()
+        ),
+    )
 
     if args.host is not None:
         cfg.host = args.host

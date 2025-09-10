@@ -3,7 +3,7 @@ repos:
     hooks:
     -   id: api-key-check
         name: API Key Check
-        entry: python tools/pre_commit_api_key_check.py
+        entry: python scripts/pre_commit_api_key_check.py
         language: python
         types: [text]
         pass_filenames: false

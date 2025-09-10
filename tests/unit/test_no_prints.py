@@ -9,8 +9,6 @@ repo_root = pathlib.Path(__file__).resolve().parents[2]
 ALLOWED_FILES = {
     repo_root / "src" / "main.py",
     repo_root / "dev" / "_client_call.py",
-    repo_root / "tools" / "analyze_module_dependencies.py",
-    repo_root / "tools" / "deprecate_legacy_endpoints.py",
     repo_root / "debug_command_test.py",
     repo_root / "debug_parsing.py",
     repo_root / ".pre-commit-hooks" / "architectural-check.py",  # Added this line

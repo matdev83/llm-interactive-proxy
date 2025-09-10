@@ -508,7 +508,7 @@ def test_architectural_linter_compliance() -> None:
 
     # Get project root
     project_root = Path(__file__).parent.parent.parent
-    architectural_linter_path = project_root / "tools" / "architectural_linter.py"
+    architectural_linter_path = project_root / "scripts" / "architectural_linter.py"
     src_dir = project_root / "src"
 
     # Run the architectural linter

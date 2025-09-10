@@ -1,5 +1,3 @@
-import json
-
 import pytest
 from fastapi.testclient import TestClient
 from src.core.app.test_builder import build_test_app as build_app
@@ -18,7 +16,7 @@ def manage_env_vars(monkeypatch):
 
 
 def test_save_and_load_persistent_config(tmp_path, monkeypatch):
-    cfg_path = tmp_path / "cfg.json"
+    cfg_path = tmp_path / "cfg.yaml"
     # Ensure a clean slate for keys that might be set by other tests or global env
     monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
     monkeypatch.delenv("GEMINI_API_KEY", raising=False)
@@ -42,7 +40,9 @@ def test_save_and_load_persistent_config(tmp_path, monkeypatch):
         client.app.state.app_config.command_prefix = "$/"
         client.app.state.app_config.save(cfg_path)
 
-    data = json.loads(cfg_path.read_text())
+    import yaml
+
+    data = yaml.safe_load(cfg_path.read_text())
     assert data["backends"]["default_backend"] == "gemini"
     assert data["session"]["default_interactive_mode"] is True  # Updated path
     assert data["failover_routes"]["r1"]["elements"] == ["openrouter:model-a"]
@@ -81,10 +81,12 @@ def test_save_and_load_persistent_config(tmp_path, monkeypatch):
 
 
 def test_invalid_persisted_backend(tmp_path, monkeypatch):
-    cfg_path = tmp_path / "cfg.json"
+    cfg_path = tmp_path / "cfg.yaml"
     # Persist an invalid default_backend
+    import yaml
+
     invalid_cfg_data = {"backends": {"default_backend": "non_existent_backend"}}
-    cfg_path.write_text(json.dumps(invalid_cfg_data))
+    cfg_path.write_text(yaml.safe_dump(invalid_cfg_data))
 
     # Ensure no functional backends are accidentally configured via env that might match
     monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)

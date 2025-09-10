@@ -1,0 +1,63 @@
+$schema: "http://json-schema.org/draft-07/schema#"
+title: App Config
+type: object
+additionalProperties: true
+properties:
+  host: { type: string }
+  port: { type: integer, minimum: 1 }
+  proxy_timeout: { type: integer, minimum: 0 }
+  command_prefix: { type: string }
+  logging:
+    type: object
+    additionalProperties: true
+    properties:
+      level: { type: string, enum: [DEBUG, INFO, WARNING, ERROR, CRITICAL] }
+      log_file: { type: ["string", "null"] }
+      capture_file: { type: ["string", "null"] }
+      capture_max_bytes: { type: ["integer", "null"], minimum: 0 }
+      capture_truncate_bytes: { type: ["integer", "null"], minimum: 0 }
+      capture_max_files: { type: ["integer", "null"], minimum: 0 }
+      capture_rotate_interval_seconds: { type: ["integer", "null"], minimum: 0 }
+      capture_total_max_bytes: { type: ["integer", "null"], minimum: 0 }
+  auth:
+    type: object
+    additionalProperties: true
+    properties:
+      disable_auth: { type: boolean }
+      api_keys:
+        type: array
+        items: { type: string }
+      auth_token: { type: ["string", "null"] }
+      redact_api_keys_in_prompts: { type: boolean }
+      trusted_ips:
+        type: array
+        items: { type: string }
+  session:
+    type: object
+    additionalProperties: true
+    properties:
+      default_interactive_mode: { type: boolean }
+      force_set_project: { type: boolean }
+      disable_interactive_commands: { type: boolean }
+      tool_call_repair_enabled: { type: boolean }
+      json_repair_enabled: { type: boolean }
+      json_repair_strict_mode: { type: boolean }
+      json_repair_buffer_cap_bytes: { type: integer, minimum: 0 }
+      tool_call_repair_buffer_cap_bytes: { type: integer, minimum: 0 }
+      dangerous_command_prevention_enabled: { type: boolean }
+      dangerous_command_steering_message: { type: ["string", "null"] }
+      tool_call_reactor:
+        type: object
+        additionalProperties: true
+        properties:
+          enabled: { type: boolean }
+          apply_diff_steering_enabled: { type: boolean }
+          apply_diff_steering_rate_limit_seconds: { type: integer, minimum: 0 }
+          apply_diff_steering_message: { type: ["string", "null"] }
+          steering_rules:
+            type: array
+            items: { type: object }
+  backends:
+    type: object
+    additionalProperties: true
+  default_backend: { type: string }

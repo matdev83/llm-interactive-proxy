@@ -52,7 +52,7 @@ jobs:
           fi
           
           echo "Checking: $file"
-          python tools/architectural_linter_enhanced.py "$file" || EXIT_CODE=1
+          python scripts/architectural_linter.py "$file" || EXIT_CODE=1
         done
         
         exit $EXIT_CODE

@@ -213,7 +213,6 @@ class ConfigLoader:
             FileNotFoundError: If config file doesn't exist
             ValueError: If config file has invalid format
         """
-        import json
         from pathlib import Path
 
         import yaml
@@ -223,18 +222,17 @@ class ConfigLoader:
             raise FileNotFoundError(f"Configuration file not found: {config_file}")
 
         try:
+            if path.suffix.lower() not in [".yaml", ".yml"]:
+                raise ValueError(
+                    f"Unsupported configuration file format: {path.suffix}. Use YAML (.yaml/.yml)."
+                )
+
             content: str = path.read_text(encoding="utf-8")
+            result: Any = yaml.safe_load(content)
+            return result if isinstance(result, dict) else {}
 
-            # Try YAML first, then JSON
-            try:
-                result: Any = yaml.safe_load(content)
-                return result if isinstance(result, dict) else {}
-            except yaml.YAMLError:
-                result = json.loads(content)
-                return result if isinstance(result, dict) else {}
-
-        except (json.JSONDecodeError, yaml.YAMLError) as exc:  # type: ignore[misc]
-            raise ValueError(f"Invalid configuration file format: {exc}") from exc
+        except yaml.YAMLError as exc:  # type: ignore[misc]
+            raise ValueError(f"Invalid YAML configuration: {exc}") from exc
 
     def reload_config(self) -> None:
         """Clear the config cache to force reload on next access."""

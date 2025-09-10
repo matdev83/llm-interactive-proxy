@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Enhanced architectural linter to detect SOLID violations in code.
+Architectural linter to detect SOLID violations in code.
 
 This tool can be run as part of CI/CD to catch architectural violations
 before they make it into the codebase.

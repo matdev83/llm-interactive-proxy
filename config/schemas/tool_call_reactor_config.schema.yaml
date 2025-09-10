@@ -1,0 +1,48 @@
+$schema: "http://json-schema.org/draft-07/schema#"
+title: Tool Call Reactor Config
+type: object
+additionalProperties: false
+properties:
+  enabled:
+    type: boolean
+  apply_diff_steering_enabled:
+    type: boolean
+  apply_diff_steering_rate_limit_seconds:
+    type: integer
+    minimum: 0
+  apply_diff_steering_message:
+    type:
+      - string
+      - "null"
+  steering_rules:
+    type: array
+    items:
+      type: object
+      additionalProperties: true
+      properties:
+        name:
+          type: string
+        enabled:
+          type: boolean
+        priority:
+          type: integer
+        triggers:
+          type: object
+          additionalProperties: false
+          properties:
+            tool_names:
+              type: array
+              items: { type: string }
+            phrases:
+              type: array
+              items: { type: string }
+        message:
+          type: string
+        rate_limit:
+          type: object
+          additionalProperties: false
+          properties:
+            calls_per_window: { type: integer, minimum: 1 }
+            window_seconds: { type: integer, minimum: 1 }
+      required: [name, enabled]
+required: []

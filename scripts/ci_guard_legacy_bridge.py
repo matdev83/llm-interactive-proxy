@@ -7,7 +7,7 @@ occurrences of the words "legacy" or "bridge" in Python files under `src/`
 and `tests/`, excluding this guard itself and documentation.
 
 Usage:
-  python tools/ci_guard_legacy_bridge.py
+  python scripts/ci_guard_legacy_bridge.py
 
 Exit codes:
   0 - OK

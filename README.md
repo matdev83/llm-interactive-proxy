@@ -17,6 +17,7 @@ This project is a swiss-army knife for anyone working with language models and a
 - [Errors and Troubleshooting](#errors-and-troubleshooting)
 - [Support](#support)
 - [Changelog](#changelog)
+ - [License](#license)
 
 ## Use Cases
 
@@ -113,7 +114,12 @@ python -m src.core.cli --default-backend openai
 Useful flags
 
 - `--host 0.0.0.0` and `--port 8000` to change bind address
-- `--config config/config.example.yaml` to load a saved config
+ - `--config config/config.example.yaml` to load a saved config
+ 
+### Configuration Format
+- Configuration files are YAML-only. JSON configs are deprecated and not supported by the loader.
+- Keep `pyproject.toml` for packaging/tooling, and JSON for wire-capture logs only.
+- On startup, the server validates YAML files and refuses to start on syntax/schema errors.
 - `--capture-file wire.log` to record requests/replies (see Debugging)
 - `--disable-auth` for local only (forces host=127.0.0.1)
 
@@ -218,6 +224,10 @@ python -m src.core.cli --default-backend gemini-cli-cloud-project
 backends:
   openai:
     type: openai
+
+## License
+
+This project is licensed under the GNU Affero General Public License v3.0 (or later). See the `LICENSE` file for the full text.
 default_backend: openai
 proxy:
   host: 0.0.0.0

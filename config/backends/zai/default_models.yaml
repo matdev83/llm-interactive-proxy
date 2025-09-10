@@ -1,0 +1,6 @@
+models:
+  - glm-4.5-flash
+  - glm-4.5-air
+  - glm-4.5
+description: Default models for ZAI (Zhipu AI) backend
+last_updated: "2025-08-14"

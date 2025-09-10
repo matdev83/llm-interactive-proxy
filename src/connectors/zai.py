@@ -2,11 +2,11 @@
 ZAI connector for Zhipu AI's GLM models
 """
 
-import json
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 import httpx
+import yaml
 
 from src.core.common.exceptions import AuthenticationError, ConfigurationError
 from src.core.config.app_config import AppConfig
@@ -31,22 +31,22 @@ class ZAIConnector(OpenAIConnector):
         super().__init__(client, config)  # Modified
         self.api_base_url = "https://open.bigmodel.cn/api/paas/v4/"
         self.name = "zai"
-        # Load default models from JSON config file
+        # Load default models from YAML config file
         self._default_models = self._load_default_models()
 
     def _load_default_models(self) -> list[str]:
-        """Load default models from JSON configuration file."""
+        """Load default models from YAML configuration file."""
         config_path = (
             Path(__file__).parent.parent.parent
             / "config"
             / "backends"
             / "zai"
-            / "default_models.json"
+            / "default_models.yaml"
         )
         try:
             with open(config_path, encoding="utf-8") as f:
-                config = json.load(f)
-                models = config.get("models", [])
+                config = yaml.safe_load(f)
+                models = config.get("models", []) if isinstance(config, dict) else []
                 if isinstance(models, list) and models:
                     return models
                 # If the config file exists but has no models, fall back to hardcoded defaults
