@@ -90,7 +90,7 @@ def main() -> None:
     print("\nGit hooks installation complete.")
     print("The following hooks are now active:")
     print(
-        " - pre-commit (MANDATORY): Runs enhanced architectural linter on changed Python files"
+        " - pre-commit (MANDATORY): Runs secret scan (incl. ZAI pattern) and architectural linter on staged files"
     )
 
 
