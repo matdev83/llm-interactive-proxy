@@ -1,3 +1,4 @@
+from .application_stages import DefaultApplicationStages
 from .backend import BackendStage
 from .base import InitializationStage
 from .command import CommandStage
@@ -12,6 +13,7 @@ __all__ = [
     "CommandStage",
     "ControllerStage",
     "CoreServicesStage",
+    "DefaultApplicationStages",
     "InfrastructureStage",
     "InitializationStage",
     "ProcessorStage",

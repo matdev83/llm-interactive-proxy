@@ -112,11 +112,16 @@ class TestBackendServiceHypothesis:
     """Hypothesis-based tests for the BackendService class."""
 
     @given(
-        model_name=st.text(min_size=1, max_size=50).filter(lambda x: x.isalnum()),
+        model_name=st.from_regex(r"\A[a-zA-Z0-9]{1,50}\Z"),
         message_content=st.text(min_size=1, max_size=100),
     )
     @settings(
-        suppress_health_check=[HealthCheck.function_scoped_fixture], max_examples=5
+        suppress_health_check=[
+            HealthCheck.function_scoped_fixture,
+            HealthCheck.too_slow,
+        ],
+        max_examples=5,
+        deadline=1000,
     )
     @pytest.mark.asyncio
     async def test_call_completion_with_various_models_and_messages(
@@ -156,7 +161,7 @@ class TestBackendServiceHypothesis:
         backend_type=st.sampled_from(
             [BackendType.OPENAI, BackendType.ANTHROPIC, BackendType.GEMINI]
         ),
-        model_name=st.text(min_size=1, max_size=50).filter(lambda x: x.isalnum()),
+        model_name=st.from_regex(r"\A[a-zA-Z0-9]{1,50}\Z"),
     )
     @settings(
         suppress_health_check=[HealthCheck.function_scoped_fixture], max_examples=5

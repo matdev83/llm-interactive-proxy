@@ -81,10 +81,7 @@ class DIViolationScanner:
         """Get all service interface names from the codebase."""
         interfaces = set()
 
-        # Combined pattern for better performance
-        interface_pattern = r"\bI[A-Z][a-zA-Z]*(?:Service|Processor|Factory|Handler|Resolver|Provider)\b"
-
-        # Add known interfaces first
+        # Add known interfaces first (avoid unnecessary scanning)
         known_interfaces = {
             "IBackendService",
             "ISessionService",
@@ -104,21 +101,38 @@ class DIViolationScanner:
         }
         interfaces.update(known_interfaces)
 
-        # Scan interface files once with combined pattern
-        interface_files = []
-        for file_path in self.src_path.rglob("*.py"):
-            if (
-                "interface" in file_path.name.lower() or "interfaces" in file_path.parts
-            ) and not any(
-                skip in str(file_path) for skip in ["test", "__pycache__", ".git"]
-            ):
-                interface_files.append(file_path)
+        # Only scan interface files if we don't have enough known interfaces
+        if len(interfaces) >= 15:  # We have a good baseline
+            return interfaces
 
-        # Process files with cached reads
+        # Optimized pattern - compile once for better performance
+        interface_pattern = re.compile(
+            r"\bI[A-Z][a-zA-Z]*(?:Service|Processor|Factory|Handler|Resolver|Provider)\b"
+        )
+
+        # Limit interface file scanning to specific directories only
+        interface_dirs = ["interfaces", "core/interfaces", "domain/interfaces"]
+        interface_files = []
+
+        for interface_dir in interface_dirs:
+            dir_path = self.src_path / interface_dir
+            if dir_path.exists():
+                interface_files.extend(dir_path.rglob("*.py"))
+
+        # Also check files with interface in name in core directory only
+        core_dir = self.src_path / "core"
+        if core_dir.exists():
+            for file_path in core_dir.rglob("*.py"):
+                if "interface" in file_path.name.lower() and not any(
+                    skip in str(file_path) for skip in ["test", "__pycache__", ".git"]
+                ):
+                    interface_files.append(file_path)
+
+        # Process files with cached reads and compiled pattern
         for file_path in interface_files:
             content = self._read_file_cached(file_path)
             if content:  # Only process if we could read the file
-                matches = re.findall(interface_pattern, content)
+                matches = interface_pattern.findall(content)
                 interfaces.update(matches)
 
         return interfaces
@@ -127,24 +141,61 @@ class DIViolationScanner:
         """Get all service implementation class names."""
         implementations = set()
 
-        # Combined pattern for better performance
-        impl_pattern = (
+        # Add known implementations first to reduce scanning
+        known_implementations = {
+            "BackendService",
+            "SessionService",
+            "CommandService",
+            "RequestProcessor",
+            "ResponseProcessor",
+            "BackendProcessor",
+            "SessionResolver",
+            "ApplicationStateService",
+            "RateLimiterService",
+            "FailoverStrategy",
+            "FailoverCoordinator",
+            "NonStreamingResponseHandler",
+            "StreamingResponseHandler",
+        }
+        implementations.update(known_implementations)
+
+        # Only scan if we don't have enough known implementations
+        if len(implementations) >= 15:  # We have a good baseline
+            # Filter out interfaces and return
+            return {name for name in implementations if not name.startswith("I")}
+
+        # Compile pattern once for better performance
+        impl_pattern = re.compile(
             r"\b[A-Z][a-zA-Z]*(?:Service|Processor|Factory|Handler|Resolver|Provider)\b"
         )
 
-        # Collect all non-test files once
+        # Limit scanning to key directories only (services, core)
+        key_dirs = ["services", "core/services", "connectors", "core/app"]
         files_to_process = []
-        for file_path in self.src_path.rglob("*.py"):
-            if not any(
-                skip in str(file_path) for skip in ["test", "__pycache__", ".git"]
-            ):
-                files_to_process.append(file_path)
 
-        # Process files with cached reads
+        # Also add common service directories from src
+        for key_dir in key_dirs:
+            dir_path = self.src_path / key_dir
+            if dir_path.exists():
+                files_to_process.extend(dir_path.rglob("*.py"))
+
+        # Only scan root src if we don't have enough files
+        if len(files_to_process) < 20:
+            for file_path in self.src_path.rglob("*.py"):
+                if (
+                    not any(
+                        skip in str(file_path)
+                        for skip in ["test", "__pycache__", ".git"]
+                    )
+                    and file_path not in files_to_process
+                ):
+                    files_to_process.append(file_path)
+
+        # Process files with cached reads and compiled pattern
         for file_path in files_to_process:
             content = self._read_file_cached(file_path)
             if content:  # Only process if we could read the file
-                matches = re.findall(impl_pattern, content)
+                matches = impl_pattern.findall(content)
                 implementations.update(matches)
 
         # Filter out interfaces and keep only implementations

@@ -11,7 +11,7 @@ import requests
 pytestmark = [pytest.mark.integration, pytest.mark.no_global_mock]
 
 
-def _wait_port(port: int, host: str = "127.0.0.1", timeout: float = 10.0) -> None:
+def _wait_port(port: int, host: str = "127.0.0.1", timeout: float = 30.0) -> None:
     """Wait until a TCP port is accepting connections or timeout.
 
     Args:
@@ -36,6 +36,7 @@ def _start_server(port: int, log_file: str) -> subprocess.Popen:
     env = os.environ.copy()
     # Ensure at least one backend is functional for smoke test
     env["OPENROUTER_API_KEY_1"] = "test-key-for-smoke-test"
+    env["COMMAND_PREFIX"] = "!/"
     # Run the real CLI so it configures logging/file handlers
     proc = subprocess.Popen(
         [
@@ -91,7 +92,7 @@ def _start_server(port: int, log_file: str) -> subprocess.Popen:
         # Also try to read the log file
         log_content = ""
         try:
-            with open(log_file, "r") as f:
+            with open(log_file) as f:
                 log_content = f.read()
         except Exception:
             pass

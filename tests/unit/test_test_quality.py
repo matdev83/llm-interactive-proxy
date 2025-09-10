@@ -5,11 +5,239 @@ This module contains tests that validate code quality, architectural compliance,
 and dependency integrity across the project.
 """
 
+import hashlib
+import json
 import subprocess
 import sys
+import time
 from pathlib import Path
+from typing import Any
 
 import pytest
+
+
+@pytest.fixture(scope="session")
+def bandit_security_cache() -> dict[str, Any]:
+    """Session-scoped cache for bandit security scanning results."""
+    project_root = Path(__file__).parent.parent.parent
+    src_dir = project_root / "src"
+
+    # Setup cache directory and file
+    cache_dir = project_root / ".pytest_cache"
+    cache_dir.mkdir(exist_ok=True)
+    cache_file = cache_dir / "bandit_security_cache.json"
+
+    # Calculate hash of src directory for cache invalidation
+    src_hash = _calculate_directory_hash(src_dir)
+
+    # Load existing cache or create empty cache
+    cache: dict[str, Any] = {}
+    if cache_file.exists():
+        try:
+            with open(cache_file, encoding="utf-8") as f:
+                cache = json.load(f)
+        except (OSError, json.JSONDecodeError):
+            cache = {}
+
+    # Check if cache is valid (same directory hash and not expired)
+    current_time = time.time()
+    cache_timeout = 3600  # 1 hour in seconds
+
+    if (
+        cache.get("src_hash") == src_hash
+        and current_time - cache.get("timestamp", 0) < cache_timeout
+        and "result" in cache
+    ):
+        return cache
+
+    # Run bandit security scan
+    cmd = [
+        sys.executable,
+        "-m",
+        "bandit",
+        "-r",  # Recursive scan
+        "-q",  # Quiet mode - suppress progress output
+        str(src_dir),
+        "--severity-level",
+        "high",  # Only high severity issues
+        "--confidence-level",
+        "high",  # Only high confidence issues
+        "-f",
+        "json",  # JSON format for easy parsing
+    ]
+
+    # Run bandit
+    result = subprocess.run(
+        cmd,
+        capture_output=True,
+        text=True,
+        cwd=project_root,
+    )
+
+    # Parse the JSON output - bandit may output non-JSON content before the actual JSON
+    try:
+        # Find the start of the JSON by looking for the opening brace
+        stdout = result.stdout.strip()
+        json_start = stdout.find("{")
+        if json_start == -1:
+            # No JSON found, cache this result
+            cache.update(
+                {
+                    "src_hash": src_hash,
+                    "timestamp": current_time,
+                    "result": {
+                        "error": "No JSON found in bandit output",
+                        "stdout": result.stdout,
+                        "stderr": result.stderr,
+                        "returncode": result.returncode,
+                    },
+                }
+            )
+            return cache
+
+        json_content = stdout[json_start:]
+        bandit_output = json.loads(json_content)
+
+        # Cache the successful result
+        cache.update(
+            {
+                "src_hash": src_hash,
+                "timestamp": current_time,
+                "result": {
+                    "bandit_output": bandit_output,
+                    "returncode": result.returncode,
+                },
+            }
+        )
+    except json.JSONDecodeError as e:
+        # Cache the error
+        cache.update(
+            {
+                "src_hash": src_hash,
+                "timestamp": current_time,
+                "result": {
+                    "error": f"Failed to parse bandit JSON output: {e}",
+                    "stdout": result.stdout,
+                    "stderr": result.stderr,
+                    "returncode": result.returncode,
+                },
+            }
+        )
+
+    # Save updated cache
+    try:
+        with open(cache_file, "w", encoding="utf-8") as f:
+            json.dump(cache, f, indent=2)
+    except OSError:
+        # If we can't write cache, continue - not a test failure
+        pass
+
+    return cache
+
+
+@pytest.fixture(scope="session")
+def black_formatting_cache() -> dict[str, Any]:
+    """Session-scoped cache for black formatting check results."""
+    project_root = Path(__file__).parent.parent.parent
+
+    # Setup cache directory and file
+    cache_dir = project_root / ".pytest_cache"
+    cache_dir.mkdir(exist_ok=True)
+    cache_file = cache_dir / "black_formatting_cache.json"
+
+    # Calculate hash of key directories for cache invalidation
+    src_hash = _calculate_directory_hash(project_root / "src")
+    tests_hash = _calculate_directory_hash(project_root / "tests")
+
+    # Load existing cache or create empty cache
+    cache: dict[str, Any] = {}
+    if cache_file.exists():
+        try:
+            with open(cache_file, encoding="utf-8") as f:
+                cache = json.load(f)
+        except (OSError, json.JSONDecodeError):
+            cache = {}
+
+    # Check if cache is valid (same directory hashes and not expired)
+    current_time = time.time()
+    cache_timeout = 3600  # 1 hour in seconds
+
+    if (
+        cache.get("src_hash") == src_hash
+        and cache.get("tests_hash") == tests_hash
+        and current_time - cache.get("timestamp", 0) < cache_timeout
+        and "src_result" in cache
+        and "tests_result" in cache
+    ):
+        return cache
+
+    # Run black check on src directory
+    src_result = _run_black_check(project_root / "src", project_root)
+
+    # Run black check on tests directory
+    tests_result = _run_black_check(project_root / "tests", project_root)
+
+    # Cache the results
+    cache.update(
+        {
+            "src_hash": src_hash,
+            "tests_hash": tests_hash,
+            "timestamp": current_time,
+            "src_result": src_result,
+            "tests_result": tests_result,
+        }
+    )
+
+    # Save updated cache
+    try:
+        with open(cache_file, "w", encoding="utf-8") as f:
+            json.dump(cache, f, indent=2)
+    except OSError:
+        # If we can't write cache, continue - not a test failure
+        pass
+
+    return cache
+
+
+def _run_black_check(directory: Path, project_root: Path) -> dict[str, Any]:
+    """Run black check on a directory and return the result."""
+    # Run black check on directory
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "black",
+            "--check",  # Dry run mode - don't modify files
+            "--diff",  # Show diffs if files would be changed
+            str(directory),
+        ],
+        capture_output=True,
+        text=True,
+        cwd=project_root,
+    )
+
+    return {
+        "returncode": result.returncode,
+        "stdout": result.stdout,
+        "stderr": result.stderr,
+    }
+
+
+def _calculate_directory_hash(directory: Path) -> str:
+    """Calculate a hash of all Python files in the directory for cache invalidation."""
+    hasher = hashlib.md5()
+
+    for py_file in directory.rglob("*.py"):
+        try:
+            # Use file path, size, and modification time for hashing
+            file_stat = py_file.stat()
+            file_data = f"{py_file}:{file_stat.st_size}:{file_stat.st_mtime}"
+            hasher.update(file_data.encode())
+        except OSError:
+            # Skip files that can't be accessed
+            continue
+
+    return hasher.hexdigest()
 
 
 @pytest.mark.quality
@@ -46,33 +274,20 @@ def test_ruff_linting_on_tests() -> None:
 
 
 @pytest.mark.quality
-def test_black_formatting_on_tests() -> None:
+def test_black_formatting_on_tests(black_formatting_cache: dict[str, Any]) -> None:
     """Test that black formatting is consistent on the tests directory.
 
     This test runs black in check mode (dry run) on the tests directory
     and fails if any files would be reformatted. This ensures consistent
     code formatting across the test suite.
+    Uses session-scoped caching for better performance.
     """
-    tests_dir = Path(__file__).parent.parent
-
-    # Run black check on tests directory
-    result = subprocess.run(
-        [
-            sys.executable,
-            "-m",
-            "black",
-            "--check",  # Dry run mode - don't modify files
-            "--diff",  # Show diffs if files would be changed
-            str(tests_dir),
-        ],
-        capture_output=True,
-        text=True,
-        cwd=Path(__file__).parent.parent.parent,  # Project root
-    )
+    # Get the cached black result for tests directory
+    tests_result = black_formatting_cache.get("tests_result", {})
 
     # Check if black found any files that need formatting
-    if result.returncode != 0:
-        error_msg = f"black formatting check failed on tests directory:\n{result.stdout}\n{result.stderr}"
+    if tests_result.get("returncode", 0) != 0:
+        error_msg = f"black formatting check failed on tests directory:\n{tests_result.get('stdout', '')}\n{tests_result.get('stderr', '')}"
         pytest.fail(error_msg)
 
 
@@ -111,33 +326,20 @@ def test_ruff_linting_on_src() -> None:
 
 
 @pytest.mark.quality
-def test_black_formatting_on_src() -> None:
+def test_black_formatting_on_src(black_formatting_cache: dict[str, Any]) -> None:
     """Test that black formatting is consistent on the src directory.
 
     This test runs black in check mode (dry run) on the src directory
     and fails if any files would be reformatted. This ensures consistent
     code formatting across the source code.
+    Uses session-scoped caching for better performance.
     """
-    src_dir = Path(__file__).parent.parent.parent / "src"
-
-    # Run black check on src directory
-    result = subprocess.run(
-        [
-            sys.executable,
-            "-m",
-            "black",
-            "--check",  # Dry run mode - don't modify files
-            "--diff",  # Show diffs if files would be changed
-            str(src_dir),
-        ],
-        capture_output=True,
-        text=True,
-        cwd=Path(__file__).parent.parent.parent,  # Project root
-    )
+    # Get the cached black result for src directory
+    src_result = black_formatting_cache.get("src_result", {})
 
     # Check if black found any files that need formatting
-    if result.returncode != 0:
-        error_msg = f"black formatting check failed on src directory:\n{result.stdout}\n{result.stderr}"
+    if src_result.get("returncode", 0) != 0:
+        error_msg = f"black formatting check failed on src directory:\n{src_result.get('stdout', '')}\n{src_result.get('stderr', '')}"
         pytest.fail(error_msg)
 
 
@@ -398,65 +600,32 @@ def _read_suppressions_for_cli(suppressions_file: Path) -> str:
 
 
 @pytest.mark.quality
-def test_bandit_security_scan_on_src_strict() -> None:
+def test_bandit_security_scan_on_src_strict(
+    bandit_security_cache: dict[str, Any],
+) -> None:
     """Test that bandit security scanning passes on the src directory with high severity and confidence.
 
     This test runs bandit to detect security issues in the src directory with strict filters:
     - Only reports issues with HIGH severity
     - Only reports issues with HIGH confidence
     - Exits with failure if any such issues are found
+    - Uses session-scoped caching for better performance
 
     This helps catch critical security vulnerabilities that should be addressed immediately.
     """
-    import json
-    import subprocess
-    import sys
-    from pathlib import Path
+    # Get the cached bandit result
+    cached_result = bandit_security_cache.get("result", {})
 
-    # Get project root and src directory
-    project_root = Path(__file__).parent.parent.parent
-    src_dir = project_root / "src"
-
-    # Run bandit with high severity and high confidence filters
-    cmd = [
-        sys.executable,
-        "-m",
-        "bandit",
-        "-r",  # Recursive scan
-        "-q",  # Quiet mode - suppress progress output
-        str(src_dir),
-        "--severity-level",
-        "high",  # Only high severity issues
-        "--confidence-level",
-        "high",  # Only high confidence issues
-        "-f",
-        "json",  # JSON format for easy parsing
-    ]
-
-    # Run bandit
-    result = subprocess.run(
-        cmd,
-        capture_output=True,
-        text=True,
-        cwd=project_root,
-    )
-
-    # Parse the JSON output - bandit may output non-JSON content before the actual JSON
-    try:
-        # Find the start of the JSON by looking for the opening brace
-        stdout = result.stdout.strip()
-        json_start = stdout.find("{")
-        if json_start == -1:
-            pytest.fail(
-                f"No JSON found in bandit output:\nStdout: {result.stdout}\nStderr: {result.stderr}"
-            )
-
-        json_content = stdout[json_start:]
-        bandit_output = json.loads(json_content)
-    except json.JSONDecodeError as e:
+    # Check if there was an error in the cached result
+    if "error" in cached_result:
         pytest.fail(
-            f"Failed to parse bandit JSON output: {e}\nStdout: {result.stdout}\nStderr: {result.stderr}"
+            f"Bandit scan failed: {cached_result['error']}\n"
+            f"Stdout: {cached_result.get('stdout', '')}\n"
+            f"Stderr: {cached_result.get('stderr', '')}"
         )
+
+    # Get the bandit output from cache
+    bandit_output = cached_result.get("bandit_output", {})
 
     # Check if bandit found any high severity, high confidence issues
     high_severity_issues = bandit_output.get("results", [])

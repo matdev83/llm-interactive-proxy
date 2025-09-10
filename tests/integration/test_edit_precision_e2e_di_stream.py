@@ -5,7 +5,8 @@ from unittest.mock import AsyncMock
 
 import pytest
 from src.core.config.app_config import AppConfig
-from src.core.di.services import get_or_build_service_provider
+from src.core.di.container import ServiceCollection
+from src.core.di.services import register_core_services
 from src.core.domain.chat import ChatMessage, ChatRequest
 from src.core.domain.processed_result import ProcessedResult
 from src.core.domain.responses import ResponseEnvelope
@@ -19,7 +20,11 @@ from tests.unit.core.test_doubles import MockCommandProcessor, TestDataBuilder
 @pytest.mark.asyncio
 async def test_e2e_di_streaming_pipeline_sets_pending_and_next_call_tuned() -> None:
     # Build DI container
-    provider = get_or_build_service_provider()
+    services = ServiceCollection()
+    app_config = AppConfig()
+    services.add_instance(AppConfig, app_config)
+    register_core_services(services, app_config)
+    provider = services.build_service_provider()
 
     # Configure provider AppConfig BEFORE resolving the normalizer
     prov_cfg = provider.get_required_service(AppConfig)

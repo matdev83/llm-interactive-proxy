@@ -136,12 +136,9 @@ genai = MockGeminiClient()
 class ProxyServer:
     """Test server for integration tests."""
 
-    def __init__(self, config: dict[str, Any], port: int = None) -> None:
+    def __init__(self, config: dict[str, Any], port: int | None = None) -> None:
         # If no port specified, find an available port in a safe range
-        if port is None:
-            port = self._find_available_port()
-        # Find an available port if the default is in use
-        elif self._is_port_in_use(port):
+        if port is None or self._is_port_in_use(port):
             port = self._find_available_port()
         self.port = port
         self.config = config
@@ -174,8 +171,8 @@ class ProxyServer:
     @staticmethod
     def _find_available_port() -> int:
         """Find an available port in the user-allowed range with randomization."""
-        import socket
         import random
+        import socket
 
         # Use a range of user-allowed ports (1024-65535) with randomization
         start_port = random.randint(1024, 30000)

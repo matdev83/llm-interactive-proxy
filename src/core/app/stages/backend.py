@@ -11,6 +11,7 @@ This stage registers backend-related services:
 from __future__ import annotations
 
 import logging
+import os
 from typing import cast
 
 import httpx
@@ -326,13 +327,15 @@ class BackendStage(InitializationStage):
             backend_config = getattr(
                 config.backends, backend_name.replace("-", "_"), None
             )
-            if (
-                backend_config
-                and hasattr(backend_config, "api_key")
-                and backend_config.api_key
-                and backend_name not in configured_backends
-            ):
-                configured_backends.append(backend_name)
+            if backend_config and backend_name not in configured_backends:
+                # Check for a direct API key or any numbered API key
+                if hasattr(backend_config, "api_key") and backend_config.api_key:
+                    configured_backends.append(backend_name)
+                else:
+                    # Check for numbered keys, e.g., OPENROUTER_API_KEY_1
+                    env_prefix = f"{backend_name.upper().replace('-', '_')}_API_KEY_"
+                    if any(key.startswith(env_prefix) for key in os.environ):
+                        configured_backends.append(backend_name)
 
         if not configured_backends:
             logger.warning("No backends configured in app config")
@@ -376,8 +379,17 @@ class BackendStage(InitializationStage):
                             )
                         else:
                             backend = backend_factory(client, config)
+                    except TypeError as e:
+                        if "required positional argument" in str(e) or "missing" in str(
+                            e
+                        ):
+                            logger.warning(
+                                f"Skipping validation for backend '{backend_name}' due to missing dependency: {e}"
+                            )
+                            continue
+                        raise
                     except Exception as create_error:
-                        # If backend can't be created due to missing dependencies, skip it
+                        # If backend can't be created due to other missing dependencies, skip it
                         # This is common during validation when not all services are available
                         logger.warning(
                             f"Backend '{backend_name}' cannot be instantiated during validation: {create_error}"

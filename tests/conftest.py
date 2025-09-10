@@ -2,6 +2,7 @@ import asyncio
 import logging
 from collections.abc import Generator
 from typing import Any
+from unittest.mock import AsyncMock, MagicMock, Mock
 
 # Basic imports - heavy imports delayed until needed
 import httpx
@@ -9,7 +10,7 @@ import pytest
 import requests
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
-from unittest.mock import AsyncMock, MagicMock, Mock
+
 # Delay heavy imports until they're actually needed
 
 # Delay heavy imports until they're actually needed
@@ -22,22 +23,23 @@ _PROBLEMATIC_TEST_MODULES = {
     "tests.unit.core.app.test_application_factory",
 }
 
+
 def _create_smart_async_mock():
     """Create SmartAsyncMock only when needed."""
     import inspect
-    
+
     class SmartAsyncMock(AsyncMock):
         """AsyncMock that converts to regular Mock for problematic patterns."""
-        
+
         _module_decision_cache = {}
-        
+
         def __new__(cls, *args, **kwargs):
             # Check the calling context
             frame = inspect.currentframe()
             if frame and frame.f_back:
                 try:
                     calling_module = frame.f_back.f_globals.get("__name__", "")
-                    
+
                     # Use cached decision if available
                     if calling_module in cls._module_decision_cache:
                         use_regular_mock = cls._module_decision_cache[calling_module]
@@ -52,10 +54,10 @@ def _create_smart_async_mock():
                             return Mock(*args, **kwargs)
                 except Exception:
                     pass
-            
+
             # Default to real AsyncMock for legitimate async testing
             return super().__new__(cls, *args, **kwargs)
-    
+
     return SmartAsyncMock
 
 
@@ -195,11 +197,13 @@ def _global_mock_backend_init(monkeypatch, request):
     # Mock streaming response
     async def _mock_chat_completions_stream(*args, **kwargs):
 
+        # Create a simple streaming response for compatibility
+        from src.core.domain.responses import StreamingResponseEnvelope
+
         from tests.unit.core.test_backend_service_enhanced import (
             TestBackendServiceCompletions,
         )
 
-        # Create a simple streaming response for compatibility
         return StreamingResponseEnvelope(
             content=TestBackendServiceCompletions.mock_streaming_content([]),  # type: ignore
             headers={},
@@ -299,7 +303,7 @@ def test_service_collection() -> Generator[Any, None, None]:
         Generator: A test service collection
     """
     from src.core.di.container import ServiceCollection
-    
+
     collection = ServiceCollection()
     yield collection
 
@@ -321,7 +325,7 @@ def test_app_config() -> Any:
         LogLevel,
         SessionConfig,
     )
-    
+
     # Create backend settings with just the openai backend to avoid attribute errors
     backends = BackendSettings()
     backends.set("openai", BackendConfig(api_key=["test-key"]))
@@ -369,6 +373,8 @@ def test_session_service(test_service_provider) -> Generator[Any, None, None]:
 
     mock_session_repository = MagicMock(spec=ISessionRepository)
     session_service = SessionService(session_repository=mock_session_repository)
+    from src.core.interfaces.session_service_interface import ISessionService
+
     test_service_provider.register_instance(ISessionService, session_service)
     yield session_service
 
@@ -410,6 +416,8 @@ def test_backend_service(
         app_state=mock_app_state,
         failover_coordinator=StubFailoverCoordinator(),
     )
+    from src.core.interfaces.backend_service_interface import IBackendService
+
     test_service_provider.register_instance(IBackendService, backend_service)
     yield backend_service
 
@@ -471,6 +479,8 @@ def get_backend_instance(app: FastAPI | None = None, name: str | None = None) ->
         pass
 
     # Fallback: return a basic mock backend
+    from src.connectors.base import LLMBackend
+
     mock_backend = MagicMock(spec=LLMBackend)
     mock_backend.chat_completions = AsyncMock(
         return_value=MagicMock(

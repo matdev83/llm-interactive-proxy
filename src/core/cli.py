@@ -341,7 +341,12 @@ def main(
             f"Trusted IPs configured for bypassing authorization: {', '.join(cfg.auth.trusted_ips)}"
         )
 
-    uvicorn.run(app, host=cfg.host, port=cfg.port)
+    logging.info(f"Starting uvicorn on {cfg.host}:{cfg.port}")
+    try:
+        uvicorn.run(app, host=cfg.host, port=cfg.port)
+    except Exception as e:
+        logging.exception("Uvicorn failed to start: %s", e)
+        raise
 
 
 def _maybe_run_as_daemon(args: argparse.Namespace, cfg: AppConfig) -> bool:

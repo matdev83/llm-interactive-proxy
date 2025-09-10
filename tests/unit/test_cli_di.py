@@ -100,26 +100,31 @@ def test_cli_log_argument(tmp_path: Path) -> None:
 
 
 def test_main_log_file(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    import logging
+
     import src.core.cli as cli
 
     log_file = tmp_path / "srv.log"
 
-    recorded = {}
+    root_logger = logging.getLogger()
+    original_handlers = root_logger.handlers[:]
+    root_logger.handlers.clear()
 
-    def fake_basic_config(**kwargs: dict[str, str]) -> None:
-        recorded.update(kwargs)
-
-    monkeypatch.setattr(cli.logging, "basicConfig", fake_basic_config)
     monkeypatch.setattr(cli.uvicorn, "run", lambda app, host, port: None)
     monkeypatch.setattr(cli, "_check_privileges", lambda: None)
 
-    cli.main(["--log", str(log_file)])
+    try:
+        cli.main(["--log", str(log_file)])
 
-    # Check that handlers were configured with a FileHandler pointing to our log file
-    handlers = recorded.get("handlers", [])
-    file_handlers = [h for h in handlers if isinstance(h, cli.logging.FileHandler)]
-    assert len(file_handlers) == 1
-    assert file_handlers[0].baseFilename == str(log_file)
+        file_handlers = [
+            h for h in root_logger.handlers if isinstance(h, logging.FileHandler)
+        ]
+        assert len(file_handlers) == 1
+        assert file_handlers[0].baseFilename == str(log_file)
+    finally:
+        for handler in root_logger.handlers:
+            handler.close()
+        root_logger.handlers[:] = original_handlers
 
 
 @pytest.mark.asyncio
@@ -272,7 +277,7 @@ def test_main_disable_auth_forces_localhost() -> None:
         patch.dict(
             os.environ, {"DISABLE_AUTH": "true", "PROXY_HOST": "0.0.0.0"}, clear=True
         ),
-        patch("src.core.cli.logging.basicConfig"),
+        patch("src.core.cli._configure_logging"),
         patch("src.core.cli.logging") as mock_logging,
         patch("uvicorn.run") as mock_uvicorn,
         patch("src.core.cli._check_privileges"),
@@ -296,7 +301,7 @@ def test_main_disable_auth_with_localhost_no_force() -> None:
         patch.dict(
             os.environ, {"DISABLE_AUTH": "true", "PROXY_HOST": "127.0.0.1"}, clear=True
         ),
-        patch("src.core.cli.logging.basicConfig"),
+        patch("src.core.cli._configure_logging"),
         patch("src.core.cli.logging") as mock_logging,
         patch("uvicorn.run") as mock_uvicorn,
         patch("src.core.cli._check_privileges"),
@@ -320,7 +325,7 @@ def test_main_auth_enabled_allows_custom_host() -> None:
         patch.dict(
             os.environ, {"DISABLE_AUTH": "false", "PROXY_HOST": "0.0.0.0"}, clear=True
         ),
-        patch("src.core.cli.logging.basicConfig"),
+        patch("src.core.cli._configure_logging"),
         patch("src.core.cli.logging") as mock_logging,
         patch("uvicorn.run") as mock_uvicorn,
         patch("src.core.cli._check_privileges"),

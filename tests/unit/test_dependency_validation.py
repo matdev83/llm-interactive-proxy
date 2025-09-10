@@ -30,6 +30,7 @@ class DependencyValidator:
         """
         self.project_root = project_root
         self.pyproject_path = project_root / "pyproject.toml"
+        self._pip_list_cache: list[str] | None = None
 
     def _load_pyproject_toml(self) -> dict[str, Any]:
         """Load and parse the pyproject.toml file.
@@ -88,6 +89,28 @@ class DependencyValidator:
 
         # Normalize package name (replace underscores with hyphens, lowercase)
         return package_name.lower().replace("_", "-")
+
+    def _get_pip_list_cache(self) -> list[str]:
+        """Get cached pip list output to avoid multiple subprocess calls.
+
+        Returns:
+            List of installed packages in 'package==version' format (lowercase)
+        """
+        if self._pip_list_cache is None:
+            try:
+                result = subprocess.run(
+                    [sys.executable, "-m", "pip", "list", "--format=freeze"],
+                    capture_output=True,
+                    text=True,
+                    timeout=30,
+                )
+                if result.returncode == 0:
+                    self._pip_list_cache = result.stdout.lower().splitlines()
+                else:
+                    self._pip_list_cache = []
+            except (subprocess.TimeoutExpired, subprocess.SubprocessError):
+                self._pip_list_cache = []
+        return self._pip_list_cache
 
     def _get_import_name(self, package_name: str) -> str:
         """Get the import name for a package (which may differ from the package name).
@@ -164,24 +187,17 @@ class DependencyValidator:
         except (ImportError, ModuleNotFoundError, ValueError):
             pass
 
-        # As a last resort, check with pip list
-        try:
-            result = subprocess.run(
-                [sys.executable, "-m", "pip", "list", "--format=freeze"],
-                capture_output=True,
-                text=True,
-                timeout=30,
+        # As a last resort, check with cached pip list
+        pip_list = self._get_pip_list_cache()
+        if pip_list:
+            # Check both the original name and normalized name
+            package_line = f"{package_name}=="
+            normalized_name = package_name.replace("-", "_")
+            normalized_line = f"{normalized_name}=="
+
+            return any(
+                line.startswith((package_line, normalized_line)) for line in pip_list
             )
-            if result.returncode == 0:
-                installed_packages = result.stdout.lower()
-                # Check both the original name and normalized name
-                normalized_name = package_name.replace("-", "_")
-                return (
-                    f"{package_name}==" in installed_packages
-                    or f"{normalized_name}==" in installed_packages
-                )
-        except (subprocess.TimeoutExpired, subprocess.SubprocessError):
-            pass
 
         return False
 

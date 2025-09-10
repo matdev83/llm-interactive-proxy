@@ -104,10 +104,8 @@ class BackendFactory:
             f"Backend factory for {backend_type}: current_api_key={current_api_key}, PYTEST_CURRENT_TEST={os.environ.get('PYTEST_CURRENT_TEST')}, default_backend_env={default_backend_env}"
         )
 
-        if os.environ.get("PYTEST_CURRENT_TEST") and (
-            not current_api_key
-            and (not default_backend_env or default_backend_env == backend_type)
-        ):
+        if os.environ.get("PYTEST_CURRENT_TEST") and not init_config.get("api_key"):
+            init_config["api_key"] = f"test-key-{backend_type}"
             init_config["api_key"] = f"test-key-{backend_type}"
             logger.info(
                 f"Added test API key for {backend_type} in factory (original key was: {current_api_key})"
