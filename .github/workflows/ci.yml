@@ -43,17 +43,16 @@ jobs:
       run: |
         python -m mypy src tests
 
-    - name: Test with pytest
+    - name: Test with pytest (coverage)
       run: |
-        python -m pytest tests/unit --cov=src --cov-report=xml -v
+        python -m pytest --cov --cov-branch --cov-report=xml -v tests/unit
 
-    - name: Upload coverage to Codecov
-      uses: codecov/codecov-action@v3
+    - name: Upload coverage reports to Codecov
+      if: ${{ always() }}
+      uses: codecov/codecov-action@v5
       with:
         token: ${{ secrets.CODECOV_TOKEN }}
-        file: ./coverage.xml
-        name: codecov-umbrella
-        fail_ci_if_error: false
+        slug: matdev83/llm-interactive-proxy
 
   integration:
     runs-on: ubuntu-latest
