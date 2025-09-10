@@ -18,6 +18,19 @@ This project is a swiss-army knife for anyone working with language models and a
 - [Support](#support)
 - [Changelog](#changelog)
 
+## Use Cases
+
+-   **Connect Any App to Any Model**: Seamlessly route requests from any LLM-powered application to any model, even across different protocols. Use clients like Anthropic's Claude Code CLI with a Gemini 2.5 Pro model, or Codex CLI with a Kimi K2 model.
+-   **Override Hardcoded Models**: Force an application to use a model of your choice, even if the developers didn't provide an option to change it.
+-   **Inspect and Debug Prompts**: Capture and analyze the exact prompts your agent sends to the LLM provider to debug and refine interactions.
+-   **Customize System Prompts**: Rewrite or modify an agent's system prompt to better suit your specific needs and improve its performance.
+-   **Leverage Your LLM Subscriptions**: Use your personal subscriptions, like OpenAI Plus/Pro or Anthropic Pro/MAX, with any third-party application, not just those developed by the LLM vendor.
+-   **Automated Model Tuning for Precision**: The proxy automatically detects when a model struggles with tasks like precise file edits and adjusts its parameters to improve accuracy on subsequent attempts.
+-   **Automatic Tool Call Repair**: If a model generates invalid tool calls, the proxy automatically corrects them before they can cause errors in your agent.
+-   **Automated Error Detection and Steering**: Detect when an LLM is stuck in a loop or fails to follow instructions, and automatically generate steering commands to get it back on track.
+-   **Block Harmful Tool Calls**: Prevent potentially destructive actions, such as deleting your git repository, by detecting and blocking harmful tool calls at the proxy level.
+-   **Maximize Free Tiers with API Key Rotation**: Aggregate all your API keys and use auto-rotation to seamlessly switch between them, allowing you to take full advantage of multiple free-tier allowances.
+
 ## Killer Features
 
 Compatibility
