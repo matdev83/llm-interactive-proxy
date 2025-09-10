@@ -107,3 +107,8 @@ markers = [
 ]
 
 
+[tool.mdformat]
+# Disable automatic line wrapping for Markdown files to match CI expectations
+wrap = 0
+
+
