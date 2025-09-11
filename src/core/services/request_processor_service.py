@@ -11,7 +11,6 @@ import copy
 import logging
 import re
 from typing import Any
-from unittest.mock import AsyncMock
 
 from src.core.domain.chat import ChatRequest
 from src.core.domain.processed_result import ProcessedResult
@@ -460,38 +459,8 @@ class RequestProcessor(IRequestProcessor):
             )
 
         # Add session_id to extra_body if not present
-        async def _resolve_extra_body(value: Any) -> dict[str, Any] | None:
-            v = value
-            try:
-                # If already awaitable (e.g., coroutine), await directly
-                # But be careful not to await AsyncMock objects which are not actual coroutines
-                if hasattr(v, "__await__") and not isinstance(v, AsyncMock):
-                    v = await v  # type: ignore[func-returns-value]
-                # If callable, call it; then await if needed
-                elif callable(v):
-                    rv = v()
-                    if hasattr(rv, "__await__") and not isinstance(rv, AsyncMock):
-                        v = await rv  # type: ignore[func-returns-value]
-                    else:
-                        v = rv
-                # Expect dict-like or None
-                if v is None:
-                    return None
-                if isinstance(v, dict):
-                    return v
-                # Some domain objects may have model_dump method
-                if hasattr(v, "model_dump"):
-                    dumped = v.model_dump()
-                    return dumped if isinstance(dumped, dict) else None
-            except (TypeError, AttributeError) as e:
-                logger.warning(f"Error resolving extra_body: {e}", exc_info=True)
-                return None
-            return None
-
-        # Get the extra_body attribute
         extra_body_attr = getattr(backend_request, "extra_body", None)
-        resolved_extra = await _resolve_extra_body(extra_body_attr)
-        extra_body: dict[str, Any] = resolved_extra.copy() if resolved_extra else {}
+        extra_body: dict[str, Any] = extra_body_attr.copy() if extra_body_attr else {}
         if "session_id" not in extra_body:
             extra_body["session_id"] = session_id
         backend_request = backend_request.model_copy(update={"extra_body": extra_body})

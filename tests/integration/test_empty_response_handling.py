@@ -176,6 +176,7 @@ class TestEmptyResponseHandlingIntegration:
             messages=[ChatMessage(role="user", content="Test message")],
             stream=True,  # Streaming request
         )
+        deps["backend_request_manager"].prepare_backend_request.return_value = request
         context = RequestContext(headers={}, cookies={}, state={}, app_state={})
 
         # Process request
@@ -233,6 +234,7 @@ class TestEmptyResponseHandlingIntegration:
             messages=[ChatMessage(role="user", content="Test message")],
             stream=False,
         )
+        deps["backend_request_manager"].prepare_backend_request.return_value = request
         context = RequestContext(headers={}, cookies={}, state={}, app_state={})
 
         # Process request

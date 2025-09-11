@@ -6,7 +6,7 @@ import json
 import os
 import time
 from collections.abc import AsyncIterator
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -207,7 +207,7 @@ class StructuredWireCapture(IWireCapture):
     ) -> dict[str, Any]:
         """Create a structured JSON entry with all required fields."""
         # Get timestamp in both ISO and human-readable formats
-        utc_now = datetime.utcnow()
+        utc_now = datetime.now(timezone.utc)
         iso_timestamp = utc_now.isoformat(timespec="milliseconds") + "Z"
 
         # Use local time for human-readable timestamp (based on system timezone)

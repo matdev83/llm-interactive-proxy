@@ -5,7 +5,7 @@ This module provides comprehensive test coverage for the UsageTrackingService im
 """
 
 import asyncio
-from datetime import datetime
+from datetime import datetime, timezone
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -155,7 +155,7 @@ class TestUsageTrackingService:
         with patch(
             "src.core.services.usage_tracking_service.datetime"
         ) as mock_datetime:
-            mock_datetime.utcnow.return_value = fixed_time
+            mock_datetime.now.return_value = fixed_time
 
             result = await service.track_usage(model="test-model")
 
@@ -252,7 +252,7 @@ class TestUsageTrackingService:
                 completion_tokens=50,
                 total_tokens=150,
                 cost=0.02,
-                timestamp=datetime.utcnow(),
+                timestamp=datetime.now(timezone.utc),
             )
         ]
         mock_repository.get_by_session_id.return_value = mock_usage_data
@@ -289,7 +289,7 @@ class TestUsageTrackingService:
                 completion_tokens=25,
                 total_tokens=75,
                 cost=0.01,
-                timestamp=datetime.utcnow(),
+                timestamp=datetime.now(timezone.utc),
             )
         ]
         mock_repository.get_by_session_id.return_value = mock_usage_data

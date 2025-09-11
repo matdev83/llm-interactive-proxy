@@ -11,7 +11,7 @@ import time
 import uuid
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Protocol
 
 
@@ -104,7 +104,7 @@ class UsageTrackingService(IUsageTrackingService):
             completion_tokens=completion_tokens or 0,
             total_tokens=total_tokens or 0,
             cost=cost,
-            timestamp=datetime.utcnow(),
+            timestamp=datetime.now(timezone.utc),
         )
 
         # Store in repository
