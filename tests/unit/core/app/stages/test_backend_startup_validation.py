@@ -57,6 +57,17 @@ class TestBackendStartupValidation:
         config = AppConfig()
         # Create a BackendSettings with empty default_backend to avoid detection
         config.backends = BackendSettings(default_backend="")
+        # Clear backend configs to ensure no backends are considered configured
+        # This prevents environment variables from being detected as configured backends
+        for backend_name in [
+            "openai",
+            "anthropic",
+            "gemini",
+            "openrouter",
+            "qwen_oauth",
+        ]:
+            if hasattr(config.backends, backend_name):
+                delattr(config.backends, backend_name)
         return config
 
     @pytest.fixture

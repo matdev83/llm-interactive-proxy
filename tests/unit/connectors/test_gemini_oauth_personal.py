@@ -222,18 +222,40 @@ class TestGeminiOAuthPersonalConnector:
         GeminiOAuthPersonalConnector, "_refresh_token_if_needed", new_callable=AsyncMock
     )
     @patch.object(GeminiOAuthPersonalConnector, "_is_token_expired", return_value=False)
+    @patch.object(
+        GeminiOAuthPersonalConnector,
+        "_validate_credentials_file_exists",
+        return_value=(True, []),
+    )
+    @patch.object(
+        GeminiOAuthPersonalConnector,
+        "_validate_credentials_structure",
+        return_value=(True, []),
+    )
+    @patch.object(GeminiOAuthPersonalConnector, "_start_file_watching")
     async def test_initialize_success(
-        self, mock_is_token_expired, mock_refresh, mock_load, connector
+        self,
+        mock_start_watching,
+        mock_validate_structure,
+        mock_validate_file,
+        mock_is_token_expired,
+        mock_refresh,
+        mock_load,
+        connector,
     ):
         """Test successful initialization."""
         mock_load.return_value = True
         mock_refresh.return_value = True
+        connector._oauth_credentials = {"access_token": "test_token"}
 
         await connector.initialize()
 
         assert connector.is_functional is True
+        mock_validate_file.assert_called_once()
         mock_load.assert_called_once()
+        mock_validate_structure.assert_called_once()
         mock_refresh.assert_called_once()
+        mock_start_watching.assert_called_once()
 
     @patch.object(
         GeminiOAuthPersonalConnector, "_load_oauth_credentials", new_callable=AsyncMock

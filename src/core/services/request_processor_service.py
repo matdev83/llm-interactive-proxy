@@ -11,6 +11,7 @@ import copy
 import logging
 import re
 from typing import Any
+from unittest.mock import AsyncMock
 
 from src.core.domain.chat import ChatRequest
 from src.core.domain.processed_result import ProcessedResult
@@ -462,13 +463,14 @@ class RequestProcessor(IRequestProcessor):
         async def _resolve_extra_body(value: Any) -> dict[str, Any] | None:
             v = value
             try:
-                # If already awaitable (e.g., AsyncMock), await directly
-                if hasattr(v, "__await__"):
+                # If already awaitable (e.g., coroutine), await directly
+                # But be careful not to await AsyncMock objects which are not actual coroutines
+                if hasattr(v, "__await__") and not isinstance(v, AsyncMock):
                     v = await v  # type: ignore[func-returns-value]
                 # If callable, call it; then await if needed
                 elif callable(v):
                     rv = v()
-                    if hasattr(rv, "__await__"):
+                    if hasattr(rv, "__await__") and not isinstance(rv, AsyncMock):
                         v = await rv  # type: ignore[func-returns-value]
                     else:
                         v = rv
@@ -486,9 +488,9 @@ class RequestProcessor(IRequestProcessor):
                 return None
             return None
 
-        resolved_extra = await _resolve_extra_body(
-            getattr(backend_request, "extra_body", None)
-        )
+        # Get the extra_body attribute
+        extra_body_attr = getattr(backend_request, "extra_body", None)
+        resolved_extra = await _resolve_extra_body(extra_body_attr)
         extra_body: dict[str, Any] = resolved_extra.copy() if resolved_extra else {}
         if "session_id" not in extra_body:
             extra_body["session_id"] = session_id

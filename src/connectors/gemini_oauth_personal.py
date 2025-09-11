@@ -70,6 +70,8 @@ import google.oauth2.credentials
 import httpx
 import requests  # type: ignore[import-untyped]
 from fastapi import HTTPException
+from watchdog.events import FileSystemEventHandler
+from watchdog.observers import Observer
 
 from src.core.common.exceptions import (
     APIConnectionError,
@@ -96,6 +98,31 @@ CODE_ASSIST_ENDPOINT = "https://cloudcode-pa.googleapis.com"
 # Default project for free tier used in UserTierId enum: "free-tier"
 
 logger = logging.getLogger(__name__)
+
+
+class GeminiPersonalCredentialsFileHandler(FileSystemEventHandler):
+    """File system event handler for monitoring OAuth credentials file changes."""
+
+    def __init__(self, connector: "GeminiOAuthPersonalConnector"):
+        """Initialize the file handler with reference to the connector.
+
+        Args:
+            connector: The GeminiOAuthPersonalConnector instance to notify of file changes
+        """
+        super().__init__()
+        self.connector = connector
+
+    def on_modified(self, event):
+        """Handle file modification events."""
+        if not event.is_directory and event.src_path == str(
+            self.connector._credentials_path
+        ):
+            if logger.isEnabledFor(logging.INFO):
+                logger.info(f"Credentials file modified: {event.src_path}")
+            # Schedule credential reload in the connector's event loop
+            task = asyncio.create_task(self.connector._handle_credentials_file_change())
+            # Store reference to prevent task from being garbage collected
+            self.connector._pending_reload_task = task
 
 
 class GeminiOAuthPersonalConnector(GeminiBackend):
@@ -127,6 +154,11 @@ class GeminiOAuthPersonalConnector(GeminiBackend):
         self._refresh_token: str | None = None
         self._token_refresh_lock = asyncio.Lock()
         self.translation_service = translation_service
+        self._file_observer: Observer | None = None  # type: ignore[valid-type]
+        self._credential_validation_errors: list[str] = []
+        self._initialization_failed = False
+        self._last_validation_time = 0.0
+        self._pending_reload_task: asyncio.Task | None = None
 
         # Check environment variable to allow disabling health checks globally
         import os
@@ -142,6 +174,232 @@ class GeminiOAuthPersonalConnector(GeminiBackend):
 
         # Set custom .gemini directory path (will be set in initialize)
         self.gemini_cli_oauth_path: str | None = None
+
+    def is_backend_functional(self) -> bool:
+        """Check if backend is functional and ready to handle requests.
+
+        Returns:
+            bool: True if backend is functional, False otherwise
+        """
+        return (
+            self.is_functional
+            and not self._initialization_failed
+            and len(self._credential_validation_errors) == 0
+        )
+
+    def get_validation_errors(self) -> list[str]:
+        """Get the current list of credential validation errors.
+
+        Returns:
+            List of validation error messages
+        """
+        return self._credential_validation_errors.copy()
+
+    def _validate_credentials_structure(
+        self, credentials: dict[str, Any]
+    ) -> tuple[bool, list[str]]:
+        """Validate the structure and content of OAuth credentials.
+
+        Args:
+            credentials: The credentials dictionary to validate
+
+        Returns:
+            Tuple of (is_valid, list_of_errors)
+        """
+        errors = []
+
+        # Required fields for OAuth credentials
+        required_fields = ["access_token"]
+        for field in required_fields:
+            if field not in credentials:
+                errors.append(f"Missing required field: {field}")
+            elif not isinstance(credentials[field], str) or not credentials[field]:
+                errors.append(f"Invalid {field}: must be a non-empty string")
+
+        # Optional refresh token validation
+        if "refresh_token" in credentials and (
+            not isinstance(credentials["refresh_token"], str)
+            or not credentials["refresh_token"]
+        ):
+            errors.append("Invalid refresh_token: must be a non-empty string")
+
+        # Expiry validation (if present)
+        if "expiry_date" in credentials:
+            expiry = credentials["expiry_date"]
+            if not isinstance(expiry, int | float):
+                errors.append("Invalid expiry_date: must be a number (ms)")
+            else:
+                if time.time() >= float(expiry) / 1000.0:
+                    errors.append("Token expired")
+
+        return len(errors) == 0, errors
+
+    def _validate_credentials_file_exists(self) -> tuple[bool, list[str]]:
+        """Validate that the OAuth credentials file exists and is readable.
+
+        Returns:
+            Tuple of (is_valid, list_of_errors)
+        """
+        errors = []
+
+        # Use custom path if provided, otherwise default to ~/.gemini
+        if self.gemini_cli_oauth_path:
+            creds_path = Path(self.gemini_cli_oauth_path) / "oauth_creds.json"
+        else:
+            home_dir = Path.home()
+            creds_path = home_dir / ".gemini" / "oauth_creds.json"
+
+        if not creds_path.exists():
+            errors.append(f"OAuth credentials file not found at {creds_path}")
+            return False, errors
+
+        if not creds_path.is_file():
+            errors.append(
+                f"OAuth credentials path exists but is not a file: {creds_path}"
+            )
+            return False, errors
+
+        try:
+            with open(creds_path, encoding="utf-8") as f:
+                credentials = json.load(f)
+
+            # Validate the loaded credentials
+            is_valid, validation_errors = self._validate_credentials_structure(
+                credentials
+            )
+            errors.extend(validation_errors)
+
+            return is_valid, errors
+
+        except json.JSONDecodeError as e:
+            errors.append(f"Invalid JSON in credentials file: {e}")
+            return False, errors
+        except PermissionError:
+            errors.append(f"Permission denied reading credentials file: {creds_path}")
+            return False, errors
+        except Exception as e:
+            errors.append(f"Unexpected error reading credentials file: {e}")
+            return False, errors
+
+    def _fail_init(self, errors: list[str]) -> None:
+        """Mark initialization as failed with given errors."""
+        self._credential_validation_errors = errors
+        self._initialization_failed = True
+        self.is_functional = False
+
+    def _degrade(self, errors: list[str]) -> None:
+        """Degrade backend functionality due to credential issues."""
+        self._credential_validation_errors = errors
+        self.is_functional = False
+
+    def _recover(self) -> None:
+        """Recover backend functionality after credential issues are resolved."""
+        self._credential_validation_errors = []
+        self.is_functional = True
+
+    def _start_file_watching(self) -> None:
+        """Start watching the credentials file for changes."""
+        if not self._credentials_path or self._file_observer:
+            return
+
+        try:
+            event_handler = GeminiPersonalCredentialsFileHandler(self)
+            self._file_observer = Observer()
+            # Watch the parent directory of the credentials file
+            watch_dir = self._credentials_path.parent
+            self._file_observer.schedule(event_handler, str(watch_dir), recursive=False)
+            self._file_observer.start()
+            if logger.isEnabledFor(logging.INFO):
+                logger.info(
+                    f"Started watching credentials file: {self._credentials_path}"
+                )
+        except Exception as e:
+            if logger.isEnabledFor(logging.WARNING):
+                logger.warning(f"Failed to start file watching: {e}")
+
+    def _stop_file_watching(self) -> None:
+        """Stop watching the credentials file."""
+        if self._file_observer:
+            try:
+                self._file_observer.stop()
+                self._file_observer.join()
+                self._file_observer = None
+                if logger.isEnabledFor(logging.INFO):
+                    logger.info("Stopped watching credentials file")
+            except Exception as e:
+                if logger.isEnabledFor(logging.WARNING):
+                    logger.warning(f"Error stopping file watcher: {e}")
+
+    async def _handle_credentials_file_change(self) -> None:
+        """Handle credentials file change event."""
+        try:
+            if logger.isEnabledFor(logging.INFO):
+                logger.info("Handling credentials file change...")
+
+            # Validate file first
+            ok, errs = self._validate_credentials_file_exists()
+            if not ok:
+                self._degrade(errs)
+                if logger.isEnabledFor(logging.WARNING):
+                    logger.warning(
+                        f"Updated credentials file is invalid: {'; '.join(errs)}"
+                    )
+                return
+
+            # Attempt to reload
+            if await self._load_oauth_credentials():
+                self._recover()
+                if logger.isEnabledFor(logging.INFO):
+                    logger.info("Successfully reloaded credentials from updated file")
+            else:
+                self._degrade(["Failed to reload credentials after file change"])
+                if logger.isEnabledFor(logging.ERROR):
+                    logger.error("Failed to reload credentials after file change")
+
+        except Exception as e:
+            self._degrade([f"Error handling credentials file change: {e}"])
+            if logger.isEnabledFor(logging.ERROR):
+                logger.error(
+                    f"Error handling credentials file change: {e}", exc_info=True
+                )
+
+    async def _validate_runtime_credentials(self) -> bool:
+        """Validate credentials at runtime with throttling.
+
+        Returns:
+            bool: True if credentials are valid, False otherwise
+        """
+        now = time.time()
+        if now - self._last_validation_time < 30:
+            return self.is_backend_functional()
+        self._last_validation_time = now
+
+        if self._is_token_expired():
+            if logger.isEnabledFor(logging.INFO):
+                logger.info(
+                    "Access token expired during runtime, attempting to reload credentials..."
+                )
+
+            if await self._load_oauth_credentials():
+                if self._is_token_expired():
+                    self._degrade(["Token expired and no valid replacement found"])
+                    if logger.isEnabledFor(logging.WARNING):
+                        logger.warning(
+                            "Reloaded token is still expired, marking backend as non-functional"
+                        )
+                    return False
+                self._recover()
+                if logger.isEnabledFor(logging.INFO):
+                    logger.info("Successfully reloaded valid credentials")
+                return True
+            self._degrade(["Failed to reload expired credentials"])
+            if logger.isEnabledFor(logging.ERROR):
+                logger.error(
+                    "Failed to reload credentials, marking backend as non-functional"
+                )
+            return False
+
+        return self.is_backend_functional()
 
     def _is_token_expired(self) -> bool:
         """Check if the current access token is expired or close to expiring."""
@@ -289,8 +547,11 @@ class GeminiOAuthPersonalConnector(GeminiBackend):
             return False
 
     async def initialize(self, **kwargs: Any) -> None:
-        """Initialize backend by loading and potentially refreshing token."""
-        logger.info("Initializing Gemini OAuth Personal backend.")
+        """Initialize backend with enhanced validation following the stale token handling pattern."""
+        if logger.isEnabledFor(logging.INFO):
+            logger.info(
+                "Initializing Gemini OAuth Personal backend with enhanced validation."
+            )
 
         # Set the API base URL for Google Code Assist API (used by oauth-personal)
         self.gemini_api_base_url = kwargs.get(
@@ -300,43 +561,51 @@ class GeminiOAuthPersonalConnector(GeminiBackend):
         # Set custom .gemini directory path (defaults to ~/.gemini)
         self.gemini_cli_oauth_path = kwargs.get("gemini_cli_oauth_path")
 
+        # 1) Startup validation pipeline
+        # First validate credentials file exists and is readable
+        ok, errs = self._validate_credentials_file_exists()
+        if not ok:
+            self._fail_init(errs)
+            return
+
+        # 2) Load credentials into memory
         if not await self._load_oauth_credentials():
-            logger.warning("Failed to load initial Gemini OAuth credentials.")
-            self.is_functional = False
+            self._fail_init(["Failed to load credentials despite validation passing"])
             return
 
-        # Attempt to refresh token if needed during initialization
+        # 3) Structure validation
+        if self._oauth_credentials is not None:
+            ok, errs = self._validate_credentials_structure(self._oauth_credentials)
+            if not ok:
+                self._fail_init(errs)
+                return
+        else:
+            self._fail_init(["OAuth credentials are None after loading"])
+            return
+
+        # 4) Refresh if needed
         if not await self._refresh_token_if_needed():
-            logger.warning(
-                "Failed to refresh Gemini OAuth token during initialization."
-            )
-            self.is_functional = False
+            self._fail_init(["Failed to refresh expired token during initialization"])
             return
 
-        # If token still appears expired after reload attempts, auto-disable backend
-        if self._is_token_expired():
-            logger.warning(
-                "Gemini OAuth token is expired. Disabling backend until you run 'gemini auth' to refresh."
-            )
-            self.is_functional = False
-            return
-
-        # If we reach here, credentials are loaded and potentially refreshed
-        # Fetch available models using the OAuth token
+        # 5) Load models (non-fatal)
         try:
             await self._ensure_models_loaded()
-            self.is_functional = True
-            logger.info(
-                f"Gemini OAuth Personal backend initialized with {len(self.available_models)} models."
-            )
         except Exception as e:
-            logger.error(
-                f"Failed to load models during initialization: {e}", exc_info=True
-            )
-            # Even if model loading fails, mark as functional if we have credentials
-            self.is_functional = True
+            if logger.isEnabledFor(logging.WARNING):
+                logger.warning(
+                    f"Failed to load models during initialization: {e}", exc_info=True
+                )
+            # Continue with initialization even if model loading fails
+
+        # 6) Start file watching and mark functional
+        self._start_file_watching()
+        self.is_functional = True
+        self._last_validation_time = time.time()
+
+        if logger.isEnabledFor(logging.INFO):
             logger.info(
-                "Gemini OAuth Personal backend initialized (models will be loaded on first use)."
+                f"Gemini OAuth Personal backend initialized successfully with {len(self.available_models)} models."
             )
 
     async def _resolve_gemini_api_config(
@@ -491,6 +760,23 @@ class GeminiOAuthPersonalConnector(GeminiBackend):
         which is the correct endpoint for oauth-personal authentication,
         while maintaining OpenAI-compatible interface and response format.
         """
+        # Runtime validation with descriptive errors
+        if not await self._validate_runtime_credentials():
+            details = (
+                "; ".join(self._credential_validation_errors)
+                or "Backend is not functional"
+            )
+            raise HTTPException(
+                status_code=502,
+                detail=f"No valid credentials found for backend {self.name}: {details}",
+            )
+
+        if not await self._refresh_token_if_needed():
+            raise HTTPException(
+                status_code=502,
+                detail=f"No valid credentials found for backend {self.name}: Failed to refresh expired token",
+            )
+
         # Perform health check on first use (includes token refresh)
         await self._ensure_healthy()
 
@@ -1156,6 +1442,10 @@ class GeminiOAuthPersonalConnector(GeminiBackend):
             # Fall back to default
             self._project_id = initial_project_id
             return str(self._project_id)
+
+    def __del__(self):
+        """Cleanup file watcher on destruction."""
+        self._stop_file_watching()
 
 
 backend_registry.register_backend(
