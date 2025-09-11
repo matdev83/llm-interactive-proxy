@@ -5,6 +5,7 @@
 This document defines a reusable pattern for backends that authenticate via credentials stored on disk (JSON/YAML, tokens, API keys, certificates). It is derived from the hardened implementation added for `qwen-oauth` and is intended to be applied consistently to other file‑backed auth providers.
 
 Goals:
+
 - Detect invalid/expired credentials at startup (fail fast instead of failing requests later)
 - Track backend health clearly and expose actionable validation errors
 - Auto‑reload credentials when the file changes (OS‑independent file watching)
@@ -18,6 +19,7 @@ Goals:
 Implement these capabilities in each file‑backed backend:
 
 1) Startup validation (fail fast)
+
 - Verify credentials file path is known and readable
 - Parse credentials (JSON/YAML) with clear error messages on decode failures
 - Validate structure (required fields) and types
@@ -26,6 +28,7 @@ Implement these capabilities in each file‑backed backend:
 - If invalid → mark backend non‑functional and record validation errors
 
 2) Health tracking API
+
 - `is_backend_functional() -> bool`: true only if backend is usable
 - `get_validation_errors() -> list[str]`: returns a copy of last validation errors
 - Internal state to maintain:
@@ -35,6 +38,7 @@ Implement these capabilities in each file‑backed backend:
   - `_last_validation_time: float` (epoch seconds)
 
 3) File watching (cross‑platform)
+
 - Use `watchdog` to watch the credentials file directory
 - On file change:
   - Re‑validate file structure and expiry
@@ -43,6 +47,7 @@ Implement these capabilities in each file‑backed backend:
 - Start watching after successful initialization; stop on shutdown
 
 4) Runtime validation
+
 - Throttle checks (e.g., every 30s) to avoid excessive I/O
 - If token expires during runtime:
   - Attempt reload from disk
@@ -50,11 +55,13 @@ Implement these capabilities in each file‑backed backend:
   - If valid → clear errors and continue
 
 5) Descriptive client errors
+
 - Before handling a request, ensure backend is functional and token is valid/refreshed
 - If not, raise an error like:
   - HTTP 502 with detail: `"No valid credentials found for backend <name>: <joined errors>"`
 
 6) Application‑level startup validation
+
 - During app boot, build/initialize configured backends and collect the functional ones
 - If none are functional → fail startup with clear logs
 
@@ -151,6 +158,7 @@ def _recover(self) -> None:
 ## Validation Rules by Credential Type
 
 ### OAuth‑like tokens (access/refresh)
+
 - Required fields: `access_token` (str, non‑empty), `refresh_token` (str, non‑empty)
 - Optional/Recommended: `expiry_date` (ms since epoch)
 - Expiry rule: `now >= expiry_date/1000` → expired
@@ -178,11 +186,13 @@ def _validate_credentials_structure(self, data: dict[str, Any]) -> tuple[bool, l
 ```
 
 ### API key
+
 - Required: `api_key` (str, non‑empty)
 - Optional: `expires_at` (epoch seconds)
 - If `expires_at` present and `now >= expires_at` → expired → non‑functional
 
 ### Certificate‑based
+
 - Required files exist and are regular files: `certificate_path`, `private_key_path`
 - Optional `ca_bundle_path`
 - Verify readability; consider parsing/format checks where feasible
@@ -205,6 +215,7 @@ class CredentialsFileHandler(FileSystemEventHandler):
 ```
 
 On change:
+
 - Validate file → reload → update health (recover or degrade)
 - Log: success, invalid structure, still expired, reload failures
 
@@ -239,6 +250,7 @@ At application boot, validate configured backends and ensure at least one is fun
 ## Testing Checklist (apply to each backend)
 
 Startup validation
+
 - Missing credentials file → non‑functional, error recorded
 - Invalid JSON/YAML → non‑functional, error recorded
 - Missing required fields → non‑functional
@@ -247,18 +259,22 @@ Startup validation
 - Valid credentials → functional
 
 Runtime behavior
+
 - Throttled validation honors interval
 - Expired during runtime → reload attempt → recover on success; degrade on failure
 
 File watching
+
 - Starts when credentials path exists
 - On valid update → recover and clear errors
 - On invalid update → degrade and record errors
 
 Error responses
+
 - 502 with descriptive `detail` message when non‑functional
 
 Integration
+
 - App boot fails when no functional backends exist
 - App boot succeeds when at least one backend is functional
 
@@ -267,18 +283,21 @@ Integration
 ## Logging Guidance (examples)
 
 Startup
+
 - INFO: Initializing <backend> with enhanced validation…
 - INFO: Credentials file validation passed / ERROR with reasons
 - INFO: Token refresh check completed / ERROR on failure
 - INFO: Started watching credentials file: <path>
 
 Runtime
+
 - INFO: Access token expired during runtime, attempting to reload credentials…
 - INFO: Successfully reloaded valid credentials
 - WARN: Reloaded token is still expired, marking backend as non‑functional
 - ERROR: Failed to reload credentials, marking backend as non‑functional
 
 File changes
+
 - INFO: Credentials file modified: <path>
 - INFO: Successfully reloaded credentials from updated file
 - WARN: Updated credentials file is invalid: <reasons>
@@ -302,5 +321,3 @@ File changes
 - Avoid broad exception catches without logging; record details into `_credential_validation_errors`
 - Keep file watchers robust but quiet; never crash on watcher errors (log warnings)
 - Always copy error lists in getters to avoid external mutation
-
-

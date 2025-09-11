@@ -1,4 +1,5 @@
 # JSON Repair + Schema Coercion Middleware — Detailed Plan
+
 🎯 Objectives
 
 Automatically detect and repair malformed JSON in model/tool responses.

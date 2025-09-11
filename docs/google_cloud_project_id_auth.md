@@ -13,6 +13,7 @@ The Cloud Project ID method allows you to use your own Google Cloud Project with
 ## Key Differences from Other Methods
 
 ### vs Personal OAuth (free-tier)
+
 - **Project Ownership**: Uses YOUR Google Cloud project, not a Google-managed one
 - **Billing**: Charges to your GCP billing account
 - **Quotas**: Uses your project's quotas and limits
@@ -20,6 +21,7 @@ The Cloud Project ID method allows you to use your own Google Cloud Project with
 - **Tier**: Uses `standard-tier`, not `free-tier`
 
 ### vs API Key
+
 - **Authentication**: Uses OAuth2 tokens, not API keys
 - **Endpoint**: Uses `cloudcode-pa.googleapis.com`, not `generativelanguage.googleapis.com`
 - **Features**: Access to Code Assist features and models
@@ -34,6 +36,7 @@ The Cloud Project ID method allows you to use your own Google Cloud Project with
 
 2. **Required APIs**
    Enable these APIs in your GCP project:
+
    ```
    - Cloud AI Companion API
    - Cloud Resource Manager API
@@ -307,26 +310,32 @@ export GEMINI_CREDENTIALS_PATH="~/.gemini/oauth_creds.json"
 ### Common Errors and Solutions
 
 1. **403 Permission Denied**
+
    ```
    Error: Permission denied on resource project my-project-123
    ```
-   **Solution**: 
+
+   **Solution**:
    - Enable Cloud AI Companion API in GCP Console
    - Ensure user has `roles/cloudaicompanion.user` IAM role
    - Verify billing is enabled
 
 2. **400 Precondition Failed**
+
    ```
    Error: Precondition check failed
    ```
+
    **Solution**:
    - Ensure you're including `cloudaicompanionProject` in requests
    - Verify using `standard-tier`, not `free-tier`
 
 3. **Project Not Found**
+
    ```
    Error: Project my-project-123 not found
    ```
+
    **Solution**:
    - Verify project ID is correct (not project name)
    - Ensure project exists and is active
@@ -403,6 +412,7 @@ gcloud billing budgets create \
    - Use environment variables for project IDs
 
 2. **Use Service Accounts for Production**
+
    ```python
    # For production, consider using service account credentials
    from google.oauth2 import service_account

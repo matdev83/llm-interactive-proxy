@@ -25,6 +25,7 @@ Successfully implemented the `gemini-cli-oauth-personal` backend that uses OAuth
 ### Critical Implementation Details
 
 #### 1. API Endpoints
+
 - Base URL: `https://cloudcode-pa.googleapis.com`
 - API Version: `v1internal`
 - Key endpoints:
@@ -33,6 +34,7 @@ Successfully implemented the `gemini-cli-oauth-personal` backend that uses OAuth
   - `:streamGenerateContent` - Generate responses (with `?alt=sse`)
 
 #### 2. OAuth Configuration
+
 ```python
 CLIENT_ID = "XXXXXXX.apps.googleusercontent.com"
 CLIENT_SECRET = "XXXXXX-XXXX-XXXX-XXXXXXX"
@@ -44,13 +46,17 @@ SCOPES = [
 ```
 
 #### 3. Free Tier Onboarding
+
 **CRITICAL**: For free-tier onboarding:
+
 - **DO NOT** include `cloudaicompanionProject` field in the request
 - Use tier ID `"free-tier"` when standard-tier requires user project
 - The API returns a managed project ID (e.g., `charismatic-fragment-mxnz0`)
 
 #### 4. Model Names
+
 Must use the correct model names:
+
 - ✅ `"gemini-1.5-flash-002"`
 - ✅ `"gemini-2.0-flash-001"`
 - ❌ `"gemini-pro"` (doesn't exist in Code Assist)
@@ -60,6 +66,7 @@ Must use the correct model names:
 ### Basic Setup
 
 1. Install the `gemini` CLI and authenticate:
+
 ```bash
 gemini auth login
 ```
@@ -67,6 +74,7 @@ gemini auth login
 2. This creates `~/.gemini/oauth_creds.json` with OAuth tokens
 
 3. Use the backend in your code:
+
 ```python
 backend = GeminiOAuthPersonalConnector(
     client,
@@ -78,6 +86,7 @@ await backend.initialize()
 ### Configuration
 
 The backend can be configured with:
+
 - `gemini_cli_oauth_path`: Custom path to `.gemini` directory (useful for WSL/Windows scenarios)
 
 ## Troubleshooting
@@ -98,6 +107,7 @@ The backend can be configured with:
 ## Differences from KiloCode
 
 Our implementation matches KiloCode's approach exactly:
+
 - Same OAuth client credentials
 - Same API endpoints
 - Same request/response format
@@ -106,11 +116,13 @@ Our implementation matches KiloCode's approach exactly:
 ## Testing
 
 Test script available at `test_updated_gemini_oauth.py`:
+
 ```python
 python test_updated_gemini_oauth.py
 ```
 
 Expected output:
+
 ```
 ✅ Backend initialized successfully!
 ✅ Chat completion successful!
