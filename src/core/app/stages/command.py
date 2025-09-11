@@ -191,7 +191,6 @@ class CommandStage(InitializationStage):
                         def __init__(self, settings_service):
                             self._settings = settings_service
                             self._routes = []
-                            self._interactive_commands_enabled = False  # Initialize
 
                         def get_command_prefix(self):
                             return self._settings.get_command_prefix()
@@ -215,7 +214,7 @@ class CommandStage(InitializationStage):
                             self._settings.api_key_redaction_enabled = enabled
 
                         def update_interactive_commands(self, enabled: bool) -> None:
-                            self._interactive_commands_enabled = enabled
+                            pass
 
                     state_service = DefaultStateService(settings_service)
 

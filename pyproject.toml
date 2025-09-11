@@ -90,6 +90,8 @@ addopts = "-v --asyncio-mode=auto -m \"not network and not loop_detection\" --ig
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
 junit_duration_report = "call"
+log_cli_level = "INFO"
+
 # Logging configuration
 log_file = "logs/pytest.log"
 log_file_level = "DEBUG"

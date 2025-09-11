@@ -5,18 +5,12 @@ from typing import Any
 
 from pydantic import field_validator
 
-from src.core.interfaces.configuration import IReasoningConfig
-from src.core.interfaces.model_bases import DomainModel
+from src.core.domain.base import ValueObject
 
 logger = logging.getLogger(__name__)
 
 
-class ReasoningConfiguration(DomainModel, IReasoningConfig):
-    model_config = {
-        "arbitrary_types_allowed": True,
-        "frozen": True,  # Make it immutable
-    }
-
+class ReasoningConfigurationNew2(ValueObject):
     """Configuration for LLM reasoning parameters.
 
     This class handles reasoning settings like effort level, temperature,
@@ -29,16 +23,16 @@ class ReasoningConfiguration(DomainModel, IReasoningConfig):
     reasoning_config: dict[str, Any] | None = None
     gemini_generation_config: dict[str, Any] | None = None
 
-    @field_validator("thinking_budget")
     @classmethod
+    @field_validator("thinking_budget")
     def validate_thinking_budget(cls, v: int | None) -> int | None:
         """Validate that the thinking budget is within acceptable range."""
         if v is not None and (v < 128 or v > 32768):
             raise ValueError("Thinking budget must be between 128 and 32768 tokens")
         return v
 
-    @field_validator("temperature")
     @classmethod
+    @field_validator("temperature")
     def validate_temperature(cls, v: float | None) -> float | None:
         """Validate that the temperature is within acceptable range."""
         if v is not None and (v < 0.0 or v > 2.0):
@@ -48,26 +42,26 @@ class ReasoningConfiguration(DomainModel, IReasoningConfig):
             )
         return v
 
-    def with_reasoning_effort(self, effort: str | None) -> ReasoningConfiguration:
+    def with_reasoning_effort(self, effort: str | None) -> ReasoningConfigurationNew2:
         """Create a new config with updated reasoning effort."""
         return self.model_copy(update={"reasoning_effort": effort})
 
-    def with_thinking_budget(self, budget: int | None) -> ReasoningConfiguration:
+    def with_thinking_budget(self, budget: int | None) -> ReasoningConfigurationNew2:
         """Create a new config with updated thinking budget."""
         return self.model_copy(update={"thinking_budget": budget})
 
-    def with_temperature(self, temperature: float | None) -> ReasoningConfiguration:
+    def with_temperature(self, temperature: float | None) -> ReasoningConfigurationNew2:
         """Create a new config with updated temperature."""
         return self.model_copy(update={"temperature": temperature})
 
     def with_reasoning_config(
         self, config: dict[str, Any] | None
-    ) -> ReasoningConfiguration:
+    ) -> ReasoningConfigurationNew2:
         """Create a new config with updated reasoning configuration."""
         return self.model_copy(update={"reasoning_config": config})
 
     def with_gemini_generation_config(
         self, config: dict[str, Any] | None
-    ) -> ReasoningConfiguration:
+    ) -> ReasoningConfigurationNew2:
         """Create a new config with updated Gemini generation configuration."""
         return self.model_copy(update={"gemini_generation_config": config})

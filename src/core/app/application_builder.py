@@ -343,7 +343,8 @@ class ApplicationBuilder:
                 )
                 if client:
                     await client.aclose()
-            except Exception:
+            except (RuntimeError, AttributeError):
+                # Ignore errors when closing client
                 pass
 
         # Set lifespan handler

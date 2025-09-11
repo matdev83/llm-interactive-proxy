@@ -80,3 +80,6 @@ properties:
     type: object
     additionalProperties: true
   default_backend: { type: string }
+  reasoning_aliases:
+    type: object
+    additionalProperties: true

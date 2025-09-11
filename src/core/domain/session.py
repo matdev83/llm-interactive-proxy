@@ -15,6 +15,7 @@ from src.core.domain.configuration.backend_config import BackendConfiguration
 from src.core.domain.configuration.loop_detection_config import (
     LoopDetectionConfiguration,
 )
+from src.core.domain.configuration.reasoning_aliases_config import ReasoningMode
 from src.core.domain.configuration.reasoning_config import ReasoningConfiguration
 from src.core.interfaces.configuration_interface import (
     IBackendConfig,
@@ -295,6 +296,35 @@ class SessionStateAdapter(ISessionState, ISessionStateMutator):
 
 class Session(ISession):
     """Container for conversation state and history."""
+
+    def get_model(self) -> str | None:
+        """Get the current model from the backend configuration."""
+        return self.state.backend_config.model
+
+    def set_model(self, model: str) -> None:
+        """Set the model on the session state."""
+        new_backend_config = cast(
+            BackendConfiguration, self.state.backend_config
+        ).with_model(model)
+        self.state = self.state.with_backend_config(new_backend_config)
+
+    def set_provider(self, provider: str) -> None:
+        """Set the provider on the session state."""
+        new_backend_config = cast(
+            BackendConfiguration, self.state.backend_config
+        ).with_backend_type(provider)
+        self.state = self.state.with_backend_config(new_backend_config)
+
+    def set_reasoning_mode(self, mode: ReasoningMode) -> None:
+        """Set the reasoning mode on the session state."""
+        new_reasoning_config = cast(
+            ReasoningConfiguration, self.state.reasoning_config
+        ).model_copy(update=mode.model_dump(exclude_none=True))
+        self.state = self.state.with_reasoning_config(new_reasoning_config)
+
+    def get_reasoning_mode(self) -> IReasoningConfig:
+        """Get the current reasoning mode from the session state."""
+        return self.state.reasoning_config
 
     def __init__(
         self,

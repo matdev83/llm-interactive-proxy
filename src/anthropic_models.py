@@ -44,7 +44,6 @@ class ToolUseBlock(DomainModel):
     type: str = "tool_use"
     id: str | None = None
     name: str | None = None
-    input: dict[str, Any] | None = None
 
 
 class Usage(DomainModel):
@@ -63,5 +62,4 @@ class AnthropicMessagesResponse(DomainModel):
     content: list[ContentBlock]
     model: str
     stop_reason: str | None = Field(None, alias="stop_reason")
-    stop_sequence: str | None = Field(None, alias="stop_sequence")
     usage: Usage

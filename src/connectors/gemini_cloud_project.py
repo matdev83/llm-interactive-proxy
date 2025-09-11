@@ -127,7 +127,7 @@ def _load_gemini_oauth_client_config() -> tuple[str, str | None, list[str]]:
                             ]
                         ),
                     )
-        except Exception:
+        except (ValueError, KeyError, TypeError):
             # Ignore parsing errors and continue to next source
             pass
 

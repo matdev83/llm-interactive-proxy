@@ -16,7 +16,7 @@ from src.core.interfaces.state_provider_interface import (
 
 class MockSessionService(ISessionService, ISecureStateAccess, ISecureStateModification):
     """A mock session service that implements both session service and secure state interfaces."""
-    
+
     def __init__(self, session: Session):
         self._session = session
         # Initialize default values for state that would normally come from app state
@@ -35,11 +35,10 @@ class MockSessionService(ISessionService, ISecureStateAccess, ISecureStateModifi
                 session_id=session_id,
                 state=SessionState(
                     backend_config=BackendConfiguration(
-                        backend_type="default_backend",
-                        model="default_model"
+                        backend_type="default_backend", model="default_model"
                     ),
-                    reasoning_config=ReasoningConfiguration(temperature=0.7)
-                )
+                    reasoning_config=ReasoningConfiguration(temperature=0.7),
+                ),
             )
             self._sessions[session_id] = new_session
             return new_session
@@ -52,11 +51,10 @@ class MockSessionService(ISessionService, ISecureStateAccess, ISecureStateModifi
             session_id=session_id,
             state=SessionState(
                 backend_config=BackendConfiguration(
-                    backend_type="default_backend",
-                    model="default_model"
+                    backend_type="default_backend", model="default_model"
                 ),
-                reasoning_config=ReasoningConfiguration(temperature=0.7)
-            )
+                reasoning_config=ReasoningConfiguration(temperature=0.7),
+            ),
         )
         self._sessions[session_id] = session
         return session
@@ -73,7 +71,9 @@ class MockSessionService(ISessionService, ISecureStateAccess, ISecureStateModifi
         self, session_id: str, backend_type: str, model: str
     ) -> None:
         session = await self.get_session(session_id)
-        new_backend_config = session.state.backend_config.with_backend_type(backend_type).with_model(model)
+        new_backend_config = session.state.backend_config.with_backend_type(
+            backend_type
+        ).with_model(model)
         session.state = session.state.with_backend_config(new_backend_config)
         self._sessions[session_id] = session
 

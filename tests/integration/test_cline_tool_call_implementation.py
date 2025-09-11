@@ -12,6 +12,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from src.core.app.stages.test_stages import CustomTestStage
 from src.core.app.test_builder import ApplicationTestBuilder
+from src.core.config.app_config import AppConfig
 from src.core.interfaces.backend_service_interface import IBackendService
 
 
@@ -26,14 +27,15 @@ async def mock_backend_service() -> MagicMock:
     return mock_backend
 
 
+# Create a more efficient app fixture by pre-building the core services
 @pytest.fixture
 async def app(mock_backend_service: MagicMock) -> AsyncGenerator[FastAPI, None]:
     """Create the application for testing."""
-    from src.core.config.app_config import AppConfig
 
     config = AppConfig()
     config.backends.openai.api_key = ["test-api-key"]
 
+    # Use a more targeted approach to build only what we need
     builder = (
         ApplicationTestBuilder()
         .add_test_stages()

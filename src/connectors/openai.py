@@ -24,9 +24,6 @@ from src.core.interfaces.response_processor_interface import (
 from src.core.services.backend_registry import backend_registry
 from src.core.services.translation_service import TranslationService
 
-# Add health check flag for subclasses to control behavior
-HEALTH_CHECK_SUPPORTED = False
-
 # Legacy ChatCompletionRequest removed from connector signatures; use domain ChatRequest
 
 
@@ -305,7 +302,7 @@ class OpenAIConnector(LLMBackend):
                     normalized_messages.append(msg)
 
                 payload["messages"] = normalized_messages
-            except Exception:
+            except (KeyError, TypeError, AttributeError):
                 # Fallback - leave whatever the converter produced
                 pass
 
