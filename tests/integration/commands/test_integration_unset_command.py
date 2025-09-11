@@ -1,5 +1,4 @@
 from typing import Any
-from unittest.mock import MagicMock
 
 import pytest
 from src.core.domain.session import (
@@ -8,42 +7,110 @@ from src.core.domain.session import (
     Session,
     SessionState,
 )
+from src.core.interfaces.session_service_interface import ISessionService
 from src.core.interfaces.state_provider_interface import (
     ISecureStateAccess,
     ISecureStateModification,
 )
 
 
-class MockSessionService(ISecureStateAccess, ISecureStateModification):
-    def __init__(self, mock_app: MagicMock, session: Session):
-        self._mock_app = mock_app
+class MockSessionService(ISessionService, ISecureStateAccess, ISecureStateModification):
+    """A mock session service that implements both session service and secure state interfaces."""
+    
+    def __init__(self, session: Session):
         self._session = session
+        # Initialize default values for state that would normally come from app state
+        self._command_prefix = "!/"
+        self._api_key_redaction_enabled = True
+        self._disable_interactive_commands = False
+        self._failover_routes: list[dict[str, Any]] = []
+        # Store sessions in a dictionary
+        self._sessions = {session.session_id: session}
+
+    # ISessionService methods
+    async def get_session(self, session_id: str) -> Session:
+        if session_id not in self._sessions:
+            # Create a new session if it doesn't exist
+            new_session = Session(
+                session_id=session_id,
+                state=SessionState(
+                    backend_config=BackendConfiguration(
+                        backend_type="default_backend",
+                        model="default_model"
+                    ),
+                    reasoning_config=ReasoningConfiguration(temperature=0.7)
+                )
+            )
+            self._sessions[session_id] = new_session
+            return new_session
+        return self._sessions[session_id]
+
+    async def create_session(self, session_id: str) -> Session:
+        if session_id in self._sessions:
+            raise ValueError(f"Session with ID {session_id} already exists.")
+        session = Session(
+            session_id=session_id,
+            state=SessionState(
+                backend_config=BackendConfiguration(
+                    backend_type="default_backend",
+                    model="default_model"
+                ),
+                reasoning_config=ReasoningConfiguration(temperature=0.7)
+            )
+        )
+        self._sessions[session_id] = session
+        return session
+
+    async def get_or_create_session(self, session_id: str | None = None) -> Session:
+        if session_id is None:
+            session_id = f"test-session-{len(self._sessions) + 1}"
+        return await self.get_session(session_id)
+
+    async def update_session(self, session: Session) -> None:
+        self._sessions[session.session_id] = session
+
+    async def update_session_backend_config(
+        self, session_id: str, backend_type: str, model: str
+    ) -> None:
+        session = await self.get_session(session_id)
+        new_backend_config = session.state.backend_config.with_backend_type(backend_type).with_model(model)
+        session.state = session.state.with_backend_config(new_backend_config)
+        self._sessions[session_id] = session
+
+    async def delete_session(self, session_id: str) -> bool:
+        if session_id in self._sessions:
+            del self._sessions[session_id]
+            return True
+        return False
+
+    async def get_all_sessions(self) -> list[Session]:
+        return list(self._sessions.values())
 
     # ISecureStateAccess methods
     def get_command_prefix(self) -> str | None:
-        return self._mock_app.state.command_prefix
+        return self._command_prefix
 
     def get_api_key_redaction_enabled(self) -> bool:
-        return self._mock_app.state.api_key_redaction_enabled
+        return self._api_key_redaction_enabled
 
     def get_disable_interactive_commands(self) -> bool:
-        return self._mock_app.state.disable_interactive_commands
+        return self._disable_interactive_commands
 
     def get_failover_routes(self) -> list[dict[str, Any]] | None:
-        return self._mock_app.state.failover_routes
+        return self._failover_routes
 
     # ISecureStateModification methods
     def update_command_prefix(self, prefix: str) -> None:
-        self._mock_app.state.command_prefix = prefix
+        self._command_prefix = prefix
 
     def update_api_key_redaction(self, enabled: bool) -> None:
-        self._mock_app.state.api_key_redaction_enabled = enabled
+        self._api_key_redaction_enabled = enabled
 
     def update_interactive_commands(self, disabled: bool) -> None:
-        self._mock_app.state.disable_interactive_commands = disabled
+        self._disable_interactive_commands = disabled
 
     def update_failover_routes(self, routes: list[dict[str, Any]]) -> None:
-        self._mock_app.state.failover_routes = routes
+        self._failover_routes = routes
 
 
 # Helper function to simulate running a command, adapted for unset command tests
@@ -55,7 +122,6 @@ async def run_command(command_string: str, initial_state: SessionState = None) -
     from src.core.services.command_processor import (
         CommandProcessor as CoreCommandProcessor,
     )
-    from tests.unit.core.test_doubles import MockSessionService
 
     # Create a Session object to hold the state
     initial_state = initial_state or SessionState()
