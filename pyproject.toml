@@ -133,4 +133,224 @@ markers = [
 # Disable automatic line wrapping for Markdown files to match CI expectations
 wrap = 0
 
+[tool.pylint.messages_control]
+disable = ["C0301", "C0303", "C0114", "C0116"]
 
+[tool.ruff]
+# Target src and tests directories with Python files
+src = ["src", "tests"]
+
+# Exclude common directories
+exclude = [
+    ".bzr",
+    ".direnv",
+    ".eggs",
+    ".git",
+    ".git-rewrite",
+    ".hg",
+    ".mypy_cache",
+    ".nox",
+    ".pants.d",
+    ".pytype",
+    ".ruff_cache",
+    ".svn",
+    ".tox",
+    ".venv",
+    "__pypackages__",
+    "_build",
+    "buck-out",
+    "build",
+    "dist",
+    "node_modules",
+    "venv",
+    ".pytest_cache",
+    "__pycache__",
+]
+
+# Same as Black.
+line-length = 88
+indent-width = 4
+
+# Assume Python 3.10+
+target-version = "py310"
+
+[tool.ruff.lint]
+# Enable only rules that catch real issues, not formatting
+select = [
+    # Pyflakes - catches unused imports, undefined names, etc.
+    "F",
+    # pycodestyle errors - only serious runtime/syntax errors
+    "E9",   # Runtime errors
+    # isort - import sorting issues
+    "I",
+    # pep8-naming - naming convention violations
+    "N",
+    # pyupgrade - outdated syntax
+    "UP",
+    # flake8-bugbear - likely bugs
+    "B",
+    # flake8-simplify - code simplification
+    "SIM",
+    # flake8-comprehensions - list/dict/set comprehension issues
+    "C4",
+    # flake8-pie - unnecessary code
+    "PIE",
+    # Ruff-specific rules
+    "RUF",
+]
+
+# Ignore formatting and whitespace-related rules
+ignore = [
+    # Pycodestyle whitespace and newline rules
+    "E1", "E2", "E3",
+    "W1", "W2", "W3",
+    # Pydocstyle
+    "D",
+    # Specific formatting rules to ignore
+    "E501",  # Line too long
+    "E701",  # Multiple statements on one line
+    "E702",  # Multiple statements on one line (semicolon)
+    "E711",  # Comparison to None should be 'is' or 'is not'
+    "E712",  # Comparison to True should be 'is' or 'is not'
+    "E713",  # Test for membership should be 'not in'
+    "E714",  # Test for object identity should be 'is not'
+    "COM812", # Missing trailing comma
+    "COM819", # Trailing comma prohibited
+    "Q000", # Double quotes found but single quotes preferred
+
+    # Ignore some overly strict rules
+    "B008",  # Do not perform function calls in argument defaults
+    "B904",  # Within an except clause, raise exceptions with raise ... from err
+    "SIM108", # Use ternary operator instead of if-else-block
+    "RUF012", # Mutable class attributes should be annotated with `typing.ClassVar`
+    "N806", # Variable in function should be lowercase (for test constants)
+]
+
+# Allow fix for all enabled rules (except those in unfixable)
+fixable = ["ALL"]
+unfixable = []
+
+# Allow unused variables when underscore-prefixed
+dummy-variable-rgx = "^(_+|(_+[a-zA-Z0-9_]*[a-zA-Z0-9]+?))$"
+
+[tool.ruff.format]
+# Disable formatting entirely - we only want linting
+skip-magic-trailing-comma = true
+
+[tool.mypy]
+python_version = "3.10"
+warn_return_any = true
+warn_unused_configs = true
+exclude = "dev/thrdparty"
+# Use local stub packages when third-party types are missing
+mypy_path = "stubs"
+
+# Performance optimizations
+# Enable incremental mode with cache
+incremental = true
+cache_dir = ".mypy_cache"
+# Reduce strictness for performance in tests
+strict = false
+
+[tool.coverage.run]
+source = ["src"]
+omit = [
+    "*/tests/*",
+    "*/test_*",
+    "*/conftest.py",
+    "*/__pycache__/*",
+    "*/venv/*",
+    "*/.venv/*",
+]
+
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "def __repr__",
+    "raise AssertionError",
+    "raise NotImplementedError",
+    "if __name__ == .__main__.:",
+    "if TYPE_CHECKING:",
+    "@abstractmethod",
+]
+precision = 2
+show_missing = true
+
+[tool.coverage.xml]
+output = "coverage.xml"
+
+[tool.vulture]
+# Vulture configuration for dead code detection suppressions
+min_confidence = 80
+verbose = false
+sort_by_size = true
+ignore_names = [
+    # Names intentionally present but may appear unused in static scans
+    "HEALTH_CHECK_SUPPORTED",
+    "enable_health_check",
+    "disable_health_check",
+    "get_chat_controller_dependency",
+    "internal_health",
+    "chat_completions_v1",
+    "chat_completions_v2",
+    "gemini_generate_content",
+    "gemini_stream_generate_content",
+    "anthropic_health",
+    "OBJECT_TYPE_LIST",
+    "OBJECT_TYPE_MODEL",
+    "OBJECT_TYPE_CHAT_COMPLETION",
+    "OBJECT_TYPE_CHAT_COMPLETION_CHUNK",
+    "OBJECT_TYPE_MESSAGE",
+    "FIELD_OBJECT",
+    "FIELD_ID",
+    "FIELD_MODEL",
+    "FIELD_CONTENT",
+    "FIELD_ROLE",
+    "FIELD_CHOICES",
+    "FIELD_MESSAGE",
+    "FIELD_DELTA",
+    "FIELD_FINISH_REASON",
+    "FIELD_STOP_REASON",
+    "FIELD_TYPE",
+    "FIELD_NAME",
+    "FIELD_TEXT",
+    "FIELD_PARTS",
+    "FIELD_INLINE_DATA",
+    "FIELD_MIME_TYPE",
+    "FIELD_DATA",
+    "FIELD_SOURCE",
+    "FIELD_USAGE",
+    "FIELD_ERROR",
+    "ROLE_USER",
+    "ROLE_ASSISTANT",
+    "ROLE_SYSTEM",
+    "ROLE_MODEL",
+    "FINISH_REASON_STOP",
+    "FINISH_REASON_LENGTH",
+    "FINISH_REASON_TOOL_CALLS",
+    "FINISH_REASON_END_TURN",
+    "FINISH_REASON_MAX_TOKENS",
+    "FINISH_REASON_STOP_SEQUENCE",
+    "FINISH_REASON_ERROR",
+    "TOOL_CALL_TYPE_FUNCTION",
+    "MODEL_PREFIX_OPENAI",
+    "MODEL_PREFIX_ANTHROPIC",
+    "MODEL_PREFIX_GEMINI",
+    "MODEL_PREFIX_OPENROUTER",
+    "BACKEND_OPENAI",
+    "BACKEND_ANTHROPIC",
+    "BACKEND_GEMINI",
+    "BACKEND_OPENROUTER",
+    "BACKEND_QWEN_OAUTH",
+    "BACKEND_ZAI",
+    "BACKEND_DISPLAY_OPENAI",
+    "BACKEND_DISPLAY_ANTHROPIC",
+    "BACKEND_DISPLAY_GEMINI",
+    "BACKEND_DISPLAY_OPENROUTER",
+    "build_development_app",
+    "build_test_app",
+    "validate_yaml_against_schema",
+    "validate_static_yaml_configs",
+    "_load_yaml_file",
+    "_load_yaml_schema"
+]

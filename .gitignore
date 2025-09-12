@@ -84,3 +84,4 @@ dev/thrdparty/
 .claude/
 .kilocode/
 .python_qa_mcp_server/
+test-results.xml

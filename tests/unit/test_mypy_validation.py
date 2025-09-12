@@ -80,18 +80,21 @@ class TestMypyValidation:
 
     def test_mypy_config_exists(self) -> None:
         """
-        Test that mypy configuration file exists.
+        Test that mypy configuration exists in pyproject.toml.
 
         This ensures that the mypy validation is using the correct
         configuration for the project.
         """
-        mypy_config_path = Path(__file__).parent.parent.parent / "mypy.ini"
+        pyproject_path = Path(__file__).parent.parent.parent / "pyproject.toml"
 
-        assert mypy_config_path.exists(), f"mypy.ini not found at {mypy_config_path}"
+        assert pyproject_path.exists(), f"pyproject.toml not found at {pyproject_path}"
         assert (
-            mypy_config_path.is_file()
-        ), f"mypy.ini at {mypy_config_path} is not a file"
+            pyproject_path.is_file()
+        ), f"pyproject.toml at {pyproject_path} is not a file"
 
-        # Verify it's not empty
-        content = mypy_config_path.read_text()
-        assert len(content.strip()) > 0, "mypy.ini appears to be empty"
+        # Verify it contains mypy configuration
+        content = pyproject_path.read_text()
+        assert (
+            "[tool.mypy]" in content
+        ), "mypy configuration not found in pyproject.toml"
+        assert len(content.strip()) > 0, "pyproject.toml appears to be empty"
