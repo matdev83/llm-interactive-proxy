@@ -35,7 +35,7 @@ jobs:
 
     - name: Lint with ruff
       run: |
-        python -m ruff check .
+        python -m ruff check . --fix
 
     - name: Format with black
       run: |
@@ -45,18 +45,61 @@ jobs:
       run: |
         python -m mypy src
 
-    - name: Run tests with coverage
+    - name: Run unit tests with coverage
       env:
         OPENAI_API_KEY: dummy_key
         GEMINI_API_KEY: dummy_key
         ANTHROPIC_API_KEY: dummy_key
         OPENROUTER_API_KEY: dummy_key
       run: |
-        python -m pytest -v --cov=src --cov-report=xml
+        python -m pytest -v tests/unit --cov=src --cov-branch --cov-report=xml
 
-    - name: Upload coverage to Codecov
-      uses: codecov/codecov-action@v3
+    - name: Run integration tests with coverage append
+      env:
+        OPENAI_API_KEY: dummy_key
+        GEMINI_API_KEY: dummy_key
+        ANTHROPIC_API_KEY: dummy_key
+        OPENROUTER_API_KEY: dummy_key
+      run: |
+        python -m pytest -v tests/integration --cov=src --cov-branch --cov-append --cov-report=xml
+
+    - name: Upload combined coverage to Codecov
+      uses: codecov/codecov-action@v4
       with:
         token: ${{ secrets.CODECOV_TOKEN }}
         files: ./coverage.xml
         fail_ci_if_error: false
+
+  check-docs:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+
+      - name: Install mdformat only
+        run: |
+          python -m pip install --upgrade pip
+          pip install mdformat
+
+      - name: Install mkdocs dependencies (if mkdocs config present)
+        if: ${{ hashFiles('mkdocs.yml', 'mkdocs.yaml') != '' }}
+        run: |
+          python -m pip install --upgrade pip
+          pip install mkdocs mkdocs-material mkdocstrings[python]
+
+      - name: Autoformat documentation (mdformat)
+        run: |
+          mdformat README.md CONTRIBUTING.md docs/
+
+      - name: Check documentation formatting
+        run: |
+          mdformat --check README.md CONTRIBUTING.md docs/
+
+      - name: Test docs building
+        if: ${{ hashFiles('mkdocs.yml', 'mkdocs.yaml') != '' }}
+        run: |
+          mkdocs build --strict
