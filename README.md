@@ -1,6 +1,6 @@
 # LLM Interactive Proxy
 
-![CI](https://img.shields.io/github/actions/workflow/status/matdev83/llm-interactive-proxy/ci.yml?branch=main&event=push&label=CI&cacheSeconds=300)
+![CI](https://img.shields.io/github/actions/workflow/status/matdev83/llm-interactive-proxy/CI?branch=main&event=push&label=CI&cacheSeconds=300)
 ![Architecture Check](https://img.shields.io/github/actions/workflow/status/matdev83/llm-interactive-proxy/architecture-check.yml?branch=main&event=push&label=Architecture&cacheSeconds=300)
 [![Coverage](https://codecov.io/gh/matdev83/llm-interactive-proxy/branch/main/graph/badge.svg)](https://codecov.io/gh/matdev83/llm-interactive-proxy)
 ![Python](https://img.shields.io/badge/python-3.10%2B-blue)
