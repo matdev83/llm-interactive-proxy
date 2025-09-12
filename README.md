@@ -191,6 +191,11 @@ Tip: Anthropic compatibility is exposed both at `/anthropic/...` on the main por
   - `!/backend(openai)`
   - `!/model(gpt-4o-mini)`
   - `!/oneoff(openrouter:qwen/qwen3-coder)`
+- Adjust reasoning behavior with reasoning alias commands:
+  - `!/max`: Activate high reasoning mode (more thoughtful responses)
+  - `!/medium`: Activate medium reasoning mode (balanced approach)
+  - `!/low`: Activate low reasoning mode (faster, less intensive reasoning)
+  - `!/no-think` (or `!/no-thinking`, `!/no-reasoning`, `!/disable-thinking`): Disable reasoning for direct, quick responses
 - Keep your existing tools; just point them to the proxy endpoint.
 - The proxy handles streaming, retries/failover (if enabled), and output repair.
 

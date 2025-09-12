@@ -1,5 +1,25 @@
 # Changelog
 
+## 2025-09-12 – Reasoning Aliases Feature
+
+- **New Feature**: Added reasoning aliases system for dynamic model parameter control during sessions
+  - **Interactive Commands**: New chat commands to switch between reasoning modes
+    - `!/max`: Activate high reasoning mode with configured parameters (temperature, reasoning_effort, max_reasoning_tokens, prompt prefixes/suffixes)
+    - `!/medium`: Activate medium reasoning mode for balanced approach
+    - `!/low`: Activate low reasoning mode for faster responses
+    - `!/no-think` (aliases: `!/no-thinking`, `!/no-reasoning`, `!/disable-thinking`, `!/disable-reasoning`): Disable reasoning for direct responses
+  - **Configuration**: External YAML-based configuration in `config/reasoning_aliases.yaml`
+    - Per-model settings with wildcard support (e.g., `claude-sonnet-4*`)
+    - Configurable parameters: `temperature`, `top_p`, `reasoning_effort`, `thinking_budget`, `max_reasoning_tokens`
+    - User prompt engineering: `user_prompt_prefix` and `user_prompt_suffix`
+  - **Session Integration**: Reasoning settings persist across the session until changed
+  - **Backend Integration**: Automatic application of reasoning configuration to outbound requests via `_apply_reasoning_config` method
+  - **Error Handling**: Clear error messages when models have no configured reasoning settings
+  - **Command Architecture**: New `ReasoningAliasCommandHandler` base class with per-mode implementations
+  - **Schema Validation**: Full Pydantic-based validation for configuration structure
+  - **Testing**: Comprehensive unit and integration test coverage (reasoning alias end-to-end tests, integration tests)
+  - **Version 1.0**: Initial implementation complete with all core functionality
+
 ## 2025-09-11 – Enhanced Authentication Reliability with Stale Token Handling
 
 - **Major Enhancement**: Implemented comprehensive stale authentication token handling pattern across all file-backed OAuth backends
