@@ -62,6 +62,7 @@ This project is a swiss-army knife for anyone working with language models and a
 - Loop detection: detect repeated patterns and halt infinite loops
 - Dangerous-command prevention: steer away from destructive shell actions
 - Key hygiene: redact API keys in prompts and logs
+- Stale token handling: automatic detection and recovery for expired OAuth tokens in backends like Gemini CLI, Anthropic, and OpenAI OAuth
 - Repair helpers: tool-call and JSON repair to fix malformed model outputs
 
 ### Control & Ergonomics
@@ -72,6 +73,7 @@ This project is a swiss-army knife for anyone working with language models and a
 ### Observability
 
 - Wire capture and audit: optional request/response capture file plus usage tracking
+- Trusted IP bypass: optional authentication bypass for specified IP addresses or CIDR ranges (e.g., internal networks)
 
 ## Supported APIs (Front-Ends) and Providers (Back-Ends)
 
@@ -358,11 +360,18 @@ For detailed information about wire capture formats, migration between versions,
 - Failover and retries: route requests to a next-best model when one fails
 - JSON repair: fix common JSON formatting issues (streaming and non‑streaming)
 - Tool-call repair: convert textual tool calls to proper `tool_calls`
+- Tool Call Reactor: event-driven system to intercept and steer tool calls (e.g., apply_diff to patch_file), with configurable YAML rules and rate limiting
 - Loop detection: stop repeated identical tool calls
 - Dangerous-command prevention: steer away from destructive shell actions
+- Empty response recovery: automatic retry with steering prompt on empty LLM responses
 - Identity header override: control X-Title/Referer/User-Agent per back-end
 - Content rewriting: REPLACE/PREPEND/APPEND rules on inbound/outbound content
 - Context window enforcement: per-model token limits with friendly errors
+
+**Advanced Configs (YAML)**:
+- `config/reasoning_aliases.yaml`: Per-model reasoning modes (e.g., temperature, max tokens, prompt prefixes)
+- `config/edit_precision_patterns.yaml`: Patterns for auto-tuning on edit failures
+- `config/tool_call_reactor_config.yaml`: Rules for tool call reactions and steering
 
 ## Example Config (minimal)
 
