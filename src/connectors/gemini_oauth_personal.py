@@ -321,8 +321,9 @@ class GeminiOAuthPersonalConnector(GeminiBackend):
         """Stop watching the credentials file."""
         if self._file_observer:
             try:
-                self._file_observer.stop()
-                self._file_observer.join()
+                if self._file_observer:
+                    self._file_observer.stop()
+                    self._file_observer.join()
                 self._file_observer = None
                 if logger.isEnabledFor(logging.INFO):
                     logger.info("Stopped watching credentials file")

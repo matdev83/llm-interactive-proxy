@@ -193,6 +193,7 @@ def test_check_privileges_non_root(monkeypatch: pytest.MonkeyPatch) -> None:
     _check_privileges()
 
 
+@pytest.mark.skipif(os.name != "nt", reason="Windows-specific test")
 def test_check_privileges_admin_windows(monkeypatch: pytest.MonkeyPatch) -> None:
     import ctypes
 
@@ -208,6 +209,7 @@ def test_check_privileges_admin_windows(monkeypatch: pytest.MonkeyPatch) -> None
         _check_privileges()
 
 
+@pytest.mark.skipif(os.name != "nt", reason="Windows-specific test")
 def test_check_privileges_non_admin_windows(monkeypatch: pytest.MonkeyPatch) -> None:
     import ctypes
 
