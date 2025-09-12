@@ -153,6 +153,11 @@ class ChatController:
 
             # Convert FastAPI Request to RequestContext and process via core processor
             ctx = fastapi_to_domain_request_context(request, attach_original=True)
+            # Attach domain request so session resolver can read session_id/extra_body
+            import contextlib
+
+            with contextlib.suppress(Exception):
+                ctx.domain_request = domain_request  # type: ignore[attr-defined]
 
             # Process the request using the request processor
             response = await self._processor.process_request(ctx, domain_request)

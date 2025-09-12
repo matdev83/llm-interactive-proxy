@@ -11,9 +11,11 @@ from pathlib import Path
 from typing import Any
 
 from src.core.common.logging import get_logger
+from src.core.common.logging_utils import discover_api_keys_from_config_and_env
 from src.core.config.app_config import AppConfig
 from src.core.domain.request_context import RequestContext
 from src.core.interfaces.wire_capture_interface import IWireCapture
+from src.core.services.redaction_middleware import APIKeyRedactor
 
 logger = get_logger(__name__)
 
@@ -45,6 +47,10 @@ class StructuredWireCapture(IWireCapture):
             getattr(config.logging, "capture_total_max_bytes", 0) or 0
         )
         self._last_rotation_ts: float = time.time()
+
+        # Initialize redaction for wire capture data
+        api_keys = discover_api_keys_from_config_and_env(config)
+        self._redactor = APIKeyRedactor(api_keys)
 
         # Ensure directory exists if configured
         if self._file_path:
@@ -259,7 +265,7 @@ class StructuredWireCapture(IWireCapture):
                 "key_name": key_name,
                 "byte_count": byte_count,
             },
-            "payload": payload,
+            "payload": self._redact_payload(payload),
         }
 
         # Extract and include system prompts if present
@@ -268,6 +274,17 @@ class StructuredWireCapture(IWireCapture):
             entry["metadata"]["system_prompt"] = system_prompt
 
         return entry
+
+    def _redact_payload(self, payload: Any) -> Any:
+        """Recursively redact sensitive information from payload."""
+        if isinstance(payload, dict):
+            return {k: self._redact_payload(v) for k, v in payload.items()}
+        elif isinstance(payload, list):
+            return [self._redact_payload(item) for item in payload]
+        elif isinstance(payload, str):
+            return self._redactor.redact(payload)
+        else:
+            return payload
 
     def _extract_system_prompt(self, payload: Any) -> str | None:
         """Extract system prompt from payload if present."""

@@ -23,6 +23,7 @@ from src.core.interfaces.session_service_interface import ISessionService
 from src.core.interfaces.wire_capture_interface import IWireCapture
 from src.core.services.backend_factory import BackendFactory
 from src.core.services.failover_service import FailoverService
+from src.rate_limit import parse_retry_delay
 
 logger = logging.getLogger(__name__)
 
@@ -393,14 +394,28 @@ class BackendService(IBackendService):
                             effective_model,
                             exc_info=True,
                         )
-                result: ResponseEnvelope | StreamingResponseEnvelope = (
-                    await backend.chat_completions(
-                        request_data=domain_request,
-                        processed_messages=request.messages,
-                        effective_model=effective_model,
-                        identity=identity,
+                try:
+                    result: ResponseEnvelope | StreamingResponseEnvelope = (
+                        await backend.chat_completions(
+                            request_data=domain_request,
+                            processed_messages=request.messages,
+                            effective_model=effective_model,
+                            identity=identity,
+                        )
                     )
-                )
+                except BackendError as be:
+                    # Lightweight retry once on HTTP 429 from backend
+                    if getattr(be, "status_code", None) == 429:
+                        # Optional: Parse retry delay if available; avoid sleeping in tests
+                        _ = parse_retry_delay(getattr(be, "details", None))
+                        result = await backend.chat_completions(
+                            request_data=domain_request,
+                            processed_messages=request.messages,
+                            effective_model=effective_model,
+                            identity=identity,
+                        )
+                    else:
+                        raise
                 # Wire-capture: capture inbound
                 try:
                     if self._wire_capture and self._wire_capture.enabled():

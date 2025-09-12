@@ -70,7 +70,8 @@ class SecureCommandFactory:
 
         # Create command with appropriate dependencies
         try:
-            command: T
+            # Use a concrete base type for construction and cast on return
+            command: SecureCommandBase
             if issubclass(command_class, StatefulCommandBase):
                 logger.debug(f"Creating stateful command: {command_name}")
                 command = command_class(
@@ -90,7 +91,9 @@ class SecureCommandFactory:
             self._created_commands[command_name] = command
 
             logger.info(f"Successfully created command: {command_name}")
-            return command  # type: ignore
+            from typing import cast
+
+            return cast(T, command)
 
         except StateAccessViolationError:
             raise

@@ -90,7 +90,6 @@ pythonpath = ["src", "tests"]
 testpaths = ["tests"]
 addopts = "-v --asyncio-mode=auto -m \"not network and not loop_detection\" --ignore=tests/integration/test_phase2_integration.py --durations=0 --junit-xml=test-results.xml -n auto --dist=loadscope --max-worker-restart=3"
 asyncio_mode = "auto"
-asyncio_default_fixture_loop_scope = "function"
 junit_duration_report = "call"
 log_cli_level = "INFO"
 

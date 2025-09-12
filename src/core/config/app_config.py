@@ -250,12 +250,16 @@ class BackendSettings(DomainModel):
     def __init__(self, **data: Any) -> None:
         # Extract backend configs from data before calling super().__init__
         backend_configs: dict[str, Any] = {}
+        # Keep a copy of remaining data to capture non-registered backends too
+        remaining_data = dict(data)
         registered_backends: list[str] = backend_registry.get_registered_backends()
 
         # Extract backend configs from data
         for backend_name in registered_backends:
             if backend_name in data:
                 backend_configs[backend_name] = data.pop(backend_name)
+                # Also remove from remaining_data
+                remaining_data.pop(backend_name, None)
 
         # Call parent constructor with remaining data
         super().__init__(**data)
@@ -275,6 +279,17 @@ class BackendSettings(DomainModel):
         for backend_name in registered_backends:
             if backend_name not in self.__dict__:
                 self.__dict__[backend_name] = BackendConfig()
+
+        # Finally, absorb any non-registered backend configs that were provided via env/file
+        # so that attribute access like config.backends.openai works even if
+        # connectors haven't been imported yet (empty registry).
+        for key, value in remaining_data.items():
+            if key == "default_backend" or key.startswith("_"):
+                continue
+            if isinstance(value, dict):
+                self.__dict__[key] = BackendConfig(**value)
+            elif isinstance(value, BackendConfig):
+                self.__dict__[key] = value
 
     def __getitem__(self, key: str) -> BackendConfig:
         """Allow dictionary-style access to backend configs."""

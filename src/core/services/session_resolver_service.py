@@ -66,6 +66,15 @@ class DefaultSessionResolver(ISessionResolver):
                 session_id: str | None = domain_request.session_id
                 if session_id:
                     return session_id
+                # Fallback: some clients pass session_id via extra_body
+                try:
+                    extra = getattr(domain_request, "extra_body", None)
+                    if isinstance(extra, dict):
+                        eb_sid = extra.get("session_id")
+                        if isinstance(eb_sid, str) and eb_sid:
+                            return eb_sid
+                except Exception:
+                    pass
 
         # Try to get session ID from headers
         header_value = context.headers.get("x-session-id")

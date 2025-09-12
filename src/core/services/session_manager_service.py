@@ -59,22 +59,34 @@ class SessionManager(ISessionManager):
         """Record a command-only request in the session history."""
         session = await self._session_service.get_session(session_id)
 
+        def _extract_role_and_content(
+            message: object,
+        ) -> tuple[str | None, object | None]:
+            """Best-effort extraction of role/content from heterogeneous message types."""
+            # Use Any internally to avoid mypy complaints on duck-typed access
+            from typing import Any, cast
+
+            msg_any = cast(Any, message)
+            # Pydantic models expose model_dump
+            if hasattr(msg_any, "model_dump") and callable(msg_any.model_dump):
+                try:
+                    data = msg_any.model_dump()
+                    return data.get("role"), data.get("content")
+                except Exception:
+                    pass
+            # Mapping-like messages
+            if isinstance(msg_any, dict):
+                return msg_any.get("role"), msg_any.get("content")
+            # Fallback to attribute access
+            return getattr(msg_any, "role", None), getattr(msg_any, "content", None)
+
         raw_prompt = ""
         if request_data and getattr(request_data, "messages", None):
             for message in reversed(request_data.messages):
-                role = (
-                    message.get("role")  # type: ignore[unreachable]
-                    if isinstance(message, dict)
-                    else getattr(message, "role", None)
-                )
+                role, content = _extract_role_and_content(message)
                 if role == "user":
-                    content = (
-                        message.get("content")  # type: ignore[unreachable]
-                        if isinstance(message, dict)
-                        else getattr(message, "content", None)
-                    )
-                raw_prompt = content if isinstance(content, str) else str(content)
-                break
+                    raw_prompt = content if isinstance(content, str) else str(content)
+                    break
 
         if raw_prompt:
             try:

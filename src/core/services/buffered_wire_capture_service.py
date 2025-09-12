@@ -20,9 +20,11 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, NamedTuple
 
+from src.core.common.logging_utils import discover_api_keys_from_config_and_env
 from src.core.config.app_config import AppConfig
 from src.core.domain.request_context import RequestContext
 from src.core.interfaces.wire_capture_interface import IWireCapture
+from src.core.services.redaction_middleware import APIKeyRedactor
 
 
 class WireCaptureEntry(NamedTuple):
@@ -86,6 +88,10 @@ class BufferedWireCapture(IWireCapture):
         self._total_bytes_written: int = 0
         self._enabled: bool = False
 
+        # Initialize redaction for wire capture data
+        api_keys = discover_api_keys_from_config_and_env(config)
+        self._redactor = APIKeyRedactor(api_keys)
+
         # Initialize if configured
         if self._file_path:
             self._initialize()
@@ -112,11 +118,13 @@ class BufferedWireCapture(IWireCapture):
                 key_name=None,
                 content_type="json",
                 content_length=0,
-                payload={
-                    "message": "Wire capture initialized",
-                    "format_version": "buffered_v1",
-                    "format_description": "Buffered JSON Lines format with high-performance async I/O",
-                },
+                payload=self._redact_payload(
+                    {
+                        "message": "Wire capture initialized",
+                        "format_version": "buffered_v1",
+                        "format_description": "Buffered JSON Lines format with high-performance async I/O",
+                    }
+                ),
                 metadata={
                     "buffer_size": self._buffer_size,
                     "flush_interval": self._flush_interval,
@@ -353,7 +361,7 @@ class BufferedWireCapture(IWireCapture):
             key_name=key_name,
             content_type=content_type,
             content_length=content_length,
-            payload=payload,
+            payload=self._redact_payload(payload),
             metadata=entry_metadata,
         )
 
@@ -373,6 +381,17 @@ class BufferedWireCapture(IWireCapture):
             return f"unknown_host({agent!s})"
         else:
             return "unknown_client"
+
+    def _redact_payload(self, payload: Any) -> Any:
+        """Recursively redact sensitive information from payload."""
+        if isinstance(payload, dict):
+            return {k: self._redact_payload(v) for k, v in payload.items()}
+        elif isinstance(payload, list):
+            return [self._redact_payload(item) for item in payload]
+        elif isinstance(payload, str):
+            return self._redactor.redact(payload)
+        else:
+            return payload
 
     async def _buffer_entry(self, entry: WireCaptureEntry) -> None:
         """Add entry to buffer for eventual flushing."""
