@@ -265,7 +265,6 @@ class ConfigManager:
             )
 
         valid_model = False
-        validation_error: str | None = "Backend service not available."
         if self.service_provider:
             try:
                 from src.core.interfaces.backend_service_interface import (
@@ -283,7 +282,7 @@ class ConfigManager:
                     # This is a temporary workaround to unblock the current refactoring.
                     import asyncio
 
-                    valid_model, validation_error = asyncio.run(
+                    valid_model, _validation_error = asyncio.run(
                         backend_service.validate_backend_and_model(
                             backend_name, model_name
                         )

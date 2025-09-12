@@ -381,7 +381,7 @@ class RouteAppendCommand(StatefulCommandBase):
 
         # Validate element format (backend:model or model)
         if ":" in element:
-            backend, model = element.split(":", 1)
+            backend, _model = element.split(":", 1)
             # context.backend_factory may be a Mock in tests; handle gracefully
             backend_types = None
             try:
@@ -487,7 +487,7 @@ class RoutePrependCommand(StatefulCommandBase):
 
         # Validate element format (backend:model or model)
         if ":" in element:
-            backend, model = element.split(":", 1)
+            backend, _model = element.split(":", 1)
             if context and backend not in context.backend_factory._backend_types:
                 return CommandResult(
                     name=self.name,

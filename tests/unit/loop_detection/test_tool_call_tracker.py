@@ -132,13 +132,13 @@ class TestToolCallTracker:
         config.enabled = False
         tracker = ToolCallTracker(config)
 
-        should_block, reason, count = tracker.track_tool_call(
+        should_block, _reason, _count = tracker.track_tool_call(
             "test_tool", '{"arg": "value"}'
         )
 
         assert should_block is False
-        assert reason is None
-        assert count is None
+        assert _reason is None
+        assert _count is None
         # No signature should be added when disabled
         assert len(tracker.signatures) == 0
 
@@ -146,13 +146,13 @@ class TestToolCallTracker:
         """Test tracking the first call."""
         tracker = ToolCallTracker(config)
 
-        should_block, reason, count = tracker.track_tool_call(
+        should_block, _reason, _count = tracker.track_tool_call(
             "test_tool", '{"arg": "value"}'
         )
 
         assert should_block is False
-        assert reason is None
-        assert count is None
+        assert _reason is None
+        assert _count is None
         # Signature should be added
         assert len(tracker.signatures) == 1
         assert tracker.signatures[0].tool_name == "test_tool"
@@ -184,7 +184,7 @@ class TestToolCallTracker:
 
         # Make repeated calls but not enough to trigger blocking
         for _ in range(config.max_repeats - 1):
-            should_block, reason, count = tracker.track_tool_call(
+            should_block, _reason, _count = tracker.track_tool_call(
                 "test_tool", '{"arg": "value"}'
             )
             assert should_block is False
@@ -252,13 +252,13 @@ class TestToolCallTracker:
             tracker.track_tool_call("test_tool", '{"arg": "value"}')
 
         # Now make a different call
-        should_block, reason, count = tracker.track_tool_call(
+        should_block, _reason, _count = tracker.track_tool_call(
             "test_tool", '{"arg": "different"}'
         )
 
         assert should_block is False
-        assert reason is None
-        assert count is None
+        assert _reason is None
+        assert _count is None
 
         # Check that the chance is not applied to the new signature
         # Note: The chance for the old signature remains in the dict,
@@ -297,13 +297,13 @@ class TestToolCallTracker:
         tracker.track_tool_call("different_tool", '{"arg": "value"}')
 
         # Now make the original call again - should not block
-        should_block, reason, count = tracker.track_tool_call(
+        should_block, _reason, _count = tracker.track_tool_call(
             "test_tool", '{"arg": "value"}'
         )
 
         assert should_block is False
-        assert reason is None
-        assert count is None
+        assert _reason is None
+        assert _count is None
 
         # Check that the consecutive count was reset
         full_sig = f"test_tool:{json.dumps({'arg': 'value'}, sort_keys=True)}"
@@ -324,13 +324,13 @@ class TestToolCallTracker:
             )
 
         # Make the same call again - should not block due to TTL expiry
-        should_block, reason, count = tracker.track_tool_call(
+        should_block, _reason, _count = tracker.track_tool_call(
             "test_tool", '{"arg": "value"}'
         )
 
         assert should_block is False
-        assert reason is None
-        assert count is None
+        assert _reason is None
+        assert _count is None
 
         # Check that old signatures were pruned
         assert len(tracker.signatures) == 1

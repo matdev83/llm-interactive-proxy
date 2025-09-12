@@ -135,7 +135,7 @@ class TestQwenOAuthAuthentication:
 
             # Verify correct refresh endpoint was used
             mock_client.post.assert_called_once()
-            args, kwargs = mock_client.post.call_args
+            args, _kwargs = mock_client.post.call_args
             assert args[0] == "https://chat.qwen.ai/api/v1/oauth2/token"
 
     @pytest.mark.asyncio

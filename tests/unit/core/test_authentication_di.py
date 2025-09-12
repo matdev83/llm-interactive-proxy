@@ -477,7 +477,7 @@ class TestAppIntegration:
 
         # Check if AuthMiddleware was added with correct parameters
         for call in middleware_calls:
-            args, kwargs = call
+            args, _kwargs = call
             if args and args[0] == AuthMiddleware:
                 break
 

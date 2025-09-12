@@ -215,7 +215,7 @@ async def test_end_to_end_non_streaming_redaction() -> None:
         backend_request_manager,
         _,
         session_manager,
-        response_manager,
+        _response_manager,
     ) = await _build_services_with_fake_backend(cfg)
 
     # Prepare RequestProcessor with real backend path
@@ -282,7 +282,7 @@ async def test_end_to_end_streaming_redaction() -> None:
         backend_request_manager,
         _,
         session_manager,
-        response_manager,
+        _response_manager,
     ) = await _build_services_with_fake_backend(cfg)
 
     from src.core.interfaces.command_processor_interface import ICommandProcessor

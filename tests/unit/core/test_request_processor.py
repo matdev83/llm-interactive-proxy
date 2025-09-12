@@ -424,7 +424,7 @@ async def test_request_processor_applies_redaction_before_backend_call(
 
     # Assert that the request passed to the backend has been redacted and filtered
     assert backend_request_manager.process_backend_request.called
-    called_args, called_kwargs = (
+    called_args, _called_kwargs = (
         backend_request_manager.process_backend_request.call_args
     )
     # First positional arg is the redacted ChatRequest
