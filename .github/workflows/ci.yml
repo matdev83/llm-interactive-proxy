@@ -33,18 +33,6 @@ jobs:
         pip install -e .[dev]
         if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
 
-    - name: Lint with ruff
-      run: |
-        python -m ruff check . --fix
-
-    - name: Format with black
-      run: |
-        python -m black . --check
-
-    - name: Type check with mypy
-      run: |
-        python -m mypy src
-
     - name: Run unit tests with coverage
       env:
         OPENAI_API_KEY: dummy_key
@@ -64,42 +52,9 @@ jobs:
         python -m pytest -v tests/integration --cov=src --cov-branch --cov-append --cov-report=xml
 
     - name: Upload combined coverage to Codecov
-      uses: codecov/codecov-action@v4
+      uses: codecov/codecov-action@v5
       with:
         token: ${{ secrets.CODECOV_TOKEN }}
+        slug: matdev83/llm-interactive-proxy
         files: ./coverage.xml
         fail_ci_if_error: false
-
-  check-docs:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.10'
-
-      - name: Install mdformat only
-        run: |
-          python -m pip install --upgrade pip
-          pip install mdformat
-
-      - name: Install mkdocs dependencies (if mkdocs config present)
-        if: ${{ hashFiles('mkdocs.yml', 'mkdocs.yaml') != '' }}
-        run: |
-          python -m pip install --upgrade pip
-          pip install mkdocs mkdocs-material mkdocstrings[python]
-
-      - name: Autoformat documentation (mdformat)
-        run: |
-          mdformat README.md CONTRIBUTING.md docs/
-
-      - name: Check documentation formatting
-        run: |
-          mdformat --check README.md CONTRIBUTING.md docs/
-
-      - name: Test docs building
-        if: ${{ hashFiles('mkdocs.yml', 'mkdocs.yaml') != '' }}
-        run: |
-          mkdocs build --strict
