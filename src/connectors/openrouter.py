@@ -168,7 +168,7 @@ class OpenRouterBackend(OpenAIConnector):
             if domain_request.seed is not None:
                 payload["seed"] = domain_request.seed
             if domain_request.reasoning_effort is not None:
-                payload["reasoning_effort"] = float(domain_request.reasoning_effort)
+                payload["reasoning_effort"] = domain_request.reasoning_effort
 
             # Add frequency_penalty and presence_penalty if specified
             if domain_request.frequency_penalty is not None:

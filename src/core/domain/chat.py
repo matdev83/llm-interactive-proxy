@@ -138,7 +138,7 @@ class ChatRequest(ValueObject):
     extra_body: dict[str, Any] | None = None
 
     # Reasoning parameters for o1, o3, o4-mini and other reasoning models
-    reasoning_effort: float | None = None
+    reasoning_effort: str | None = None
     reasoning: dict[str, Any] | None = None
 
     # Gemini-specific reasoning parameters

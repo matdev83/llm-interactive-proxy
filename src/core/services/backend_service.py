@@ -49,6 +49,7 @@ class BackendService(IBackendService):
         """Initialize the backend service.
 
         Args:
+        Args:
             factory: The factory for creating backends
             rate_limiter: The rate limiter for API calls
             config: Application configuration
@@ -67,6 +68,7 @@ class BackendService(IBackendService):
         )
         self._backend_configs: dict[str, Any] = {}
         self._failover_routes: dict[str, dict[str, Any]] = failover_routes or {}
+        self._failover_strategy: IFailoverStrategy | None = failover_strategy
         self._backends: dict[str, LLMBackend] = {}
         from src.core.config.app_config import AppConfig
         from src.core.services.failover_coordinator import FailoverCoordinator
@@ -98,8 +100,160 @@ class BackendService(IBackendService):
             else:
                 # Create a minimal AppConfig for backward compatibility
                 self._backend_config_service = BackendConfigProvider(AppConfig())
-        self._failover_strategy: IFailoverStrategy | None = failover_strategy
+        # Assign wire_capture if provided
         self._wire_capture: IWireCapture | None = wire_capture
+
+    def _apply_reasoning_config(
+        self, request: ChatRequest, session: Any
+    ) -> ChatRequest:
+        """Apply reasoning configuration from session to the request.
+
+        Args:
+            request: The chat completion request
+            session: The session containing reasoning configuration
+
+
+
+        Returns:
+            The updated request with reasoning configuration applied
+        """
+        try:
+            # Get reasoning configuration from session
+            reasoning_config = getattr(session, "get_reasoning_mode", lambda: None)()
+            if reasoning_config is None:
+                return request
+
+            # Collect field updates to avoid mutating frozen Pydantic models
+            updates: dict[str, Any] = {}
+
+            # Apply temperature if set
+            if (
+                hasattr(reasoning_config, "temperature")
+                and reasoning_config.temperature is not None
+            ):
+                updates["temperature"] = reasoning_config.temperature
+
+            # Apply top_p if set (for OpenAI-compatible backends)
+            if (
+                hasattr(reasoning_config, "top_p")
+                and reasoning_config.top_p is not None
+            ):
+                updates["top_p"] = reasoning_config.top_p
+
+            # Apply reasoning_effort if set (for OpenAI reasoning models)
+            if (
+                hasattr(reasoning_config, "reasoning_effort")
+                and reasoning_config.reasoning_effort is not None
+            ):
+                updates["reasoning_effort"] = reasoning_config.reasoning_effort
+
+            # Apply thinking_budget if set (for Gemini models)
+            if (
+                hasattr(reasoning_config, "thinking_budget")
+                and reasoning_config.thinking_budget is not None
+            ):
+                updates["thinking_budget"] = reasoning_config.thinking_budget
+
+            # Apply reasoning_config if set
+            if (
+                hasattr(reasoning_config, "reasoning_config")
+                and reasoning_config.reasoning_config is not None
+            ):
+                updates["reasoning"] = reasoning_config.reasoning_config
+
+            # Apply gemini_generation_config if set
+            if (
+                hasattr(reasoning_config, "gemini_generation_config")
+                and reasoning_config.gemini_generation_config is not None
+            ):
+                updates["generation_config"] = reasoning_config.gemini_generation_config
+
+            if updates:
+                request = request.model_copy(update=updates)
+
+            # Apply prompt prefix and suffix if available in reasoning config
+            # Check if reasoning_config has user_prompt_prefix or user_prompt_suffix attributes
+            prefix = getattr(reasoning_config, "user_prompt_prefix", None)
+            suffix = getattr(reasoning_config, "user_prompt_suffix", None)
+
+            if (
+                (
+                    (prefix is not None and prefix != "")
+                    or (suffix is not None and suffix != "")
+                )
+                and hasattr(request, "messages")
+                and request.messages
+            ):
+                modified_messages = []
+                for message in request.messages:
+                    # Only modify user messages
+                    if getattr(message, "role", "") == "user":
+                        # Handle both string and list content
+                        content = getattr(message, "content", None)
+                        if isinstance(content, str):
+                            new_content = ""
+                            if prefix is not None:
+                                new_content += prefix
+                            new_content += content
+                            if suffix is not None:
+                                new_content += suffix
+                            # Create a new message with modified content
+                            modified_message = message.model_copy(
+                                update={"content": new_content}
+                            )
+                            modified_messages.append(modified_message)
+                        elif isinstance(content, list):
+                            # For multimodal content, modify the first text part
+                            modified_content = []
+                            for part in content:
+                                if (
+                                    hasattr(part, "type")
+                                    and part.type == "text"
+                                    and hasattr(part, "text")
+                                ):
+                                    # Modify the text content
+                                    new_text = ""
+                                    if prefix is not None:
+                                        new_text += prefix
+                                    new_text += part.text
+                                    if suffix is not None:
+                                        new_text += suffix
+                                    modified_part = part.model_copy(
+                                        update={"text": new_text}
+                                    )
+                                    modified_content.append(modified_part)
+                                else:
+                                    modified_content.append(part)
+                            # If no text part was found, add prefix/suffix as a new text part
+                            if not any(
+                                hasattr(part, "type") and part.type == "text"
+                                for part in content
+                            ):
+                                if prefix is not None:
+                                    modified_content.insert(
+                                        0, {"type": "text", "text": prefix}
+                                    )
+                                if suffix is not None:
+                                    modified_content.append(
+                                        {"type": "text", "text": suffix}
+                                    )
+                            modified_message = message.model_copy(
+                                update={"content": modified_content}
+                            )
+                            modified_messages.append(modified_message)
+                        else:
+                            modified_messages.append(message)
+                    else:
+                        modified_messages.append(message)
+                # Update the request with modified messages
+                request = request.model_copy(update={"messages": modified_messages})
+
+        except Exception:
+            # Log but continue if reasoning config application fails
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug("Failed to apply reasoning config", exc_info=True)
+
+        return request
 
     def _get_failover_plan(
         self, model: str, backend_type: str
@@ -136,7 +290,7 @@ class BackendService(IBackendService):
         allow_failover: bool = True,
         context: RequestContext | None = None,
     ) -> ResponseEnvelope | StreamingResponseEnvelope:
-        """Call the LLM backend for a completion."""
+        """Call the LLM backend for a completion"""
         # Resolve backend type and effective model
         backend_type, effective_model = await self._resolve_backend_and_model(request)
 
@@ -184,6 +338,23 @@ class BackendService(IBackendService):
                 ) from e
 
             domain_request: ChatRequest = request
+
+            # Apply session reasoning configuration if available
+            if context and context.session_id:
+                try:
+                    session = await self._session_service.get_session(
+                        context.session_id
+                    )
+                    domain_request = self._apply_reasoning_config(
+                        domain_request, session
+                    )
+                except Exception:
+                    # Log but continue if session access fails
+                    if logger.isEnabledFor(logging.DEBUG):
+                        logger.debug(
+                            "Failed to apply reasoning config from session",
+                            exc_info=True,
+                        )
 
             domain_request = self._backend_config_service.apply_backend_config(
                 domain_request, backend_type, cast(AppConfig, self._config)
@@ -317,7 +488,7 @@ class BackendService(IBackendService):
     async def validate_backend_and_model(
         self, backend: str, model: str
     ) -> tuple[bool, str | None]:
-        """Validate that a backend and model combination is valid."""
+        """Validate that a backend and model combination is valid"""
         try:
             backend_instance: LLMBackend = await self._get_or_create_backend(backend)
 
@@ -333,7 +504,7 @@ class BackendService(IBackendService):
             return False, f"Backend validation failed: {e!s}"
 
     async def _get_or_create_backend(self, backend_type: str) -> LLMBackend:
-        """Get an existing backend or create a new one."""
+        """Get an existing backend or create a new one"""
         if backend_type in self._backends:
             return self._backends[backend_type]
 
@@ -379,12 +550,12 @@ class BackendService(IBackendService):
     async def chat_completions(
         self, request: ChatRequest, **kwargs: Any
     ) -> ResponseEnvelope | StreamingResponseEnvelope:  # type: ignore
-        """Handle chat completions with the LLM."""
+        """Handle chat completions with the LLM"""
         stream = kwargs.get("stream", False)
         return await self.call_completion(request, stream=stream)
 
     async def _resolve_backend_and_model(self, request: ChatRequest) -> tuple[str, str]:
-        """Resolve backend type and effective model from request and session."""
+        """Resolve backend type and effective model from request and session"""
         session_id = (
             request.extra_body.get("session_id") if request.extra_body else None
         )
@@ -466,7 +637,7 @@ class BackendService(IBackendService):
         stream: bool,
         context: RequestContext | None,
     ) -> ResponseEnvelope | StreamingResponseEnvelope:
-        """Execute complex failover strategy for models with configured routes."""
+        """Execute complex failover strategy for models with configured routes"""
         logger.info(f"Using complex failover policy for model {effective_model}")
         try:
             from src.core.domain.configuration.backend_config import (
@@ -506,6 +677,8 @@ class BackendService(IBackendService):
     ) -> ResponseEnvelope | StreamingResponseEnvelope:
         """Attempt failover using the provided plan.
 
+
+
         Args:
             request: The original request
             plan: List of (backend, model) tuples to attempt
@@ -514,6 +687,8 @@ class BackendService(IBackendService):
 
         Returns:
             Response from the first successful attempt
+
+
 
         Raises:
             BackendError: If all attempts fail
@@ -576,7 +751,11 @@ class BackendService(IBackendService):
         last_error: Exception,
         context: RequestContext | None = None,
     ) -> ResponseEnvelope | StreamingResponseEnvelope:
-        """Handle failover logic when backend call fails."""
+        """Handle failover logic when a backend call fails.
+
+        This method inspects request-scoped and service-level failover routes
+        and attempts alternative backends/models when the primary call fails.
+        """
         # Proceed with failover logic using last_error as the last seen exception
         request_failover_routes_nested: dict[str, Any] | None = (
             request.extra_body.get("failover_routes") if request.extra_body else None
