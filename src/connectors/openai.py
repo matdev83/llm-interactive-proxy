@@ -41,12 +41,12 @@ class OpenAIConnector(LLMBackend):
         self,
         client: httpx.AsyncClient,
         config: AppConfig,  # Added
+        translation_service: TranslationService,  # Made required
         response_processor: IResponseProcessor | None = None,
-        translation_service: TranslationService | None = None,  # Added
     ) -> None:
         super().__init__(config, response_processor)
         self.client = client
-        self.translation_service = translation_service or TranslationService()
+        self.translation_service = translation_service
         self.config = config  # Stored config
         self.available_models: list[str] = []
         self.api_key: str | None = None

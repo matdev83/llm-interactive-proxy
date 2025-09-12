@@ -138,18 +138,7 @@ class AnthropicBackend(LLMBackend):
             openrouter_api_base_url or getattr(self, "anthropic_api_base_url", None)
         )
 
-        # Translate incoming request to CanonicalChatRequest using the translation service
-        try:
-            ts = self.translation_service
-        except Exception:
-            ts = None
-        if ts is None:
-            from src.core.services.translation_service import TranslationService
-
-            ts = TranslationService()
-            self.translation_service = ts  # type: ignore[assignment]
-
-        domain_request = ts.to_domain_request(request_data, source_format="anthropic")
+        domain_request = self.translation_service.to_domain_request(request_data, source_format="anthropic")
 
         # request_data is a domain ChatRequest; connectors can rely on adapter helpers
         anthropic_payload = self._prepare_anthropic_payload(

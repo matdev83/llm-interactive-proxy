@@ -400,11 +400,11 @@ class GeminiCloudProjectConnector(GeminiBackend):
 
     def _stop_file_watching(self) -> None:
         """Stop watching the credentials file."""
-        if self._file_observer:
+        observer = self._file_observer
+        if observer:
             try:
-                if self._file_observer:
-                    self._file_observer.stop()
-                    self._file_observer.join()
+                observer.stop()
+                observer.join()
                 self._file_observer = None
                 if logger.isEnabledFor(logging.INFO):
                     logger.info("Stopped watching credentials file")
