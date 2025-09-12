@@ -284,6 +284,7 @@ def test_main_disable_auth_forces_localhost() -> None:
         patch("uvicorn.run") as mock_uvicorn,
         patch("src.core.cli._check_privileges"),
         patch("src.core.app.application_builder.build_app"),
+        patch("src.core.app.stages.backend.BackendStage.validate", return_value=True),
     ):
         main(["--port", "8080"])
 
@@ -308,6 +309,7 @@ def test_main_disable_auth_with_localhost_no_force() -> None:
         patch("uvicorn.run") as mock_uvicorn,
         patch("src.core.cli._check_privileges"),
         patch("src.core.app.application_builder.build_app"),
+        patch("src.core.app.stages.backend.BackendStage.validate", return_value=True),
     ):
         main(["--port", "8080"])
 
@@ -332,6 +334,7 @@ def test_main_auth_enabled_allows_custom_host() -> None:
         patch("uvicorn.run") as mock_uvicorn,
         patch("src.core.cli._check_privileges"),
         patch("src.core.app.application_builder.build_app"),
+        patch("src.core.app.stages.backend.BackendStage.validate", return_value=True),
     ):
         main(["--port", "8080"])
 

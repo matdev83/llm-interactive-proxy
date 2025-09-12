@@ -28,7 +28,9 @@ class ZAIConnector(OpenAIConnector):
     def __init__(
         self, client: httpx.AsyncClient, config: AppConfig
     ) -> None:  # Modified
-        super().__init__(client, config)  # Modified
+        from src.core.services.translation_service import TranslationService
+
+        super().__init__(client, config, translation_service=TranslationService())
         self.api_base_url = "https://open.bigmodel.cn/api/paas/v4/"
         self.name = "zai"
         # Load default models from YAML config file

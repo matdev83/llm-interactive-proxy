@@ -406,7 +406,10 @@ class TestConfiguredBackendDetection(TestBackendStartupValidation):
 
     @pytest.mark.asyncio
     async def test_configured_backends_detection_ignores_empty_api_keys(
-        self, backend_stage: BackendStage, services: ServiceCollection, monkeypatch: pytest.MonkeyPatch
+        self,
+        backend_stage: BackendStage,
+        services: ServiceCollection,
+        monkeypatch: pytest.MonkeyPatch,
     ):
         """Test that backends with empty API keys are not considered configured."""
         monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)

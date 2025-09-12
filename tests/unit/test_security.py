@@ -13,6 +13,7 @@ def test_cli_disable_auth_forces_localhost():
         patch("src.core.cli.logging.basicConfig"),
         patch("src.core.cli._check_privileges"),
         patch("src.core.app.application_builder.build_app"),
+        patch("src.core.app.stages.backend.BackendStage.validate", return_value=True),
     ):
         # This should work without error (localhost is allowed)
         from src.core.cli import main
@@ -40,6 +41,7 @@ def test_env_disable_auth_forces_localhost():
         patch("src.core.cli.logging.basicConfig"),
         patch("src.core.cli._check_privileges"),
         patch("src.core.app.application_builder.build_app"),
+        patch("src.core.app.stages.backend.BackendStage.validate", return_value=True),
     ):
         from src.core.cli import main
 
@@ -59,6 +61,7 @@ def test_auth_enabled_allows_custom_host():
         patch("src.core.cli.logging.basicConfig"),
         patch("src.core.cli._check_privileges"),
         patch("src.core.app.application_builder.build_app"),
+        patch("src.core.app.stages.backend.BackendStage.validate", return_value=True),
     ):
         from src.core.cli import main
 

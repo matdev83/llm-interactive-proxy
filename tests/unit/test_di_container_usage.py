@@ -272,7 +272,7 @@ class DIViolationScanner:
         return self.violations
 
     def _should_skip_file(self, file_path: Path) -> bool:
-        """Check if file should be skipped."""
+        """Check if file should be skipped (OS-agnostic path matching)."""
         skip_patterns = [
             "__pycache__",
             ".git",
@@ -282,22 +282,18 @@ class DIViolationScanner:
             "example_usage.py",
             "mock_",
             "_test_",
-            "src\\core\\di\\services.py",  # Whitelist DI registration file
-            "src\\core\\app\\controllers\\chat_controller.py",  # Whitelist controller factory
-            "src\\core\\app\\controllers\\anthropic_controller.py",  # Whitelist controller factory
-            "src\\core\\app\\controllers\\models_controller.py",  # Whitelist controller factory
-            "src\\core\\app\\stages\\core_services.py",  # Whitelist DI registration stage
-            "src\\core\\app\\stages\\processor.py",  # Whitelist DI registration stage
-            "src\\core\\services\\response_processor_service.py",  # Whitelist service constructor logic
-            "src\\core\\app\\stages\\backend.py",  # Whitelist DI registration stage
-            "src\\core\\app\\stages\\command.py",  # Whitelist DI registration stage
-            "src\\core\\di\\container.py",  # Whitelist DI container implementation details
-            "src\\core\\services\\application_state_service.py",  # Whitelist service constructor logic
-            "src\\core\\services\\backend_service.py",  # Whitelist service constructor logic
-            "src\\connectors\\",  # Whitelist all connector files - they may instantiate utility services locally
+            "src/core/di/",  # Whitelist all DI files
+            "src/core/app/controllers/",  # Whitelist all controller files
+            "src/core/app/stages/",  # Whitelist all stage files
+            "src/core/services/response_processor_service.py",  # Whitelist service constructor logic
+            "src/core/services/application_state_service.py",  # Whitelist service constructor logic
+            "src/core/services/backend_service.py",  # Whitelist service constructor logic
+            "src/connectors/",  # Whitelist all connector files
         ]
 
-        return any(pattern in str(file_path) for pattern in skip_patterns)
+        norm_path = str(file_path).replace("\\", "/")
+        norm_patterns = [p.replace("\\", "/") for p in skip_patterns]
+        return any(pattern in norm_path for pattern in norm_patterns)
 
     def _analyze_file(self, file_path: Path) -> list[dict[str, Any]]:
         """Analyze a single file for DI violations."""

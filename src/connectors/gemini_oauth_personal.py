@@ -62,7 +62,7 @@ import logging
 import time
 from collections.abc import AsyncGenerator
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import google.auth
 import google.auth.transport.requests
@@ -72,6 +72,9 @@ import requests  # type: ignore[import-untyped]
 from fastapi import HTTPException
 from watchdog.events import FileSystemEventHandler
 from watchdog.observers import Observer
+
+if TYPE_CHECKING:
+    from watchdog.observers.api import BaseObserver
 
 from src.core.common.exceptions import (
     APIConnectionError,
@@ -154,7 +157,8 @@ class GeminiOAuthPersonalConnector(GeminiBackend):
         self._refresh_token: str | None = None
         self._token_refresh_lock = asyncio.Lock()
         self.translation_service = translation_service
-        self._file_observer: Observer | None = None  # type: ignore[valid-type]
+        # Use BaseObserver for type checking to ensure stop/join are recognized by mypy
+        self._file_observer: BaseObserver | None = None
         self._credential_validation_errors: list[str] = []
         self._initialization_failed = False
         self._last_validation_time = 0.0

@@ -33,8 +33,12 @@ class TestOpenRouterTemperatureHandling:
         from src.core.config.app_config import AppConfig
 
         config = AppConfig()
+        from src.core.services.translation_service import TranslationService
+
         backend = OpenRouterBackend(
-            client=AsyncMock(spec=httpx.AsyncClient), config=config
+            client=AsyncMock(spec=httpx.AsyncClient),
+            config=config,
+            translation_service=TranslationService(),
         )
         # Call initialize with required arguments
         await backend.initialize(

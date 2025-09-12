@@ -22,12 +22,15 @@ import logging
 import os
 import time
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import httpx
 from fastapi import HTTPException
 from watchdog.events import FileSystemEventHandler
 from watchdog.observers import Observer
+
+if TYPE_CHECKING:
+    from watchdog.observers.api import BaseObserver
 
 from src.connectors.openai import OpenAIConnector
 from src.core.common.exceptions import AuthenticationError
@@ -61,7 +64,13 @@ class OpenAIOAuthConnector(OpenAIConnector):
         response_processor: Any | None = None,
         translation_service: TranslationService | None = None,
     ) -> None:
-        super().__init__(client, config, response_processor, translation_service)
+        # Use explicit keywords to avoid argument order issues
+        super().__init__(
+            client=client,
+            config=config,
+            translation_service=translation_service,
+            response_processor=response_processor,
+        )
         self.name = "openai-oauth"
         self._oauth_dir_override: Path | None = None
         self._auth_path: Path | None = None
@@ -69,7 +78,8 @@ class OpenAIOAuthConnector(OpenAIConnector):
         self.is_functional: bool = False
 
         # Stale token handling pattern attributes
-        self._file_observer: Observer | None = None  # type: ignore[valid-type]
+        # Use BaseObserver for type checking to ensure stop/join are recognized by mypy
+        self._file_observer: BaseObserver | None = None
         self._credential_validation_errors: list[str] = []
         self._initialization_failed: bool = False
         self._last_validation_time: float = 0.0

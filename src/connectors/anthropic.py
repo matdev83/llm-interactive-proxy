@@ -138,7 +138,9 @@ class AnthropicBackend(LLMBackend):
             openrouter_api_base_url or getattr(self, "anthropic_api_base_url", None)
         )
 
-        domain_request = self.translation_service.to_domain_request(request_data, source_format="anthropic")
+        domain_request = self.translation_service.to_domain_request(
+            request_data, source_format="anthropic"
+        )
 
         # request_data is a domain ChatRequest; connectors can rely on adapter helpers
         anthropic_payload = self._prepare_anthropic_payload(

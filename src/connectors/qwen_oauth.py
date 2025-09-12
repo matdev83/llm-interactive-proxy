@@ -77,7 +77,9 @@ class QwenOAuthConnector(OpenAIConnector):
     def __init__(
         self, client: httpx.AsyncClient, config: AppConfig
     ) -> None:  # Modified
-        super().__init__(client, config)  # Modified
+        from src.core.services.translation_service import TranslationService
+
+        super().__init__(client, config, translation_service=TranslationService())
         self.name = "qwen-oauth"
         self._default_endpoint = "https://dashscope.aliyuncs.com/compatible-mode/v1"
         self.api_base_url = self._default_endpoint

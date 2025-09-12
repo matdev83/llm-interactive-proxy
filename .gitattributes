@@ -1,0 +1,34 @@
+# Normalize line endings across platforms and enforce LF where appropriate
+
+# Auto-detect text files and ensure they are normalized in the repo
+* text=auto
+
+# Enforce LF endings for source and config files in working trees
+*.py  text eol=lf
+*.pyi text eol=lf
+*.toml text eol=lf
+*.ini text eol=lf
+*.cfg text eol=lf
+*.yml text eol=lf
+*.yaml text eol=lf
+*.json text eol=lf
+*.md text eol=lf
+*.sh text eol=lf
+*.txt text eol=lf
+
+# Keep Windows scripts with CRLF if any are added later
+*.bat text eol=crlf
+*.cmd text eol=crlf
+
+# Binary files - never modify line endings
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.pdf binary
+*.zip binary
+*.gz binary
+*.tgz binary
+*.bz2 binary
+*.7z binary
