@@ -195,6 +195,7 @@ class SessionConfig(DomainModel):
     )
     dangerous_command_prevention_enabled: bool = True
     dangerous_command_steering_message: str | None = None
+    pytest_compression_enabled: bool = True
 
 
 class EmptyResponseConfig(DomainModel):

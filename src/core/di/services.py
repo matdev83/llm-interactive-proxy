@@ -930,6 +930,7 @@ def register_core_services(
                     f"Failed to register DangerousCommandHandler: {e}", exc_info=True
                 )
 
+            
         return reactor
 
     _add_singleton(

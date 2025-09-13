@@ -64,6 +64,7 @@ class SessionState(ValueObject):
     interactive_just_enabled: bool = False
     hello_requested: bool = False
     is_cline_agent: bool = False
+    pytest_compression_enabled: bool = True
 
     def with_backend_config(self, backend_config: BackendConfiguration) -> SessionState:
         """Create a new session state with updated backend config."""
@@ -98,6 +99,10 @@ class SessionState(ValueObject):
     def with_is_cline_agent(self, is_cline: bool) -> SessionState:
         """Create a new session state with updated is_cline_agent flag."""
         return self.model_copy(update={"is_cline_agent": is_cline})
+
+    def with_pytest_compression_enabled(self, enabled: bool) -> SessionState:
+        """Create a new session state with updated pytest_compression_enabled flag."""
+        return self.model_copy(update={"pytest_compression_enabled": enabled})
 
 
 class SessionStateAdapter(ISessionState, ISessionStateMutator):
@@ -179,6 +184,11 @@ class SessionStateAdapter(ISessionState, ISessionStateMutator):
     def is_cline_agent(self) -> bool:
         """Whether the agent is Cline for this session."""
         return self._state.is_cline_agent
+
+    @property
+    def pytest_compression_enabled(self) -> bool:
+        """Whether pytest output compression is enabled for this session."""
+        return self._state.pytest_compression_enabled
 
     @property
     def override_model(self) -> str | None:
