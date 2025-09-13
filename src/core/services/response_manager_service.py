@@ -88,8 +88,10 @@ class AgentResponseFormatter(IAgentResponseFormatter):
                 # For Cline, use the actual command name for the tool call
                 # Apply pytest compression if this is a pytest command result
                 result_message = str(command_result.message or "")
-                result_message = self._apply_pytest_compression(command_name, result_message, session)
-                
+                result_message = self._apply_pytest_compression(
+                    command_name, result_message, session
+                )
+
                 arguments = json.dumps(
                     {
                         "result": result_message,
@@ -124,7 +126,7 @@ class AgentResponseFormatter(IAgentResponseFormatter):
             ) or hasattr(command_result, "name"):
                 message = command_result.message
                 command_name = getattr(command_result, "name", "unknown_command")
-                
+
                 # Apply pytest compression if this is a pytest command result
                 message = self._apply_pytest_compression(command_name, message, session)
             elif hasattr(command_result, "result") and hasattr(
@@ -205,95 +207,100 @@ class AgentResponseFormatter(IAgentResponseFormatter):
             },
         }
 
-    def _apply_pytest_compression(self, command_name: str, message: str, session: Session) -> str:
+    def _apply_pytest_compression(
+        self, command_name: str, message: str, session: Session
+    ) -> str:
         """Apply pytest output compression to command results.
-        
+
         Filters out lines containing 'FAILED', 's setup', 's call', 's teardown'
         from pytest command execution results to preserve context window.
-        
+
         Args:
             command_name: The name of the command that was executed
             message: The original command result message
             session: The current session
-            
+
         Returns:
             The compressed message if pytest compression applies, otherwise the original message
         """
         if not message:
             return message
-            
+
         # Check if pytest compression is enabled in session config
         try:
-            compression_enabled = getattr(session.state, "pytest_compression_enabled", True)
+            compression_enabled = getattr(
+                session.state, "pytest_compression_enabled", True
+            )
             if not compression_enabled:
                 return message
         except (AttributeError, Exception):
             # If we can't determine the setting, default to enabled
             pass
-            
+
         # Check if this command appears to be a pytest execution
         if not self._is_pytest_command(command_name):
             return message
-            
+
         # Apply the filtering
         return self._filter_pytest_output(message)
-    
+
     def _is_pytest_command(self, command_name: str) -> bool:
         """Check if a command name suggests it was executing pytest."""
         import re
-        
+
         pytest_patterns = [
-            r'\bpytest\b',
-            r'\bpython.*-m pytest\b',
-            r'\bpython.*pytest\.py\b',
-            r'\bpy\.test\b',
+            r"\bpytest\b",
+            r"\bpython.*-m pytest\b",
+            r"\bpython.*pytest\.py\b",
+            r"\bpy\.test\b",
         ]
-        
+
         for pattern in pytest_patterns:
             if re.search(pattern, command_name, re.IGNORECASE):
                 return True
         return False
-    
+
     def _filter_pytest_output(self, output: str) -> str:
         """Filter pytest output to remove non-error lines and timing info."""
         if not output:
             return output
-            
-        lines = output.split('\n')
+
+        lines = output.split("\n")
         filtered_lines = []
-        
+
         # Patterns to filter out from pytest output
         filter_patterns = [
-            r'.*s\s+setup.*',  # Lines containing "s setup" (timing info)
-            r'.*s\s+call.*',   # Lines containing "s call" (timing info)
-            r'.*s\s+teardown.*',  # Lines containing "s teardown" (timing info)
-            r'.*\bPASSED\b.*',  # Lines containing PASSED (successful tests)
+            r".*s\s+setup.*",  # Lines containing "s setup" (timing info)
+            r".*s\s+call.*",  # Lines containing "s call" (timing info)
+            r".*s\s+teardown.*",  # Lines containing "s teardown" (timing info)
+            r".*\bPASSED\b.*",  # Lines containing PASSED (successful tests)
         ]
-        
+
         for line in lines:
             should_filter = False
-            
+
             # Check if line matches any filter pattern
             for pattern in filter_patterns:
                 import re
+
                 if re.search(pattern, line, re.IGNORECASE):
                     should_filter = True
                     break
-                    
+
             # Keep lines that don't match filter patterns
             if not should_filter:
                 filtered_lines.append(line)
-        
-        filtered_output = '\n'.join(filtered_lines)
-        
+
+        filtered_output = "\n".join(filtered_lines)
+
         # Log compression statistics
-        original_lines = len(output.split('\n')) if output else 0
-        compressed_lines = len(filtered_output.split('\n')) if filtered_output else 0
+        original_lines = len(output.split("\n")) if output else 0
+        compressed_lines = len(filtered_output.split("\n")) if filtered_output else 0
         if original_lines > 0:
             compression_ratio = (1 - compressed_lines / original_lines) * 100
             logger.info(
                 f"Pytest compression applied: {original_lines} -> {compressed_lines} lines "
                 f"({compression_ratio:.1f}% reduction)"
             )
-        
+
         return filtered_output

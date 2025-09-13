@@ -266,6 +266,13 @@ class SessionStateAdapter(ISessionState, ISessionStateMutator):
         new_state = cast(SessionState, self._state).with_is_cline_agent(is_cline)
         return SessionStateAdapter(new_state)
 
+    def with_pytest_compression_enabled(self, enabled: bool) -> ISessionState:
+        """Create a new session state with updated pytest_compression_enabled flag."""
+        new_state = cast(SessionState, self._state).with_pytest_compression_enabled(
+            enabled
+        )
+        return SessionStateAdapter(new_state)
+
     # Mutable convenience methods expected by legacy tests
     def set_project(self, project: str | None) -> None:
         """Set project on the underlying state (mutating adapter)."""

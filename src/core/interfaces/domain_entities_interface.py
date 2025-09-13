@@ -206,3 +206,12 @@ class ISessionState(IValueObject, ISessionStateMutator):
     @abc.abstractmethod
     def override_backend(self) -> str | None:
         """Get the override backend from backend configuration."""
+
+    @property
+    @abc.abstractmethod
+    def pytest_compression_enabled(self) -> bool:
+        """Get whether pytest output compression is enabled for this session."""
+
+    @abc.abstractmethod
+    def with_pytest_compression_enabled(self, enabled: bool) -> ISessionState:
+        """Create a new state with updated pytest_compression_enabled flag."""
