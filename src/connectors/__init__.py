@@ -2,6 +2,8 @@ from .anthropic import AnthropicBackend
 from .anthropic_oauth import AnthropicOAuthBackend
 from .base import LLMBackend
 from .gemini import GeminiBackend
+from .gemini_cloud_project import GeminiCloudProjectConnector
+from .gemini_oauth_personal import GeminiOAuthPersonalConnector
 from .openai import OpenAIConnector
 from .openai_oauth import OpenAIOAuthConnector
 from .openrouter import OpenRouterBackend
@@ -13,6 +15,8 @@ __all__ = [
     "AnthropicBackend",
     "AnthropicOAuthBackend",
     "GeminiBackend",
+    "GeminiCloudProjectConnector",
+    "GeminiOAuthPersonalConnector",
     "LLMBackend",
     "OpenAIConnector",
     "OpenAIOAuthConnector",
