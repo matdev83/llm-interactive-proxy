@@ -369,20 +369,23 @@ class BackendStage(InitializationStage):
                         from src.core.interfaces.translation_service_interface import (
                             ITranslationService,
                         )
+                        from src.core.services.translation_service import (
+                            TranslationService,
+                        )
 
                         translation_service = services.build_service_provider().get_service(ITranslationService)  # type: ignore[type-abstract]
                     except Exception:
-                        # Translation service not available, some backends may not work
-                        pass
+                        # Translation service not available from container, create a temporary instance
+                        # This is needed for backends that require translation_service parameter
+                        from src.core.services.translation_service import (
+                            TranslationService,
+                        )
+
+                        translation_service = TranslationService()
 
                     # Create backend with available dependencies
                     try:
-                        if translation_service:
-                            backend = backend_factory(
-                                client, config, translation_service
-                            )
-                        else:
-                            backend = backend_factory(client, config)
+                        backend = backend_factory(client, config, translation_service)
                     except TypeError as e:
                         if "required positional argument" in str(e) or "missing" in str(
                             e

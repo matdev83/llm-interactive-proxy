@@ -89,7 +89,10 @@ def parse_cli_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--timeout", type=int)
     parser.add_argument("--command-prefix")
     parser.add_argument(
-        "--log", dest="log_file", metavar="FILE", help="Write logs to FILE"
+        "--log",
+        dest="log_file",
+        metavar="FILE",
+        help="Write logs to FILE (default: logs/proxy.log)",
     )
     parser.add_argument(
         "--capture-file",
@@ -205,6 +208,15 @@ def apply_cli_args(args: argparse.Namespace) -> AppConfig:
         os.environ["COMMAND_PREFIX"] = args.command_prefix
     if args.log_file is not None:
         cfg.logging.log_file = args.log_file
+    else:
+        # Set default log file if none specified
+        from pathlib import Path
+
+        default_log_file = "logs/proxy.log"
+        # Ensure logs directory exists
+        log_dir = Path(default_log_file).parent
+        log_dir.mkdir(exist_ok=True)
+        cfg.logging.log_file = default_log_file
     if args.log_level is not None:
         cfg.logging.level = LogLevel[args.log_level]
     if getattr(args, "capture_file", None) is not None:

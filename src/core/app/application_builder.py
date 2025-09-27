@@ -277,8 +277,19 @@ class ApplicationBuilder:
         # Configure middleware
         self._configure_middleware(app, config)
 
-        # Install API key redaction filter into logging early in app lifecycle.
-        # Install API key redaction filter into logging early in app lifecycle.
+        # Install API key redaaction filter into logging early in app lifecycle.
+        try:
+            from src.core.common.logging_utils import (
+                discover_api_keys_from_config_and_env,
+                install_api_key_redaction_filter,
+            )
+
+            # Discover API keys from all sources for redaction
+            api_keys = discover_api_keys_from_config_and_env(config)
+            install_api_key_redaction_filter(api_keys)
+            logger.info("API key redaction filter installed.")
+        except Exception:
+            logger.debug("Failed to install API key redaction filter", exc_info=True)
 
         # Register routes
         self._register_routes(app)
