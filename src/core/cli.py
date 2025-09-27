@@ -310,6 +310,134 @@ from src.core.config.app_config import AppConfig
 # ... (rest of the file)
 
 
+def _handle_application_build_error(error_msg: str) -> None:
+    """Handle application build errors with user-friendly messages."""
+    import sys
+
+    # Use sys.stderr.write instead of print to avoid test failures
+    sys.stderr.write("\n" + "=" * 60 + "\n")
+    sys.stderr.write("ERROR: Failed to start LLM Interactive Proxy\n")
+    sys.stderr.write("=" * 60 + "\n")
+
+    if "Stage 'backends' validation error" in error_msg:
+        sys.stderr.write(
+            "\nThe application failed to start because no working backends were found.\n"
+        )
+        sys.stderr.write("\nThis usually means one of the following:\n")
+        sys.stderr.write("  1. OAuth tokens have expired (most common)\n")
+        sys.stderr.write("  2. API keys are missing or invalid\n")
+        sys.stderr.write("  3. Network connectivity issues\n")
+
+        # Extract specific backend errors if available
+        if "Token expired" in error_msg:
+            sys.stderr.write("\nDETECTED ISSUE: OAuth token has expired\n")
+            sys.stderr.write("\nTo fix this:\n")
+            if "gemini" in error_msg.lower():
+                sys.stderr.write("  - Run: gemini auth\n")
+                sys.stderr.write("  - Follow the authentication flow in your browser\n")
+            elif "qwen" in error_msg.lower():
+                sys.stderr.write("  - Run: qwen auth\n")
+                sys.stderr.write("  - Follow the authentication flow in your browser\n")
+            else:
+                sys.stderr.write(
+                    "  - Re-authenticate with the appropriate OAuth provider\n"
+                )
+                sys.stderr.write("  - For Gemini: run 'gemini auth'\n")
+                sys.stderr.write("  - For Qwen: run 'qwen auth'\n")
+            sys.stderr.write("  - Then try starting the proxy again\n")
+        elif "oauth_credentials_unavailable" in error_msg:
+            sys.stderr.write("\nDETECTED ISSUE: OAuth credentials not found\n")
+            sys.stderr.write("\nTo fix this:\n")
+            if "anthropic" in error_msg.lower():
+                sys.stderr.write(
+                    "  - Authenticate using Claude Code or similar Anthropic OAuth client\n"
+                )
+                sys.stderr.write("  - Or provide a valid oauth_creds.json file\n")
+                sys.stderr.write(
+                    "  - Default location: ~/.anthropic/oauth_creds.json\n"
+                )
+            elif "openai" in error_msg.lower():
+                sys.stderr.write("  - Run: codex login\n")
+                sys.stderr.write("  - Or provide a valid auth.json file\n")
+                sys.stderr.write("  - Default location: ~/.codex/auth.json\n")
+            else:
+                sys.stderr.write(
+                    "  - Authenticate with the appropriate OAuth provider\n"
+                )
+                sys.stderr.write("  - For OpenAI: run 'codex login'\n")
+                sys.stderr.write(
+                    "  - For Anthropic: use Claude Code or similar OAuth client\n"
+                )
+        elif "oauth_credentials_invalid" in error_msg:
+            sys.stderr.write(
+                "\nDETECTED ISSUE: OAuth credentials are invalid or corrupted\n"
+            )
+            sys.stderr.write("\nTo fix this:\n")
+            sys.stderr.write("  - Re-authenticate to refresh your credentials\n")
+            sys.stderr.write("  - For Gemini: run 'gemini auth'\n")
+            sys.stderr.write("  - For Qwen: run 'qwen auth'\n")
+            sys.stderr.write("  - For OpenAI: run 'codex login'\n")
+            sys.stderr.write("  - For Anthropic: re-authenticate with Claude Code\n")
+        elif "api_key is required" in error_msg:
+            sys.stderr.write("\nDETECTED ISSUE: Missing API keys\n")
+            sys.stderr.write("\nTo fix this:\n")
+            sys.stderr.write("  - Set the required environment variables:\n")
+            sys.stderr.write("    * OPENROUTER_API_KEY for OpenRouter\n")
+            sys.stderr.write("    * GEMINI_API_KEY for Gemini\n")
+            sys.stderr.write("    * ANTHROPIC_API_KEY for Anthropic\n")
+            sys.stderr.write("    * ZAI_API_KEY for ZAI\n")
+            sys.stderr.write(
+                "  - Or configure a different backend with --default-backend\n"
+            )
+            sys.stderr.write("  - Or use OAuth-based backends:\n")
+            sys.stderr.write("    * gemini-cli-oauth-personal (uses gemini CLI auth)\n")
+            sys.stderr.write("    * qwen-oauth (uses qwen CLI auth)\n")
+            sys.stderr.write("    * anthropic-oauth (uses Claude Code auth)\n")
+            sys.stderr.write("    * openai-oauth (uses codex CLI auth)\n")
+        elif (
+            "Failed to load credentials" in error_msg
+            or "credentials file not found" in error_msg.lower()
+        ):
+            sys.stderr.write(
+                "\nDETECTED ISSUE: OAuth credentials file missing or corrupted\n"
+            )
+            sys.stderr.write("\nTo fix this:\n")
+            sys.stderr.write(
+                "  - Check if you have authenticated with the appropriate CLI tool:\n"
+            )
+            sys.stderr.write(
+                "    * For Gemini: run 'gemini auth' (creates ~/.gemini/oauth_creds.json)\n"
+            )
+            sys.stderr.write(
+                "    * For Qwen: run 'qwen auth' (creates ~/.qwen/oauth_creds.json)\n"
+            )
+            sys.stderr.write(
+                "    * For OpenAI: run 'codex login' (creates ~/.codex/auth.json)\n"
+            )
+            sys.stderr.write("    * For Anthropic: authenticate with Claude Code\n")
+            sys.stderr.write(
+                "  - Verify the credentials files exist and are readable\n"
+            )
+        else:
+            sys.stderr.write("\nTo fix this:\n")
+            sys.stderr.write("  - Check your internet connection\n")
+            sys.stderr.write("  - Verify your API keys are valid\n")
+            sys.stderr.write("  - Try refreshing OAuth tokens:\n")
+            sys.stderr.write("    * For Gemini: gemini auth\n")
+            sys.stderr.write("    * For Qwen: qwen auth\n")
+            sys.stderr.write("    * For OpenAI: codex login\n")
+            sys.stderr.write("    * For Anthropic: re-authenticate with Claude Code\n")
+            sys.stderr.write("  - Check the logs above for specific error details\n")
+    else:
+        sys.stderr.write(f"\nUnexpected error during startup: {error_msg}\n")
+        sys.stderr.write("\nPlease check the logs above for more details.\n")
+
+    sys.stderr.write(
+        "\nFor more help, see the documentation or check your configuration.\n"
+    )
+    sys.stderr.write("=" * 60 + "\n")
+
+
 def main(
     argv: list[str] | None = None,
 ) -> None:
@@ -331,7 +459,18 @@ def main(
     # `build_app_fn`. The test mocks expect to be called with cfg and
     # the config_file keyword argument.
     app: FastAPI  # Declare app here
-    app = build_app(cfg)
+    try:
+        app = build_app(cfg)
+    except RuntimeError as e:
+        # Handle application build failures with user-friendly messages
+        error_msg = str(e)
+        _handle_application_build_error(error_msg)
+        sys.exit(1)
+    except Exception as e:
+        logging.error(f"Unexpected error during application startup: {e}")
+        sys.stderr.write(f"\nERROR: Failed to start LLM Interactive Proxy: {e}\n")
+        sys.stderr.write("Please check your configuration and try again.\n")
+        sys.exit(1)
 
     # Log trusted IPs information if configured
     if cfg.auth.trusted_ips:
