@@ -166,3 +166,10 @@ async def test_multimodal_message_with_command_fixture(
 
     # Verify the command was found and processed
     assert commands_found
+
+
+import pytest
+
+pytestmark = pytest.mark.filterwarnings(
+    "ignore:unclosed event loop <ProactorEventLoop.*:ResourceWarning"
+)

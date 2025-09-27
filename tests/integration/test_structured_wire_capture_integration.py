@@ -44,9 +44,10 @@ def test_app(mock_app_config):
 
 @pytest.fixture
 def client(test_app):
-    """Create a test client for the application."""
+    """Create a test client for the application and ensure cleanup."""
     app, _ = test_app
-    return TestClient(app)
+    with TestClient(app) as client:
+        yield client
 
 
 def test_wire_capture_integration(client, test_app):
@@ -235,3 +236,9 @@ async def test_streaming_response_integration(test_app):
     assert stream_entries[4]["direction"] == "stream_end"
     assert stream_entries[4]["payload"]["total_chunks"] == 3
     assert stream_entries[4]["payload"]["total_bytes"] == sum(len(c) for c in chunks)
+
+
+# Suppress Windows ProactorEventLoop warnings for this module
+pytestmark = pytest.mark.filterwarnings(
+    "ignore:unclosed event loop <ProactorEventLoop.*:ResourceWarning"
+)

@@ -1,8 +1,8 @@
 # LLM Interactive Proxy
 
-![CI](https://img.shields.io/github/actions/workflow/status/matdev83/llm-interactive-proxy/CI?branch=main&event=push&label=CI&cacheSeconds=300)
+![CI](https://img.shields.io/github/actions/workflow/status/matdev83/llm-interactive-proxy/ci.yml?branch=main&event=push&label=CI&cacheSeconds=300)
 ![Architecture Check](https://img.shields.io/github/actions/workflow/status/matdev83/llm-interactive-proxy/architecture-check.yml?branch=main&event=push&label=Architecture&cacheSeconds=300)
-[![Coverage](https://codecov.io/gh/matdev83/llm-interactive-proxy/branch/main/graph/badge.svg)](https://codecov.io/gh/matdev83/llm-interactive-proxy)
+[![Coverage](https://img.shields.io/codecov/c/github/matdev83/llm-interactive-proxy?branch=main&token=)](https://codecov.io/gh/matdev83/llm-interactive-proxy)
 ![Python](https://img.shields.io/badge/python-3.10%2B-blue)
 [![License](https://img.shields.io/github/license/matdev83/llm-interactive-proxy?color=blue)](LICENSE)
 ![Last Commit](https://img.shields.io/github/last-commit/matdev83/llm-interactive-proxy?label=Last%20commit)
@@ -356,6 +356,40 @@ jq -r 'select(.direction=="inbound_response" and .payload.usage) | "\(.model) \(
 For detailed information about wire capture formats, migration between versions, and processing examples, see [docs/wire_capture_formats.md](docs/wire_capture_formats.md).
 
 ## Optional Capabilities (Short List)
+
+### Pytest Output Compression
+
+The proxy automatically compresses verbose pytest output to preserve context window space while maintaining error information:
+
+- **Automatic Detection**: Recognizes pytest commands (`pytest`, `python -m pytest`, `py.test`, etc.)
+- **Smart Filtering**: Removes verbose timing info (`s setup`, `s call`, `s teardown`) and `PASSED` test results
+- **Error Preservation**: Keeps `FAILED` tests and error messages intact
+- **Configurable**: Can be enabled/disabled globally or per-session
+- **Compression Stats**: Logs compression ratios for monitoring
+
+**Configuration Options:**
+```yaml
+# Global configuration (config.yaml)
+session:
+  pytest_compression_enabled: true  # Default: true
+
+# Environment variable
+PYTEST_COMPRESSION_ENABLED=true
+```
+
+**Example Output Transformation:**
+```
+# Before compression (verbose):
+test_example.py::test_function PASSED                    [ 50%] 0.001s setup 0.002s call 0.001s teardown
+test_example.py::test_failure FAILED                     [100%] 0.001s setup 0.003s call 0.001s teardown
+
+# After compression (concise):
+test_example.py::test_failure FAILED                     [100%]
+```
+
+📖 **[Full Documentation](docs/pytest-compression.md)** - Detailed configuration options, use cases, and troubleshooting
+
+### Other Capabilities
 
 - Failover and retries: route requests to a next-best model when one fails
 - JSON repair: fix common JSON formatting issues (streaming and non‑streaming)

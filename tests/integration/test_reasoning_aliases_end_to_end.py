@@ -7,6 +7,11 @@ This test verifies the complete flow from command execution to backend API calls
 from unittest.mock import MagicMock
 
 import pytest
+
+# Suppress Windows ProactorEventLoop ResourceWarnings for this module
+pytestmark = pytest.mark.filterwarnings(
+    "ignore:unclosed event loop <ProactorEventLoop.*:ResourceWarning"
+)
 from src.core.commands.command import Command
 from src.core.commands.handlers.reasoning_aliases import (
     LowReasoningHandler,

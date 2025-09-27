@@ -8,6 +8,10 @@ from unittest.mock import AsyncMock, Mock, patch
 
 import httpx
 import pytest
+
+pytestmark = pytest.mark.filterwarnings(
+    "ignore:unclosed event loop <ProactorEventLoop.*:ResourceWarning"
+)
 from src.connectors.base import LLMBackend
 from src.core.common.exceptions import BackendError, RateLimitExceededError
 from src.core.domain.backend_type import BackendType

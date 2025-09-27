@@ -1,4 +1,4 @@
-"""
+r"""
 OpenAI OAuth connector that uses ChatGPT/Codex auth.json tokens instead of API keys.
 
 This backend reads a local `auth.json` file (created by Codex CLI via ChatGPT login)

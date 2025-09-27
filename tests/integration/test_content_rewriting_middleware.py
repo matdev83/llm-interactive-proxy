@@ -365,3 +365,10 @@ class TestContentRewritingMiddleware(unittest.TestCase):
         import asyncio
 
         asyncio.run(run_test())
+
+
+import pytest
+
+pytestmark = pytest.mark.filterwarnings(
+    "ignore:unclosed event loop <ProactorEventLoop.*:ResourceWarning"
+)

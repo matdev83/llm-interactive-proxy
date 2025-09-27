@@ -10,11 +10,16 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from fastapi.testclient import TestClient
-
-# from src.constants import BackendType # Removed BackendType import
 from src.core.app.test_builder import build_test_app as build_app
 from src.core.interfaces.application_state_interface import IApplicationState
 from src.core.interfaces.session_service_interface import ISessionService
+
+# Suppress Windows ProactorEventLoop warnings for this module
+pytestmark = pytest.mark.filterwarnings(
+    "ignore:unclosed event loop <ProactorEventLoop.*:ResourceWarning"
+)
+
+# from src.constants import BackendType  # Removed BackendType import
 
 
 @pytest.fixture
@@ -57,6 +62,11 @@ def middleware_order_validator():
 
 class TestModelsEndpoints:
     """Integration tests for models discovery endpoints."""
+
+    # Suppress Windows ProactorEventLoop warnings for this module
+    pytestmark = pytest.mark.filterwarnings(
+        "ignore:unclosed event loop <ProactorEventLoop.*:ResourceWarning"
+    )
 
     @pytest.fixture
     def app_with_auth_disabled(self, monkeypatch):

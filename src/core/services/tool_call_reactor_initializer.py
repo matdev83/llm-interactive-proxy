@@ -51,11 +51,10 @@ def initialize_tool_call_reactor_sync(provider: IServiceProvider | None = None) 
         loop = asyncio.get_event_loop()
         if loop.is_running():
             # If loop is running, schedule as task
-            # Note: In production, you should store the task reference for proper cleanup
             _ = loop.create_task(initialize_tool_call_reactor(provider))  # noqa: RUF006
         else:
-            # Run synchronously
-            loop.run_until_complete(initialize_tool_call_reactor(provider))
+            # Prefer asyncio.run to ensure loop is closed after execution
+            asyncio.run(initialize_tool_call_reactor(provider))
     except RuntimeError:
-        # No event loop, create a new one
+        # No event loop, create and close a new one with asyncio.run
         asyncio.run(initialize_tool_call_reactor(provider))

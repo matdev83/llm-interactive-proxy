@@ -1,5 +1,23 @@
 # Changelog
 
+## 2025-09-13 – Automated Pytest Output Compression
+
+- **New Feature**: Added automated pytest tool call output compression to preserve context window space
+  - **Automatic Detection**: Recognizes pytest commands using regex patterns (`pytest`, `python -m pytest`, `py.test`, etc.)
+  - **Smart Filtering**: Removes verbose output while preserving error information
+    - Filters out timing information (`s setup`, `s call`, `s teardown`)
+    - Removes `PASSED` test results (keeps only failures and errors)
+    - Preserves all `FAILED` tests and error messages
+  - **Configuration**: Configurable via `session.pytest_compression_enabled` (default: `true`)
+    - Global configuration in `config.yaml`
+    - Environment variable: `PYTEST_COMPRESSION_ENABLED`
+    - Per-session control via session state
+  - **Monitoring**: Logs compression statistics showing line reduction percentages
+  - **Integration**: Seamlessly integrated into response manager for both Cline and non-Cline agents
+  - **Testing**: Comprehensive unit test coverage with edge case handling
+  - **Schema Support**: Full Pydantic validation and YAML schema definition
+  - **Backward Compatibility**: Feature is enabled by default but can be disabled without affecting existing functionality
+
 ## 2025-09-12 – Reasoning Aliases Feature
 
 - **New Feature**: Added reasoning aliases system for dynamic model parameter control during sessions

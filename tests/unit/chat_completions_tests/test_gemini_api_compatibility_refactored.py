@@ -8,6 +8,10 @@ instead of direct app.state access.
 from unittest.mock import Mock
 
 import pytest
+
+pytestmark = pytest.mark.filterwarnings(
+    "ignore:unclosed event loop <ProactorEventLoop.*:ResourceWarning"
+)
 from fastapi.testclient import TestClient
 from src.core.interfaces.backend_service_interface import IBackendService
 

@@ -103,3 +103,9 @@ def test_security_documentation():
     # Test that the flag can be parsed
     args = parse_cli_args(["--disable-auth"])
     assert args.disable_auth
+
+
+# Suppress Windows ProactorEventLoop warnings for this module
+pytestmark = pytest.mark.filterwarnings(
+    "ignore:unclosed event loop <ProactorEventLoop.*:ResourceWarning"
+)

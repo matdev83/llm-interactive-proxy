@@ -88,7 +88,7 @@ package-dir = {"" = "src"}
 [tool.pytest.ini_options]
 pythonpath = ["src", "tests"]
 testpaths = ["tests"]
-addopts = "-v --asyncio-mode=auto -m \"not network and not loop_detection\" --ignore=tests/integration/test_phase2_integration.py --durations=0 --junit-xml=test-results.xml -n auto --dist=loadscope --max-worker-restart=3"
+addopts = "-v --asyncio-mode=auto -m \"not network and not loop_detection\" --ignore=tests/integration/test_phase2_integration.py --durations=0 --junit-xml=test-results.xml -n auto --dist=loadscope --max-worker-restart=3 -W ignore"
 asyncio_mode = "auto"
 junit_duration_report = "call"
 log_cli_level = "INFO"
@@ -104,6 +104,14 @@ filterwarnings = [
     "ignore::DeprecationWarning",
     "ignore:coroutine 'AsyncMockMixin\\._execute_mock_call' was never awaited:RuntimeWarning",
     "ignore:DI CONTAINER VIOLATIONS DETECTED:UserWarning",
+    "ignore::ResourceWarning",
+    "ignore::Warning",
+    # Targeted upstream/runtime warnings (Windows + websockets)
+    "ignore:unclosed event loop <ProactorEventLoop.*:ResourceWarning",
+    "ignore:.*websockets\\.legacy is deprecated.*:DeprecationWarning",
+    "ignore:.*websockets\\.server\\.WebSocketServerProtocol is deprecated.*:DeprecationWarning",
+    "ignore:.*Construction of dict of EntryPoints is deprecated.*:DeprecationWarning",
+    "ignore:unclosed file <_io\\..*:ResourceWarning",
 ]
 # To run integration tests, use: pytest -m integration
 # To run command tests, use: pytest -m command

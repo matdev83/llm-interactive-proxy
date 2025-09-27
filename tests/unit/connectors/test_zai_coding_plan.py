@@ -2,6 +2,11 @@ import os
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+
+# Suppress Windows ProactorEventLoop ResourceWarnings for this module
+pytestmark = pytest.mark.filterwarnings(
+    "ignore:unclosed event loop <ProactorEventLoop.*:ResourceWarning"
+)
 from httpx import AsyncClient
 from src.connectors.zai_coding_plan import ZaiCodingPlanBackend
 from src.core.config.app_config import AppConfig

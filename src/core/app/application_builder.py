@@ -347,6 +347,18 @@ class ApplicationBuilder:
                 # Ignore errors when closing client
                 pass
 
+            # Attempt to gracefully stop background services (e.g., wire capture)
+            try:
+                from src.core.interfaces.wire_capture_interface import IWireCapture
+
+                wire_capture = service_provider.get_service(IWireCapture)  # type: ignore[type-abstract]
+                if wire_capture and hasattr(wire_capture, "shutdown"):
+                    # type: ignore[attr-defined]
+                    await wire_capture.shutdown()  # pyright: ignore[reportAttributeAccessIssue]
+            except Exception:
+                # Best-effort shutdown; ignore errors to avoid masking real failures
+                pass
+
         # Set lifespan handler
         app.router.lifespan_context = lifespan
 

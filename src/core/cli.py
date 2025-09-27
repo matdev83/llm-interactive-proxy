@@ -5,7 +5,6 @@ import logging
 import os
 import sys
 
-import colorama
 import uvicorn
 
 from src.command_prefix import validate_command_prefix
@@ -314,8 +313,7 @@ from src.core.config.app_config import AppConfig
 def main(
     argv: list[str] | None = None,
 ) -> None:
-    if os.name == "nt":
-        colorama.init()
+    # Use identical behavior across OS; no platform-specific libs
 
     args: argparse.Namespace = parse_cli_args(argv)
 

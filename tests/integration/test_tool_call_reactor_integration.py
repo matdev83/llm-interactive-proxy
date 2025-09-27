@@ -7,6 +7,11 @@ from __future__ import annotations
 import json
 
 import pytest
+
+# Suppress Windows ProactorEventLoop ResourceWarnings for this module
+pytestmark = pytest.mark.filterwarnings(
+    "ignore:unclosed event loop <ProactorEventLoop.*:ResourceWarning"
+)
 from src.core.di.services import get_service_provider
 from src.core.domain.responses import ProcessedResponse
 from src.core.services.tool_call_reactor_middleware import ToolCallReactorMiddleware

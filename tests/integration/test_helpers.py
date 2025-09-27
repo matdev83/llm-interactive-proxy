@@ -119,6 +119,8 @@ def test_app_with_commands():
 def client_with_commands() -> TestClient:
     """
     Create a test client with command handling for integration tests.
+    Ensures the client is properly closed after use.
     """
     app = build_test_app_with_response_handlers()
-    return TestClient(app)
+    with TestClient(app) as client:
+        yield client

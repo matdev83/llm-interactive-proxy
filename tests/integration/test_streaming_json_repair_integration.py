@@ -9,6 +9,11 @@ from src.core.app.test_builder import build_test_app
 from src.core.domain.chat import ChatMessage
 from src.core.domain.responses import StreamingResponseEnvelope
 
+# Suppress Windows ProactorEventLoop ResourceWarnings for this module
+pytestmark = pytest.mark.filterwarnings(
+    "ignore:unclosed event loop <ProactorEventLoop.*:ResourceWarning"
+)
+
 
 class MockBackend(LLMBackend):
     def __init__(self, response_chunks: list[bytes]):

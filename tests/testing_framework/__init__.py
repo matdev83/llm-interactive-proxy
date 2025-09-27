@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import asyncio
 import inspect
-import warnings
+import logging
 from abc import ABC, abstractmethod
 from typing import Any, Protocol, TypeVar
 from unittest.mock import AsyncMock, MagicMock, Mock
@@ -146,11 +146,10 @@ class ValidatedTestStage(ABC):
         if isinstance(service, AsyncMock) and (
             force_sync or self._should_be_sync_service(name)
         ):
-            warnings.warn(
-                f"Service '{name}' is using AsyncMock but should be synchronous. "
-                f"Consider using EnforcedMockFactory.create_sync_mock() instead.",
-                UserWarning,
-                stacklevel=3,
+            logging.warning(
+                "Service '%s' is using AsyncMock but should be synchronous. "
+                "Consider using EnforcedMockFactory.create_sync_mock() instead.",
+                name,
             )
             # Auto-fix: convert to sync mock
             return EnforcedMockFactory.create_sync_mock(spec=type(service))
@@ -159,10 +158,9 @@ class ValidatedTestStage(ABC):
         if name.lower() in ["session", "session_service"] and not isinstance(
             service, SafeSessionService
         ):
-            warnings.warn(
-                f"Session service '{name}' should use SafeSessionService to prevent coroutine warnings.",
-                UserWarning,
-                stacklevel=3,
+            logging.warning(
+                "Session service '%s' should use SafeSessionService to prevent coroutine warnings.",
+                name,
             )
             # Auto-fix: convert to safe session service
             return EnforcedMockFactory.create_session_mock()

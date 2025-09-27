@@ -39,8 +39,9 @@ async def app():
 
 @pytest.fixture
 def client(app):
-    """Create a test client."""
-    return TestClient(app)
+    """Create a test client and ensure proper cleanup."""
+    with TestClient(app) as client:
+        yield client
 
 
 def test_zai_coding_plan_backend_integration(

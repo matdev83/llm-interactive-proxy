@@ -307,3 +307,9 @@ def test_anthropic_endpoint(client: TestClient) -> None:
     assert len(response_data["content"]) > 0
     assert "type" in response_data["content"][0]
     assert response_data["content"][0]["type"] == "text"
+
+
+# Suppress Windows ProactorEventLoop warnings for this module
+pytestmark = pytest.mark.filterwarnings(
+    "ignore:unclosed event loop <ProactorEventLoop.*:ResourceWarning"
+)

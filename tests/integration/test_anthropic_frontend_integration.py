@@ -18,6 +18,11 @@ from src.core.config.app_config import (
     BackendSettings,
 )
 
+# Suppress Windows ProactorEventLoop warnings for this module
+pytestmark = pytest.mark.filterwarnings(
+    "ignore:unclosed event loop <ProactorEventLoop.*:ResourceWarning"
+)
+
 
 class TestAnthropicFrontendIntegration:
     """Integration tests for Anthropic front-end using official SDK."""
@@ -44,6 +49,11 @@ class TestAnthropicFrontendIntegration:
         # Test API key for Anthropic SDK
         self.test_api_key = "test-anthropic-key"
         self.proxy_base_url = "http://testserver/anthropic"
+
+        # Suppress Windows ProactorEventLoop warnings for this class' tests
+        self._pytest_warnings = pytest.mark.filterwarnings(
+            "ignore:unclosed event loop <ProactorEventLoop.*:ResourceWarning"
+        )
 
         # Patch BackendFactory at class level to avoid real API calls
         from src.core.services.backend_factory import BackendFactory
@@ -126,6 +136,9 @@ class TestAnthropicFrontendIntegration:
         for p in getattr(self, "_patchers", []):
             with contextlib.suppress(Exception):
                 p.stop()
+        # Close TestClient if present
+        with contextlib.suppress(Exception):
+            getattr(self, "client", None) and self.client.close()
 
     def test_anthropic_sdk_client_creation(self):
         """Test that Anthropic SDK client can be created with proxy URL."""
@@ -521,6 +534,9 @@ class TestAnthropicFrontendWithoutSDK:
         for p in getattr(self, "_patchers", []):
             with contextlib.suppress(Exception):
                 p.stop()
+        # Close TestClient if present
+        with contextlib.suppress(Exception):
+            getattr(self, "client", None) and self.client.close()
 
     def test_endpoints_work_without_sdk(self):
         """Test that endpoints work even without Anthropic SDK installed."""

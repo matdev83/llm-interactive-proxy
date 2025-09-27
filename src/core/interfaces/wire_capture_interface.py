@@ -60,3 +60,7 @@ class IWireCapture(ABC):
         stream: AsyncIterator[bytes],
     ) -> AsyncIterator[bytes]:
         """Wrap a streaming iterator to tee all bytes to the capture sink."""
+
+    @abstractmethod
+    async def shutdown(self) -> None:
+        """Gracefully stop background work and flush outstanding data."""

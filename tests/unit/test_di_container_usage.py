@@ -17,6 +17,11 @@ from typing import Any
 
 import pytest
 
+# Suppress Windows ProactorEventLoop ResourceWarnings for this module
+pytestmark = pytest.mark.filterwarnings(
+    "ignore:unclosed event loop <ProactorEventLoop.*:ResourceWarning"
+)
+
 
 class DIViolationScanner:
     """Scans Python code for DI container usage violations."""
@@ -508,13 +513,14 @@ class TestDIContainerUsage:
         )[:3]
         top_files_str = ", ".join(f"{f}: {c}" for f, c in top_files)
 
-        warnings.warn(
-            f"DI CONTAINER VIOLATIONS DETECTED: {len(real_violations)} violations in {num_files} files. "
-            f"Most affected: {top_files_str}. "
-            f"Use -s flag for detailed report | Fix with IServiceProvider.get_required_service()",
-            UserWarning,
-            stacklevel=2,
-        )
+        if len(real_violations) > 0:
+            warnings.warn(
+                f"DI CONTAINER VIOLATIONS DETECTED: {len(real_violations)} violations in {num_files} files. "
+                f"Most affected: {top_files_str}. "
+                f"Use -s flag for detailed report | Fix with IServiceProvider.get_required_service()",
+                UserWarning,
+                stacklevel=2,
+            )
 
         # Show detailed report only when there are violations
         if real_violations:

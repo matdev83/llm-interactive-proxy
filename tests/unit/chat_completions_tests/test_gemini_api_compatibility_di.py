@@ -8,6 +8,11 @@ refactored to use proper dependency injection instead of direct app.state access
 from unittest.mock import Mock
 
 import pytest
+
+# Suppress Windows ProactorEventLoop warnings for this module
+pytestmark = pytest.mark.filterwarnings(
+    "ignore:unclosed event loop <ProactorEventLoop.*:ResourceWarning"
+)
 from fastapi.testclient import TestClient
 from src.core.interfaces.backend_service_interface import IBackendService
 from src.rate_limit import RateLimitRegistry

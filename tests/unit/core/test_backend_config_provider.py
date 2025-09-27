@@ -1,5 +1,12 @@
 """Unit tests for BackendConfigProvider."""
 
+import pytest
+
+# Suppress Windows ProactorEventLoop warnings for this module
+pytestmark = pytest.mark.filterwarnings(
+    "ignore:unclosed event loop <ProactorEventLoop.*:ResourceWarning"
+)
+
 from src.core.config.app_config import AppConfig, BackendConfig
 from src.core.interfaces.backend_config_provider_interface import IBackendConfigProvider
 from src.core.services.backend_config_provider import BackendConfigProvider

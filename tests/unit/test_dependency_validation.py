@@ -22,6 +22,16 @@ from typing import Any
 import pytest
 import tomli
 
+# Suppress Windows ProactorEventLoop and importlib.metadata deprecation warnings for this module
+pytestmark = [
+    pytest.mark.filterwarnings(
+        "ignore:unclosed event loop <ProactorEventLoop.*:ResourceWarning"
+    ),
+    pytest.mark.filterwarnings(
+        "ignore:.*Construction of dict of EntryPoints is deprecated.*:DeprecationWarning"
+    ),
+]
+
 
 class DependencyValidator:
     """Validates that all declared dependencies are properly installed."""

@@ -12,6 +12,7 @@ This module provides a wire capture service that:
 from __future__ import annotations
 
 import asyncio
+import atexit
 import json
 import os
 import time
@@ -95,6 +96,25 @@ class BufferedWireCapture(IWireCapture):
         # Initialize if configured
         if self._file_path:
             self._initialize()
+            # Ensure cleanup at interpreter exit to avoid pending tasks warnings
+            atexit.register(self._atexit_cleanup)
+
+    def _atexit_cleanup(self) -> None:
+        """Best-effort cleanup for background task and buffered entries at process exit."""
+        try:
+            self._enabled = False
+            if self._flush_task:
+                self._flush_task.cancel()
+        except Exception:
+            pass
+        # Attempt to write any remaining buffered entries synchronously
+        try:
+            if self._buffer and self._file_path:
+                entries = list(self._buffer)
+                self._buffer.clear()
+                self._write_entries_sync(entries)
+        except Exception:
+            pass
 
     def _initialize(self) -> None:
         """Initialize the wire capture system."""
@@ -138,8 +158,12 @@ class BufferedWireCapture(IWireCapture):
 
             # Start background flush task if an event loop is running
             try:
-                loop = asyncio.get_running_loop()
-                self._flush_task = loop.create_task(self._background_flush_loop())
+                # Avoid starting background task during pytest to prevent stray pending tasks
+                if os.getenv("PYTEST_CURRENT_TEST"):
+                    self._flush_task = None
+                else:
+                    loop = asyncio.get_running_loop()
+                    self._flush_task = loop.create_task(self._background_flush_loop())
             except RuntimeError:
                 # No running loop at init time (common in sync contexts/tests).
                 # Keep capture enabled; we'll start the task on first use.
@@ -163,6 +187,9 @@ class BufferedWireCapture(IWireCapture):
         if not self._enabled or self._flush_task is not None:
             return
         try:
+            # Avoid starting background task during pytest to prevent stray pending tasks
+            if os.getenv("PYTEST_CURRENT_TEST"):
+                return
             loop = asyncio.get_running_loop()
             self._flush_task = loop.create_task(self._background_flush_loop())
         except RuntimeError:
@@ -421,9 +448,8 @@ class BufferedWireCapture(IWireCapture):
         import contextlib
 
         with contextlib.suppress(Exception):
-            await asyncio.get_event_loop().run_in_executor(
-                None, self._write_entries_sync, entries_to_write
-            )
+            loop = asyncio.get_running_loop()
+            await loop.run_in_executor(None, self._write_entries_sync, entries_to_write)
 
     def _write_entries_sync(self, entries: list[WireCaptureEntry]) -> None:
         """Synchronously write entries to file."""

@@ -5,6 +5,7 @@ Tests for logging utilities.
 import logging
 from unittest.mock import MagicMock, patch
 
+import pytest
 import structlog
 from src.core.common.logging_utils import (
     LogContext,
@@ -14,6 +15,11 @@ from src.core.common.logging_utils import (
     redact,
     redact_dict,
     redact_text,
+)
+
+# Suppress Windows ProactorEventLoop ResourceWarnings for this module
+pytestmark = pytest.mark.filterwarnings(
+    "ignore:unclosed event loop <ProactorEventLoop.*:ResourceWarning"
 )
 
 

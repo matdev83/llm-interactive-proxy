@@ -16,6 +16,13 @@ pytestmark = [
     pytest.mark.no_global_mock,
 ]  # Uses mocked Google Gemini client (not real network calls)
 
+# Suppress Windows ProactorEventLoop warnings for this module
+pytestmark.append(
+    pytest.mark.filterwarnings(
+        "ignore:unclosed event loop <ProactorEventLoop.*:ResourceWarning"
+    )
+)
+
 
 @pytest.fixture
 def gemini_app():
@@ -40,8 +47,9 @@ def gemini_app():
 
 @pytest.fixture
 def gemini_client(gemini_app):
-    """Create test client for Gemini app."""
-    return TestClient(gemini_app)
+    """Create test client for Gemini app and ensure cleanup."""
+    with TestClient(gemini_app) as client:
+        yield client
 
 
 def test_gemini_client_creation():

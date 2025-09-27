@@ -75,6 +75,7 @@ from src.core.services.json_repair_service import JsonRepairService
 from src.core.services.middleware_application_manager import (
     MiddlewareApplicationManager,
 )
+from src.core.services.pytest_compression_service import PytestCompressionService
 from src.core.services.request_processor_service import RequestProcessor
 from src.core.services.response_handlers import (
     DefaultNonStreamingResponseHandler,
@@ -588,7 +589,8 @@ def register_core_services(
     def _agent_response_formatter_factory(
         provider: IServiceProvider,
     ) -> AgentResponseFormatter:
-        return AgentResponseFormatter()
+        session_service = provider.get_service(SessionService)
+        return AgentResponseFormatter(session_service=session_service)
 
     _add_singleton(
         AgentResponseFormatter, implementation_factory=_agent_response_formatter_factory
@@ -603,7 +605,8 @@ def register_core_services(
     # Register response manager
     def _response_manager_factory(provider: IServiceProvider) -> ResponseManager:
         agent_response_formatter = provider.get_required_service(IAgentResponseFormatter)  # type: ignore[type-abstract]
-        return ResponseManager(agent_response_formatter)
+        session_service = provider.get_required_service(ISessionService)  # type: ignore[type-abstract]
+        return ResponseManager(agent_response_formatter, session_service)
 
     _add_singleton(ResponseManager, implementation_factory=_response_manager_factory)
 
@@ -803,6 +806,22 @@ def register_core_services(
         implementation_factory=_dangerous_command_service_factory,
     )
 
+    # Register pytest compression service
+    def _pytest_compression_service_factory(
+        provider: IServiceProvider,
+    ) -> PytestCompressionService:
+        from src.core.services.pytest_compression_service import (
+            PytestCompressionService,
+        )
+
+        provider.get_required_service(AppConfig)
+        return PytestCompressionService()
+
+    _add_singleton(
+        PytestCompressionService,
+        implementation_factory=_pytest_compression_service_factory,
+    )
+
     # Register tool call reactor services
     def _tool_call_history_tracker_factory(
         provider: IServiceProvider,
@@ -884,9 +903,9 @@ def register_core_services(
                     try:
                         loop = asyncio.get_event_loop()
                         if not loop.is_running():
-                            loop.run_until_complete(
-                                reactor.register_handler(config_handler)
-                            )
+                            import asyncio as _asyncio
+
+                            _asyncio.run(reactor.register_handler(config_handler))
                     except RuntimeError as e:
                         logger.debug(
                             "Could not register config steering handler due to missing event loop: %s",
@@ -917,9 +936,9 @@ def register_core_services(
                     try:
                         loop = asyncio.get_event_loop()
                         if not loop.is_running():
-                            loop.run_until_complete(
-                                reactor.register_handler(dangerous_handler)
-                            )
+                            import asyncio as _asyncio
+
+                            _asyncio.run(reactor.register_handler(dangerous_handler))
                     except RuntimeError as e:
                         logger.debug(
                             "Could not register dangerous command handler due to missing event loop: %s",
@@ -928,6 +947,38 @@ def register_core_services(
             except Exception as e:
                 logger.warning(
                     f"Failed to register DangerousCommandHandler: {e}", exc_info=True
+                )
+
+            # Register PytestCompressionHandler if enabled in session config
+            try:
+                if getattr(app_config.session, "pytest_compression_enabled", True):
+                    from src.core.services.tool_call_handlers.pytest_compression_handler import (
+                        PytestCompressionHandler,
+                    )
+
+                    pytest_compression_service = provider.get_required_service(
+                        PytestCompressionService
+                    )
+                    session_service = provider.get_required_service(SessionService)
+                    pytest_handler = PytestCompressionHandler(
+                        pytest_compression_service,
+                        session_service,
+                        enabled=True,
+                    )
+                    try:
+                        loop = asyncio.get_event_loop()
+                        if not loop.is_running():
+                            import asyncio as _asyncio
+
+                            _asyncio.run(reactor.register_handler(pytest_handler))
+                    except RuntimeError as e:
+                        logger.debug(
+                            "Could not register pytest compression handler due to missing event loop: %s",
+                            e,
+                        )
+            except Exception as e:
+                logger.warning(
+                    f"Failed to register PytestCompressionHandler: {e}", exc_info=True
                 )
 
         return reactor

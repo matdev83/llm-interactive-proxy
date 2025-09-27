@@ -2,6 +2,10 @@ import os
 from unittest.mock import patch
 
 import pytest
+
+pytestmark = pytest.mark.filterwarnings(
+    "ignore:unclosed event loop <ProactorEventLoop.*:ResourceWarning"
+)
 from src.core.app.test_builder import build_test_app as build_app
 
 

@@ -83,3 +83,10 @@ def test_wait_for_rate_limited_backends(monkeypatch: Any, client: Any) -> None:
     assert "ok" in body
     # Ensure we respected cumulative backoffs (0.1 + 0.3)
     assert current >= 0.4
+
+
+import pytest
+
+pytestmark = pytest.mark.filterwarnings(
+    "ignore:unclosed event loop <ProactorEventLoop.*:ResourceWarning"
+)

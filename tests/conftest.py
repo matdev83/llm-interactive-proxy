@@ -1,3 +1,5 @@
+import contextlib
+import warnings
 from pathlib import Path
 
 import pytest
@@ -53,7 +55,46 @@ def temp_config_path(tmp_path: Path) -> Path:
 def test_client() -> TestClient:
     """A basic TestClient using the default test app with auth disabled."""
     app = build_test_app()
-    return TestClient(app, headers={"Authorization": "Bearer test-proxy-key"})
+    client = TestClient(app, headers={"Authorization": "Bearer test-proxy-key"})
+    try:
+        yield client
+    finally:
+        with contextlib.suppress(Exception):
+            client.close()
+
+
+def _cleanup_root_artifacts() -> None:
+    import os
+
+    root = os.path.dirname(os.path.abspath(__file__))
+    root = os.path.dirname(root)
+    for fname in ("compressed_pytest_output.txt",):
+        path = os.path.join(root, fname)
+        with contextlib.suppress(Exception):
+            if os.path.exists(path):
+                os.remove(path)
+
+
+def pytest_sessionstart(session) -> None:  # type: ignore[no-untyped-def]
+    """Session start hook: clean artifacts and install warning filters."""
+    _cleanup_root_artifacts()
+    _install_global_warning_filters()
+
+
+def pytest_sessionfinish(session, exitstatus) -> None:  # type: ignore[no-untyped-def]
+    """Cleanup potential artifacts after the test session finishes."""
+    _cleanup_root_artifacts()
+
+
+# Apply a global, message-targeted filter for Windows ProactorEventLoop noise
+pytestmark = pytest.mark.filterwarnings(
+    "ignore:unclosed event loop <ProactorEventLoop.*:ResourceWarning"
+)
+
+
+def pytest_configure(config) -> None:  # type: ignore[no-untyped-def]
+    """Install warning filters in each worker process (xdist)."""
+    _install_global_warning_filters()
 
 
 # Test helper utilities expected by some tests
@@ -112,3 +153,12 @@ def assert_all_requests_were_expected() -> bool:
     Tests that need strict behavior can override via mark.
     """
     return False
+
+
+def _install_global_warning_filters() -> None:
+    warnings.filterwarnings("ignore", category=PendingDeprecationWarning)
+    warnings.filterwarnings("ignore", category=DeprecationWarning)
+    warnings.filterwarnings("ignore", category=ResourceWarning)
+    warnings.filterwarnings("ignore", category=RuntimeWarning)
+    warnings.filterwarnings("ignore", category=ImportWarning)
+    warnings.filterwarnings("ignore", category=UserWarning)

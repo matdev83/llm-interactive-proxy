@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import time as _time
 from typing import Any
 
 from src.core.common.exceptions import ToolCallReactorError
@@ -91,7 +92,9 @@ class ToolCallReactorService(IToolCallReactor):
         # Record the tool call in history if tracker is available
         if self._history_tracker:
             # Use current timestamp if context doesn't have one
-            timestamp = context.timestamp or asyncio.get_event_loop().time()
+            import time as _time
+
+            timestamp = context.timestamp or _time.monotonic()
 
             await self._history_tracker.record_tool_call(
                 context.session_id,
@@ -175,8 +178,7 @@ class InMemoryToolCallHistoryTracker(IToolCallHistoryTracker):
 
             entry = {
                 "tool_name": tool_name,
-                "timestamp": context.get("timestamp")
-                or asyncio.get_event_loop().time(),
+                "timestamp": context.get("timestamp") or _time.monotonic(),
                 "context": context,
             }
 
@@ -203,7 +205,7 @@ class InMemoryToolCallHistoryTracker(IToolCallHistoryTracker):
             if session_id not in self._history:
                 return 0
 
-            current_time = asyncio.get_event_loop().time()
+            current_time = _time.monotonic()
             cutoff_time = current_time - time_window_seconds
 
             return sum(

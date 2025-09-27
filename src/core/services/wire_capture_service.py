@@ -280,6 +280,10 @@ class WireCapture(IWireCapture):
         except OSError as e:
             logger.warning("Error enforcing total cap on wire capture logs: %s", e)
 
+    async def shutdown(self) -> None:
+        """No background tasks; nothing to do for classic capture."""
+        return None
+
 
 def _safe_json_dump(obj: Any) -> str:
     try:

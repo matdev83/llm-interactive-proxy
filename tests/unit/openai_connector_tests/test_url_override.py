@@ -2,6 +2,11 @@ from unittest.mock import AsyncMock, MagicMock
 
 import httpx
 import pytest
+
+# Suppress Windows ProactorEventLoop ResourceWarnings for this module
+pytestmark = pytest.mark.filterwarnings(
+    "ignore:unclosed event loop <ProactorEventLoop.*:ResourceWarning"
+)
 from src.connectors.openai import OpenAIConnector
 from src.core.domain.chat import ChatMessage, ChatRequest
 

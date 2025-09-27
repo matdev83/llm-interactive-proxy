@@ -822,3 +822,10 @@ async def test_backend_error_handling(session_service: MockSessionService) -> No
         await processor.process_request(context, request_data)
 
     assert "API unavailable" in str(exc.value.message)
+
+
+import pytest
+
+pytestmark = pytest.mark.filterwarnings(
+    "ignore:unclosed event loop <ProactorEventLoop.*:ResourceWarning"
+)

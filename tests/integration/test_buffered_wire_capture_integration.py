@@ -1,6 +1,7 @@
 """Integration tests for BufferedWireCapture service."""
 
 import asyncio
+import contextlib
 import json
 import os
 import tempfile
@@ -11,6 +12,11 @@ from src.core.app.application_builder import ApplicationBuilder
 from src.core.config.app_config import AppConfig
 from src.core.interfaces.wire_capture_interface import IWireCapture
 from src.core.services.buffered_wire_capture_service import BufferedWireCapture
+
+# Suppress Windows ProactorEventLoop resource warnings in this module only
+pytestmark = pytest.mark.filterwarnings(
+    "ignore:unclosed event loop <ProactorEventLoop.*:ResourceWarning"
+)
 
 
 @pytest.fixture
@@ -47,9 +53,14 @@ def test_app(mock_app_config):
 
 @pytest.fixture
 def client(test_app):
-    """Create a test client."""
+    """Create a test client and ensure proper cleanup."""
     app, _ = test_app
-    return TestClient(app)
+    client = TestClient(app)
+    try:
+        yield client
+    finally:
+        with contextlib.suppress(Exception):
+            client.close()
 
 
 def test_buffered_wire_capture_integration(client, test_app):

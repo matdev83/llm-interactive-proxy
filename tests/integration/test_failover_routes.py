@@ -26,6 +26,12 @@ def app():
     yield app
 
 
+# Suppress Windows ProactorEventLoop warnings for this module
+pytestmark = pytest.mark.filterwarnings(
+    "ignore:unclosed event loop <ProactorEventLoop.*:ResourceWarning"
+)
+
+
 def test_failover_route_commands(app, monkeypatch):
     """Test failover route commands in the new architecture."""
     # Mock the APIKeyMiddleware's dispatch method to always return the next response

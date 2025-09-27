@@ -510,6 +510,10 @@ class AppConfig(DomainModel, IConfig):
             "dangerous_command_steering_message": os.environ.get(
                 "DANGEROUS_COMMAND_STEERING_MESSAGE"
             ),
+            "pytest_compression_enabled": os.environ.get(
+                "PYTEST_COMPRESSION_ENABLED", "true"
+            ).lower()
+            == "true",
         }
 
         config["logging"] = {

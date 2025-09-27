@@ -6,6 +6,11 @@ from fastapi.testclient import TestClient
 from pytest_httpx import HTTPXMock
 from src.core.app.test_builder import build_httpx_mock_test_app
 
+# Suppress Windows ProactorEventLoop ResourceWarnings for this module
+pytestmark = pytest.mark.filterwarnings(
+    "ignore:unclosed event loop <ProactorEventLoop.*:ResourceWarning"
+)
+
 
 @pytest.fixture
 def httpx_mock_client():

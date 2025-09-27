@@ -16,6 +16,11 @@ from src.core.constants import HTTP_401_UNAUTHORIZED_MESSAGE
 from src.core.interfaces.application_state_interface import IApplicationState
 from src.core.security.middleware import APIKeyMiddleware, AuthMiddleware
 
+# Suppress Windows ProactorEventLoop ResourceWarnings for this module
+pytestmark = pytest.mark.filterwarnings(
+    "ignore:unclosed event loop <ProactorEventLoop.*:ResourceWarning"
+)
+
 
 @pytest.fixture
 def mock_request():

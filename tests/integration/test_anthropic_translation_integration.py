@@ -5,14 +5,41 @@ import socket
 import tempfile
 import threading
 import time
+import warnings as _warnings
 from collections.abc import Generator
 from pathlib import Path
 from typing import Any
 
 import pytest
 import requests
-import uvicorn
 from src.core.app.test_builder import build_httpx_mock_test_app as build_app
+
+# Suppress upstream deprecations emitted during uvicorn/websockets import
+_warnings.filterwarnings(
+    "ignore",
+    category=DeprecationWarning,
+    message=r".*websockets\.legacy is deprecated.*",
+)
+_warnings.filterwarnings(
+    "ignore",
+    category=DeprecationWarning,
+    message=r".*websockets\.server\.WebSocketServerProtocol is deprecated.*",
+)
+
+import uvicorn
+
+# Suppress Windows ProactorEventLoop and upstream websockets deprecations for this module
+pytestmark = [
+    pytest.mark.filterwarnings(
+        "ignore:unclosed event loop <ProactorEventLoop.*:ResourceWarning"
+    ),
+    pytest.mark.filterwarnings(
+        "ignore:.*websockets\\.legacy is deprecated.*:DeprecationWarning"
+    ),
+    pytest.mark.filterwarnings(
+        "ignore:.*websockets\\.server\\.WebSocketServerProtocol is deprecated.*:DeprecationWarning"
+    ),
+]
 
 
 class _ProxyServer:
@@ -99,6 +126,22 @@ def test_anthropic_multimodal_translation(
     proxy_server: _ProxyServer, mocker: Any
 ) -> None:
     """Verify that a multimodal request is correctly translated to the Anthropic format."""
+    import warnings
+
+    # Uvicorn imports deprecated WebSocketServerProtocol from websockets.server
+    warnings.filterwarnings(
+        "ignore",
+        category=DeprecationWarning,
+        message=r".*websockets\.server\.WebSocketServerProtocol is deprecated.*",
+    )
+
+    # Upstream websockets.legacy deprecation warning (triggered by anthropic dependency)
+    warnings.filterwarnings(
+        "ignore",
+        category=DeprecationWarning,
+        message=r".*websockets\.legacy is deprecated.*",
+    )
+
     from anthropic import Anthropic
     from anthropic.types import Message, TextBlock, Usage
 

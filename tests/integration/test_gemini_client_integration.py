@@ -21,6 +21,11 @@ from fastapi import HTTPException
 from src.core.app.application_builder import build_app
 from src.core.domain.responses import ResponseEnvelope
 
+# Suppress Windows ProactorEventLoop warnings for this module
+pytestmark = pytest.mark.filterwarnings(
+    "ignore:unclosed event loop <ProactorEventLoop.*:ResourceWarning"
+)
+
 # De-networked: no longer need get_backend_instance
 
 # De-networked: tests now use mocked Gemini client instead of real network calls

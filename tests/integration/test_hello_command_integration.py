@@ -5,6 +5,10 @@ Integration tests for the Hello command in the new SOLID architecture.
 from unittest.mock import patch
 
 import pytest
+
+pytestmark = pytest.mark.filterwarnings(
+    "ignore:unclosed event loop <ProactorEventLoop.*:ResourceWarning"
+)
 import pytest_asyncio
 from fastapi.testclient import TestClient
 
@@ -187,11 +191,8 @@ async def test_hello_command_integration(app):
             "src.core.services.request_processor_service.RequestProcessor.process_request",
             new=mock_process_request,
         ),
+        TestClient(app) as client,
     ):
-
-        # Create a test client
-        client = TestClient(app)
-
         # Send a Hello command
         response = client.post(
             "/v1/chat/completions",

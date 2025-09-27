@@ -1,6 +1,11 @@
 from unittest.mock import Mock
 
 import pytest
+
+# Suppress Windows ProactorEventLoop ResourceWarnings for this module
+pytestmark = pytest.mark.filterwarnings(
+    "ignore:unclosed event loop <ProactorEventLoop.*:ResourceWarning"
+)
 from src.core.domain.commands.set_command import SetCommand
 from src.core.domain.session import (
     BackendConfiguration,

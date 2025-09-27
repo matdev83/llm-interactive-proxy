@@ -442,6 +442,10 @@ class StructuredWireCapture(IWireCapture):
                 exc_info=True,
             )
 
+    async def shutdown(self) -> None:
+        """No background tasks; nothing to clean up for structured capture."""
+        return None
+
 
 def _safe_json_dump(obj: Any) -> str:
     """Safely convert object to JSON string."""

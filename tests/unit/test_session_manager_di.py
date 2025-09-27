@@ -63,3 +63,9 @@ async def test_session_update_and_persistence(session_service: ISessionService) 
     updated_session = await session_service.get_session("update-test")
     assert len(updated_session.history) == 1
     assert updated_session.history[0].prompt == "test prompt"
+
+
+# Suppress Windows ProactorEventLoop warnings for this module
+pytestmark = pytest.mark.filterwarnings(
+    "ignore:unclosed event loop <ProactorEventLoop.*:ResourceWarning"
+)

@@ -14,7 +14,7 @@ from src.core.domain.session import Session
 class IAgentResponseFormatter(Protocol):
     """Interface for agent-specific response formatting operations."""
 
-    def format_command_result_for_agent(
+    async def format_command_result_for_agent(
         self, command_result: Any, session: Session
     ) -> dict[str, Any]:
         """Format a command result for the specific agent type."""

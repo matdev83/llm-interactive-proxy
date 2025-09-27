@@ -86,28 +86,29 @@ async def test_loop_detection_with_mocked_backend():
         mock_call.return_value = repeating_response
 
         # Create a test client
-        client = TestClient(app, headers={"Authorization": "Bearer test_api_key"})
+        with TestClient(
+            app, headers={"Authorization": "Bearer test_api_key"}
+        ) as client:
+            # Make a request to the API endpoint
+            response = client.post(
+                "/v1/chat/completions",
+                json={
+                    "model": "test-model",
+                    "messages": [{"role": "user", "content": "Hello"}],
+                    "session_id": "test-loop-detection-session",
+                },
+            )
 
-        # Make a request to the API endpoint
-        response = client.post(
-            "/v1/chat/completions",
-            json={
-                "model": "test-model",
-                "messages": [{"role": "user", "content": "Hello"}],
-                "session_id": "test-loop-detection-session",
-            },
-        )
+            # For now, verify the response is successful (loop detection may not be working in test environment)
+            # This indicates the test needs further investigation of loop detection setup
+            assert response.status_code == 200
+            response_json = response.json()
 
-        # For now, verify the response is successful (loop detection may not be working in test environment)
-        # This indicates the test needs further investigation of loop detection setup
-        assert response.status_code == 200
-        response_json = response.json()
+            # Check that we got a valid response structure
+            assert "choices" in response_json
+            assert len(response_json["choices"]) > 0
 
-        # Check that we got a valid response structure
-        assert "choices" in response_json
-        assert len(response_json["choices"]) > 0
-
-        # Note: Loop detection may not be working in the current test setup
+            # Note: Loop detection may not be working in the current test setup
         # This test serves as a baseline for when loop detection is properly configured
 
 
@@ -144,12 +145,12 @@ async def test_loop_detection_in_streaming_response():
             await asyncio.sleep(0.01)
 
     # Patch the backend service to return the streaming response
-    with patch.object(
-        backend_service, "call_completion", return_value=generate_repeating_chunks()
+    with (
+        patch.object(
+            backend_service, "call_completion", return_value=generate_repeating_chunks()
+        ),
+        TestClient(app, headers={"Authorization": "Bearer test_api_key"}) as client,
     ):
-        # Create a test client with authentication
-        client = TestClient(app, headers={"Authorization": "Bearer test_api_key"})
-
         # Make a streaming request to the API endpoint
         response = client.post(
             "/v1/chat/completions",
@@ -168,8 +169,8 @@ async def test_loop_detection_in_streaming_response():
         response_text = response.text
         assert len(response_text) > 0
 
-        # Note: Full streaming loop detection testing would require more complex setup
-        # This test serves as a baseline for streaming functionality
+    # Note: Full streaming loop detection testing would require more complex setup
+    # This test serves as a baseline for streaming functionality
 
 
 @pytest.mark.asyncio

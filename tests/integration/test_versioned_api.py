@@ -417,3 +417,9 @@ async def test_compatibility_endpoint(initialized_app: FastAPI, client: TestClie
     finally:
         # Restore the original method
         request_processor.process_request = original_process_request
+
+
+# Suppress Windows ProactorEventLoop warnings for this module
+pytestmark = pytest.mark.filterwarnings(
+    "ignore:unclosed event loop <ProactorEventLoop.*:ResourceWarning"
+)

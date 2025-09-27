@@ -49,13 +49,17 @@ class SOLIDViolationDetector(ast.NodeVisitor):
         self.class_methods = set()  # Track class methods
         self.static_methods = set()  # Track static methods
 
-    def visit_Import(self, node: ast.Import):
+    def visit_Import(  # noqa: N802 - AST visitor API requires this name
+        self, node: ast.Import
+    ):
         """Visit import statements."""
         for name in node.names:
             self.imports[name.asname or name.name] = name.name
         self.generic_visit(node)
 
-    def visit_ImportFrom(self, node: ast.ImportFrom):
+    def visit_ImportFrom(  # noqa: N802 - AST visitor API requires this name
+        self, node: ast.ImportFrom
+    ):
         """Visit from-import statements."""
         if node.module:
             # Check for direct imports from implementation modules instead of interfaces
@@ -87,7 +91,9 @@ class SOLIDViolationDetector(ast.NodeVisitor):
 
         self.generic_visit(node)
 
-    def visit_ClassDef(self, node: ast.ClassDef):
+    def visit_ClassDef(  # noqa: N802 - AST visitor API requires this name
+        self, node: ast.ClassDef
+    ):
         """Visit class definitions."""
         old_class = self.current_class
         self.current_class = node.name
@@ -124,7 +130,9 @@ class SOLIDViolationDetector(ast.NodeVisitor):
         self.generic_visit(node)
         self.current_class = old_class
 
-    def visit_FunctionDef(self, node: ast.FunctionDef):
+    def visit_FunctionDef(  # noqa: N802 - AST visitor API requires this name
+        self, node: ast.FunctionDef
+    ):
         """Visit function definitions."""
         old_method = self.current_method
         self.current_method = node.name
@@ -155,7 +163,9 @@ class SOLIDViolationDetector(ast.NodeVisitor):
         self.generic_visit(node)
         self.current_method = old_method
 
-    def visit_Attribute(self, node: ast.Attribute):
+    def visit_Attribute(  # noqa: N802 - AST visitor API requires this name
+        self, node: ast.Attribute
+    ):
         """Visit attribute access."""
         # Check for direct app.state access
         if self._is_app_state_access(node) and not self._has_dip_noqa_comment(node):
@@ -211,7 +221,9 @@ class SOLIDViolationDetector(ast.NodeVisitor):
 
         self.generic_visit(node)
 
-    def visit_Call(self, node: ast.Call):
+    def visit_Call(  # noqa: N802 - AST visitor API requires this name
+        self, node: ast.Call
+    ):
         """Visit function calls."""
         # Check for hasattr/getattr/setattr on app.state
         if (

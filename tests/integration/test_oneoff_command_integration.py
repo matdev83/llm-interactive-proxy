@@ -57,12 +57,11 @@ async def test_oneoff_command_integration(app: FastAPI) -> None:
     backend_service = app.state.service_provider.get_required_service(IBackendService)
 
     # Create a test client
-    client = TestClient(app)
-
-    # Mock the command processor to handle oneoff commands
-    from src.core.services.command_processor import (
-        CommandProcessor as CoreCommandProcessor,
-    )
+    with TestClient(app) as client:
+        # Mock the command processor to handle oneoff commands
+        from src.core.services.command_processor import (
+            CommandProcessor as CoreCommandProcessor,
+        )
 
     async def mock_process_messages(
         self: Any, messages: list[dict[str, Any]], *args: Any, **kwargs: Any
@@ -130,93 +129,96 @@ async def test_oneoff_command_integration(app: FastAPI) -> None:
             modified_messages=messages, command_results=[], command_executed=False
         )
 
-    # Patch the necessary functions
-    with (
-        patch(
-            "src.core.security.middleware.APIKeyMiddleware.dispatch", new=mock_dispatch
-        ),
-        patch.object(
-            backend_service,
-            "call_completion",
-            new=AsyncMock(
-                side_effect=[
-                    # Response for the command-only request
-                    {
-                        "id": "proxy-cmd-response",
-                        "object": "chat.completion",
-                        "created": 1677858242,
-                        "model": "gpt-3.5-turbo",
-                        "choices": [
-                            {
-                                "index": 0,
-                                "message": {
-                                    "role": "assistant",
-                                    "content": "One-off route set to openai/gpt-4.",
-                                },
-                                "finish_reason": "stop",
-                            }
-                        ],
-                        "usage": {
-                            "prompt_tokens": 0,
-                            "completion_tokens": 0,
-                            "total_tokens": 0,
-                        },
-                    },
-                    # Response for the follow-up request
-                    {
-                        "id": "backend-response",
-                        "object": "chat.completion",
-                        "created": 1677858242,
-                        "model": "gpt-4",
-                        "choices": [
-                            {
-                                "index": 0,
-                                "message": {
-                                    "role": "assistant",
-                                    "content": "This is a response from the one-off route.",
-                                },
-                                "finish_reason": "stop",
-                            }
-                        ],
-                        "usage": {
-                            "prompt_tokens": 10,
-                            "completion_tokens": 10,
-                            "total_tokens": 20,
-                        },
-                    },
-                ]
+        # Patch the necessary functions
+        with (
+            patch(
+                "src.core.security.middleware.APIKeyMiddleware.dispatch",
+                new=mock_dispatch,
             ),
-        ),
-        patch.object(CoreCommandProcessor, "process_messages", mock_process_messages),
-    ):
+            patch.object(
+                backend_service,
+                "call_completion",
+                new=AsyncMock(
+                    side_effect=[
+                        # Response for the command-only request
+                        {
+                            "id": "proxy-cmd-response",
+                            "object": "chat.completion",
+                            "created": 1677858242,
+                            "model": "gpt-3.5-turbo",
+                            "choices": [
+                                {
+                                    "index": 0,
+                                    "message": {
+                                        "role": "assistant",
+                                        "content": "One-off route set to openai/gpt-4.",
+                                    },
+                                    "finish_reason": "stop",
+                                }
+                            ],
+                            "usage": {
+                                "prompt_tokens": 0,
+                                "completion_tokens": 0,
+                                "total_tokens": 0,
+                            },
+                        },
+                        # Response for the follow-up request
+                        {
+                            "id": "backend-response",
+                            "object": "chat.completion",
+                            "created": 1677858242,
+                            "model": "gpt-4",
+                            "choices": [
+                                {
+                                    "index": 0,
+                                    "message": {
+                                        "role": "assistant",
+                                        "content": "This is a response from the one-off route.",
+                                    },
+                                    "finish_reason": "stop",
+                                }
+                            ],
+                            "usage": {
+                                "prompt_tokens": 10,
+                                "completion_tokens": 10,
+                                "total_tokens": 20,
+                            },
+                        },
+                    ]
+                ),
+            ),
+            patch.object(
+                CoreCommandProcessor, "process_messages", mock_process_messages
+            ),
+        ):
 
-        # First request with the one-off command
-        response = client.post(
-            "/v1/chat/completions",
-            json={
-                "model": "gpt-3.5-turbo",
-                "messages": [{"role": "user", "content": "!/oneoff(openai/gpt-4)"}],
-                "session_id": "test-oneoff-session",
-            },
-        )
+            # First request with the one-off command
+            response = client.post(
+                "/v1/chat/completions",
+                json={
+                    "model": "gpt-3.5-turbo",
+                    "messages": [{"role": "user", "content": "!/oneoff(openai/gpt-4)"}],
+                    "session_id": "test-oneoff-session",
+                },
+            )
 
-        # Verify the response
-        assert response.status_code == 200
-        # We're using a mocked response, so just check that we got something back
-        assert response.json()["choices"][0]["message"]["content"] is not None
+            # Verify the response
+            assert response.status_code == 200
+            # We're using a mocked response, so just check that we got something back
+            assert response.json()["choices"][0]["message"]["content"] is not None
 
-        # Second request to use the one-off route
-        response = client.post(
-            "/v1/chat/completions",
-            json={
-                "model": "gpt-3.5-turbo",
-                "messages": [{"role": "user", "content": "Hello!"}],
-                "session_id": "test-oneoff-session",
-            },
-        )
+            # Second request to use the one-off route
+            response = client.post(
+                "/v1/chat/completions",
+                json={
+                    "model": "gpt-3.5-turbo",
+                    "messages": [{"role": "user", "content": "Hello!"}],
+                    "session_id": "test-oneoff-session",
+                },
+            )
 
-        # Verify that the response was successful
-        assert response.status_code == 200
-        # In a real application, this would be "gpt-4", but in our mock setup
-        # we don't need to verify the model name as long as we get a valid response
-        assert response.json()["model"] is not None
+            # Verify that the response was successful
+            assert response.status_code == 200
+            # In a real application, this would be "gpt-4", but in our mock setup
+            # we don't need to verify the model name as long as we get a valid response
+            assert response.json()["model"] is not None
