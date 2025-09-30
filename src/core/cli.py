@@ -165,6 +165,24 @@ def parse_cli_args(argv: list[str] | None = None) -> argparse.Namespace:
         help="Disable LLM accounting (usage tracking and audit logging)",
     )
 
+    # Pytest output compression
+    compression_group = parser.add_mutually_exclusive_group()
+    compression_group.add_argument(
+        "--enable-pytest-compression",
+        action="store_const",
+        const=True,
+        dest="pytest_compression_enabled",
+        default=None,
+        help="Enable pytest output compression (overrides config)",
+    )
+    compression_group.add_argument(
+        "--disable-pytest-compression",
+        action="store_const",
+        const=False,
+        dest="pytest_compression_enabled",
+        help="Disable pytest output compression (overrides config)",
+    )
+
     # Security and process options
     parser.add_argument(
         "--allow-admin",
@@ -303,6 +321,10 @@ def apply_cli_args(args: argparse.Namespace) -> AppConfig:
             "true" if args.disable_accounting else "false"
         )
 
+    # Pytest compression flag
+    if args.pytest_compression_enabled is not None:
+        cfg.session.pytest_compression_enabled = args.pytest_compression_enabled
+
     # Validate and apply configurations
     _validate_and_apply_prefix(cfg)
     _apply_feature_flags(cfg)
@@ -359,16 +381,16 @@ def _check_privileges() -> None:
 
 def _daemonize() -> None:
     """Daemonize the process on Unix-like systems."""
-    if hasattr(os, "fork") and hasattr(os, "setsid"):
-        if os.fork() > 0:
+    if os.name != "nt":
+        if hasattr(os, "fork") and os.fork() > 0:
             sys.exit(0)  # exit first parent
 
         os.chdir("/")
         if hasattr(os, "setsid"):
-            os.setsid()  # type: ignore[attr-defined]
+            os.setsid()
         os.umask(0)
 
-        if os.fork() > 0:
+        if hasattr(os, "fork") and os.fork() > 0:
             sys.exit(0)  # exit second parent
     else:
         # On Windows, we can't daemonize, so we just continue
@@ -613,7 +635,8 @@ def main(
     # Start the server
     logging.info(f"Starting uvicorn on {cfg.host}:{cfg.port}")
     try:
-        uvicorn.run(app, host=cfg.host, port=cfg.port)
+        # Start uvicorn with the configured host/port (disable detailed access logging)
+        uvicorn.run(app, host=cfg.host, port=cfg.port, access_log=False)
     except Exception as e:
         logging.exception("Uvicorn failed to start: %s", e)
         raise
