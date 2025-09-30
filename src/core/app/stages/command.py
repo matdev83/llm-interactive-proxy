@@ -155,20 +155,16 @@ class CommandStage(InitializationStage):
                 logger.warning(f"Could not register command service or parser: {e}")
 
     def _register_default_commands(self, services: ServiceCollection) -> None:
-        """Register default commands including failover commands."""
+        """Register default commands using auto-discovery from domain command registry."""
         try:
-            # Register a factory that will populate the command registry with default commands
+            # Register a factory that will populate the command registry with auto-discovered commands
             def populate_commands_factory(provider: IServiceProvider) -> None:
-                """Factory to populate the command registry with default commands."""
+                """Factory to populate the command registry with auto-discovered commands."""
                 try:
-                    from src.core.domain.commands.failover_commands import (
-                        CreateFailoverRouteCommand,
-                        DeleteFailoverRouteCommand,
-                        ListFailoverRoutesCommand,
-                        RouteAppendCommand,
-                        RouteClearCommand,
-                        RouteListCommand,
-                        RoutePrependCommand,
+                    # Import domain commands to trigger auto-discovery
+                    import src.core.domain.commands  # noqa: F401
+                    from src.core.domain.commands.command_registry import (
+                        domain_command_registry,
                     )
                     from src.core.interfaces.command_settings_interface import (
                         ICommandSettingsService,
@@ -218,27 +214,39 @@ class CommandStage(InitializationStage):
 
                     state_service = DefaultStateService(settings_service)
 
-                    # Register failover commands
-                    registry.register(
-                        CreateFailoverRouteCommand(state_service, state_service)
-                    )
-                    registry.register(
-                        DeleteFailoverRouteCommand(state_service, state_service)
-                    )
-                    registry.register(
-                        ListFailoverRoutesCommand(state_service, state_service)
-                    )
-                    registry.register(RouteAppendCommand(state_service, state_service))
-                    registry.register(RouteClearCommand(state_service, state_service))
-                    registry.register(RouteListCommand(state_service, state_service))
-                    registry.register(RoutePrependCommand(state_service, state_service))
+                    # Auto-register all commands from the domain command registry
+                    for (
+                        command_name
+                    ) in domain_command_registry.get_registered_commands():
+                        try:
+                            command_factory = (
+                                domain_command_registry.get_command_factory(
+                                    command_name
+                                )
+                            )
+                            # Instantiate the command with state services
+                            command_instance = command_factory(
+                                state_service, state_service
+                            )
+                            registry.register(command_instance)
+                            if logger.isEnabledFor(logging.DEBUG):
+                                logger.debug(
+                                    f"Auto-registered domain command: {command_name}"
+                                )
+                        except Exception as e:
+                            if logger.isEnabledFor(logging.WARNING):
+                                logger.warning(
+                                    f"Could not register command '{command_name}': {e}"
+                                )
 
-                    if logger.isEnabledFor(logging.DEBUG):
-                        logger.debug("Registered default failover commands")
+                    if logger.isEnabledFor(logging.INFO):
+                        logger.info(
+                            f"Auto-registered {len(domain_command_registry.get_registered_commands())} domain commands"
+                        )
 
                 except Exception as e:
                     if logger.isEnabledFor(logging.WARNING):
-                        logger.warning(f"Could not register default commands: {e}")
+                        logger.warning(f"Could not register domain commands: {e}")
 
                 return None
 
@@ -248,7 +256,9 @@ class CommandStage(InitializationStage):
             )
 
             if logger.isEnabledFor(logging.DEBUG):
-                logger.debug("Registered default commands factory")
+                logger.debug("Registered domain commands auto-discovery factory")
         except Exception as e:
             if logger.isEnabledFor(logging.WARNING):
-                logger.warning(f"Could not register default commands factory: {e}")
+                logger.warning(
+                    f"Could not register domain commands auto-discovery factory: {e}"
+                )

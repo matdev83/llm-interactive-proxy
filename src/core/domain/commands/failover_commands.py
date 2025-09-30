@@ -586,3 +586,21 @@ class RouteClearCommand(StatefulCommandBase):
             success=True,
             message=f"All elements cleared from failover route '{name}'",
         )
+
+
+# Register all failover commands in the global registry
+from src.core.domain.commands.command_registry import domain_command_registry
+
+domain_command_registry.register_command(
+    "create-failover-route", CreateFailoverRouteCommand
+)
+domain_command_registry.register_command(
+    "delete-failover-route", DeleteFailoverRouteCommand
+)
+domain_command_registry.register_command(
+    "list-failover-routes", ListFailoverRoutesCommand
+)
+domain_command_registry.register_command("route-append", RouteAppendCommand)
+domain_command_registry.register_command("route-clear", RouteClearCommand)
+domain_command_registry.register_command("route-list", RouteListCommand)
+domain_command_registry.register_command("route-prepend", RoutePrependCommand)

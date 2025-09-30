@@ -1,15 +1,36 @@
 # Changelog
 
-## 2025-09-30 – Backend Auto-Discovery Architecture
+## 2025-10-01 – CLI v2 Migration
 
-- **Architecture Improvement**: Implemented true SOLID/DIP-compliant backend auto-discovery mechanism
-  - **Dynamic Discovery**: Backends are automatically discovered using `pkgutil.iter_modules()` - no hardcoded imports required
-  - **Plugin-Ready**: Simply drop a new backend file in `src/connectors/` with `backend_registry.register_backend()` call
-  - **SOLID Principles**: Follows Open/Closed Principle - system is open for extension but closed for modification
-  - **Resilient**: Failed backend imports don't break other backends - errors are logged as warnings
-  - **Backward Compatible**: All backend classes are still exported for existing imports to work
-  - **Comprehensive Testing**: Full test coverage for auto-discovery mechanism
-  - **Documentation**: Detailed developer documentation in `docs/dev/backend_auto_discovery.md`
+- **Default CLI Updated**: Promoted the staged `cli_v2` implementation to the primary entrypoint (`src/core/cli.py`) for running the proxy.
+  - Feature parity verified by the existing CLI-focused unit suite and the full project test run.
+  - Removed the unused Colorama dependency while keeping Windows startup behavior unchanged.
+- **Legacy CLI Preservation**: Archived the previous implementation as `src/core/cli_old.py` for quick rollback and historical reference.
+  - The codebase no longer imports the legacy module; it can be deleted safely once the fallback is no longer required.
+
+## 2025-09-30 – Auto-Discovery Architecture for Backends and Commands
+
+- **Architecture Improvement**: Implemented true SOLID/DIP-compliant auto-discovery mechanisms
+  - **Backend Auto-Discovery**:
+    - Backends are automatically discovered using `pkgutil.iter_modules()` - no hardcoded imports required
+    - Simply drop a new backend file in `src/connectors/` with `backend_registry.register_backend()` call
+    - Follows Open/Closed Principle - system is open for extension but closed for modification
+    - Failed backend imports don't break other backends - errors are logged as warnings
+    - All backend classes are still exported for existing imports to work (backward compatible)
+    - Full test coverage in `tests/unit/test_backend_autodiscovery.py`
+    - Documentation in `docs/dev/backend_auto_discovery.md`
+  - **Command Auto-Discovery**:
+    - Domain commands are automatically discovered using `pkgutil.iter_modules()` - no hardcoded registrations
+    - Created `DomainCommandRegistry` for centralized command registration
+    - Simply add `domain_command_registry.register_command()` calls at module level
+    - Command stage now uses auto-discovery instead of hardcoded command instantiation
+    - Failover commands and all domain commands benefit from auto-discovery
+    - Full test coverage in `tests/unit/test_command_autodiscovery.py`
+  - **Benefits**:
+    - Zero maintenance overhead when adding new backends or commands
+    - Reduced coupling between implementations and discovery system
+    - Plugin-ready architecture for future extensibility
+    - Resilient error handling for failed imports
 - **Bug Fix**: Fixed Gemini OAuth Personal backend integration
   - Implemented proper authentication flow using `google.auth.transport.requests.AuthorizedSession`
   - Fixed Code Assist API request/response format wrapping

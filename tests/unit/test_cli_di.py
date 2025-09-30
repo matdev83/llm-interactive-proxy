@@ -259,12 +259,21 @@ def test_apply_cli_args_disable_auth_forces_localhost() -> None:
         cfg = apply_cli_args(args)
         assert cfg.host == "127.0.0.1"
         assert cfg.auth.disable_auth is True
-        # Should log a warning about forcing localhost
-        mock_logging.warning.assert_called_once()
+        # Should log warnings about auth being disabled and host being forced
+        assert mock_logging.warning.call_count == 2
+        warning_calls = [str(call) for call in mock_logging.warning.call_args_list]
+        auth_disabled_warnings = [
+            call for call in warning_calls if "authentication is DISABLED" in call
+        ]
+        host_forcing_warnings = [
+            call for call in warning_calls if "Forcing host to 127.0.0.1" in call
+        ]
+        assert len(auth_disabled_warnings) == 1
+        assert len(host_forcing_warnings) == 1
 
 
 def test_apply_cli_args_disable_auth_with_localhost_no_warning() -> None:
-    """Test that disable_auth with localhost doesn't trigger warning."""
+    """Test that disable_auth with localhost doesn't trigger host forcing warning."""
     args = parse_cli_args(["--disable-auth", "--host", "127.0.0.1"])
     with (
         patch.dict(os.environ, {}, clear=True),
@@ -273,8 +282,17 @@ def test_apply_cli_args_disable_auth_with_localhost_no_warning() -> None:
         cfg = apply_cli_args(args)
         assert cfg.host == "127.0.0.1"
         assert cfg.auth.disable_auth is True
-        # Should not log a warning since host is already localhost
-        mock_logging.warning.assert_not_called()
+        # Should log only the auth disabled warning, not host forcing
+        assert mock_logging.warning.call_count == 1
+        warning_calls = [str(call) for call in mock_logging.warning.call_args_list]
+        auth_disabled_warnings = [
+            call for call in warning_calls if "authentication is DISABLED" in call
+        ]
+        host_forcing_warnings = [
+            call for call in warning_calls if "Forcing host to 127.0.0.1" in call
+        ]
+        assert len(auth_disabled_warnings) == 1
+        assert len(host_forcing_warnings) == 0
 
 
 def test_main_disable_auth_forces_localhost() -> None:
