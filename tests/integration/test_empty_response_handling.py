@@ -284,6 +284,7 @@ class TestEmptyResponseHandlingIntegration:
                 recovery_prompt=mock_file_content,
                 session_id="test-session",
                 retry_count=1,
+                original_request=request,
             ),
             ProcessedResponse(content="Valid response"),
         ]

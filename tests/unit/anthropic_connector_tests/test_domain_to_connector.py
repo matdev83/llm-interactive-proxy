@@ -1,5 +1,5 @@
 """
-Tests for Anthropic connector domain → connector behavior.
+Tests for Anthropic connector domain -> connector behavior.
 
 This module tests that the Anthropic connector correctly processes domain models.
 """

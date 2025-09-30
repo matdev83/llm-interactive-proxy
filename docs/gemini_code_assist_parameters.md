@@ -4,7 +4,7 @@
 
 The `gemini-cli-oauth-personal` and `gemini-cloud-project` backends use the Gemini **Code Assist API** (`/v1internal:streamGenerateContent`), which supports a comprehensive set of generation parameters.
 
-## ✅ Supported Parameters
+## [OK] Supported Parameters
 
 Based on the gemini-cli reference implementation and our translation layer, the following parameters are fully supported:
 
@@ -155,7 +155,7 @@ response = client.messages.create(
 
 1. **Request arrives** in OpenAI or Anthropic format
 2. **Translation service** converts to canonical domain format
-3. **Domain → Gemini** conversion creates `generationConfig`
+3. **Domain -> Gemini** conversion creates `generationConfig`
 4. **System role filtering** (Code Assist requirement)
 5. **Code Assist wrapping** with project ID and user_prompt_id
 6. **API call** to `/v1internal:streamGenerateContent`
@@ -193,7 +193,7 @@ response = client.messages.create(
 
 ## Current Implementation Status
 
-✅ **Fully Implemented** in `src/core/domain/translation.py`:
+[OK] **Fully Implemented** in `src/core/domain/translation.py`:
 - `temperature` (line 487)
 - `topP` (line 485)
 - `topK` (line 483)
@@ -201,9 +201,9 @@ response = client.messages.create(
 - `stopSequences` (line 491)
 - `thinkingConfig` with `thinkingBudget` and `includeThoughts` (line 493-507)
   - Automatically maps OpenAI's `reasoning_effort` to `thinkingBudget`
-  - "low" → 512 tokens, "medium" → 2048 tokens, "high" → -1 (dynamic)
+  - "low" -> 512 tokens, "medium" -> 2048 tokens, "high" -> -1 (dynamic)
 
-✅ **Passed Through** via `generationConfig`:
+[OK] **Passed Through** via `generationConfig`:
 - All parameters in the generationConfig are passed through to the Code Assist API
 - The API supports all parameters listed in the gemini-cli reference
 

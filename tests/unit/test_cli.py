@@ -133,3 +133,51 @@ def test_cli_context_window_override_environment_variable() -> None:
                 os.environ["FORCE_CONTEXT_WINDOW"] = original_env
             elif "FORCE_CONTEXT_WINDOW" in os.environ:
                 del os.environ["FORCE_CONTEXT_WINDOW"]
+
+
+def test_cli_pytest_compression_flags() -> None:
+    """Test that --enable-pytest-compression and --disable-pytest-compression flags work."""
+    # Patch load_config where it is looked up (in the 'cli' module)
+    with patch("src.core.cli.load_config") as mock_load_config:
+        # 1. Test --enable-pytest-compression
+        mock_load_config.return_value = AppConfig()
+        args_enable = parse_cli_args(["--enable-pytest-compression"])
+        assert args_enable.pytest_compression_enabled is True
+        config_enable = apply_cli_args(args_enable)
+        assert config_enable.session.pytest_compression_enabled is True
+
+        # 2. Test --disable-pytest-compression
+        mock_load_config.return_value = AppConfig()
+        args_disable = parse_cli_args(["--disable-pytest-compression"])
+        assert args_disable.pytest_compression_enabled is False
+        config_disable = apply_cli_args(args_disable)
+        assert config_disable.session.pytest_compression_enabled is False
+
+        # 3. Test default behavior (None) when no flag is provided
+        # Let's create a config where it's initially False to see if it's preserved.
+        initial_config_false = AppConfig()
+        initial_config_false.session.pytest_compression_enabled = False
+        mock_load_config.return_value = initial_config_false
+
+        args_none = parse_cli_args([])
+        assert args_none.pytest_compression_enabled is None
+        config_none = apply_cli_args(args_none)
+        assert not config_none.session.pytest_compression_enabled  # Should remain False
+
+        # And if it was initially True
+        initial_config_true = AppConfig()
+        initial_config_true.session.pytest_compression_enabled = True
+        mock_load_config.return_value = initial_config_true
+        config_none_true = apply_cli_args(args_none)
+        assert (
+            config_none_true.session.pytest_compression_enabled is True
+        )  # Should remain True
+
+        # 4. Test that flags override initial config
+        # Initial config is False
+        initial_config_override = AppConfig()
+        initial_config_override.session.pytest_compression_enabled = False
+        mock_load_config.return_value = initial_config_override
+        # but we enable it with the flag
+        config_override = apply_cli_args(args_enable)
+        assert config_override.session.pytest_compression_enabled is True

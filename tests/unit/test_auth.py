@@ -18,7 +18,7 @@ def app_auth_enabled(monkeypatch):
     monkeypatch.setenv("LLM_BACKEND", "openrouter")
     monkeypatch.setenv("OPENROUTER_API_KEY_1", "a-real-key")
     with patch(
-        "src.connectors.OpenRouterBackend.list_models",
+        "src.connectors.openrouter.OpenRouterBackend.list_models",
         new=AsyncMock(return_value={"data": [{"id": "some-model"}]}),
     ):
         from src.core.config.app_config import AppConfig
@@ -71,7 +71,7 @@ def test_disable_auth_no_key_generated(monkeypatch, capsys):
     monkeypatch.delenv("LLM_INTERACTIVE_PROXY_API_KEY", raising=False)
     monkeypatch.setenv("OPENROUTER_API_KEY", "a-real-key")
     with patch(
-        "src.connectors.OpenRouterBackend.list_models",
+        "src.connectors.openrouter.OpenRouterBackend.list_models",
         new=AsyncMock(return_value={"data": [{"id": "some-model"}]}),
     ):
         _ = build_app()  # Build app to check for key generation logs

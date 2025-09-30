@@ -57,9 +57,11 @@ the path to the credentials file as input - no Google Cloud project configuratio
 """
 
 import asyncio
+import concurrent.futures
 import contextlib
 import json
 import logging
+import shutil
 import subprocess
 import time
 from collections.abc import AsyncGenerator
@@ -71,9 +73,16 @@ import google.auth.transport.requests
 import google.oauth2.credentials
 import httpx
 import requests  # type: ignore[import-untyped]
+import tiktoken
 from fastapi import HTTPException
 from watchdog.events import FileSystemEventHandler
 from watchdog.observers import Observer
+
+from src.core.domain.chat import (
+    CanonicalChatResponse,
+    ChatCompletionChoice,
+    ChatCompletionChoiceMessage,
+)
 
 if TYPE_CHECKING:
     from watchdog.observers.api import BaseObserver
@@ -118,6 +127,12 @@ CLI_REFRESH_COMMAND = [
     "Hi. What's up?",
 ]
 
+# Timeout configuration for streaming requests
+# Connection timeout: time to establish connection
+DEFAULT_CONNECTION_TIMEOUT = 60.0
+# Read timeout: time between chunks during streaming (much longer for large responses)
+DEFAULT_READ_TIMEOUT = 300.0  # 5 minutes to handle large file reads and long responses
+
 
 class GeminiPersonalCredentialsFileHandler(FileSystemEventHandler):
     """File system event handler for monitoring OAuth credentials file changes."""
@@ -138,10 +153,22 @@ class GeminiPersonalCredentialsFileHandler(FileSystemEventHandler):
         ):
             if logger.isEnabledFor(logging.INFO):
                 logger.info(f"Credentials file modified: {event.src_path}")
-            # Schedule credential reload in the connector's event loop
-            task = asyncio.create_task(self.connector._handle_credentials_file_change())
-            # Store reference to prevent task from being garbage collected
-            self.connector._pending_reload_task = task
+
+            # Schedule credential reload in the connector's event loop in a thread-safe way
+            if self.connector._main_loop is not None:
+                try:
+                    future = asyncio.run_coroutine_threadsafe(
+                        self.connector._handle_credentials_file_change(),
+                        self.connector._main_loop,
+                    )
+                    # Store reference to prevent task from being garbage collected
+                    self.connector._pending_reload_task = future
+                except Exception as e:
+                    if logger.isEnabledFor(logging.ERROR):
+                        logger.error(f"Failed to schedule credentials reload: {e}")
+            else:
+                if logger.isEnabledFor(logging.WARNING):
+                    logger.warning("No event loop available for credentials reload")
 
 
 class GeminiOAuthPersonalConnector(GeminiBackend):
@@ -178,9 +205,15 @@ class GeminiOAuthPersonalConnector(GeminiBackend):
         self._credential_validation_errors: list[str] = []
         self._initialization_failed = False
         self._last_validation_time = 0.0
-        self._pending_reload_task: asyncio.Task | None = None
+        self._pending_reload_task: asyncio.Task | concurrent.futures.Future | None = (
+            None
+        )
         self._last_cli_refresh_attempt = 0.0
         self._cli_refresh_process: subprocess.Popen[bytes] | None = None
+        # Store reference to the main event loop for thread-safe operations
+        self._main_loop: asyncio.AbstractEventLoop | None = None
+        # Flag to track if quota has been exceeded
+        self._quota_exceeded = False
 
         # Check environment variable to allow disabling health checks globally
         import os
@@ -251,12 +284,16 @@ class GeminiOAuthPersonalConnector(GeminiBackend):
             if not isinstance(expiry, int | float):
                 errors.append("Invalid expiry_date: must be a number (ms)")
             else:
-                # Use UTC time for comparison since Google OAuth expiry_date is in UTC
+                # Record expired status without failing validation; refresh logic handles it
                 import datetime
 
                 current_utc_s = datetime.datetime.now(datetime.timezone.utc).timestamp()
-                if current_utc_s >= float(expiry) / 1000.0:
-                    errors.append("Token expired")
+                if current_utc_s >= float(expiry) / 1000.0 and logger.isEnabledFor(
+                    logging.INFO
+                ):
+                    logger.info(
+                        "Loaded Gemini OAuth credentials appear expired; refresh will be triggered."
+                    )
 
         return len(errors) == 0, errors
 
@@ -323,6 +360,22 @@ class GeminiOAuthPersonalConnector(GeminiBackend):
         self._credential_validation_errors = []
         self.is_functional = True
         self._initialization_failed = False
+
+    def _mark_backend_unusable(self) -> None:
+        """Mark this backend as unusable by removing it from functional backends list.
+
+        This method is called when quota exceeded errors are detected and the backend
+        should no longer be used for requests.
+        """
+        # We don't have direct access to the DI container here; just mark ourselves unusable.
+        self.is_functional = False
+        self._quota_exceeded = True
+
+        logger.error(
+            "Backend %s marked as unusable due to quota exceeded. "
+            "Manual intervention may be required to restore functionality.",
+            self.name,
+        )
 
     def _start_file_watching(self) -> None:
         """Start watching the credentials file for changes."""
@@ -483,8 +536,15 @@ class GeminiOAuthPersonalConnector(GeminiBackend):
             return
 
         try:
+            command = list(CLI_REFRESH_COMMAND)
+            executable = shutil.which(command[0])
+            if executable:
+                command[0] = executable
+            else:
+                raise FileNotFoundError(command[0])
+
             self._cli_refresh_process = subprocess.Popen(  # - intended CLI call
-                CLI_REFRESH_COMMAND,
+                command,
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL,
             )
@@ -667,6 +727,14 @@ class GeminiOAuthPersonalConnector(GeminiBackend):
             logger.info(
                 "Initializing Gemini OAuth Personal backend with enhanced validation."
             )
+
+        # Capture the current event loop for thread-safe operations
+        try:
+            self._main_loop = asyncio.get_running_loop()
+        except RuntimeError:
+            # If no running loop, create a new one
+            self._main_loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(self._main_loop)
 
         # Set the API base URL for Google Code Assist API (used by oauth-personal)
         self.gemini_api_base_url = kwargs.get(
@@ -1144,6 +1212,7 @@ class GeminiOAuthPersonalConnector(GeminiBackend):
 
             # Use the auth_session.request exactly like KiloCode
             # Add ?alt=sse for server-sent events streaming
+            # Use tuple for (connect_timeout, read_timeout) to handle large responses
             try:
                 response = await asyncio.to_thread(
                     auth_session.request,
@@ -1152,7 +1221,7 @@ class GeminiOAuthPersonalConnector(GeminiBackend):
                     params={"alt": "sse"},  # Important: KiloCode uses SSE streaming
                     json=request_body,
                     headers={"Content-Type": "application/json"},
-                    timeout=60,
+                    timeout=(DEFAULT_CONNECTION_TIMEOUT, DEFAULT_READ_TIMEOUT),
                 )
             except requests.exceptions.Timeout as te:  # type: ignore[attr-defined]
                 raise APITimeoutError(
@@ -1180,9 +1249,6 @@ class GeminiOAuthPersonalConnector(GeminiBackend):
 
             # Parse SSE stream response
             generated_text = ""
-            domain_response = None
-
-            # Read the SSE stream
             response_text = response.text
             for line in response_text.split("\n"):
                 if line.startswith("data: "):
@@ -1191,30 +1257,86 @@ class GeminiOAuthPersonalConnector(GeminiBackend):
                         break
                     try:
                         data = json.loads(data_str)
-                        # Use translation service to convert to domain response
-                        domain_response = self.translation_service.to_domain_response(
-                            response=data,  # Corrected parameter name
-                            source_format="code_assist",
+                        # Extract content from the chunk
+                        chunk_response = (
+                            self.translation_service.to_domain_stream_chunk(
+                                chunk=data,
+                                source_format="code_assist",
+                            )
                         )
                         if (
-                            domain_response.choices
-                            and domain_response.choices[0].message.content
+                            chunk_response
+                            and chunk_response.get("choices")
+                            and chunk_response["choices"][0]
+                            .get("delta", {})
+                            .get("content")
                         ):
-                            generated_text += domain_response.choices[0].message.content
+                            generated_text += chunk_response["choices"][0]["delta"][
+                                "content"
+                            ]
                     except json.JSONDecodeError:
                         continue
 
-            # Convert to OpenAI-compatible format using translation_service
-            if not domain_response:
-                raise BackendError("Failed to parse a valid response from the backend.")
-            openai_response = self.translation_service.from_domain_response(
-                response=domain_response,
-                target_format="openai",
+            # Manually calculate token usage since the API doesn't provide it
+            try:
+                encoding = tiktoken.get_encoding("cl100k_base")
+
+                # Reconstruct prompt text
+                prompt_text_parts = []
+                if code_assist_request.get("systemInstruction"):
+                    for part in code_assist_request["systemInstruction"].get(
+                        "parts", []
+                    ):
+                        if "text" in part:
+                            prompt_text_parts.append(part["text"])
+
+                for content in code_assist_request.get("contents", []):
+                    for part in content.get("parts", []):
+                        if "text" in part:
+                            prompt_text_parts.append(part["text"])
+
+                full_prompt = "\n".join(prompt_text_parts)
+
+                prompt_tokens = len(encoding.encode(full_prompt))
+                completion_tokens = len(encoding.encode(generated_text))
+                total_tokens = prompt_tokens + completion_tokens
+                usage = {
+                    "prompt_tokens": prompt_tokens,
+                    "completion_tokens": completion_tokens,
+                    "total_tokens": total_tokens,
+                }
+            except Exception as e:
+                logger.warning(f"Could not calculate token usage with tiktoken: {e}")
+                usage = {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
+
+            # Create a new CanonicalChatResponse with the full content and usage
+            domain_response = CanonicalChatResponse(
+                id=f"chatcmpl-code-assist-{int(time.time())}",
+                object="chat.completion",
+                created=int(time.time()),
+                model=effective_model,
+                choices=[
+                    ChatCompletionChoice(
+                        index=0,
+                        message=ChatCompletionChoiceMessage(
+                            role="assistant", content=generated_text
+                        ),
+                        finish_reason="stop",
+                    )
+                ],
+                usage=usage,
             )
 
-            logger.info("Successfully received response from Code Assist API")
+            # Convert to OpenAI-compatible format
+            openai_response = self.translation_service.from_domain_to_openai_response(
+                domain_response
+            )
+
+            logger.info(
+                "Successfully received and processed response from Code Assist API"
+            )
             return ResponseEnvelope(
-                content=openai_response, headers={}, status_code=200
+                content=openai_response, headers={}, status_code=200, usage=usage
             )
 
         except AuthenticationError as e:
@@ -1334,115 +1456,166 @@ class GeminiOAuthPersonalConnector(GeminiBackend):
             url = f"{self.gemini_api_base_url}/v1internal:streamGenerateContent"
             logger.info(f"Making streaming Code Assist API call to: {url}")
 
+            # For token calculation
+            encoding = tiktoken.get_encoding("cl100k_base")
+            try:
+                prompt_text_parts = []
+                if code_assist_request.get("systemInstruction"):
+                    for part in code_assist_request["systemInstruction"].get(
+                        "parts", []
+                    ):
+                        if "text" in part:
+                            prompt_text_parts.append(part["text"])
+                for content in code_assist_request.get("contents", []):
+                    for part in content.get("parts", []):
+                        if "text" in part:
+                            prompt_text_parts.append(part["text"])
+                full_prompt = "\n".join(prompt_text_parts)
+                prompt_tokens = len(encoding.encode(full_prompt))
+            except Exception as e:
+                logger.warning(f"Could not calculate prompt tokens with tiktoken: {e}")
+                prompt_tokens = 0
+
             # Create an async iterator that yields SSE-formatted chunks
             async def stream_generator() -> AsyncGenerator[ProcessedResponse, None]:
-                response = None  # Initialize response to None
+                response = None
+                generated_text = ""
                 try:
-                    # Use the auth_session.request exactly like KiloCode
-                    # Add ?alt=sse for server-sent events streaming
                     try:
                         response = await asyncio.to_thread(
                             auth_session.request,
                             method="POST",
                             url=url,
-                            params={
-                                "alt": "sse"
-                            },  # Important: KiloCode uses SSE streaming
+                            params={"alt": "sse"},
                             json=request_body,
                             headers={"Content-Type": "application/json"},
-                            timeout=60,
+                            timeout=(DEFAULT_CONNECTION_TIMEOUT, DEFAULT_READ_TIMEOUT),
+                            stream=True,
                         )
-                    except requests.exceptions.Timeout as te:  # type: ignore[attr-defined]
+                    except requests.exceptions.Timeout as te:
                         logger.error(
                             f"Streaming timeout calling {url}: {te}", exc_info=True
                         )
-                        # End stream gracefully
-                        yield self.translation_service.to_domain_stream_chunk(
-                            chunk=None, source_format="code_assist"
+                        yield ProcessedResponse(
+                            content=self.translation_service.to_domain_stream_chunk(
+                                chunk=None, source_format="code_assist"
+                            )
                         )
                         return
-                    except requests.exceptions.RequestException as rexc:  # type: ignore[attr-defined]
+                    except requests.exceptions.RequestException as rexc:
                         logger.error(
                             f"Streaming connection error calling {url}: {rexc}",
                             exc_info=True,
                         )
-                        yield self.translation_service.to_domain_stream_chunk(
-                            chunk=None, source_format="code_assist"
+                        yield ProcessedResponse(
+                            content=self.translation_service.to_domain_stream_chunk(
+                                chunk=None, source_format="code_assist"
+                            )
                         )
                         return
 
-                    # Process the response
                     if response.status_code >= 400:
                         try:
                             error_detail = response.json()
                         except Exception:
                             error_detail = response.text
-
+                        if (
+                            response.status_code == 429
+                            and isinstance(error_detail, dict)
+                            and "Quota exceeded"
+                            in error_detail.get("error", {}).get("message", "")
+                        ):
+                            self._mark_backend_unusable()
+                            raise BackendError(
+                                message=f"Gemini CLI OAuth quota exceeded: {error_detail}",
+                                code="quota_exceeded",
+                                status_code=response.status_code,
+                            )
                         raise BackendError(
                             message=f"Code Assist API streaming error: {error_detail}",
                             code="code_assist_error",
                             status_code=response.status_code,
                         )
 
-                    # Process the streaming response using synchronous iter_lines()
-                    for line in response.iter_lines(
-                        chunk_size=1
-                    ):  # Process line by line
+                    line_buffer = ""
+                    for chunk in response.iter_content(
+                        chunk_size=1, decode_unicode=False
+                    ):
                         try:
-                            decoded_line = line.decode("utf-8")
-                            if decoded_line.startswith("data: "):
-                                data_str = decoded_line[6:].strip()
-                                if data_str == "[DONE]":
-                                    yield self.translation_service.to_domain_stream_chunk(
-                                        chunk=None,  # Indicate end of stream
-                                        source_format="code_assist",
-                                    )
-                                    break
-                                try:
-                                    data = json.loads(data_str)
-                                    domain_chunk = (
-                                        self.translation_service.to_domain_stream_chunk(
-                                            chunk=data,  # Pass the parsed JSON data
-                                            source_format="code_assist",
+                            char = chunk.decode("utf-8")
+                            line_buffer += char
+                            if char == "\n":
+                                decoded_line = line_buffer.rstrip("\r\n")
+                                line_buffer = ""
+                                if decoded_line.startswith("data: "):
+                                    data_str = decoded_line[6:].strip()
+                                    if data_str == "[DONE]":
+                                        break
+                                    try:
+                                        data = json.loads(data_str)
+                                        domain_chunk = self.translation_service.to_domain_stream_chunk(
+                                            chunk=data, source_format="code_assist"
                                         )
-                                    )
-                                    yield domain_chunk
-                                except json.JSONDecodeError:
-                                    # If it's not JSON, it might be an empty line or comment, skip
-                                    continue
-                            else:
-                                # Handle non-data lines (e.g., comments, event types) if necessary
-                                if decoded_line.strip():
-                                    yield self.translation_service.to_domain_stream_chunk(
-                                        chunk={
-                                            "text": decoded_line
-                                        },  # Wrap in a dict for consistency
-                                        source_format="raw_text",  # Or a more specific raw format
-                                    )
+                                        # Accumulate generated text for usage calculation
+                                        if (
+                                            domain_chunk
+                                            and domain_chunk.get("choices")
+                                            and domain_chunk["choices"][0]
+                                            .get("delta", {})
+                                            .get("content")
+                                        ):
+                                            generated_text += domain_chunk["choices"][
+                                                0
+                                            ]["delta"]["content"]
+                                        # Always yield the chunk, regardless of content
+                                        yield ProcessedResponse(content=domain_chunk)
+                                    except json.JSONDecodeError:
+                                        continue
+                        except UnicodeDecodeError:
+                            continue
                         except Exception as chunk_error:
                             logger.error(
-                                f"Error processing stream line: {chunk_error}",
+                                f"Error processing stream chunk: {chunk_error}",
                                 exc_info=True,
                             )
                             continue
 
-                    # Ensure the stream is properly closed with a DONE signal
-                    yield self.translation_service.to_domain_stream_chunk(
-                        chunk=None,  # Indicate end of stream
-                        source_format="code_assist",
+                    # Calculate and yield usage
+                    try:
+                        completion_tokens = len(encoding.encode(generated_text))
+                        usage = {
+                            "prompt_tokens": prompt_tokens,
+                            "completion_tokens": completion_tokens,
+                            "total_tokens": prompt_tokens + completion_tokens,
+                        }
+                        usage_chunk = {
+                            "id": f"chatcmpl-gemini-usage-{int(time.time())}",
+                            "object": "chat.completion.chunk",
+                            "created": int(time.time()),
+                            "model": effective_model,
+                            "choices": [],
+                            "usage": usage,
+                        }
+                        yield ProcessedResponse(content=usage_chunk)
+                    except Exception as e:
+                        logger.warning(
+                            f"Could not calculate completion tokens for streaming: {e}"
+                        )
+
+                    final_chunk = self.translation_service.to_domain_stream_chunk(
+                        chunk=None, source_format="code_assist"
                     )
+                    yield ProcessedResponse(content=final_chunk)
 
                 except Exception as e:
                     logger.error(f"Error in streaming generator: {e}", exc_info=True)
-                    # Yield an error chunk or ensure stream ends gracefully
-                    yield self.translation_service.to_domain_stream_chunk(
-                        chunk=None,  # Indicate end of stream due to error
-                        source_format="code_assist",
+                    error_chunk = self.translation_service.to_domain_stream_chunk(
+                        chunk=None, source_format="code_assist"
                     )
-
+                    yield ProcessedResponse(content=error_chunk)
                 finally:
-                    if response:  # Ensure response is defined before closing
-                        response.close()  # Use synchronous close
+                    if response:
+                        response.close()
 
             return StreamingResponseEnvelope(
                 content=stream_generator(),

@@ -75,6 +75,13 @@ def to_fastapi_response(
 
     if media_type == "application/json":
         json_content = _prepare_json_content(content)
+
+        # If the envelope has usage data, merge it into the response content.
+        # This ensures that token usage from the backend is always included
+        # in the final response, overriding any default/zeroed values.
+        if envelope.usage and isinstance(json_content, dict):
+            json_content["usage"] = envelope.usage
+
         safe_content = _sanitize_json_content(json_content)
         safe_headers = _sanitize_headers(headers)
         safe_status_code = _sanitize_status_code(status_code)

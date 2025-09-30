@@ -171,6 +171,12 @@ CODE_ASSIST_SCOPES: list[str] = [
 STANDARD_TIER_ID = "standard-tier"
 ENTERPRISE_TIER_ID = "enterprise-tier"
 
+# Timeout configuration for streaming requests
+# Connection timeout: time to establish connection
+DEFAULT_CONNECTION_TIMEOUT = 60.0
+# Read timeout: time between chunks during streaming (much longer for large responses)
+DEFAULT_READ_TIMEOUT = 300.0  # 5 minutes to handle large file reads and long responses
+
 logger = logging.getLogger(__name__)
 
 
@@ -1062,6 +1068,7 @@ class GeminiCloudProjectConnector(GeminiBackend):
             if logger.isEnabledFor(logging.INFO):
                 logger.info(f"Making Code Assist API call with project {project_id}")
 
+            # Use tuple for (connect_timeout, read_timeout) to handle large responses
             try:
                 response = await asyncio.to_thread(
                     auth_session.request,
@@ -1070,7 +1077,7 @@ class GeminiCloudProjectConnector(GeminiBackend):
                     params={"alt": "sse"},
                     json=request_body,
                     headers={"Content-Type": "application/json"},
-                    timeout=60,
+                    timeout=(DEFAULT_CONNECTION_TIMEOUT, DEFAULT_READ_TIMEOUT),
                 )
             except requests.exceptions.Timeout as te:  # type: ignore[attr-defined]
                 raise APITimeoutError(
@@ -1225,6 +1232,8 @@ class GeminiCloudProjectConnector(GeminiBackend):
             async def stream_generator() -> AsyncGenerator[ProcessedResponse, None]:
                 response = None
                 try:
+                    # Use tuple for (connect_timeout, read_timeout) to allow longer streaming
+                    # CRITICAL: Add stream=True to enable real-time streaming
                     try:
                         response = await asyncio.to_thread(
                             auth_session.request,
@@ -1233,7 +1242,8 @@ class GeminiCloudProjectConnector(GeminiBackend):
                             params={"alt": "sse"},
                             json=request_body,
                             headers={"Content-Type": "application/json"},
-                            timeout=60,
+                            timeout=(DEFAULT_CONNECTION_TIMEOUT, DEFAULT_READ_TIMEOUT),
+                            stream=True,  # Enable streaming mode for real-time data
                         )
                     except requests.exceptions.Timeout as te:  # type: ignore[attr-defined]
                         if logger.isEnabledFor(logging.ERROR):
@@ -1267,45 +1277,56 @@ class GeminiCloudProjectConnector(GeminiBackend):
                             status_code=response.status_code,
                         )
 
-                    # Process the streaming response using synchronous iter_lines()
-                    for line in response.iter_lines(
-                        chunk_size=1
-                    ):  # Process line by line
+                    # Process the streaming response using iter_content for real-time streaming
+                    # Use iter_content instead of iter_lines to avoid buffering complete lines
+                    line_buffer = ""
+                    for chunk in response.iter_content(
+                        chunk_size=1, decode_unicode=False
+                    ):  # Read byte-by-byte for real-time streaming
                         try:
-                            decoded_line = line.decode("utf-8")
-                            if decoded_line.startswith("data: "):
-                                data_str = decoded_line[6:].strip()
-                                if data_str == "[DONE]":
-                                    yield self.translation_service.to_domain_stream_chunk(
-                                        chunk=None,  # Indicate end of stream
-                                        source_format="code_assist",
-                                    )
-                                    break
-                                try:
-                                    data = json.loads(data_str)
-                                    domain_chunk = (
-                                        self.translation_service.to_domain_stream_chunk(
+                            # Decode chunk to string
+                            char = chunk.decode("utf-8")
+                            line_buffer += char
+
+                            # Check if we have a complete line (ends with \n)
+                            if char == "\n":
+                                decoded_line = line_buffer.rstrip("\r\n")
+                                line_buffer = ""  # Reset buffer for next line
+
+                                if decoded_line.startswith("data: "):
+                                    data_str = decoded_line[6:].strip()
+                                    if data_str == "[DONE]":
+                                        yield self.translation_service.to_domain_stream_chunk(
+                                            chunk=None,  # Indicate end of stream
+                                            source_format="code_assist",
+                                        )
+                                        break
+                                    try:
+                                        data = json.loads(data_str)
+                                        domain_chunk = self.translation_service.to_domain_stream_chunk(
                                             chunk=data,  # Pass the parsed JSON data
                                             source_format="code_assist",
                                         )
-                                    )
-                                    yield domain_chunk
-                                except json.JSONDecodeError:
-                                    # If it's not JSON, it might be an empty line or comment, skip
-                                    continue
-                            else:
-                                # Handle non-data lines (e.g., comments, event types) if necessary
-                                if decoded_line.strip():
+                                        yield domain_chunk
+                                    except json.JSONDecodeError:
+                                        # If it's not JSON, it might be an empty line or comment, skip
+                                        continue
+                                elif decoded_line.strip():
+                                    # Handle non-data lines (e.g., comments, event types) if necessary
                                     yield self.translation_service.to_domain_stream_chunk(
                                         chunk={
                                             "text": decoded_line
                                         },  # Wrap in a dict for consistency
                                         source_format="raw_text",  # Or a more specific raw format
                                     )
+                        except UnicodeDecodeError:
+                            # Skip invalid UTF-8 bytes
+                            continue
                         except Exception as chunk_error:
                             if logger.isEnabledFor(logging.ERROR):
                                 logger.error(
-                                    f"Error processing stream line: {chunk_error}"
+                                    f"Error processing stream chunk: {chunk_error}",
+                                    exc_info=True,
                                 )
                             continue
 

@@ -228,17 +228,17 @@ if __name__ == "__main__":
     test_stage.setup()
 
     session = test_stage.get_service("session_service")
-    print(f"✓ Safe session created: {type(session).__name__}")
+    print(f"[OK] Safe session created: {type(session).__name__}")
 
     # Example 2: Safe session usage
     safe_session = SafeSessionService({"test": "data"})
     safe_session.set("key", "value")
-    print(f"✓ Session data: {safe_session.get('key')}")
+    print(f"[OK] Session data: {safe_session.get('key')}")
 
     # Example 3: Mock factory usage
     sync_mock = EnforcedMockFactory.create_sync_mock()
     async_mock = EnforcedMockFactory.create_async_mock()
-    print(f"✓ Created sync mock: {type(sync_mock).__name__}")
-    print(f"✓ Created async mock: {type(async_mock).__name__}")
+    print(f"[OK] Created sync mock: {type(sync_mock).__name__}")
+    print(f"[OK] Created async mock: {type(async_mock).__name__}")
 
-    print("All examples completed successfully! 🎉")
+    print("All examples completed successfully! [CELEBRATE]")

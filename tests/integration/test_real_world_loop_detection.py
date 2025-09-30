@@ -241,7 +241,7 @@ class TestRealWorldLoopDetection:
     def test_unicode_character_counting(self) -> None:
         """Test that unicode characters are counted correctly."""
         # Create content with unicode characters (reduced count for faster testing)
-        unicode_content = "🔄 Processing... " * 10  # Reduced from 20 to 10
+        unicode_content = "[SPIN] Processing... " * 10  # Reduced from 20 to 10
 
         detector = LoopDetector(config=self.config)
         result = detector.process_chunk(unicode_content)

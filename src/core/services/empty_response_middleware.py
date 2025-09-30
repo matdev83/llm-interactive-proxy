@@ -172,6 +172,7 @@ class EmptyResponseMiddleware(IResponseMiddleware):
                     recovery_prompt=recovery_prompt,
                     session_id=session_id,
                     retry_count=retry_count + 1,
+                    original_request=context["original_request"],
                 )
             else:
                 # Max retries exceeded, reset counter and return error
@@ -203,10 +204,17 @@ class EmptyResponseMiddleware(IResponseMiddleware):
 class EmptyResponseRetryError(Exception):
     """Exception raised when an empty response is detected and should be retried."""
 
-    def __init__(self, recovery_prompt: str, session_id: str, retry_count: int):
+    def __init__(
+        self,
+        recovery_prompt: str,
+        session_id: str,
+        retry_count: int,
+        original_request: Any,
+    ):
         self.recovery_prompt = recovery_prompt
         self.session_id = session_id
         self.retry_count = retry_count
+        self.original_request = original_request
         super().__init__(
             f"Empty response detected for session {session_id}, retry {retry_count}"
         )

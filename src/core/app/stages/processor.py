@@ -194,16 +194,11 @@ class ProcessorStage(InitializationStage):
                     except ImportError:
                         logger.warning("Loop detection middleware not available")
 
-                stream_normalizer: IStreamNormalizer | None = None
-                if app_state.get_use_streaming_pipeline():
-                    logger.debug(
-                        "Streaming pipeline enabled. Resolving StreamNormalizer from DI."
-                    )
-                    stream_normalizer = provider.get_required_service(
-                        cast(type, IStreamNormalizer)
-                    )
-                else:
-                    logger.debug("Streaming pipeline disabled.")
+                # Always resolve stream normalizer since it's needed for loop detection
+                stream_normalizer: IStreamNormalizer = provider.get_required_service(
+                    cast(type, IStreamNormalizer)
+                )
+                logger.debug("Resolved StreamNormalizer for ResponseProcessor")
 
                 response_parser: IResponseParser = provider.get_required_service(
                     cast(type, IResponseParser)

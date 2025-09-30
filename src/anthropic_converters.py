@@ -273,7 +273,7 @@ def openai_stream_to_anthropic_stream(chunk_data: str) -> str:
         choice = openai_chunk.get("choices", [{}])[0]
         delta = choice.get("delta", {})
 
-        # 1) Role delta  → message_start
+        # 1) Role delta  -> message_start
         if "role" in delta:
             payload = {
                 "type": "message_start",
@@ -282,7 +282,7 @@ def openai_stream_to_anthropic_stream(chunk_data: str) -> str:
             }
             return f"{prefix}{json.dumps(payload)}\n\n"
 
-        # 2) Content token delta  → content_block_delta
+        # 2) Content token delta  -> content_block_delta
         if "content" in delta:
             payload = {
                 "type": "content_block_delta",
@@ -291,7 +291,7 @@ def openai_stream_to_anthropic_stream(chunk_data: str) -> str:
             }
             return f"{prefix}{json.dumps(payload)}\n\n"
 
-        # 3) Finish reason  → message_delta
+        # 3) Finish reason  -> message_delta
         if choice.get("finish_reason") is not None:
             anthropic_reason = _map_finish_reason(choice["finish_reason"])
             payload = {

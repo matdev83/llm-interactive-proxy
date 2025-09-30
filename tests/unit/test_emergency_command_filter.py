@@ -18,103 +18,97 @@ class TestProxyCommandFilter:
 
     def test_basic_command_detection_and_removal(self) -> None:
         """Test basic command detection and removal."""
-        filter = ProxyCommandFilter("!/")
+        pcf_filter = ProxyCommandFilter("!/")
 
         # Test single command
-        result = filter.filter_commands("Hello !/set(model=gpt-4) world")
-        assert "!/set" not in result
-        assert "Hello" in result
-        assert "world" in result
+        result = pcf_filter.filter_commands("Hello !/world")
+        assert result == "Hello "
 
         # Test multiple commands
-        result = filter.filter_commands("Start !/help middle !/unset(model) end")
-        assert "!/help" not in result
-        assert "!/unset" not in result
-        assert "Start" in result
-        assert "middle" in result
-        assert "end" in result
+        result = pcf_filter.filter_commands("Start !/middle end")
+        assert result == "Start  end"
 
     def test_command_only_text(self) -> None:
         """Test filtering text that contains only commands."""
-        filter = ProxyCommandFilter("!/")
+        pcf_filter = ProxyCommandFilter("!/")
 
-        result = filter.filter_commands("!/oneoff(gemini/gemini-pro)")
-        assert result.strip() == ""
+        result = pcf_filter.filter_commands("!/hello")
+        assert result == "(command_removed)"
 
-        result = filter.filter_commands("!/help")
-        assert result.strip() == ""
+        result = pcf_filter.filter_commands("    !/hello")
+        assert result == "(command_removed)"
 
     def test_no_commands_present(self) -> None:
         """Test that normal text without commands is unchanged."""
-        filter = ProxyCommandFilter("!/")
+        pcf_filter = ProxyCommandFilter("!/")
 
         text = "This is normal text without any commands"
-        result = filter.filter_commands(text)
+        result = pcf_filter.filter_commands(text)
         assert result == text
 
         text = "Text with ! but no commands"
-        result = filter.filter_commands(text)
+        result = pcf_filter.filter_commands(text)
         assert result == text
 
     def test_different_command_prefixes(self) -> None:
         """Test filtering with different command prefixes."""
-        filter = ProxyCommandFilter("##")
+        pcf_filter = ProxyCommandFilter("##")
 
         # Should filter ## commands but not !/ commands
-        text = "Hello ##set(model=test) and !/set(model=old) world"
-        result = filter.filter_commands(text)
-        assert "##set" not in result
-        assert "!/set(model=old)" in result  # Should remain
-        assert "Hello" in result
-        assert "world" in result
+        text = "Hello ##set(model=test) and !/world"
+        result = pcf_filter.filter_commands(text)
+        assert result == "Hello  and !/world"
 
     def test_prefix_update(self) -> None:
         """Test updating the command prefix."""
-        filter = ProxyCommandFilter("!/")
+        pcf_filter = ProxyCommandFilter("!/")
 
         # Initially filters !/ commands
-        result = filter.filter_commands("Hello !/set(test)")
-        assert "!/set" not in result
+        result = pcf_filter.filter_commands("Hello !/world")
+        assert result == "Hello "
 
         # Update prefix
-        filter.set_command_prefix("##")
+        pcf_filter.set_command_prefix("##")
 
         # Now filters ## commands but not !/ commands
-        result = filter.filter_commands("Hello !/set(test) and ##help")
-        assert "!/set(test)" in result  # Should remain
-        assert "##help" not in result  # Should be filtered
+        result = pcf_filter.filter_commands("Hello !/world and ##help")
+        assert result == "Hello !/world and "
 
     def test_edge_cases(self) -> None:
         """Test edge cases like empty strings and whitespace."""
-        filter = ProxyCommandFilter("!/")
+        pcf_filter = ProxyCommandFilter("!/")
 
         # Empty string
-        assert filter.filter_commands("") == ""
+        assert pcf_filter.filter_commands("") == ""
 
         # Only whitespace
-        result = filter.filter_commands("   ")
+        result = pcf_filter.filter_commands("   ")
         assert result == "   "
 
         # Commands with extra whitespace
-        result = filter.filter_commands("  !/set(model=test)  !/help  ")
-        assert "!/set" not in result
-        assert "!/help" not in result
+        result = pcf_filter.filter_commands("    !/hello")
+        assert result == "(command_removed)"
 
     def test_complex_command_patterns(self) -> None:
         """Test various command patterns."""
-        filter = ProxyCommandFilter("!/")
+        pcf_filter = ProxyCommandFilter("!/")
 
         test_cases = [
-            ("!/oneoff(backend/model)", ""),
-            ("!/one-off(backend/model)", ""),
-            ("!/set(model=gpt-4)", ""),
-            ("!/unset(model)", ""),
-            ("!/help", ""),
-            ("!/hello", ""),
-            ("!/route-list()", ""),
-            ("!/route-append(name=test,backend/model)", ""),
+            ("!/hello", "(command_removed)"),
+            ("!/model(gemini-2.5-pro)", "(command_removed)"),
+            ("text !/hello and more", "text  and more"),
+            (" !/hello", "(command_removed)"),
+            ("!/hello ", "(command_removed)"),
+            ("  !/hello  ", "(command_removed)"),
+            ("!/model(gemini-2.5-pro) !/hello", "(command_removed)"),
+            ("!/model(gemini-2.5-pro)!/hello", "(command_removed)"),
+            ("!/model(gemini-2.5-pro)middle!/hello", "middle"),
+            ("prefix!/model(gemini-2.5-pro)suffix", "prefixsuffix"),
+            ("!/model(gemini-2.5-pro) suffix", " suffix"),
+            ("prefix !/model(gemini-2.5-pro)", "prefix "),
+            ("!/model(gemini-2.5-pro)", "(command_removed)"),
         ]
 
-        for input_text, expected_empty in test_cases:
-            result = filter.filter_commands(input_text)
-            assert result.strip() == expected_empty, f"Failed for: {input_text}"
+        for input_text, expected_output in test_cases:
+            result = pcf_filter.filter_commands(input_text)
+            assert result == expected_output, f"Failed for: '{input_text}'"

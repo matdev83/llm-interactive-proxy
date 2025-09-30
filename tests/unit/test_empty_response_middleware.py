@@ -130,7 +130,9 @@ class TestEmptyResponseMiddleware:
         response = ProcessedResponse(content="")
 
         with pytest.raises(EmptyResponseRetryException) as exc_info:
-            await middleware.process(response, "session123", context={})
+            await middleware.process(
+                response, "session123", context={"original_request": "dummy_request"}
+            )
 
         assert exc_info.value.recovery_prompt == "Recovery prompt"
         assert exc_info.value.session_id == "session123"
@@ -187,11 +189,15 @@ class TestEmptyResponseRetryException:
     def test_exception_creation(self):
         """Test exception creation with all parameters."""
         exc = EmptyResponseRetryException(
-            recovery_prompt="Test prompt", session_id="session123", retry_count=1
+            recovery_prompt="Test prompt",
+            session_id="session123",
+            retry_count=1,
+            original_request="dummy_request",
         )
 
         assert exc.recovery_prompt == "Test prompt"
         assert exc.session_id == "session123"
         assert exc.retry_count == 1
+        assert exc.original_request == "dummy_request"
         assert "session123" in str(exc)
         assert "retry 1" in str(exc)

@@ -635,8 +635,8 @@ def main(
     # Start the server
     logging.info(f"Starting uvicorn on {cfg.host}:{cfg.port}")
     try:
-        # Start uvicorn with the configured host/port (disable detailed access logging)
-        uvicorn.run(app, host=cfg.host, port=cfg.port, access_log=False)
+        # Start uvicorn with the configured host/port using uvicorn defaults
+        uvicorn.run(app, host=cfg.host, port=cfg.port)
     except Exception as e:
         logging.exception("Uvicorn failed to start: %s", e)
         raise
@@ -665,8 +665,8 @@ def build_development_app(config: AppConfig) -> FastAPI:
     # Add development-specific stages or configuration
     builder = (
         ApplicationBuilder()
-        .add_stage(CoreServicesStage())
         .add_stage(InfrastructureStage())
+        .add_stage(CoreServicesStage())
         .add_stage(BackendStage())
         .add_stage(CommandStage())
         .add_stage(ProcessorStage())
@@ -692,8 +692,8 @@ def build_test_app(config: AppConfig) -> FastAPI:
     # Replace real backends with mocks for testing
     builder = (
         ApplicationBuilder()
-        .add_stage(CoreServicesStage())
         .add_stage(InfrastructureStage())
+        .add_stage(CoreServicesStage())
         .add_stage(MockBackendStage())  # Mock backends instead of real ones
         .add_stage(CommandStage())
         .add_stage(ProcessorStage())

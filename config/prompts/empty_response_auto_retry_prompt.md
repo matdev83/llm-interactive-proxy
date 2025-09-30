@@ -1,7 +1,7 @@
 ### Empty Response Recovery Prompt
 
 **Context:**  
-An **empty response** was just detected — meaning the assistant produced neither text nor tool calls.  
+An **empty response** was just detected -- meaning the assistant produced neither text nor tool calls.  
 This is unexpected and can break the agent loop.
 
 **Instruction to model:**  
@@ -10,7 +10,7 @@ This is unexpected and can break the agent loop.
   1. A **text reply** addressing the last user prompt,  
   2. A **tool call**,  
   3. Or both.  
-- If a tool call is invalid, unavailable, or fails → fall back to a text reply.  
+- If a tool call is invalid, unavailable, or fails -> fall back to a text reply.  
 - Keep answers concise, factual, and on-topic.
 
 **Recovery steps:**  
@@ -24,4 +24,4 @@ If no valid tool call can be made, output a short text reply instead.
 At minimum, the message must contain a one-sentence textual reply.
 
 **Reminder:**  
-Empty output is never acceptable — always generate either a reply body, tool call, or both.
+Empty output is never acceptable -- always generate either a reply body, tool call, or both.

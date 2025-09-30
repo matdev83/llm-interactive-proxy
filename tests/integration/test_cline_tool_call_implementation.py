@@ -41,7 +41,11 @@ async def app(mock_backend_service: MagicMock) -> AsyncGenerator[FastAPI, None]:
         .add_test_stages()
         .replace_stage(
             "backends",
-            CustomTestStage("backends", {IBackendService: mock_backend_service}),
+            CustomTestStage(
+                "backends",
+                {IBackendService: mock_backend_service},
+                dependencies=["core_services"],
+            ),
         )
     )
     test_app = await builder.build(config)

@@ -82,8 +82,8 @@ class ApplicationBuilder:
         )
 
         return (
-            self.add_stage(CoreServicesStage())
-            .add_stage(InfrastructureStage())
+            self.add_stage(InfrastructureStage())
+            .add_stage(CoreServicesStage())
             .add_stage(BackendStage())
             .add_stage(CommandStage())
             .add_stage(ProcessorStage())

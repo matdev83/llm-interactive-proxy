@@ -113,20 +113,21 @@ class ProxyCommandFilter:
                             match.end(),
                         )
 
-            # Remove all commands from the text
-            filtered_text = self.command_pattern.sub("", text)
+            # Remove commands from text
+            filtered_text = text
+            # Process matches in reverse to avoid index shifting
+            for match in reversed(matches):
+                start, end = match.span()
+                # Preserve whitespace around the command
+                before = filtered_text[:start]
+                after = filtered_text[end:]
+                # For now, just remove the command without stripping whitespace
+                # This preserves any trailing whitespace before the command
+                filtered_text = before + after
 
-            # Clean up extra whitespace that might be left behind
-            filtered_text = re.sub(r"\s+", " ", filtered_text).strip()
-
-            if logger.isEnabledFor(logging.INFO):
-                logger.info(
-                    "Emergency filter removed %d command(s). Original length: %d, filtered length: %d",
-                    len(matches),
-                    len(text),
-                    len(filtered_text),
-                )
-
+            # If text became empty or whitespace-only after filtering, insert a benign placeholder
+            if not filtered_text.strip():
+                filtered_text = "(command_removed)"
             return filtered_text
 
         return text

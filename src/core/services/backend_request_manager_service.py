@@ -155,7 +155,7 @@ class BackendRequestManager(IBackendRequestManager):
                     )
                     # Create retry request with recovery prompt
                     retry_request = await self._create_retry_request(
-                        backend_request, e.recovery_prompt
+                        e.original_request, e.recovery_prompt
                     )
                     # Retry the request
                     return await self._backend_processor.process_backend_request(
@@ -181,7 +181,7 @@ class BackendRequestManager(IBackendRequestManager):
                 f"Empty response detected, retrying with recovery prompt: {e.recovery_prompt[:100]}..."
             )
             retry_request = await self._create_retry_request(
-                backend_request, e.recovery_prompt
+                e.original_request, e.recovery_prompt
             )
             return await self._backend_processor.process_backend_request(
                 request=retry_request, session_id=session_id, context=context

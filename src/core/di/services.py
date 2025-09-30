@@ -713,8 +713,19 @@ def register_core_services(
         )  # type: ignore[type-abstract]
 
     # Register individual stream processors
-    _add_singleton(LoopDetectionProcessor)
-    _add_singleton(ToolCallRepairProcessor)
+    def _loop_detection_processor_factory(
+        provider: IServiceProvider,
+    ) -> LoopDetectionProcessor:
+        from src.core.interfaces.loop_detector_interface import ILoopDetector
+
+        loop_detector: ILoopDetector = provider.get_required_service(
+            cast(type, ILoopDetector)
+        )
+        return LoopDetectionProcessor(loop_detector)
+
+    _add_singleton(
+        LoopDetectionProcessor, implementation_factory=_loop_detection_processor_factory
+    )
     _add_singleton(ContentAccumulationProcessor)
 
     # Register JSON repair service and processor

@@ -9,7 +9,7 @@
 ![Open Issues](https://img.shields.io/github/issues/matdev83/llm-interactive-proxy?label=Open%20issues)
 
 
-This project is a swiss-army knife for anyone working with language models and agentic workflows. It sits between any LLM-aware client and any LLM backend, presenting multiple front-end APIs (OpenAI, Anthropic, Gemini) while routing to whichever provider you choose. With the proxy you can translate, reroute, and augment requests on the fly, execute chat-embedded commands, override models, rotate API keys, prevent leaks, and inspect traffic — all from a single drop-in gateway.
+This project is a swiss-army knife for anyone working with language models and agentic workflows. It sits between any LLM-aware client and any LLM backend, presenting multiple front-end APIs (OpenAI, Anthropic, Gemini) while routing to whichever provider you choose. With the proxy you can translate, reroute, and augment requests on the fly, execute chat-embedded commands, override models, rotate API keys, prevent leaks, and inspect traffic -- all from a single drop-in gateway.
 
 ## Contents
 
@@ -48,7 +48,7 @@ This project is a swiss-army knife for anyone working with language models and a
 
 - Multiple front-ends, many providers: exposes OpenAI, Anthropic, and Gemini APIs while routing to OpenAI, Anthropic, Gemini, OpenRouter, ZAI, Qwen, and more
 - OpenAI compatibility: drop-in `/v1/chat/completions` for most clients and coding agents
-- Streaming everywhere: consistent streaming and non‑streaming support across providers
+- Streaming everywhere: consistent streaming and non-streaming support across providers
 - Gemini OAuth personal gateway: use Google's free personal OAuth (CLI-style) through an OpenAI-compatible endpoint
 
 ### Reliability
@@ -116,7 +116,7 @@ Choose the Gemini integration that fits your environment.
 Notes
 
 - Personal OAuth uses credentials from the local Google CLI/Code Assist-style flow and does not require a `GEMINI_API_KEY`.
-- The proxy now validates personal OAuth tokens on startup, watches the `oauth_creds.json` file for changes, and triggers the Gemini CLI in the background when tokens are close to expiring—no manual restarts required.
+- The proxy now validates personal OAuth tokens on startup, watches the `oauth_creds.json` file for changes, and triggers the Gemini CLI in the background when tokens are close to expiring--no manual restarts required.
 - Cloud Project requires `GOOGLE_CLOUD_PROJECT` and Application Default Credentials (or a service account file).
 
 Quick setup
@@ -230,7 +230,7 @@ logging:
 
 The proxy has evolved through multiple wire capture formats. **Currently active: Buffered JSON Lines format.**
 
-> ⚠️ **Format Compatibility**: Different versions of the proxy use different wire capture formats. Check the format before processing files with external tools.
+> [!] **Format Compatibility**: Different versions of the proxy use different wire capture formats. Check the format before processing files with external tools.
 
 #### Buffered JSON Lines Format (Current Default)
 High-performance format with structured JSON entries, one per line:
@@ -371,14 +371,23 @@ The proxy automatically compresses verbose pytest output to preserve context win
 - **Compression Stats**: Logs compression ratios for monitoring
 
 **Configuration Options:**
-```yaml
-# Global configuration (config.yaml)
-session:
-  pytest_compression_enabled: true  # Default: true
 
-# Environment variable
-PYTEST_COMPRESSION_ENABLED=true
-```
+The feature can be controlled via CLI flags, environment variables, or the `config.yaml` file. The order of precedence is: CLI > Environment Variable > `config.yaml`.
+
+- **CLI Flags**:
+  - `--enable-pytest-compression`: Explicitly enables compression for the current session.
+  - `--disable-pytest-compression`: Explicitly disables compression for the current session.
+
+- **Environment Variable**:
+  ```bash
+  export PYTEST_COMPRESSION_ENABLED=true # or false
+  ```
+
+- **`config.yaml`**:
+  ```yaml
+  session:
+    pytest_compression_enabled: true  # Default: true
+  ```
 
 **Example Output Transformation:**
 ```
@@ -451,7 +460,7 @@ When limits are exceeded, the proxy returns a structured 400 error:
 ### Other Capabilities
 
 - Failover and retries: route requests to a next-best model when one fails
-- JSON repair: fix common JSON formatting issues (streaming and non‑streaming)
+- JSON repair: fix common JSON formatting issues (streaming and non-streaming)
 - Tool-call repair: convert textual tool calls to proper `tool_calls`
 - Tool Call Reactor: event-driven system to intercept and steer tool calls (e.g., apply_diff to patch_file), with configurable YAML rules and rate limiting
 - Loop detection: stop repeated identical tool calls
@@ -511,7 +520,7 @@ Then launch `claude`. You can switch models during a session:
 
 ### Gemini options
 
-- Metered API key (`gemini`), free personal OAuth (`gemini-cli-oauth-personal`), or GCP‑billed (`gemini-cli-cloud-project`). Pick one and set the required env vars.
+- Metered API key (`gemini`), free personal OAuth (`gemini-cli-oauth-personal`), or GCP-billed (`gemini-cli-cloud-project`). Pick one and set the required env vars.
 
 ### Force a specific model across all requests
 
@@ -609,7 +618,7 @@ models:
 
 ## License
 
-This project is licensed under the AGPL-3.0-or-later (GNU Affero General Public License v3.0 or later) — see the [LICENSE](LICENSE) file for details.
+This project is licensed under the AGPL-3.0-or-later (GNU Affero General Public License v3.0 or later) -- see the [LICENSE](LICENSE) file for details.
 
 ## Changelog
 

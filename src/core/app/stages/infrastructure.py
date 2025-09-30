@@ -37,7 +37,7 @@ class InfrastructureStage(InitializationStage):
         return "infrastructure"
 
     def get_dependencies(self) -> list[str]:
-        return ["core_services"]
+        return []
 
     def get_description(self) -> str:
         return "Register infrastructure services (HTTP client, rate limiter, loop detector)"
@@ -114,22 +114,25 @@ class InfrastructureStage(InitializationStage):
     def _register_loop_detector(self, services: ServiceCollection) -> None:
         """Register loop detector service."""
         try:
-            from src.core.interfaces.loop_detector import ILoopDetector
-            from src.core.services.loop_detector_service import LoopDetector
+            from typing import cast
 
-            # Register concrete implementation
+            from src.core.interfaces.di_interface import IServiceProvider
+            from src.core.interfaces.loop_detector_interface import ILoopDetector
+            from src.loop_detection.detector import LoopDetector
+
+            # Register concrete implementation used throughout the project
             services.add_singleton(LoopDetector)
 
-            # Register interface binding
-            try:
-                from typing import cast
+            # Bind interface to the concrete implementation via the provider
+            def loop_detector_factory(provider: IServiceProvider) -> LoopDetector:
+                return provider.get_required_service(LoopDetector)
 
-                services.add_singleton(cast(type, ILoopDetector), LoopDetector)
-                if logger.isEnabledFor(logging.DEBUG):
-                    logger.debug("Registered loop detector with interface binding")
-            except Exception:
-                if logger.isEnabledFor(logging.DEBUG):
-                    logger.debug("Registered loop detector (interface binding failed)")
+            services.add_singleton_factory(
+                cast(type, ILoopDetector), loop_detector_factory
+            )
+
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug("Registered LoopDetector with DI container")
 
         except ImportError as e:
             logger.warning(f"Could not register loop detector: {e}")

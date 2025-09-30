@@ -73,6 +73,7 @@ class OpenAIConnector(LLMBackend):
         is_testing = (
             "pytest" in os.environ.get("_", "") or "PYTEST_CURRENT_TEST" in os.environ
         )
+        self.is_testing = is_testing
 
         self._health_check_enabled: bool = (
             not disable_health_checks and not is_testing
@@ -91,6 +92,10 @@ class OpenAIConnector(LLMBackend):
         logger.info(f"OpenAIConnector initialize called. api_key: {self.api_key}")
         if "api_base_url" in kwargs:
             self.api_base_url = kwargs["api_base_url"]
+
+        if self.is_testing:
+            logger.debug("Skipping model fetching in test environment.")
+            return
 
         # Fetch available models
         try:

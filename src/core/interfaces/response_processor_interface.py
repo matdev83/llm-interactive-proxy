@@ -10,7 +10,7 @@ class ProcessedResponse:
 
     def __init__(
         self,
-        content: str = "",
+        content: Any = "",
         usage: dict[str, Any] | None = None,
         metadata: dict[str, Any] | None = None,
     ):
@@ -25,7 +25,7 @@ class ProcessedResponse:
         self.usage = usage
         self.metadata = metadata or {}
 
-    content: str | None
+    content: Any | None
     usage: dict[str, Any] | None = None
     metadata: dict[str, Any] = {}
 

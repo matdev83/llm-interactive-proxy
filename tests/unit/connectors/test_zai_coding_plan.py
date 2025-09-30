@@ -59,10 +59,15 @@ async def test_list_models(backend: ZaiCodingPlanBackend):
 
 
 @patch(
+    "src.connectors.anthropic.AnthropicBackend._prepare_anthropic_payload",
+    return_value={},
+)
+@patch(
     "src.connectors.zai_coding_plan.ZaiCodingPlanBackend._handle_non_streaming_response"
 )
 async def test_chat_completions_model_rewrite(
     mock_handle_response: MagicMock,
+    mock_prepare_payload: MagicMock,
     backend: ZaiCodingPlanBackend,
     mock_translation_service: MagicMock,
 ):

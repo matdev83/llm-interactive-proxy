@@ -10,7 +10,7 @@ from src.core.services.translation_service import TranslationService
 
 
 class TestThinkingConfigTranslation:
-    """Test reasoning_effort → thinkingBudget translation."""
+    """Test reasoning_effort -> thinkingBudget translation."""
 
     def test_reasoning_effort_low_maps_to_512_tokens(self) -> None:
         """Test that 'low' effort maps to 512 token budget."""

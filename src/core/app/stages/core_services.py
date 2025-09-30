@@ -56,6 +56,9 @@ class CoreServicesStage(InitializationStage):
     def name(self) -> str:
         return "core_services"
 
+    def get_dependencies(self) -> list[str]:
+        return ["infrastructure"]
+
     def get_description(self) -> str:
         return "Register core services (config, session, logging)"
 
@@ -99,7 +102,7 @@ class CoreServicesStage(InitializationStage):
                 IApplicationState  # type: ignore[type-abstract]
             )
 
-            stream_normalizer: IStreamNormalizer | None = provider.get_service(
+            stream_normalizer: IStreamNormalizer = provider.get_required_service(
                 IStreamNormalizer  # type: ignore[type-abstract]
             )
 
@@ -124,10 +127,11 @@ class CoreServicesStage(InitializationStage):
             )
             return processor
 
-        services.add_singleton(
-            ResponseProcessor, implementation_factory=response_processor_factory
-        )
-        logger.debug("Registered ResponseProcessor with ToolCallRepairMiddleware")
+        # ResponseProcessor is registered in services.py to avoid duplication
+        # services.add_singleton(
+        #     ResponseProcessor, implementation_factory=response_processor_factory
+        # )
+        # logger.debug("Registered ResponseProcessor with ToolCallRepairMiddleware")
 
         # Register session repository
         self._register_session_repository(services)

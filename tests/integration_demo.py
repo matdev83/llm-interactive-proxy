@@ -25,7 +25,7 @@ from testing_framework import (
 
 def demonstrate_safe_session_usage() -> None:
     """Show how SafeSessionService prevents coroutine warnings."""
-    print("🔧 Testing Safe Session Service...")
+    print("[WRENCH] Testing Safe Session Service...")
 
     # This creates a synchronous session service that won't cause warnings
     session = SafeSessionService(
@@ -36,15 +36,15 @@ def demonstrate_safe_session_usage() -> None:
     session.set("backend", "openai")
     session.set("temperature", 0.7)
 
-    print(f"   ✓ User: {session.get('user_id')}")
-    print(f"   ✓ Backend: {session.get('backend')}")
-    print(f"   ✓ Temperature: {session.get('temperature')}")
-    print(f"   ✓ Authenticated: {session.is_authenticated}")
+    print(f"   [OK] User: {session.get('user_id')}")
+    print(f"   [OK] Backend: {session.get('backend')}")
+    print(f"   [OK] Temperature: {session.get('temperature')}")
+    print(f"   [OK] Authenticated: {session.is_authenticated}")
 
 
 def demonstrate_enforced_mock_factory() -> None:
     """Show how EnforcedMockFactory creates proper mocks."""
-    print("\n🏭 Testing Enforced Mock Factory...")
+    print("\n[FACTORY] Testing Enforced Mock Factory...")
 
     # Create safe synchronous mocks
     sync_config_mock = EnforcedMockFactory.create_sync_mock()
@@ -57,14 +57,14 @@ def demonstrate_enforced_mock_factory() -> None:
     # Create safe session mock
     session_mock = EnforcedMockFactory.create_session_mock()
 
-    print(f"   ✓ Sync mock created: {type(sync_config_mock).__name__}")
-    print(f"   ✓ Async mock created: {type(async_db_mock).__name__}")
-    print(f"   ✓ Session mock created: {type(session_mock).__name__}")
+    print(f"   [OK] Sync mock created: {type(sync_config_mock).__name__}")
+    print(f"   [OK] Async mock created: {type(async_db_mock).__name__}")
+    print(f"   [OK] Session mock created: {type(session_mock).__name__}")
 
 
 def demonstrate_coroutine_warning_detection() -> None:
     """Show how the detector finds potential issues."""
-    print("\n🕵️ Testing Coroutine Warning Detection...")
+    print("\n[DETECTIVE]️ Testing Coroutine Warning Detection...")
 
     class ProblematicTestClass:
         def __init__(self) -> None:
@@ -79,7 +79,7 @@ def demonstrate_coroutine_warning_detection() -> None:
     # Check for issues
     warnings_found = CoroutineWarningDetector.check_for_unawaited_coroutines(test_obj)
 
-    print(f"   ✓ Warnings detected: {len(warnings_found)}")
+    print(f"   [OK] Warnings detected: {len(warnings_found)}")
     for warning in warnings_found:
         print(f"     - {warning}")
 
@@ -95,8 +95,8 @@ def demonstrate_test_stages() -> None:
     mock_session = mock_stage.get_service("session_service")
     mock_config = mock_stage.get_service("config_service")
 
-    print(f"   ✓ Mock stage session: {type(mock_session).__name__}")
-    print(f"   ✓ Mock stage config: {type(mock_config).__name__}")
+    print(f"   [OK] Mock stage session: {type(mock_session).__name__}")
+    print(f"   [OK] Mock stage config: {type(mock_config).__name__}")
 
     # Real backend stage - for integration tests
     real_stage = RealBackendTestStage()
@@ -105,8 +105,8 @@ def demonstrate_test_stages() -> None:
     real_session = real_stage.get_service("session_service")
     real_http = real_stage.get_service("http_client")
 
-    print(f"   ✓ Real stage session: {type(real_session).__name__}")
-    print(f"   ✓ Real stage HTTP client: {type(real_http).__name__}")
+    print(f"   [OK] Real stage session: {type(real_session).__name__}")
+    print(f"   [OK] Real stage HTTP client: {type(real_http).__name__}")
 
 
 def demonstrate_pytest_integration() -> None:
@@ -126,9 +126,9 @@ def demonstrate_pytest_integration() -> None:
     test_mock = mock_factory.create_sync_mock()
     test_session = safe_session
 
-    print(f"   ✓ Fixture-style session: {type(test_session).__name__}")
-    print(f"   ✓ Fixture-style mock: {type(test_mock).__name__}")
-    print("   ✓ All fixtures available through conftest.py integration")
+    print(f"   [OK] Fixture-style session: {type(test_session).__name__}")
+    print(f"   [OK] Fixture-style mock: {type(test_mock).__name__}")
+    print("   [OK] All fixtures available through conftest.py integration")
 
 
 def main() -> int:
@@ -147,18 +147,18 @@ def main() -> int:
         demonstrate_pytest_integration()
 
         print("\n" + "=" * 60)
-        print("✅ All demonstrations completed successfully!")
+        print("[OK] All demonstrations completed successfully!")
         print("\n💡 Key Integration Points:")
-        print("   • Testing framework is imported in conftest.py")
-        print("   • Safe fixtures are available to all tests")
-        print("   • Automatic validation runs for session-related tests")
-        print("   • No isolated/unused code - everything is wired in")
-        print("   • Developers get warnings and guidance automatically")
+        print("   - Testing framework is imported in conftest.py")
+        print("   - Safe fixtures are available to all tests")
+        print("   - Automatic validation runs for session-related tests")
+        print("   - No isolated/unused code - everything is wired in")
+        print("   - Developers get warnings and guidance automatically")
 
         return 0
 
     except Exception as e:
-        print(f"\n❌ Error during demonstration: {e}")
+        print(f"\n[X] Error during demonstration: {e}")
         import traceback
 
         traceback.print_exc()

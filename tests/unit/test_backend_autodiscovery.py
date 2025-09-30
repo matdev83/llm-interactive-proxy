@@ -197,8 +197,8 @@ class TestBackendRegistryInterface:
         assert "test-backend" in registry.get_registered_backends()
         assert registry.get_backend_factory("test-backend") == mock_factory
 
-    def test_register_backend_duplicate_raises_error(self):
-        """Test that registering duplicate backend raises error."""
+    def test_register_backend_duplicate_logs_warning(self, caplog):
+        """Test that registering a duplicate backend logs a warning."""
         registry = BackendRegistry()
 
         def mock_factory():
@@ -206,8 +206,13 @@ class TestBackendRegistryInterface:
 
         registry.register_backend("test-backend", mock_factory)
 
-        with pytest.raises(ValueError, match="already registered"):
+        # Registering the same backend again should not raise an error but log a warning
+        with caplog.at_level("WARNING"):
             registry.register_backend("test-backend", mock_factory)
+
+        assert "already registered" in caplog.text
+        # Verify it's still registered only once
+        assert len(registry.get_registered_backends()) == 1
 
     def test_get_nonexistent_backend_raises_error(self):
         """Test that getting non-existent backend raises error."""

@@ -135,6 +135,9 @@ async def test_initialize_with_custom_url(mock_client):
     # Configure mock_client.get to return the mock response
     mock_client.get = AsyncMock(return_value=mock_response)
 
+    # Temporarily disable testing mode to allow the initialize method to make the call
+    connector.is_testing = False
+
     # Execute
     await connector.initialize(api_key="test-api-key", api_base_url=custom_url)
 

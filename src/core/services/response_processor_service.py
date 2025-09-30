@@ -80,7 +80,7 @@ class ResponseProcessor(IResponseProcessor):
 
             self._stream_normalizer = StreamNormalizer(processors)
 
-        if not stream_normalizer:
+        if stream_normalizer is None:
             self._stream_normalizer = None
 
     def add_background_task(self, task: asyncio.Task[Any]) -> None:

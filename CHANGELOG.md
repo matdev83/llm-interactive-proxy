@@ -1,5 +1,61 @@
 # Changelog
 
+## 2025-09-30 – Major Enhancement: Hybrid Loop Detection Algorithm
+
+- **Enhancement**: Implemented hybrid loop detection algorithm combining Google's gemini-cli approach with efficient long pattern detection
+  - **Background**: The original bug pattern (200+ chars with no internal repetition) could not be detected by any single hash-chunk algorithm, including gemini-cli's approach
+  - **Solution**: Created hybrid detector that uses:
+    - **Short patterns (<=50 chars)**: Google's proven gemini-cli algorithm with sliding window hash comparison
+    - **Long patterns (>50 chars)**: Custom rolling hash algorithm (Rabin-Karp style) for efficient pattern matching
+  - **Performance**: Optimized for production use - lightweight rolling hash with configurable limits to avoid performance impact
+  - **Detection Capabilities**:
+    - [OK] Short repetitive patterns: `"Loading... "` repeated 15+ times
+    - [OK] Long repetitive patterns: 200+ char blocks repeated 3+ times (including original bug pattern)
+    - [OK] Context-aware: Resets only on code fences/dividers, not on markdown lists/headings that might be part of the loop
+  - **Files Added**:
+    - `src/loop_detection/hybrid_detector.py` - Main hybrid implementation
+    - `src/loop_detection/gemini_cli_detector.py` - Ported gemini-cli algorithm
+    - `tests/unit/test_hybrid_loop_detector.py` - Comprehensive test suite (15 tests)
+    - `tests/unit/test_gemini_cli_loop_detector.py` - Gemini-cli specific tests
+  - **Files Modified**:
+    - `src/core/app/stages/infrastructure.py` - Updated DI registration to use HybridLoopDetector
+  - **Algorithm Details**:
+    - Rolling hash uses base-31 arithmetic with 2^32-1 modulus for collision resistance
+    - Configurable pattern length limits (60-500 chars) and repetition thresholds (3+ occurrences)
+    - Memory-efficient with content truncation (2000 char max history for long patterns)
+    - Hash collision verification through actual content comparison
+  - **Testing**: Successfully detects the original bug pattern that triggered this investigation
+
+## 2025-09-30 – Critical Fix: Loop Detection Was Disabled Due to DI Configuration Errors
+
+- **Bug Fix**: Fixed critical dependency injection configuration errors that completely disabled loop detection in production
+  - **Root Cause #1**: Incorrect import path in `src/core/app/stages/infrastructure.py` - imported from `src.core.interfaces.loop_detector` instead of `src.core.interfaces.loop_detector_interface`, causing silent registration failure
+  - **Root Cause #2**: Missing factory function for `LoopDetectionProcessor` in `src/core/di/services.py` - the processor requires an `ILoopDetector` dependency in its constructor, but no factory was provided to inject it
+  - **Impact**: Loop detection was completely non-functional despite being enabled by default. Repetitive LLM responses (13+ identical paragraphs) were not detected or mitigated
+  - **Solution**: 
+    - Fixed import path to use correct interface: `src.core.interfaces.loop_detector_interface`
+    - Added proper factory function to inject `ILoopDetector` into `LoopDetectionProcessor`
+    - Increased `content_chunk_size` from 50 to 100 characters for better detection of longer patterns
+    - Added comprehensive DI integrity tests to prevent similar issues in the future
+  - **Files Modified**: 
+    - `src/core/app/stages/infrastructure.py` - Fixed ILoopDetector import and registration
+    - `src/core/di/services.py` - Added factory for LoopDetectionProcessor with dependency injection
+    - `src/loop_detection/config.py` - Increased content_chunk_size to 100
+    - `tests/unit/test_loop_detection_regression.py` - New regression tests for DI wiring
+    - `tests/integration/test_di_container_integrity.py` - New comprehensive DI integrity tests (8 tests)
+  - **Documentation**: Detailed analysis in `LOOP_DETECTION_BUG_ANALYSIS.md`
+  - **Testing**: 5 passing tests specifically verify that ILoopDetector and LoopDetectionProcessor are properly registered and wired
+
+## 2025-09-30 – Fix: 502 Timeout Error in Gemini OAuth Streaming
+
+- **Bug Fix**: Resolved 502 Bad Gateway errors during long streaming responses
+  - **Root Cause**: Hardcoded 60-second timeout was insufficient for large file reads and complex responses
+  - **Solution**: Implemented separate connection and read timeouts using tuple format `(connect_timeout, read_timeout)`
+  - **Configuration**: Connection timeout: 60s (unchanged), Read timeout: 300s (5 minutes)
+  - **Impact**: Large file reads, complex analyses, and long-running requests now complete successfully without premature disconnections
+  - **Files Modified**: `src/connectors/gemini_oauth_personal.py`, `src/connectors/gemini_cloud_project.py`
+  - **Documentation**: Added detailed analysis in `docs/dev/502_timeout_fix.md`
+
 ## 2025-10-02 – Gemini Personal OAuth Auto-Refresh
 
 - **Startup Validation**: The `gemini-cli-oauth-personal` backend now confirms the stored OAuth token is still valid during initialization, failing fast when credentials are stale instead of deferring to the first request.
@@ -265,7 +321,7 @@ This document outlines significant changes and updates to the LLM Interactive Pr
   - `src/core/utils/json_intent.py#set_expected_json(metadata, True)` to opt-in strict mode per route.
   - `#infer_expected_json(metadata, content)`; ResponseProcessor auto-inferrs and sets `expected_json` if not present.
 - Streaming processor order updated:
-  - JSON repair → text loop detection → tool-call repair → middleware → accumulation.
+  - JSON repair -> text loop detection -> tool-call repair -> middleware -> accumulation.
   - Cancellation flags are preserved across processors.
 - Tool-call loop detection:
   - Middleware detects 4 consecutive identical tool calls; in `CHANCE_THEN_BREAK` mode emits guidance once, then breaks on the next identical call.

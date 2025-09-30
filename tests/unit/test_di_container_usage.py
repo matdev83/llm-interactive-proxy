@@ -556,9 +556,9 @@ class TestDIContainerUsage:
             v_type = v.get("type", "unknown")
             violation_types[v_type] = violation_types.get(v_type, 0) + 1
 
-        print("\n📋 Violation types:")
+        print("\n[CLIPBOARD] Violation types:")
         for v_type, count in sorted(violation_types.items()):
-            print(f"      • {v_type}: {count}")
+            print(f"      - {v_type}: {count}")
 
         # Show top affected files (more detailed)
         file_counts: dict[str, int] = {}
@@ -566,14 +566,14 @@ class TestDIContainerUsage:
             filename = v["file"]
             file_counts[filename] = file_counts.get(filename, 0) + 1
 
-        print("\n📁 Top affected files:")
+        print("\n[FOLDER] Top affected files:")
         for filename, count in sorted(
             file_counts.items(), key=lambda x: x[1], reverse=True
         )[:5]:
-            print(f"      • {filename}: {count} violations")
+            print(f"      - {filename}: {count} violations")
 
         # Show sample violations for reference
-        print("\n📋 Sample violations (first 3):")
+        print("\n[CLIPBOARD] Sample violations (first 3):")
         for i, violation in enumerate(real_violations[:3], 1):
             print(
                 f"   {i}. {violation['file']}:{violation['line']} - {violation['class_name']}"
@@ -581,7 +581,7 @@ class TestDIContainerUsage:
 
         # Provide actionable insights
         print("\n💡 Actionable Insights:")
-        print(f"   🔧 Total violations to address: {len(real_violations)}")
+        print(f"   [WRENCH] Total violations to address: {len(real_violations)}")
         print("   📈 Most common violation: Manual service instantiation")
         print("   🎯 Focus areas: Controllers and service factory functions")
         print("   📚 Pattern to follow: Use IServiceProvider.get_required_service()")
@@ -590,8 +590,8 @@ class TestDIContainerUsage:
         summary = scanner.get_violation_summary()
         print("\n📊 Violation Summary:")
         print(f"   📈 Total: {summary['total_violations']}")
-        print(f"   📋 By type: {summary['violations_by_type']}")
-        print(f"   ⚠️ By severity: {summary['violations_by_severity']}")
+        print(f"   [CLIPBOARD] By type: {summary['violations_by_type']}")
+        print(f"   [!] By severity: {summary['violations_by_severity']}")
 
     def test_di_scanner_can_analyze_codebase(
         self, scanner: "DIViolationScanner"

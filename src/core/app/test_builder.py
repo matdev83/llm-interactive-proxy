@@ -55,8 +55,8 @@ class ApplicationTestBuilder(ApplicationBuilder):
         Returns:
             Self for method chaining
         """
-        self.add_stage(CoreServicesStage())
         self.add_stage(InfrastructureStage())
+        self.add_stage(CoreServicesStage())
         self.add_stage(MockBackendStage())  # Mock backends instead of real ones
         self.add_stage(CommandStage())
         self.add_stage(ProcessorStage())
@@ -74,6 +74,7 @@ class ApplicationTestBuilder(ApplicationBuilder):
         Returns:
             Self for method chaining
         """
+        self.add_stage(InfrastructureStage())
         self.add_stage(CoreServicesStage())
         self.add_stage(MinimalTestStage())
         return self
