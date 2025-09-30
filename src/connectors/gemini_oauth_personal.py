@@ -81,6 +81,7 @@ from src.core.common.exceptions import (
     APITimeoutError,
     AuthenticationError,
     BackendError,
+    ServiceUnavailableError,
 )
 from src.core.config.app_config import AppConfig
 from src.core.domain.responses import (
@@ -233,7 +234,11 @@ class GeminiOAuthPersonalConnector(GeminiBackend):
             if not isinstance(expiry, int | float):
                 errors.append("Invalid expiry_date: must be a number (ms)")
             else:
-                if time.time() >= float(expiry) / 1000.0:
+                # Use UTC time for comparison since Google OAuth expiry_date is in UTC
+                import datetime
+
+                current_utc_s = datetime.datetime.now(datetime.timezone.utc).timestamp()
+                if current_utc_s >= float(expiry) / 1000.0:
                     errors.append("Token expired")
 
         return len(errors) == 0, errors
@@ -420,7 +425,12 @@ class GeminiOAuthPersonalConnector(GeminiBackend):
 
         # Add a buffer for proactive refresh (e.g., 30 seconds before actual expiry)
         refresh_buffer_s = 30
-        return time.time() >= (expiry_date_s - refresh_buffer_s)
+
+        # Use UTC time for comparison since Google OAuth expiry_date is in UTC
+        import datetime
+
+        current_utc_s = datetime.datetime.now(datetime.timezone.utc).timestamp()
+        return current_utc_s >= (expiry_date_s - refresh_buffer_s)
 
     def _get_refresh_token(self) -> str | None:
         """Get refresh token, either from credentials or cached value."""
@@ -613,6 +623,87 @@ class GeminiOAuthPersonalConnector(GeminiBackend):
                 f"Gemini OAuth Personal backend initialized successfully with {len(self.available_models)} models."
             )
 
+    async def _ensure_models_loaded(self) -> None:
+        """Fetch models if not already cached - OAuth version.
+
+        Note: The Code Assist API doesn't have a models list endpoint,
+        so we use a hardcoded list of known models based on the official
+        gemini-cli source code (as of 2025).
+        """
+        if not self.available_models and self._oauth_credentials:
+            # Code Assist API doesn't have a /v1internal/models endpoint
+            # Use a hardcoded list based on gemini-cli's tokenLimits.ts and models.ts
+            self.available_models = [
+                # Current generation (2.5 series) - DEFAULT models
+                "gemini-2.5-pro",
+                "gemini-2.5-flash",
+                "gemini-2.5-flash-lite",
+                # Preview models
+                "gemini-2.5-pro-preview-05-06",
+                "gemini-2.5-pro-preview-06-05",
+                "gemini-2.5-flash-preview-05-20",
+                # 2.0 series
+                "gemini-2.0-flash",
+                "gemini-2.0-flash-thinking-exp-1219",
+                "gemini-2.0-flash-preview-image-generation",
+                # 1.5 series
+                "gemini-1.5-pro",
+                "gemini-1.5-flash",
+                # Embedding model
+                "gemini-embedding-001",
+            ]
+            if logger.isEnabledFor(logging.INFO):
+                logger.info(
+                    f"Loaded {len(self.available_models)} known Code Assist models"
+                )
+
+    async def list_models(
+        self, *, gemini_api_base_url: str, key_name: str, api_key: str
+    ) -> dict[str, Any]:
+        """List available models using OAuth authentication - ignores API key params."""
+        if not self._oauth_credentials or not self._oauth_credentials.get(
+            "access_token"
+        ):
+            raise HTTPException(
+                status_code=401, detail="No OAuth access token available"
+            )
+
+        headers = {"Authorization": f"Bearer {self._oauth_credentials['access_token']}"}
+        base_url = self.gemini_api_base_url or CODE_ASSIST_ENDPOINT
+        url = f"{base_url}/v1internal/models"
+
+        try:
+            response = await self.client.get(url, headers=headers)
+            if response.status_code >= 400:
+                try:
+                    error_detail = response.json()
+                except Exception:
+                    error_detail = response.text
+                raise BackendError(
+                    message=str(error_detail),
+                    code="gemini_oauth_error",
+                    status_code=response.status_code,
+                    backend_name=self.backend_type,
+                )
+            result: dict[str, Any] = response.json()
+            return result
+        except httpx.TimeoutException as e:
+            if logger.isEnabledFor(logging.ERROR):
+                logger.error(
+                    "Timeout connecting to Gemini OAuth API: %s", e, exc_info=True
+                )
+            raise ServiceUnavailableError(
+                message=f"Timeout connecting to Gemini OAuth API ({e})"
+            )
+        except httpx.RequestError as e:
+            if logger.isEnabledFor(logging.ERROR):
+                logger.error(
+                    "Request error connecting to Gemini OAuth API: %s", e, exc_info=True
+                )
+            raise ServiceUnavailableError(
+                message=f"Could not connect to Gemini OAuth API ({e})"
+            )
+
     async def _resolve_gemini_api_config(
         self,
         gemini_api_base_url: str | None,
@@ -736,13 +827,16 @@ class GeminiOAuthPersonalConnector(GeminiBackend):
             if not refreshed:
                 raise BackendError("Failed to refresh OAuth token during health check")
 
-            # Perform health check
+            # Perform health check (non-blocking - we only fail on token issues)
             healthy = await self._perform_health_check()
             if not healthy:
-                raise BackendError("Health check failed")
-
+                logger.warning(
+                    "Health check did not pass, but continuing with valid OAuth credentials. "
+                    "The backend will be tested when the first real request is made."
+                )
+            # Mark as checked regardless - we have valid credentials
             self._health_checked = True
-            logger.info("Health check passed - backend is ready for use")
+            logger.info("Backend health check completed - ready for use")
 
     async def chat_completions(  # type: ignore[override]
         self,
@@ -864,6 +958,12 @@ class GeminiOAuthPersonalConnector(GeminiBackend):
                 def __init__(self, token: str) -> None:
                     self.token = token
 
+                def before_request(
+                    self, request: Any, method: str, url: str, headers: dict
+                ) -> None:
+                    """Apply the token to the authentication header."""
+                    headers["Authorization"] = f"Bearer {self.token}"
+
                 def refresh(self, request: Any) -> None:
                     # No-op: token is managed by the CLI; we reload from file when needed
                     return
@@ -881,10 +981,18 @@ class GeminiOAuthPersonalConnector(GeminiBackend):
                 source_format="anthropic",  # Assuming input is Anthropic-compatible
             )
 
-            # Prepare request body for Code Assist API (exactly matching KiloCode)
-            request_body = canonical_request.model_dump(exclude_unset=True)
-            request_body["model"] = effective_model  # Ensure model is correct
-            request_body["project"] = project_id  # Ensure project is correct
+            # Convert from canonical format to Gemini format
+            gemini_request = self.translation_service.from_domain_to_gemini_request(
+                canonical_request
+            )
+
+            # Prepare request body for Code Assist API (wrapping the Gemini request)
+            request_body = {
+                "model": effective_model,
+                "project": project_id,
+                "user_prompt_id": "proxy-request",
+                "request": gemini_request,
+            }
 
             # Use the Code Assist API exactly like KiloCode does
             # IMPORTANT: KiloCode uses :streamGenerateContent, not :generateContent
@@ -959,7 +1067,7 @@ class GeminiOAuthPersonalConnector(GeminiBackend):
             openai_response = self.translation_service.from_domain_response(
                 response=domain_response,
                 target_format="openai",
-            ).model_dump(exclude_unset=True)
+            )
 
             logger.info("Successfully received response from Code Assist API")
             return ResponseEnvelope(
@@ -1010,6 +1118,12 @@ class GeminiOAuthPersonalConnector(GeminiBackend):
                 def __init__(self, token: str) -> None:
                     self.token = token
 
+                def before_request(
+                    self, request: Any, method: str, url: str, headers: dict
+                ) -> None:
+                    """Apply the token to the authentication header."""
+                    headers["Authorization"] = f"Bearer {self.token}"
+
                 def refresh(self, request: Any) -> None:
                     return
 
@@ -1026,10 +1140,18 @@ class GeminiOAuthPersonalConnector(GeminiBackend):
                 source_format="anthropic",  # Assuming input is Anthropic-compatible
             )
 
-            # Prepare request body for Code Assist API (exactly matching KiloCode)
-            request_body = canonical_request.model_dump(exclude_unset=True)
-            request_body["model"] = effective_model  # Ensure model is correct
-            request_body["project"] = project_id  # Ensure project is correct
+            # Convert from canonical format to Gemini format
+            gemini_request = self.translation_service.from_domain_to_gemini_request(
+                canonical_request
+            )
+
+            # Prepare request body for Code Assist API (wrapping the Gemini request)
+            request_body = {
+                "model": effective_model,
+                "project": project_id,
+                "user_prompt_id": "proxy-request",
+                "request": gemini_request,
+            }
 
             # Use the Code Assist API with streaming endpoint
             url = f"{self.gemini_api_base_url}/v1internal:streamGenerateContent"

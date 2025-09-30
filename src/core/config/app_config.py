@@ -245,6 +245,9 @@ class BackendSettings(DomainModel):
     """Settings for all backends."""
 
     default_backend: str = "openai"
+    static_route: str | None = (
+        None  # Force all requests to backend:model (e.g., "gemini-cli-oauth-personal:gemini-2.5-pro")
+    )
     # Store backend configs as dynamic fields
     model_config = ConfigDict(extra="allow")
 

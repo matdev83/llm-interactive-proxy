@@ -526,16 +526,17 @@ class TestGeminiOAuthPersonalConnector:
     async def test_ensure_healthy_health_check_failure(
         self, mock_health_check, mock_refresh, connector
     ):
-        """Test that _ensure_healthy raises error when health check fails."""
-        from src.core.common.exceptions import BackendError
-
+        """Test that _ensure_healthy continues with warning when health check fails."""
         # Setup
         mock_refresh.return_value = True
         mock_health_check.return_value = False
 
-        # Test
-        with pytest.raises(BackendError, match="Health check failed"):
-            await connector._ensure_healthy()
+        # Test - should not raise, just log warning
+        await connector._ensure_healthy()
 
+        # Verify both refresh and health check were called
         mock_refresh.assert_called_once()
         mock_health_check.assert_called_once()
+
+        # Verify backend is marked as healthy despite failed health check
+        assert connector._health_checked

@@ -68,7 +68,7 @@ This project is a swiss-army knife for anyone working with language models and a
 ### Control & Ergonomics
 
 - In-chat switching: change back-end and model on the fly with `!/backend(...)` and `!/model(...)`
-- Force model override: make clients use the model you choose without changing client code
+- Force model override: static CLI parameter (`--force-model`) to override all client-requested models without modifying client code
 
 ### Observability
 
@@ -178,6 +178,7 @@ Useful flags
 - `--config config/config.example.yaml` to load a saved config
 - `--capture-file wire.log` to record requests/replies (see Debugging)
 - `--disable-auth` for local only (forces host=127.0.0.1)
+- `--force-model MODEL_NAME` to override all client-requested models (e.g., `--force-model gemini-2.5-pro`)
 
 3) Point your client at the proxy
 
@@ -453,6 +454,24 @@ Then launch `claude`. You can switch models during a session:
 ### Gemini options
 
 - Metered API key (`gemini`), free personal OAuth (`gemini-cli-oauth-personal`), or GCP‑billed (`gemini-cli-cloud-project`). Pick one and set the required env vars.
+
+### Force a specific model across all requests
+
+Use `--force-model` to override whatever model the client requests, useful for:
+- Testing a specific model with any client/agent without modifying client code
+- Enforcing a particular model across different sessions
+- Routing free-tier OAuth backends (e.g., `gemini-cli-oauth-personal`) to specific models
+
+Example:
+```bash
+python -m src.core.cli \
+  --default-backend gemini-cli-oauth-personal \
+  --force-model gemini-2.5-pro \
+  --disable-auth \
+  --port 8000
+```
+
+Now any client requesting `gpt-4`, `claude-3-opus`, or any other model will actually use `gemini-2.5-pro` on the gemini-cli-oauth-personal backend.
 
 ## Errors and Troubleshooting
 

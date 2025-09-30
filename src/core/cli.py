@@ -3,6 +3,7 @@ import argparse
 # type: ignore[unreachable]
 import logging
 import os
+import socket
 import sys
 
 import uvicorn
@@ -12,6 +13,12 @@ from src.core.config.app_config import AppConfig, LogLevel, load_config
 
 # Import backend connectors to ensure they register themselves
 from src.core.services import backend_imports  # noqa: F401
+
+
+def is_port_in_use(host: str, port: int) -> bool:
+    """Check if a port is in use on a given host."""
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        return s.connect_ex((host, port)) == 0
 
 
 def _check_privileges() -> None:
@@ -78,6 +85,12 @@ def parse_cli_args(argv: list[str] | None = None) -> argparse.Namespace:
         dest="default_backend",
         choices=registered_backends,  # Dynamically populated
         help=argparse.SUPPRESS,
+    )
+    parser.add_argument(
+        "--static-route",
+        dest="static_route",
+        metavar="BACKEND:MODEL",
+        help="Force all requests to use this backend:model combination (e.g., gemini-cli-oauth-personal:gemini-2.5-pro)",
     )
     parser.add_argument("--openrouter-api-key")
     parser.add_argument("--openrouter-api-base-url")
@@ -238,6 +251,11 @@ def apply_cli_args(args: argparse.Namespace) -> AppConfig:
     if args.default_backend is not None:
         cfg.backends.default_backend = args.default_backend
         os.environ["LLM_BACKEND"] = args.default_backend
+
+    # Static route configuration
+    if getattr(args, "static_route", None) is not None:
+        cfg.backends.static_route = args.static_route
+        os.environ["STATIC_ROUTE"] = args.static_route
     if args.openrouter_api_key is not None:
         cfg.backends["openrouter"].api_key = args.openrouter_api_key
     if args.openrouter_api_base_url is not None:
@@ -489,6 +507,12 @@ def main(
         logging.info(
             f"Trusted IPs configured for bypassing authorization: {', '.join(cfg.auth.trusted_ips)}"
         )
+
+    if is_port_in_use(cfg.host, cfg.port):
+        error_msg = f"Port {cfg.port} is already in use."
+        logging.error(error_msg)
+        sys.stderr.write(f"\nERROR: {error_msg}\n")
+        sys.exit(1)
 
     logging.info(f"Starting uvicorn on {cfg.host}:{cfg.port}")
     try:

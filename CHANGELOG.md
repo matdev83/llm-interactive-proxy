@@ -1,5 +1,21 @@
 # Changelog
 
+## 2025-09-30 – Backend Auto-Discovery Architecture
+
+- **Architecture Improvement**: Implemented true SOLID/DIP-compliant backend auto-discovery mechanism
+  - **Dynamic Discovery**: Backends are automatically discovered using `pkgutil.iter_modules()` - no hardcoded imports required
+  - **Plugin-Ready**: Simply drop a new backend file in `src/connectors/` with `backend_registry.register_backend()` call
+  - **SOLID Principles**: Follows Open/Closed Principle - system is open for extension but closed for modification
+  - **Resilient**: Failed backend imports don't break other backends - errors are logged as warnings
+  - **Backward Compatible**: All backend classes are still exported for existing imports to work
+  - **Comprehensive Testing**: Full test coverage for auto-discovery mechanism
+  - **Documentation**: Detailed developer documentation in `docs/dev/backend_auto_discovery.md`
+- **Bug Fix**: Fixed Gemini OAuth Personal backend integration
+  - Implemented proper authentication flow using `google.auth.transport.requests.AuthorizedSession`
+  - Fixed Code Assist API request/response format wrapping
+  - Made health checks non-blocking to prevent startup failures
+  - Added automatic managed project ID discovery for free-tier users
+
 ## 2025-09-13 – Automated Pytest Output Compression
 
 - **New Feature**: Added automated pytest tool call output compression to preserve context window space
