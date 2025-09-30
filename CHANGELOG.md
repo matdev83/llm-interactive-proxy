@@ -1,5 +1,11 @@
 # Changelog
 
+## 2025-10-02 – Gemini Personal OAuth Auto-Refresh
+
+- **Startup Validation**: The `gemini-cli-oauth-personal` backend now confirms the stored OAuth token is still valid during initialization, failing fast when credentials are stale instead of deferring to the first request.
+- **Live Credential Watching**: Introduced a filesystem watcher for the Gemini CLI `oauth_creds.json` file so refreshed tokens are loaded into memory immediately without restarting the proxy.
+- **Proactive Refresh Flow**: Every request now checks remaining token lifetime; when the token is expired or inside a two-minute window the proxy launches the Gemini CLI refresh command in the background and polls for the updated token, eliminating manual intervention after Google's expiry change.
+
 ## 2025-10-01 – CLI v2 Migration
 
 - **Default CLI Updated**: Promoted the staged `cli_v2` implementation to the primary entrypoint (`src/core/cli.py`) for running the proxy.
@@ -149,6 +155,19 @@ This document outlines significant changes and updates to the LLM Interactive Pr
   - **Error Handling**: Correctly surfaces a `BackendError` when the ZAI API returns ZAI-specific error responses.
   - **Testing**: Comprehensive unit and integration tests with real API validation.
   - **Documentation**: Complete setup guide with configuration examples and troubleshooting.
+
+## 2025-09-30 - CLI Context Window Override Feature
+
+- **New Feature**: Added `--force-context-window` CLI argument for static context window overrides across all models.
+  - **CLI Argument**: `--force-context-window TOKENS` sets a static context window size that overrides all model-specific configurations.
+  - **Front-end Enforcement**: Enforces token limits before requests reach backend providers, preventing unnecessary API calls and costs.
+  - **Structured Error Responses**: Returns detailed 400 Bad Request responses with measured vs. limit token counts and error codes.
+  - **Configuration Integration**: CLI override takes precedence over config file settings while maintaining compatibility with existing configurations.
+  - **Environment Variable Support**: Sets `FORCE_CONTEXT_WINDOW` environment variable for downstream processes.
+  - **Schema Validation**: Updated YAML schema to support the new `context_window_override` field.
+  - **Comprehensive Testing**: Full test coverage for CLI argument parsing, enforcement logic, and edge cases.
+  - **Documentation**: Enhanced README with detailed examples, use cases, and troubleshooting guidance.
+  - **Use Cases**: Cost control, testing compatibility, performance optimization, and multi-tier service configurations.
 
 ## 2025-09-09 - Context Window Size Overrides
 

@@ -78,6 +78,13 @@ def parse_cli_args(argv: list[str] | None = None) -> argparse.Namespace:
         metavar="TOKENS",
         help="Override context window size for all models (in tokens, overrides config file settings)",
     )
+    parser.add_argument(
+        "--thinking-budget",
+        dest="thinking_budget",
+        type=int,
+        metavar="TOKENS",
+        help="Set max reasoning tokens for all requests (-1=dynamic/unlimited, 0=none, >0=limit in tokens)",
+    )
 
     # Logging options
     parser.add_argument(
@@ -210,6 +217,11 @@ def apply_cli_args(args: argparse.Namespace) -> AppConfig:
     if args.force_context_window is not None:
         cfg.context_window_override = args.force_context_window
         os.environ["FORCE_CONTEXT_WINDOW"] = str(args.force_context_window)
+
+    # Thinking budget override (for reasoning/thinking tokens)
+    if args.thinking_budget is not None:
+        # Store in environment for the translation layer to pick up
+        os.environ["THINKING_BUDGET"] = str(args.thinking_budget)
 
     # Logging configuration
     if args.log_file is not None:

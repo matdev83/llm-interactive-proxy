@@ -489,8 +489,37 @@ class Translation:
             config["maxOutputTokens"] = request.max_tokens
         if request.stop:
             config["stopSequences"] = request.stop
-        if request.reasoning_effort is not None:
-            config["thinkingConfig"] = {"reasoning_effort": request.reasoning_effort}
+        # Check for CLI override first (--thinking-budget flag)
+        import os
+
+        cli_thinking_budget = os.environ.get("THINKING_BUDGET")
+        if cli_thinking_budget is not None:
+            try:
+                budget = int(cli_thinking_budget)
+                config["thinkingConfig"] = {
+                    "thinkingBudget": budget,
+                    "includeThoughts": True,
+                }
+            except ValueError:
+                pass  # Invalid value, ignore
+
+        # Otherwise, use reasoning_effort if provided
+        elif request.reasoning_effort is not None:
+            # Gemini uses thinkingBudget (max reasoning tokens)
+            # Map reasoning_effort levels to approximate token budgets
+            # -1 = dynamic/unlimited (let model decide)
+            # 0 = no thinking
+            # positive int = max thinking tokens
+            effort_to_budget = {
+                "low": 512,
+                "medium": 2048,
+                "high": -1,  # Dynamic/unlimited
+            }
+            budget = effort_to_budget.get(request.reasoning_effort, -1)
+            config["thinkingConfig"] = {
+                "thinkingBudget": budget,
+                "includeThoughts": True,  # Include reasoning in output
+            }
 
         # Process messages with proper handling of multimodal content and tool calls
         contents = []

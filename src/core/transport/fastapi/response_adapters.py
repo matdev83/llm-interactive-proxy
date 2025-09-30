@@ -25,6 +25,30 @@ from src.core.interfaces.response_processor_interface import ProcessedResponse
 logger = logging.getLogger(__name__)
 
 
+def _format_chunk_as_sse(chunk: Any) -> bytes:
+    """Format a chunk as SSE (Server-Sent Events) format.
+
+    This is the critical fix for streaming responses - dict chunks must be
+    formatted as `data: {json}\\n\\n` for proper SSE format.
+
+    Args:
+        chunk: The chunk to format (dict, str, bytes, or other)
+
+    Returns:
+        Formatted chunk as bytes
+    """
+    if isinstance(chunk, dict):
+        # Format as SSE: data: {json}\n\n
+        sse_line = f"data: {json.dumps(chunk)}\n\n"
+        return sse_line.encode("utf-8")
+    elif isinstance(chunk, str):
+        return chunk.encode("utf-8")
+    elif isinstance(chunk, bytes):
+        return chunk
+    else:
+        return str(chunk).encode("utf-8")
+
+
 async def _string_to_async_iterator(content: bytes) -> AsyncIterator[ProcessedResponse]:
     """Convert a bytes object to an async iterator that yields the content once."""
     yield ProcessedResponse(content=content.decode("utf-8"))
@@ -210,21 +234,11 @@ def to_fastapi_streaming_response(
     ) -> AsyncIterator[bytes]:
         try:
             async for chunk in it:  # type: ignore
-                if isinstance(chunk, str):
-                    yield chunk.encode("utf-8")
-                elif isinstance(chunk, bytes):
-                    yield chunk
-                else:
-                    yield str(chunk).encode("utf-8")
+                yield _format_chunk_as_sse(chunk)
         except TypeError:
             # Not an async iterator; handle as sync iterable
             for chunk in it:  # type: ignore
-                if isinstance(chunk, str):
-                    yield chunk.encode("utf-8")
-                elif isinstance(chunk, bytes):
-                    yield chunk
-                else:
-                    yield str(chunk).encode("utf-8")
+                yield _format_chunk_as_sse(chunk)
 
     content_iter = domain_response.content
     return StreamingResponse(

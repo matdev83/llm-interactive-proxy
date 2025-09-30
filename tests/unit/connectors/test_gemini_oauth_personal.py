@@ -4,6 +4,7 @@ Tests for Gemini OAuth Personal connector.
 
 import asyncio
 import json
+import time
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -44,6 +45,8 @@ class TestGeminiOAuthPersonalConnector:
         assert connector._last_modified == 0
         assert connector._refresh_token is None
         assert isinstance(connector._token_refresh_lock, asyncio.Lock)
+        assert connector._last_cli_refresh_attempt == 0.0
+        assert connector._cli_refresh_process is None
 
     def test_is_token_expired_no_credentials(self, connector):
         """Test token expiry check when no credentials are loaded."""
@@ -83,6 +86,21 @@ class TestGeminiOAuthPersonalConnector:
         """Test getting refresh token from cache."""
         connector._refresh_token = "cached_refresh_token"
         assert connector._get_refresh_token() == "cached_refresh_token"
+
+    def test_should_trigger_cli_refresh_with_short_expiry(self, connector):
+        """Token expiring within threshold should trigger CLI refresh."""
+        connector._oauth_credentials = {
+            "access_token": "token",
+            "expiry_date": (time.time() + 90) * 1000,
+        }
+
+        assert connector._should_trigger_cli_refresh() is True
+
+    def test_should_trigger_cli_refresh_with_no_expiry(self, connector):
+        """Token without expiry should not trigger CLI refresh."""
+        connector._oauth_credentials = {"access_token": "token"}
+
+        assert connector._should_trigger_cli_refresh() is False
 
     @patch("pathlib.Path.home")
     @patch("pathlib.Path.exists")
@@ -274,14 +292,46 @@ class TestGeminiOAuthPersonalConnector:
     @patch.object(
         GeminiOAuthPersonalConnector, "_refresh_token_if_needed", new_callable=AsyncMock
     )
-    async def test_initialize_refresh_failure(self, mock_refresh, mock_load, connector):
+    @patch.object(
+        GeminiOAuthPersonalConnector,
+        "_validate_credentials_structure",
+        return_value=(True, []),
+    )
+    @patch.object(
+        GeminiOAuthPersonalConnector,
+        "_validate_credentials_file_exists",
+        return_value=(True, []),
+    )
+    @patch.object(GeminiOAuthPersonalConnector, "_start_file_watching")
+    async def test_initialize_refresh_failure(
+        self,
+        mock_start_watching,
+        mock_validate_file,
+        mock_validate_structure,
+        mock_refresh,
+        mock_load,
+        connector,
+    ):
         """Test initialization when token refresh fails."""
         mock_load.return_value = True
         mock_refresh.return_value = False
+        connector._oauth_credentials = {"access_token": "stale"}
 
         await connector.initialize()
 
         assert connector.is_functional is False
+        assert connector._initialization_failed is False
+        mock_start_watching.assert_called_once()
+        assert connector.get_validation_errors() == [
+            "OAuth token refresh pending; Gemini CLI background refresh was triggered."
+        ]
+
+    def test_recover_clears_initialization_failure(self, connector):
+        """Recover should reset initialization failure flag."""
+        connector._initialization_failed = True
+        connector._recover()
+
+        assert connector._initialization_failed is False
 
     async def test_resolve_gemini_api_config_no_credentials(self, connector):
         """Test resolving API config when no credentials are available."""
@@ -540,3 +590,103 @@ class TestGeminiOAuthPersonalConnector:
 
         # Verify backend is marked as healthy despite failed health check
         assert connector._health_checked
+
+    @patch("asyncio.sleep", new_callable=AsyncMock)
+    async def test_refresh_token_if_needed_triggers_cli_on_expiring(
+        self, mock_sleep, connector
+    ):
+        """Token close to expiry should schedule CLI refresh while remaining valid."""
+        mock_sleep.return_value = None
+        connector._oauth_credentials = {
+            "access_token": "token",
+            "expiry_date": (time.time() + 90) * 1000,
+        }
+
+        with (
+            patch.object(
+                connector, "_load_oauth_credentials", new_callable=AsyncMock
+            ) as mock_load,
+            patch.object(connector, "_launch_cli_refresh_process") as mock_launch,
+        ):
+            mock_load.return_value = True
+
+            result = await connector._refresh_token_if_needed()
+
+        assert result is True
+        mock_launch.assert_called_once()
+        mock_load.assert_not_called()
+
+    @patch("asyncio.sleep", new_callable=AsyncMock)
+    async def test_refresh_token_if_needed_attempts_cli_on_expired(
+        self, mock_sleep, connector
+    ):
+        """Expired token should attempt reload and spawn CLI refresh."""
+        mock_sleep.return_value = None
+        expired_time = (time.time() - 5) * 1000
+
+        async def load_side_effect():
+            load_side_effect.counter += 1
+            if load_side_effect.counter < 3:
+                connector._oauth_credentials = {
+                    "access_token": "token",
+                    "expiry_date": expired_time,
+                }
+            else:
+                connector._oauth_credentials = {
+                    "access_token": "fresh",
+                    "expiry_date": (time.time() + 3600) * 1000,
+                }
+            return True
+
+        load_side_effect.counter = 0
+
+        connector._oauth_credentials = {
+            "access_token": "token",
+            "expiry_date": expired_time,
+        }
+
+        with (
+            patch.object(
+                connector, "_load_oauth_credentials", new_callable=AsyncMock
+            ) as mock_load,
+            patch.object(connector, "_launch_cli_refresh_process") as mock_launch,
+        ):
+            mock_load.side_effect = load_side_effect
+
+            result = await connector._refresh_token_if_needed()
+
+        assert result is True
+        assert mock_launch.call_count == 1
+        assert load_side_effect.counter >= 3
+
+    @patch("asyncio.sleep", new_callable=AsyncMock)
+    async def test_refresh_token_if_needed_fails_when_cli_refresh_never_updates(
+        self, mock_sleep, connector
+    ):
+        """Expired token remains invalid if CLI refresh does not update file."""
+        mock_sleep.return_value = None
+        expired_time = (time.time() - 5) * 1000
+        connector._oauth_credentials = {
+            "access_token": "token",
+            "expiry_date": expired_time,
+        }
+
+        async def load_side_effect():
+            connector._oauth_credentials = {
+                "access_token": "token",
+                "expiry_date": expired_time,
+            }
+            return True
+
+        with (
+            patch.object(
+                connector, "_load_oauth_credentials", new_callable=AsyncMock
+            ) as mock_load,
+            patch.object(connector, "_launch_cli_refresh_process") as mock_launch,
+        ):
+            mock_load.side_effect = load_side_effect
+
+            result = await connector._refresh_token_if_needed()
+
+        assert result is False
+        mock_launch.assert_called_once()

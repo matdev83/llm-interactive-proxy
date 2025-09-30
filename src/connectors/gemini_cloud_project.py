@@ -1011,10 +1011,52 @@ class GeminiCloudProjectConnector(GeminiBackend):
                 source_format="anthropic",  # Assuming input is Anthropic-compatible
             )
 
+            # Convert from canonical format to Gemini format
+            gemini_request = self.translation_service.from_domain_to_gemini_request(
+                canonical_request
+            )
+
+            # Code Assist API doesn't support 'system' role in contents array
+            # Extract system messages and convert to systemInstruction with 'user' role
+            system_instruction = None
+            filtered_contents = []
+
+            for content in gemini_request.get("contents", []):
+                if content.get("role") == "system":
+                    # Convert system message to systemInstruction with 'user' role
+                    # (Code Assist API doesn't support 'system' role)
+                    system_instruction = {
+                        "role": "user",
+                        "parts": content.get("parts", []),
+                    }
+                else:
+                    filtered_contents.append(content)
+
+            # Build the request for Code Assist API
+            code_assist_request = {
+                "contents": filtered_contents,
+                "generationConfig": gemini_request.get("generationConfig", {}),
+            }
+
+            # Add systemInstruction if we found system messages
+            if system_instruction:
+                code_assist_request["systemInstruction"] = system_instruction
+
+            # Add other fields if present
+            if "tools" in gemini_request:
+                code_assist_request["tools"] = gemini_request["tools"]
+            if "toolConfig" in gemini_request:
+                code_assist_request["toolConfig"] = gemini_request["toolConfig"]
+            if "safetySettings" in gemini_request:
+                code_assist_request["safetySettings"] = gemini_request["safetySettings"]
+
             # Prepare request body with USER'S project ID
-            request_body = canonical_request.model_dump(exclude_unset=True)
-            request_body["model"] = effective_model
-            request_body["project"] = project_id  # User's GCP project
+            request_body = {
+                "model": effective_model,
+                "project": project_id,  # User's GCP project
+                "user_prompt_id": "proxy-request",
+                "request": code_assist_request,
+            }
 
             url = f"{self.gemini_api_base_url}/v1internal:streamGenerateContent"
             if logger.isEnabledFor(logging.INFO):
@@ -1127,10 +1169,52 @@ class GeminiCloudProjectConnector(GeminiBackend):
                 source_format="anthropic",  # Assuming input is Anthropic-compatible
             )
 
+            # Convert from canonical format to Gemini format
+            gemini_request = self.translation_service.from_domain_to_gemini_request(
+                canonical_request
+            )
+
+            # Code Assist API doesn't support 'system' role in contents array
+            # Extract system messages and convert to systemInstruction with 'user' role
+            system_instruction = None
+            filtered_contents = []
+
+            for content in gemini_request.get("contents", []):
+                if content.get("role") == "system":
+                    # Convert system message to systemInstruction with 'user' role
+                    # (Code Assist API doesn't support 'system' role)
+                    system_instruction = {
+                        "role": "user",
+                        "parts": content.get("parts", []),
+                    }
+                else:
+                    filtered_contents.append(content)
+
+            # Build the request for Code Assist API
+            code_assist_request = {
+                "contents": filtered_contents,
+                "generationConfig": gemini_request.get("generationConfig", {}),
+            }
+
+            # Add systemInstruction if we found system messages
+            if system_instruction:
+                code_assist_request["systemInstruction"] = system_instruction
+
+            # Add other fields if present
+            if "tools" in gemini_request:
+                code_assist_request["tools"] = gemini_request["tools"]
+            if "toolConfig" in gemini_request:
+                code_assist_request["toolConfig"] = gemini_request["toolConfig"]
+            if "safetySettings" in gemini_request:
+                code_assist_request["safetySettings"] = gemini_request["safetySettings"]
+
             # Prepare request body with USER'S project ID
-            request_body = canonical_request.model_dump(exclude_unset=True)
-            request_body["model"] = effective_model
-            request_body["project"] = project_id
+            request_body = {
+                "model": effective_model,
+                "project": project_id,
+                "user_prompt_id": "proxy-request",
+                "request": code_assist_request,
+            }
 
             url = f"{self.gemini_api_base_url}/v1internal:streamGenerateContent"
             if logger.isEnabledFor(logging.INFO):

@@ -57,8 +57,10 @@ the path to the credentials file as input - no Google Cloud project configuratio
 """
 
 import asyncio
+import contextlib
 import json
 import logging
+import subprocess
 import time
 from collections.abc import AsyncGenerator
 from pathlib import Path
@@ -102,6 +104,19 @@ CODE_ASSIST_ENDPOINT = "https://cloudcode-pa.googleapis.com"
 # Default project for free tier used in UserTierId enum: "free-tier"
 
 logger = logging.getLogger(__name__)
+
+
+TOKEN_EXPIRY_BUFFER_SECONDS = 30.0
+CLI_REFRESH_THRESHOLD_SECONDS = 120.0
+CLI_REFRESH_COOLDOWN_SECONDS = 30.0
+CLI_REFRESH_COMMAND = [
+    "gemini",
+    "-m",
+    "gemini-2.5-flash",
+    "-y",
+    "-p",
+    "Hi. What's up?",
+]
 
 
 class GeminiPersonalCredentialsFileHandler(FileSystemEventHandler):
@@ -164,6 +179,8 @@ class GeminiOAuthPersonalConnector(GeminiBackend):
         self._initialization_failed = False
         self._last_validation_time = 0.0
         self._pending_reload_task: asyncio.Task | None = None
+        self._last_cli_refresh_attempt = 0.0
+        self._cli_refresh_process: subprocess.Popen[bytes] | None = None
 
         # Check environment variable to allow disabling health checks globally
         import os
@@ -305,6 +322,7 @@ class GeminiOAuthPersonalConnector(GeminiBackend):
         """Recover backend functionality after credential issues are resolved."""
         self._credential_validation_errors = []
         self.is_functional = True
+        self._initialization_failed = False
 
     def _start_file_watching(self) -> None:
         """Start watching the credentials file for changes."""
@@ -358,9 +376,21 @@ class GeminiOAuthPersonalConnector(GeminiBackend):
 
             # Attempt to reload
             if await self._load_oauth_credentials():
-                self._recover()
-                if logger.isEnabledFor(logging.INFO):
-                    logger.info("Successfully reloaded credentials from updated file")
+                refreshed = await self._refresh_token_if_needed()
+                if refreshed:
+                    self._recover()
+                    if logger.isEnabledFor(logging.INFO):
+                        logger.info(
+                            "Successfully reloaded credentials from updated file"
+                        )
+                else:
+                    self._degrade(
+                        ["Credentials refreshed from file but token remains invalid"]
+                    )
+                    if logger.isEnabledFor(logging.WARNING):
+                        logger.warning(
+                            "Credentials file reload completed but token is still invalid"
+                        )
             else:
                 self._degrade(["Failed to reload credentials after file change"])
                 if logger.isEnabledFor(logging.ERROR):
@@ -384,53 +414,107 @@ class GeminiOAuthPersonalConnector(GeminiBackend):
             return self.is_backend_functional()
         self._last_validation_time = now
 
-        if self._is_token_expired():
-            if logger.isEnabledFor(logging.INFO):
-                logger.info(
-                    "Access token expired during runtime, attempting to reload credentials..."
-                )
-
-            if await self._load_oauth_credentials():
-                if self._is_token_expired():
-                    self._degrade(["Token expired and no valid replacement found"])
-                    if logger.isEnabledFor(logging.WARNING):
-                        logger.warning(
-                            "Reloaded token is still expired, marking backend as non-functional"
-                        )
-                    return False
-                self._recover()
-                if logger.isEnabledFor(logging.INFO):
-                    logger.info("Successfully reloaded valid credentials")
-                return True
-            self._degrade(["Failed to reload expired credentials"])
-            if logger.isEnabledFor(logging.ERROR):
-                logger.error(
-                    "Failed to reload credentials, marking backend as non-functional"
+        refreshed = await self._refresh_token_if_needed()
+        if not refreshed:
+            self._degrade(["Token expired and automatic refresh failed"])
+            if logger.isEnabledFor(logging.WARNING):
+                logger.warning(
+                    "Token validation failed; automatic refresh did not produce a valid token."
                 )
             return False
 
-        return self.is_backend_functional()
+        if not self.is_backend_functional():
+            self._recover()
+        return True
 
-    def _is_token_expired(self) -> bool:
-        """Check if the current access token is expired or close to expiring."""
+    def _seconds_until_token_expiry(self) -> float | None:
+        """Return seconds remaining before token expiry, or None if unknown."""
         if not self._oauth_credentials:
-            return True  # No credentials means no valid token
+            return None
 
-        expiry_date_ms = self._oauth_credentials.get("expiry_date")
-        if not isinstance(expiry_date_ms, int | float):
-            return False  # No expiry date means token doesn't expire
+        expiry_value = self._oauth_credentials.get("expiry_date")
+        if not isinstance(expiry_value, int | float):
+            return None
 
-        # Convert milliseconds to seconds
-        expiry_date_s = float(expiry_date_ms) / 1000.0
+        expiry_seconds = float(expiry_value) / 1000.0
+        return expiry_seconds - time.time()
 
-        # Add a buffer for proactive refresh (e.g., 30 seconds before actual expiry)
-        refresh_buffer_s = 30
+    def _is_token_expired(
+        self, buffer_seconds: float = TOKEN_EXPIRY_BUFFER_SECONDS
+    ) -> bool:
+        """Check if the current access token is expired or within buffer window."""
+        if not self._oauth_credentials:
+            return True
 
-        # Use UTC time for comparison since Google OAuth expiry_date is in UTC
-        import datetime
+        seconds_remaining = self._seconds_until_token_expiry()
+        if seconds_remaining is None:
+            return False
 
-        current_utc_s = datetime.datetime.now(datetime.timezone.utc).timestamp()
-        return current_utc_s >= (expiry_date_s - refresh_buffer_s)
+        return seconds_remaining <= buffer_seconds
+
+    def _should_trigger_cli_refresh(self) -> bool:
+        """Determine whether we should proactively trigger CLI token refresh."""
+        if not self._oauth_credentials:
+            return True
+
+        seconds_remaining = self._seconds_until_token_expiry()
+        if seconds_remaining is None:
+            return False
+
+        if seconds_remaining > CLI_REFRESH_THRESHOLD_SECONDS:
+            return False
+
+        now = time.time()
+        if (now - self._last_cli_refresh_attempt) < CLI_REFRESH_COOLDOWN_SECONDS:
+            return False
+
+        return not (
+            self._cli_refresh_process and self._cli_refresh_process.poll() is None
+        )
+
+    def _launch_cli_refresh_process(self) -> None:
+        """Launch gemini CLI command to refresh the OAuth token in background."""
+        now = time.time()
+
+        if (now - self._last_cli_refresh_attempt) < CLI_REFRESH_COOLDOWN_SECONDS:
+            return
+
+        if self._cli_refresh_process and self._cli_refresh_process.poll() is None:
+            return
+
+        try:
+            self._cli_refresh_process = subprocess.Popen(  # - intended CLI call
+                CLI_REFRESH_COMMAND,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+            self._last_cli_refresh_attempt = now
+            if logger.isEnabledFor(logging.INFO):
+                logger.info("Triggered Gemini CLI background refresh process")
+        except FileNotFoundError:
+            self._last_cli_refresh_attempt = now
+            if logger.isEnabledFor(logging.ERROR):
+                logger.error(
+                    "Gemini CLI binary not found; cannot refresh OAuth token automatically."
+                )
+        except Exception as exc:  # pragma: no cover - defensive logging
+            self._last_cli_refresh_attempt = now
+            if logger.isEnabledFor(logging.ERROR):
+                logger.error(
+                    "Failed to launch Gemini CLI for token refresh: %s",
+                    exc,
+                    exc_info=True,
+                )
+
+    async def _poll_for_new_token(self) -> bool:
+        """Poll the credential file for an updated token after CLI refresh."""
+        for _ in range(5):
+            await asyncio.sleep(1)
+            loaded = await self._load_oauth_credentials()
+            if loaded and not self._is_token_expired():
+                return True
+
+        return not self._is_token_expired()
 
     def _get_refresh_token(self) -> str | None:
         """Get refresh token, either from credentials or cached value."""
@@ -444,42 +528,58 @@ class GeminiOAuthPersonalConnector(GeminiBackend):
         return None
 
     async def _refresh_token_if_needed(self) -> bool:
-        """Ensure we have a valid access token; reload from CLI cache if expired.
+        """Ensure a valid access token is available, refreshing when necessary."""
+        if not self._oauth_credentials:
+            await self._load_oauth_credentials()
 
-        We intentionally avoid embedding OAuth client credentials. The official
-        gemini CLI persists credentials to ~/.gemini/oauth_creds.json and refreshes
-        them itself. Here we re-load that file if our token is stale.
-        """
-        if not self._is_token_expired():
+        if not self._oauth_credentials:
+            return False
+
+        expired = self._is_token_expired()
+        near_expiry = self._should_trigger_cli_refresh()
+
+        if not expired and not near_expiry:
             return True
 
         async with self._token_refresh_lock:
-            if not self._is_token_expired():
+            if not self._oauth_credentials:
+                await self._load_oauth_credentials()
+
+            if not self._oauth_credentials:
+                return False
+
+            expired = self._is_token_expired()
+            near_expiry = self._should_trigger_cli_refresh()
+
+            if not expired and near_expiry:
+                self._launch_cli_refresh_process()
+                return True
+
+            if not expired:
                 return True
 
             if logger.isEnabledFor(logging.INFO):
                 logger.info(
-                    "Access token expired or near expiry; reloading CLI credentials..."
+                    "Access token expired; reloading credentials and invoking CLI refresh if needed."
                 )
 
-            # Attempt to reload the credentials file; the CLI should refresh it
             reloaded = await self._load_oauth_credentials()
-            if not reloaded:
-                if logger.isEnabledFor(logging.WARNING):
-                    logger.warning(
-                        "Failed to reload Gemini OAuth credentials from ~/.gemini."
-                    )
-                return False
+            if reloaded and not self._is_token_expired():
+                if self._should_trigger_cli_refresh():
+                    self._launch_cli_refresh_process()
+                return True
 
-            # After reload, consider token valid if not expired
-            if self._is_token_expired():
-                if logger.isEnabledFor(logging.WARNING):
-                    logger.warning(
-                        "Reloaded credentials are still expired. Please run 'gemini auth' to refresh."
-                    )
-                return False
+            self._launch_cli_refresh_process()
 
-            return True
+            refreshed = await self._poll_for_new_token()
+            if refreshed:
+                return True
+
+            if logger.isEnabledFor(logging.WARNING):
+                logger.warning(
+                    "Automatic Gemini CLI refresh did not produce a valid token in time."
+                )
+            return False
 
     async def _save_oauth_credentials(self, credentials: dict[str, Any]) -> None:
         """Save OAuth credentials to oauth_creds.json file."""
@@ -600,7 +700,16 @@ class GeminiOAuthPersonalConnector(GeminiBackend):
 
         # 4) Refresh if needed
         if not await self._refresh_token_if_needed():
-            self._fail_init(["Failed to refresh expired token during initialization"])
+            pending_message = "OAuth token refresh pending; Gemini CLI background refresh was triggered."
+            self._degrade([pending_message])
+            self._start_file_watching()
+            self._initialization_failed = False
+            self._last_validation_time = time.time()
+            if logger.isEnabledFor(logging.WARNING):
+                logger.warning(
+                    "Gemini OAuth Personal backend started with an expired token; "
+                    "waiting for the Gemini CLI to refresh credentials."
+                )
             return
 
         # 5) Load models (non-fatal)
@@ -986,12 +1095,46 @@ class GeminiOAuthPersonalConnector(GeminiBackend):
                 canonical_request
             )
 
-            # Prepare request body for Code Assist API (wrapping the Gemini request)
+            # Code Assist API doesn't support 'system' role in contents array
+            # Extract system messages and convert to systemInstruction with 'user' role
+            system_instruction = None
+            filtered_contents = []
+
+            for content in gemini_request.get("contents", []):
+                if content.get("role") == "system":
+                    # Convert system message to systemInstruction with 'user' role
+                    # (Code Assist API doesn't support 'system' role)
+                    system_instruction = {
+                        "role": "user",
+                        "parts": content.get("parts", []),
+                    }
+                else:
+                    filtered_contents.append(content)
+
+            # Build the request for Code Assist API
+            code_assist_request = {
+                "contents": filtered_contents,
+                "generationConfig": gemini_request.get("generationConfig", {}),
+            }
+
+            # Add systemInstruction if we found system messages
+            if system_instruction:
+                code_assist_request["systemInstruction"] = system_instruction
+
+            # Add other fields if present
+            if "tools" in gemini_request:
+                code_assist_request["tools"] = gemini_request["tools"]
+            if "toolConfig" in gemini_request:
+                code_assist_request["toolConfig"] = gemini_request["toolConfig"]
+            if "safetySettings" in gemini_request:
+                code_assist_request["safetySettings"] = gemini_request["safetySettings"]
+
+            # Prepare request body for Code Assist API
             request_body = {
                 "model": effective_model,
                 "project": project_id,
                 "user_prompt_id": "proxy-request",
-                "request": gemini_request,
+                "request": code_assist_request,
             }
 
             # Use the Code Assist API exactly like KiloCode does
@@ -1145,12 +1288,46 @@ class GeminiOAuthPersonalConnector(GeminiBackend):
                 canonical_request
             )
 
-            # Prepare request body for Code Assist API (wrapping the Gemini request)
+            # Code Assist API doesn't support 'system' role in contents array
+            # Extract system messages and convert to systemInstruction with 'user' role
+            system_instruction = None
+            filtered_contents = []
+
+            for content in gemini_request.get("contents", []):
+                if content.get("role") == "system":
+                    # Convert system message to systemInstruction with 'user' role
+                    # (Code Assist API doesn't support 'system' role)
+                    system_instruction = {
+                        "role": "user",
+                        "parts": content.get("parts", []),
+                    }
+                else:
+                    filtered_contents.append(content)
+
+            # Build the request for Code Assist API
+            code_assist_request = {
+                "contents": filtered_contents,
+                "generationConfig": gemini_request.get("generationConfig", {}),
+            }
+
+            # Add systemInstruction if we found system messages
+            if system_instruction:
+                code_assist_request["systemInstruction"] = system_instruction
+
+            # Add other fields if present
+            if "tools" in gemini_request:
+                code_assist_request["tools"] = gemini_request["tools"]
+            if "toolConfig" in gemini_request:
+                code_assist_request["toolConfig"] = gemini_request["toolConfig"]
+            if "safetySettings" in gemini_request:
+                code_assist_request["safetySettings"] = gemini_request["safetySettings"]
+
+            # Prepare request body for Code Assist API
             request_body = {
                 "model": effective_model,
                 "project": project_id,
                 "user_prompt_id": "proxy-request",
-                "request": gemini_request,
+                "request": code_assist_request,
             }
 
             # Use the Code Assist API with streaming endpoint
@@ -1573,6 +1750,10 @@ class GeminiOAuthPersonalConnector(GeminiBackend):
     def __del__(self):
         """Cleanup file watcher on destruction."""
         self._stop_file_watching()
+        if self._cli_refresh_process and self._cli_refresh_process.poll() is None:
+            with contextlib.suppress(Exception):
+                self._cli_refresh_process.terminate()
+        self._cli_refresh_process = None
 
 
 backend_registry.register_backend(
