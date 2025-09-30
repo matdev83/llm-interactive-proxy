@@ -390,6 +390,7 @@ class AppConfig(DomainModel, IConfig):
     anthropic_port: int | None = None  # Will be set to port + 1 if not provided
     proxy_timeout: int = 120
     command_prefix: str = "!/"
+    context_window_override: int | None = None  # Override context window for all models
 
     # Rate limit settings
     default_rate_limit: int = 60

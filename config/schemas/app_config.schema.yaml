@@ -8,6 +8,7 @@ properties:
   anthropic_port: { type: integer, minimum: 1 }
   proxy_timeout: { type: integer, minimum: 0 }
   command_prefix: { type: string }
+  context_window_override: { type: ["integer", "null"], minimum: 1 }
   default_rate_limit: { type: integer, minimum: 0 }
   default_rate_window: { type: integer, minimum: 0 }
   model_defaults: { type: object, additionalProperties: true }

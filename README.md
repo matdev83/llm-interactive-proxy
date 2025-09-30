@@ -179,6 +179,7 @@ Useful flags
 - `--capture-file wire.log` to record requests/replies (see Debugging)
 - `--disable-auth` for local only (forces host=127.0.0.1)
 - `--force-model MODEL_NAME` to override all client-requested models (e.g., `--force-model gemini-2.5-pro`)
+- `--force-context-window TOKENS` to override context window size for all models (e.g., `--force-context-window 8000`)
 
 3) Point your client at the proxy
 
@@ -390,6 +391,62 @@ test_example.py::test_failure FAILED                     [100%]
 
 📖 **[Full Documentation](docs/pytest-compression.md)** - Detailed configuration options, use cases, and troubleshooting
 
+### Context Window Enforcement
+
+The proxy enforces per-model context window limits at the front-end, preventing requests that exceed model capabilities and providing clear error messages before they reach backend providers.
+
+- **Customizable Limits**: Configure different context window sizes per model and backend
+- **Input Token Enforcement**: Blocks requests that exceed input token limits with structured error responses
+- **Front-end Protection**: Prevents unnecessary API calls and costs by validating limits before backend requests
+- **Flexible Configuration**: Supports both `context_window` and `max_input_tokens` for fine-grained control
+
+**Configuration Options:**
+
+Context windows are configured in backend-specific YAML files or model defaults:
+
+```yaml
+# Backend-specific configuration (e.g., config/backends/custom/backend.yaml)
+models:
+  "your-model-name":
+    limits:
+      context_window: 262144        # Total context window size (tokens)
+      max_input_tokens: 200000      # Input token limit (tokens)
+      max_output_tokens: 62144      # Output token limit (tokens)
+      requests_per_minute: 60       # Rate limits
+      tokens_per_minute: 1000000
+
+# Or in main config via model_defaults
+model_defaults:
+  "your-model-name":
+    limits:
+      context_window: 128000        # 128K context window
+      max_input_tokens: 100000      # 100K input limit
+```
+
+**Error Handling:**
+
+When limits are exceeded, the proxy returns a structured 400 error:
+
+```json
+{
+  "detail": {
+    "code": "input_limit_exceeded",
+    "message": "Input token limit exceeded",
+    "details": {
+      "model": "your-model-name",
+      "limit": 100000,
+      "measured": 125432
+    }
+  }
+}
+```
+
+**Implementation Notes:**
+- Input limits are enforced strictly; output limits are handled by backend providers
+- `context_window` acts as a fallback when `max_input_tokens` is not specified
+- Token counting uses model-specific tokenizers when available
+- Configuration supports both `backend:model` and plain `model` key formats
+
 ### Other Capabilities
 
 - Failover and retries: route requests to a next-best model when one fails
@@ -401,7 +458,7 @@ test_example.py::test_failure FAILED                     [100%]
 - Empty response recovery: automatic retry with steering prompt on empty LLM responses
 - Identity header override: control X-Title/Referer/User-Agent per back-end
 - Content rewriting: REPLACE/PREPEND/APPEND rules on inbound/outbound content
-- Context window enforcement: per-model token limits with friendly errors
+- Context window enforcement: per-model token limits with configurable context window sizes and friendly errors
 
 **Advanced Configs (YAML)**:
 - `config/reasoning_aliases.yaml`: Per-model reasoning modes (e.g., temperature, max tokens, prompt prefixes)
@@ -473,11 +530,69 @@ python -m src.core.cli \
 
 Now any client requesting `gpt-4`, `claude-3-opus`, or any other model will actually use `gemini-2.5-pro` on the gemini-cli-oauth-personal backend.
 
+### Override context window size for all models
+
+Use `--force-context-window` to set a static context window size that overrides all model-specific configurations, useful for:
+- **Testing compatibility**: Verify how agents behave with smaller context windows
+- **Cost control**: Limit token usage regardless of model capabilities
+- **Performance optimization**: Reduce context size for faster responses
+- **Debugging**: Test with fixed context windows to isolate issues
+
+Example:
+```bash
+python -m src.core.cli \
+  --default-backend openai \
+  --force-context-window 8000 \
+  --disable-auth \
+  --port 8000
+```
+
+This sets an 8K token context window limit for **all models**, regardless of their individual configurations (even if models support 128K or 256K contexts).
+
+**Common use cases:**
+```bash
+# Simulate smaller model context limits for testing
+python -m src.core.cli --force-context-window 4096
+
+# Strict cost control with conservative limits
+python -m src.core.cli --force-context-window 2000
+
+# Balance between capability and performance
+python -m src.core.cli --force-context-window 16000
+```
+
+### Configure custom context window limits
+
+Protect against excessive token usage and cost overruns by configuring per-model context window limits:
+
+```yaml
+# config/backends/custom-models/backend.yaml
+backend_type: "custom"
+models:
+  "large-context-model":
+    limits:
+      context_window: 262144      # 256K total context window
+      max_input_tokens: 200000    # 200K input limit (leaves room for response)
+      requests_per_minute: 30     # Conservative rate limits
+  "small-fast-model":
+    limits:
+      context_window: 8192        # 8K context window
+      max_input_tokens: 6000      # 6K input limit
+      requests_per_minute: 120    # Higher rate for smaller model
+```
+
+**Use cases:**
+- **Cost Control**: Prevent accidental large-context requests with expensive models
+- **Agent Compatibility**: Ensure agents with long conversations don't exceed model limits
+- **Performance Tuning**: Optimize different models for different use cases
+- **Multi-tier Service**: Configure different limits for different user tiers or applications
+
 ## Errors and Troubleshooting
 
 - 401/403 from proxy: missing/invalid `Authorization` header when proxy auth is enabled
 - 400 Bad Request: malformed payload; ensure you send an OpenAI/Anthropic/Gemini-compatible body
 - 422 Unprocessable Entity: validation error; check error details for the field
+- 400 with `input_limit_exceeded`: request exceeds model's context window limits - check error details for measured vs limit tokens
 - 503 Service Unavailable: upstream provider is unreachable; try another model or enable failover
 - Model not found: ensure the model name exists for the selected back-end
 

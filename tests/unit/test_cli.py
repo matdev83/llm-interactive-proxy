@@ -76,3 +76,60 @@ def test_cli_backend_choices_match_registry() -> None:
             cli_choices is not None
         ), "CLI argument '--default-backend' has no choices"
         assert sorted(cli_choices) == sorted(registered_backends)
+
+
+def test_cli_context_window_override_argument_parsing() -> None:
+    """Test that the --force-context-window CLI argument is parsed correctly."""
+    with patch("src.core.config.app_config.load_config", return_value=AppConfig()):
+        # Test parsing with context window override
+        args = parse_cli_args(["--force-context-window", "5000"])
+        assert args.force_context_window == 5000
+
+        # Test application of args to config
+        config = apply_cli_args(args)
+        assert config.context_window_override == 5000
+
+        # Test with different values
+        args2 = parse_cli_args(["--force-context-window", "100000"])
+        config2 = apply_cli_args(args2)
+        assert config2.context_window_override == 100000
+
+
+def test_cli_context_window_override_defaults_to_none() -> None:
+    """Test that context window override defaults to None when not specified."""
+    with patch("src.core.config.app_config.load_config", return_value=AppConfig()):
+        # Test parsing without the argument
+        args = parse_cli_args([])
+        assert args.force_context_window is None
+
+        # Test application of args to config
+        config = apply_cli_args(args)
+        assert config.context_window_override is None
+
+
+def test_cli_context_window_override_environment_variable() -> None:
+    """Test that FORCE_CONTEXT_WINDOW environment variable is set when CLI argument is provided."""
+    import os
+
+    with patch("src.core.config.app_config.load_config", return_value=AppConfig()):
+        # Store original environment variable
+        original_env = os.environ.get("FORCE_CONTEXT_WINDOW")
+
+        try:
+            # Clear the environment variable first
+            if "FORCE_CONTEXT_WINDOW" in os.environ:
+                del os.environ["FORCE_CONTEXT_WINDOW"]
+
+            # Test application of args sets environment variable
+            args = parse_cli_args(["--force-context-window", "7500"])
+            config = apply_cli_args(args)
+
+            assert config.context_window_override == 7500
+            assert os.environ.get("FORCE_CONTEXT_WINDOW") == "7500"
+
+        finally:
+            # Restore original environment variable
+            if original_env is not None:
+                os.environ["FORCE_CONTEXT_WINDOW"] = original_env
+            elif "FORCE_CONTEXT_WINDOW" in os.environ:
+                del os.environ["FORCE_CONTEXT_WINDOW"]

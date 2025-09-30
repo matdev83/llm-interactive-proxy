@@ -173,6 +173,20 @@ class RequestProcessor(IRequestProcessor):
                         bool(model_defaults),
                     )
 
+                # Check for CLI context window override first
+                cli_context_window = None
+                if self._app_state is not None:
+                    try:
+                        app_config = self._app_state.get_setting("app_config")
+                        if app_config is not None and hasattr(
+                            app_config, "context_window_override"
+                        ):
+                            cli_context_window = getattr(
+                                app_config, "context_window_override", None
+                            )
+                    except (AttributeError, KeyError, TypeError):
+                        cli_context_window = None
+
                 limits = (
                     getattr(model_defaults, "limits", None)
                     if model_defaults is not None
@@ -183,6 +197,39 @@ class RequestProcessor(IRequestProcessor):
                         else None
                     )
                 )
+
+                # Apply CLI override if set
+                if cli_context_window is not None and cli_context_window > 0:
+                    # Create a new limits object or modify existing to use CLI override
+                    if limits is None:
+                        limits = {"context_window": cli_context_window}
+                    elif isinstance(limits, dict):
+                        limits = limits.copy()
+                        limits["context_window"] = cli_context_window
+                        # Also update max_input_tokens to match for consistency
+                        limits["max_input_tokens"] = cli_context_window
+                    else:
+                        # Create a dict representation for object-based limits
+                        limits = {
+                            "context_window": cli_context_window,
+                            "max_input_tokens": cli_context_window,
+                            "max_output_tokens": getattr(
+                                limits, "max_output_tokens", None
+                            ),
+                            "requests_per_minute": getattr(
+                                limits, "requests_per_minute", None
+                            ),
+                            "tokens_per_minute": getattr(
+                                limits, "tokens_per_minute", None
+                            ),
+                        }
+
+                    if logger.isEnabledFor(logging.INFO):
+                        logger.info(
+                            "Applied CLI context window override: %s tokens for model %s",
+                            cli_context_window,
+                            requested_model or model_name,
+                        )
                 if limits is not None:
                     # Note: max_output_tokens enforcement removed as it's redundant with backend limits
                     # and provides limited practical value. Backend providers already enforce
