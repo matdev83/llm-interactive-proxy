@@ -39,12 +39,12 @@
   - **Root Cause #1**: Incorrect import path in `src/core/app/stages/infrastructure.py` - imported from `src.core.interfaces.loop_detector` instead of `src.core.interfaces.loop_detector_interface`, causing silent registration failure
   - **Root Cause #2**: Missing factory function for `LoopDetectionProcessor` in `src/core/di/services.py` - the processor requires an `ILoopDetector` dependency in its constructor, but no factory was provided to inject it
   - **Impact**: Loop detection was completely non-functional despite being enabled by default. Repetitive LLM responses (13+ identical paragraphs) were not detected or mitigated
-  - **Solution**: 
+  - **Solution**:
     - Fixed import path to use correct interface: `src.core.interfaces.loop_detector_interface`
     - Added proper factory function to inject `ILoopDetector` into `LoopDetectionProcessor`
     - Increased `content_chunk_size` from 50 to 100 characters for better detection of longer patterns
     - Added comprehensive DI integrity tests to prevent similar issues in the future
-  - **Files Modified**: 
+  - **Files Modified**:
     - `src/core/app/stages/infrastructure.py` - Fixed ILoopDetector import and registration
     - `src/core/di/services.py` - Added factory for LoopDetectionProcessor with dependency injection
     - `src/loop_detection/config.py` - Increased content_chunk_size to 100

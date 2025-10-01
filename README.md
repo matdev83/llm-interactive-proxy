@@ -8,7 +8,6 @@
 ![Last Commit](https://img.shields.io/github/last-commit/matdev83/llm-interactive-proxy?label=Last%20commit)
 ![Open Issues](https://img.shields.io/github/issues/matdev83/llm-interactive-proxy?label=Open%20issues)
 
-
 This project is a swiss-army knife for anyone working with language models and agentic workflows. It sits between any LLM-aware client and any LLM backend, presenting multiple front-end APIs (OpenAI, Anthropic, Gemini) while routing to whichever provider you choose. With the proxy you can translate, reroute, and augment requests on the fly, execute chat-embedded commands, override models, rotate API keys, prevent leaks, and inspect traffic -- all from a single drop-in gateway.
 
 ## Contents
@@ -31,17 +30,17 @@ This project is a swiss-army knife for anyone working with language models and a
 
 ## Use Cases
 
--   **Connect Any App to Any Model**: Seamlessly route requests from any LLM-powered application to any model, even across different protocols. Use clients like Anthropic's Claude Code CLI with a Gemini 2.5 Pro model, or Codex CLI with a Kimi K2 model.
--   **Structured JSON Output**: Use the OpenAI Responses API for guaranteed JSON output that conforms to a specific schema, with automatic validation and repair.
--   **Override Hardcoded Models**: Force an application to use a model of your choice, even if the developers didn't provide an option to change it.
--   **Inspect and Debug Prompts**: Capture and analyze the exact prompts your agent sends to the LLM provider to debug and refine interactions.
--   **Customize System Prompts**: Rewrite or modify an agent's system prompt to better suit your specific needs and improve its performance.
--   **Leverage Your LLM Subscriptions**: Use your personal subscriptions, like OpenAI Plus/Pro or Anthropic Pro/MAX plans, with any third-party application, not just those developed by the LLM vendor.
--   **Automated Model Tuning for Precision**: The proxy automatically detects when a model struggles with tasks like precise file edits and adjusts its parameters to improve accuracy on subsequent attempts.
--   **Automatic Tool Call Repair**: If a model generates invalid tool calls, the proxy automatically corrects them before they can cause errors in your agent.
--   **Automated Error Detection and Steering**: Detect when an LLM is stuck in a loop or fails to follow instructions, and automatically generate steering commands to get it back on track.
--   **Block Harmful Tool Calls**: Prevent potentially destructive actions, such as deleting your git repository, by detecting and blocking harmful tool calls at the proxy level.
--   **Maximize Free Tiers with API Key Rotation**: Aggregate all your API keys and use auto-rotation to seamlessly switch between them, allowing you to take full advantage of multiple free-tier allowances.
+- **Connect Any App to Any Model**: Seamlessly route requests from any LLM-powered application to any model, even across different protocols. Use clients like Anthropic's Claude Code CLI with a Gemini 2.5 Pro model, or Codex CLI with a Kimi K2 model.
+- **Structured JSON Output**: Use the OpenAI Responses API for guaranteed JSON output that conforms to a specific schema, with automatic validation and repair.
+- **Override Hardcoded Models**: Force an application to use a model of your choice, even if the developers didn't provide an option to change it.
+- **Inspect and Debug Prompts**: Capture and analyze the exact prompts your agent sends to the LLM provider to debug and refine interactions.
+- **Customize System Prompts**: Rewrite or modify an agent's system prompt to better suit your specific needs and improve its performance.
+- **Leverage Your LLM Subscriptions**: Use your personal subscriptions, like OpenAI Plus/Pro or Anthropic Pro/MAX plans, with any third-party application, not just those developed by the LLM vendor.
+- **Automated Model Tuning for Precision**: The proxy automatically detects when a model struggles with tasks like precise file edits and adjusts its parameters to improve accuracy on subsequent attempts.
+- **Automatic Tool Call Repair**: If a model generates invalid tool calls, the proxy automatically corrects them before they can cause errors in your agent.
+- **Automated Error Detection and Steering**: Detect when an LLM is stuck in a loop or fails to follow instructions, and automatically generate steering commands to get it back on track.
+- **Block Harmful Tool Calls**: Prevent potentially destructive actions, such as deleting your git repository, by detecting and blocking harmful tool calls at the proxy level.
+- **Maximize Free Tiers with API Key Rotation**: Aggregate all your API keys and use auto-rotation to seamlessly switch between them, allowing you to take full advantage of multiple free-tier allowances.
 
 ## Killer Features
 
@@ -237,6 +236,7 @@ The proxy has evolved through multiple wire capture formats. **Currently active:
 > [!] **Format Compatibility**: Different versions of the proxy use different wire capture formats. Check the format before processing files with external tools.
 
 #### Buffered JSON Lines Format (Current Default)
+
 High-performance format with structured JSON entries, one per line:
 
 ```json
@@ -273,6 +273,7 @@ High-performance format with structured JSON entries, one per line:
 <summary>Click to see legacy wire capture formats (for reference)</summary>
 
 **Human-Readable Format** (legacy):
+
 ```
 ----- REQUEST 2025-01-10T15:58:41Z -----
 client=127.0.0.1 agent=Cline/1.0 session=session-123 -> backend=qwen-oauth model=qwen3-coder-plus
@@ -289,6 +290,7 @@ client=127.0.0.1 agent=Cline/1.0 session=session-123 -> backend=qwen-oauth model
 ```
 
 **Structured JSON Format** (legacy):
+
 ```json
 {
   "timestamp": {
@@ -383,17 +385,20 @@ The feature can be controlled via CLI flags, environment variables, or the `conf
   - `--disable-pytest-compression`: Explicitly disables compression for the current session.
 
 - **Environment Variable**:
+
   ```bash
   export PYTEST_COMPRESSION_ENABLED=true # or false
   ```
 
 - **`config.yaml`**:
+
   ```yaml
   session:
     pytest_compression_enabled: true  # Default: true
   ```
 
 **Example Output Transformation:**
+
 ```
 # Before compression (verbose):
 test_example.py::test_function PASSED                    [ 50%] 0.001s setup 0.002s call 0.001s teardown
@@ -456,6 +461,7 @@ When limits are exceeded, the proxy returns a structured 400 error:
 ```
 
 **Implementation Notes:**
+
 - Input limits are enforced strictly; output limits are handled by backend providers
 - `context_window` acts as a fallback when `max_input_tokens` is not specified
 - Token counting uses model-specific tokenizers when available
@@ -475,6 +481,7 @@ When limits are exceeded, the proxy returns a structured 400 error:
 - Context window enforcement: per-model token limits with configurable context window sizes and friendly errors
 
 **Advanced Configs (YAML)**:
+
 - `config/reasoning_aliases.yaml`: Per-model reasoning modes (e.g., temperature, max tokens, prompt prefixes)
 - `config/edit_precision_patterns.yaml`: Patterns for auto-tuning on edit failures
 - `config/tool_call_reactor_config.yaml`: Rules for tool call reactions and steering
@@ -529,11 +536,13 @@ Then launch `claude`. You can switch models during a session:
 ### Force a specific model across all requests
 
 Use `--force-model` to override whatever model the client requests, useful for:
+
 - Testing a specific model with any client/agent without modifying client code
 - Enforcing a particular model across different sessions
 - Routing free-tier OAuth backends (e.g., `gemini-cli-oauth-personal`) to specific models
 
 Example:
+
 ```bash
 python -m src.core.cli \
   --default-backend gemini-cli-oauth-personal \
@@ -547,12 +556,14 @@ Now any client requesting `gpt-4`, `claude-3-opus`, or any other model will actu
 ### Override context window size for all models
 
 Use `--force-context-window` to set a static context window size that overrides all model-specific configurations, useful for:
+
 - **Testing compatibility**: Verify how agents behave with smaller context windows
 - **Cost control**: Limit token usage regardless of model capabilities
 - **Performance optimization**: Reduce context size for faster responses
 - **Debugging**: Test with fixed context windows to isolate issues
 
 Example:
+
 ```bash
 python -m src.core.cli \
   --default-backend openai \
@@ -564,6 +575,7 @@ python -m src.core.cli \
 This sets an 8K token context window limit for **all models**, regardless of their individual configurations (even if models support 128K or 256K contexts).
 
 **Common use cases:**
+
 ```bash
 # Simulate smaller model context limits for testing
 python -m src.core.cli --force-context-window 4096
@@ -596,6 +608,7 @@ models:
 ```
 
 **Use cases:**
+
 - **Cost Control**: Prevent accidental large-context requests with expensive models
 - **Agent Compatibility**: Ensure agents with long conversations don't exceed model limits
 - **Performance Tuning**: Optimize different models for different use cases
