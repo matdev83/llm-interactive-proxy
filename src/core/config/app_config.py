@@ -364,10 +364,16 @@ class BackendSettings(DomainModel):
         if name in self.__dict__:
             return cast(BackendConfig, self.__dict__[name])
 
-        # For other attributes, raise AttributeError to maintain normal behavior
-        raise AttributeError(
-            f"'{self.__class__.__name__}' object has no attribute '{name}'"
-        )
+        # Avoid creating configs for private/internal attributes
+        if name.startswith("_") or name.startswith("__"):
+            raise AttributeError(
+                f"'{self.__class__.__name__}' object has no attribute '{name}'"
+            )
+
+        # Lazily create a default backend configuration for unknown backends.
+        config = BackendConfig()
+        self.__dict__[name] = config
+        return config
 
     def model_dump(self, **kwargs: Any) -> dict[str, Any]:
         """Override model_dump to include default_backend and dynamic backends."""
