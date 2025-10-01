@@ -342,6 +342,7 @@ class ServiceCollection(IServiceCollection):
         from src.core.interfaces.usage_tracking_interface import (
             IUsageTrackingService,  # type: ignore[import-untyped]
         )
+        from src.core.config.app_config import AppConfig
         from src.core.services.app_settings_service import AppSettings
         from src.core.services.application_state_service import (
             ApplicationStateService,  # type: ignore[import-untyped]
@@ -363,6 +364,7 @@ class ServiceCollection(IServiceCollection):
         )
         from src.core.services.content_rewriter_service import ContentRewriterService
         from src.core.services.request_processor_service import RequestProcessor
+        from src.core.services.translation_service import TranslationService
         from src.core.services.response_parser_service import ResponseParser
         from src.core.services.session_service import (
             SessionService,  # type: ignore[import-untyped]
@@ -374,7 +376,42 @@ class ServiceCollection(IServiceCollection):
         # Register all application services
         self.add_singleton(IApplicationState, ApplicationStateService)
         self.add_singleton(IAppSettings, AppSettings)
-        self.add_singleton(BackendFactory, BackendFactory)
+        import httpx
+
+        def backend_factory_factory(provider: IServiceProvider) -> BackendFactory:
+            """Create a BackendFactory with all required dependencies."""
+
+            httpx_client: httpx.AsyncClient | None = provider.get_service(
+                httpx.AsyncClient
+            )
+            if httpx_client is None:
+                httpx_client = httpx.AsyncClient()
+
+            backend_registry_service: BackendRegistry = (
+                provider.get_required_service(BackendRegistry)
+            )
+
+            try:
+                app_config: AppConfig = provider.get_required_service(AppConfig)
+            except ServiceResolutionError:
+                app_config = AppConfig.from_env()
+
+            translation_service: TranslationService | None = provider.get_service(
+                TranslationService
+            )
+            if translation_service is None:
+                translation_service = TranslationService()
+
+            return BackendFactory(
+                httpx_client,
+                backend_registry_service,
+                app_config,
+                translation_service,
+            )
+
+        self.add_singleton(
+            BackendFactory, implementation_factory=backend_factory_factory
+        )
         self.add_singleton(BackendRegistry, BackendRegistry)
         self.add_singleton(IUsageTrackingService, UsageTrackingService)
         self.add_singleton(ISessionService, SessionService)
