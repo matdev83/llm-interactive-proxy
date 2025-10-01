@@ -41,7 +41,7 @@ class BackendFactory:
         self._translation_service = translation_service
 
     def create_backend(
-        self, backend_type: str, config: AppConfig  # Added config
+        self, backend_type: str, config: AppConfig | None = None
     ) -> LLMBackend:
         """Create a backend instance of the specified type.
 
