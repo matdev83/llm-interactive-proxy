@@ -57,9 +57,10 @@ class BackendFactory:
         """
         backend_factory = self._backend_registry.get_backend_factory(backend_type)
         # Backend connectors only accept the client and config in constructor
+        effective_config = config if config is not None else self._config
         return backend_factory(
-            self._client, self._config, self._translation_service
-        )  # Modified
+            self._client, effective_config, self._translation_service
+        )
 
     async def initialize_backend(
         self, backend: LLMBackend, init_config: dict[str, Any]
