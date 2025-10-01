@@ -4,9 +4,8 @@ Tests for the dependency injection container.
 
 import pytest
 from src.core.di.container import ServiceCollection
-from src.core.interfaces.di_interface import (
-    IServiceProvider,
-)
+from src.core.interfaces.di_interface import IServiceProvider
+from src.core.services.backend_factory import BackendFactory
 
 
 class ExampleService:
@@ -130,3 +129,16 @@ def test_service_with_dependency() -> None:
     assert service is not None
     assert service.dependency is not None
     assert isinstance(service.dependency, ExampleService)
+
+
+def test_register_app_services_resolves_backend_factory() -> None:
+    """register_app_services should configure BackendFactory via DI."""
+
+    services = ServiceCollection()
+
+    services.register_app_services()
+    provider = services.build_service_provider()
+
+    backend_factory = provider.get_service(BackendFactory)
+
+    assert isinstance(backend_factory, BackendFactory)
