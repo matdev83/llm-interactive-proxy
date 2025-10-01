@@ -32,6 +32,7 @@ This project is a swiss-army knife for anyone working with language models and a
 ## Use Cases
 
 -   **Connect Any App to Any Model**: Seamlessly route requests from any LLM-powered application to any model, even across different protocols. Use clients like Anthropic's Claude Code CLI with a Gemini 2.5 Pro model, or Codex CLI with a Kimi K2 model.
+-   **Structured JSON Output**: Use the OpenAI Responses API for guaranteed JSON output that conforms to a specific schema, with automatic validation and repair.
 -   **Override Hardcoded Models**: Force an application to use a model of your choice, even if the developers didn't provide an option to change it.
 -   **Inspect and Debug Prompts**: Capture and analyze the exact prompts your agent sends to the LLM provider to debug and refine interactions.
 -   **Customize System Prompts**: Rewrite or modify an agent's system prompt to better suit your specific needs and improve its performance.
@@ -47,6 +48,8 @@ This project is a swiss-army knife for anyone working with language models and a
 ### Compatibility
 
 - Multiple front-ends, many providers: exposes OpenAI, Anthropic, and Gemini APIs while routing to OpenAI, Anthropic, Gemini, OpenRouter, ZAI, Qwen, and more
+- **OpenAI Responses API**: Full support for the `/v1/responses` endpoint, enabling structured JSON output with schema validation.
+- **Protocol Translation**: A powerful translation service that converts requests and responses between different API formats (e.g., OpenAI to Anthropic, Gemini to OpenAI).
 - OpenAI compatibility: drop-in `/v1/chat/completions` for most clients and coding agents
 - Streaming everywhere: consistent streaming and non-streaming support across providers
 - Gemini OAuth personal gateway: use Google's free personal OAuth (CLI-style) through an OpenAI-compatible endpoint
@@ -84,6 +87,7 @@ These are ready out of the box. Front-ends are the client-facing APIs the proxy 
 | API surface | Path(s) | Typical clients | Notes |
 | - | - | - | - |
 | OpenAI Chat Completions | `/v1/chat/completions` | Most OpenAI SDKs/tools, coding agents | Default front-end |
+| OpenAI Responses | `/v1/responses` | Clients requiring structured JSON output | Provides JSON schema validation and repair |
 | Anthropic Messages | `/anthropic/v1/messages` (+ `/anthropic/v1/models`, `/health`, `/info`) | Claude Code, Anthropic SDK | Also available on a dedicated port (see Setup) |
 | Google Gemini v1beta | `/v1beta/models`, `:generateContent`, `:streamGenerateContent` | Gemini-compatible tools/SDKs | Translates to your chosen provider |
 
