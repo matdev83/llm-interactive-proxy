@@ -2,7 +2,6 @@ from typing import Any
 
 from src.connectors.base import LLMBackend
 from src.core.domain.responses import ResponseEnvelope, StreamingResponseEnvelope
-
 from tests.unit.openai_connector_tests.test_streaming_response import AsyncIterBytes
 
 

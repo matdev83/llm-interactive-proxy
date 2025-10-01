@@ -62,7 +62,7 @@ def check_architectural_patterns(files: list[str]) -> bool:
     if venv_python.exists():
         python_path = venv_python
     else:
-        python_path = "python3"
+        python_path = Path("python3")
 
     # Check each file
     any_errors = False

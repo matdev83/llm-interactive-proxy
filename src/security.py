@@ -73,7 +73,7 @@ class ProxyCommandFilter:
         prefix_escaped = re.escape(self.command_prefix)
         # Pattern to match any proxy command: prefix followed by command name and optional arguments
         self.command_pattern = re.compile(
-            rf"{prefix_escaped}(?:(?:hello|help)(?!\()\b|[\w-]+(?:\([^)]*\))?)",
+            rf"{prefix_escaped}[A-Za-z0-9_-]+(?:\([^)]*\))?",
             re.IGNORECASE,
         )
 

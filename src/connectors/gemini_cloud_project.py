@@ -47,6 +47,7 @@ import json
 import logging
 import os
 import time
+import uuid
 from collections.abc import AsyncGenerator
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -903,6 +904,27 @@ class GeminiCloudProjectConnector(GeminiBackend):
                 )
             return False
 
+    def _generate_user_prompt_id(self, request_data: Any) -> str:
+        """Generate a unique user_prompt_id for Code Assist requests."""
+        session_hint: str | None = None
+        extra_body = getattr(request_data, "extra_body", None)
+        if isinstance(extra_body, dict):
+            raw_session = extra_body.get("session_id") or extra_body.get(
+                "user_prompt_id"
+            )
+            if raw_session is not None:
+                session_hint = str(raw_session)
+
+        base = "proxy"
+        if session_hint:
+            safe_session = "".join(
+                c if c.isalnum() or c in "-._" else "-" for c in session_hint
+            ).strip("-")
+            if safe_session:
+                base = f"{base}-{safe_session}"
+
+        return f"{base}-{uuid.uuid4().hex}"
+
     async def _ensure_healthy(self) -> None:
         """Ensure the backend is healthy before use."""
         if not hasattr(self, "_health_checked") or not self._health_checked:
@@ -1011,13 +1033,12 @@ class GeminiCloudProjectConnector(GeminiBackend):
             # Ensure project is onboarded for standard-tier
             project_id = await self._ensure_project_onboarded(auth_session)
 
-            # Convert messages to canonical domain request using the translation service
-            canonical_request = self.translation_service.to_domain_request(
-                request=request_data,
-                source_format="anthropic",  # Assuming input is Anthropic-compatible
-            )
+            # request_data is expected to be a CanonicalChatRequest already
+            # (the frontend controller converts from frontend-specific format to domain format)
+            # Backends should ONLY convert FROM domain TO backend-specific format
+            canonical_request = request_data
 
-            # Convert from canonical format to Gemini format
+            # Convert from canonical/domain format to Gemini API format
             gemini_request = self.translation_service.from_domain_to_gemini_request(
                 canonical_request
             )
@@ -1060,7 +1081,7 @@ class GeminiCloudProjectConnector(GeminiBackend):
             request_body = {
                 "model": effective_model,
                 "project": project_id,  # User's GCP project
-                "user_prompt_id": "proxy-request",
+                "user_prompt_id": self._generate_user_prompt_id(request_data),
                 "request": code_assist_request,
             }
 
@@ -1170,13 +1191,12 @@ class GeminiCloudProjectConnector(GeminiBackend):
             # Ensure project is onboarded for standard-tier
             project_id = await self._ensure_project_onboarded(auth_session)
 
-            # Convert messages to canonical domain request using the translation service
-            canonical_request = self.translation_service.to_domain_request(
-                request=request_data,
-                source_format="anthropic",  # Assuming input is Anthropic-compatible
-            )
+            # request_data is expected to be a CanonicalChatRequest already
+            # (the frontend controller converts from frontend-specific format to domain format)
+            # Backends should ONLY convert FROM domain TO backend-specific format
+            canonical_request = request_data
 
-            # Convert from canonical format to Gemini format
+            # Convert from canonical/domain format to Gemini API format
             gemini_request = self.translation_service.from_domain_to_gemini_request(
                 canonical_request
             )
@@ -1219,7 +1239,7 @@ class GeminiCloudProjectConnector(GeminiBackend):
             request_body = {
                 "model": effective_model,
                 "project": project_id,
-                "user_prompt_id": "proxy-request",
+                "user_prompt_id": self._generate_user_prompt_id(request_data),
                 "request": code_assist_request,
             }
 

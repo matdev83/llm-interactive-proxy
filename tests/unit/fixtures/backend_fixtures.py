@@ -145,7 +145,6 @@ def backend_service(
 
     # Create the backend service with all required parameters
     from src.core.interfaces.application_state_interface import IApplicationState
-
     from tests.utils.failover_stub import StubFailoverCoordinator
 
     mock_app_state = Mock(spec=IApplicationState)

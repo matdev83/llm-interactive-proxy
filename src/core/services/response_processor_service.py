@@ -95,7 +95,10 @@ class ResponseProcessor(IResponseProcessor):
         # but for the new architecture, middleware is handled by the stream processors
 
     async def process_response(
-        self, response: Any, session_id: str
+        self,
+        response: Any,
+        session_id: str,
+        context: dict[str, Any] | None = None,
     ) -> ProcessedResponse:
         """Process a non-streaming response.
 
@@ -157,6 +160,13 @@ class ResponseProcessor(IResponseProcessor):
                 ):
                     enriched_metadata["expected_json"] = True
 
+                middleware_context: dict[str, Any] = {
+                    "stop_event": None,
+                    "original_response": parsed_data,
+                }
+                if context:
+                    middleware_context.update(context)
+
                 # Assuming middleware application manager can handle non-streaming content directly
                 processed_content = (
                     await self._middleware_application_manager.apply_middleware(
@@ -165,6 +175,7 @@ class ResponseProcessor(IResponseProcessor):
                         is_streaming=False,
                         stop_event=None,
                         session_id=session_id,
+                        context=middleware_context,
                     )
                 )
 

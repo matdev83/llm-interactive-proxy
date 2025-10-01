@@ -166,13 +166,20 @@ class EmptyResponseMiddleware(IResponseMiddleware):
                     f"Empty response detected for session {session_id}, attempt {retry_count + 1}/{self._max_retries}"
                 )
 
+                original_request = context.get("original_request")
+                if original_request is None:
+                    logger.warning(
+                        "Empty response detected but no original_request in context; skipping retry"
+                    )
+                    return response
+
                 # Raise a special exception that the request processor can catch
                 # and use to retry with the recovery prompt
                 raise EmptyResponseRetryError(
                     recovery_prompt=recovery_prompt,
                     session_id=session_id,
                     retry_count=retry_count + 1,
-                    original_request=context["original_request"],
+                    original_request=original_request,
                 )
             else:
                 # Max retries exceeded, reset counter and return error

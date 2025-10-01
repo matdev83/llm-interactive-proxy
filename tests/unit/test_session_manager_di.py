@@ -10,7 +10,6 @@ from fastapi import FastAPI
 from src.core.app.test_builder import build_minimal_test_app
 from src.core.domain.session import SessionInteraction
 from src.core.interfaces.session_service_interface import ISessionService
-
 from tests.utils.test_di_utils import get_required_service_from_app
 
 

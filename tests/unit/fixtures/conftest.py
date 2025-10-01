@@ -18,7 +18,6 @@ from src.core.interfaces.di_interface import IServiceProvider
 from src.core.services.command_processor import (
     CommandProcessor as CoreCommandProcessor,
 )
-
 from tests.unit.core.test_doubles import MockBackendService, MockSessionService
 
 

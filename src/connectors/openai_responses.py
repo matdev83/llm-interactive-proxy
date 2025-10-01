@@ -29,18 +29,8 @@ class OpenAIResponsesConnector(OpenAIConnector):
         """Override chat_completions to use the Responses API endpoint."""
         # For the Responses API backend, we should use the responses endpoint
         # Convert the chat completions request to a responses request
-        if hasattr(request_data, "model_dump"):
-            request_dict = request_data.model_dump()
-        else:
-            request_dict = request_data if isinstance(request_data, dict) else {}
-
-        # Add response_format if not present (default to text for chat completions)
-        if "response_format" not in request_dict:
-            request_dict["response_format"] = {"type": "text"}
-
-        # Delegate to the responses method for all requests
         return await self.responses(
-            request_dict, processed_messages, effective_model, identity, **kwargs
+            request_data, processed_messages, effective_model, identity, **kwargs
         )
 
 

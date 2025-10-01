@@ -138,9 +138,21 @@ class AnthropicBackend(LLMBackend):
             openrouter_api_base_url or getattr(self, "anthropic_api_base_url", None)
         )
 
-        domain_request = self.translation_service.to_domain_request(
-            request_data, source_format="anthropic"
-        )
+        # request_data is expected to be a domain ChatRequest (or subclass like CanonicalChatRequest)
+        # (the frontend controller converts from frontend-specific format to domain format)
+        # Backends should ONLY convert FROM domain TO backend-specific format
+        # Type assertion: we know from architectural design that request_data is ChatRequest-like
+        from typing import cast
+
+        from src.core.domain.chat import CanonicalChatRequest, ChatRequest
+
+        if not isinstance(request_data, ChatRequest):
+            raise TypeError(
+                f"Expected ChatRequest or CanonicalChatRequest, got {type(request_data).__name__}. "
+                "Backend connectors should only receive domain-format requests."
+            )
+        # Cast to CanonicalChatRequest for mypy compatibility with translation service signature
+        domain_request: CanonicalChatRequest = cast(CanonicalChatRequest, request_data)
 
         # request_data is a domain ChatRequest; connectors can rely on adapter helpers
         anthropic_payload = self._prepare_anthropic_payload(

@@ -156,7 +156,12 @@ class BackendRequestManager(IBackendRequestManager):
                     # This works for both real implementations and mocks in tests
                     processed_response = (
                         await self._response_processor.process_response(
-                            backend_response.content, session_id
+                            backend_response.content,
+                            session_id,
+                            {
+                                "original_request": backend_request,
+                                "backend_response": backend_response,
+                            },
                         )
                     )
 

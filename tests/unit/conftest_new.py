@@ -26,7 +26,6 @@ from src.core.interfaces.state_provider_interface import (
 )
 from src.core.services.application_state_service import ApplicationStateService
 from src.core.services.command_service import CommandRegistry
-
 from tests.unit.core.test_doubles import (
     MockBackendService,
     MockLoopDetector,

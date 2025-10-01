@@ -1,5 +1,32 @@
 # Changelog
 
+## 2025-10-01 - Code Quality and Type Hinting Improvements
+
+- **Enhancement**: Added comprehensive type hints across the codebase to improve code quality, maintainability, and developer experience
+  - Applied type hints to architectural linter (`scripts/architectural_linter.py`) with proper union types (`str | None`, `dict[str, str]`, `set[str]`)
+  - Updated pre-commit hook script with proper type annotations
+  - Enhanced test files with comprehensive type hints for better test reliability
+  - Improved session service tests with proper DI patterns and type annotations
+
+- **Configuration**: Updated mypy configuration in `pyproject.toml` for better type checking
+  - Added specific overrides for `google.genai` and `setuptools` modules to handle third-party import issues
+  - Configured `disallow_untyped_defs = true` to enforce strict type checking
+  - Updated exclude patterns from single string to list format
+
+- **Code Quality**: Improved architectural patterns and SOLID compliance
+  - Fixed comparison operators in SOLID violation detector (`"Exception" not in node.name` instead of `not "Exception" in node.name`)
+  - Enhanced architectural linter with better type safety and clearer variable declarations
+  - Updated test fixtures to remove unnecessary imports and improve clarity
+
+- **Testing**: Enhanced test infrastructure with better DI patterns
+  - Added comprehensive tests for session service using proper dependency injection
+  - Improved test isolation and clarity across multiple test files
+  - Removed redundant imports and cleaned up test code structure
+
+- **Maintenance**: Various code quality improvements including import organization, unused import removal, and code formatting consistency
+
+# Changelog
+
 ## 2025-10-01 - Refactor: Translation Service and Gemini Request Counting
 
 - **Refactor**: Centralized all request/response translation logic into a new `TranslationService` (`src/core/services/translation_service.py`). This improves modularity, simplifies maintenance, and makes it easier to add new API formats.

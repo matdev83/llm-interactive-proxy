@@ -4,7 +4,6 @@ from src.core.domain.request_context import RequestContext
 from src.core.services.command_processor import (
     CommandProcessor as CoreCommandProcessor,
 )
-
 from tests.unit.core.test_doubles import MockSuccessCommand
 
 

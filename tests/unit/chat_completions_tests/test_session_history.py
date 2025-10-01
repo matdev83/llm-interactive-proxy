@@ -7,7 +7,6 @@ pytestmark = pytest.mark.filterwarnings(
 )
 from src.core.domain.responses import ResponseEnvelope
 from starlette.responses import StreamingResponse
-
 from tests.conftest import get_backend_instance, get_session_service_from_app
 
 

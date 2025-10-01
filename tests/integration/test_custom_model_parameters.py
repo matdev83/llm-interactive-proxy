@@ -11,7 +11,6 @@ from src.core.config.app_config import AppConfig, BackendConfig, BackendSettings
 from src.core.domain.chat import ChatMessage, ChatRequest
 from src.core.services.backend_factory import BackendFactory
 from src.core.services.backend_registry import BackendRegistry
-
 from tests.mocks.mock_http_client import MockHTTPClient
 
 

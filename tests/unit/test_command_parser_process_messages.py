@@ -5,7 +5,6 @@ from src.core.domain.chat import ChatMessage, MessageContentPartText
 from src.core.services.command_processor import (
     CommandProcessor as CoreCommandProcessor,
 )
-
 from tests.unit.core.test_doubles import MockSessionService
 
 # Avoid global backend mocking for these focused unit tests

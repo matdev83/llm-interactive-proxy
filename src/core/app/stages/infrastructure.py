@@ -120,15 +120,15 @@ class InfrastructureStage(InitializationStage):
             from src.core.interfaces.loop_detector_interface import ILoopDetector
             from src.loop_detection.detector import LoopDetector
 
-            # Register concrete implementation used throughout the project
-            services.add_singleton(LoopDetector)
+            # Register concrete implementation as transient
+            services.add_transient(LoopDetector)
 
-            # Bind interface to the concrete implementation via the provider
+            # Bind interface to the concrete implementation via a transient factory
             def loop_detector_factory(provider: IServiceProvider) -> LoopDetector:
                 return provider.get_required_service(LoopDetector)
 
-            services.add_singleton_factory(
-                cast(type, ILoopDetector), loop_detector_factory
+            services.add_transient(
+                cast(type, ILoopDetector), implementation_factory=loop_detector_factory
             )
 
             if logger.isEnabledFor(logging.DEBUG):

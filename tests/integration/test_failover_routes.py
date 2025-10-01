@@ -253,7 +253,6 @@ async def test_backend_service_failover(monkeypatch):
 
     # Create a mock service provider
     from src.core.interfaces.backend_service_interface import IBackendService
-
     from tests.mocks.mock_backend_service import MockBackendService
 
     services = ServiceCollection()

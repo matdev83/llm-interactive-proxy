@@ -42,12 +42,12 @@ class SOLIDViolationDetector(ast.NodeVisitor):
         self.is_domain_layer = "/domain/" in file_path
         self.is_service_layer = "/services/" in file_path
         self.is_interface_layer = "/interfaces/" in file_path
-        self.current_class = None
-        self.current_method = None
-        self.imports = {}  # Track imports for later analysis
-        self.class_attributes = set()  # Track class attributes
-        self.class_methods = set()  # Track class methods
-        self.static_methods = set()  # Track static methods
+        self.current_class: str | None = None
+        self.current_method: str | None = None
+        self.imports: dict[str, str] = {}  # Track imports for later analysis
+        self.class_attributes: set[str] = set()  # Track class attributes
+        self.class_methods: set[str] = set()  # Track class methods
+        self.static_methods: set[str] = set()  # Track static methods
 
     def visit_Import(  # noqa: N802 - AST visitor API requires this name
         self, node: ast.Import
@@ -371,7 +371,7 @@ class SOLIDViolationDetector(ast.NodeVisitor):
             if (
                 not is_abstract
                 and not implements_interface
-                and not "Exception" in node.name
+                and "Exception" not in node.name
             ):
                 self.violations.append(
                     ArchitecturalViolation(

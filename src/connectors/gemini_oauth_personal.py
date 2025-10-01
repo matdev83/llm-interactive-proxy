@@ -64,6 +64,7 @@ import logging
 import shutil
 import subprocess
 import time
+import uuid
 from collections.abc import AsyncGenerator
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -1160,13 +1161,29 @@ class GeminiOAuthPersonalConnector(GeminiBackend):
             # Discover project ID (required for Code Assist API)
             project_id = await self._discover_project_id(auth_session)
 
-            # Convert messages to Gemini format using the translation service
-            canonical_request = self.translation_service.to_domain_request(
-                request=request_data,
-                source_format="anthropic",  # Assuming input is Anthropic-compatible
-            )
+            # request_data is expected to be a CanonicalChatRequest already
+            # (the frontend controller converts from frontend-specific format to domain format)
+            # Backends should ONLY convert FROM domain TO backend-specific format
+            canonical_request = request_data
 
-            # Convert from canonical format to Gemini format
+            # Debug logging to trace message flow
+            if logger.isEnabledFor(logging.DEBUG):
+                message_count = (
+                    len(canonical_request.messages)
+                    if hasattr(canonical_request, "messages")
+                    else 0
+                )
+                logger.debug(
+                    f"Processing {message_count} messages for Gemini Code Assist API"
+                )
+                if message_count > 0 and hasattr(canonical_request, "messages"):
+                    last_msg = canonical_request.messages[-1]
+                    last_msg_preview = str(getattr(last_msg, "content", ""))[:100]
+                    logger.debug(
+                        f"Last message role={getattr(last_msg, 'role', 'unknown')}, content preview={last_msg_preview}"
+                    )
+
+            # Convert from canonical/domain format to Gemini API format
             gemini_request = self.translation_service.from_domain_to_gemini_request(
                 canonical_request
             )
@@ -1209,7 +1226,7 @@ class GeminiOAuthPersonalConnector(GeminiBackend):
             request_body = {
                 "model": effective_model,
                 "project": project_id,
-                "user_prompt_id": "proxy-request",
+                "user_prompt_id": self._generate_user_prompt_id(request_data),
                 "request": code_assist_request,
             }
 
@@ -1410,13 +1427,29 @@ class GeminiOAuthPersonalConnector(GeminiBackend):
             # Discover project ID (required for Code Assist API)
             project_id = await self._discover_project_id(auth_session)
 
-            # Convert messages to canonical domain request using the translation service
-            canonical_request = self.translation_service.to_domain_request(
-                request=request_data,
-                source_format="anthropic",  # Assuming input is Anthropic-compatible
-            )
+            # request_data is expected to be a CanonicalChatRequest already
+            # (the frontend controller converts from frontend-specific format to domain format)
+            # Backends should ONLY convert FROM domain TO backend-specific format
+            canonical_request = request_data
 
-            # Convert from canonical format to Gemini format
+            # Debug logging to trace message flow (streaming)
+            if logger.isEnabledFor(logging.DEBUG):
+                message_count = (
+                    len(canonical_request.messages)
+                    if hasattr(canonical_request, "messages")
+                    else 0
+                )
+                logger.debug(
+                    f"[STREAMING] Processing {message_count} messages for Gemini Code Assist API"
+                )
+                if message_count > 0 and hasattr(canonical_request, "messages"):
+                    last_msg = canonical_request.messages[-1]
+                    last_msg_preview = str(getattr(last_msg, "content", ""))[:100]
+                    logger.debug(
+                        f"[STREAMING] Last message role={getattr(last_msg, 'role', 'unknown')}, content preview={last_msg_preview}"
+                    )
+
+            # Convert from canonical/domain format to Gemini API format
             gemini_request = self.translation_service.from_domain_to_gemini_request(
                 canonical_request
             )
@@ -1459,7 +1492,7 @@ class GeminiOAuthPersonalConnector(GeminiBackend):
             request_body = {
                 "model": effective_model,
                 "project": project_id,
-                "user_prompt_id": "proxy-request",
+                "user_prompt_id": self._generate_user_prompt_id(request_data),
                 "request": code_assist_request,
             }
 
@@ -1652,13 +1685,40 @@ class GeminiOAuthPersonalConnector(GeminiBackend):
             )
             raise
         except BackendError as e:
-            logger.error(f"Backend error during streaming API call: {e}", exc_info=True)
+            # For quota exceeded errors, don't log full stack trace to avoid console spam
+            if "quota exceeded" in str(e).lower():
+                logger.error(f"Backend error during streaming API call: {e}")
+            else:
+                logger.error(
+                    f"Backend error during streaming API call: {e}", exc_info=True
+                )
             raise
         except Exception as e:
             logger.error(
                 f"Unexpected error during streaming API call: {e}", exc_info=True
             )
             raise BackendError(f"Unexpected error during streaming API call: {e}")
+
+    def _generate_user_prompt_id(self, request_data: Any) -> str:
+        """Generate a unique user_prompt_id for Code Assist requests."""
+        session_hint: str | None = None
+        extra_body = getattr(request_data, "extra_body", None)
+        if isinstance(extra_body, dict):
+            raw_session = extra_body.get("session_id") or extra_body.get(
+                "user_prompt_id"
+            )
+            if raw_session is not None:
+                session_hint = str(raw_session)
+
+        base = "proxy"
+        if session_hint:
+            safe_session = "".join(
+                c if c.isalnum() or c in "-._" else "-" for c in session_hint
+            ).strip("-")
+            if safe_session:
+                base = f"{base}-{safe_session}"
+
+        return f"{base}-{uuid.uuid4().hex}"
 
     def _convert_to_code_assist_format(
         self, request_data: Any, processed_messages: list[Any], model: str

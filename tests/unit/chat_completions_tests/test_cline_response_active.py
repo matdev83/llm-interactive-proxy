@@ -10,7 +10,6 @@ from unittest.mock import AsyncMock, patch
 
 # Ensure no module-level skips are applied - DEBUG TEST
 from starlette.testclient import TestClient
-
 from tests.unit.chat_completions_tests.conftest import get_backend_instance
 
 

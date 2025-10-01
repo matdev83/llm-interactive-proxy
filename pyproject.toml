@@ -79,6 +79,7 @@ dev = [
     "xenon",
     "radon",
     "types-pytz",
+
 ]
 
 [build-system]
@@ -88,8 +89,10 @@ build-backend = "setuptools.build_meta"
 [tool.setuptools]
 package-dir = {"" = "src"}
 
+
+
 [tool.pytest.ini_options]
-pythonpath = ["src", "tests"]
+
 testpaths = ["tests"]
 addopts = "-v --asyncio-mode=auto -m \"not network and not loop_detection\" --ignore=tests/integration/test_phase2_integration.py --durations=0 --junit-xml=test-results.xml -n auto --dist=loadscope --max-worker-restart=3 -W ignore"
 asyncio_mode = "auto"
@@ -253,9 +256,19 @@ skip-magic-trailing-comma = true
 python_version = "3.10"
 warn_return_any = true
 warn_unused_configs = true
-exclude = "dev/thrdparty"
+exclude = ["dev/"]
 # Use local stub packages when third-party types are missing
-mypy_path = "stubs"
+
+
+[[tool.mypy.overrides]]
+module = "google.genai"
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = "setuptools"
+ignore_missing_imports = true
+
+
 
 # Performance optimizations
 # Enable incremental mode with cache
@@ -263,6 +276,8 @@ incremental = true
 cache_dir = ".mypy_cache"
 # Reduce strictness for performance in tests
 strict = false
+disallow_untyped_defs = true
+
 
 [tool.coverage.run]
 source = ["src"]

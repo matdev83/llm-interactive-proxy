@@ -199,9 +199,22 @@ class OpenAIConnector(LLMBackend):
         # Perform health check if enabled (for subclasses that support it)
         await self._ensure_healthy()
 
-        domain_request = self.translation_service.to_domain_request(
-            request_data, "openai"
-        )
+        # request_data is expected to be a domain ChatRequest (or subclass like CanonicalChatRequest)
+        # (the frontend controller converts from frontend-specific format to domain format)
+        # Backends should ONLY convert FROM domain TO backend-specific format
+        # Type assertion: we know from architectural design that request_data is ChatRequest-like
+        from typing import cast
+
+        from src.core.domain.chat import CanonicalChatRequest, ChatRequest
+
+        if not isinstance(request_data, ChatRequest):
+            raise TypeError(
+                f"Expected ChatRequest or CanonicalChatRequest, got {type(request_data).__name__}. "
+                "Backend connectors should only receive domain-format requests."
+            )
+        # Cast to CanonicalChatRequest for mypy compatibility with _prepare_payload signature
+        domain_request: CanonicalChatRequest = cast(CanonicalChatRequest, request_data)
+
         # Prepare the payload using a helper so subclasses and tests can
         # override or patch payload construction logic easily.
         payload = await self._prepare_payload(
@@ -449,6 +462,8 @@ class OpenAIConnector(LLMBackend):
         await self._ensure_healthy()
 
         # Convert to domain request first
+        # Note: The responses() method can be called directly with dicts (e.g., from tests),
+        # unlike chat_completions() which only goes through the frontend->backend flow
         domain_request = self.translation_service.to_domain_request(
             request_data, "responses"
         )
