@@ -58,28 +58,29 @@ async def test_list_models(backend: ZaiCodingPlanBackend):
     assert models[0]["id"] == "claude-sonnet-4-20250514"
 
 
-@patch(
-    "src.connectors.anthropic.AnthropicBackend._prepare_anthropic_payload",
-    return_value={},
-)
-@patch(
-    "src.connectors.zai_coding_plan.ZaiCodingPlanBackend._handle_non_streaming_response"
-)
 async def test_chat_completions_model_rewrite(
-    mock_handle_response: MagicMock,
-    mock_prepare_payload: MagicMock,
     backend: ZaiCodingPlanBackend,
     mock_translation_service: MagicMock,
 ):
+    # Mock the HTTP client response
+    mock_response = MagicMock()
+    mock_response.json.return_value = {
+        "id": "test",
+        "model": "claude-sonnet-4-20250514",
+    }
+    mock_response.headers = {"content-type": "application/json"}
+    mock_response.status_code = 200
+
+    backend.client.post = AsyncMock(return_value=mock_response)
+
     mock_translation_service.to_domain_request.return_value = ChatRequest(
         model="some-other-model",
         messages=[{"role": "user", "content": "hello"}],
         stream=False,
     )
-    mock_handle_response.return_value = "response"
 
     processed_messages = [ChatMessage(role="user", content="hello")]
-    await backend.chat_completions(
+    result = await backend.chat_completions(
         ChatRequest(
             model="some-other-model",
             messages=processed_messages,
@@ -88,7 +89,11 @@ async def test_chat_completions_model_rewrite(
         "some-other-model",
     )
 
-    mock_handle_response.assert_called_once()
-    call_args = mock_handle_response.call_args[0]
-    payload = call_args[1]
+    # Verify the client was called with the correct payload
+    backend.client.post.assert_called_once()
+    call_args = backend.client.post.call_args
+    payload = call_args[1]["json"]
     assert payload["model"] == "claude-sonnet-4-20250514"
+
+    # Verify the response model is rewritten back to original
+    assert result.content["model"] == "some-other-model"

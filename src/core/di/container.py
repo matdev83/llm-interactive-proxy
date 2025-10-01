@@ -339,7 +339,6 @@ class ServiceCollection(IServiceCollection):
         return ServiceProvider(self._descriptors.copy())
 
     def register_app_services(self) -> None:
-        from src.core.interfaces.tool_call_reactor_interface import IToolCallHandler
         from src.core.interfaces.usage_tracking_interface import (
             IUsageTrackingService,  # type: ignore[import-untyped]
         )
@@ -368,9 +367,6 @@ class ServiceCollection(IServiceCollection):
         from src.core.services.session_service import (
             SessionService,  # type: ignore[import-untyped]
         )
-        from src.core.services.tool_call_handlers.config_steering_handler import (
-            ConfigSteeringHandler as ToolCallHandler,  # type: ignore[import-untyped]
-        )
         from src.core.services.usage_tracking_service import (
             UsageTrackingService,  # type: ignore[import-untyped]
         )
@@ -384,7 +380,6 @@ class ServiceCollection(IServiceCollection):
         self.add_singleton(ISessionService, SessionService)
         self.add_singleton(ICommandService, CommandService)
         self.add_singleton(ContentRewriterService, ContentRewriterService)
-        self.add_singleton(IToolCallHandler, ToolCallHandler)
 
         self.add_scoped(IBackendProcessor, BackendProcessor)
         self.add_scoped(IResponseProcessor, ResponseParser)

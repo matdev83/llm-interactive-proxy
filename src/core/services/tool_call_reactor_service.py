@@ -41,6 +41,27 @@ class ToolCallReactorService(IToolCallReactor):
         self._history_tracker = history_tracker
         self._lock = asyncio.Lock()
 
+    def register_handler_sync(self, handler: IToolCallHandler) -> None:
+        """Register a tool call handler synchronously.
+
+        This method is intended for use during application startup and is not
+        thread-safe.
+
+        Args:
+            handler: The handler to register.
+
+        Raises:
+            ToolCallReactorError: If a handler with the same name is already
+                registered.
+        """
+        if handler.name in self._handlers:
+            raise ToolCallReactorError(
+                f"Handler with name '{handler.name}' is already registered"
+            )
+
+        self._handlers[handler.name] = handler
+        logger.info(f"Registered tool call handler synchronously: {handler.name}")
+
     async def register_handler(self, handler: IToolCallHandler) -> None:
         """Register a tool call handler.
 

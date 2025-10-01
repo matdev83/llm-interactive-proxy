@@ -18,6 +18,7 @@ from fastapi import FastAPI
 
 from src.command_prefix import validate_command_prefix
 from src.core.app.application_builder import ApplicationBuilder, build_app
+from src.core.common.uvicorn_logging import UVICORN_LOGGING_CONFIG
 from src.core.config.app_config import AppConfig, LogLevel, load_config
 
 # Import backend connectors to ensure they register themselves
@@ -636,7 +637,9 @@ def main(
     logging.info(f"Starting uvicorn on {cfg.host}:{cfg.port}")
     try:
         # Start uvicorn with the configured host/port using uvicorn defaults
-        uvicorn.run(app, host=cfg.host, port=cfg.port)
+        uvicorn.run(
+            app, host=cfg.host, port=cfg.port, log_config=UVICORN_LOGGING_CONFIG
+        )
     except Exception as e:
         logging.exception("Uvicorn failed to start: %s", e)
         raise

@@ -7,7 +7,6 @@ and resolving services from the container.
 
 from __future__ import annotations
 
-import asyncio
 import contextlib
 import logging
 import os
@@ -912,15 +911,11 @@ def register_core_services(
                 if effective_rules:
                     config_handler = ConfigSteeringHandler(rules=effective_rules)
                     try:
-                        loop = asyncio.get_event_loop()
-                        if not loop.is_running():
-                            import asyncio as _asyncio
-
-                            _asyncio.run(reactor.register_handler(config_handler))
-                    except RuntimeError as e:
-                        logger.debug(
-                            "Could not register config steering handler due to missing event loop: %s",
-                            e,
+                        reactor.register_handler_sync(config_handler)
+                    except Exception as e:
+                        logger.warning(
+                            f"Failed to register config steering handler: {e}",
+                            exc_info=True,
                         )
             except Exception as e:
                 logger.warning(
@@ -945,15 +940,11 @@ def register_core_services(
                         enabled=True,
                     )
                     try:
-                        loop = asyncio.get_event_loop()
-                        if not loop.is_running():
-                            import asyncio as _asyncio
-
-                            _asyncio.run(reactor.register_handler(dangerous_handler))
-                    except RuntimeError as e:
-                        logger.debug(
-                            "Could not register dangerous command handler due to missing event loop: %s",
-                            e,
+                        reactor.register_handler_sync(dangerous_handler)
+                    except Exception as e:
+                        logger.warning(
+                            f"Failed to register dangerous command handler: {e}",
+                            exc_info=True,
                         )
             except Exception as e:
                 logger.warning(
@@ -977,15 +968,11 @@ def register_core_services(
                         enabled=True,
                     )
                     try:
-                        loop = asyncio.get_event_loop()
-                        if not loop.is_running():
-                            import asyncio as _asyncio
-
-                            _asyncio.run(reactor.register_handler(pytest_handler))
-                    except RuntimeError as e:
-                        logger.debug(
-                            "Could not register pytest compression handler due to missing event loop: %s",
-                            e,
+                        reactor.register_handler_sync(pytest_handler)
+                    except Exception as e:
+                        logger.warning(
+                            f"Failed to register pytest compression handler: {e}",
+                            exc_info=True,
                         )
             except Exception as e:
                 logger.warning(

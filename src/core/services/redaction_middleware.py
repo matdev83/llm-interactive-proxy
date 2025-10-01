@@ -53,8 +53,9 @@ class RedactionMiddleware(IRequestMiddleware):
         if not request.messages:
             return request
 
-        # We previously checked if commands were disabled, but now we always filter commands
-        # to prevent any command leakage to backend LLMs
+        # We always filter commands to prevent any command leakage to backend LLMs,
+        # except for tool/function responses which contain legitimate tool output
+        # (file contents, search results, etc.) that may include proxy command examples
 
         # Create a copy of the request to modify
         processed_request = request.model_copy(deep=True)
@@ -62,29 +63,38 @@ class RedactionMiddleware(IRequestMiddleware):
         # Process each message
         for message in processed_request.messages:
             if message.content:
+                # Skip command filtering for tool/function responses
+                # These contain legitimate tool output that may include proxy command examples
+                is_tool_response = message.role in ["tool", "function"]
+
                 # Handle string content
                 if isinstance(message.content, str):
                     # Apply API key redaction
                     message.content = self._api_key_redactor.redact(message.content)
-                    # Always filter commands in messages going to the LLM
-                    message.content = self._command_filter.filter_commands(
-                        message.content
-                    )
+                    # Filter commands only for user/assistant/system messages
+                    if not is_tool_response:
+                        message.content = self._command_filter.filter_commands(
+                            message.content
+                        )
                 # Handle list of content parts
                 elif isinstance(message.content, list):
                     for part in message.content:
                         if isinstance(part, dict) and "text" in part and part["text"]:
                             # Apply API key redaction
                             part["text"] = self._api_key_redactor.redact(part["text"])
-                            # Always filter commands in messages going to the LLM
-                            part["text"] = self._command_filter.filter_commands(
-                                part["text"]
-                            )
+                            # Filter commands only for user/assistant/system messages
+                            if not is_tool_response:
+                                part["text"] = self._command_filter.filter_commands(
+                                    part["text"]
+                                )
                         elif isinstance(part, MessageContentPartText) and part.text:
                             # Apply API key redaction
                             part.text = self._api_key_redactor.redact(part.text)
-                            # Always filter commands in messages going to the LLM
-                            part.text = self._command_filter.filter_commands(part.text)
+                            # Filter commands only for user/assistant/system messages
+                            if not is_tool_response:
+                                part.text = self._command_filter.filter_commands(
+                                    part.text
+                                )
 
         return processed_request
 

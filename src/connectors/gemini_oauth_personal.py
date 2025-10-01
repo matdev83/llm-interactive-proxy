@@ -1537,41 +1537,52 @@ class GeminiOAuthPersonalConnector(GeminiBackend):
                             status_code=response.status_code,
                         )
 
+                    # Process streaming byte-by-byte for true real-time streaming
+                    # Use a larger chunk_size for better performance (512 bytes is a good balance)
                     line_buffer = ""
+                    done = False
                     for chunk in response.iter_content(
-                        chunk_size=1, decode_unicode=False
+                        chunk_size=512, decode_unicode=False
                     ):
+                        if done:
+                            break
                         try:
-                            char = chunk.decode("utf-8")
-                            line_buffer += char
-                            if char == "\n":
-                                decoded_line = line_buffer.rstrip("\r\n")
-                                line_buffer = ""
-                                if decoded_line.startswith("data: "):
-                                    data_str = decoded_line[6:].strip()
-                                    if data_str == "[DONE]":
-                                        break
-                                    try:
-                                        data = json.loads(data_str)
-                                        domain_chunk = self.translation_service.to_domain_stream_chunk(
-                                            chunk=data, source_format="code_assist"
-                                        )
-                                        # Accumulate generated text for usage calculation
-                                        if (
-                                            domain_chunk
-                                            and domain_chunk.get("choices")
-                                            and domain_chunk["choices"][0]
-                                            .get("delta", {})
-                                            .get("content")
-                                        ):
-                                            generated_text += domain_chunk["choices"][
-                                                0
-                                            ]["delta"]["content"]
-                                        # Always yield the chunk, regardless of content
-                                        yield ProcessedResponse(content=domain_chunk)
-                                    except json.JSONDecodeError:
-                                        continue
+                            # Decode the chunk and process character by character
+                            chunk_str = chunk.decode("utf-8")
+                            for char in chunk_str:
+                                line_buffer += char
+                                if char == "\n":
+                                    decoded_line = line_buffer.rstrip("\r\n")
+                                    line_buffer = ""
+                                    if decoded_line.startswith("data: "):
+                                        data_str = decoded_line[6:].strip()
+                                        if data_str == "[DONE]":
+                                            done = True
+                                            break
+                                        try:
+                                            data = json.loads(data_str)
+                                            domain_chunk = self.translation_service.to_domain_stream_chunk(
+                                                chunk=data, source_format="code_assist"
+                                            )
+                                            # Accumulate generated text for usage calculation
+                                            if (
+                                                domain_chunk
+                                                and domain_chunk.get("choices")
+                                                and domain_chunk["choices"][0]
+                                                .get("delta", {})
+                                                .get("content")
+                                            ):
+                                                generated_text += domain_chunk[
+                                                    "choices"
+                                                ][0]["delta"]["content"]
+                                            # Always yield the chunk, regardless of content
+                                            yield ProcessedResponse(
+                                                content=domain_chunk
+                                            )
+                                        except json.JSONDecodeError:
+                                            continue
                         except UnicodeDecodeError:
+                            # Skip invalid UTF-8 sequences
                             continue
                         except Exception as chunk_error:
                             logger.error(

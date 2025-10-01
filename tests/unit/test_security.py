@@ -20,13 +20,17 @@ def test_cli_disable_auth_forces_localhost():
 
         # Test with localhost - should work
         main(["--disable-auth", "--host", "127.0.0.1", "--port", "8080"])
-        mock_uvicorn.assert_called_with(ANY, host="127.0.0.1", port=8080)
+        mock_uvicorn.assert_called_with(
+            ANY, host="127.0.0.1", port=8080, log_config=ANY
+        )
 
         mock_uvicorn.reset_mock()
 
         # Test with different host - should be forced to localhost
         main(["--disable-auth", "--host", "0.0.0.0", "--port", "8081"])
-        mock_uvicorn.assert_called_with(ANY, host="127.0.0.1", port=8081)
+        mock_uvicorn.assert_called_with(
+            ANY, host="127.0.0.1", port=8081, log_config=ANY
+        )
 
 
 def test_env_disable_auth_forces_localhost():
@@ -46,7 +50,9 @@ def test_env_disable_auth_forces_localhost():
         from src.core.cli import main
 
         main(["--port", "8080"])
-        mock_uvicorn.assert_called_with(ANY, host="127.0.0.1", port=8080)
+        mock_uvicorn.assert_called_with(
+            ANY, host="127.0.0.1", port=8080, log_config=ANY
+        )
 
 
 def test_auth_enabled_allows_custom_host():
@@ -66,7 +72,7 @@ def test_auth_enabled_allows_custom_host():
         from src.core.cli import main
 
         main(["--port", "8080"])
-        mock_uvicorn.assert_called_with(ANY, host="0.0.0.0", port=8080)
+        mock_uvicorn.assert_called_with(ANY, host="0.0.0.0", port=8080, log_config=ANY)
 
 
 def test_config_disable_auth_forces_localhost():

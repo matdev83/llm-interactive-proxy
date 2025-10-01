@@ -241,11 +241,19 @@ def to_fastapi_streaming_response(
     ) -> AsyncIterator[bytes]:
         try:
             async for chunk in it:  # type: ignore
-                yield _format_chunk_as_sse(chunk)
+                # Extract content from ProcessedResponse if needed
+                content = (
+                    chunk.content if isinstance(chunk, ProcessedResponse) else chunk
+                )
+                yield _format_chunk_as_sse(content)
         except TypeError:
             # Not an async iterator; handle as sync iterable
             for chunk in it:  # type: ignore
-                yield _format_chunk_as_sse(chunk)
+                # Extract content from ProcessedResponse if needed
+                content = (
+                    chunk.content if isinstance(chunk, ProcessedResponse) else chunk
+                )
+                yield _format_chunk_as_sse(content)
 
     content_iter = domain_response.content
     return StreamingResponse(

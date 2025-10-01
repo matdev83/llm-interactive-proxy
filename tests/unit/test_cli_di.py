@@ -114,7 +114,9 @@ def test_main_log_file(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     original_handlers = root_logger.handlers[:]
     root_logger.handlers.clear()
 
-    monkeypatch.setattr(cli.uvicorn, "run", lambda app, host, port: None)
+    monkeypatch.setattr(
+        cli.uvicorn, "run", lambda app, host, port, log_config=None: None
+    )
     monkeypatch.setattr(cli, "_check_privileges", lambda: None)
 
     try:
@@ -311,7 +313,9 @@ def test_main_disable_auth_forces_localhost() -> None:
         main(["--port", "8080"])
 
         # Should force host to localhost
-        mock_uvicorn.assert_called_once_with(ANY, host="127.0.0.1", port=8080)
+        mock_uvicorn.assert_called_once_with(
+            ANY, host="127.0.0.1", port=8080, log_config=ANY
+        )
         # Should log warning about auth being disabled
         warning_calls = [str(call) for call in mock_logging.warning.call_args_list]
         auth_disabled_warnings = [
@@ -336,7 +340,9 @@ def test_main_disable_auth_with_localhost_no_force() -> None:
         main(["--port", "8080"])
 
         # Should use localhost
-        mock_uvicorn.assert_called_once_with(ANY, host="127.0.0.1", port=8080)
+        mock_uvicorn.assert_called_once_with(
+            ANY, host="127.0.0.1", port=8080, log_config=ANY
+        )
         # Should log warning about auth being disabled but not about forcing host
         warning_calls = [str(call) for call in mock_logging.warning.call_args_list]
         auth_disabled_warnings = [
@@ -361,7 +367,9 @@ def test_main_auth_enabled_allows_custom_host() -> None:
         main(["--port", "8080"])
 
         # Should use custom host when auth is enabled
-        mock_uvicorn.assert_called_once_with(ANY, host="0.0.0.0", port=8080)
+        mock_uvicorn.assert_called_once_with(
+            ANY, host="0.0.0.0", port=8080, log_config=ANY
+        )
         # Should not log warning about auth being disabled
         auth_warnings = [
             call

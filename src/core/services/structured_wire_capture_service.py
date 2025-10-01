@@ -10,8 +10,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from src.core.common.logging import get_logger
 from src.core.common.logging_utils import discover_api_keys_from_config_and_env
+from src.core.common.structlog_config import get_logger
 from src.core.config.app_config import AppConfig
 from src.core.domain.request_context import RequestContext
 from src.core.interfaces.wire_capture_interface import IWireCapture

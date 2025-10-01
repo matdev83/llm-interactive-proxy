@@ -411,9 +411,7 @@ def _discover_api_keys_from_config_auth(
                     if k:
                         found.add(str(k))
                         # SECURITY WARNING: Log when API keys are found in config
-                        import logging
-
-                        logger = logging.getLogger(__name__)
+                        logger = get_logger(__name__)
                         logger.warning(
                             "SECURITY WARNING: API key found in config.auth.api_keys. "
                             "API keys should only be set via environment variables, not config files."
@@ -461,9 +459,7 @@ def _discover_api_keys_from_config_backends(
                                 if k:
                                     found.add(str(k))
                                     # SECURITY WARNING: Log when API keys are found in config
-                                    import logging
-
-                                    logger = logging.getLogger(__name__)
+                                    logger = get_logger(__name__)
                                     logger.warning(
                                         f"SECURITY WARNING: API key found in config.backends.{b}.api_key. "
                                         "API keys should only be set via environment variables, not config files."
@@ -471,9 +467,7 @@ def _discover_api_keys_from_config_backends(
                         else:
                             found.add(str(ak))
                             # SECURITY WARNING: Log when API keys are found in config
-                            import logging
-
-                            logger = logging.getLogger(__name__)
+                            logger = get_logger(__name__)
                             logger.warning(
                                 f"SECURITY WARNING: API key found in config.backends.{b}.api_key. "
                                 "API keys should only be set via environment variables, not config files."
