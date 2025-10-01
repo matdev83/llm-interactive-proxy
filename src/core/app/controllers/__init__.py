@@ -28,6 +28,10 @@ from src.core.app.controllers.models_controller import (
     get_config_service,
 )
 from src.core.app.controllers.models_controller import router as models_router
+from src.core.app.controllers.responses_controller import (
+    ResponsesController,
+    get_responses_controller,
+)
 from src.core.app.controllers.usage_controller import router as usage_router
 from src.core.common.exceptions import ServiceResolutionError
 
@@ -230,6 +234,57 @@ async def get_chat_controller_dependency(request: Request) -> ChatController:
         )
 
 
+async def get_responses_controller_if_available(
+    request: Request,
+) -> ResponsesController:
+    """Get a responses controller if new architecture is available.
+
+    Args:
+        request: The FastAPI Request object
+
+    Returns:
+        A configured responses controller
+
+    Raises:
+        HTTPException: If service provider or responses controller is not available.
+    """
+    service_provider = getattr(request.app.state, "service_provider", None)
+    if not service_provider:
+        if _STRICT_CONTROLLER_ERRORS:
+            raise ServiceResolutionError(
+                message="Service provider not available in app state",
+                service_name="IServiceProvider",
+            )
+        raise HTTPException(
+            status_code=503, detail=HTTP_503_SERVICE_UNAVAILABLE_MESSAGE
+        )
+
+    try:
+        responses_controller = service_provider.get_service(ResponsesController)
+        logger.debug(
+            f"Got ResponsesController from service provider: {type(responses_controller).__name__}"
+        )
+        logger.debug(
+            f"ResponsesController processor type: {type(responses_controller._processor).__name__}"
+        )
+        if responses_controller:
+            return cast(ResponsesController, responses_controller)
+        return cast(ResponsesController, get_responses_controller(service_provider))
+    except Exception as e:
+        logger.exception(
+            f"Failed to get ResponsesController from service provider: {e}",
+            exc_info=True,
+        )
+        if _STRICT_CONTROLLER_ERRORS:
+            raise ServiceResolutionError(
+                message="Failed to resolve ResponsesController",
+                service_name="ResponsesController",
+            ) from e
+        raise HTTPException(
+            status_code=500, detail=HTTP_500_INTERNAL_SERVER_ERROR_MESSAGE
+        )
+
+
 def register_routes(app: FastAPI) -> None:
     """Register application routes with the FastAPI app.
 
@@ -328,6 +383,19 @@ def register_versioned_endpoints(app: FastAPI) -> None:
         # Reuse the same handler as v2; body schema matches OpenAI-compatible tests
         # Having request_data in the signature ensures validation (e.g., 422 on bad input)
         return await controller.handle_chat_completion(request, request_data)
+
+    # OpenAI Responses API endpoint
+    @app.post("/v1/responses")
+    async def responses_v1(
+        request: Request,
+        request_data: dict[str, Any],
+        controller: ResponsesController = Depends(
+            get_responses_controller_if_available
+        ),
+    ) -> Response:
+        # Handle Responses API requests with structured output support
+        # Having request_data in the signature ensures validation (e.g., 422 on bad input)
+        return await controller.handle_responses_request(request, request_data)
 
     # Anthropic compatibility endpoints (messages, models, health, info)
     _register_anthropic_endpoints(app, prefix="/anthropic")

@@ -24,3 +24,6 @@ class RequestContext(InternalDTO):
     session_id: str | None = None
     agent: str | None = None  # Add agent field
     original_request: Any | None = None
+    processing_context: dict[str, Any] | None = (
+        None  # Add processing context for middleware
+    )

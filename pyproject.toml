@@ -26,6 +26,7 @@ dependencies = [
     "google-auth-oauthlib>=1.2.0",
     "json-repair",
     "watchdog",
+    "pytz",
 ]
 requires-python = ">=3.10"
 readme = "README.md"
@@ -59,6 +60,7 @@ dev = [
     "pytest-xdist==3.6.1",
     "pytest-httpx==0.30.0",
     "pytest-mock==3.14.0",
+    "freezegun==1.5.1",
     # Linters/formatters
     "ruff==0.5.6",
     "black==24.8.0",
@@ -76,6 +78,7 @@ dev = [
     "hypothesis==6.112.1",
     "xenon",
     "radon",
+    "types-pytz",
 ]
 
 [build-system]

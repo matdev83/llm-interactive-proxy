@@ -196,6 +196,7 @@ class SessionConfig(DomainModel):
     dangerous_command_prevention_enabled: bool = True
     dangerous_command_steering_message: str | None = None
     pytest_compression_enabled: bool = True
+    pytest_compression_min_lines: int = 30
 
 
 class EmptyResponseConfig(DomainModel):
@@ -518,6 +519,9 @@ class AppConfig(DomainModel, IConfig):
                 "PYTEST_COMPRESSION_ENABLED", "true"
             ).lower()
             == "true",
+            "pytest_compression_min_lines": int(
+                os.environ.get("PYTEST_COMPRESSION_MIN_LINES", "30")
+            ),
         }
 
         config["logging"] = {

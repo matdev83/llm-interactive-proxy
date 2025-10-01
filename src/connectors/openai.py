@@ -432,6 +432,154 @@ class OpenAIConnector(LLMBackend):
         # handled at the adapter layer if needed.
         return gen()
 
+    async def responses(
+        self,
+        request_data: DomainModel | InternalDTO | dict[str, Any],
+        processed_messages: list[Any],
+        effective_model: str,
+        identity: IAppIdentityConfig | None = None,
+        **kwargs: Any,
+    ) -> ResponseEnvelope | StreamingResponseEnvelope:
+        """Handle OpenAI Responses API calls.
+
+        This method handles requests to the /v1/responses endpoint, which provides
+        structured output generation with JSON schema validation.
+        """
+        # Perform health check if enabled
+        await self._ensure_healthy()
+
+        # Convert to domain request first
+        domain_request = self.translation_service.to_domain_request(
+            request_data, "responses"
+        )
+
+        # Prepare the payload for Responses API
+        payload = self.translation_service.from_domain_to_responses_request(
+            domain_request
+        )
+
+        # Override model if effective_model is provided
+        if effective_model:
+            payload["model"] = effective_model
+
+        # Update messages with processed_messages if available
+        if processed_messages:
+            try:
+                normalized_messages: list[dict[str, Any]] = []
+                for m in processed_messages:
+                    # If the message is a pydantic model, use model_dump
+                    if hasattr(m, "model_dump") and callable(m.model_dump):
+                        normalized_messages.append(
+                            dict(m.model_dump(exclude_none=False))
+                        )
+                        continue
+
+                    # Fallback: build a minimal dict
+                    msg: dict[str, Any] = {"role": getattr(m, "role", "user")}
+                    content = getattr(m, "content", None)
+                    msg["content"] = content
+
+                    # Add other message fields if present
+                    name = getattr(m, "name", None)
+                    if name:
+                        msg["name"] = name
+                    tool_calls = getattr(m, "tool_calls", None)
+                    if tool_calls:
+                        msg["tool_calls"] = tool_calls
+                    tool_call_id = getattr(m, "tool_call_id", None)
+                    if tool_call_id:
+                        msg["tool_call_id"] = tool_call_id
+                    normalized_messages.append(msg)
+
+                payload["messages"] = normalized_messages
+            except (KeyError, TypeError, AttributeError):
+                # Fallback - leave whatever the converter produced
+                pass
+
+        headers = kwargs.pop("headers_override", None)
+        if headers is None:
+            try:
+                if identity:
+                    self.identity = identity
+                headers = self.get_headers()
+            except Exception:
+                headers = None
+
+        api_base = kwargs.get("openai_url") or self.api_base_url
+        url = f"{api_base.rstrip('/')}/responses"
+
+        if domain_request.stream:
+            # Return a domain-level streaming envelope
+            try:
+                content_iterator = await self._handle_streaming_response(
+                    url, payload, headers, domain_request.session_id or ""
+                )
+            except AuthenticationError as e:
+                raise HTTPException(status_code=401, detail=str(e))
+            return StreamingResponseEnvelope(
+                content=content_iterator,
+                media_type="text/event-stream",
+                headers={},
+            )
+        else:
+            # Return a domain ResponseEnvelope for non-streaming
+            return await self._handle_responses_non_streaming_response(
+                url, payload, headers, domain_request.session_id or ""
+            )
+
+    async def _handle_responses_non_streaming_response(
+        self,
+        url: str,
+        payload: dict[str, Any],
+        headers: dict[str, str] | None,
+        session_id: str,
+    ) -> ResponseEnvelope:
+        """Handle non-streaming Responses API responses with proper format conversion."""
+        if not headers or not headers.get("Authorization"):
+            raise AuthenticationError(message="No auth credentials found")
+
+        try:
+            response = await self.client.post(url, json=payload, headers=headers)
+        except httpx.RequestError as e:
+            raise ServiceUnavailableError(message=f"Could not connect to backend ({e})")
+
+        if int(response.status_code) >= 400:
+            try:
+                err = response.json()
+            except Exception:
+                err = response.text
+            raise HTTPException(status_code=response.status_code, detail=err)
+
+        # For Responses API, we need to handle the response differently
+        # The response should already be in Responses API format from OpenAI
+        response_data = response.json()
+
+        # Convert to domain response first, then back to ensure consistency
+        # We'll treat the Responses API response as a special case of OpenAI response
+        domain_response = self.translation_service.to_domain_response(
+            response_data, "openai"
+        )
+
+        # Convert back to Responses API format for the final response
+        responses_content = self.translation_service.from_domain_to_responses_response(
+            domain_response
+        )
+
+        try:
+            response_headers = dict(response.headers)
+        except Exception:
+            try:
+                response_headers = dict(getattr(response, "headers", {}) or {})
+            except Exception:
+                response_headers = {}
+
+        return ResponseEnvelope(
+            content=responses_content,
+            status_code=response.status_code,
+            headers=response_headers,
+            usage=domain_response.usage,
+        )
+
     async def list_models(self, api_base_url: str | None = None) -> dict[str, Any]:
         headers = self.get_headers()
         base = api_base_url or self.api_base_url

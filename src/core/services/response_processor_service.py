@@ -138,13 +138,6 @@ class ResponseProcessor(IResponseProcessor):
                         },
                     )
 
-            # Handle content type conversion if necessary
-            if isinstance(content, dict | list):
-                try:
-                    content = json.dumps(content)
-                except (TypeError, ValueError):
-                    content = str(content)
-
             # Leave status as-is; allow upstream layers to decide error mapping.
 
             processed_response = ProcessedResponse(

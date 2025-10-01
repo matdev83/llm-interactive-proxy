@@ -2,10 +2,11 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
-from src.core.commands.command import Command, CommandResult
+from src.core.commands.command import Command
 from src.core.commands.handler import ICommandHandler
 from src.core.commands.registry import command
 from src.core.common.utils import wildcard_match
+from src.core.domain.command_results import CommandResult
 from src.core.domain.configuration.reasoning_aliases_config import (
     ModelReasoningAliases,
     ReasoningMode,

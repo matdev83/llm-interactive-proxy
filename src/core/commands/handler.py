@@ -5,7 +5,8 @@ Defines the interface for command handlers.
 from abc import ABC, abstractmethod
 from typing import TYPE_CHECKING, Any
 
-from src.core.commands.command import Command, CommandResult
+from src.core.commands.command import Command
+from src.core.domain.command_results import CommandResult
 from src.core.domain.session import Session
 
 if TYPE_CHECKING:

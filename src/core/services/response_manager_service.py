@@ -12,8 +12,7 @@ import time
 import uuid
 from typing import Any
 
-from src.core.commands.command import CommandResult
-from src.core.domain.command_results import CommandResult as DomainCommandResult
+from src.core.domain.command_results import CommandResult
 from src.core.domain.processed_result import ProcessedResult
 from src.core.domain.responses import ResponseEnvelope
 from src.core.domain.session import Session
@@ -100,9 +99,9 @@ class AgentResponseFormatter(IAgentResponseFormatter):
 
         if is_cline_agent:
             # For Cline, we expect a CommandResult (either type) or CommandResultWrapper
-            if isinstance(
-                command_result, CommandResult | DomainCommandResult
-            ) or hasattr(command_result, "name"):
+            if isinstance(command_result, CommandResult) or hasattr(
+                command_result, "name"
+            ):
                 command_name = getattr(command_result, "name", "unknown_command")
 
                 # For Cline, use the actual command name for the tool call
@@ -143,9 +142,9 @@ class AgentResponseFormatter(IAgentResponseFormatter):
             message = ""
             command_name = "unknown_command"
 
-            if isinstance(
-                command_result, CommandResult | DomainCommandResult
-            ) or hasattr(command_result, "name"):
+            if isinstance(command_result, CommandResult) or hasattr(
+                command_result, "name"
+            ):
                 message = command_result.message
                 command_name = getattr(command_result, "name", "unknown_command")
 
@@ -291,14 +290,45 @@ class AgentResponseFormatter(IAgentResponseFormatter):
         except Exception:
             pass
 
-        # Threshold logging for enhanced metrics tests
+        # Check minimum lines threshold before applying compression
         try:
             message_lines = len(message.split("\n")) if message else 0
-            min_lines = getattr(session.state, "pytest_compression_min_lines", 10)
+
+            # Determine minimum line threshold, defaulting to zero (always compress)
+            min_lines = 0
+            try:
+                session_min_lines = session.state.pytest_compression_min_lines
+            except AttributeError:
+                session_min_lines = None
+            except Exception:
+                session_min_lines = None
+
+            if session_min_lines is not None:
+                try:
+                    min_lines = int(session_min_lines)
+                except (TypeError, ValueError):
+                    min_lines = 0
+            else:
+                import os
+
+                try:
+                    env_min_lines = os.environ.get("PYTEST_COMPRESSION_MIN_LINES")
+                    if env_min_lines is not None:
+                        min_lines = int(env_min_lines)
+                except (TypeError, ValueError):
+                    min_lines = 0
+
+            if message_lines < min_lines:
+                logger.info(
+                    f"Skipping pytest compression for command result: {actual_command} (tool: {command_name}) - {message_lines} lines < {min_lines} threshold"
+                )
+                return message
+
             logger.info(
                 f"Applying pytest compression to command result: {actual_command} (tool: {command_name}) - {message_lines} lines >= {min_lines} threshold"
             )
         except Exception:
+            # If we can't determine the threshold, apply compression as fallback
             pass
 
         return self._filter_pytest_output_with_metrics(message)

@@ -2,9 +2,10 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from src.core.commands.command import Command, CommandResult
+from src.core.commands.command import Command
 from src.core.commands.handler import ICommandHandler
 from src.core.commands.registry import command
+from src.core.domain.command_results import CommandResult
 from src.core.domain.session import Session
 
 if TYPE_CHECKING:

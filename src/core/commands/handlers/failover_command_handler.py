@@ -4,9 +4,10 @@ A command handler for the failover commands.
 
 from typing import TYPE_CHECKING, Any, cast
 
-from src.core.commands.command import Command, CommandResult
+from src.core.commands.command import Command
 from src.core.commands.handler import ICommandHandler
 from src.core.commands.registry import command
+from src.core.domain.command_results import CommandResult
 from src.core.domain.commands.failover_commands import (
     CreateFailoverRouteCommand,
     DeleteFailoverRouteCommand,

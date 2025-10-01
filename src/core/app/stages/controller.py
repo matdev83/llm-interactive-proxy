@@ -59,6 +59,9 @@ class ControllerStage(InitializationStage):
         # Register usage controller
         self._register_usage_controller(services)
 
+        # Register responses controller
+        self._register_responses_controller(services)
+
         if logger.isEnabledFor(logging.INFO):
             logger.info("Controller services initialized successfully")
 
@@ -152,6 +155,30 @@ class ControllerStage(InitializationStage):
 
         if logger.isEnabledFor(logging.DEBUG):
             logger.debug("Registered usage controller")
+
+    def _register_responses_controller(self, services: ServiceCollection) -> None:
+        """Register responses controller with request processor dependency."""
+        from src.core.app.controllers.responses_controller import ResponsesController
+        from src.core.interfaces.request_processor_interface import IRequestProcessor
+
+        def responses_controller_factory(
+            provider: IServiceProvider,
+        ) -> ResponsesController:
+            """Factory function for creating ResponsesController."""
+            from typing import cast
+
+            request_processor: IRequestProcessor = provider.get_required_service(
+                cast(type, IRequestProcessor)
+            )
+            return ResponsesController(request_processor)
+
+        # Register as singleton
+        services.add_singleton(
+            ResponsesController, implementation_factory=responses_controller_factory
+        )
+
+        if logger.isEnabledFor(logging.DEBUG):
+            logger.debug("Registered responses controller")
 
     async def validate(self, services: ServiceCollection, config: AppConfig) -> bool:
         """Validate that controller services can be registered."""

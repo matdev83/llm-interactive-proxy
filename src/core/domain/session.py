@@ -66,7 +66,7 @@ class SessionState(ValueObject):
     is_cline_agent: bool = False
     pytest_compression_enabled: bool = True
     compress_next_tool_call_reply: bool = False
-    pytest_compression_min_lines: int = 40
+    pytest_compression_min_lines: int = 0
 
     def with_backend_config(self, backend_config: BackendConfiguration) -> SessionState:
         """Create a new session state with updated backend config."""

@@ -110,7 +110,7 @@ class TestBackendAutoDiscovery:
         connectors_path = Path("src/connectors")
 
         # Get all Python files in connectors directory (excluding utilities)
-        skip_files = ("__init__", "base", "streaming_utils")
+        skip_files = ("__init__", "base", "streaming_utils", "gemini_request_counter")
         backend_files = [
             f.stem
             for f in connectors_path.glob("*.py")

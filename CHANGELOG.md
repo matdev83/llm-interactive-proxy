@@ -1,5 +1,12 @@
 # Changelog
 
+## 2025-10-01 - Refactor: Translation Service and Gemini Request Counting
+
+- **Refactor**: Centralized all request/response translation logic into a new `TranslationService` (`src/core/services/translation_service.py`). This improves modularity, simplifies maintenance, and makes it easier to add new API formats.
+- **Feature**: Added a daily request counter to the `GeminiOAuthPersonalConnector` (`src/connectors/utils/gemini_request_counter.py`). This helps monitor API usage and prevent exceeding rate limits. The counter persists its state to `data/gemini_oauth_request_count.json`.
+- **Feature**: Added support for the OpenAI `/v1/responses` endpoint, which enables structured output generation with JSON schema validation.
+- **Dependencies**: Added `pytz`, `freezegun`, and `types-pytz` to support the new features and improve testing capabilities.
+
 ## 2025-09-30 – Major Enhancement: Hybrid Loop Detection Algorithm
 
 - **Enhancement**: Implemented hybrid loop detection algorithm combining Google's gemini-cli approach with efficient long pattern detection

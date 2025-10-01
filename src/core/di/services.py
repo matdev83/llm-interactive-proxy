@@ -102,6 +102,7 @@ from src.core.services.streaming.stream_normalizer import StreamNormalizer
 from src.core.services.streaming.tool_call_repair_processor import (
     ToolCallRepairProcessor,
 )
+from src.core.services.structured_output_middleware import StructuredOutputMiddleware
 from src.core.services.tool_call_reactor_middleware import ToolCallReactorMiddleware
 from src.core.services.tool_call_reactor_service import (
     InMemoryToolCallHistoryTracker,
@@ -261,6 +262,7 @@ def register_core_services(
     from src.core.interfaces.command_parser_interface import ICommandParser
 
     _add_singleton(ICommandParser, CommandParser)  # type: ignore[type-abstract]
+    _add_singleton(CommandParser, CommandParser)  # Also register concrete type
 
     # Ensure command handlers are imported so their @command decorators register them
     try:
@@ -733,6 +735,20 @@ def register_core_services(
 
     _add_singleton(
         JsonRepairService, implementation_factory=_json_repair_service_factory
+    )
+
+    # Register StructuredOutputMiddleware
+    def _structured_output_middleware_factory(
+        provider: IServiceProvider,
+    ) -> StructuredOutputMiddleware:
+        json_repair_service: JsonRepairService = provider.get_required_service(
+            JsonRepairService
+        )
+        return StructuredOutputMiddleware(json_repair_service)
+
+    _add_singleton(
+        StructuredOutputMiddleware,
+        implementation_factory=_structured_output_middleware_factory,
     )
 
     def _json_repair_processor_factory(

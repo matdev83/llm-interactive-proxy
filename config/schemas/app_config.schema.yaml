@@ -67,6 +67,7 @@ properties:
       dangerous_command_prevention_enabled: { type: boolean }
       dangerous_command_steering_message: { type: ["string", "null"] }
       pytest_compression_enabled: { type: boolean }
+      pytest_compression_min_lines: { type: integer, minimum: 1 }
       tool_call_reactor:
         type: object
         additionalProperties: true

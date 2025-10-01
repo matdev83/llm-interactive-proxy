@@ -87,6 +87,7 @@ from src.core.domain.chat import (
 if TYPE_CHECKING:
     from watchdog.observers.api import BaseObserver
 
+from src.connectors.utils.gemini_request_counter import DailyRequestCounter
 from src.core.common.exceptions import (
     APIConnectionError,
     APITimeoutError,
@@ -214,6 +215,7 @@ class GeminiOAuthPersonalConnector(GeminiBackend):
         self._main_loop: asyncio.AbstractEventLoop | None = None
         # Flag to track if quota has been exceeded
         self._quota_exceeded = False
+        self._request_counter: DailyRequestCounter | None = None
 
         # Check environment variable to allow disabling health checks globally
         import os
@@ -229,6 +231,9 @@ class GeminiOAuthPersonalConnector(GeminiBackend):
 
         # Set custom .gemini directory path (will be set in initialize)
         self.gemini_cli_oauth_path: str | None = None
+        self._request_counter = DailyRequestCounter(
+            persistence_path=Path("data/gemini_oauth_request_count.json"), limit=1000
+        )
 
     def is_backend_functional(self) -> bool:
         """Check if backend is functional and ready to handle requests.
@@ -1121,6 +1126,9 @@ class GeminiOAuthPersonalConnector(GeminiBackend):
             if not await self._refresh_token_if_needed():
                 raise AuthenticationError("Failed to refresh OAuth token for API call")
 
+            if self._request_counter:
+                self._request_counter.increment()
+
             # Create an authorized session using the access token directly
             if not self._oauth_credentials:
                 raise AuthenticationError("No OAuth credentials available for API call")
@@ -1221,7 +1229,7 @@ class GeminiOAuthPersonalConnector(GeminiBackend):
                     params={"alt": "sse"},  # Important: KiloCode uses SSE streaming
                     json=request_body,
                     headers={"Content-Type": "application/json"},
-                    timeout=(DEFAULT_CONNECTION_TIMEOUT, DEFAULT_READ_TIMEOUT),
+                    timeout=int(DEFAULT_CONNECTION_TIMEOUT),
                 )
             except requests.exceptions.Timeout as te:  # type: ignore[attr-defined]
                 raise APITimeoutError(
@@ -1369,6 +1377,9 @@ class GeminiOAuthPersonalConnector(GeminiBackend):
                     "Failed to refresh OAuth token for streaming API call"
                 )
 
+            if self._request_counter:
+                self._request_counter.increment()
+
             # Create an authorized session using the access token directly
             if not self._oauth_credentials:
                 raise AuthenticationError(
@@ -1489,7 +1500,7 @@ class GeminiOAuthPersonalConnector(GeminiBackend):
                             params={"alt": "sse"},
                             json=request_body,
                             headers={"Content-Type": "application/json"},
-                            timeout=(DEFAULT_CONNECTION_TIMEOUT, DEFAULT_READ_TIMEOUT),
+                            timeout=int(DEFAULT_CONNECTION_TIMEOUT),
                             stream=True,
                         )
                     except requests.exceptions.Timeout as te:
