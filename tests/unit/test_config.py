@@ -2,6 +2,7 @@ import os
 from unittest.mock import patch
 
 import pytest
+from src.core.config.app_config import BackendConfig, BackendSettings
 from src.core.config.config_loader import ConfigLoader, _collect_api_keys
 
 
@@ -133,3 +134,14 @@ def test_load_config_str_to_bool_variations() -> None:
             loader = ConfigLoader()
             config = loader.load_config()
             assert config["disable_auth"] is expected
+
+
+def test_backend_settings_provides_default_backend_config() -> None:
+    """BackendSettings should lazily create configs for unknown backends."""
+    settings = BackendSettings()
+
+    backend_config = settings.custom_backend
+
+    assert isinstance(backend_config, BackendConfig)
+    # Accessing again should return the same object (cached lazily)
+    assert settings.custom_backend is backend_config
