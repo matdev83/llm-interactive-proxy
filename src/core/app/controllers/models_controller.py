@@ -244,8 +244,15 @@ async def list_models(
                         backend_type, config
                     )
 
-                    # Get available models from the backend
-                    models: list[str] = await backend_instance.get_available_models()
+                    # Get available models from the backend. Prefer async helper when available.
+                    models: list[str]
+                    get_models_async = getattr(
+                        backend_instance, "get_available_models_async", None
+                    )
+                    if callable(get_models_async):
+                        models = await get_models_async()  # type: ignore[misc]
+                    else:
+                        models = backend_instance.get_available_models()
 
                     # Add models to the list with proper formatting
                     for model in models:
