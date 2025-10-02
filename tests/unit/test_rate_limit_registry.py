@@ -323,6 +323,22 @@ class TestParseRetryDelay:
         result = parse_retry_delay(json_detail)
         assert result == 20.0
 
+    def test_parse_retry_delay_with_duration_object(self) -> None:
+        """Test parsing RetryInfo duration dictionaries."""
+        detail = {
+            "error": {
+                "details": [
+                    {
+                        "@type": "type.googleapis.com/google.rpc.RetryInfo",
+                        "retryDelay": {"seconds": "12", "nanos": 500_000_000},
+                    }
+                ]
+            }
+        }
+
+        result = parse_retry_delay(detail)
+        assert result == pytest.approx(12.5)
+
     def test_parse_retry_delay_with_embedded_json(self) -> None:
         """Test parsing string with embedded JSON."""
         detail = 'prefix {"error": {"details": [{"@type": "type.googleapis.com/google.rpc.RetryInfo", "retryDelay": "25s"}]}} suffix'
