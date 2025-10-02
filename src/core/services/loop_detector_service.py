@@ -28,67 +28,42 @@ class LoopDetector(ILoopDetector):
         self._max_pattern_length = max_pattern_length
         self._min_repetitions = min_repetitions
         self._max_samples = max_samples
+
+        self._config = self._build_config()
         self._detector = self._create_internal_detector()
 
-    def _create_internal_detector(self) -> InternalLoopDetector:
-        """Create a configured instance of the internal loop detector."""
-
-        config = LoopDetectionConfig(
-            max_pattern_length=self._max_pattern_length,
-            content_loop_threshold=self._min_repetitions,
-        )
-
-        return InternalLoopDetector(config=config)
-
     async def check_for_loops(self, content: str) -> LoopDetectionResult:
-        def _as_int(value: Any, default: int) -> int:
-            try:
-                if isinstance(value, int):
-                    return value
-                if isinstance(value, dict):
-                    for k in (
-                        "min_pattern_length",
-                        "max_pattern_length",
-                        "min_repetitions",
-                        "value",
-                    ):
-                        if k in value and isinstance(value[k], int):
-                            return int(value[k])
-                for attr in (
-                    "min_pattern_length",
-                    "max_pattern_length",
-                    "min_repetitions",
-                    "value",
-                ):
-                    if hasattr(value, attr):
-                        v = getattr(value, attr)
-                        if isinstance(v, int):
-                            return int(v)
-                return int(value)
-            except (TypeError, ValueError):
-                return default
-
-        min_len = _as_int(self._min_pattern_length, 50)
-
-        if not content or len(content) < min_len * 2:
+        if not content:
             return LoopDetectionResult(has_loop=False)
 
-        try:
-            # Reset detector state to ensure each check is independent
-            self._detector.reset()
-            result = await self._detector.check_for_loops(content)
-            if result.has_loop and logger.isEnabledFor(logging.WARNING):
-                logger.warning(
-                    "Loop detected: %s repetitions of pattern (length %s)",
-                    result.repetitions,
-                    len(result.pattern) if result.pattern else 0,
-                )
-            return result
+        detector = self._detector
+        if not detector.is_enabled():
+            return LoopDetectionResult(has_loop=False)
 
-        except (TypeError, ValueError, AttributeError, IndexError) as e:
-            if logger.isEnabledFor(logging.ERROR):
-                logger.error(f"Error detecting loops: {e}", exc_info=True)
-            return LoopDetectionResult(has_loop=False, details={"error": str(e)})
+        detector.reset()
+        detection_event = detector.process_chunk(content)
+
+        if detection_event is None:
+            return LoopDetectionResult(has_loop=False)
+
+        logger.warning(
+            "Loop detected: %s repetitions of pattern length %s",
+            detection_event.repetition_count,
+            len(detection_event.pattern),
+        )
+
+        return LoopDetectionResult(
+            has_loop=True,
+            pattern=detection_event.pattern,
+            repetitions=detection_event.repetition_count,
+            details={
+                "pattern_length": len(detection_event.pattern),
+                "total_repeated_chars": (
+                    len(detection_event.pattern) * detection_event.repetition_count
+                ),
+                "confidence": detection_event.confidence,
+            },
+        )
 
     async def configure(
         self,
@@ -99,12 +74,9 @@ class LoopDetector(ILoopDetector):
         self._min_pattern_length = min_pattern_length
         self._max_pattern_length = max_pattern_length
         self._min_repetitions = min_repetitions
-        self._detector.update_config(
-            LoopDetectionConfig(
-                max_pattern_length=self._max_pattern_length,
-                content_loop_threshold=self._min_repetitions,
-            )
-        )
+
+        self._config = self._build_config()
+        self._detector = self._create_internal_detector()
 
     async def register_tool_call(
         self, tool_name: str, arguments: dict[str, Any]
@@ -158,12 +130,29 @@ class LoopDetector(ILoopDetector):
         Returns:
             A dictionary representing the current state.
         """
-        state = self._detector.get_current_state()
-        state.update(
-            {
-                "min_pattern_length": self._min_pattern_length,
-                "max_pattern_length": self._max_pattern_length,
-                "min_repetitions": self._min_repetitions,
-            }
+        return {
+            "min_pattern_length": self._min_pattern_length,
+            "max_pattern_length": self._max_pattern_length,
+            "min_repetitions": self._min_repetitions,
+            "detector": self._detector.get_stats(),
+        }
+
+    def _build_config(self) -> LoopDetectionConfig:
+        chunk_size = max(1, self._min_pattern_length)
+        config = LoopDetectionConfig(
+            max_pattern_length=self._max_pattern_length,
+            content_chunk_size=chunk_size,
+            content_loop_threshold=max(2, self._min_repetitions),
         )
-        return state
+        errors = config.validate()
+        if errors:
+            raise ValueError(
+                "Invalid loop detector configuration: " + ", ".join(errors)
+            )
+        return config
+
+    def _create_internal_detector(self) -> InternalLoopDetector:
+        detector = InternalLoopDetector(self._config)
+        detector.enable()
+        detector.reset()
+        return detector

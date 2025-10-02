@@ -202,7 +202,9 @@ async def test_loop_detection_integration_with_middleware_chain():
     from src.core.services.streaming.stream_normalizer import StreamNormalizer
 
     # Create a response with repeating content
-    repeating_content = "I will repeat myself. I will repeat myself. " * 20
+    # Use a pattern that will actually be detected by the chunk-based algorithm
+    repeating_pattern = "repeatthis "  # 11 characters
+    repeating_content = repeating_pattern * 10  # Repeat 10 times to ensure detection
 
     mock_response_parser = AsyncMock(spec=IResponseParser)
     mock_response_parser.parse_response.return_value = {
