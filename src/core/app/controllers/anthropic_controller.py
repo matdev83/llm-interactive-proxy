@@ -263,24 +263,21 @@ class AnthropicController:
                     isinstance(anthropic_response_data, dict)
                     and "choices" in anthropic_response_data
                 ):
-                    # Convert OpenAI format to Anthropic format
-                    first_choice = anthropic_response_data["choices"][0]
-                    anthropic_formatted = {
-                        "id": anthropic_response_data.get(
-                            "id", "msg_" + str(hash(str(anthropic_response_data)))
-                        ),
-                        "type": "message",
-                        "role": "assistant",
-                        "content": [
-                            {"type": "text", "text": first_choice["message"]["content"]}
-                        ],
-                        "model": anthropic_response_data.get("model", ""),
-                        "stop_reason": first_choice.get("finish_reason", "end_turn"),
-                        "stop_sequence": None,
-                        "usage": anthropic_response_data.get(
-                            "usage", {"input_tokens": 0, "output_tokens": 0}
-                        ),
-                    }
+                    # Convert OpenAI format to Anthropic format using shared converter to
+                    # ensure fields like stop_reason are mapped consistently.
+                    anthropic_formatted = openai_to_anthropic_response(
+                        anthropic_response_data
+                    )
+
+                    # Preserve legacy behaviour where we always include stop_sequence.
+                    anthropic_formatted.setdefault("stop_sequence", None)
+
+                    # Maintain backwards-compatible fallback id when OpenAI response did
+                    # not include an identifier.
+                    if not anthropic_formatted.get("id"):
+                        anthropic_formatted["id"] = "msg_" + str(
+                            hash(str(anthropic_response_data))
+                        )
                     # Sanitize headers to remove compression hints that can confuse clients
                     raw_headers = getattr(adapted_response, "headers", {})
                     safe_headers = {
