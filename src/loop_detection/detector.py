@@ -219,15 +219,17 @@ class LoopDetector(ILoopDetector):
         if event is None:
             return LoopDetectionResult(has_loop=False)
 
+        repetition_count = event.repetition_count
+
         return LoopDetectionResult(
             has_loop=True,
             pattern=event.pattern,
-            repetitions=getattr(event, "repetitions", 0),
+            repetitions=repetition_count,
             details={
                 "pattern_length": len(event.pattern) if event.pattern else 0,
                 "total_repeated_chars": (
-                    (len(event.pattern) if event.pattern else 0)
-                    * getattr(event, "repetitions", 0)
+                    (len(event.pattern) if event.pattern else 0) * repetition_count
                 ),
+                "repetitions": repetition_count,
             },
         )
