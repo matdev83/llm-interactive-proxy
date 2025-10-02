@@ -165,9 +165,7 @@ async def test_process_tool_calls_from_bytes(
 
     # The next identical call should trigger loop protection
     with pytest.raises(ToolCallLoopError) as exc_info:
-        await middleware.process(
-            response, session_id, context={"config": loop_config}
-        )
+        await middleware.process(response, session_id, context={"config": loop_config})
 
     assert "Tool call loop detected" in str(exc_info.value)
 
