@@ -29,4 +29,7 @@ async def test_long_pattern_details_report_actual_length() -> None:
     # The important thing is that pattern_length calculation is correct
     assert result.details["pattern_length"] == len(pattern)
     # Verify the total repeated chars matches repetitions * pattern_length
-    assert result.details["total_repeated_chars"] == result.repetitions * result.details["pattern_length"]
+    assert (
+        result.details["total_repeated_chars"]
+        == result.repetitions * result.details["pattern_length"]
+    )

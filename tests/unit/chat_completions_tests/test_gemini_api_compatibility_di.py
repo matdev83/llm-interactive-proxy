@@ -16,6 +16,7 @@ pytestmark = pytest.mark.filterwarnings(
 from fastapi.testclient import TestClient
 from src.core.interfaces.backend_service_interface import IBackendService
 from src.rate_limit import RateLimitRegistry
+
 from tests.utils.test_di_utils import (
     configure_test_state,
     get_required_service_from_app,

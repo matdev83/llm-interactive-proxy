@@ -18,6 +18,7 @@ from src.core.domain.responses import ResponseEnvelope
 from src.core.services.application_state_service import ApplicationStateService
 from src.core.services.request_processor_service import RequestProcessor
 from src.core.services.streaming.stream_normalizer import StreamNormalizer
+
 from tests.unit.core.test_doubles import MockCommandProcessor, TestDataBuilder
 
 

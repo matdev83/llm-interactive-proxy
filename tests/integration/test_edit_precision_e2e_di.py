@@ -17,6 +17,7 @@ from src.core.services.request_processor_service import RequestProcessor
 from src.core.services.streaming.middleware_application_processor import (
     MiddlewareApplicationProcessor,
 )
+
 from tests.unit.core.test_doubles import MockCommandProcessor, TestDataBuilder
 
 

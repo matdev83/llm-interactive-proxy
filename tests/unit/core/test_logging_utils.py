@@ -133,13 +133,13 @@ class TestLogging:
                 20,  # logging.INFO value
                 "Calling test_function",
                 function="test_function",
-                module="unit.core.test_logging_utils",  # truncated module name
+                module="tests.unit.core.test_logging_utils",  # full module name
             )
             mock_logger.log.assert_any_call(
                 20,  # logging.INFO value
                 "Finished test_function",
                 function="test_function",
-                module="unit.core.test_logging_utils",  # truncated module name
+                module="tests.unit.core.test_logging_utils",  # full module name
             )
 
     async def test_log_async_call(self) -> None:
@@ -169,13 +169,13 @@ class TestLogging:
                 20,  # logging.INFO value
                 "Calling test_async_function",
                 function="test_async_function",
-                module="unit.core.test_logging_utils",  # truncated module name
+                module="tests.unit.core.test_logging_utils",  # full module name
             )
             mock_logger.log.assert_any_call(
                 20,  # logging.INFO value
                 "Finished test_async_function",
                 function="test_async_function",
-                module="unit.core.test_logging_utils",  # truncated module name
+                module="tests.unit.core.test_logging_utils",  # full module name
             )
 
     def test_log_context(self) -> None:
