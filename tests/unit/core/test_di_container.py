@@ -138,9 +138,6 @@ def test_register_app_services_resolves_backend_factory() -> None:
 
     # Register required dependencies for BackendFactory
     import httpx
-    from src.core.config.app_config import AppConfig
-    from src.core.services.backend_registry import BackendRegistry
-    from src.core.services.translation_service import TranslationService
 
     # Register httpx.AsyncClient as singleton (simulating infrastructure setup)
     services.add_instance(httpx.AsyncClient, httpx.AsyncClient())
