@@ -24,6 +24,8 @@ class TestCLIThinkingBudget:
         # Clean environment first
         if "THINKING_BUDGET" in os.environ:
             del os.environ["THINKING_BUDGET"]
+        if "COMMAND_PREFIX" in os.environ:
+            del os.environ["COMMAND_PREFIX"]
 
         args = parse_cli_args(["--thinking-budget", "32768"])
         _ = apply_cli_args(args)
@@ -33,6 +35,8 @@ class TestCLIThinkingBudget:
         # Cleanup
         if "THINKING_BUDGET" in os.environ:
             del os.environ["THINKING_BUDGET"]
+        if "COMMAND_PREFIX" in os.environ:
+            del os.environ["COMMAND_PREFIX"]
 
     def test_translation_uses_cli_override(self) -> None:
         """Test that translation service picks up CLI override."""
