@@ -1,5 +1,7 @@
 """Unit tests for the tool call loop detection middleware."""
 
+import json
+
 import pytest
 from src.core.common.exceptions import ToolCallLoopError
 from src.core.domain.configuration.loop_detection_config import (
@@ -142,6 +144,32 @@ async def test_process_with_tool_calls(
     assert "Tool call loop detected" in str(exc_info.value)
     assert exc_info.value.details["tool_name"] == "get_weather"
     assert exc_info.value.details["repetitions"] == 3
+
+
+@pytest.mark.asyncio
+async def test_process_tool_calls_from_bytes(
+    middleware, loop_config, tool_call_response
+) -> None:
+    """Ensure tool call extraction works when the response content is bytes."""
+    payload_bytes = json.dumps(tool_call_response.content).encode("utf-8")
+    response = ProcessedResponse(content=payload_bytes)
+
+    session_id = "session-bytes"
+
+    # First two calls should pass through while populating the tracker
+    for _ in range(loop_config.tool_loop_max_repeats - 1):
+        result = await middleware.process(
+            response, session_id, context={"config": loop_config}
+        )
+        assert result == response
+
+    # The next identical call should trigger loop protection
+    with pytest.raises(ToolCallLoopError) as exc_info:
+        await middleware.process(
+            response, session_id, context={"config": loop_config}
+        )
+
+    assert "Tool call loop detected" in str(exc_info.value)
 
 
 @pytest.mark.asyncio
