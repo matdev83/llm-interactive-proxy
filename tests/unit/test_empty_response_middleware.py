@@ -170,11 +170,16 @@ class TestEmptyResponseMiddleware:
         structured_response = {
             "content": [
                 {"type": "text", "text": "Here's an image:"},
-                {"type": "image_url", "image_url": {"url": "data:image/png;base64,..."}}
+                {
+                    "type": "image_url",
+                    "image_url": {"url": "data:image/png;base64,..."},
+                },
             ]
         }
 
-        result = await middleware.process(structured_response, "sess-structured", context={})
+        result = await middleware.process(
+            structured_response, "sess-structured", context={}
+        )
         assert result is structured_response
         assert "sess-structured" not in middleware._retry_counts
 
@@ -183,7 +188,9 @@ class TestEmptyResponseMiddleware:
             "content": {"type": "text", "text": "Some structured content"}
         }
 
-        result = await middleware.process(dict_content_response, "sess-dict-content", context={})
+        result = await middleware.process(
+            dict_content_response, "sess-dict-content", context={}
+        )
         assert result is dict_content_response
         assert "sess-dict-content" not in middleware._retry_counts
 

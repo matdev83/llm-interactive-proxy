@@ -110,6 +110,7 @@ class TestRateLimitRegistry:
             return current_time["value"]
 
         import time
+
         monkeypatch.setattr(time, "time", fake_time)
 
         registry.set("backend1", "model1", "key1", 5.0)
