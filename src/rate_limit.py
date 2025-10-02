@@ -70,14 +70,32 @@ def _find_retry_delay_in_details(details_list: list[Any]) -> float | None:
         if not item.get("@type", "").endswith("RetryInfo"):
             continue
 
-        delay_str = item.get("retryDelay")
-        if not isinstance(delay_str, str) or not delay_str.endswith("s"):
-            continue
+        delay_value = item.get("retryDelay")
 
-        try:
-            return float(delay_str[:-1])
-        except ValueError:
-            pass  # Malformed delay string in this item, try next
+        if isinstance(delay_value, str):
+            if not delay_value.endswith("s"):
+                continue
+
+            try:
+                return float(delay_value[:-1])
+            except ValueError:
+                continue
+
+        if isinstance(delay_value, dict):
+            seconds_value = delay_value.get("seconds", 0)
+            nanos_value = delay_value.get("nanos", 0)
+
+            try:
+                seconds = float(seconds_value)
+            except (TypeError, ValueError):
+                continue
+
+            try:
+                nanos = float(nanos_value)
+            except (TypeError, ValueError):
+                nanos = 0.0
+
+            return seconds + nanos / 1_000_000_000
 
     return None
 
