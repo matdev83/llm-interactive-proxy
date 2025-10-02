@@ -225,6 +225,11 @@ class ResponseProcessor(IResponseProcessor):
         Returns:
             An async iterator yielding ProcessedResponse objects.
         """
+        # Reset loop detector state at the beginning of each streaming session
+        # to prevent contamination across different requests
+        if self._loop_detector is not None:
+            self._loop_detector.reset()
+
         # For the basic streaming tests without a mock normalizer, we need to handle
         # the raw chunks directly
         if self._stream_normalizer is None:
