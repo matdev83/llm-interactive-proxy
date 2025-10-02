@@ -304,14 +304,18 @@ class HybridLoopDetector(ILoopDetector):
             if event is None:
                 return LoopDetectionResult(has_loop=False)
 
+            repetition_count = event.repetition_count
+            if repetition_count > 0 and event.total_length % repetition_count == 0:
+                pattern_length = event.total_length // repetition_count
+            else:
+                pattern_length = len(event.pattern)
+
             return LoopDetectionResult(
                 has_loop=True,
                 pattern=event.pattern,
-                repetitions=event.repetition_count,
+                repetitions=repetition_count,
                 details={
-                    "pattern_length": (
-                        len(event.pattern) if hasattr(event, "pattern") else 0
-                    ),
+                    "pattern_length": pattern_length,
                     "total_repeated_chars": event.total_length,
                     "detection_method": (
                         "short_pattern" if event.total_length < 500 else "long_pattern"
