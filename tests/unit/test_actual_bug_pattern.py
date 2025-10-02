@@ -5,8 +5,7 @@ This test uses the EXACT repetitive content from the user's bug report
 to verify that our fixes (increased chunk_size + proper DI wiring) now catch it.
 """
 
-from src.loop_detection.config import LoopDetectionConfig
-from src.loop_detection.detector import LoopDetector
+from src.loop_detection.hybrid_detector import HybridLoopDetector
 
 
 def test_actual_bug_pattern_is_now_detected():
@@ -25,14 +24,7 @@ I'm now examining tests/unit/test_cli_di.py to understand how it uses the --disa
     # The user observed 13 repetitions
     actual_looped_content = repeated_block * 13
 
-    # Use the NEW default configuration (content_chunk_size=100)
-    config = LoopDetectionConfig()
-
-    # Verify the config has the new value
-    assert config.content_chunk_size == 100, "Config should have new chunk size"
-
-    # Create detector with new config
-    loop_detector = LoopDetector(config=config)
+    loop_detector = HybridLoopDetector()
 
     # Process the actual content
     detection_event = loop_detector.process_chunk(actual_looped_content)
@@ -47,14 +39,10 @@ I'm now examining tests/unit/test_cli_di.py to understand how it uses the --disa
     print(f"[OK] SUCCESS! Detected {detection_event.repetition_count} repetitions")
     print(f"  Pattern length: {len(repeated_block)} chars")
     print(f"  Total content: {len(actual_looped_content)} chars")
-    print(f"  Chunk size: {config.content_chunk_size}")
 
 
-def test_actual_bug_pattern_with_old_config_would_miss():
-    """Verify that the OLD config (chunk_size=50) would have missed this pattern.
-
-    This documents why the bug occurred and validates our fix.
-    """
+def test_actual_bug_pattern_detected_by_long_pattern_path():
+    """Ensure the hybrid detector catches long patterns when short path is strict."""
     # Exact pattern from the bug report
     repeated_block = """Examining the Test File
 
@@ -64,23 +52,16 @@ I'm now examining tests/unit/test_cli_di.py to understand how it uses the --disa
 
     actual_looped_content = repeated_block * 13
 
-    # Use OLD configuration (content_chunk_size=50)
-    old_config = LoopDetectionConfig(content_chunk_size=50)
-    loop_detector = LoopDetector(config=old_config)
+    loop_detector = HybridLoopDetector(
+        short_detector_config={"content_loop_threshold": 99, "content_chunk_size": 50}
+    )
 
-    # Process with old config
     detection_event = loop_detector.process_chunk(actual_looped_content)
 
-    # This would have been missed (that's why the bug occurred)
-    # Note: This might actually detect now due to algorithm improvements,
-    # but it's less reliable with smaller chunk size
-    if detection_event is None:
-        print("[OK] Confirmed: OLD config (chunk_size=50) missed this pattern")
-        print(f"  Pattern length: {len(repeated_block)} chars")
-        print("  This is why the bug occurred!")
-    else:
-        print("! OLD config detected it anyway (algorithm improvement)")
-        print("  But new config (100) is more reliable for longer patterns")
+    assert detection_event is not None, "Hybrid detector should catch long repetitions"
+    assert (
+        "Long pattern" in detection_event.pattern
+    ), "Expected long-pattern path to trigger"
 
 
 def test_pattern_characteristics():

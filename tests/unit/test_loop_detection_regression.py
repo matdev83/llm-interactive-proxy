@@ -7,7 +7,7 @@ and can detect repetitive content in streaming responses.
 
 from src.core.di.container import ServiceCollection
 from src.core.interfaces.loop_detector_interface import ILoopDetector
-from src.loop_detection.detector import LoopDetector
+from src.loop_detection.hybrid_detector import HybridLoopDetector
 
 
 def test_loop_detector_is_registered_in_di_container():
@@ -35,8 +35,8 @@ def test_loop_detector_is_registered_in_di_container():
         loop_detector is not None
     ), "ILoopDetector should be registered in DI container"
     assert isinstance(
-        loop_detector, LoopDetector
-    ), "Should resolve to LoopDetector instance"
+        loop_detector, HybridLoopDetector
+    ), "Should resolve to HybridLoopDetector instance"
 
 
 def test_loop_detection_processor_can_be_created():
@@ -44,7 +44,7 @@ def test_loop_detection_processor_can_be_created():
     from src.core.domain.streaming_response_processor import LoopDetectionProcessor
 
     # Create a loop detector
-    loop_detector = LoopDetector()
+    loop_detector = HybridLoopDetector()
 
     # Create the processor
     processor = LoopDetectionProcessor(loop_detector)

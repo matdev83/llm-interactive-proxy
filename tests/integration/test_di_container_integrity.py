@@ -59,11 +59,11 @@ class TestDIContainerIntegrity:
         assert loop_detector is not None, "ILoopDetector must be registered"
 
         # Verify it's the correct implementation
-        from src.loop_detection.detector import LoopDetector
+        from src.loop_detection.hybrid_detector import HybridLoopDetector
 
         assert isinstance(
-            loop_detector, LoopDetector
-        ), f"Expected LoopDetector instance, got {type(loop_detector)}"
+            loop_detector, HybridLoopDetector
+        ), f"Expected HybridLoopDetector instance, got {type(loop_detector)}"
 
     @pytest.mark.asyncio
     async def test_loop_detection_processor_is_registered(self, initialized_services):

@@ -171,11 +171,18 @@ FAILED tests/unit/core/services/test_pytest_compression_service.py::TestPytestCo
     )
 
     # Act - Phase 3: Process the command result through the response manager
+    from src.core.common.exceptions import ServiceResolutionError
+    from src.core.interfaces.response_manager_interface import IResponseManager
     from src.core.services.response_manager_service import ResponseManager
 
     try:
-        response_manager = service_provider.get_required_service(ResponseManager)
-    except:
+        response_manager = service_provider.get_required_service(IResponseManager)
+    except ServiceResolutionError as e:
+        # Log the DI error with proper details as per project guidelines
+        logger.error(
+            f"Failed to resolve IResponseManager from service provider: {e}",
+            exc_info=True,
+        )
         # If ResponseManager is not registered, create it directly
         from src.core.services.response_manager_service import AgentResponseFormatter
 
@@ -183,6 +190,7 @@ FAILED tests/unit/core/services/test_pytest_compression_service.py::TestPytestCo
         response_manager = ResponseManager(
             agent_response_formatter=formatter, session_service=session_service
         )
+        logger.info("Created ResponseManager manually as fallback")
 
     response_envelope = await response_manager.process_command_result(
         processed_result, updated_session

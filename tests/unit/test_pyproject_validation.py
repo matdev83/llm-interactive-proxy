@@ -264,6 +264,10 @@ class DependencyChecker:
         # Extract main dependencies
         if "project" in content and "dependencies" in content["project"]:
             for dep in content["project"]["dependencies"]:
+                # Skip empty dependencies
+                if not dep.strip():
+                    continue
+
                 # Extract package name (before any version specifiers)
                 package_name = (
                     dep.split()[0]
@@ -285,6 +289,10 @@ class DependencyChecker:
         if "project" in content and "optional-dependencies" in content["project"]:
             for group_deps in content["project"]["optional-dependencies"].values():
                 for dep in group_deps:
+                    # Skip empty dependencies
+                    if not dep.strip():
+                        continue
+
                     package_name = (
                         dep.split()[0]
                         .split(">=")[0]

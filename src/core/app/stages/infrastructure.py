@@ -132,7 +132,10 @@ class InfrastructureStage(InitializationStage):
                 }
 
                 long_threshold = config.long_pattern_threshold
-                assert long_threshold is not None
+                if long_threshold is None:
+                    raise ValueError(
+                        "LoopDetectionConfig.long_pattern_threshold must be set"
+                    )
 
                 min_repetitions = max(long_threshold.min_repetitions, 1)
                 min_pattern_length = max(
@@ -141,7 +144,9 @@ class InfrastructureStage(InitializationStage):
                 )
 
                 long_config = {
-                    "min_pattern_length": min(min_pattern_length, config.max_pattern_length),
+                    "min_pattern_length": min(
+                        min_pattern_length, config.max_pattern_length
+                    ),
                     "max_pattern_length": config.max_pattern_length,
                     "min_repetitions": long_threshold.min_repetitions,
                     "max_history": config.max_history_length,

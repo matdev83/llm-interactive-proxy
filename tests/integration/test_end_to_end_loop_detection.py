@@ -12,8 +12,8 @@ import pytest
 from fastapi.testclient import TestClient
 from src.core.domain.chat import ChatResponse
 from src.core.interfaces.backend_service_interface import IBackendService
-from src.core.services.loop_detector_service import LoopDetector
 from src.core.services.response_processor_service import ResponseProcessor
+from src.loop_detection.hybrid_detector import HybridLoopDetector
 
 
 @pytest.fixture
@@ -177,8 +177,9 @@ async def test_loop_detection_in_streaming_response():
 async def test_loop_detection_integration_with_middleware_chain():
     """Test that the loop detection middleware is properly integrated in the chain."""
     # Create a loop detector
-    loop_detector = LoopDetector(
-        min_pattern_length=5, max_pattern_length=50, min_repetitions=2
+    loop_detector = HybridLoopDetector(
+        short_detector_config={"content_loop_threshold": 5, "content_chunk_size": 25},
+        long_detector_config={"min_pattern_length": 60, "max_pattern_length": 500},
     )
 
     # Create middleware components

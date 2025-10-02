@@ -15,27 +15,26 @@ from src.core.domain.streaming_response_processor import (
 )
 from src.core.services.streaming.stream_normalizer import StreamNormalizer
 from src.loop_detection.analyzer import LoopDetectionEvent
-from src.loop_detection.config import LoopDetectionConfig
-from src.loop_detection.detector import LoopDetector
+from src.loop_detection.hybrid_detector import HybridLoopDetector
 
 
 class TestLoopDetectionStreaming:
     """Tests for streaming loop detection using StreamNormalizer."""
 
     @pytest.fixture
-    def detector(self) -> LoopDetector:
+    def detector(self) -> HybridLoopDetector:
         """Create a test detector."""
-        config = LoopDetectionConfig(enabled=True, buffer_size=1024)
-        return LoopDetector(config=config)
+        return HybridLoopDetector()
 
     @pytest.fixture
-    def disabled_detector(self) -> LoopDetector:
+    def disabled_detector(self) -> HybridLoopDetector:
         """Create a disabled test detector."""
-        config = LoopDetectionConfig(enabled=False)
-        return LoopDetector(config=config)
+        detector = HybridLoopDetector()
+        detector.disable()
+        return detector
 
     @pytest.mark.asyncio
-    async def test_normal_streaming_flow(self, detector: LoopDetector) -> None:
+    async def test_normal_streaming_flow(self, detector: HybridLoopDetector) -> None:
         """Test normal streaming response flow with StreamNormalizer."""
         content = ["Hello, ", "world!", " How are you?"]
 
@@ -74,7 +73,7 @@ class TestLoopDetectionStreaming:
         assert len(joined_content) > 0
 
     @pytest.mark.asyncio
-    async def test_streaming_with_bytes(self, detector: LoopDetector) -> None:
+    async def test_streaming_with_bytes(self, detector: HybridLoopDetector) -> None:
         """Test streaming response with byte chunks."""
         content = [b"Hello, ", b"world!", b" How are you?"]
 
@@ -115,7 +114,9 @@ class TestLoopDetectionStreaming:
         assert len(joined_content) > 0
 
     @pytest.mark.asyncio
-    async def test_streaming_with_mixed_types(self, detector: LoopDetector) -> None:
+    async def test_streaming_with_mixed_types(
+        self, detector: HybridLoopDetector
+    ) -> None:
         """Test streaming response with mixed chunk types."""
         content = ["text chunk", b"bytes chunk", "another text"]
 
@@ -158,7 +159,7 @@ class TestLoopDetectionStreaming:
         assert len(joined_content) > 0
 
     @pytest.mark.asyncio
-    async def test_streaming_error_handling(self, detector: LoopDetector) -> None:
+    async def test_streaming_error_handling(self, detector: HybridLoopDetector) -> None:
         """Test streaming response error handling."""
 
         async def failing_stream() -> AsyncIterator[str]:
@@ -187,7 +188,7 @@ class TestLoopDetectionStreaming:
 
     @pytest.mark.asyncio
     async def test_streaming_cancellation_on_loop(
-        self, detector: LoopDetector, mocker: MockerFixture
+        self, detector: HybridLoopDetector, mocker: MockerFixture
     ) -> None:
         """Test streaming response cancellation when a loop is detected."""
         mocker.patch.object(
@@ -229,7 +230,7 @@ class TestLoopDetectionStreaming:
         assert any(chunk.is_done for chunk in collected)
 
     @pytest.mark.asyncio
-    async def test_streaming_empty_chunks(self, detector: LoopDetector) -> None:
+    async def test_streaming_empty_chunks(self, detector: HybridLoopDetector) -> None:
         """Test streaming response with empty chunks."""
         content = ["chunk1", "", "chunk2", "", "chunk3"]
 
@@ -268,7 +269,7 @@ class TestLoopDetectionStreaming:
         assert len(joined_content) > 0
 
     @pytest.mark.asyncio
-    async def test_streaming_large_chunks(self, detector: LoopDetector) -> None:
+    async def test_streaming_large_chunks(self, detector: HybridLoopDetector) -> None:
         """Test streaming response with large chunks."""
         large_chunk = "x" * 10000
 
@@ -299,7 +300,7 @@ class TestLoopDetectionStreaming:
         assert len(content_chunks) > 0
 
     @pytest.mark.asyncio
-    async def test_streaming_unicode_chunks(self, detector: LoopDetector) -> None:
+    async def test_streaming_unicode_chunks(self, detector: HybridLoopDetector) -> None:
         """Test streaming response with Unicode chunks."""
         unicode_chunks = [
             "Hello, 世界!",
@@ -336,7 +337,7 @@ class TestLoopDetectionStreaming:
 
     @pytest.mark.asyncio
     async def test_streaming_asyncio_cancelled_error(
-        self, detector: LoopDetector
+        self, detector: HybridLoopDetector
     ) -> None:
         """Test streaming response with asyncio.CancelledError."""
 
@@ -366,7 +367,7 @@ class TestLoopDetectionStreaming:
 
     @pytest.mark.asyncio
     async def test_streaming_remaining_buffered_content(
-        self, detector: LoopDetector
+        self, detector: HybridLoopDetector
     ) -> None:
         """Test processing remaining buffered content."""
         small_chunks = ["a", "b", "c"]

@@ -202,6 +202,10 @@ def openai_to_gemini_response(openai_response: ChatResponse) -> GenerateContentR
 def openai_to_gemini_stream_chunk(chunk_data: str) -> str:
     """Convert OpenAI streaming chunk to Gemini streaming format."""
     try:
+        # Handle None input
+        if chunk_data is None:
+            return "data: {}\n\n"
+
         # Parse the OpenAI chunk
         if chunk_data.startswith("data: "):
             chunk_data = chunk_data[6:]
@@ -250,6 +254,10 @@ def openai_to_gemini_stream_chunk(chunk_data: str) -> str:
 def gemini_to_openai_stream_chunk(chunk_data: str) -> str:
     """Convert Gemini streaming chunk to OpenAI streaming format."""
     try:
+        # Handle None input
+        if chunk_data is None:
+            return "data: {}\n\n"
+
         # Parse the Gemini chunk
         if chunk_data.startswith("data: "):
             chunk_data = chunk_data[6:]
