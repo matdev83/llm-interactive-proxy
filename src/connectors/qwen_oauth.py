@@ -7,6 +7,7 @@ import contextlib
 import json
 import logging
 import time
+from concurrent.futures import Future
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -59,10 +60,7 @@ class QwenCredentialsFileHandler(FileSystemEventHandler):
         ):
             if logger.isEnabledFor(logging.INFO):
                 logger.info(f"OAuth credentials file modified: {event.src_path}")
-            # Schedule credential reload in the connector's event loop
-            task = asyncio.create_task(self.connector._handle_credentials_file_change())
-            # Store reference to prevent task from being garbage collected
-            self.connector._pending_reload_task = task
+            self.connector._schedule_credentials_reload()
 
 
 class QwenOAuthConnector(OpenAIConnector):
@@ -93,7 +91,8 @@ class QwenOAuthConnector(OpenAIConnector):
         self._credential_validation_errors: list[str] = []
         self._initialization_failed = False
         self._last_validation_time = 0.0
-        self._pending_reload_task: asyncio.Task | None = None
+        self._pending_reload_task: asyncio.Task[None] | Future[None] | None = None
+        self._event_loop: asyncio.AbstractEventLoop | None = None
 
     def _is_token_expired(self) -> bool:
         """Check if the current access token is expired or close to expiring."""
@@ -549,6 +548,10 @@ class QwenOAuthConnector(OpenAIConnector):
         logger.info("Initializing Qwen OAuth backend with enhanced validation...")
 
         # Reset state
+        try:
+            self._event_loop = asyncio.get_running_loop()
+        except RuntimeError:
+            self._event_loop = None
         self._initialization_failed = False
         self._credential_validation_errors = []
         self.is_functional = False
@@ -645,6 +648,37 @@ class QwenOAuthConnector(OpenAIConnector):
     def get_available_models(self) -> list[str]:
         """Return available Qwen models if functional."""
         return self.available_models if self.is_functional else []
+
+    def _schedule_credentials_reload(self) -> None:
+        """Schedule a reload of OAuth credentials on the active event loop."""
+
+        async def _reload() -> None:
+            await self._handle_credentials_file_change()
+
+        try:
+            current_loop = asyncio.get_running_loop()
+        except RuntimeError:
+            current_loop = None
+
+        target_loop = None
+        if current_loop and current_loop.is_running():
+            target_loop = current_loop
+        elif self._event_loop and self._event_loop.is_running():
+            target_loop = self._event_loop
+
+        if target_loop is None:
+            if logger.isEnabledFor(logging.WARNING):
+                logger.warning(
+                    "No running event loop available to schedule Qwen OAuth credential reload"
+                )
+            return
+
+        if target_loop is current_loop:
+            self._pending_reload_task = target_loop.create_task(_reload())
+        else:
+            self._pending_reload_task = asyncio.run_coroutine_threadsafe(
+                _reload(), target_loop
+            )
 
     async def chat_completions(
         self,
