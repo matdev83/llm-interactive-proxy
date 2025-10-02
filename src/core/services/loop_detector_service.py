@@ -69,7 +69,6 @@ class LoopDetector(ILoopDetector):
                 return default
 
         min_len = _as_int(self._min_pattern_length, 50)
-        min_reps = _as_int(self._min_repetitions, 2)
 
         if not content or len(content) < min_len * 2:
             return LoopDetectionResult(has_loop=False)
