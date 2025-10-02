@@ -159,7 +159,7 @@ class RequestProcessor(IRequestProcessor):
                     if md is None:
                         continue
                     # Accept either a ModelDefaults instance or a plain dict-like
-                    if isinstance(md, (ModelDefaults, dict)):
+                    if isinstance(md, ModelDefaults | dict):
                         model_defaults = md
                         break
 
