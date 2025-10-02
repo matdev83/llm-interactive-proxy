@@ -86,15 +86,20 @@ class ProjectDirCommandHandler(BaseCommandHandler):
         # Get the directory path
         dir_path = str(param_value)
 
+        # Expand environment variables and user home shortcuts so commands like
+        # !/project-dir(~\my_project) work cross-platform.
+        expanded_path = os.path.expanduser(os.path.expandvars(dir_path))
+
         # Validate the directory path
-        if not os.path.isdir(dir_path):
+        if not os.path.isdir(expanded_path):
             # Tests expect a specific error message phrasing
             return CommandHandlerResult(
-                success=False, message=f"Directory '{dir_path}' not found."
+                success=False,
+                message=f"Directory '{expanded_path}' not found.",
             )
 
         # Create new state with updated project directory
-        new_state = current_state.with_project_dir(dir_path)
+        new_state = current_state.with_project_dir(expanded_path)
 
         return CommandHandlerResult(
             success=True,
@@ -102,6 +107,6 @@ class ProjectDirCommandHandler(BaseCommandHandler):
             # handler, but when used directly they expect a user-visible
             # confirmation message. We return the full message here and let
             # callers decide to silence it.
-            message=f"Project directory set to {dir_path}",
+            message=f"Project directory set to {expanded_path}",
             new_state=new_state,
         )
