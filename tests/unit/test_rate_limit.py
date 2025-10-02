@@ -24,3 +24,17 @@ def test_rate_limit_registry_earliest(monkeypatch: Any) -> None:
     monkeypatch.setattr(time, "time", lambda: t)
     assert registry.get("b2", "m1", "k2") is None
     assert registry.earliest() == 5
+
+
+def test_rate_limit_registry_earliest_prunes_expired(monkeypatch: Any) -> None:
+    t: float = 0.0
+    monkeypatch.setattr(time, "time", lambda: t)
+    registry = RateLimitRegistry()
+    registry.set("b1", "m1", "k1", 10)
+    registry.set("b2", "m2", "k2", 2)
+
+    t = 5
+    monkeypatch.setattr(time, "time", lambda: t)
+
+    assert registry.earliest() == 10
+    assert ("b2", "m2", "k2") not in registry._until
