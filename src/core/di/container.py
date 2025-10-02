@@ -378,7 +378,9 @@ class ServiceCollection(IServiceCollection):
         self.add_singleton(IAppSettings, AppSettings)
 
         # Register AppConfig as singleton
-        self.add_singleton(AppConfig, AppConfig.from_env)
+        self.add_singleton(
+            AppConfig, implementation_factory=lambda _: AppConfig.from_env()
+        )
 
         # Register TranslationService as singleton
         self.add_singleton(TranslationService)
@@ -411,6 +413,7 @@ class ServiceCollection(IServiceCollection):
 
         # Register additional core services including ToolCallReactor
         from src.core.di.services import register_core_services
+
         register_core_services(self)
 
     def register_singleton(
