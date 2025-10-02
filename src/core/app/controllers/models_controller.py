@@ -252,7 +252,7 @@ async def list_models(
                     if callable(get_models_async):
                         models = await get_models_async()  # type: ignore[misc]
                     else:
-                        models = backend_instance.get_available_models()
+                        models = await backend_instance.get_available_models()  # type: ignore[misc]
 
                     # Add models to the list with proper formatting
                     for model in models:
