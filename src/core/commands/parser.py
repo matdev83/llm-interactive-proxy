@@ -54,7 +54,9 @@ class CommandParser:
 
     def _compile_pattern(self, prefix: str | None = None) -> re.Pattern:
         """Compile the regex pattern for command parsing using the given prefix."""
-        escaped_prefix = re.escape(prefix if prefix is not None else self.command_prefix)
+        escaped_prefix = re.escape(
+            prefix if prefix is not None else self.command_prefix
+        )
         return re.compile(rf"{escaped_prefix}(?P<name>[\w-]+)(?:\((?P<args>[^)]*)\))?")
 
     def parse(self, content: str) -> tuple[Command, str] | None:
