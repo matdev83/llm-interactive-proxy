@@ -92,9 +92,9 @@ package-dir = {"" = "src"}
 
 
 [tool.pytest.ini_options]
-
+pythonpath = "."
 testpaths = ["tests"]
-addopts = "-v --asyncio-mode=auto -m \"not network and not loop_detection\" --ignore=tests/integration/test_phase2_integration.py --durations=0 --junit-xml=test-results.xml -n auto --dist=loadscope --max-worker-restart=3 -W ignore"
+addopts = "-v --asyncio-mode=auto -m \"not network and not loop_detection\" --ignore=tests/integration/test_phase2_integration.py --durations=0 --junit-xml=test-results.xml -n 16 --dist=loadscope --max-worker-restart=3 -W ignore"
 asyncio_mode = "auto"
 junit_duration_report = "call"
 log_cli_level = "INFO"

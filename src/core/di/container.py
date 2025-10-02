@@ -339,10 +339,10 @@ class ServiceCollection(IServiceCollection):
         return ServiceProvider(self._descriptors.copy())
 
     def register_app_services(self) -> None:
+        from src.core.config.app_config import AppConfig
         from src.core.interfaces.usage_tracking_interface import (
             IUsageTrackingService,  # type: ignore[import-untyped]
         )
-        from src.core.config.app_config import AppConfig
         from src.core.services.app_settings_service import AppSettings
         from src.core.services.application_state_service import (
             ApplicationStateService,  # type: ignore[import-untyped]
@@ -364,11 +364,11 @@ class ServiceCollection(IServiceCollection):
         )
         from src.core.services.content_rewriter_service import ContentRewriterService
         from src.core.services.request_processor_service import RequestProcessor
-        from src.core.services.translation_service import TranslationService
         from src.core.services.response_parser_service import ResponseParser
         from src.core.services.session_service import (
             SessionService,  # type: ignore[import-untyped]
         )
+        from src.core.services.translation_service import TranslationService
         from src.core.services.usage_tracking_service import (
             UsageTrackingService,  # type: ignore[import-untyped]
         )
@@ -387,8 +387,8 @@ class ServiceCollection(IServiceCollection):
             if httpx_client is None:
                 httpx_client = httpx.AsyncClient()
 
-            backend_registry_service: BackendRegistry = (
-                provider.get_required_service(BackendRegistry)
+            backend_registry_service: BackendRegistry = provider.get_required_service(
+                BackendRegistry
             )
 
             try:
