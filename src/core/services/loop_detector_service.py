@@ -74,6 +74,8 @@ class LoopDetector(ILoopDetector):
             return LoopDetectionResult(has_loop=False)
 
         try:
+            # Reset detector state to ensure each check is independent
+            self._detector.reset()
             result = await self._detector.check_for_loops(content)
             if result.has_loop and logger.isEnabledFor(logging.WARNING):
                 logger.warning(
