@@ -376,41 +376,27 @@ class ServiceCollection(IServiceCollection):
         # Register all application services
         self.add_singleton(IApplicationState, ApplicationStateService)
         self.add_singleton(IAppSettings, AppSettings)
+
+        # Register AppConfig as singleton
+        self.add_singleton(AppConfig, AppConfig.from_env)
+
+        # Register TranslationService as singleton
+        self.add_singleton(TranslationService)
+
+        # Register BackendFactory with proper factory
         import httpx
 
-        def backend_factory_factory(provider: IServiceProvider) -> BackendFactory:
-            """Create a BackendFactory with all required dependencies."""
-
-            httpx_client: httpx.AsyncClient | None = provider.get_service(
-                httpx.AsyncClient
-            )
-            if httpx_client is None:
-                httpx_client = httpx.AsyncClient()
-
-            backend_registry_service: BackendRegistry = provider.get_required_service(
-                BackendRegistry
-            )
-
-            try:
-                app_config: AppConfig = provider.get_required_service(AppConfig)
-            except ServiceResolutionError:
-                app_config = AppConfig.from_env()
-
-            translation_service: TranslationService | None = provider.get_service(
-                TranslationService
-            )
-            if translation_service is None:
-                translation_service = TranslationService()
-
+        def _backend_factory_factory(provider: IServiceProvider) -> BackendFactory:
+            """Create BackendFactory with all required dependencies."""
             return BackendFactory(
-                httpx_client,
-                backend_registry_service,
-                app_config,
-                translation_service,
+                provider.get_required_service(httpx.AsyncClient),
+                provider.get_required_service(BackendRegistry),
+                provider.get_required_service(AppConfig),
+                provider.get_required_service(TranslationService),
             )
 
         self.add_singleton(
-            BackendFactory, implementation_factory=backend_factory_factory
+            BackendFactory, implementation_factory=_backend_factory_factory
         )
         self.add_singleton(BackendRegistry, BackendRegistry)
         self.add_singleton(IUsageTrackingService, UsageTrackingService)
