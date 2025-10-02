@@ -160,6 +160,59 @@ async def test_chat_completions_with_system_message(
 
 
 @pytest.mark.asyncio
+async def test_chat_completions_merges_metadata(
+    anthropic_backend: AnthropicBackend, httpx_mock: HTTPXMock
+) -> None:
+    """Ensure metadata from project/user merges with extra_body metadata."""
+
+    httpx_mock.add_response(
+        url=f"{TEST_ANTHROPIC_API_BASE_URL}/messages",
+        method="POST",
+        json={
+            "id": "msg_123",
+            "type": "message",
+            "role": "assistant",
+            "content": [{"type": "text", "text": "Hello"}],
+            "model": "claude-3-haiku-20240307",
+            "stop_reason": "end_turn",
+            "usage": {"input_tokens": 5, "output_tokens": 2},
+        },
+        status_code=200,
+        headers={"Content-Type": "application/json"},
+    )
+
+    request = ChatRequest(
+        model="anthropic:claude-3-haiku-20240307",
+        messages=[ChatMessage(role="user", content="Hello")],
+        stream=False,
+        user="domain-user",
+        extra_body={
+            "metadata": {"source": "cli", "user_id": "override-user"},
+            "custom_flag": True,
+        },
+    )
+
+    await anthropic_backend.chat_completions(
+        request_data=request,
+        processed_messages=[ChatMessage(role="user", content="Hello")],
+        effective_model="claude-3-haiku-20240307",
+        project="project-123",
+    )
+
+    sent_request = httpx_mock.get_request()
+    assert sent_request is not None
+    sent_payload = json.loads(sent_request.content)
+
+    assert sent_payload["metadata"] == {
+        "project": "project-123",
+        "source": "cli",
+        "user_id": "override-user",
+    }
+    assert sent_payload["custom_flag"] is True
+
+
+
+@pytest.mark.asyncio
 async def test_chat_completions_with_tools(
     anthropic_backend: AnthropicBackend, httpx_mock: HTTPXMock
 ) -> None:
