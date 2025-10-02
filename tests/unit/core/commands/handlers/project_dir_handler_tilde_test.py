@@ -7,7 +7,6 @@ from pathlib import Path
 from unittest.mock import Mock
 
 import pytest
-
 from src.core.commands.handlers.base_handler import CommandHandlerResult
 from src.core.commands.handlers.project_dir_handler import ProjectDirCommandHandler
 from src.core.interfaces.domain_entities_interface import ISessionState
@@ -48,7 +47,9 @@ async def test_handle_with_tilde_path(
     assert result.success is True
     # Normalize paths for cross-platform compatibility
     expected_path = os.path.normpath(str(project_dir))
-    actual_path = os.path.normpath(result.message.replace("Project directory set to ", ""))
+    actual_path = os.path.normpath(
+        result.message.replace("Project directory set to ", "")
+    )
     assert actual_path == expected_path
     # Mock was called with the actual expanded path (may have different separators)
     mock_state.with_project_dir.assert_called_once()
