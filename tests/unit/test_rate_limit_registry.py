@@ -135,6 +135,22 @@ class TestRateLimitRegistry:
         result = registry.earliest(combos)
         assert result is None
 
+    def test_earliest_removes_expired_entries(
+        self, registry: RateLimitRegistry
+    ) -> None:
+        """Expired entries should be ignored and removed when checking earliest."""
+
+        registry.set("backend1", "model1", "key1", 30.0)
+        key = ("backend1", "model1", "key1")
+        # Simulate expiration by moving timestamp into the past
+        registry._until[key] = time.time() - 5.0
+
+        result = registry.earliest()
+
+        assert result is None
+        # Ensure expired entries are cleaned up to avoid stale data
+        assert key not in registry._until
+
     def test_multiple_keys_same_backend_model(
         self, registry: RateLimitRegistry
     ) -> None:
