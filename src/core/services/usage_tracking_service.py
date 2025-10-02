@@ -201,17 +201,23 @@ class UsageTrackingService(IUsageTrackingService):
                     tracker.response_headers, backend
                 )
                 u = billing.get("usage", {})
-                prompt_tokens = prompt_tokens or u.get("prompt_tokens")
-                completion_tokens = completion_tokens or u.get("completion_tokens")
-                total_tokens = total_tokens or u.get("total_tokens")
+                if prompt_tokens is None:
+                    prompt_tokens = u.get("prompt_tokens")
+                if completion_tokens is None:
+                    completion_tokens = u.get("completion_tokens")
+                if total_tokens is None:
+                    total_tokens = u.get("total_tokens")
 
             # Extract from response body
             if tracker.response is not None:
                 billing = extract_billing_info_from_response(tracker.response, backend)
                 u = billing.get("usage", {})
-                prompt_tokens = prompt_tokens or u.get("prompt_tokens")
-                completion_tokens = completion_tokens or u.get("completion_tokens")
-                total_tokens = total_tokens or u.get("total_tokens")
+                if prompt_tokens is None:
+                    prompt_tokens = u.get("prompt_tokens")
+                if completion_tokens is None:
+                    completion_tokens = u.get("completion_tokens")
+                if total_tokens is None:
+                    total_tokens = u.get("total_tokens")
 
             # Persist usage data
             usage_data = await self.track_usage(
