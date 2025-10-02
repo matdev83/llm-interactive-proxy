@@ -201,14 +201,17 @@ async def proxy_exception_handler(request: Request, exc: LLMProxyError) -> Respo
             }
         else:
             # Standard error response for non-chat completions endpoints
+            error_payload: dict[str, Any] = {
+                "message": exc_message,
+                "type": exc_name,
+                "status_code": status_code,
+            }
+            if getattr(exc, "details", None):
+                error_payload["details"] = exc.details
+
             content = {
                 "detail": {
-                    "error": exc_message,
-                    **(
-                        {"details": exc.details}
-                        if getattr(exc, "details", None)
-                        else {}
-                    ),
+                    "error": error_payload,
                 }
             }
 
