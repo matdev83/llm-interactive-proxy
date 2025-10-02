@@ -270,7 +270,9 @@ class AnthropicBackend(LLMBackend):
                     if isinstance(extra_metadata, dict)
                     else extra_metadata
                 )
-            elif isinstance(metadata_payload, dict) and isinstance(extra_metadata, dict):
+            elif isinstance(metadata_payload, dict) and isinstance(
+                extra_metadata, dict
+            ):
                 metadata_payload.update(extra_metadata)
             else:
                 metadata_payload = extra_metadata

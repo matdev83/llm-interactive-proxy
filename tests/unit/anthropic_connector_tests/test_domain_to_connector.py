@@ -211,7 +211,6 @@ async def test_chat_completions_merges_metadata(
     assert sent_payload["custom_flag"] is True
 
 
-
 @pytest.mark.asyncio
 async def test_chat_completions_with_tools(
     anthropic_backend: AnthropicBackend, httpx_mock: HTTPXMock
