@@ -371,6 +371,9 @@ class BackendSettings(DomainModel):
             )
 
         # Lazily create a default backend configuration for unknown backends.
+        # This allows accessing backend configs without pre-registration while
+        # maintaining backward compatibility. Created configs are cached for
+        # subsequent access to avoid creating multiple instances.
         config = BackendConfig()
         self.__dict__[name] = config
         return config
