@@ -31,15 +31,23 @@ class RateLimitRegistry:
         self, combos: Iterable[tuple[str, str, str]] | None = None
     ) -> float | None:
         """Return the earliest retry timestamp for the given combinations."""
-        items = (
-            (
-                ((b, m or "", k), self._until.get((b, m or "", k)))
-                for b, m, k in (combos or [])
-            )
-            if combos
-            else self._until.items()
-        )
-        valid_times = [t for _, t in items if t is not None]
+        now = time.time()
+
+        if combos:
+            keys = [(b, m or "", k) for b, m, k in combos]
+        else:
+            keys = list(self._until.keys())
+
+        valid_times: list[float] = []
+        for key in keys:
+            ts = self._until.get(key)
+            if ts is None:
+                continue
+            if now >= ts:
+                self._until.pop(key, None)
+                continue
+            valid_times.append(ts)
+
         if not valid_times:
             return None
         return min(valid_times)
