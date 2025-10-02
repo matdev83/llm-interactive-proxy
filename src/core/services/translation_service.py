@@ -37,6 +37,8 @@ class TranslationService:
                 "code_assist": Translation.code_assist_to_domain_response,
                 "raw_text": Translation.raw_text_to_domain_response,
             },
+            "request_out": {},
+            "response_out": {},
         }
 
     def register_converter(
@@ -49,11 +51,32 @@ class TranslationService:
         Register a new converter.
 
         Args:
-            direction: The direction of the conversion (e.g., "request", "response").
+            direction: The direction of the conversion. Use "request"/"response" for
+                inbound conversions (external -> domain) and "request_out"/
+                "response_out" for outbound conversions (domain -> external).
             format: The API format (e.g., "anthropic", "gemini").
             converter: The converter function.
         """
-        self._converters[direction][format] = converter
+        normalized_direction = self._normalize_direction(direction)
+        self._converters.setdefault(normalized_direction, {})[format] = converter
+
+    def _normalize_direction(self, direction: str) -> str:
+        """Normalize direction keys for internal converter storage."""
+
+        if direction in {"request", "response", "request_out", "response_out"}:
+            return direction
+
+        direction_map = {
+            "request_in": "request",
+            "response_in": "response",
+            "request_to": "request_out",
+            "response_to": "response_out",
+        }
+
+        if direction in direction_map:
+            return direction_map[direction]
+
+        raise ValueError(f"Unsupported converter direction: {direction}")
 
     def to_domain_request(
         self, request: Any, source_format: str
@@ -135,7 +158,7 @@ class TranslationService:
         elif target_format == "anthropic":
             return Translation.from_domain_to_anthropic_request(request)
 
-        converter = self._converters["request"].get(target_format)
+        converter = self._converters["request_out"].get(target_format)
         if not converter:
             raise NotImplementedError(
                 f"Request converter for format '{target_format}' not implemented."
@@ -403,9 +426,12 @@ class TranslationService:
         elif target_format == "gemini":
             return self.from_domain_to_gemini_response(response)
 
-        raise NotImplementedError(
-            f"Response converter for format '{target_format}' not implemented."
-        )
+        converter = self._converters["response_out"].get(target_format)
+        if not converter:
+            raise NotImplementedError(
+                f"Response converter for format '{target_format}' not implemented."
+            )
+        return converter(response)
 
     def from_domain_to_responses_response(
         self, response: ChatResponse
