@@ -99,6 +99,31 @@ class TestRateLimitRegistry:
         assert result is not None
         assert abs(result - time.time() - 30.0) < 1.0  # Should return the earliest
 
+    def test_earliest_prunes_expired_entries(
+        self, registry: RateLimitRegistry, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Expired entries should not affect earliest calculations."""
+
+        current_time = {"value": 0.0}
+
+        def fake_time() -> float:
+            return current_time["value"]
+
+        import time
+
+        monkeypatch.setattr(time, "time", fake_time)
+
+        registry.set("backend1", "model1", "key1", 5.0)
+        registry.set("backend2", "model2", "key2", 2.0)
+
+        # Advance time past the second entry's expiry without reading it via get()
+        current_time["value"] = 3.0
+
+        result = registry.earliest()
+        assert result == pytest.approx(5.0)
+        # The expired entry should be removed as part of the lookup
+        assert ("backend2", "model2", "key2") not in registry._until
+
     def test_earliest_with_filtered_combinations(
         self, registry: RateLimitRegistry
     ) -> None:
@@ -134,22 +159,6 @@ class TestRateLimitRegistry:
         combos = [("nonexistent", "model", "key")]
         result = registry.earliest(combos)
         assert result is None
-
-    def test_earliest_removes_expired_entries(
-        self, registry: RateLimitRegistry
-    ) -> None:
-        """Expired entries should be ignored and removed when checking earliest."""
-
-        registry.set("backend1", "model1", "key1", 30.0)
-        key = ("backend1", "model1", "key1")
-        # Simulate expiration by moving timestamp into the past
-        registry._until[key] = time.time() - 5.0
-
-        result = registry.earliest()
-
-        assert result is None
-        # Ensure expired entries are cleaned up to avoid stale data
-        assert key not in registry._until
 
     def test_multiple_keys_same_backend_model(
         self, registry: RateLimitRegistry

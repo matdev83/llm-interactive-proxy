@@ -32,27 +32,24 @@ class RateLimitRegistry:
     ) -> float | None:
         """Return the earliest retry timestamp for the given combinations."""
         now = time.time()
-        keys_to_check: Iterable[tuple[str, str, str]]
 
         if combos:
-            keys_to_check = [(b, m or "", k) for b, m, k in combos]
+            keys = [(b, m or "", k) for b, m, k in combos]
         else:
-            keys_to_check = list(self._until.keys())
+            keys = list(self._until.keys())
 
         valid_times: list[float] = []
-        expired_keys: list[tuple[str, str, str]] = []
-
-        for key in keys_to_check:
+        for key in keys:
             ts = self._until.get(key)
             if ts is None:
                 continue
-            if time.time() >= ts:
-                expired_keys.append(key)
-                continue
-            valid_times.append(ts)
 
-        for key in expired_keys:
-            self._until.pop(key, None)
+            if now >= ts:
+                # Expired entry; clean it up to keep the registry accurate
+                self._until.pop(key, None)
+                continue
+
+            valid_times.append(ts)
 
         if not valid_times:
             return None
