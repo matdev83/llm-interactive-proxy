@@ -140,7 +140,7 @@ class EmptyResponseMiddleware(IResponseMiddleware):
 
         # Prefer explicit ``content`` attribute when present
         if hasattr(response, "content"):
-            raw_content = getattr(response, "content")
+            raw_content = response.content
             if isinstance(raw_content, str):
                 content = raw_content
             elif raw_content is not None:
