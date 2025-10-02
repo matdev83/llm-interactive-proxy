@@ -122,6 +122,46 @@ class TestEmptyResponseMiddleware:
         assert "session123" not in middleware._retry_counts
 
     @pytest.mark.asyncio
+    async def test_process_handles_dict_responses(self):
+        """Middleware should safely handle raw dictionary responses."""
+        middleware = EmptyResponseMiddleware()
+
+        # Non-empty OpenAI-style payload should pass through unchanged
+        raw_response = {
+            "choices": [
+                {
+                    "message": {
+                        "role": "assistant",
+                        "content": "All good here",
+                    }
+                }
+            ]
+        }
+
+        result = await middleware.process(raw_response, "sess-dict", context={})
+        assert result is raw_response
+        assert "sess-dict" not in middleware._retry_counts
+
+        # Empty payload without tool calls should trigger retry logic
+        empty_response = {
+            "choices": [
+                {
+                    "message": {
+                        "role": "assistant",
+                        "content": "",
+                    }
+                }
+            ]
+        }
+
+        with pytest.raises(EmptyResponseRetryException):
+            await middleware.process(
+                empty_response,
+                "sess-empty",
+                context={"original_request": "req"},
+            )
+
+    @pytest.mark.asyncio
     @patch("builtins.open", mock_open(read_data="Recovery prompt"))
     @patch("pathlib.Path.exists", return_value=True)
     async def test_process_empty_response_first_retry(self, mock_exists):
