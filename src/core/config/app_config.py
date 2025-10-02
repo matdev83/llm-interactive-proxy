@@ -365,7 +365,7 @@ class BackendSettings(DomainModel):
             return cast(BackendConfig, self.__dict__[name])
 
         # Avoid creating configs for private/internal attributes
-        if name.startswith("_") or name.startswith("__"):
+        if name.startswith(("_", "__")):
             raise AttributeError(
                 f"'{self.__class__.__name__}' object has no attribute '{name}'"
             )
