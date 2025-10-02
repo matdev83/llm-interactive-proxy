@@ -212,6 +212,14 @@ class AnthropicBackend(LLMBackend):
             "stream": bool(request_data.stream),
         }
 
+        metadata_payload: Any | None = None
+        if project or request_data.user is not None:
+            metadata_payload = {}
+            if project:
+                metadata_payload["project"] = project
+            if request_data.user is not None:
+                metadata_payload["user_id"] = request_data.user
+
         # System message extraction (Anthropic expects it separately)
         system_prompt = None
         anth_messages: list[dict[str, Any]] = []
@@ -253,10 +261,24 @@ class AnthropicBackend(LLMBackend):
             payload["top_p"] = request_data.top_p
         if request_data.stop is not None:
             payload["stop_sequences"] = request_data.stop
-        if project:
-            payload["metadata"] = {"project": project}
-        if request_data.user is not None:
-            payload.setdefault("metadata", {})["user_id"] = request_data.user
+        extra_body: dict[str, Any] = dict(request_data.extra_body or {})
+        extra_metadata = extra_body.pop("metadata", None)
+        if extra_metadata is not None:
+            if metadata_payload is None:
+                metadata_payload = (
+                    dict(extra_metadata)
+                    if isinstance(extra_metadata, dict)
+                    else extra_metadata
+                )
+            elif isinstance(metadata_payload, dict) and isinstance(
+                extra_metadata, dict
+            ):
+                metadata_payload.update(extra_metadata)
+            else:
+                metadata_payload = extra_metadata
+
+        if metadata_payload is not None:
+            payload["metadata"] = metadata_payload
 
         # Unsupported parameters
         if request_data.seed is not None and logger.isEnabledFor(logging.WARNING):
@@ -283,7 +305,7 @@ class AnthropicBackend(LLMBackend):
             payload["tools"] = request_data.tools
 
         # Include extra params from domain extra_body directly (allows reasoning, etc.)
-        payload.update(request_data.extra_body or {})
+        payload.update(extra_body)
 
         # Include reasoning_effort when provided
         if getattr(request_data, "reasoning_effort", None) is not None:
