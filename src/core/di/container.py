@@ -19,7 +19,6 @@ from src.core.interfaces.di_interface import (
     ServiceLifetime,
 )
 from src.core.interfaces.request_processor_interface import IRequestProcessor
-from src.core.interfaces.response_processor_interface import IResponseProcessor
 from src.core.interfaces.session_service_interface import ISessionService
 
 T = TypeVar("T")
@@ -364,7 +363,6 @@ class ServiceCollection(IServiceCollection):
         )
         from src.core.services.content_rewriter_service import ContentRewriterService
         from src.core.services.request_processor_service import RequestProcessor
-        from src.core.services.response_parser_service import ResponseParser
         from src.core.services.session_service import (
             SessionService,  # type: ignore[import-untyped]
         )
@@ -407,7 +405,6 @@ class ServiceCollection(IServiceCollection):
         self.add_singleton(ContentRewriterService, ContentRewriterService)
 
         self.add_scoped(IBackendProcessor, BackendProcessor)
-        self.add_scoped(IResponseProcessor, ResponseParser)
         self.add_scoped(IBackendRequestManager, BackendRequestManager)
         self.add_scoped(IRequestProcessor, RequestProcessor)
 
