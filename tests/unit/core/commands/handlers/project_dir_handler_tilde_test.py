@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 from unittest.mock import Mock
 
@@ -37,11 +38,19 @@ async def test_handle_with_tilde_path(
     project_dir = tmp_path / "tilde_project"
     project_dir.mkdir()
 
+    # Set both HOME and USERPROFILE for Windows compatibility
     monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setenv("USERPROFILE", str(tmp_path))
 
     result = handler.handle("~/tilde_project", mock_state)
 
     assert isinstance(result, CommandHandlerResult)
     assert result.success is True
-    assert result.message == f"Project directory set to {project_dir}"
-    mock_state.with_project_dir.assert_called_once_with(str(project_dir))
+    # Normalize paths for cross-platform compatibility
+    expected_path = os.path.normpath(str(project_dir))
+    actual_path = os.path.normpath(result.message.replace("Project directory set to ", ""))
+    assert actual_path == expected_path
+    # Mock was called with the actual expanded path (may have different separators)
+    mock_state.with_project_dir.assert_called_once()
+    called_path = os.path.normpath(mock_state.with_project_dir.call_args[0][0])
+    assert called_path == expected_path
