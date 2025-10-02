@@ -162,6 +162,32 @@ class TestEmptyResponseMiddleware:
             )
 
     @pytest.mark.asyncio
+    async def test_process_handles_structured_content(self):
+        """Middleware should handle structured content (multimodal responses)."""
+        middleware = EmptyResponseMiddleware()
+
+        # Structured content (multimodal) should not be treated as empty
+        structured_response = {
+            "content": [
+                {"type": "text", "text": "Here's an image:"},
+                {"type": "image_url", "image_url": {"url": "data:image/png;base64,..."}}
+            ]
+        }
+
+        result = await middleware.process(structured_response, "sess-structured", context={})
+        assert result is structured_response
+        assert "sess-structured" not in middleware._retry_counts
+
+        # Dict content should also be handled properly
+        dict_content_response = {
+            "content": {"type": "text", "text": "Some structured content"}
+        }
+
+        result = await middleware.process(dict_content_response, "sess-dict-content", context={})
+        assert result is dict_content_response
+        assert "sess-dict-content" not in middleware._retry_counts
+
+    @pytest.mark.asyncio
     @patch("builtins.open", mock_open(read_data="Recovery prompt"))
     @patch("pathlib.Path.exists", return_value=True)
     async def test_process_empty_response_first_retry(self, mock_exists):

@@ -150,6 +150,9 @@ class EmptyResponseMiddleware(IResponseMiddleware):
             raw_content = response.get("content")
             if isinstance(raw_content, str):
                 content = raw_content
+            elif raw_content is not None:
+                # Convert non-None content (including structured content) to string
+                content = str(raw_content)
             elif "choices" in response:
                 try:
                     first_choice = response.get("choices", [])[0]
