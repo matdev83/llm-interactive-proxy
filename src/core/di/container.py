@@ -423,6 +423,10 @@ class ServiceCollection(IServiceCollection):
         self.add_scoped(IBackendRequestManager, BackendRequestManager)
         self.add_scoped(IRequestProcessor, RequestProcessor)
 
+        # Register additional core services including ToolCallReactor
+        from src.core.di.services import register_core_services
+        register_core_services(self)
+
     def register_singleton(
         self,
         service_type: type[Any],
