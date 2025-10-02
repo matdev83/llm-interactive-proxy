@@ -145,3 +145,14 @@ def test_backend_settings_provides_default_backend_config() -> None:
     assert isinstance(backend_config, BackendConfig)
     # Accessing again should return the same object (cached lazily)
     assert settings.custom_backend is backend_config
+
+
+def test_backend_settings_provides_default_backend_config() -> None:
+    """BackendSettings should lazily create configs for unknown backends."""
+    settings = BackendSettings()
+
+    backend_config = settings.custom_backend
+
+    assert isinstance(backend_config, BackendConfig)
+    # Accessing again should return the same object (cached lazily)
+    assert settings.custom_backend is backend_config
