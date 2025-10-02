@@ -58,7 +58,9 @@ class TestBackendConfigProvider:
         config = provider.get_backend_config("nonexistent")
 
         # Assert
-        assert config is None
+        assert config is not None
+        assert isinstance(config, BackendConfig)
+        assert config.api_key == []
 
     def test_get_backend_config_with_empty_backend(self) -> None:
         """Test getting a config for a backend with empty config."""
