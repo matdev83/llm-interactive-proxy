@@ -10,6 +10,16 @@ def mock_headers_provider(_: str, api_key: str) -> dict[str, str]:
     return {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
 
 
+class DummyIdentity:
+    """Simple identity stub for tests."""
+
+    def get_resolved_headers(self, incoming_headers):  # type: ignore[no-untyped-def]
+        return {
+            "X-Title": "custom-app",
+            "HTTP-Referer": "https://example.test",
+        }
+
+
 @pytest_asyncio.fixture(name="openrouter_backend")
 async def openrouter_backend_fixture():
     async with httpx.AsyncClient() as client:
@@ -56,3 +66,35 @@ async def test_headers_plumbing(
     req = httpx_mock.get_request()
     assert req is not None
     assert req.headers.get("Authorization") == "Bearer TEST-HEADER"
+
+
+@pytest.mark.asyncio
+@pytest.mark.usefixtures("openrouter_backend")
+@pytest.mark.httpx_mock()
+async def test_identity_headers_are_preserved(
+    openrouter_backend: OpenRouterBackend, httpx_mock: HTTPXMock
+):
+    request_data = ChatRequest(
+        model="openai/gpt-3.5-turbo",
+        messages=[ChatMessage(role="user", content="Hello")],
+        stream=False,
+    )
+
+    httpx_mock.add_response(json={"id": "ok"}, status_code=200)
+
+    await openrouter_backend.chat_completions(
+        request_data=request_data,
+        processed_messages=[ChatMessage(role="user", content="Hello")],
+        effective_model="openai/gpt-3.5-turbo",
+        openrouter_api_base_url="https://openrouter.ai/api/v1",
+        openrouter_headers_provider=mock_headers_provider,
+        key_name="test",
+        api_key="TEST-HEADER",
+        identity=DummyIdentity(),
+    )
+
+    req = httpx_mock.get_request()
+    assert req is not None
+    assert req.headers.get("Authorization") == "Bearer TEST-HEADER"
+    assert req.headers.get("X-Title") == "custom-app"
+    assert req.headers.get("HTTP-Referer") == "https://example.test"
