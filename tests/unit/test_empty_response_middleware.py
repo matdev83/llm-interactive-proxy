@@ -2,6 +2,7 @@
 Tests for empty response middleware.
 """
 
+from pathlib import Path
 from unittest.mock import MagicMock, mock_open, patch
 
 import pytest
@@ -44,6 +45,27 @@ class TestEmptyResponseMiddleware:
         prompt = middleware._load_recovery_prompt()
         assert "empty response" in prompt.lower()
         assert "valid response" in prompt.lower()
+
+    def test_load_recovery_prompt_uses_repository_prompt(self):
+        """Ensure the real repository prompt file is loaded when present."""
+        middleware = EmptyResponseMiddleware()
+        prompt = middleware._load_recovery_prompt()
+
+        search_root = Path(__file__).resolve().parent
+        expected_prompt: str | None = None
+        for candidate_root in (search_root,) + tuple(search_root.parents):
+            candidate = (
+                candidate_root
+                / "config"
+                / "prompts"
+                / "empty_response_auto_retry_prompt.md"
+            )
+            if candidate.exists():
+                expected_prompt = candidate.read_text(encoding="utf-8").strip()
+                break
+
+        assert expected_prompt is not None, "Repository prompt file should exist"
+        assert prompt == expected_prompt
 
     def test_is_empty_response_with_content(self):
         """Test empty response detection with content."""
