@@ -210,6 +210,17 @@ class TestToolCallLoopConfig:
         assert base.max_repeats == 2
         assert override.max_repeats == 4
 
+
+class TestToolCallTracker:
+    """Tests for ToolCallTracker functionality."""
+
+    @pytest.fixture
+    def config(self) -> ToolCallLoopConfig:
+        """Create a default configuration for testing."""
+        return ToolCallLoopConfig(
+            enabled=True, max_repeats=3, ttl_seconds=60, mode=ToolLoopMode.BREAK
+        )
+
     def test_track_tool_call_different_calls(self, config) -> None:
         """Test tracking different tool calls."""
         tracker = ToolCallTracker(config)
