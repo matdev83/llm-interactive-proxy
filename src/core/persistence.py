@@ -264,7 +264,7 @@ class ConfigManager:
                 f"Backend '{backend_name}' in route '{route_name}' element '{elem_str}' is not functional, skipping.",
             )
 
-        valid_model = False
+        valid_model = True
         if self.service_provider:
             try:
                 from src.core.interfaces.backend_service_interface import (
@@ -309,6 +309,7 @@ class ConfigManager:
                     raise ConfigurationError(
                         "Unexpected error validating failover element",
                     ) from e
+                valid_model = False
 
         if not valid_model:
             return (
