@@ -94,12 +94,14 @@ class ProcessorStage(InitializationStage):
                 CommandProcessor, implementation_factory=command_processor_factory
             )
 
-            # Register interface binding
+            # Register interface binding that reuses the concrete singleton
             from typing import cast
 
             services.add_singleton_factory(
                 cast(type, ICommandProcessor),
-                implementation_factory=command_processor_factory,
+                implementation_factory=lambda provider: provider.get_required_service(
+                    CommandProcessor
+                ),
             )
 
             logger.debug("Registered command processor")
@@ -143,10 +145,12 @@ class ProcessorStage(InitializationStage):
                 BackendProcessor, implementation_factory=backend_processor_factory
             )
 
-            # Register interface binding
-            services.add_singleton(
+            # Register interface binding that reuses the concrete singleton
+            services.add_singleton_factory(
                 cast(type, IBackendProcessor),
-                implementation_factory=backend_processor_factory,
+                implementation_factory=lambda provider: provider.get_required_service(
+                    BackendProcessor
+                ),
             )
 
             logger.debug("Registered backend processor")
@@ -219,9 +223,11 @@ class ProcessorStage(InitializationStage):
             services.add_singleton(
                 ResponseProcessor, implementation_factory=response_processor_factory
             )
-            services.add_singleton(
+            services.add_singleton_factory(
                 cast(type, IResponseProcessor),
-                implementation_factory=response_processor_factory,
+                implementation_factory=lambda provider: provider.get_required_service(
+                    ResponseProcessor
+                ),
             )
 
             logger.debug(
@@ -289,10 +295,12 @@ class ProcessorStage(InitializationStage):
                 RequestProcessor, implementation_factory=request_processor_factory
             )
 
-            # Register interface binding
-            services.add_singleton(
+            # Register interface binding that reuses the concrete singleton
+            services.add_singleton_factory(
                 cast(type, IRequestProcessor),
-                implementation_factory=request_processor_factory,
+                implementation_factory=lambda provider: provider.get_required_service(
+                    RequestProcessor
+                ),
             )
 
             logger.debug("Registered request processor with all dependencies")
