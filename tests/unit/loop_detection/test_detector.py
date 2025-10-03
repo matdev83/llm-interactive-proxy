@@ -146,6 +146,20 @@ class TestLoopDetector:
             config = LoopDetectionConfig(enabled=True, max_pattern_length=0)
             LoopDetector(config=config)
 
+    @pytest.mark.asyncio
+    async def test_check_for_loops_does_not_mutate_streaming_state(self) -> None:
+        """check_for_loops should not modify the streaming analyzer state."""
+        config = LoopDetectionConfig(enabled=True)
+        detector = LoopDetector(config=config)
+
+        detector.process_chunk("unique content that should not trigger detection")
+        initial_state = detector.get_current_state()
+
+        result = await detector.check_for_loops("standalone inspection content")
+
+        assert result.has_loop is False
+        assert detector.get_current_state() == initial_state
+
 
 class TestLoopDetectionEvent:
     """Test the LoopDetectionEvent class."""
