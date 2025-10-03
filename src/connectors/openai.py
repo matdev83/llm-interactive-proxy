@@ -90,7 +90,11 @@ class OpenAIConnector(LLMBackend):
 
     async def initialize(self, **kwargs: Any) -> None:
         self.api_key = kwargs.get("api_key")
-        logger.info(f"OpenAIConnector initialize called. api_key: {self.api_key}")
+        if logger.isEnabledFor(logging.DEBUG):
+            logger.debug(
+                "OpenAIConnector initialize called. api_key provided: %s",
+                bool(self.api_key),
+            )
         if "api_base_url" in kwargs:
             self.api_base_url = kwargs["api_base_url"]
 
