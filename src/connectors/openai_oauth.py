@@ -17,6 +17,7 @@ Configuration:
 from __future__ import annotations
 
 import asyncio
+from concurrent.futures import Future
 import json
 import logging
 import os
@@ -83,8 +84,9 @@ class OpenAIOAuthConnector(OpenAIConnector):
         self._credential_validation_errors: list[str] = []
         self._initialization_failed: bool = False
         self._last_validation_time: float = 0.0
-        self._pending_reload_task: asyncio.Task[None] | None = None
+        self._pending_reload_task: asyncio.Task[None] | Future[None] | None = None
         self._auth_credentials: dict[str, Any] | None = None
+        self._event_loop: asyncio.AbstractEventLoop | None = None
 
     # -----------------------------
     # Health Tracking API (stale token handling pattern)
@@ -269,7 +271,44 @@ class OpenAIOAuthConnector(OpenAIConnector):
                 logger.error(f"Error during OpenAI OAuth credentials reload: {e}")
                 self._degrade([f"Credentials reload failed: {e}"])
 
-        self._pending_reload_task = asyncio.create_task(reload_task())
+        loop = self._event_loop
+        if loop is None:
+            try:
+                loop = asyncio.get_running_loop()
+            except RuntimeError:
+                logger.warning(
+                    "No running event loop available for OpenAI OAuth reload; skipping"
+                )
+                return
+            self._event_loop = loop
+
+        if loop.is_closed():
+            logger.warning(
+                "OpenAI OAuth event loop is closed; cannot schedule credentials reload"
+            )
+            return
+
+        def _clear(_: object) -> None:
+            self._pending_reload_task = None
+
+        try:
+            try:
+                current_loop = asyncio.get_running_loop()
+            except RuntimeError:
+                current_loop = None
+
+            if current_loop is loop:
+                task = loop.create_task(reload_task())
+                task.add_done_callback(_clear)
+                self._pending_reload_task = task
+            else:
+                future = asyncio.run_coroutine_threadsafe(reload_task(), loop)
+                future.add_done_callback(_clear)
+                self._pending_reload_task = future
+        except RuntimeError as exc:
+            logger.warning(
+                "Failed to schedule OpenAI OAuth credentials reload: %s", exc
+            )
 
     def _default_auth_paths(self) -> list[Path]:
         paths: list[Path] = []
@@ -343,6 +382,11 @@ class OpenAIOAuthConnector(OpenAIConnector):
     async def initialize(self, **kwargs: Any) -> None:  # type: ignore[override]
         """Initialize backend with enhanced validation using stale token handling pattern."""
         logger.info("Initializing OpenAI OAuth backend with enhanced validation.")
+
+        try:
+            self._event_loop = asyncio.get_running_loop()
+        except RuntimeError:
+            self._event_loop = None
 
         # Allow base URL override
         base = kwargs.get("openai_api_base_url") or kwargs.get("api_base_url")
