@@ -131,6 +131,26 @@ class TestAnthropicConverters:
         assert anthropic_response["usage"]["input_tokens"] == 10
         assert anthropic_response["usage"]["output_tokens"] == 15
 
+    def test_openai_response_without_choices(self) -> None:
+        """Ensure empty OpenAI choices produce a minimal Anthropic response."""
+        mock_usage = Mock()
+        mock_usage.prompt_tokens = 7
+        mock_usage.completion_tokens = 0
+
+        openai_response = Mock()
+        openai_response.id = "chatcmpl-empty"
+        openai_response.model = "gpt-4"
+        openai_response.choices = []
+        openai_response.usage = mock_usage
+
+        anthropic_response = openai_to_anthropic_response(openai_response)
+
+        assert anthropic_response["id"] == "chatcmpl-empty"
+        assert anthropic_response["model"] == "gpt-4"
+        assert anthropic_response["content"] == [{"type": "text", "text": ""}]
+        assert anthropic_response["usage"]["input_tokens"] == 7
+        assert anthropic_response["usage"]["output_tokens"] == 0
+
     def test_openai_stream_to_anthropic_stream_start(self) -> None:
         """Test OpenAI stream chunk to Anthropic stream conversion - start."""
         openai_chunk = 'data: {"id": "chatcmpl-123", "object": "chat.completion.chunk", "choices": [{"index": 0, "delta": {"role": "assistant"}}]}'
