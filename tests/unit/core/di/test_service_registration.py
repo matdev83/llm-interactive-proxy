@@ -105,7 +105,7 @@ class TestServiceRegistration:
         from src.core.services.response_processor_service import ResponseProcessor
         from src.core.services.streaming.stream_normalizer import StreamNormalizer
         from src.core.services.tool_call_repair_service import ToolCallRepairService
-        from src.loop_detection.detector import LoopDetector  # For direct instantiation
+        from src.loop_detection.hybrid_detector import HybridLoopDetector
 
         # Define a local factory function to mimic the logic from services.py
         def response_processor_factory_for_test(
@@ -132,7 +132,9 @@ class TestServiceRegistration:
                 )
                 processors.append(ToolCallRepairProcessor(tool_call_repair_service))
 
-                processors.append(LoopDetectionProcessor(loop_detector=LoopDetector()))
+                processors.append(
+                    LoopDetectionProcessor(loop_detector=HybridLoopDetector())
+                )
 
                 stream_normalizer_instance = StreamNormalizer(processors=processors)
 
@@ -143,7 +145,7 @@ class TestServiceRegistration:
                 middleware_application_manager=middleware_application_manager,
                 app_state=app_state,
                 stream_normalizer=stream_normalizer_instance,
-                loop_detector=LoopDetector(),  # Provide a concrete instance for loop_detector if needed
+                loop_detector=HybridLoopDetector(),
             )
 
         # Manually register required services

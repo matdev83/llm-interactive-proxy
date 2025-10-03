@@ -1,6 +1,10 @@
 from typing import Any
 
 import pytest
+
+pytestmark = pytest.mark.filterwarnings(
+    "ignore:unclosed event loop <ProactorEventLoop.*:ResourceWarning"
+)
 from fastapi.testclient import TestClient
 from src.core.domain.chat import (
     ChatCompletionChoice,

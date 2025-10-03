@@ -135,7 +135,7 @@ class TestQwenOAuthAuthentication:
 
             # Verify correct refresh endpoint was used
             mock_client.post.assert_called_once()
-            args, kwargs = mock_client.post.call_args
+            args, _kwargs = mock_client.post.call_args
             assert args[0] == "https://chat.qwen.ai/api/v1/oauth2/token"
 
     @pytest.mark.asyncio
@@ -238,8 +238,11 @@ class TestQwenOAuthAuthentication:
             "expiry_date": int(time.time() * 1000) - 60000,  # 1 minute ago
         }
 
-        # Mock successful refresh
+        # Mock validation to pass and successful refresh
         with (
+            patch.object(
+                connector, "_validate_runtime_credentials", AsyncMock(return_value=True)
+            ),
             patch.object(
                 connector, "_refresh_token_if_needed", AsyncMock(return_value=True)
             ) as mock_refresh,
@@ -270,9 +273,14 @@ class TestQwenOAuthAuthentication:
     @pytest.mark.asyncio
     async def test_chat_completion_token_refresh_failure(self, connector):
         """Test chat_completions when token refresh fails."""
-        # Mock failed refresh
-        with patch.object(
-            connector, "_refresh_token_if_needed", AsyncMock(return_value=False)
+        # Mock validation to pass and refresh to fail
+        with (
+            patch.object(
+                connector, "_validate_runtime_credentials", AsyncMock(return_value=True)
+            ),
+            patch.object(
+                connector, "_refresh_token_if_needed", AsyncMock(return_value=False)
+            ),
         ):
             # Create a test request
             request = ChatRequest(

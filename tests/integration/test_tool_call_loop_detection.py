@@ -6,8 +6,15 @@ import pytest
 from fastapi.testclient import TestClient
 from src.tool_call_loop.config import ToolCallLoopConfig, ToolLoopMode
 
-# Disable global backend mock for this module; tests control backend behavior explicitly
-pytestmark = pytest.mark.no_global_mock
+# Apply module-level marks
+pytestmark = [
+    # Suppress Windows ProactorEventLoop ResourceWarnings for this module
+    pytest.mark.filterwarnings(
+        "ignore:unclosed event loop <ProactorEventLoop.*:ResourceWarning"
+    ),
+    # Disable global backend mock; tests control backend behavior explicitly
+    pytest.mark.no_global_mock,
+]
 
 
 @pytest.fixture
@@ -42,7 +49,8 @@ async def test_client():
 
     test_app.state.app_config = app_config
 
-    return TestClient(test_app, headers={"Authorization": "Bearer test-key"})
+    with TestClient(test_app, headers={"Authorization": "Bearer test-key"}) as client:
+        yield client
 
 
 def create_chat_completion_request(tool_calls=None, stream=False):

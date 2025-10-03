@@ -7,7 +7,7 @@ import logging
 import os
 import time
 from collections.abc import AsyncIterator
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -163,7 +163,7 @@ class WireCapture(IWireCapture):
         model: str,
         key_name: str | None,
     ) -> str:
-        ts = datetime.utcnow().isoformat(timespec="seconds") + "Z"
+        ts = datetime.now(timezone.utc).isoformat(timespec="seconds") + "Z"
         client = getattr(context, "client_host", None) if context else None
         agent = getattr(context, "agent", None) if context else None
         who = f"client={client or 'unknown'}" + (f" agent={agent}" if agent else "")
@@ -279,6 +279,10 @@ class WireCapture(IWireCapture):
                     os.remove(base)
         except OSError as e:
             logger.warning("Error enforcing total cap on wire capture logs: %s", e)
+
+    async def shutdown(self) -> None:
+        """No background tasks; nothing to do for classic capture."""
+        return None
 
 
 def _safe_json_dump(obj: Any) -> str:

@@ -1,5 +1,218 @@
 # Changelog
 
+## 2025-10-01 - Code Quality and Type Hinting Improvements
+
+- **Enhancement**: Added comprehensive type hints across the codebase to improve code quality, maintainability, and developer experience
+  - Applied type hints to architectural linter (`scripts/architectural_linter.py`) with proper union types (`str | None`, `dict[str, str]`, `set[str]`)
+  - Updated pre-commit hook script with proper type annotations
+  - Enhanced test files with comprehensive type hints for better test reliability
+  - Improved session service tests with proper DI patterns and type annotations
+
+- **Configuration**: Updated mypy configuration in `pyproject.toml` for better type checking
+  - Added specific overrides for `google.genai` and `setuptools` modules to handle third-party import issues
+  - Configured `disallow_untyped_defs = true` to enforce strict type checking
+  - Updated exclude patterns from single string to list format
+
+- **Code Quality**: Improved architectural patterns and SOLID compliance
+  - Fixed comparison operators in SOLID violation detector (`"Exception" not in node.name` instead of `not "Exception" in node.name`)
+  - Enhanced architectural linter with better type safety and clearer variable declarations
+  - Updated test fixtures to remove unnecessary imports and improve clarity
+
+- **Testing**: Enhanced test infrastructure with better DI patterns
+  - Added comprehensive tests for session service using proper dependency injection
+  - Improved test isolation and clarity across multiple test files
+  - Removed redundant imports and cleaned up test code structure
+
+- **Maintenance**: Various code quality improvements including import organization, unused import removal, and code formatting consistency
+
+# Changelog
+
+## 2025-10-01 - Refactor: Translation Service and Gemini Request Counting
+
+- **Refactor**: Centralized all request/response translation logic into a new `TranslationService` (`src/core/services/translation_service.py`). This improves modularity, simplifies maintenance, and makes it easier to add new API formats.
+- **Feature**: Added a daily request counter to the `GeminiOAuthPersonalConnector` (`src/connectors/utils/gemini_request_counter.py`). This helps monitor API usage and prevent exceeding rate limits. The counter persists its state to `data/gemini_oauth_request_count.json`.
+- **Feature**: Added support for the OpenAI `/v1/responses` endpoint, which enables structured output generation with JSON schema validation.
+- **Dependencies**: Added `pytz`, `freezegun`, and `types-pytz` to support the new features and improve testing capabilities.
+
+## 2025-09-30 – Major Enhancement: Hybrid Loop Detection Algorithm
+
+- **Enhancement**: Implemented hybrid loop detection algorithm combining Google's gemini-cli approach with efficient long pattern detection
+  - **Background**: The original bug pattern (200+ chars with no internal repetition) could not be detected by any single hash-chunk algorithm, including gemini-cli's approach
+  - **Solution**: Created hybrid detector that uses:
+    - **Short patterns (<=50 chars)**: Google's proven gemini-cli algorithm with sliding window hash comparison
+    - **Long patterns (>50 chars)**: Custom rolling hash algorithm (Rabin-Karp style) for efficient pattern matching
+  - **Performance**: Optimized for production use - lightweight rolling hash with configurable limits to avoid performance impact
+  - **Detection Capabilities**:
+    - [OK] Short repetitive patterns: `"Loading... "` repeated 15+ times
+    - [OK] Long repetitive patterns: 200+ char blocks repeated 3+ times (including original bug pattern)
+    - [OK] Context-aware: Resets only on code fences/dividers, not on markdown lists/headings that might be part of the loop
+  - **Files Added**:
+    - `src/loop_detection/hybrid_detector.py` - Main hybrid implementation
+    - `src/loop_detection/gemini_cli_detector.py` - Ported gemini-cli algorithm
+    - `tests/unit/test_hybrid_loop_detector.py` - Comprehensive test suite (15 tests)
+    - `tests/unit/test_gemini_cli_loop_detector.py` - Gemini-cli specific tests
+  - **Files Modified**:
+    - `src/core/app/stages/infrastructure.py` - Updated DI registration to use HybridLoopDetector
+  - **Algorithm Details**:
+    - Rolling hash uses base-31 arithmetic with 2^32-1 modulus for collision resistance
+    - Configurable pattern length limits (60-500 chars) and repetition thresholds (3+ occurrences)
+    - Memory-efficient with content truncation (2000 char max history for long patterns)
+    - Hash collision verification through actual content comparison
+  - **Testing**: Successfully detects the original bug pattern that triggered this investigation
+
+## 2025-09-30 – Critical Fix: Loop Detection Was Disabled Due to DI Configuration Errors
+
+- **Bug Fix**: Fixed critical dependency injection configuration errors that completely disabled loop detection in production
+  - **Root Cause #1**: Incorrect import path in `src/core/app/stages/infrastructure.py` - imported from `src.core.interfaces.loop_detector` instead of `src.core.interfaces.loop_detector_interface`, causing silent registration failure
+  - **Root Cause #2**: Missing factory function for `LoopDetectionProcessor` in `src/core/di/services.py` - the processor requires an `ILoopDetector` dependency in its constructor, but no factory was provided to inject it
+  - **Impact**: Loop detection was completely non-functional despite being enabled by default. Repetitive LLM responses (13+ identical paragraphs) were not detected or mitigated
+  - **Solution**:
+    - Fixed import path to use correct interface: `src.core.interfaces.loop_detector_interface`
+    - Added proper factory function to inject `ILoopDetector` into `LoopDetectionProcessor`
+    - Increased `content_chunk_size` from 50 to 100 characters for better detection of longer patterns
+    - Added comprehensive DI integrity tests to prevent similar issues in the future
+  - **Files Modified**:
+    - `src/core/app/stages/infrastructure.py` - Fixed ILoopDetector import and registration
+    - `src/core/di/services.py` - Added factory for LoopDetectionProcessor with dependency injection
+    - `src/loop_detection/config.py` - Increased content_chunk_size to 100
+    - `tests/unit/test_loop_detection_regression.py` - New regression tests for DI wiring
+    - `tests/integration/test_di_container_integrity.py` - New comprehensive DI integrity tests (8 tests)
+  - **Documentation**: Detailed analysis in `LOOP_DETECTION_BUG_ANALYSIS.md`
+  - **Testing**: 5 passing tests specifically verify that ILoopDetector and LoopDetectionProcessor are properly registered and wired
+
+## 2025-09-30 – Fix: 502 Timeout Error in Gemini OAuth Streaming
+
+- **Bug Fix**: Resolved 502 Bad Gateway errors during long streaming responses
+  - **Root Cause**: Hardcoded 60-second timeout was insufficient for large file reads and complex responses
+  - **Solution**: Implemented separate connection and read timeouts using tuple format `(connect_timeout, read_timeout)`
+  - **Configuration**: Connection timeout: 60s (unchanged), Read timeout: 300s (5 minutes)
+  - **Impact**: Large file reads, complex analyses, and long-running requests now complete successfully without premature disconnections
+  - **Files Modified**: `src/connectors/gemini_oauth_personal.py`, `src/connectors/gemini_cloud_project.py`
+  - **Documentation**: Added detailed analysis in `docs/dev/502_timeout_fix.md`
+
+## 2025-10-02 – Gemini Personal OAuth Auto-Refresh
+
+- **Startup Validation**: The `gemini-cli-oauth-personal` backend now confirms the stored OAuth token is still valid during initialization, failing fast when credentials are stale instead of deferring to the first request.
+- **Live Credential Watching**: Introduced a filesystem watcher for the Gemini CLI `oauth_creds.json` file so refreshed tokens are loaded into memory immediately without restarting the proxy.
+- **Proactive Refresh Flow**: Every request now checks remaining token lifetime; when the token is expired or inside a two-minute window the proxy launches the Gemini CLI refresh command in the background and polls for the updated token, eliminating manual intervention after Google's expiry change.
+
+## 2025-10-01 – CLI v2 Migration
+
+- **Default CLI Updated**: Promoted the staged `cli_v2` implementation to the primary entrypoint (`src/core/cli.py`) for running the proxy.
+  - Feature parity verified by the existing CLI-focused unit suite and the full project test run.
+  - Removed the unused Colorama dependency while keeping Windows startup behavior unchanged.
+- **Legacy CLI Preservation**: Archived the previous implementation as `src/core/cli_old.py` for quick rollback and historical reference.
+  - The codebase no longer imports the legacy module; it can be deleted safely once the fallback is no longer required.
+
+## 2025-09-30 – Auto-Discovery Architecture for Backends and Commands
+
+- **Architecture Improvement**: Implemented true SOLID/DIP-compliant auto-discovery mechanisms
+  - **Backend Auto-Discovery**:
+    - Backends are automatically discovered using `pkgutil.iter_modules()` - no hardcoded imports required
+    - Simply drop a new backend file in `src/connectors/` with `backend_registry.register_backend()` call
+    - Follows Open/Closed Principle - system is open for extension but closed for modification
+    - Failed backend imports don't break other backends - errors are logged as warnings
+    - All backend classes are still exported for existing imports to work (backward compatible)
+    - Full test coverage in `tests/unit/test_backend_autodiscovery.py`
+    - Documentation in `docs/dev/backend_auto_discovery.md`
+  - **Command Auto-Discovery**:
+    - Domain commands are automatically discovered using `pkgutil.iter_modules()` - no hardcoded registrations
+    - Created `DomainCommandRegistry` for centralized command registration
+    - Simply add `domain_command_registry.register_command()` calls at module level
+    - Command stage now uses auto-discovery instead of hardcoded command instantiation
+    - Failover commands and all domain commands benefit from auto-discovery
+    - Full test coverage in `tests/unit/test_command_autodiscovery.py`
+  - **Benefits**:
+    - Zero maintenance overhead when adding new backends or commands
+    - Reduced coupling between implementations and discovery system
+    - Plugin-ready architecture for future extensibility
+    - Resilient error handling for failed imports
+- **Bug Fix**: Fixed Gemini OAuth Personal backend integration
+  - Implemented proper authentication flow using `google.auth.transport.requests.AuthorizedSession`
+  - Fixed Code Assist API request/response format wrapping
+  - Made health checks non-blocking to prevent startup failures
+  - Added automatic managed project ID discovery for free-tier users
+
+## 2025-09-13 – Automated Pytest Output Compression
+
+- **New Feature**: Added automated pytest tool call output compression to preserve context window space
+  - **Automatic Detection**: Recognizes pytest commands using regex patterns (`pytest`, `python -m pytest`, `py.test`, etc.)
+  - **Smart Filtering**: Removes verbose output while preserving error information
+    - Filters out timing information (`s setup`, `s call`, `s teardown`)
+    - Removes `PASSED` test results (keeps only failures and errors)
+    - Preserves all `FAILED` tests and error messages
+  - **Configuration**: Configurable via `session.pytest_compression_enabled` (default: `true`)
+    - Global configuration in `config.yaml`
+    - Environment variable: `PYTEST_COMPRESSION_ENABLED`
+    - Per-session control via session state
+  - **Monitoring**: Logs compression statistics showing line reduction percentages
+  - **Integration**: Seamlessly integrated into response manager for both Cline and non-Cline agents
+  - **Testing**: Comprehensive unit test coverage with edge case handling
+  - **Schema Support**: Full Pydantic validation and YAML schema definition
+  - **Backward Compatibility**: Feature is enabled by default but can be disabled without affecting existing functionality
+
+## 2025-09-12 – Reasoning Aliases Feature
+
+- **New Feature**: Added reasoning aliases system for dynamic model parameter control during sessions
+  - **Interactive Commands**: New chat commands to switch between reasoning modes
+    - `!/max`: Activate high reasoning mode with configured parameters (temperature, reasoning_effort, max_reasoning_tokens, prompt prefixes/suffixes)
+    - `!/medium`: Activate medium reasoning mode for balanced approach
+    - `!/low`: Activate low reasoning mode for faster responses
+    - `!/no-think` (aliases: `!/no-thinking`, `!/no-reasoning`, `!/disable-thinking`, `!/disable-reasoning`): Disable reasoning for direct responses
+  - **Configuration**: External YAML-based configuration in `config/reasoning_aliases.yaml`
+    - Per-model settings with wildcard support (e.g., `claude-sonnet-4*`)
+    - Configurable parameters: `temperature`, `top_p`, `reasoning_effort`, `thinking_budget`, `max_reasoning_tokens`
+    - User prompt engineering: `user_prompt_prefix` and `user_prompt_suffix`
+  - **Session Integration**: Reasoning settings persist across the session until changed
+  - **Backend Integration**: Automatic application of reasoning configuration to outbound requests via `_apply_reasoning_config` method
+  - **Error Handling**: Clear error messages when models have no configured reasoning settings
+  - **Command Architecture**: New `ReasoningAliasCommandHandler` base class with per-mode implementations
+  - **Schema Validation**: Full Pydantic-based validation for configuration structure
+  - **Testing**: Comprehensive unit and integration test coverage (reasoning alias end-to-end tests, integration tests)
+  - **Version 1.0**: Initial implementation complete with all core functionality
+
+## 2025-09-11 – Enhanced Authentication Reliability with Stale Token Handling
+
+- **Major Enhancement**: Implemented comprehensive stale authentication token handling pattern across all file-backed OAuth backends
+  - **Affected Backends**: `gemini-cli-cloud-project`, `gemini-cli-oauth-personal`, `anthropic-oauth`, and `openai-oauth`
+  - **Startup Validation**: Enhanced initialization with fail-fast validation pipeline
+    - File existence and readability checks
+    - JSON structure validation
+    - Token/credential field validation
+    - Automatic file watching activation
+  - **Health Tracking API**: New methods for backend health monitoring
+    - `is_backend_functional()`: Returns current backend operational status
+    - `get_validation_errors()`: Provides detailed validation error information
+  - **Runtime Validation**: Throttled credential validation during API calls
+    - Smart validation caching (30-second intervals)
+    - Graceful degradation on validation failures
+    - Automatic recovery when credentials become valid again
+  - **File Watching**: Cross-platform credential file monitoring
+    - Real-time detection of credential file changes using `watchdog`
+    - Asynchronous credential reloading on file modifications
+    - Race condition prevention with pending task tracking
+  - **Enhanced Error Handling**: Descriptive HTTP 502 responses for authentication failures
+    - Structured error payloads with specific error codes
+    - Detailed suggestions for credential resolution
+    - Backend-specific error context and troubleshooting hints
+  - **Resource Management**: Proper cleanup with `__del__` methods for file watchers
+  - **Pattern Compliance**: All implementations follow the standardized pattern documented in `docs/stale_auth_token_handling.md`
+- **Testing**: Updated unit tests with proper mocking while maintaining 100% test coverage (2100/2100 tests passing)
+- **Code Quality**: All implementations pass `ruff`, `black`, and `mypy` quality checks
+- **Backward Compatibility**: No breaking changes to existing functionality or configuration
+
+## 2025-09-10 – Wire Capture Format Unification and Stability
+
+- Unified wire capture handling to consistently use the Buffered JSON Lines format
+  - Removed legacy `StructuredWireCapture` service registration from `src/core/di/services.py` to avoid conflicting registrations.
+  - `IWireCapture` is now bound exclusively to `BufferedWireCapture` via `CoreServicesStage`.
+- Improved `BufferedWireCapture` initialization
+  - Background flush task now starts lazily only when an event loop is running, preventing runtime warnings ("coroutine was never awaited") in sync contexts.
+  - Capture remains enabled as soon as a file path is configured; background flushing starts on first async use.
+- Tests and docs updated
+  - Integration tests adjusted to assert the active buffered format semantics.
+  - README updated with service registration notes and initialization behavior.
+
 ## 2025-09-09 – Dangerous Git Command Prevention (Reactor-based)
 
 - New Feature: Configurable prevention layer that intercepts dangerous git commands issued via local execution tool calls in LLM responses.
@@ -32,6 +245,19 @@ This document outlines significant changes and updates to the LLM Interactive Pr
   - **Error Handling**: Correctly surfaces a `BackendError` when the ZAI API returns ZAI-specific error responses.
   - **Testing**: Comprehensive unit and integration tests with real API validation.
   - **Documentation**: Complete setup guide with configuration examples and troubleshooting.
+
+## 2025-09-30 - CLI Context Window Override Feature
+
+- **New Feature**: Added `--force-context-window` CLI argument for static context window overrides across all models.
+  - **CLI Argument**: `--force-context-window TOKENS` sets a static context window size that overrides all model-specific configurations.
+  - **Front-end Enforcement**: Enforces token limits before requests reach backend providers, preventing unnecessary API calls and costs.
+  - **Structured Error Responses**: Returns detailed 400 Bad Request responses with measured vs. limit token counts and error codes.
+  - **Configuration Integration**: CLI override takes precedence over config file settings while maintaining compatibility with existing configurations.
+  - **Environment Variable Support**: Sets `FORCE_CONTEXT_WINDOW` environment variable for downstream processes.
+  - **Schema Validation**: Updated YAML schema to support the new `context_window_override` field.
+  - **Comprehensive Testing**: Full test coverage for CLI argument parsing, enforcement logic, and edge cases.
+  - **Documentation**: Enhanced README with detailed examples, use cases, and troubleshooting guidance.
+  - **Use Cases**: Cost control, testing compatibility, performance optimization, and multi-tier service configurations.
 
 ## 2025-09-09 - Context Window Size Overrides
 
@@ -129,7 +355,7 @@ This document outlines significant changes and updates to the LLM Interactive Pr
   - `src/core/utils/json_intent.py#set_expected_json(metadata, True)` to opt-in strict mode per route.
   - `#infer_expected_json(metadata, content)`; ResponseProcessor auto-inferrs and sets `expected_json` if not present.
 - Streaming processor order updated:
-  - JSON repair → text loop detection → tool-call repair → middleware → accumulation.
+  - JSON repair -> text loop detection -> tool-call repair -> middleware -> accumulation.
   - Cancellation flags are preserved across processors.
 - Tool-call loop detection:
   - Middleware detects 4 consecutive identical tool calls; in `CHANCE_THEN_BREAK` mode emits guidance once, then breaks on the next identical call.

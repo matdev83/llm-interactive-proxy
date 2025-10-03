@@ -40,14 +40,17 @@ class LoopDetectionConfig(InternalDTO):
     analysis_interval: int = 64
 
     # Hash-chunk algorithm parameters (ported from gemini-cli)
-    # Size of the fixed window used to hash and compare content chunks
-    content_chunk_size: int = 50
+    # Size of the fixed window used to hash and compare content chunks.
+    # Increased from the historical default (50) to 100 based on regression
+    # tests that exercise real-world bug reports with ~280 character loops.
+    content_chunk_size: int = 100
     # Number of repeated identical chunks required (within close proximity)
-    # before flagging a loop. Higher default reduces false positives for
-    # naturally repetitive prose; distance heuristic still applies.
-    content_loop_threshold: int = 10
+    # before flagging a loop. Lowered from 10 to 6 to detect loops faster
+    # with fewer repetitions needed.
+    content_loop_threshold: int = 6
     # Maximum characters of recent history to keep when scanning
-    max_history_length: int = 1000
+    # Maintain enough history to keep multiple repetitions of ~300 char patterns.
+    max_history_length: int = 4096
 
     # Pattern thresholds
     short_pattern_threshold: PatternThresholds | None = None
@@ -61,20 +64,20 @@ class LoopDetectionConfig(InternalDTO):
         """Initialize default thresholds if not provided."""
         if self.short_pattern_threshold is None:
             self.short_pattern_threshold = PatternThresholds(
-                min_repetitions=8,  # Reduced to catch more patterns
-                min_total_length=100,  # 100 unicode chars minimum
+                min_repetitions=3,
+                min_total_length=100,
             )
 
         if self.medium_pattern_threshold is None:
             self.medium_pattern_threshold = PatternThresholds(
-                min_repetitions=4,  # Reduced to catch medium patterns
-                min_total_length=100,  # 100 unicode chars minimum
+                min_repetitions=4,
+                min_total_length=200,
             )
 
         if self.long_pattern_threshold is None:
             self.long_pattern_threshold = PatternThresholds(
-                min_repetitions=3,  # Keep at 3 for long patterns
-                min_total_length=100,  # 100 unicode chars minimum
+                min_repetitions=3,
+                min_total_length=300,
             )
 
         if self.whitelist is None:
@@ -108,28 +111,51 @@ class LoopDetectionConfig(InternalDTO):
         if "whitelist" in config_dict:
             config.whitelist = list(config_dict["whitelist"])
 
-        # Handle thresholds
-        thresholds = config_dict.get("thresholds", {})
+        # Handle thresholds (support legacy and updated schema keys)
+        thresholds = config_dict.get("thresholds") or config_dict.get(
+            "pattern_thresholds", {}
+        )
 
         if "short_patterns" in thresholds:
             short = thresholds["short_patterns"]
             config.short_pattern_threshold = PatternThresholds(
-                min_repetitions=int(short.get("min_repetitions", 12)),
-                min_total_length=int(short.get("min_total_length", 50)),
+                min_repetitions=int(short.get("min_repetitions", 3)),
+                min_total_length=int(short.get("min_total_length", 100)),
             )
 
         if "medium_patterns" in thresholds:
             medium = thresholds["medium_patterns"]
             config.medium_pattern_threshold = PatternThresholds(
-                min_repetitions=int(medium.get("min_repetitions", 6)),
-                min_total_length=int(medium.get("min_total_length", 100)),
+                min_repetitions=int(medium.get("min_repetitions", 4)),
+                min_total_length=int(medium.get("min_total_length", 200)),
             )
 
         if "long_patterns" in thresholds:
             long = thresholds["long_patterns"]
             config.long_pattern_threshold = PatternThresholds(
                 min_repetitions=int(long.get("min_repetitions", 3)),
-                min_total_length=int(long.get("min_total_length", 200)),
+                min_total_length=int(long.get("min_total_length", 300)),
+            )
+
+        if "exact_match" in thresholds:
+            exact = thresholds["exact_match"]
+            config.short_pattern_threshold = PatternThresholds(
+                min_repetitions=int(exact.get("min_repetitions", 3)),
+                min_total_length=int(exact.get("min_total_length", 100)),
+            )
+
+        if "semantic_match" in thresholds:
+            semantic = thresholds["semantic_match"]
+            config.medium_pattern_threshold = PatternThresholds(
+                min_repetitions=int(semantic.get("min_repetitions", 4)),
+                min_total_length=int(semantic.get("min_total_length", 200)),
+            )
+
+        if "long_match" in thresholds:
+            long = thresholds["long_match"]
+            config.long_pattern_threshold = PatternThresholds(
+                min_repetitions=int(long.get("min_repetitions", 3)),
+                min_total_length=int(long.get("min_total_length", 300)),
             )
 
         return config
@@ -244,3 +270,28 @@ class LoopDetectionConfig(InternalDTO):
             errors.append("analysis_interval cannot be negative")
 
         return errors
+
+    @property
+    def pattern_thresholds(self) -> dict[str, PatternThresholds]:
+        """Expose pattern thresholds using the regression-test friendly schema."""
+        assert self.short_pattern_threshold is not None
+        assert self.medium_pattern_threshold is not None
+        assert self.long_pattern_threshold is not None
+
+        return {
+            "exact_match": self.short_pattern_threshold,
+            "semantic_match": self.medium_pattern_threshold,
+            "long_match": self.long_pattern_threshold,
+        }
+
+    @pattern_thresholds.setter
+    def pattern_thresholds(self, thresholds: dict[str, PatternThresholds]) -> None:
+        """Allow bulk assignment of thresholds via the public mapping."""
+        if "exact_match" in thresholds:
+            self.short_pattern_threshold = thresholds["exact_match"]
+
+        if "semantic_match" in thresholds:
+            self.medium_pattern_threshold = thresholds["semantic_match"]
+
+        if "long_match" in thresholds:
+            self.long_pattern_threshold = thresholds["long_match"]

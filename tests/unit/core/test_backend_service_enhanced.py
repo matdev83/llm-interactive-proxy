@@ -8,6 +8,10 @@ from unittest.mock import AsyncMock, Mock, patch
 
 import httpx
 import pytest
+
+pytestmark = pytest.mark.filterwarnings(
+    "ignore:unclosed event loop <ProactorEventLoop.*:ResourceWarning"
+)
 from src.connectors.base import LLMBackend
 from src.core.common.exceptions import BackendError, RateLimitExceededError
 from src.core.domain.backend_type import BackendType
@@ -26,6 +30,80 @@ from src.core.services.backend_service import BackendService
 
 # Legacy models removed; use domain ChatRequest instead when needed
 from tests.unit.core.test_doubles import MockRateLimiter
+
+
+# Session-scoped fixtures to optimize test performance
+@pytest.fixture(scope="session")
+def http_client():
+    """Create a shared HTTP client for all tests."""
+    return httpx.AsyncClient()
+
+
+@pytest.fixture(scope="session")
+def app_config():
+    """Create a shared AppConfig for all tests."""
+    from src.core.config.app_config import AppConfig
+
+    return AppConfig()
+
+
+@pytest.fixture(scope="session")
+def backend_registry():
+    """Create a shared BackendRegistry for all tests."""
+    from src.core.services.backend_registry import BackendRegistry
+
+    return BackendRegistry()
+
+
+@pytest.fixture(scope="session")
+def translation_service():
+    """Create a shared TranslationService for all tests."""
+    from src.core.services.translation_service import TranslationService
+
+    return TranslationService()
+
+
+@pytest.fixture(scope="session")
+def backend_factory(http_client, backend_registry, app_config, translation_service):
+    """Create a shared BackendFactory for all tests."""
+    from src.core.services.backend_factory import BackendFactory
+
+    return BackendFactory(
+        http_client, backend_registry, app_config, translation_service
+    )
+
+
+@pytest.fixture
+def mock_config():
+    """Create a mock configuration."""
+    config = Mock()
+    config.get.return_value = None
+    return config
+
+
+@pytest.fixture
+def service_components():
+    """Create common service components for testing."""
+    rate_limiter = MockRateLimiter()
+    session_service = Mock(spec=ISessionService)
+    app_state = Mock(spec=IApplicationState)
+    from tests.utils.failover_stub import StubFailoverCoordinator
+
+    return rate_limiter, session_service, app_state, StubFailoverCoordinator()
+
+
+@pytest.fixture
+def backend_service(backend_factory, mock_config, service_components):
+    """Create a BackendService instance for testing."""
+    rate_limiter, session_service, app_state, failover_coordinator = service_components
+    return ConcreteBackendService(
+        backend_factory,
+        rate_limiter,
+        mock_config,
+        session_service,
+        app_state,
+        failover_coordinator=failover_coordinator,
+    )
 
 
 class MockBackend(LLMBackend):
@@ -92,74 +170,44 @@ class TestBackendFactory:
     """Tests for the BackendFactory class."""
 
     @pytest.mark.asyncio
-    async def test_create_backend(self):
+    async def test_create_backend(self, backend_factory, http_client, backend_registry):
         """Test creating a backend with the factory."""
-        # Arrange
-        client = httpx.AsyncClient()
-        from src.core.config.app_config import AppConfig
-        from src.core.services.backend_registry import BackendRegistry
-
-        registry = BackendRegistry()
-        from src.core.services.translation_service import TranslationService
-
-        config = AppConfig()
-        factory = BackendFactory(client, registry, config, TranslationService())
-
         # Mock the backend registry instead of non-existent _backend_types
-        mock_backend = MockBackend(client)
+        mock_backend = MockBackend(http_client)
         with patch.object(
-            registry,
+            backend_registry,
             "get_backend_factory",
             return_value=lambda client, config, translation_service: mock_backend,
         ):
             # Act
-            backend = factory.create_backend("openai", config)  # Used string literal
+            backend = backend_factory.create_backend(
+                "openai", {}
+            )  # Used empty config for test
 
             # Assert
             assert isinstance(backend, MockBackend)
-            assert backend.client == client
+            assert backend.client == http_client
 
     @pytest.mark.no_global_mock
     @pytest.mark.asyncio
-    async def test_initialize_backend(self):
+    async def test_initialize_backend(self, backend_factory, http_client):
         """Test initializing a backend with the factory."""
-        # Arrange
-        client = httpx.AsyncClient()
-        from src.core.config.app_config import AppConfig
-        from src.core.services.backend_registry import BackendRegistry
-
-        registry = BackendRegistry()
-        from src.core.services.translation_service import TranslationService
-
-        config = AppConfig()
-        factory = BackendFactory(client, registry, config, TranslationService())
-        backend = MockBackend(client)
+        backend = MockBackend(http_client)
         init_config = {"api_key": "test-key", "extra_param": "value"}
 
         # Act
-        await factory.initialize_backend(backend, init_config)
+        await backend_factory.initialize_backend(backend, init_config)
 
         # Assert
         assert backend.initialize_called
         assert backend.initialize_kwargs == init_config
 
     @pytest.mark.asyncio
-    async def test_create_backend_invalid_type(self):
+    async def test_create_backend_invalid_type(self, backend_factory):
         """Test creating a backend with an invalid type."""
-        # Arrange
-        client = httpx.AsyncClient()
-        from src.core.services.backend_registry import BackendRegistry
-
-        registry = BackendRegistry()
-        from src.core.config.app_config import AppConfig
-        from src.core.services.translation_service import TranslationService
-
-        config = AppConfig()
-        factory = BackendFactory(client, registry, config, TranslationService())
-
         # Act & Assert
         with pytest.raises(ValueError):
-            factory.create_backend("invalid-backend-type", config)
+            backend_factory.create_backend("invalid-backend-type", {})
 
 
 class ConcreteBackendService(BackendService):
@@ -509,45 +557,19 @@ class TestBackendServiceCompletions:
 class TestBackendServiceValidation:
     """Tests for the BackendService's validation capabilities."""
 
-    @pytest.fixture
-    def service(self):
-        """Create a BackendService instance for testing."""
-        client = httpx.AsyncClient()
-        from src.core.services.backend_registry import BackendRegistry
-
-        registry = BackendRegistry()
-        from src.core.config.app_config import AppConfig
-        from src.core.services.translation_service import TranslationService
-
-        config = AppConfig()
-        factory = BackendFactory(client, registry, config, TranslationService())
-        rate_limiter = MockRateLimiter()
-        mock_config = Mock()
-        session_service = Mock(spec=ISessionService)
-        app_state = Mock(spec=IApplicationState)
-        from tests.utils.failover_stub import StubFailoverCoordinator
-
-        return ConcreteBackendService(
-            factory,
-            rate_limiter,
-            mock_config,
-            session_service,
-            app_state,
-            failover_coordinator=StubFailoverCoordinator(),
-        )
-
     @pytest.mark.asyncio
-    async def test_validate_backend_and_model_valid(self, service):
+    async def test_validate_backend_and_model_valid(self, backend_service, http_client):
         """Test validating a valid backend and model."""
         # Arrange
-        client = httpx.AsyncClient()
         mock_backend = MockBackend(
-            client, available_models=["valid-model", "other-model"]
+            http_client, available_models=["valid-model", "other-model"]
         )
 
-        with patch.object(service, "_get_or_create_backend", return_value=mock_backend):
+        with patch.object(
+            backend_service, "_get_or_create_backend", return_value=mock_backend
+        ):
             # Act
-            valid, error = await service.validate_backend_and_model(
+            valid, error = await backend_service.validate_backend_and_model(
                 BackendType.OPENAI, "valid-model"
             )
 
@@ -556,15 +578,18 @@ class TestBackendServiceValidation:
             assert error is None
 
     @pytest.mark.asyncio
-    async def test_validate_backend_and_model_invalid_model(self, service):
+    async def test_validate_backend_and_model_invalid_model(
+        self, backend_service, http_client
+    ):
         """Test validating an invalid model."""
         # Arrange
-        client = httpx.AsyncClient()
-        mock_backend = MockBackend(client, available_models=["valid-model"])
+        mock_backend = MockBackend(http_client, available_models=["valid-model"])
 
-        with patch.object(service, "_get_or_create_backend", return_value=mock_backend):
+        with patch.object(
+            backend_service, "_get_or_create_backend", return_value=mock_backend
+        ):
             # Act
-            valid, error = await service.validate_backend_and_model(
+            valid, error = await backend_service.validate_backend_and_model(
                 BackendType.OPENAI, "invalid-model"
             )
 
@@ -573,14 +598,16 @@ class TestBackendServiceValidation:
             assert "not available" in error
 
     @pytest.mark.asyncio
-    async def test_validate_backend_and_model_backend_error(self, service):
+    async def test_validate_backend_and_model_backend_error(self, backend_service):
         """Test validating with a backend error."""
         # Arrange
         with patch.object(
-            service, "_get_or_create_backend", side_effect=ValueError("Backend error")
+            backend_service,
+            "_get_or_create_backend",
+            side_effect=ValueError("Backend error"),
         ):
             # Act
-            valid, error = await service.validate_backend_and_model(
+            valid, error = await backend_service.validate_backend_and_model(
                 BackendType.OPENAI, "model"
             )
 

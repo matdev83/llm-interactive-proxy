@@ -33,7 +33,8 @@ class AppLifecycle:
 
         This method is called during application startup.
         """
-        logger.info("Starting application lifecycle...")
+        if logger.isEnabledFor(logging.INFO):
+            logger.info("Starting application lifecycle...")
 
         # Start background tasks
         self._start_background_tasks()
@@ -43,7 +44,8 @@ class AppLifecycle:
 
         This method is called during application shutdown.
         """
-        logger.info("Shutting down application lifecycle...")
+        if logger.isEnabledFor(logging.INFO):
+            logger.info("Shutting down application lifecycle...")
 
         # Stop background tasks
         await self._stop_background_tasks()
@@ -76,7 +78,8 @@ class AppLifecycle:
                 try:
                     await task
                 except asyncio.CancelledError:
-                    logger.info(f"Cancelled background task: {task.get_name()}")
+                    if logger.isEnabledFor(logging.INFO):
+                        logger.info(f"Cancelled background task: {task.get_name()}")
 
     async def _close_connections(self) -> None:
         """Close any remaining connections."""
@@ -115,12 +118,14 @@ class AppLifecycle:
                             max_age
                         )
 
-                    if deleted_count > 0:
+                    if deleted_count > 0 and logger.isEnabledFor(logging.INFO):
                         logger.info(f"Cleaned up {deleted_count} expired sessions")
 
                 except Exception as e:
-                    logger.error(f"Error during session cleanup: {e!s}")
+                    if logger.isEnabledFor(logging.ERROR):
+                        logger.error(f"Error during session cleanup: {e!s}")
 
         except asyncio.CancelledError:
-            logger.debug("Session cleanup task cancelled")
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug("Session cleanup task cancelled")
             raise

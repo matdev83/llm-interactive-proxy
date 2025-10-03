@@ -1,6 +1,11 @@
 from unittest.mock import Mock
 
 import pytest
+
+# Suppress Windows ProactorEventLoop ResourceWarnings for this module
+pytestmark = pytest.mark.filterwarnings(
+    "ignore:unclosed event loop <ProactorEventLoop.*:ResourceWarning"
+)
 from src.core.domain.commands.set_command import SetCommand
 from src.core.domain.session import (
     BackendConfiguration,
@@ -61,7 +66,7 @@ async def test_handle_temperature_invalid_value(
     args = {"temperature": "invalid"}
 
     # Act
-    result, new_state = await command._handle_temperature(
+    result, _new_state = await command._handle_temperature(
         args["temperature"], mock_session.state, {}
     )
 
@@ -76,7 +81,7 @@ async def test_handle_temperature_out_of_range(command: SetCommand, mock_session
     args = {"temperature": "2.0"}
 
     # Act
-    result, new_state = await command._handle_temperature(
+    result, _new_state = await command._handle_temperature(
         args["temperature"], mock_session.state, {}
     )
 

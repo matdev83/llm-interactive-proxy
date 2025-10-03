@@ -9,12 +9,17 @@ These tests focus on the unique aspects of the QwenOAuthConnector:
 
 import json
 import time
-from unittest.mock import MagicMock, mock_open, patch
+from unittest.mock import AsyncMock, MagicMock, mock_open, patch
 
 import httpx
 import pytest
 from src.connectors.qwen_oauth import QwenOAuthConnector
 from src.core.domain.chat import ChatMessage, ChatRequest
+
+# Suppress Windows ProactorEventLoop ResourceWarnings for this module
+pytestmark = pytest.mark.filterwarnings(
+    "ignore:unclosed event loop <ProactorEventLoop.*:ResourceWarning"
+)
 
 
 class TestQwenOAuthCredentials:
@@ -252,7 +257,12 @@ class TestQwenOAuthCredentials:
         )
 
         # Call the method
-        with patch.object(connector, "_save_oauth_credentials", return_value=None):
+        with (
+            patch.object(
+                connector, "_validate_runtime_credentials", AsyncMock(return_value=True)
+            ),
+            patch.object(connector, "_save_oauth_credentials", return_value=None),
+        ):
             await connector.chat_completions(
                 request_data=request_data,
                 processed_messages=[test_message],

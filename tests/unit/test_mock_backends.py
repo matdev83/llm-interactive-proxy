@@ -7,7 +7,14 @@ from unittest.mock import MagicMock
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
+from src.core.config.app_config import (
+    AppConfig,
+    AuthConfig,
+    BackendConfig,
+    BackendSettings,
+)
 from src.core.di.container import ServiceCollection
+from src.core.domain.responses import ResponseEnvelope
 from src.core.interfaces.backend_service_interface import IBackendService
 
 from tests.test_backend_factory import (
@@ -15,6 +22,11 @@ from tests.test_backend_factory import (
     MockGemini,
     MockOpenAI,
     MockOpenRouter,
+)
+
+# Suppress Windows ProactorEventLoop warnings for this module
+pytestmark = pytest.mark.filterwarnings(
+    "ignore:unclosed event loop <ProactorEventLoop.*:ResourceWarning"
 )
 
 
@@ -281,13 +293,6 @@ def test_real_backend_fixture(monkeypatch):
 
     from fastapi.testclient import TestClient
     from src.core.app.test_builder import build_test_app
-    from src.core.config.app_config import (
-        AppConfig,
-        AuthConfig,
-        BackendConfig,
-        BackendSettings,
-    )
-    from src.core.domain.responses import ResponseEnvelope
 
     # Create test app with proper configuration
     config = AppConfig(
@@ -298,47 +303,51 @@ def test_real_backend_fixture(monkeypatch):
         ),
     )
     app = build_test_app(config)
-    client = TestClient(app)
+    with TestClient(app) as client:
+        mock_response = {
+            "id": "mock-real-response",
+            "choices": [
+                {
+                    "message": {
+                        "role": "assistant",
+                        "content": "This is a real response",
+                    },
+                    "finish_reason": "stop",
+                    "index": 0,
+                }
+            ],
+            "model": "gpt-3.5-turbo",
+            "created": 1619432555,
+            "object": "chat.completion",
+            "usage": {"prompt_tokens": 12, "completion_tokens": 7, "total_tokens": 19},
+        }
 
-    mock_response = {
-        "id": "mock-real-response",
-        "choices": [
-            {
-                "message": {"role": "assistant", "content": "This is a real response"},
-                "finish_reason": "stop",
-                "index": 0,
-            }
-        ],
-        "model": "gpt-3.5-turbo",
-        "created": 1619432555,
-        "object": "chat.completion",
-        "usage": {"prompt_tokens": 12, "completion_tokens": 7, "total_tokens": 19},
-    }
+        # Patch the call_completion method directly on the backend service instance
+        from src.core.interfaces.backend_service_interface import IBackendService
 
-    # Patch the call_completion method directly on the backend service instance
-    from src.core.interfaces.backend_service_interface import IBackendService
-
-    backend_service = app.state.service_provider.get_required_service(IBackendService)
-
-    with patch.object(
-        backend_service,
-        "call_completion",
-        return_value=ResponseEnvelope(content=mock_response, headers={}),
-    ):
-        # Make a request to the API
-        response = client.post(
-            "/v1/chat/completions",
-            json={
-                "model": "gpt-3.5-turbo",
-                "messages": [
-                    {"role": "user", "content": "Say 'This is a real response'"}
-                ],
-            },
+        backend_service = app.state.service_provider.get_required_service(
+            IBackendService
         )
 
-        # Check the response
-        assert response.status_code == 200
-        data = response.json()
-        assert "choices" in data
-        assert len(data["choices"]) == 1
-        assert "This is a real response" in data["choices"][0]["message"]["content"]
+        with patch.object(
+            backend_service,
+            "call_completion",
+            return_value=ResponseEnvelope(content=mock_response, headers={}),
+        ):
+            # Make a request to the API
+            response = client.post(
+                "/v1/chat/completions",
+                json={
+                    "model": "gpt-3.5-turbo",
+                    "messages": [
+                        {"role": "user", "content": "Say 'This is a real response'"}
+                    ],
+                },
+            )
+
+            # Check the response
+            assert response.status_code == 200
+            data = response.json()
+            assert "choices" in data
+            assert len(data["choices"]) == 1
+            assert "This is a real response" in data["choices"][0]["message"]["content"]

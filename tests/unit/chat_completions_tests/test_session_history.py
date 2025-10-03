@@ -1,6 +1,10 @@
 from unittest.mock import AsyncMock, patch
 
 import pytest
+
+pytestmark = pytest.mark.filterwarnings(
+    "ignore:unclosed event loop <ProactorEventLoop.*:ResourceWarning"
+)
 from src.core.domain.responses import ResponseEnvelope
 from starlette.responses import StreamingResponse
 

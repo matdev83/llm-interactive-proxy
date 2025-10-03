@@ -6,15 +6,13 @@ imports that expect the _service suffix.
 
 from __future__ import annotations
 
-import warnings
+import logging
 
 from .backend_factory import BackendFactory
 
-warnings.warn(
+logging.debug(
     "Importing from 'src.core.services.backend_factory_service' is deprecated; "
-    "use 'src.core.services.backend_factory' instead",
-    DeprecationWarning,
-    stacklevel=2,
+    "use 'src.core.services.backend_factory' instead"
 )
 
 __all__ = ["BackendFactory"]

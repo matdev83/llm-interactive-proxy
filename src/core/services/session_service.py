@@ -7,15 +7,13 @@ refactor.
 
 from __future__ import annotations
 
-import warnings
+import logging
 
 from .session_service_impl import SessionService
 
-warnings.warn(
+logging.debug(
     "Importing from 'src.core.services.session_service' shim is deprecated; "
-    "use 'src.core.services.session_service_impl' instead",
-    DeprecationWarning,
-    stacklevel=2,
+    "use 'src.core.services.session_service_impl' instead"
 )
 
 __all__ = ["SessionService"]

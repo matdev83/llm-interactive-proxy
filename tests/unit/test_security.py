@@ -13,19 +13,24 @@ def test_cli_disable_auth_forces_localhost():
         patch("src.core.cli.logging.basicConfig"),
         patch("src.core.cli._check_privileges"),
         patch("src.core.app.application_builder.build_app"),
+        patch("src.core.app.stages.backend.BackendStage.validate", return_value=True),
     ):
         # This should work without error (localhost is allowed)
         from src.core.cli import main
 
         # Test with localhost - should work
         main(["--disable-auth", "--host", "127.0.0.1", "--port", "8080"])
-        mock_uvicorn.assert_called_with(ANY, host="127.0.0.1", port=8080)
+        mock_uvicorn.assert_called_with(
+            ANY, host="127.0.0.1", port=8080, log_config=ANY
+        )
 
         mock_uvicorn.reset_mock()
 
         # Test with different host - should be forced to localhost
         main(["--disable-auth", "--host", "0.0.0.0", "--port", "8081"])
-        mock_uvicorn.assert_called_with(ANY, host="127.0.0.1", port=8081)
+        mock_uvicorn.assert_called_with(
+            ANY, host="127.0.0.1", port=8081, log_config=ANY
+        )
 
 
 def test_env_disable_auth_forces_localhost():
@@ -40,11 +45,14 @@ def test_env_disable_auth_forces_localhost():
         patch("src.core.cli.logging.basicConfig"),
         patch("src.core.cli._check_privileges"),
         patch("src.core.app.application_builder.build_app"),
+        patch("src.core.app.stages.backend.BackendStage.validate", return_value=True),
     ):
         from src.core.cli import main
 
         main(["--port", "8080"])
-        mock_uvicorn.assert_called_with(ANY, host="127.0.0.1", port=8080)
+        mock_uvicorn.assert_called_with(
+            ANY, host="127.0.0.1", port=8080, log_config=ANY
+        )
 
 
 def test_auth_enabled_allows_custom_host():
@@ -59,11 +67,12 @@ def test_auth_enabled_allows_custom_host():
         patch("src.core.cli.logging.basicConfig"),
         patch("src.core.cli._check_privileges"),
         patch("src.core.app.application_builder.build_app"),
+        patch("src.core.app.stages.backend.BackendStage.validate", return_value=True),
     ):
         from src.core.cli import main
 
         main(["--port", "8080"])
-        mock_uvicorn.assert_called_with(ANY, host="0.0.0.0", port=8080)
+        mock_uvicorn.assert_called_with(ANY, host="0.0.0.0", port=8080, log_config=ANY)
 
 
 def test_config_disable_auth_forces_localhost():
@@ -100,3 +109,9 @@ def test_security_documentation():
     # Test that the flag can be parsed
     args = parse_cli_args(["--disable-auth"])
     assert args.disable_auth
+
+
+# Suppress Windows ProactorEventLoop warnings for this module
+pytestmark = pytest.mark.filterwarnings(
+    "ignore:unclosed event loop <ProactorEventLoop.*:ResourceWarning"
+)

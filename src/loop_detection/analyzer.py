@@ -146,7 +146,9 @@ class PatternAnalyzer:
         # The distance should be at least the chunk size.
         # It can be larger due to noise. We allow some tolerance.
         average_distance = sum(distances) / len(distances)
-        max_allowed_distance = self.config.content_chunk_size * 2.0
+        # Allow spacing up to 4x the chunk size so longer patterns (e.g. 250-300
+        # chars) are still detected while keeping a guard against distant matches.
+        max_allowed_distance = self.config.content_chunk_size * 4.0
 
         # All distances should be reasonably close to the chunk size or multiples.
         return (

@@ -5,12 +5,18 @@ from typing import Any
 
 from pydantic import field_validator
 
-from src.core.domain.base import ValueObject
+from src.core.interfaces.configuration import IReasoningConfig
+from src.core.interfaces.model_bases import DomainModel
 
 logger = logging.getLogger(__name__)
 
 
-class ReasoningConfiguration(ValueObject):
+class ReasoningConfiguration(DomainModel, IReasoningConfig):
+    model_config = {
+        "arbitrary_types_allowed": True,
+        "frozen": True,  # Make it immutable
+    }
+
     """Configuration for LLM reasoning parameters.
 
     This class handles reasoning settings like effort level, temperature,
@@ -23,16 +29,16 @@ class ReasoningConfiguration(ValueObject):
     reasoning_config: dict[str, Any] | None = None
     gemini_generation_config: dict[str, Any] | None = None
 
-    @classmethod
     @field_validator("thinking_budget")
+    @classmethod
     def validate_thinking_budget(cls, v: int | None) -> int | None:
         """Validate that the thinking budget is within acceptable range."""
         if v is not None and (v < 128 or v > 32768):
             raise ValueError("Thinking budget must be between 128 and 32768 tokens")
         return v
 
-    @classmethod
     @field_validator("temperature")
+    @classmethod
     def validate_temperature(cls, v: float | None) -> float | None:
         """Validate that the temperature is within acceptable range."""
         if v is not None and (v < 0.0 or v > 2.0):

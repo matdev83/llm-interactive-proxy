@@ -44,7 +44,10 @@ class ToolCallRepairMiddleware(IResponseMiddleware):
                 response.content
             )
             if repaired_tool_call:
-                logger.info(f"Tool call detected and repaired for session {session_id}")
+                if logger.isEnabledFor(logging.INFO):
+                    logger.info(
+                        f"Tool call detected and repaired for session {session_id}"
+                    )
                 # Update the processed response to reflect the repaired tool call
                 # and clear the original string content.
                 response.content = None

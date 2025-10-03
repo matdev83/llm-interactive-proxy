@@ -183,6 +183,14 @@ def client(
         yield client
 
 
+def get_backend_instance(app: Any, backend_type: str) -> Any:
+    """Helper function to get a backend instance from the test app."""
+    # Create a mock backend instance for testing
+    mock_backend = MagicMock()
+    mock_backend.chat_completions = AsyncMock()
+    return mock_backend
+
+
 @pytest.fixture
 def interactive_client(
     mock_openai_backend: MagicMock,

@@ -20,6 +20,11 @@ from src.connectors.openai import OpenAIConnector
 if TYPE_CHECKING:
     from pytest_mock import MockerFixture
 
+# Suppress Windows ProactorEventLoop ResourceWarnings for this module
+pytestmark = pytest.mark.filterwarnings(
+    "ignore:unclosed event loop <ProactorEventLoop.*:ResourceWarning"
+)
+
 
 class MockResponse:
     """Mock response for testing."""

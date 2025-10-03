@@ -19,7 +19,6 @@ from src.core.interfaces.di_interface import (
     ServiceLifetime,
 )
 from src.core.interfaces.request_processor_interface import IRequestProcessor
-from src.core.interfaces.response_processor_interface import IResponseProcessor
 from src.core.interfaces.session_service_interface import ISessionService
 
 T = TypeVar("T")
@@ -339,7 +338,7 @@ class ServiceCollection(IServiceCollection):
         return ServiceProvider(self._descriptors.copy())
 
     def register_app_services(self) -> None:
-        from src.core.interfaces.tool_call_reactor_interface import IToolCallHandler
+        from src.core.config.app_config import AppConfig
         from src.core.interfaces.usage_tracking_interface import (
             IUsageTrackingService,  # type: ignore[import-untyped]
         )
@@ -364,13 +363,10 @@ class ServiceCollection(IServiceCollection):
         )
         from src.core.services.content_rewriter_service import ContentRewriterService
         from src.core.services.request_processor_service import RequestProcessor
-        from src.core.services.response_parser_service import ResponseParser
         from src.core.services.session_service import (
             SessionService,  # type: ignore[import-untyped]
         )
-        from src.core.services.tool_call_handlers.config_steering_handler import (
-            ConfigSteeringHandler as ToolCallHandler,  # type: ignore[import-untyped]
-        )
+        from src.core.services.translation_service import TranslationService
         from src.core.services.usage_tracking_service import (
             UsageTrackingService,  # type: ignore[import-untyped]
         )
@@ -378,18 +374,44 @@ class ServiceCollection(IServiceCollection):
         # Register all application services
         self.add_singleton(IApplicationState, ApplicationStateService)
         self.add_singleton(IAppSettings, AppSettings)
-        self.add_singleton(BackendFactory, BackendFactory)
+
+        # Register AppConfig as singleton
+        self.add_singleton(
+            AppConfig, implementation_factory=lambda _: AppConfig.from_env()
+        )
+
+        # Register TranslationService as singleton
+        self.add_singleton(TranslationService)
+
+        # Register BackendFactory with proper factory
+        import httpx
+
+        def _backend_factory_factory(provider: IServiceProvider) -> BackendFactory:
+            """Create BackendFactory with all required dependencies."""
+            return BackendFactory(
+                provider.get_required_service(httpx.AsyncClient),
+                provider.get_required_service(BackendRegistry),
+                provider.get_required_service(AppConfig),
+                provider.get_required_service(TranslationService),
+            )
+
+        self.add_singleton(
+            BackendFactory, implementation_factory=_backend_factory_factory
+        )
         self.add_singleton(BackendRegistry, BackendRegistry)
         self.add_singleton(IUsageTrackingService, UsageTrackingService)
         self.add_singleton(ISessionService, SessionService)
         self.add_singleton(ICommandService, CommandService)
         self.add_singleton(ContentRewriterService, ContentRewriterService)
-        self.add_singleton(IToolCallHandler, ToolCallHandler)
 
         self.add_scoped(IBackendProcessor, BackendProcessor)
-        self.add_scoped(IResponseProcessor, ResponseParser)
         self.add_scoped(IBackendRequestManager, BackendRequestManager)
         self.add_scoped(IRequestProcessor, RequestProcessor)
+
+        # Register additional core services including ToolCallReactor
+        from src.core.di.services import register_core_services
+
+        register_core_services(self)
 
     def register_singleton(
         self,

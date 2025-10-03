@@ -1,4 +1,5 @@
-from datetime import datetime
+from datetime import datetime, timezone
+from functools import partial
 
 from pydantic import Field
 
@@ -20,5 +21,6 @@ class UsageData(DomainModel):
     total_tokens: int = Field(0, description="Total tokens used")
     cost: float | None = Field(None, description="Estimated cost")
     timestamp: datetime = Field(
-        default_factory=datetime.utcnow, description="Timestamp of the usage"
+        default_factory=partial(datetime.now, timezone.utc),
+        description="Timestamp of the usage",
     )

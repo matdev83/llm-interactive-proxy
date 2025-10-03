@@ -10,6 +10,11 @@ import logging
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
+
+# Suppress Windows ProactorEventLoop ResourceWarnings for this module
+pytestmark = pytest.mark.filterwarnings(
+    "ignore:unclosed event loop <ProactorEventLoop.*:ResourceWarning"
+)
 from src.core.domain.session import Session, SessionInteraction
 from src.core.interfaces.session_service_interface import ISessionService
 from src.core.testing.interfaces import (

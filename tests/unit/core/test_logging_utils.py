@@ -5,6 +5,7 @@ Tests for logging utilities.
 import logging
 from unittest.mock import MagicMock, patch
 
+import pytest
 import structlog
 from src.core.common.logging_utils import (
     LogContext,
@@ -14,6 +15,11 @@ from src.core.common.logging_utils import (
     redact,
     redact_dict,
     redact_text,
+)
+
+# Suppress Windows ProactorEventLoop ResourceWarnings for this module
+pytestmark = pytest.mark.filterwarnings(
+    "ignore:unclosed event loop <ProactorEventLoop.*:ResourceWarning"
 )
 
 
@@ -124,16 +130,16 @@ class TestLogging:
             # Verify logging
             assert mock_logger.log.call_count == 2
             mock_logger.log.assert_any_call(
-                logging.INFO,
+                20,  # logging.INFO value
                 "Calling test_function",
                 function="test_function",
-                module="tests.unit.core.test_logging_utils",
+                module="tests.unit.core.test_logging_utils",  # full module name
             )
             mock_logger.log.assert_any_call(
-                logging.INFO,
+                20,  # logging.INFO value
                 "Finished test_function",
                 function="test_function",
-                module="tests.unit.core.test_logging_utils",
+                module="tests.unit.core.test_logging_utils",  # full module name
             )
 
     async def test_log_async_call(self) -> None:
@@ -160,16 +166,16 @@ class TestLogging:
             # Verify logging
             assert mock_logger.log.call_count == 2
             mock_logger.log.assert_any_call(
-                logging.INFO,
+                20,  # logging.INFO value
                 "Calling test_async_function",
                 function="test_async_function",
-                module="tests.unit.core.test_logging_utils",
+                module="tests.unit.core.test_logging_utils",  # full module name
             )
             mock_logger.log.assert_any_call(
-                logging.INFO,
+                20,  # logging.INFO value
                 "Finished test_async_function",
                 function="test_async_function",
-                module="tests.unit.core.test_logging_utils",
+                module="tests.unit.core.test_logging_utils",  # full module name
             )
 
     def test_log_context(self) -> None:

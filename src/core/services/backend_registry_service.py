@@ -7,15 +7,13 @@ refactor. Update callers to import from `backend_registry` directly.
 
 from __future__ import annotations
 
-import warnings
+import logging
 
 from .backend_registry import BackendRegistry, backend_registry
 
-warnings.warn(
+logging.debug(
     "Importing from 'src.core.services.backend_registry_service' is deprecated; "
-    "use 'src.core.services.backend_registry' instead",
-    DeprecationWarning,
-    stacklevel=2,
+    "use 'src.core.services.backend_registry' instead"
 )
 
 __all__ = ["BackendRegistry", "backend_registry"]

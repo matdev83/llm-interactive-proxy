@@ -102,6 +102,13 @@ class ConfigLoader:
             except Exception as exc:  # type: ignore[misc]
                 logger.warning("Failed to load config file %s: %s", config_file, exc)
 
+        # Load reasoning aliases
+        try:
+            reasoning_aliases_config = self._load_reasoning_aliases_config()
+            config.update(reasoning_aliases_config)
+        except Exception as exc:
+            logger.warning(f"Failed to load reasoning aliases config: {exc}")
+
         return config
 
     def _load_base_config(self) -> dict[str, Any]:
@@ -233,6 +240,38 @@ class ConfigLoader:
 
         except yaml.YAMLError as exc:  # type: ignore[misc]
             raise ValueError(f"Invalid YAML configuration: {exc}") from exc
+
+    def _load_reasoning_aliases_config(self) -> dict[str, Any]:
+        """Load reasoning aliases from the default location."""
+        from pathlib import Path
+
+        import yaml
+
+        from src.core.domain.configuration.reasoning_aliases_config import (
+            ReasoningAliasesConfig,
+        )
+
+        config_path = Path("config/reasoning_aliases.yaml")
+        if not config_path.exists():
+            return {}
+
+        try:
+            content = config_path.read_text(encoding="utf-8")
+            data = yaml.safe_load(content)
+            if not data:
+                return {}
+
+            # Validate the loaded data with the Pydantic model
+            validated_config = ReasoningAliasesConfig.model_validate(data)
+            return validated_config.model_dump()
+
+        except yaml.YAMLError as e:
+            raise ValueError(f"Invalid YAML in {config_path}: {e}") from e
+        except Exception as e:
+            # Catch Pydantic validation errors and other exceptions
+            raise ValueError(
+                f"Invalid reasoning aliases config in {config_path}: {e}"
+            ) from e
 
     def reload_config(self) -> None:
         """Clear the config cache to force reload on next access."""

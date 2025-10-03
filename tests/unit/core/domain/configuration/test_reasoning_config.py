@@ -13,7 +13,7 @@ class TestReasoningConfiguration:
 
     def test_default_initialization(self) -> None:
         """Test default initialization."""
-        config = ReasoningConfiguration()
+        config = ReasoningConfiguration.model_validate({})
 
         assert config.reasoning_effort is None
         assert config.thinking_budget is None
@@ -21,14 +21,33 @@ class TestReasoningConfiguration:
         assert config.reasoning_config is None
         assert config.gemini_generation_config is None
 
+    def test_custom_initialization(self) -> None:
+        """Test custom initialization with provided values."""
+        custom_data = {
+            "reasoning_effort": "high",
+            "thinking_budget": 2048,
+            "temperature": 0.8,
+            "reasoning_config": {"max_tokens": 1500},
+            "gemini_generation_config": {"top_p": 0.9},
+        }
+        config = ReasoningConfiguration.model_validate(custom_data)
+
+        assert config.reasoning_effort == "high"
+        assert config.thinking_budget == 2048
+        assert config.temperature == 0.8
+        assert config.reasoning_config == {"max_tokens": 1500}
+        assert config.gemini_generation_config == {"top_p": 0.9}
+
     def test_initialization_with_values(self) -> None:
         """Test initialization with specific values."""
-        config = ReasoningConfiguration(
-            reasoning_effort="high",
-            thinking_budget=1024,
-            temperature=0.7,
-            reasoning_config={"max_tokens": 1000},
-            gemini_generation_config={"top_p": 0.9},
+        config = ReasoningConfiguration.model_validate(
+            {
+                "reasoning_effort": "high",
+                "thinking_budget": 1024,
+                "temperature": 0.7,
+                "reasoning_config": {"max_tokens": 1000},
+                "gemini_generation_config": {"top_p": 0.9},
+            }
         )
 
         assert config.reasoning_effort == "high"
@@ -40,13 +59,19 @@ class TestReasoningConfiguration:
     def test_thinking_budget_validation(self) -> None:
         """Test thinking_budget validation."""
         # Valid values
-        config = ReasoningConfiguration(thinking_budget=128)  # Minimum valid
+        config = ReasoningConfiguration.model_validate(
+            {"thinking_budget": 128}
+        )  # Minimum valid
         assert config.thinking_budget == 128
 
-        config = ReasoningConfiguration(thinking_budget=32768)  # Maximum valid
+        config = ReasoningConfiguration.model_validate(
+            {"thinking_budget": 32768}
+        )  # Maximum valid
         assert config.thinking_budget == 32768
 
-        config = ReasoningConfiguration(thinking_budget=1024)  # Middle value
+        config = ReasoningConfiguration.model_validate(
+            {"thinking_budget": 1024}
+        )  # Middle value
         assert config.thinking_budget == 1024
 
         # Field validators in Pydantic v2 only run during explicit validation
@@ -55,16 +80,24 @@ class TestReasoningConfiguration:
     def test_temperature_validation(self) -> None:
         """Test temperature validation."""
         # Valid values
-        config = ReasoningConfiguration(temperature=0.0)  # Minimum valid
+        config = ReasoningConfiguration.model_validate(
+            {"temperature": 0.0}
+        )  # Minimum valid
         assert config.temperature == 0.0
 
-        config = ReasoningConfiguration(temperature=2.0)  # Maximum valid (OpenAI)
+        config = ReasoningConfiguration.model_validate(
+            {"temperature": 2.0}
+        )  # Maximum valid (OpenAI)
         assert config.temperature == 2.0
 
-        config = ReasoningConfiguration(temperature=1.0)  # Middle value
+        config = ReasoningConfiguration.model_validate(
+            {"temperature": 1.0}
+        )  # Middle value
         assert config.temperature == 1.0
 
-        config = ReasoningConfiguration(temperature=0.5)  # Common value
+        config = ReasoningConfiguration.model_validate(
+            {"temperature": 0.5}
+        )  # Common value
         assert config.temperature == 0.5
 
         # Field validators in Pydantic v2 only run during explicit validation
@@ -72,7 +105,7 @@ class TestReasoningConfiguration:
 
     def test_with_reasoning_effort_method(self) -> None:
         """Test with_reasoning_effort method."""
-        config = ReasoningConfiguration(reasoning_effort=None)
+        config = ReasoningConfiguration.model_validate({"reasoning_effort": None})
 
         new_config = config.with_reasoning_effort("high")
 
@@ -81,7 +114,7 @@ class TestReasoningConfiguration:
 
     def test_with_thinking_budget_method(self) -> None:
         """Test with_thinking_budget method."""
-        config = ReasoningConfiguration(thinking_budget=None)
+        config = ReasoningConfiguration.model_validate({"thinking_budget": None})
 
         new_config = config.with_thinking_budget(1024)
 
@@ -90,7 +123,7 @@ class TestReasoningConfiguration:
 
     def test_with_temperature_method(self) -> None:
         """Test with_temperature method."""
-        config = ReasoningConfiguration(temperature=None)
+        config = ReasoningConfiguration.model_validate({"temperature": None})
 
         new_config = config.with_temperature(0.7)
 
@@ -99,7 +132,7 @@ class TestReasoningConfiguration:
 
     def test_with_reasoning_config_method(self) -> None:
         """Test with_reasoning_config method."""
-        config = ReasoningConfiguration(reasoning_config=None)
+        config = ReasoningConfiguration.model_validate({"reasoning_config": None})
 
         new_config = config.with_reasoning_config({"max_tokens": 1000})
 
@@ -108,7 +141,9 @@ class TestReasoningConfiguration:
 
     def test_with_gemini_generation_config_method(self) -> None:
         """Test with_gemini_generation_config method."""
-        config = ReasoningConfiguration(gemini_generation_config=None)
+        config = ReasoningConfiguration.model_validate(
+            {"gemini_generation_config": None}
+        )
 
         new_config = config.with_gemini_generation_config({"top_p": 0.9})
 
@@ -117,10 +152,12 @@ class TestReasoningConfiguration:
 
     def test_immutability(self) -> None:
         """Test that configurations are immutable (methods return new instances)."""
-        config = ReasoningConfiguration(
-            reasoning_effort="medium",
-            thinking_budget=512,
-            temperature=0.5,
+        config = ReasoningConfiguration.model_validate(
+            {
+                "reasoning_effort": "medium",
+                "thinking_budget": 512,
+                "temperature": 0.5,
+            }
         )
 
         # All with_* methods should return new instances
@@ -157,25 +194,35 @@ class TestReasoningConfiguration:
     def test_edge_case_validations(self) -> None:
         """Test edge cases for validations."""
         # Test boundary values
-        config = ReasoningConfiguration(thinking_budget=128)  # Minimum valid
+        config = ReasoningConfiguration.model_validate(
+            {"thinking_budget": 128}
+        )  # Minimum valid
         assert config.thinking_budget == 128
 
-        config = ReasoningConfiguration(thinking_budget=32768)  # Maximum valid
+        config = ReasoningConfiguration.model_validate(
+            {"thinking_budget": 32768}
+        )  # Maximum valid
         assert config.thinking_budget == 32768
 
-        config = ReasoningConfiguration(temperature=0.0)  # Minimum valid
+        config = ReasoningConfiguration.model_validate(
+            {"temperature": 0.0}
+        )  # Minimum valid
         assert config.temperature == 0.0
 
-        config = ReasoningConfiguration(temperature=2.0)  # Maximum valid
+        config = ReasoningConfiguration.model_validate(
+            {"temperature": 2.0}
+        )  # Maximum valid
         assert config.temperature == 2.0
 
         # Test None values (should be valid)
-        config = ReasoningConfiguration(
-            reasoning_effort=None,
-            thinking_budget=None,
-            temperature=None,
-            reasoning_config=None,
-            gemini_generation_config=None,
+        config = ReasoningConfiguration.model_validate(
+            {
+                "reasoning_effort": None,
+                "thinking_budget": None,
+                "temperature": None,
+                "reasoning_config": None,
+                "gemini_generation_config": None,
+            }
         )
         assert config.reasoning_effort is None
         assert config.thinking_budget is None
@@ -188,15 +235,15 @@ class TestReasoningConfiguration:
         valid_efforts = ["low", "medium", "high", "auto", "none"]
 
         for effort in valid_efforts:
-            config = ReasoningConfiguration(reasoning_effort=effort)
+            config = ReasoningConfiguration.model_validate({"reasoning_effort": effort})
             assert config.reasoning_effort == effort
 
     def test_temperature_precision(self) -> None:
         """Test temperature values with decimal precision."""
-        config = ReasoningConfiguration(temperature=0.123456789)
+        config = ReasoningConfiguration.model_validate({"temperature": 0.123456789})
         assert config.temperature == 0.123456789
 
-        config = ReasoningConfiguration(temperature=1.999999999)
+        config = ReasoningConfiguration.model_validate({"temperature": 1.999999999})
         assert config.temperature == 1.999999999
 
     def test_complex_config_dictionaries(self) -> None:
@@ -217,9 +264,11 @@ class TestReasoningConfiguration:
             "candidate_count": 1,
         }
 
-        config = ReasoningConfiguration(
-            reasoning_config=reasoning_config,
-            gemini_generation_config=gemini_config,
+        config = ReasoningConfiguration.model_validate(
+            {
+                "reasoning_config": reasoning_config,
+                "gemini_generation_config": gemini_config,
+            }
         )
 
         assert config.reasoning_config == reasoning_config

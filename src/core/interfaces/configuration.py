@@ -142,25 +142,11 @@ class IBackendConfig(abc.ABC):
 class IReasoningConfig(abc.ABC):
     """Interface for reasoning configuration."""
 
-    @property
-    @abc.abstractmethod
-    def reasoning_effort(self) -> str | None:
-        """Get the reasoning effort level."""
-
-    @property
-    @abc.abstractmethod
-    def thinking_budget(self) -> int | None:
-        """Get the thinking budget."""
-
-    @property
-    @abc.abstractmethod
-    def temperature(self) -> float | None:
-        """Get the temperature."""
-
-    @property
-    @abc.abstractmethod
-    def gemini_generation_config(self) -> dict[str, Any] | None:
-        """Get the Gemini generation configuration."""
+    reasoning_effort: str | None
+    thinking_budget: int | None
+    temperature: float | None
+    gemini_generation_config: dict[str, Any] | None
+    reasoning_config: dict[str, Any] | None
 
     @abc.abstractmethod
     def with_reasoning_effort(self, effort: str | None) -> IReasoningConfig:
@@ -179,6 +165,10 @@ class IReasoningConfig(abc.ABC):
         self, config: dict[str, Any] | None
     ) -> IReasoningConfig:
         """Create a new config with updated Gemini generation configuration."""
+
+    @abc.abstractmethod
+    def with_reasoning_config(self, config: dict[str, Any] | None) -> IReasoningConfig:
+        """Create a new config with updated reasoning configuration."""
 
 
 class ILoopDetectionConfig(abc.ABC):

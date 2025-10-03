@@ -1,0 +1,67 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "type": "object",
+  "title": "Reasoning Aliases Configuration Schema",
+  "description": "Schema for validating reasoning_aliases.yaml configuration files",
+  "required": ["reasoning_alias_settings"],
+  "properties": {
+    "reasoning_alias_settings": {
+      "type": "array",
+      "description": "List of model-specific reasoning alias settings",
+      "items": {
+        "type": "object",
+        "required": ["model", "modes"],
+        "properties": {
+          "model": {
+            "type": "string",
+            "description": "Model identifier or pattern (supports wildcards like claude-sonnet-4*)"
+          },
+          "modes": {
+            "type": "object",
+            "description": "Reasoning modes for this model",
+            "patternProperties": {
+              "^[a-zA-Z0-9_-]+$": {
+                "type": "object",
+                "properties": {
+                  "max_reasoning_tokens": {
+                    "type": ["integer", "null"],
+                    "description": "Maximum reasoning tokens for this mode",
+                    "minimum": 0
+                  },
+                  "reasoning_effort": {
+                    "type": ["string", "null"],
+                    "description": "Reasoning effort level"
+                  },
+                  "user_prompt_prefix": {
+                    "type": ["string", "null"],
+                    "description": "Text to prepend to user prompts"
+                  },
+                  "user_prompt_suffix": {
+                    "type": ["string", "null"],
+                    "description": "Text to append to user prompts"
+                  },
+                  "temperature": {
+                    "type": ["number", "null"],
+                    "description": "Temperature setting for this mode",
+                    "minimum": 0.0,
+                    "maximum": 2.0
+                  },
+                  "top_p": {
+                    "type": ["number", "null"],
+                    "description": "Top-p (nucleus sampling) setting for this mode",
+                    "minimum": 0.0,
+                    "maximum": 1.0
+                  }
+                },
+                "additionalProperties": false
+              }
+            },
+            "additionalProperties": false
+          }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "additionalProperties": false
+}

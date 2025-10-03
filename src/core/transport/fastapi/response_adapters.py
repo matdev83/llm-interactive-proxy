@@ -25,6 +25,30 @@ from src.core.interfaces.response_processor_interface import ProcessedResponse
 logger = logging.getLogger(__name__)
 
 
+def _format_chunk_as_sse(chunk: Any) -> bytes:
+    """Format a chunk as SSE (Server-Sent Events) format.
+
+    This is the critical fix for streaming responses - dict chunks must be
+    formatted as `data: {json}\\n\\n` for proper SSE format.
+
+    Args:
+        chunk: The chunk to format (dict, str, bytes, or other)
+
+    Returns:
+        Formatted chunk as bytes
+    """
+    if isinstance(chunk, dict):
+        # Format as SSE: data: {json}\n\n
+        sse_line = f"data: {json.dumps(chunk)}\n\n"
+        return sse_line.encode("utf-8")
+    elif isinstance(chunk, str):
+        return chunk.encode("utf-8")
+    elif isinstance(chunk, bytes):
+        return chunk
+    else:
+        return str(chunk).encode("utf-8")
+
+
 async def _string_to_async_iterator(content: bytes) -> AsyncIterator[ProcessedResponse]:
     """Convert a bytes object to an async iterator that yields the content once."""
     yield ProcessedResponse(content=content.decode("utf-8"))
@@ -51,6 +75,13 @@ def to_fastapi_response(
 
     if media_type == "application/json":
         json_content = _prepare_json_content(content)
+
+        # If the envelope has usage data, merge it into the response content.
+        # This ensures that token usage from the backend is always included
+        # in the final response, overriding any default/zeroed values.
+        if envelope.usage and isinstance(json_content, dict):
+            json_content["usage"] = envelope.usage
+
         safe_content = _sanitize_json_content(json_content)
         safe_headers = _sanitize_headers(headers)
         safe_status_code = _sanitize_status_code(status_code)
@@ -210,21 +241,19 @@ def to_fastapi_streaming_response(
     ) -> AsyncIterator[bytes]:
         try:
             async for chunk in it:  # type: ignore
-                if isinstance(chunk, str):
-                    yield chunk.encode("utf-8")
-                elif isinstance(chunk, bytes):
-                    yield chunk
-                else:
-                    yield str(chunk).encode("utf-8")
+                # Extract content from ProcessedResponse if needed
+                content = (
+                    chunk.content if isinstance(chunk, ProcessedResponse) else chunk
+                )
+                yield _format_chunk_as_sse(content)
         except TypeError:
             # Not an async iterator; handle as sync iterable
             for chunk in it:  # type: ignore
-                if isinstance(chunk, str):
-                    yield chunk.encode("utf-8")
-                elif isinstance(chunk, bytes):
-                    yield chunk
-                else:
-                    yield str(chunk).encode("utf-8")
+                # Extract content from ProcessedResponse if needed
+                content = (
+                    chunk.content if isinstance(chunk, ProcessedResponse) else chunk
+                )
+                yield _format_chunk_as_sse(content)
 
     content_iter = domain_response.content
     return StreamingResponse(

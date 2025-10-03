@@ -1,6 +1,10 @@
 from unittest.mock import AsyncMock, patch
 
 import pytest
+
+pytestmark = pytest.mark.filterwarnings(
+    "ignore:unclosed event loop <ProactorEventLoop.*:ResourceWarning"
+)
 from fastapi.testclient import TestClient
 from src.connectors.openai import OpenAIConnector
 from src.core.app.test_builder import build_test_app as build_app

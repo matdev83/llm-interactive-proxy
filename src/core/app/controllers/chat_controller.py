@@ -153,6 +153,11 @@ class ChatController:
 
             # Convert FastAPI Request to RequestContext and process via core processor
             ctx = fastapi_to_domain_request_context(request, attach_original=True)
+            # Attach domain request so session resolver can read session_id/extra_body
+            import contextlib
+
+            with contextlib.suppress(Exception):
+                ctx.domain_request = domain_request  # type: ignore[attr-defined]
 
             # Process the request using the request processor
             response = await self._processor.process_request(ctx, domain_request)
@@ -163,7 +168,11 @@ class ChatController:
                 response = await response
 
             # Ensure OpenAI Chat Completions JSON schema for non-streaming responses
-            def _ensure_openai_chat_schema(content: object) -> object:
+            response_metadata = getattr(response, "metadata", None)
+
+            def _ensure_openai_chat_schema(
+                content: object, metadata: dict[str, object] | None = response_metadata
+            ) -> object:
                 try:
                     # If domain ChatResponse, convert to dict first
                     if isinstance(content, ChatResponse):
@@ -172,6 +181,73 @@ class ChatController:
                     # If already in expected schema, return as-is
                     if isinstance(content, dict) and "choices" in content:
                         return content
+
+                    # If metadata contains tool_calls, construct OpenAI response preserving them
+                    if metadata and isinstance(metadata, dict):
+                        tool_calls = metadata.get("tool_calls")
+                        if tool_calls:
+                            import json as _json
+                            import time as _time
+                            import uuid as _uuid
+
+                            # Attempt to parse textual content to preserve any assistant message text
+                            text_content = None
+                            if isinstance(content, str):
+                                stripped = content.strip()
+                                if stripped:
+                                    text_content = stripped
+                            elif isinstance(content, dict):
+                                # If content is partial dict without choices, try to pull text field
+                                potential_text = content.get("content") if isinstance(content.get("content"), str) else None  # type: ignore[assignment]
+                                if potential_text:
+                                    text_content = potential_text
+
+                            openai_message_obj: dict[str, object] = {
+                                "role": "assistant",
+                                "tool_calls": tool_calls,
+                            }
+                            if text_content:
+                                openai_message_obj["content"] = text_content
+                            else:
+                                openai_message_obj["content"] = None
+
+                            model_name = str(
+                                metadata.get("model")
+                                or getattr(domain_request, "model", "gpt-4")
+                            )
+                            response_id = str(
+                                metadata.get("id")
+                                or f"chatcmpl-{_uuid.uuid4().hex[:16]}"
+                            )
+                            created_ts = metadata.get("created")
+                            if isinstance(created_ts, int | float):
+                                created_val = int(created_ts)
+                            else:
+                                created_val = int(_time.time())
+
+                            return {
+                                "id": response_id,
+                                "object": "chat.completion",
+                                "created": created_val,
+                                "model": model_name,
+                                "choices": [
+                                    {
+                                        "index": 0,
+                                        "message": openai_message_obj,
+                                        "finish_reason": metadata.get(
+                                            "finish_reason", "tool_calls"
+                                        ),
+                                    }
+                                ],
+                                "usage": metadata.get(
+                                    "usage",
+                                    {
+                                        "prompt_tokens": 0,
+                                        "completion_tokens": 0,
+                                        "total_tokens": 0,
+                                    },
+                                ),
+                            }
 
                     # Handle Anthropic-style message dict -> OpenAI chat.completion
                     if (
@@ -185,7 +261,7 @@ class ChatController:
 
                         # Extract text blocks
                         text_parts: list[str] = []
-                        tool_calls: list[dict] = []
+                        tool_calls_list: list[dict] = []
                         for block in content.get("content", []):
                             if not isinstance(block, dict):
                                 continue
@@ -198,7 +274,7 @@ class ChatController:
                                 # Map to OpenAI tool_calls structure
                                 fn_name = block.get("name") or "tool"
                                 fn_args = block.get("input") or {}
-                                tool_calls.append(
+                                tool_calls_list.append(
                                     {
                                         "id": str(
                                             block.get("id")
@@ -234,8 +310,8 @@ class ChatController:
                         message_obj: dict[str, object] = {"role": "assistant"}
                         if text:
                             message_obj["content"] = text
-                        if tool_calls:
-                            message_obj["tool_calls"] = tool_calls
+                        if tool_calls_list:
+                            message_obj["tool_calls"] = tool_calls_list
 
                         return {
                             "id": content.get(
@@ -272,6 +348,7 @@ class ChatController:
                         except Exception:
                             text = str(content)
 
+                    # Fallback: treat remaining content as assistant text
                     return {
                         "id": f"chatcmpl-{uuid.uuid4().hex[:16]}",
                         "object": "chat.completion",

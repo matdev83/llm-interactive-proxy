@@ -1,1 +1,37 @@
-# Command handlers package
+from . import (
+    base_handler,
+    command_handler,
+    failover_command_handler,
+    hello_command_handler,
+    help_command_handler,
+    loop_detection_command_handler,
+    loop_detection_handlers,
+    model_command_handler,
+    project_dir_handler,
+    reasoning_aliases,
+    reasoning_handlers,
+    set_command_handler,
+    tool_loop_max_repeats_command_handler,
+    tool_loop_mode_command_handler,
+    tool_loop_ttl_command_handler,
+    unset_command_handler,
+)
+
+__all__ = [
+    "base_handler",
+    "command_handler",
+    "failover_command_handler",
+    "hello_command_handler",
+    "help_command_handler",
+    "loop_detection_command_handler",
+    "loop_detection_handlers",
+    "model_command_handler",
+    "project_dir_handler",
+    "reasoning_aliases",
+    "reasoning_handlers",
+    "set_command_handler",
+    "tool_loop_max_repeats_command_handler",
+    "tool_loop_mode_command_handler",
+    "tool_loop_ttl_command_handler",
+    "unset_command_handler",
+]

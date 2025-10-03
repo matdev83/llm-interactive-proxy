@@ -6,7 +6,7 @@ from typing import Any
 from fastapi import FastAPI
 from starlette.middleware.cors import CORSMiddleware
 
-from src.core.common.logging import get_logger
+from src.core.common.structlog_config import get_logger
 from src.core.security import APIKeyMiddleware, AuthMiddleware
 from src.request_middleware import CustomHeaderMiddleware
 from src.response_middleware import RetryAfterMiddleware

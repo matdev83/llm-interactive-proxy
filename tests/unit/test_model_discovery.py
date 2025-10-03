@@ -1,7 +1,13 @@
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import pytest
 from src.connectors import GeminiBackend, OpenRouterBackend
 from src.core.app.test_builder import build_test_app
+
+# Suppress Windows ProactorEventLoop warnings for this module
+pytestmark = pytest.mark.filterwarnings(
+    "ignore:unclosed event loop <ProactorEventLoop.*:ResourceWarning"
+)
 
 
 async def test_openrouter_models_cached() -> None:

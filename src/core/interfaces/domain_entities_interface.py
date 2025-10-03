@@ -206,3 +206,32 @@ class ISessionState(IValueObject, ISessionStateMutator):
     @abc.abstractmethod
     def override_backend(self) -> str | None:
         """Get the override backend from backend configuration."""
+
+    @property
+    @abc.abstractmethod
+    def pytest_compression_enabled(self) -> bool:
+        """Get whether pytest output compression is enabled for this session."""
+
+    @property
+    @abc.abstractmethod
+    def compress_next_tool_call_reply(self) -> bool:
+        """Get whether the next tool call reply should be compressed."""
+
+    @property
+    @abc.abstractmethod
+    def pytest_compression_min_lines(self) -> int:
+        """Get minimum line threshold for pytest compression."""
+
+    @abc.abstractmethod
+    def with_pytest_compression_enabled(self, enabled: bool) -> ISessionState:
+        """Create a new state with updated pytest_compression_enabled flag."""
+
+    @abc.abstractmethod
+    def with_compress_next_tool_call_reply(
+        self, should_compress: bool
+    ) -> ISessionState:
+        """Create a new state with updated compress_next_tool_call_reply flag."""
+
+    @abc.abstractmethod
+    def with_pytest_compression_min_lines(self, min_lines: int) -> ISessionState:
+        """Create a new state with updated pytest_compression_min_lines value."""

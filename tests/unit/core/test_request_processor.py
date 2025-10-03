@@ -424,7 +424,7 @@ async def test_request_processor_applies_redaction_before_backend_call(
 
     # Assert that the request passed to the backend has been redacted and filtered
     assert backend_request_manager.process_backend_request.called
-    called_args, called_kwargs = (
+    called_args, _called_kwargs = (
         backend_request_manager.process_backend_request.call_args
     )
     # First positional arg is the redacted ChatRequest
@@ -822,3 +822,10 @@ async def test_backend_error_handling(session_service: MockSessionService) -> No
         await processor.process_request(context, request_data)
 
     assert "API unavailable" in str(exc.value.message)
+
+
+import pytest
+
+pytestmark = pytest.mark.filterwarnings(
+    "ignore:unclosed event loop <ProactorEventLoop.*:ResourceWarning"
+)

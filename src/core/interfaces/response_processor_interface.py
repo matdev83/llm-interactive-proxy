@@ -10,7 +10,7 @@ class ProcessedResponse:
 
     def __init__(
         self,
-        content: str = "",
+        content: Any = "",
         usage: dict[str, Any] | None = None,
         metadata: dict[str, Any] | None = None,
     ):
@@ -25,7 +25,7 @@ class ProcessedResponse:
         self.usage = usage
         self.metadata = metadata or {}
 
-    content: str | None
+    content: Any | None
     usage: dict[str, Any] | None = None
     metadata: dict[str, Any] = {}
 
@@ -39,13 +39,17 @@ class IResponseProcessor(ABC):
 
     @abstractmethod
     async def process_response(
-        self, response: Any, session_id: str
+        self,
+        response: Any,
+        session_id: str,
+        context: dict[str, Any] | None = None,
     ) -> ProcessedResponse:
         """Process a complete LLM response.
 
         Args:
             response: The raw LLM response
             session_id: The session ID associated with this request
+            context: Optional contextual information for downstream middleware
 
         Returns:
             A processed response object

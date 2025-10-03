@@ -16,6 +16,13 @@ pytestmark = [
     pytest.mark.no_global_mock,
 ]  # Uses mocked Google Gemini client (not real network calls)
 
+# Suppress Windows ProactorEventLoop warnings for this module
+pytestmark.append(
+    pytest.mark.filterwarnings(
+        "ignore:unclosed event loop <ProactorEventLoop.*:ResourceWarning"
+    )
+)
+
 
 @pytest.fixture
 def gemini_app():
@@ -40,8 +47,9 @@ def gemini_app():
 
 @pytest.fixture
 def gemini_client(gemini_app):
-    """Create test client for Gemini app."""
-    return TestClient(gemini_app)
+    """Create test client for Gemini app and ensure cleanup."""
+    with TestClient(gemini_app) as client:
+        yield client
 
 
 def test_gemini_client_creation():
@@ -98,7 +106,7 @@ def test_gemini_models_endpoint_format(gemini_client):
 
 def test_gemini_generate_content_endpoint_format(gemini_app):
     """Test that generate content endpoint accepts and returns Gemini format."""
-    # Mock the backend to return a response
+    # Mock the backend to return a response with tool calls
     mock_backend = Mock()
     mock_backend.chat_completions = AsyncMock(
         return_value={
@@ -112,8 +120,18 @@ def test_gemini_generate_content_endpoint_format(gemini_app):
                     "message": {
                         "role": "assistant",
                         "content": "Hello! This is a test response.",
+                        "tool_calls": [
+                            {
+                                "id": "call_test_123",
+                                "type": "function",
+                                "function": {
+                                    "name": "hello",
+                                    "arguments": "{}",
+                                },
+                            }
+                        ],
                     },
-                    "finish_reason": "stop",
+                    "finish_reason": "tool_calls",
                 }
             ],
             "usage": {"prompt_tokens": 10, "completion_tokens": 15, "total_tokens": 25},

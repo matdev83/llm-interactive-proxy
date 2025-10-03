@@ -1,5 +1,5 @@
 """
-Tests for ZAI connector domain → connector behavior.
+Tests for ZAI connector domain -> connector behavior.
 
 This module tests that the ZAI connector correctly processes domain models.
 """

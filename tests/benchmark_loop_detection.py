@@ -10,8 +10,7 @@ import time
 # Add current directory to path so we can import the modules
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
-from src.loop_detection.config import LoopDetectionConfig
-from src.loop_detection.detector import LoopDetector
+from src.loop_detection.hybrid_detector import HybridLoopDetector
 
 
 def create_test_data(pattern_size: int = 120, repetitions: int = 10) -> str:
@@ -26,11 +25,7 @@ def benchmark_original_approach() -> tuple[float, bool]:
     test_text = create_test_data(120, 10)
 
     # Configure detector
-    config = LoopDetectionConfig(
-        enabled=True, buffer_size=16384, max_pattern_length=8192
-    )
-
-    detector = LoopDetector(config=config)
+    detector = HybridLoopDetector()
 
     # Measure performance
     start_time = time.time()
@@ -47,11 +42,7 @@ def benchmark_chunk_aggregation() -> float:
     test_chunks = [pattern] * 10  # 10 chunks
 
     # Configure detector
-    config = LoopDetectionConfig(
-        enabled=True, buffer_size=16384, max_pattern_length=8192
-    )
-
-    detector = LoopDetector(config=config)
+    detector = HybridLoopDetector()
 
     # Measure performance with chunk aggregation
     start_time = time.time()

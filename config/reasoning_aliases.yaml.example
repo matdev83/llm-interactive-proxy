@@ -1,0 +1,64 @@
+# Example reasoning aliases configuration
+# Copy this file to reasoning_aliases.yaml and customize as needed
+
+reasoning_alias_settings:
+  - model: "gemini-2.5-pro"
+    modes:
+      high:
+        max_reasoning_tokens: 32000
+        reasoning_effort: "high"
+        user_prompt_prefix: "Think even harder about the following problem. "
+        user_prompt_suffix: ""
+        temperature: 1.0
+        top_p: 1.0
+      medium:
+        max_reasoning_tokens: 16000
+        reasoning_effort: "medium"
+        user_prompt_prefix: "Think hard about the following problem. "
+        user_prompt_suffix: ""
+        temperature: 0.7
+        top_p: 0.9
+      low:
+        max_reasoning_tokens: 4000
+        reasoning_effort: "low"
+        user_prompt_prefix: "Think about the following problem. "
+        user_prompt_suffix: ""
+        temperature: 0.3
+        top_p: 0.5
+      none:
+        max_reasoning_tokens: 100
+        reasoning_effort: ""
+        user_prompt_prefix: ""
+        user_prompt_suffix: ""
+        temperature: 0.0
+        top_p: 0.1
+  - model: "claude-sonnet-4*"
+    modes:
+      high:
+        max_reasoning_tokens: 20000
+        reasoning_effort: "high"
+        user_prompt_prefix: "Think even harder about the following problem. "
+        user_prompt_suffix: ""
+        temperature: 1.0
+        top_p: 1.0
+      medium:
+        max_reasoning_tokens: 10000
+        reasoning_effort: "medium"
+        user_prompt_prefix: "Think hard about the following problem. "
+        user_prompt_suffix: ""
+        temperature: 0.7
+        top_p: 0.9
+      low:
+        max_reasoning_tokens: 2000
+        reasoning_effort: "low"
+        user_prompt_prefix: "Think about the following problem. "
+        user_prompt_suffix: ""
+        temperature: 0.3
+        top_p: 0.5
+      none:
+        max_reasoning_tokens: 0
+        reasoning_effort: ""
+        user_prompt_prefix: ""
+        user_prompt_suffix: ""
+        temperature: 0.0
+        top_p: 0.1

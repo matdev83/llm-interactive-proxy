@@ -1,6 +1,10 @@
 from unittest.mock import AsyncMock, patch
 
 import pytest
+
+pytestmark = pytest.mark.filterwarnings(
+    "ignore:unclosed event loop <ProactorEventLoop.*:ResourceWarning"
+)
 from src.core.interfaces.backend_service_interface import IBackendService
 from src.core.interfaces.session_service_interface import ISessionService
 from starlette.testclient import TestClient

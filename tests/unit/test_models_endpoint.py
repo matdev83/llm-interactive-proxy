@@ -22,3 +22,10 @@ def test_v1_models_endpoint_lists_all(monkeypatch) -> None:
         assert resp.status_code == 200
         data = resp.json()["data"]
         assert len(data) > 0
+
+
+import pytest
+
+pytestmark = pytest.mark.filterwarnings(
+    "ignore:unclosed event loop <ProactorEventLoop.*:ResourceWarning"
+)

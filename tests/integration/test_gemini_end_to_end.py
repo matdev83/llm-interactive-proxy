@@ -1,6 +1,5 @@
 import json
 import os
-import random
 import socket
 import subprocess
 import sys
@@ -59,11 +58,17 @@ def _run_client(cfg_path: str, port: int) -> str:
     return result.stdout + result.stderr
 
 
-def _start_server(port: int) -> subprocess.Popen:
+def _start_server() -> tuple[subprocess.Popen, int]:
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        s.bind(("127.0.0.1", 0))
+        port = int(s.getsockname()[1])
+
     env = os.environ.copy()
     env["DISABLE_AUTH"] = "true"  # Disable authentication for tests
     proc = subprocess.Popen(
         [
+            sys.executable,
+            "-m",
             "uvicorn",
             "src.core.app.application_factory:build_app",
             "--factory",
@@ -80,7 +85,7 @@ def _start_server(port: int) -> subprocess.Popen:
         env=env,
     )
     _wait_port(port)
-    return proc
+    return proc, port
 
 
 def _stop_server(proc: subprocess.Popen) -> None:
@@ -95,9 +100,8 @@ MODEL = "gemini-2.0-flash-lite-preview-02-05"
 
 
 def test_gemini_basic(tmp_path):
-    port = random.randint(8100, 8200)
     assert os.getenv("GEMINI_API_KEY_1"), "GEMINI_API_KEY_1 missing"
-    server = _start_server(port)
+    server, port = _start_server()
     try:
         cfg = tmp_path / "cfg.json"
         cfg.write_text(
@@ -116,9 +120,8 @@ def test_gemini_basic(tmp_path):
 
 
 def test_gemini_interactive_banner(tmp_path):
-    port = random.randint(8201, 8300)
     assert os.getenv("GEMINI_API_KEY_1"), "GEMINI_API_KEY_1 missing"
-    server = _start_server(port)
+    server, port = _start_server()
     try:
         cfg = tmp_path / "cfg.json"
         cfg.write_text(

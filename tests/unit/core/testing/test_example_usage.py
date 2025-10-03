@@ -382,3 +382,10 @@ class SafeTestStage(ValidatedTestStage):
             assert len(safe_issues) == 0
         finally:
             temp_path.unlink()
+
+
+import pytest
+
+pytestmark = pytest.mark.filterwarnings(
+    "ignore:unclosed event loop <ProactorEventLoop.*:ResourceWarning"
+)

@@ -8,6 +8,7 @@ import os
 import sys
 from unittest.mock import MagicMock, patch
 
+import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
@@ -21,6 +22,11 @@ from src.core.app.application_builder import ApplicationBuilder
 
 build_app = application_factory.build_app
 from src.core.config.app_config import AppConfig
+
+# Suppress Windows ProactorEventLoop warnings for this module
+pytestmark = pytest.mark.filterwarnings(
+    "ignore:unclosed event loop <ProactorEventLoop.*:ResourceWarning"
+)
 
 
 class TestApplicationBuilderServices:  # Renamed class to reflect testing ApplicationBuilder's service init

@@ -11,7 +11,7 @@ from src.core.di.container import ServiceCollection
 from src.core.testing.base_stage import ValidatedTestStage
 
 
-# ❌ DON'T DO THIS - This is the old way that causes coroutine warnings
+# [X] DON'T DO THIS - This is the old way that causes coroutine warnings
 class ProblematicTestStage(InitializationStage):
     """Example of what NOT to do - this will cause coroutine warnings."""
 
@@ -31,18 +31,18 @@ class ProblematicTestStage(InitializationStage):
         from src.core.interfaces.backend_service_interface import IBackendService
         from src.core.interfaces.session_service_interface import ISessionService
 
-        # ❌ PROBLEM: AsyncMock for session service
+        # [X] PROBLEM: AsyncMock for session service
         # This will cause "coroutine was never awaited" warnings because
         # get_session() is called synchronously but returns AsyncMock
         session_service = AsyncMock(spec=ISessionService)
         services.add_instance(ISessionService, session_service)
 
-        # ❌ PROBLEM: No validation of service registration
+        # [X] PROBLEM: No validation of service registration
         backend_service = AsyncMock(spec=IBackendService)
         services.add_instance(IBackendService, backend_service)
 
 
-# ✅ DO THIS - This is the new safe way
+# [OK] DO THIS - This is the new safe way
 class SafeTestStage(ValidatedTestStage):
     """Example of what TO do - this prevents coroutine warnings."""
 
@@ -63,12 +63,12 @@ class SafeTestStage(ValidatedTestStage):
         from src.core.interfaces.backend_service_interface import IBackendService
         from src.core.interfaces.session_service_interface import ISessionService
 
-        # ✅ SOLUTION: Use safe factories
+        # [OK] SOLUTION: Use safe factories
         # These are automatically configured to prevent coroutine warnings
         session_service = self.create_safe_session_service_mock()
         backend_service = self.create_safe_backend_service_mock()
 
-        # ✅ SOLUTION: Use safe registration with automatic validation
+        # [OK] SOLUTION: Use safe registration with automatic validation
         self.safe_register_instance(services, ISessionService, session_service)
         self.safe_register_instance(services, IBackendService, backend_service)
 
@@ -81,7 +81,7 @@ class ExampleTestClass:
         """Example test using safe mock creation."""
         from src.core.testing.interfaces import EnforcedMockFactory
 
-        # ✅ Use safe factories for known problematic services
+        # [OK] Use safe factories for known problematic services
         session_service = EnforcedMockFactory.create_session_service_mock()
 
         # These are guaranteed not to cause coroutine warnings
@@ -92,7 +92,7 @@ class ExampleTestClass:
         """Example of handling services with mixed async/sync methods."""
         from src.core.testing.interfaces import SafeAsyncMockWrapper
 
-        # ✅ For complex services with both async and sync methods
+        # [OK] For complex services with both async and sync methods
         wrapper = SafeAsyncMockWrapper(spec=SomeComplexService)
 
         # Mark sync methods explicitly
@@ -181,7 +181,7 @@ def create_test_config() -> AppConfig:
 def migrate_existing_test_stage() -> Any:
     """Example showing how to migrate an existing problematic stage."""
 
-    # ❌ OLD WAY (causes warnings)
+    # [X] OLD WAY (causes warnings)
     class OldStage(InitializationStage):
         async def execute(self, services: Any, config: Any) -> None:
             from unittest.mock import AsyncMock
@@ -191,7 +191,7 @@ def migrate_existing_test_stage() -> Any:
             mock = AsyncMock(spec=ISessionService)  # Problematic!
             services.add_instance(ISessionService, mock)
 
-    # ✅ NEW WAY (safe)
+    # [OK] NEW WAY (safe)
     class NewStage(ValidatedTestStage):
         @property
         def name(self) -> str:

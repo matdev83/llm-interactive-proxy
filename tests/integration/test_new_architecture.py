@@ -41,10 +41,10 @@ def app_config() -> AppConfig:
 @pytest.fixture
 def app(app_config: AppConfig) -> FastAPI:
     """Create a FastAPI app for testing."""
-    # Use the standard application factory which properly registers all services
-    from src.core.app.application_factory import build_app
+    # Use the test application factory which includes mock backends
+    from src.core.app.test_builder import build_test_app
 
-    return build_app(app_config)
+    return build_test_app(app_config)
 
 
 @pytest.fixture
@@ -307,3 +307,9 @@ def test_anthropic_endpoint(client: TestClient) -> None:
     assert len(response_data["content"]) > 0
     assert "type" in response_data["content"][0]
     assert response_data["content"][0]["type"] == "text"
+
+
+# Suppress Windows ProactorEventLoop warnings for this module
+pytestmark = pytest.mark.filterwarnings(
+    "ignore:unclosed event loop <ProactorEventLoop.*:ResourceWarning"
+)

@@ -14,12 +14,13 @@ class IMiddlewareApplicationManager(ABC):
     @abstractmethod
     async def apply_middleware(
         self,
-        content: str,
-        middleware_list: list[IResponseMiddleware],  # Changed to IResponseMiddleware
+        content: Any,
+        middleware_list: list[IResponseMiddleware] | None = None,
         is_streaming: bool = False,
-        stop_event: Any = None,
+        stop_event: Any | None = None,
         session_id: str = "",
-    ) -> str | Any:
+        context: dict[str, Any] | None = None,
+    ) -> Any:
         """
         Applies a list of response middleware to the given content.
 
@@ -27,6 +28,8 @@ class IMiddlewareApplicationManager(ABC):
             content: The content to apply middleware to.
             middleware_list: A list of IResponseMiddleware objects to apply.
             is_streaming: A boolean indicating if the middleware is applied during streaming.
+            session_id: The associated session identifier.
+            context: Additional context for middleware execution.
             stop_event: An optional event to signal early termination during streaming.
             session_id: The session ID for context-aware processing.
 

@@ -56,16 +56,21 @@ class CoreServicesStage(InitializationStage):
     def name(self) -> str:
         return "core_services"
 
+    def get_dependencies(self) -> list[str]:
+        return ["infrastructure"]
+
     def get_description(self) -> str:
         return "Register core services (config, session, logging)"
 
     async def execute(self, services: ServiceCollection, config: AppConfig) -> None:
         """Register core services that have no external dependencies."""
-        logger.info("Initializing core services...")
+        if logger.isEnabledFor(logging.INFO):
+            logger.info("Initializing core services...")
 
         # Register AppConfig as singleton instance
         services.add_instance(AppConfig, config)
-        logger.debug("Registered AppConfig instance")
+        if logger.isEnabledFor(logging.DEBUG):
+            logger.debug("Registered AppConfig instance")
 
         # Register ApplicationStateService
         services.add_singleton(ApplicationStateService)
@@ -97,7 +102,7 @@ class CoreServicesStage(InitializationStage):
                 IApplicationState  # type: ignore[type-abstract]
             )
 
-            stream_normalizer: IStreamNormalizer | None = provider.get_service(
+            stream_normalizer: IStreamNormalizer = provider.get_required_service(
                 IStreamNormalizer  # type: ignore[type-abstract]
             )
 
@@ -122,10 +127,11 @@ class CoreServicesStage(InitializationStage):
             )
             return processor
 
-        services.add_singleton(
-            ResponseProcessor, implementation_factory=response_processor_factory
-        )
-        logger.debug("Registered ResponseProcessor with ToolCallRepairMiddleware")
+        # ResponseProcessor is registered in services.py to avoid duplication
+        # services.add_singleton(
+        #     ResponseProcessor, implementation_factory=response_processor_factory
+        # )
+        # logger.debug("Registered ResponseProcessor with ToolCallRepairMiddleware")
 
         # Register session repository
         self._register_session_repository(services)
@@ -136,7 +142,8 @@ class CoreServicesStage(InitializationStage):
         # Register session resolver
         self._register_session_resolver(services, config)  # Re-added config parameter
 
-        logger.info("Core services initialized successfully")
+        if logger.isEnabledFor(logging.INFO):
+            logger.info("Core services initialized successfully")
 
     def _register_session_repository(self, services: ServiceCollection) -> None:
         """Register session repository services."""
@@ -156,9 +163,11 @@ class CoreServicesStage(InitializationStage):
                 cast(type, ISessionRepository), InMemorySessionRepository
             )
 
-            logger.debug("Registered session repository services")
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug("Registered session repository services")
         except ImportError as e:  # type: ignore[misc]
-            logger.warning(f"Could not register session repository: {e}")
+            if logger.isEnabledFor(logging.WARNING):
+                logger.warning(f"Could not register session repository: {e}")
 
     def _register_session_service(self, services: ServiceCollection) -> None:
         """Register session service with dependency injection."""
@@ -189,9 +198,11 @@ class CoreServicesStage(InitializationStage):
                 implementation_factory=session_service_factory,
             )
 
-            logger.debug("Registered session service with factory")
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug("Registered session service with factory")
         except ImportError as e:  # type: ignore[misc]
-            logger.warning(f"Could not register session service: {e}")
+            if logger.isEnabledFor(logging.WARNING):
+                logger.warning(f"Could not register session service: {e}")
 
     def _register_session_resolver(
         self,
@@ -222,7 +233,8 @@ class CoreServicesStage(InitializationStage):
                 implementation_factory=session_resolver_factory,
             )
 
-            logger.debug("Registered session resolver instance")
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug("Registered session resolver instance")
 
             # from src.core.services.secure_state_service import SecureStateService # Already imported
 
@@ -248,9 +260,11 @@ class CoreServicesStage(InitializationStage):
             from src.core.di.services import register_core_services
 
             register_core_services(services, config)
-            logger.debug("Registered core services from DI module")
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug("Registered core services from DI module")
         except Exception as e:
-            logger.error(f"Failed to register core services from DI module: {e}")
+            if logger.isEnabledFor(logging.ERROR):
+                logger.error(f"Failed to register core services from DI module: {e}")
             raise
 
         # Register wire capture service
@@ -260,22 +274,24 @@ class CoreServicesStage(InitializationStage):
         """Register wire capture service."""
         try:
             from src.core.interfaces.wire_capture_interface import IWireCapture
-            from src.core.services.structured_wire_capture_service import (
-                StructuredWireCapture,
+            from src.core.services.buffered_wire_capture_service import (
+                BufferedWireCapture,
             )
 
             def wire_capture_factory(
                 provider: IServiceProvider,
-            ) -> StructuredWireCapture:
+            ) -> BufferedWireCapture:
                 config = provider.get_required_service(AppConfig)
-                return StructuredWireCapture(config)
+                return BufferedWireCapture(config)
 
             services.add_singleton(
                 IWireCapture, implementation_factory=wire_capture_factory
             )
-            logger.debug("Registered wire capture service")
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug("Registered wire capture service")
         except ImportError as e:
-            logger.warning(f"Could not register wire capture service: {e}")
+            if logger.isEnabledFor(logging.WARNING):
+                logger.warning(f"Could not register wire capture service: {e}")
 
     async def validate(self, services: ServiceCollection, config: AppConfig) -> bool:
         """Validate that core services can be registered."""
@@ -284,10 +300,12 @@ class CoreServicesStage(InitializationStage):
 
             # Validate config is not None  # type: ignore[unreachable]
             if config is None:
-                logger.error("AppConfig is None")  # type: ignore[unreachable]
+                if logger.isEnabledFor(logging.ERROR):
+                    logger.error("AppConfig is None")  # type: ignore[unreachable]
                 return False
 
             return True
         except ImportError as e:  # type: ignore[misc]
-            logger.error(f"Core services validation failed: {e}")
+            if logger.isEnabledFor(logging.ERROR):
+                logger.error(f"Core services validation failed: {e}")
             return False

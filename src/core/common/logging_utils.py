@@ -6,6 +6,7 @@ This module provides utilities for logging, including:
 - Redaction of sensitive information
 - Consistent log level usage
 - Enhanced context information
+- Test/production environment tagging
 """
 
 # type: ignore[unreachable]
@@ -13,9 +14,10 @@ import contextlib
 import logging
 import os
 import re
+import sys
 from collections.abc import Callable
 from functools import wraps
-from typing import Any, TypeVar, cast
+from typing import Any, Literal, TypeVar, cast
 
 import structlog
 
@@ -23,6 +25,61 @@ from src.core.config.app_config import AppConfig
 
 # Type variable for generic functions
 T = TypeVar("T")
+
+
+# Environment detection
+def _is_running_under_pytest() -> bool:
+    """Detect if we're running under pytest.
+
+    Returns:
+        True if running under pytest, False otherwise
+    """
+    return "pytest" in sys.modules or os.getenv("PYTEST_CURRENT_TEST") is not None
+
+
+def _get_environment_tag() -> str:
+    """Get the environment tag for logging.
+
+    Returns:
+        'test' if running under pytest, 'prod' otherwise
+    """
+    return "test" if _is_running_under_pytest() else "prod"
+
+
+class EnvironmentTaggingFilter(logging.Filter):
+    """Logging filter that adds environment tags to log records."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self._env_tag = _get_environment_tag()
+
+    def filter(self, record: logging.LogRecord) -> bool:  # type: ignore[override]
+        """Add environment tag to log record.
+
+        Args:
+            record: The log record to filter
+
+        Returns:
+            True to include the record
+        """
+        record.env_tag = self._env_tag
+        return True
+
+
+class EnvironmentTaggingFormatter(logging.Formatter):
+    """Logging formatter that includes environment tags."""
+
+    def __init__(
+        self,
+        fmt: str | None = None,
+        datefmt: str | None = None,
+        style: Literal["%", "{", "$"] = "%",
+    ) -> None:
+        # Set default format if none provided - match project format with env_tag after loglevel
+        if fmt is None:
+            fmt = "%(asctime)s [%(levelname)-8s] [%(env_tag)s] %(name)s:%(lineno)d %(message)s"
+        super().__init__(fmt, datefmt, style=style)
+
 
 # Default set of fields to redact
 DEFAULT_REDACTED_FIELDS = {
@@ -229,6 +286,79 @@ class ApiKeyRedactionFilter(logging.Filter):
         return True
 
 
+def install_environment_tagging() -> None:
+    """Install environment tagging filter on the root logger and its handlers."""
+    try:
+        root = logging.getLogger()
+        filter_instance = EnvironmentTaggingFilter()
+
+        # Add to root logger
+        root.addFilter(filter_instance)
+
+        # Add to existing handlers
+        for handler in list(root.handlers):
+            try:
+                handler.addFilter(filter_instance)
+                # Update formatter to include environment tag
+                if isinstance(handler.formatter, logging.Formatter):
+                    # Use the environment tagging formatter
+                    new_formatter = EnvironmentTaggingFormatter(
+                        fmt=handler.formatter._fmt, datefmt=handler.formatter.datefmt
+                    )
+                    handler.setFormatter(new_formatter)
+            except Exception as e:
+                get_logger(__name__).debug(
+                    "Failed to update handler for environment tagging: %s",
+                    e,
+                    exc_info=True,
+                )
+                continue
+    except Exception as e:
+        get_logger(__name__).debug(
+            "Failed to install environment tagging filter: %s", e, exc_info=True
+        )
+
+
+def configure_logging_with_environment_tagging(
+    level: int = logging.INFO,
+    log_format: str | None = None,
+    log_file: str | None = None,
+) -> None:
+    """Configure logging with environment tagging.
+
+    Args:
+        level: Logging level
+        log_format: Optional log format string
+        log_file: Optional log file path
+    """
+    # Use default format with environment tag if none provided - match project format with env_tag after loglevel
+    if log_format is None:
+        log_format = "%(asctime)s [%(levelname)-8s] [%(env_tag)s] %(name)s:%(lineno)d %(message)s"
+
+    # Create formatter with environment tag support
+    formatter = EnvironmentTaggingFormatter(fmt=log_format)
+
+    # Create handlers
+    handlers: list[logging.Handler] = []
+
+    # Console handler
+    console_handler = logging.StreamHandler()
+    console_handler.setFormatter(formatter)
+    handlers.append(console_handler)
+
+    # File handler if specified
+    if log_file:
+        file_handler = logging.FileHandler(log_file)
+        file_handler.setFormatter(formatter)
+        handlers.append(file_handler)
+
+    # Configure root logger
+    _configure_root_logger(level, handlers)
+
+    # Install environment tagging filter
+    install_environment_tagging()
+
+
 def install_api_key_redaction_filter(
     api_keys: list[str] | set[str] | None, mask: str = "***"
 ) -> None:
@@ -281,9 +411,7 @@ def _discover_api_keys_from_config_auth(
                     if k:
                         found.add(str(k))
                         # SECURITY WARNING: Log when API keys are found in config
-                        import logging
-
-                        logger = logging.getLogger(__name__)
+                        logger = get_logger(__name__)
                         logger.warning(
                             "SECURITY WARNING: API key found in config.auth.api_keys. "
                             "API keys should only be set via environment variables, not config files."
@@ -331,9 +459,7 @@ def _discover_api_keys_from_config_backends(
                                 if k:
                                     found.add(str(k))
                                     # SECURITY WARNING: Log when API keys are found in config
-                                    import logging
-
-                                    logger = logging.getLogger(__name__)
+                                    logger = get_logger(__name__)
                                     logger.warning(
                                         f"SECURITY WARNING: API key found in config.backends.{b}.api_key. "
                                         "API keys should only be set via environment variables, not config files."
@@ -341,9 +467,7 @@ def _discover_api_keys_from_config_backends(
                         else:
                             found.add(str(ak))
                             # SECURITY WARNING: Log when API keys are found in config
-                            import logging
-
-                            logger = logging.getLogger(__name__)
+                            logger = get_logger(__name__)
                             logger.warning(
                                 f"SECURITY WARNING: API key found in config.backends.{b}.api_key. "
                                 "API keys should only be set via environment variables, not config files."
@@ -363,54 +487,24 @@ def _discover_api_keys_from_config_backends(
 
 def _discover_api_keys_from_environment(found: set[str]) -> None:
     """Scan environment variables for API keys."""
-    try:
-        api_key_name_re = re.compile(r".*API_KEY(?:_\d+)?$", re.IGNORECASE)
-        api_keys_container_re = re.compile(r".*API_KEYS?$", re.IGNORECASE)
+    # More targeted and efficient environment scan
+    api_key_vars = [
+        "OPENROUTER_API_KEY",
+        "GEMINI_API_KEY",
+        "ANTHROPIC_API_KEY",
+        "ZAI_API_KEY",
+        "LLM_INTERACTIVE_PROXY_API_KEY",
+        "OPENAI_API_KEY",
+        "AUTH_TOKEN",
+    ]
+    for var in api_key_vars:
+        if key := os.getenv(var):
+            found.add(key)
 
-        for name, val in os.environ.items():
-            if not val or not isinstance(val, str):
-                continue
-
-            # If the env var name indicates it stores API keys, extract them
-            if api_key_name_re.match(name) or api_keys_container_re.match(name):
-                # Split comma/semicolon-separated lists
-                parts = [p.strip() for p in re.split(r"[,;\n]", val) if p.strip()]
-                for p in parts:
-                    # If the value contains a Bearer prefix, capture token part
-                    m = BEARER_TOKEN_PATTERN.search(p)
-                    if m:
-                        token = m.group(1)
-                        if token:
-                            found.add(token)
-                            continue
-                    # Otherwise, if it matches explicit API key pattern, add it
-                    if API_KEY_PATTERN.search(p):
-                        found.add(p)
-                        continue
-                    # As a permissive fallback, accept reasonably long single-token values
-                    if len(p) >= 10 and " " not in p and len(p) <= 400:
-                        found.add(p)
-                # continue to next env var
-                continue
-
-            # Also inspect arbitrary env values for embedded tokens
-            try:
-                for m in API_KEY_PATTERN.findall(val):
-                    if m:
-                        found.add(m)
-                for m in BEARER_TOKEN_PATTERN.findall(val):
-                    if m:
-                        found.add(m)
-            except Exception as e:
-                get_logger(__name__).debug(
-                    "Error scanning env var for tokens: %s", e, exc_info=True
-                )
-                continue
-    except Exception as e:
-        # Suppress errors to ensure logging continues
-        get_logger().warning(
-            "Failed to discover API keys from environment: %s", e, exc_info=True
-        )
+    # Also scan for numbered API keys, e.g., GEMINI_API_KEY_1
+    for i in range(1, 21):
+        if key := os.getenv(f"GEMINI_API_KEY_{i}"):
+            found.add(key)
 
 
 def discover_api_keys_from_config_and_env(config: AppConfig | None = None) -> list[str]:
@@ -443,6 +537,23 @@ def discover_api_keys_from_config_and_env(config: AppConfig | None = None) -> li
     _discover_api_keys_from_environment(found)
 
     return list(found)
+
+
+def _configure_root_logger(level: int, handlers: list[logging.Handler]) -> None:
+    """Configure the root logger with the specified level and handlers."""
+    # Get the root logger
+    root_logger = logging.getLogger()
+
+    # Set the logging level
+    root_logger.setLevel(level)
+
+    # Remove any existing handlers to prevent duplicate logs
+    for handler in root_logger.handlers[:]:
+        root_logger.removeHandler(handler)
+
+    # Add the new handlers
+    for handler in handlers:
+        root_logger.addHandler(handler)
 
 
 def log_call(

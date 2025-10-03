@@ -32,7 +32,8 @@ async def validation_exception_handler(
     Returns:
         JSON response with error details
     """
-    logger.warning(f"Validation error: {exc.errors()}")
+    if logger.isEnabledFor(logging.WARNING):
+        logger.warning(f"Validation error: {exc.errors()}")
 
     error_details: list[dict[str, Any]] = []
     for error in exc.errors():
@@ -69,7 +70,8 @@ async def http_exception_handler(request: Request, exc: HTTPException) -> Respon
     Returns:
         JSON response with error details
     """
-    logger.warning(f"HTTP error {exc.status_code}: {exc.detail}")
+    if logger.isEnabledFor(logging.WARNING):
+        logger.warning(f"HTTP error {exc.status_code}: {exc.detail}")
 
     # Check if this is a chat completions endpoint request
     is_chat_completions = False
@@ -140,9 +142,11 @@ async def proxy_exception_handler(request: Request, exc: LLMProxyError) -> Respo
     exc_message = getattr(exc, "message", str(exc))
     exc_status = getattr(exc, "status_code", None)
     if exc_status is not None:
-        logger.warning(f"{exc_name} ({exc_status}): {exc_message}")
+        if logger.isEnabledFor(logging.WARNING):
+            logger.warning(f"{exc_name} ({exc_status}): {exc_message}")
     else:
-        logger.warning(f"{exc_name}: {exc_message}")
+        if logger.isEnabledFor(logging.WARNING):
+            logger.warning(f"{exc_name}: {exc_message}")
 
     # Check if this is a chat completions endpoint request
     is_chat_completions = False
@@ -197,14 +201,17 @@ async def proxy_exception_handler(request: Request, exc: LLMProxyError) -> Respo
             }
         else:
             # Standard error response for non-chat completions endpoints
+            error_payload: dict[str, Any] = {
+                "message": exc_message,
+                "type": exc_name,
+                "status_code": status_code,
+            }
+            if getattr(exc, "details", None):
+                error_payload["details"] = exc.details
+
             content = {
                 "detail": {
-                    "error": exc_message,
-                    **(
-                        {"details": exc.details}
-                        if getattr(exc, "details", None)
-                        else {}
-                    ),
+                    "error": error_payload,
                 }
             }
 

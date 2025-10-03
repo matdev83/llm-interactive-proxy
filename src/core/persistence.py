@@ -264,8 +264,8 @@ class ConfigManager:
                 f"Backend '{backend_name}' in route '{route_name}' element '{elem_str}' is not functional, skipping.",
             )
 
-        valid_model = False
-        validation_error: str | None = "Backend service not available."
+        valid_model = True
+        validation_warning: str | None = None
         if self.service_provider:
             try:
                 from src.core.interfaces.backend_service_interface import (
@@ -283,11 +283,32 @@ class ConfigManager:
                     # This is a temporary workaround to unblock the current refactoring.
                     import asyncio
 
-                    valid_model, validation_error = asyncio.run(
-                        backend_service.validate_backend_and_model(
-                            backend_name, model_name
+                    try:
+                        valid_model, _validation_error = asyncio.run(
+                            backend_service.validate_backend_and_model(
+                                backend_name, model_name
+                            )
                         )
-                    )
+                    except RuntimeError as runtime_error:
+                        message = str(runtime_error)
+                        if "asyncio.run() cannot be called" not in message:
+                            raise
+
+                        logger.debug(
+                            "Skipping failover validation for %s/%s because the event loop is running.",
+                            backend_name,
+                            model_name,
+                            exc_info=True,
+                        )
+                        if _STRICT_PERSISTENCE_ERRORS:
+                            raise ConfigurationError(
+                                "Cannot validate failover routes while the event loop is running."
+                            ) from runtime_error
+                        validation_warning = (
+                            f"Skipping validation for backend '{backend_name}' model '{model_name}' in route "
+                            f"'{route_name}' because the event loop is already running."
+                        )
+                        valid_model = True
 
             except ServiceResolutionError as e:
                 logger.debug(
@@ -310,12 +331,16 @@ class ConfigManager:
                     raise ConfigurationError(
                         "Unexpected error validating failover element",
                     ) from e
+                valid_model = False
 
         if not valid_model:
             return (
                 None,
                 f"Model '{model_name}' for backend '{backend_name}' in route '{route_name}' element '{elem_str}' is not available, skipping.",
             )
+
+        if validation_warning:
+            return internal_elem_str, validation_warning
 
         return internal_elem_str, None  # Return internal colon syntax, no warning
 

@@ -80,7 +80,7 @@ class ResponseProcessor(IResponseProcessor):
 
             self._stream_normalizer = StreamNormalizer(processors)
 
-        if not stream_normalizer:
+        if stream_normalizer is None:
             self._stream_normalizer = None
 
     def add_background_task(self, task: asyncio.Task[Any]) -> None:
@@ -95,7 +95,10 @@ class ResponseProcessor(IResponseProcessor):
         # but for the new architecture, middleware is handled by the stream processors
 
     async def process_response(
-        self, response: Any, session_id: str
+        self,
+        response: Any,
+        session_id: str,
+        context: dict[str, Any] | None = None,
     ) -> ProcessedResponse:
         """Process a non-streaming response.
 
@@ -138,13 +141,6 @@ class ResponseProcessor(IResponseProcessor):
                         },
                     )
 
-            # Handle content type conversion if necessary
-            if isinstance(content, dict | list):
-                try:
-                    content = json.dumps(content)
-                except (TypeError, ValueError):
-                    content = str(content)
-
             # Leave status as-is; allow upstream layers to decide error mapping.
 
             processed_response = ProcessedResponse(
@@ -164,6 +160,13 @@ class ResponseProcessor(IResponseProcessor):
                 ):
                     enriched_metadata["expected_json"] = True
 
+                middleware_context: dict[str, Any] = {
+                    "stop_event": None,
+                    "original_response": parsed_data,
+                }
+                if context:
+                    middleware_context.update(context)
+
                 # Assuming middleware application manager can handle non-streaming content directly
                 processed_content = (
                     await self._middleware_application_manager.apply_middleware(
@@ -172,6 +175,7 @@ class ResponseProcessor(IResponseProcessor):
                         is_streaming=False,
                         stop_event=None,
                         session_id=session_id,
+                        context=middleware_context,
                     )
                 )
 
@@ -221,6 +225,11 @@ class ResponseProcessor(IResponseProcessor):
         Returns:
             An async iterator yielding ProcessedResponse objects.
         """
+        # Reset loop detector state at the beginning of each streaming session
+        # to prevent contamination across different requests
+        if self._loop_detector is not None:
+            self._loop_detector.reset()
+
         # For the basic streaming tests without a mock normalizer, we need to handle
         # the raw chunks directly
         if self._stream_normalizer is None:

@@ -201,7 +201,7 @@ class DependencyChecker:
                 import importlib.metadata
 
                 installed = {
-                    dist.metadata["Name"].lower()
+                    dist.metadata["Name"].lower().replace("-", "_")
                     for dist in importlib.metadata.distributions()
                 }
             except ImportError:
@@ -232,7 +232,7 @@ class DependencyChecker:
                 installed = set()
                 for line in result.stdout.strip().split("\n"):
                     if "==" in line:
-                        package_name = line.split("==")[0].lower()
+                        package_name = line.split("==")[0].lower().replace("-", "_")
                         installed.add(package_name)
 
             # Cache the result
@@ -264,6 +264,10 @@ class DependencyChecker:
         # Extract main dependencies
         if "project" in content and "dependencies" in content["project"]:
             for dep in content["project"]["dependencies"]:
+                # Skip empty dependencies
+                if not dep.strip():
+                    continue
+
                 # Extract package name (before any version specifiers)
                 package_name = (
                     dep.split()[0]
@@ -277,12 +281,18 @@ class DependencyChecker:
                 # Handle extras syntax like package[extra]
                 if "[" in package_name and "]" in package_name:
                     package_name = package_name.split("[")[0]
-                dependencies.add(package_name.lower())
+                # Normalize package name: lowercase and replace hyphens with underscores
+                normalized_name = package_name.lower().replace("-", "_")
+                dependencies.add(normalized_name)
 
         # Extract optional dependencies
         if "project" in content and "optional-dependencies" in content["project"]:
             for group_deps in content["project"]["optional-dependencies"].values():
                 for dep in group_deps:
+                    # Skip empty dependencies
+                    if not dep.strip():
+                        continue
+
                     package_name = (
                         dep.split()[0]
                         .split(">=")[0]
@@ -295,7 +305,9 @@ class DependencyChecker:
                     # Handle extras syntax like package[extra]
                     if "[" in package_name and "]" in package_name:
                         package_name = package_name.split("[")[0]
-                    dependencies.add(package_name.lower())
+                    # Normalize package name: lowercase and replace hyphens with underscores
+                    normalized_name = package_name.lower().replace("-", "_")
+                    dependencies.add(normalized_name)
 
         return dependencies
 

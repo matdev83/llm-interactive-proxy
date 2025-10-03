@@ -14,6 +14,25 @@ from pydantic import BaseModel
 class DomainModel(BaseModel):
     """Nominal marker for Pydantic-based domain and API models."""
 
+    def __repr__(self) -> str:
+        """Provide a concise, one-line summary of the object."""
+        # Get the model's class name
+        class_name = self.__class__.__name__
+
+        # Attempt to find a unique identifier for a more informative repr
+        # Common identifiers are 'id', 'name', or 'session_id'
+        repr_attrs = ("id", "name", "session_id")
+        for attr in repr_attrs:
+            if hasattr(self, attr):
+                attr_value = getattr(self, attr)
+                if attr_value is not None:
+                    return f'<{class_name} {attr}="{attr_value}">'
+
+        # Fallback for models without a standard identifier
+        # You might want to show a few key fields, but keep it brief
+        # For now, a simple representation is best to avoid verbosity
+        return f"<{class_name}>"
+
 
 class InternalDTO:
     """Nominal marker for internal dataclass DTOs.

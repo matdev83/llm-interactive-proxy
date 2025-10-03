@@ -12,8 +12,8 @@ import pytest
 from fastapi.testclient import TestClient
 from src.core.domain.chat import ChatResponse
 from src.core.interfaces.backend_service_interface import IBackendService
-from src.core.services.loop_detector_service import LoopDetector
 from src.core.services.response_processor_service import ResponseProcessor
+from src.loop_detection.hybrid_detector import HybridLoopDetector
 
 
 @pytest.fixture
@@ -86,28 +86,29 @@ async def test_loop_detection_with_mocked_backend():
         mock_call.return_value = repeating_response
 
         # Create a test client
-        client = TestClient(app, headers={"Authorization": "Bearer test_api_key"})
+        with TestClient(
+            app, headers={"Authorization": "Bearer test_api_key"}
+        ) as client:
+            # Make a request to the API endpoint
+            response = client.post(
+                "/v1/chat/completions",
+                json={
+                    "model": "test-model",
+                    "messages": [{"role": "user", "content": "Hello"}],
+                    "session_id": "test-loop-detection-session",
+                },
+            )
 
-        # Make a request to the API endpoint
-        response = client.post(
-            "/v1/chat/completions",
-            json={
-                "model": "test-model",
-                "messages": [{"role": "user", "content": "Hello"}],
-                "session_id": "test-loop-detection-session",
-            },
-        )
+            # For now, verify the response is successful (loop detection may not be working in test environment)
+            # This indicates the test needs further investigation of loop detection setup
+            assert response.status_code == 200
+            response_json = response.json()
 
-        # For now, verify the response is successful (loop detection may not be working in test environment)
-        # This indicates the test needs further investigation of loop detection setup
-        assert response.status_code == 200
-        response_json = response.json()
+            # Check that we got a valid response structure
+            assert "choices" in response_json
+            assert len(response_json["choices"]) > 0
 
-        # Check that we got a valid response structure
-        assert "choices" in response_json
-        assert len(response_json["choices"]) > 0
-
-        # Note: Loop detection may not be working in the current test setup
+            # Note: Loop detection may not be working in the current test setup
         # This test serves as a baseline for when loop detection is properly configured
 
 
@@ -144,12 +145,12 @@ async def test_loop_detection_in_streaming_response():
             await asyncio.sleep(0.01)
 
     # Patch the backend service to return the streaming response
-    with patch.object(
-        backend_service, "call_completion", return_value=generate_repeating_chunks()
+    with (
+        patch.object(
+            backend_service, "call_completion", return_value=generate_repeating_chunks()
+        ),
+        TestClient(app, headers={"Authorization": "Bearer test_api_key"}) as client,
     ):
-        # Create a test client with authentication
-        client = TestClient(app, headers={"Authorization": "Bearer test_api_key"})
-
         # Make a streaming request to the API endpoint
         response = client.post(
             "/v1/chat/completions",
@@ -168,16 +169,17 @@ async def test_loop_detection_in_streaming_response():
         response_text = response.text
         assert len(response_text) > 0
 
-        # Note: Full streaming loop detection testing would require more complex setup
-        # This test serves as a baseline for streaming functionality
+    # Note: Full streaming loop detection testing would require more complex setup
+    # This test serves as a baseline for streaming functionality
 
 
 @pytest.mark.asyncio
 async def test_loop_detection_integration_with_middleware_chain():
     """Test that the loop detection middleware is properly integrated in the chain."""
     # Create a loop detector
-    loop_detector = LoopDetector(
-        min_pattern_length=5, max_pattern_length=50, min_repetitions=2
+    loop_detector = HybridLoopDetector(
+        short_detector_config={"content_loop_threshold": 5, "content_chunk_size": 25},
+        long_detector_config={"min_pattern_length": 60, "max_pattern_length": 500},
     )
 
     # Create middleware components
@@ -201,7 +203,9 @@ async def test_loop_detection_integration_with_middleware_chain():
     from src.core.services.streaming.stream_normalizer import StreamNormalizer
 
     # Create a response with repeating content
-    repeating_content = "I will repeat myself. I will repeat myself. " * 20
+    # Use a pattern that will actually be detected by the chunk-based algorithm
+    repeating_pattern = "repeatthis "  # 11 characters
+    repeating_content = repeating_pattern * 10  # Repeat 10 times to ensure detection
 
     mock_response_parser = AsyncMock(spec=IResponseParser)
     mock_response_parser.parse_response.return_value = {

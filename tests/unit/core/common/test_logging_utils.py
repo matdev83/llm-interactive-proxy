@@ -156,7 +156,7 @@ class TestDiscoverApiKeysFromConfigAndEnv:
             mock_config.backends = mock_backends
 
             # Discover API keys
-            with patch("logging.getLogger") as mock_get_logger:
+            with patch("src.core.common.logging_utils.get_logger") as mock_get_logger:
                 mock_logger = MagicMock()
                 mock_get_logger.return_value = mock_logger
 

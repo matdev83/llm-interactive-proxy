@@ -96,7 +96,16 @@ async def test_zai_real_non_stream_endpoints() -> None:
         )
         assert r1.status_code == 200, r1.text
         j1 = r1.json()
-        text1 = j1.get("choices", [{}])[0].get("message", {}).get("content", "")
+        choices = j1.get("choices", [])
+        if not choices:
+            text1 = ""
+        else:
+            choice = choices[0] if choices[0] is not None else {}
+            text1 = (
+                choice.get("message", {}).get("content", "")
+                if isinstance(choice, dict)
+                else ""
+            )
         assert str(uniq) in str(text1)
 
         # Anthropic endpoint

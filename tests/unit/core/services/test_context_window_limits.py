@@ -77,9 +77,8 @@ class TestContextWindowLimits:
         assert resp.status_code == 400
         body = resp.json()
         detail = body.get("detail", {})
-        err = detail.get("error", {}) if isinstance(detail, dict) else {}
-        assert err.get("code") == "input_limit_exceeded"
-        details = err.get("details", {})
+        assert detail.get("code") == "input_limit_exceeded"
+        details = detail.get("details", {})
         assert isinstance(details.get("measured"), int)
         assert isinstance(details.get("limit"), int) and details["limit"] == 1
 
@@ -99,8 +98,122 @@ class TestContextWindowLimits:
         assert resp.status_code == 400
         body = resp.json()
         detail = body.get("detail", {})
-        err = detail.get("error", {}) if isinstance(detail, dict) else {}
-        assert err.get("code") == "input_limit_exceeded"
-        details = err.get("details", {})
+        assert detail.get("code") == "input_limit_exceeded"
+        details = detail.get("details", {})
         assert isinstance(details.get("measured"), int)
         assert isinstance(details.get("limit"), int) and details["limit"] == 1
+
+    def test_cli_context_window_override(self) -> None:
+        """Test that CLI context window override takes precedence over config file settings."""
+        app = build_test_app()
+        sp = app.state.service_provider
+        app_state = sp.get_required_service(IApplicationState)  # type: ignore[attr-defined]
+
+        # Set model defaults with large context window
+        large_limits = ModelLimits(context_window=100000, max_input_tokens=80000)
+        md = ModelDefaults(limits=large_limits)
+        app_state.set_model_defaults({"gpt-4": md})
+        app_state.set_backend_type("openai")
+
+        # Set CLI context window override to smaller value
+        app_state.set_setting(
+            "app_config", type("MockConfig", (), {"context_window_override": 5000})()
+        )
+
+        # Disable auth for tests
+        app_state.set_setting("disable_auth", True)
+        app.state.disable_auth = True
+
+        client = TestClient(app)
+
+        payload = {
+            "model": "gpt-4",
+            "messages": [{"role": "user", "content": "This is a short message."}],
+        }
+        resp = client.post("/v1/chat/completions", json=payload)
+        # Should succeed since the message is under the CLI override limit
+        assert resp.status_code == 200
+
+    def test_cli_context_window_override_enforced(self) -> None:
+        """Test that CLI context window override is actually enforced when exceeded."""
+        app = build_test_app()
+        sp = app.state.service_provider
+        app_state = sp.get_required_service(IApplicationState)  # type: ignore[attr-defined]
+
+        # Set model defaults with very large context window
+        large_limits = ModelLimits(context_window=100000, max_input_tokens=80000)
+        md = ModelDefaults(limits=large_limits)
+        app_state.set_model_defaults({"gpt-4": md})
+        app_state.set_backend_type("openai")
+
+        # Set CLI context window override to very small value
+        app_state.set_setting(
+            "app_config", type("MockConfig", (), {"context_window_override": 1})()
+        )
+
+        # Disable auth for tests
+        app_state.set_setting("disable_auth", True)
+        app.state.disable_auth = True
+
+        client = TestClient(app)
+
+        # Create a message that will exceed the tiny CLI override limit
+        long_content = "This is a very long message that should definitely exceed one token and trigger the CLI context window override enforcement."
+        payload = {
+            "model": "gpt-4",
+            "messages": [{"role": "user", "content": long_content}],
+        }
+        resp = client.post("/v1/chat/completions", json=payload)
+        assert resp.status_code == 400
+        body = resp.json()
+        detail = body.get("detail", {})
+        assert detail.get("code") == "input_limit_exceeded"
+        details = detail.get("details", {})
+        assert isinstance(details.get("measured"), int)
+        # The limit should be the CLI override value (1), not the config file value (100000)
+        assert isinstance(details.get("limit"), int) and details["limit"] == 1
+
+    def test_cli_context_window_override_with_no_existing_limits(self) -> None:
+        """Test CLI context window override when model has no existing limits configured."""
+        app = build_test_app()
+        sp = app.state.service_provider
+        app_state = sp.get_required_service(IApplicationState)  # type: ignore[attr-defined]
+
+        # Don't set any model defaults (no existing limits)
+        app_state.set_model_defaults({})
+        app_state.set_backend_type("openai")
+
+        # Set CLI context window override to very small value
+        app_state.set_setting(
+            "app_config", type("MockConfig", (), {"context_window_override": 10})()
+        )
+
+        # Disable auth for tests
+        app_state.set_setting("disable_auth", True)
+        app.state.disable_auth = True
+
+        client = TestClient(app)
+
+        # Create a message that will exceed the tiny CLI override limit
+        # This message is definitely more than 10 tokens
+        long_content = "This is a much longer message that should definitely exceed the very small CLI context window override limit of ten tokens and trigger enforcement since it contains many more words than would fit in such a tiny limit."
+        payload = {
+            "model": "gpt-4",
+            "messages": [{"role": "user", "content": long_content}],
+        }
+        resp = client.post("/v1/chat/completions", json=payload)
+        assert resp.status_code == 400
+        body = resp.json()
+        detail = body.get("detail", {})
+        assert detail.get("code") == "input_limit_exceeded"
+        details = detail.get("details", {})
+        assert isinstance(details.get("measured"), int)
+        # The limit should be the CLI override value (10)
+        assert isinstance(details.get("limit"), int) and details["limit"] == 10
+
+
+import pytest
+
+pytestmark = pytest.mark.filterwarnings(
+    "ignore:unclosed event loop <ProactorEventLoop.*:ResourceWarning"
+)

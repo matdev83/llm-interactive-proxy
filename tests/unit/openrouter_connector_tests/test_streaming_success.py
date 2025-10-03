@@ -1,5 +1,10 @@
 import httpx
 import pytest
+
+# Suppress Windows ProactorEventLoop ResourceWarnings for this module
+pytestmark = pytest.mark.filterwarnings(
+    "ignore:unclosed event loop <ProactorEventLoop.*:ResourceWarning"
+)
 import pytest_asyncio
 from pytest_httpx import HTTPXMock
 from src.connectors.openrouter import OpenRouterBackend

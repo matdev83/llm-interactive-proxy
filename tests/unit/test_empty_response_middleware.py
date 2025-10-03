@@ -122,6 +122,79 @@ class TestEmptyResponseMiddleware:
         assert "session123" not in middleware._retry_counts
 
     @pytest.mark.asyncio
+    async def test_process_handles_dict_responses(self):
+        """Middleware should safely handle raw dictionary responses."""
+        middleware = EmptyResponseMiddleware()
+
+        # Non-empty OpenAI-style payload should pass through unchanged
+        raw_response = {
+            "choices": [
+                {
+                    "message": {
+                        "role": "assistant",
+                        "content": "All good here",
+                    }
+                }
+            ]
+        }
+
+        result = await middleware.process(raw_response, "sess-dict", context={})
+        assert result is raw_response
+        assert "sess-dict" not in middleware._retry_counts
+
+        # Empty payload without tool calls should trigger retry logic
+        empty_response = {
+            "choices": [
+                {
+                    "message": {
+                        "role": "assistant",
+                        "content": "",
+                    }
+                }
+            ]
+        }
+
+        with pytest.raises(EmptyResponseRetryException):
+            await middleware.process(
+                empty_response,
+                "sess-empty",
+                context={"original_request": "req"},
+            )
+
+    @pytest.mark.asyncio
+    async def test_process_handles_structured_content(self):
+        """Middleware should handle structured content (multimodal responses)."""
+        middleware = EmptyResponseMiddleware()
+
+        # Structured content (multimodal) should not be treated as empty
+        structured_response = {
+            "content": [
+                {"type": "text", "text": "Here's an image:"},
+                {
+                    "type": "image_url",
+                    "image_url": {"url": "data:image/png;base64,..."},
+                },
+            ]
+        }
+
+        result = await middleware.process(
+            structured_response, "sess-structured", context={}
+        )
+        assert result is structured_response
+        assert "sess-structured" not in middleware._retry_counts
+
+        # Dict content should also be handled properly
+        dict_content_response = {
+            "content": {"type": "text", "text": "Some structured content"}
+        }
+
+        result = await middleware.process(
+            dict_content_response, "sess-dict-content", context={}
+        )
+        assert result is dict_content_response
+        assert "sess-dict-content" not in middleware._retry_counts
+
+    @pytest.mark.asyncio
     @patch("builtins.open", mock_open(read_data="Recovery prompt"))
     @patch("pathlib.Path.exists", return_value=True)
     async def test_process_empty_response_first_retry(self, mock_exists):
@@ -130,7 +203,9 @@ class TestEmptyResponseMiddleware:
         response = ProcessedResponse(content="")
 
         with pytest.raises(EmptyResponseRetryException) as exc_info:
-            await middleware.process(response, "session123", context={})
+            await middleware.process(
+                response, "session123", context={"original_request": "dummy_request"}
+            )
 
         assert exc_info.value.recovery_prompt == "Recovery prompt"
         assert exc_info.value.session_id == "session123"
@@ -187,11 +262,15 @@ class TestEmptyResponseRetryException:
     def test_exception_creation(self):
         """Test exception creation with all parameters."""
         exc = EmptyResponseRetryException(
-            recovery_prompt="Test prompt", session_id="session123", retry_count=1
+            recovery_prompt="Test prompt",
+            session_id="session123",
+            retry_count=1,
+            original_request="dummy_request",
         )
 
         assert exc.recovery_prompt == "Test prompt"
         assert exc.session_id == "session123"
         assert exc.retry_count == 1
+        assert exc.original_request == "dummy_request"
         assert "session123" in str(exc)
         assert "retry 1" in str(exc)

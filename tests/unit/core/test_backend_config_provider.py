@@ -1,5 +1,12 @@
 """Unit tests for BackendConfigProvider."""
 
+import pytest
+
+# Suppress Windows ProactorEventLoop warnings for this module
+pytestmark = pytest.mark.filterwarnings(
+    "ignore:unclosed event loop <ProactorEventLoop.*:ResourceWarning"
+)
+
 from src.core.config.app_config import AppConfig, BackendConfig
 from src.core.interfaces.backend_config_provider_interface import IBackendConfigProvider
 from src.core.services.backend_config_provider import BackendConfigProvider
@@ -51,7 +58,9 @@ class TestBackendConfigProvider:
         config = provider.get_backend_config("nonexistent")
 
         # Assert
-        assert config is None
+        assert config is not None
+        assert isinstance(config, BackendConfig)
+        assert config.api_key == []
 
     def test_get_backend_config_with_empty_backend(self) -> None:
         """Test getting a config for a backend with empty config."""

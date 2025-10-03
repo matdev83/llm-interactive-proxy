@@ -32,12 +32,13 @@ class MiddlewareApplicationManager(IMiddlewareApplicationManager):
 
     async def apply_middleware(
         self,
-        content: str,
+        content: Any,
         middleware_list: list[IResponseMiddleware] | None = None,
         is_streaming: bool = False,
         stop_event: Any = None,
         session_id: str = "",
-    ) -> str | Any:
+        context: dict[str, Any] | None = None,
+    ) -> Any:
         """
         Applies a list of response middleware to the given content.
         If middleware_list is provided, it is used. Otherwise, the middleware
@@ -57,11 +58,19 @@ class MiddlewareApplicationManager(IMiddlewareApplicationManager):
 
         if is_streaming:
             return await self._apply_streaming_middleware(
-                content, middleware_to_apply, stop_event
+                content,
+                middleware_to_apply,
+                stop_event,
+                session_id,
+                context,
             )
 
         return await self._apply_non_streaming_middleware(
-            content, middleware_to_apply, stop_event, session_id
+            content,
+            middleware_to_apply,
+            stop_event,
+            session_id,
+            context,
         )
 
     async def _apply_non_streaming_middleware(
@@ -70,15 +79,21 @@ class MiddlewareApplicationManager(IMiddlewareApplicationManager):
         middleware_list: list[IResponseMiddleware],
         stop_event: Any = None,
         session_id: str = "",
+        context: dict[str, Any] | None = None,
     ) -> str:
         processed_response = ProcessedResponse(content=content, usage=None, metadata={})
 
+        base_context: dict[str, Any] = {"stop_event": stop_event}
+        if context:
+            base_context.update(context)
+
         for mw in middleware_list:
             try:
+                middleware_context = dict(base_context)
                 result = await mw.process(
                     processed_response,
                     session_id,
-                    {"stop_event": stop_event},
+                    middleware_context,
                     is_streaming=False,
                     stop_event=stop_event,
                 )
@@ -97,7 +112,12 @@ class MiddlewareApplicationManager(IMiddlewareApplicationManager):
         middleware_list: list[IResponseMiddleware],
         stop_event: Any,
         session_id: str = "",
+        context: dict[str, Any] | None = None,
     ) -> Any:
+        base_context: dict[str, Any] = {"stop_event": stop_event}
+        if context:
+            base_context.update(context)
+
         async def generator() -> AsyncGenerator[Any, None]:
             if stop_event and stop_event.is_set():
                 return
@@ -107,10 +127,11 @@ class MiddlewareApplicationManager(IMiddlewareApplicationManager):
                 processed_chunk = chunk
                 for mw in middleware_list:
                     try:
+                        middleware_context = dict(base_context)
                         result = await mw.process(
                             processed_chunk,
                             session_id,
-                            {"stop_event": stop_event},
+                            middleware_context,
                             is_streaming=True,
                             stop_event=stop_event,
                         )

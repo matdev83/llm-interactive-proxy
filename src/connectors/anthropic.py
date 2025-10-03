@@ -138,18 +138,21 @@ class AnthropicBackend(LLMBackend):
             openrouter_api_base_url or getattr(self, "anthropic_api_base_url", None)
         )
 
-        # Translate incoming request to CanonicalChatRequest using the translation service
-        try:
-            ts = self.translation_service
-        except Exception:
-            ts = None
-        if ts is None:
-            from src.core.services.translation_service import TranslationService
+        # request_data is expected to be a domain ChatRequest (or subclass like CanonicalChatRequest)
+        # (the frontend controller converts from frontend-specific format to domain format)
+        # Backends should ONLY convert FROM domain TO backend-specific format
+        # Type assertion: we know from architectural design that request_data is ChatRequest-like
+        from typing import cast
 
-            ts = TranslationService()
-            self.translation_service = ts  # type: ignore[assignment]
+        from src.core.domain.chat import CanonicalChatRequest, ChatRequest
 
-        domain_request = ts.to_domain_request(request_data, source_format="anthropic")
+        if not isinstance(request_data, ChatRequest):
+            raise TypeError(
+                f"Expected ChatRequest or CanonicalChatRequest, got {type(request_data).__name__}. "
+                "Backend connectors should only receive domain-format requests."
+            )
+        # Cast to CanonicalChatRequest for mypy compatibility with translation service signature
+        domain_request: CanonicalChatRequest = cast(CanonicalChatRequest, request_data)
 
         # request_data is a domain ChatRequest; connectors can rely on adapter helpers
         anthropic_payload = self._prepare_anthropic_payload(
@@ -209,6 +212,14 @@ class AnthropicBackend(LLMBackend):
             "stream": bool(request_data.stream),
         }
 
+        metadata_payload: Any | None = None
+        if project or request_data.user is not None:
+            metadata_payload = {}
+            if project:
+                metadata_payload["project"] = project
+            if request_data.user is not None:
+                metadata_payload["user_id"] = request_data.user
+
         # System message extraction (Anthropic expects it separately)
         system_prompt = None
         anth_messages: list[dict[str, Any]] = []
@@ -250,23 +261,41 @@ class AnthropicBackend(LLMBackend):
             payload["top_p"] = request_data.top_p
         if request_data.stop is not None:
             payload["stop_sequences"] = request_data.stop
-        if project:
-            payload["metadata"] = {"project": project}
-        if request_data.user is not None:
-            payload.setdefault("metadata", {})["user_id"] = request_data.user
+        extra_body: dict[str, Any] = dict(request_data.extra_body or {})
+        extra_metadata = extra_body.pop("metadata", None)
+        if extra_metadata is not None:
+            if metadata_payload is None:
+                metadata_payload = (
+                    dict(extra_metadata)
+                    if isinstance(extra_metadata, dict)
+                    else extra_metadata
+                )
+            elif isinstance(metadata_payload, dict) and isinstance(
+                extra_metadata, dict
+            ):
+                metadata_payload.update(extra_metadata)
+            else:
+                metadata_payload = extra_metadata
+
+        if metadata_payload is not None:
+            payload["metadata"] = metadata_payload
 
         # Unsupported parameters
-        if request_data.seed is not None:
+        if request_data.seed is not None and logger.isEnabledFor(logging.WARNING):
             logger.warning("AnthropicBackend does not support the 'seed' parameter.")
-        if request_data.presence_penalty is not None:
+        if request_data.presence_penalty is not None and logger.isEnabledFor(
+            logging.WARNING
+        ):
             logger.warning(
                 "AnthropicBackend does not support the 'presence_penalty' parameter."
             )
-        if request_data.frequency_penalty is not None:
+        if request_data.frequency_penalty is not None and logger.isEnabledFor(
+            logging.WARNING
+        ):
             logger.warning(
                 "AnthropicBackend does not support the 'frequency_penalty' parameter."
             )
-        if request_data.logit_bias is not None:
+        if request_data.logit_bias is not None and logger.isEnabledFor(logging.WARNING):
             logger.warning(
                 "AnthropicBackend does not support the 'logit_bias' parameter."
             )
@@ -276,7 +305,7 @@ class AnthropicBackend(LLMBackend):
             payload["tools"] = request_data.tools
 
         # Include extra params from domain extra_body directly (allows reasoning, etc.)
-        payload.update(request_data.extra_body or {})
+        payload.update(extra_body)
 
         # Include reasoning_effort when provided
         if getattr(request_data, "reasoning_effort", None) is not None:
@@ -297,9 +326,10 @@ class AnthropicBackend(LLMBackend):
         self, url: str, payload: dict, headers: dict, original_model: str
     ) -> ResponseEnvelope:
         try:
-            logger.info(
-                f"Sending request to {url} with headers: {headers} and payload: {payload}"
-            )
+            if logger.isEnabledFor(logging.INFO):
+                logger.info(
+                    f"Sending request to {url} with headers: {headers} and payload: {payload}"
+                )
             response = await self.client.post(url, json=payload, headers=headers)
         except httpx.RequestError as e:
             raise ServiceUnavailableError(

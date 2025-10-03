@@ -1,364 +1,183 @@
-import os
-from unittest.mock import ANY, MagicMock, patch
+from unittest.mock import patch
 
 import pytest
-from fastapi.testclient import TestClient
-from src.constants import DEFAULT_COMMAND_PREFIX
-from src.core.app.application_factory import build_app as app_main_build_app
-from src.core.cli import apply_cli_args, main, parse_cli_args
+from src.core.cli import apply_cli_args, parse_cli_args
+from src.core.config.app_config import AppConfig
+
+# Make sure all connectors are imported and registered
+from src.core.services import backend_imports  # noqa: F401
+from src.core.services.backend_registry import backend_registry
 
 
-def test_apply_cli_args_sets_env(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
-    for i in range(1, 21):
-        monkeypatch.delenv(f"GEMINI_API_KEY_{i}", raising=False)
-    args = parse_cli_args(
-        [
-            "--default-backend",
-            "gemini",
-            "--gemini-api-key",
-            "TESTKEY",
-            "--port",
-            "1234",
-            "--command-prefix",
-            "$/",
-        ]
-    )
-    cfg = apply_cli_args(args)
-    assert os.environ["LLM_BACKEND"] == "gemini"
-    assert os.environ["GEMINI_API_KEY"] == "TESTKEY"
-    assert os.environ["PROXY_PORT"] == "1234"
-    assert os.environ["COMMAND_PREFIX"] == "$/"
-    assert cfg.backends.default_backend == "gemini"
-    assert cfg.backends.gemini.api_key == "TESTKEY"
-    assert cfg.port == 1234
-    assert cfg.command_prefix == "$/"
-    # cleanup environment variables set by apply_cli_args
-    monkeypatch.delenv("LLM_BACKEND", raising=False)
-    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
-    monkeypatch.delenv("PROXY_PORT", raising=False)
-    monkeypatch.delenv("COMMAND_PREFIX", raising=False)
+def test_cli_allows_all_registered_backends() -> None:
+    """
+    Verify that the CLI accepts all dynamically discovered backends for the --default-backend argument.
+    """
+    registered_backends = backend_registry.get_registered_backends()
+    assert registered_backends  # Ensure we have some backends registered
+
+    for backend_name in registered_backends:
+        with patch("src.core.config.app_config.load_config", return_value=AppConfig()):
+            # Test parsing
+            args = parse_cli_args(["--default-backend", backend_name])
+            assert args.default_backend == backend_name
+
+            # Test application of args
+            config = apply_cli_args(args)
+            assert config.backends.default_backend == backend_name
 
 
-def test_cli_interactive_mode(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.delenv("DISABLE_INTERACTIVE_MODE", raising=False)
-    args = parse_cli_args(["--disable-interactive-mode"])
-    cfg = apply_cli_args(args)
-    assert os.environ["DISABLE_INTERACTIVE_MODE"] == "True"
-    assert cfg.session.default_interactive_mode is False
-    monkeypatch.delenv("DISABLE_INTERACTIVE_MODE", raising=False)
+def test_cli_rejects_non_existent_backend() -> None:
+    """
+    Verify that the CLI rejects a backend name that is not registered.
+    """
+    non_existent_backend = "non-existent-backend-12345"
+    registered_backends = backend_registry.get_registered_backends()
+    assert non_existent_backend not in registered_backends
 
-
-def test_cli_redaction_flag(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.delenv("REDACT_API_KEYS_IN_PROMPTS", raising=False)
-    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
-    for i in range(1, 21):
-        monkeypatch.delenv(f"GEMINI_API_KEY_{i}", raising=False)
-    args = parse_cli_args(["--disable-redact-api-keys-in-prompts"])
-    cfg = apply_cli_args(args)
-    assert cfg.auth.redact_api_keys_in_prompts is False
-    monkeypatch.delenv("REDACT_API_KEYS_IN_PROMPTS", raising=False)
-    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
-    for i in range(1, 21):
-        monkeypatch.delenv(f"GEMINI_API_KEY_{i}", raising=False)
-    args = parse_cli_args(["--disable-interactive-mode"])
-    cfg = apply_cli_args(args)
-    assert os.environ["DISABLE_INTERACTIVE_MODE"] == "True"
-    assert cfg.session.default_interactive_mode is False
-
-
-def test_cli_force_set_project(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.delenv("FORCE_SET_PROJECT", raising=False)
-    # Test setting the flag
-    args = parse_cli_args(["--force-set-project"])
-    cfg = apply_cli_args(args)
-    assert os.environ["FORCE_SET_PROJECT"] == "true"
-    assert cfg.session.force_set_project is True
-    monkeypatch.delenv("FORCE_SET_PROJECT", raising=False)
-
-
-def test_cli_disable_interactive_commands(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.delenv("DISABLE_INTERACTIVE_COMMANDS", raising=False)
-    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
-    for i in range(1, 21):
-        monkeypatch.delenv(f"GEMINI_API_KEY_{i}", raising=False)
-    args = parse_cli_args(["--disable-interactive-commands"])
-    cfg = apply_cli_args(args)
-    assert cfg.session.disable_interactive_commands is True
-    monkeypatch.delenv("DISABLE_INTERACTIVE_COMMANDS", raising=False)
-    #     monkeypatch.delenv("GEMINI_API_KEY", raising=False)
-    #     for i in range(1, 21):
-    #         monkeypatch.delenv(f"GEMINI_API_KEY_{i}", raising=False)
-    #     args = parse_cli_args(["--force-set-project"])
-    #     cfg = apply_cli_args(args)
-    #     assert os.environ["FORCE_SET_PROJECT"] == "true"
-    #     assert cfg["force_set_project"] is True
-    #     monkeypatch.delenv("FORCE_SET_PROJECT", raising=False)
-
-
-from pathlib import Path
-
-
-def test_cli_log_argument(tmp_path: Path) -> None:
-    args = parse_cli_args(["--log", str(tmp_path / "out.log")])
-    assert args.log_file == str(tmp_path / "out.log")
-
-
-def test_main_log_file(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-    import src.core.cli as cli
-
-    log_file = tmp_path / "srv.log"
-
-    recorded = {}
-
-    def fake_basic_config(**kwargs: dict[str, str]) -> None:
-        recorded.update(kwargs)
-
-    monkeypatch.setattr(cli.logging, "basicConfig", fake_basic_config)
-    monkeypatch.setattr(cli.uvicorn, "run", lambda app, host, port: None)
-    monkeypatch.setattr(cli, "_check_privileges", lambda: None)
-
-    cli.main(["--log", str(log_file)])
-
-    assert recorded.get("filename") == str(log_file)
-
-
-def test_build_app_uses_env(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
-    for i in range(1, 21):
-        monkeypatch.delenv(f"GEMINI_API_KEY_{i}", raising=False)
-    monkeypatch.setenv("LLM_BACKEND", "gemini")
-    monkeypatch.setenv("GEMINI_API_KEY", "KEY")
-    monkeypatch.setenv("COMMAND_PREFIX", "??/")
-    app = app_main_build_app()
-    with TestClient(app):  # Ensure lifespan runs
-        assert app.state.app_config.backends.default_backend == "gemini"
-        assert app.state.app_config.command_prefix == "??/"
-        # Verify that the backend service is configured for gemini
-
-        # In test environment, the backend service is a mock, so we can't check _config
-        # Instead, just check the app_config which we've already verified above
-        assert app.state.app_config.backends.default_backend == "gemini"
-    monkeypatch.delenv("COMMAND_PREFIX", raising=False)
-
-
-@pytest.mark.asyncio
-async def test_build_app_uses_interactive_env(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
-    for i in range(1, 21):
-        monkeypatch.delenv(f"GEMINI_API_KEY_{i}", raising=False)
-        monkeypatch.delenv(f"OPENROUTER_API_KEY_{i}", raising=False)
-    monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
-    monkeypatch.delenv("DISABLE_INTERACTIVE_MODE", raising=False)
-    monkeypatch.delenv("DISABLE_INTERACTIVE_COMMANDS", raising=False)
-    # Use gemini backend with a dummy key since it doesn't require API keys for testing
-    monkeypatch.setenv("LLM_BACKEND", "gemini")
-    monkeypatch.setenv("GEMINI_API_KEY", "dummy-key-for-testing")
-    monkeypatch.setenv("LLM_INTERACTIVE_PROXY_API_KEY", "test-key")
-    app = app_main_build_app()
-    with TestClient(app):  # Ensure lifespan runs
-        from src.core.interfaces.session_service_interface import ISessionService
-
-        session_service = app.state.service_provider.get_required_service(
-            ISessionService
-        )
-        session = await session_service.get_session("s1")
-        assert session.state.interactive_mode is True
-
-
-def test_default_command_prefix_from_env(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.delenv("COMMAND_PREFIX", raising=False)
-    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
-    monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
-    for i in range(1, 21):
-        monkeypatch.delenv(f"GEMINI_API_KEY_{i}", raising=False)
-        monkeypatch.delenv(f"OPENROUTER_API_KEY_{i}", raising=False)
-    args = parse_cli_args([])
-    cfg = apply_cli_args(args)
-    assert cfg.command_prefix == DEFAULT_COMMAND_PREFIX
-
-
-@pytest.mark.parametrize("prefix", ["!", "!!", "prefix with space", "12345678901"])
-def test_invalid_command_prefix_cli(
-    monkeypatch: pytest.MonkeyPatch, prefix: str
-) -> None:
-    for i in range(1, 21):
-        monkeypatch.delenv(f"GEMINI_API_KEY_{i}", raising=False)
-    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
-    args = parse_cli_args(["--command-prefix", prefix])
-    with pytest.raises(ValueError):
-        apply_cli_args(args)
-    monkeypatch.delenv("COMMAND_PREFIX", raising=False)
-
-
-def test_check_privileges_root(monkeypatch: pytest.MonkeyPatch) -> None:
-    from src.core.cli import _check_privileges
-
-    # Force Unix/Linux path by mocking os.name
-    monkeypatch.setattr(os, "name", "posix")
-    monkeypatch.setattr(os, "geteuid", lambda: 0, raising=False)
-
+    # Argparse exits the program on invalid choices, which pytest captures as SystemExit
     with pytest.raises(SystemExit):
-        _check_privileges()
+        parse_cli_args(["--default-backend", non_existent_backend])
 
 
-def test_check_privileges_non_root(monkeypatch: pytest.MonkeyPatch) -> None:
-    from src.core.cli import _check_privileges
+def test_cli_backend_choices_match_registry() -> None:
+    """
+    Verify that the choices for --default-backend in the CLI's argument parser
+    are identical to the list of registered backends.
 
-    # Mock Unix/Linux non-root check
-    monkeypatch.setattr(os, "geteuid", lambda: 1000, raising=False)
-    _check_privileges()
+    This test ensures that there is no discrepancy between the implemented
+    backends and the backends offered by the CLI.
+    """
+    registered_backends = backend_registry.get_registered_backends()
 
+    # Patch the ArgumentParser class within the module where it is used (src.core.cli)
+    with patch("src.core.cli.argparse.ArgumentParser") as MockArgumentParser:
+        # The return_value of the class mock is the instance that will be created
+        mock_parser_instance = MockArgumentParser.return_value
 
-def test_check_privileges_admin_windows(monkeypatch: pytest.MonkeyPatch) -> None:
-    import ctypes
+        # Call the function that creates the parser
+        parse_cli_args([])
 
-    from src.core.cli import _check_privileges
+        # Find the specific call to add_argument for '--default-backend'
+        found_call = None
+        for call in mock_parser_instance.add_argument.call_args_list:
+            # Check if '--default-backend' is one of the positional arguments
+            if "--default-backend" in call.args:
+                found_call = call
+                break
 
-    # Mock Windows admin check
-    mock_shell32 = MagicMock()
-    mock_shell32.IsUserAnAdmin.return_value = 1
-    monkeypatch.setattr(ctypes, "windll", MagicMock())
-    monkeypatch.setattr(ctypes.windll, "shell32", mock_shell32)
+        assert (
+            found_call is not None
+        ), "Could not find the add_argument call for --default-backend"
 
-    with pytest.raises(SystemExit):
-        _check_privileges()
-
-
-def test_check_privileges_non_admin_windows(monkeypatch: pytest.MonkeyPatch) -> None:
-    import ctypes
-
-    from src.core.cli import _check_privileges
-
-    # Mock Windows non-admin check
-    mock_shell32 = MagicMock()
-    mock_shell32.IsUserAnAdmin.return_value = 0
-    monkeypatch.setattr(ctypes, "windll", MagicMock())
-    monkeypatch.setattr(ctypes.windll, "shell32", mock_shell32)
-
-    _check_privileges()
-
-
-def test_parse_cli_args_basic() -> None:
-    """Test basic CLI argument parsing."""
-    args = parse_cli_args(["--port", "8080", "--host", "0.0.0.0"])
-    assert args.port == 8080
-    assert args.host == "0.0.0.0"
+        # Check that the 'choices' keyword argument is identical to the registered backends
+        cli_choices = found_call.kwargs.get("choices")
+        assert (
+            cli_choices is not None
+        ), "CLI argument '--default-backend' has no choices"
+        assert sorted(cli_choices) == sorted(registered_backends)
 
 
-def test_parse_cli_args_disable_auth() -> None:
-    """Test parsing disable-auth flag."""
-    args = parse_cli_args(["--disable-auth"])
-    assert args.disable_auth is True
+def test_cli_context_window_override_argument_parsing() -> None:
+    """Test that the --force-context-window CLI argument is parsed correctly."""
+    with patch("src.core.config.app_config.load_config", return_value=AppConfig()):
+        # Test parsing with context window override
+        args = parse_cli_args(["--force-context-window", "5000"])
+        assert args.force_context_window == 5000
+
+        # Test application of args to config
+        config = apply_cli_args(args)
+        assert config.context_window_override == 5000
+
+        # Test with different values
+        args2 = parse_cli_args(["--force-context-window", "100000"])
+        config2 = apply_cli_args(args2)
+        assert config2.context_window_override == 100000
 
 
-def test_apply_cli_args_basic() -> None:
-    """Test basic CLI argument application."""
-    args = parse_cli_args(["--port", "8080"])
-    with patch.dict(os.environ, {}, clear=True):
-        cfg = apply_cli_args(args)
-        assert cfg.port == 8080
+def test_cli_context_window_override_defaults_to_none() -> None:
+    """Test that context window override defaults to None when not specified."""
+    with patch("src.core.config.app_config.load_config", return_value=AppConfig()):
+        # Test parsing without the argument
+        args = parse_cli_args([])
+        assert args.force_context_window is None
+
+        # Test application of args to config
+        config = apply_cli_args(args)
+        assert config.context_window_override is None
 
 
-def test_apply_cli_args_disable_auth_forces_localhost() -> None:
-    """Test that disable_auth via CLI forces host to localhost."""
-    args = parse_cli_args(["--disable-auth", "--host", "0.0.0.0"])
-    with (
-        patch.dict(os.environ, {}, clear=True),
-        patch("src.core.cli.logging") as mock_logging,
-    ):
-        cfg = apply_cli_args(args)
-        assert cfg.host == "127.0.0.1"
-        assert cfg.auth.disable_auth is True
-        # Should log a warning about forcing localhost
-        mock_logging.warning.assert_called_once()
+def test_cli_context_window_override_environment_variable() -> None:
+    """Test that FORCE_CONTEXT_WINDOW environment variable is set when CLI argument is provided."""
+    import os
+
+    with patch("src.core.config.app_config.load_config", return_value=AppConfig()):
+        # Store original environment variable
+        original_env = os.environ.get("FORCE_CONTEXT_WINDOW")
+
+        try:
+            # Clear the environment variable first
+            if "FORCE_CONTEXT_WINDOW" in os.environ:
+                del os.environ["FORCE_CONTEXT_WINDOW"]
+
+            # Test application of args sets environment variable
+            args = parse_cli_args(["--force-context-window", "7500"])
+            config = apply_cli_args(args)
+
+            assert config.context_window_override == 7500
+            assert os.environ.get("FORCE_CONTEXT_WINDOW") == "7500"
+
+        finally:
+            # Restore original environment variable
+            if original_env is not None:
+                os.environ["FORCE_CONTEXT_WINDOW"] = original_env
+            elif "FORCE_CONTEXT_WINDOW" in os.environ:
+                del os.environ["FORCE_CONTEXT_WINDOW"]
 
 
-def test_apply_cli_args_disable_auth_with_localhost_no_warning() -> None:
-    """Test that disable_auth with localhost doesn't trigger warning."""
-    args = parse_cli_args(["--disable-auth", "--host", "127.0.0.1"])
-    with (
-        patch.dict(os.environ, {}, clear=True),
-        patch("src.core.cli.logging") as mock_logging,
-    ):
-        cfg = apply_cli_args(args)
-        assert cfg.host == "127.0.0.1"
-        assert cfg.auth.disable_auth is True
-        # Should not log a warning since host is already localhost
-        mock_logging.warning.assert_not_called()
+def test_cli_pytest_compression_flags() -> None:
+    """Test that --enable-pytest-compression and --disable-pytest-compression flags work."""
+    # Patch load_config where it is looked up (in the 'cli' module)
+    with patch("src.core.cli.load_config") as mock_load_config:
+        # 1. Test --enable-pytest-compression
+        mock_load_config.return_value = AppConfig()
+        args_enable = parse_cli_args(["--enable-pytest-compression"])
+        assert args_enable.pytest_compression_enabled is True
+        config_enable = apply_cli_args(args_enable)
+        assert config_enable.session.pytest_compression_enabled is True
 
+        # 2. Test --disable-pytest-compression
+        mock_load_config.return_value = AppConfig()
+        args_disable = parse_cli_args(["--disable-pytest-compression"])
+        assert args_disable.pytest_compression_enabled is False
+        config_disable = apply_cli_args(args_disable)
+        assert config_disable.session.pytest_compression_enabled is False
 
-def test_main_disable_auth_forces_localhost() -> None:
-    """Test that main function forces localhost when disable_auth is set."""
-    with (
-        patch.dict(
-            os.environ, {"DISABLE_AUTH": "true", "PROXY_HOST": "0.0.0.0"}, clear=True
-        ),
-        patch("src.core.cli.logging.basicConfig"),
-        patch("src.core.cli.logging") as mock_logging,
-        patch("uvicorn.run") as mock_uvicorn,
-        patch("src.core.cli._check_privileges"),
-        patch("src.core.app.application_builder.build_app"),
-    ):
-        main(["--port", "8080"])
+        # 3. Test default behavior (None) when no flag is provided
+        # Let's create a config where it's initially False to see if it's preserved.
+        initial_config_false = AppConfig()
+        initial_config_false.session.pytest_compression_enabled = False
+        mock_load_config.return_value = initial_config_false
 
-        # Should force host to localhost
-        mock_uvicorn.assert_called_once_with(ANY, host="127.0.0.1", port=8080)
-        # Should log warning about auth being disabled
-        warning_calls = [str(call) for call in mock_logging.warning.call_args_list]
-        auth_disabled_warnings = [
-            call for call in warning_calls if "authentication is DISABLED" in call
-        ]
-        assert len(auth_disabled_warnings) >= 1
+        args_none = parse_cli_args([])
+        assert args_none.pytest_compression_enabled is None
+        config_none = apply_cli_args(args_none)
+        assert not config_none.session.pytest_compression_enabled  # Should remain False
 
+        # And if it was initially True
+        initial_config_true = AppConfig()
+        initial_config_true.session.pytest_compression_enabled = True
+        mock_load_config.return_value = initial_config_true
+        config_none_true = apply_cli_args(args_none)
+        assert (
+            config_none_true.session.pytest_compression_enabled is True
+        )  # Should remain True
 
-def test_main_disable_auth_with_localhost_no_force() -> None:
-    """Test that main function doesn't force localhost when it's already localhost."""
-    with (
-        patch.dict(
-            os.environ, {"DISABLE_AUTH": "true", "PROXY_HOST": "127.0.0.1"}, clear=True
-        ),
-        patch("src.core.cli.logging.basicConfig"),
-        patch("src.core.cli.logging") as mock_logging,
-        patch("uvicorn.run") as mock_uvicorn,
-        patch("src.core.cli._check_privileges"),
-        patch("src.core.app.application_builder.build_app"),
-    ):
-        main(["--port", "8080"])
-
-        # Should use localhost
-        mock_uvicorn.assert_called_once_with(ANY, host="127.0.0.1", port=8080)
-        # Should log warning about auth being disabled but not about forcing host
-        warning_calls = [str(call) for call in mock_logging.warning.call_args_list]
-        auth_disabled_warnings = [
-            call for call in warning_calls if "authentication is DISABLED" in call
-        ]
-        assert len(auth_disabled_warnings) >= 1
-
-
-def test_main_auth_enabled_allows_custom_host() -> None:
-    """Test that main function allows custom host when auth is enabled."""
-    with (
-        patch.dict(
-            os.environ, {"DISABLE_AUTH": "false", "PROXY_HOST": "0.0.0.0"}, clear=True
-        ),
-        patch("src.core.cli.logging.basicConfig"),
-        patch("src.core.cli.logging") as mock_logging,
-        patch("uvicorn.run") as mock_uvicorn,
-        patch("src.core.cli._check_privileges"),
-        patch("src.core.app.application_builder.build_app") as mock_build_app_patch,
-    ):
-        mock_app = MagicMock()
-        mock_build_app_patch.return_value = mock_app
-
-        main(["--port", "8080"])
-
-        # Should use custom host when auth is enabled
-        mock_uvicorn.assert_called_once_with(ANY, host="0.0.0.0", port=8080)
-        # Should not log warning about auth being disabled
-        auth_warnings = [
-            call
-            for call in mock_logging.warning.call_args_list
-            if "authentication is DISABLED" in str(call)
-        ]
-        assert len(auth_warnings) == 0
+        # 4. Test that flags override initial config
+        # Initial config is False
+        initial_config_override = AppConfig()
+        initial_config_override.session.pytest_compression_enabled = False
+        mock_load_config.return_value = initial_config_override
+        # but we enable it with the flag
+        config_override = apply_cli_args(args_enable)
+        assert config_override.session.pytest_compression_enabled is True

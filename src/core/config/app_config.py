@@ -16,6 +16,9 @@ from src.core.domain.configuration.header_config import (
     HeaderConfig,
     HeaderOverrideMode,
 )
+from src.core.domain.configuration.reasoning_aliases_config import (
+    ReasoningAliasesConfig,
+)
 from src.core.interfaces.configuration_interface import IConfig
 from src.core.interfaces.model_bases import DomainModel
 
@@ -121,6 +124,12 @@ class LoggingConfig(DomainModel):
     # Total disk cap across current capture file and rotated files. If set <= 0,
     # disabled. Default is 100 MiB.
     capture_total_max_bytes: int = 104857600
+    # Buffer size for wire capture writes (bytes). Default 64KB.
+    capture_buffer_size: int = 65536
+    # How often to flush buffer to disk (seconds). Default 1.0 second.
+    capture_flush_interval: float = 1.0
+    # Maximum entries to buffer before forcing flush. Default 100.
+    capture_max_entries_per_flush: int = 100
 
 
 class ToolCallReactorConfig(DomainModel):
@@ -186,6 +195,8 @@ class SessionConfig(DomainModel):
     )
     dangerous_command_prevention_enabled: bool = True
     dangerous_command_steering_message: str | None = None
+    pytest_compression_enabled: bool = True
+    pytest_compression_min_lines: int = 30
 
 
 class EmptyResponseConfig(DomainModel):
@@ -235,18 +246,25 @@ class BackendSettings(DomainModel):
     """Settings for all backends."""
 
     default_backend: str = "openai"
+    static_route: str | None = (
+        None  # Force all requests to backend:model (e.g., "gemini-cli-oauth-personal:gemini-2.5-pro")
+    )
     # Store backend configs as dynamic fields
     model_config = ConfigDict(extra="allow")
 
     def __init__(self, **data: Any) -> None:
         # Extract backend configs from data before calling super().__init__
         backend_configs: dict[str, Any] = {}
+        # Keep a copy of remaining data to capture non-registered backends too
+        remaining_data = dict(data)
         registered_backends: list[str] = backend_registry.get_registered_backends()
 
         # Extract backend configs from data
         for backend_name in registered_backends:
             if backend_name in data:
                 backend_configs[backend_name] = data.pop(backend_name)
+                # Also remove from remaining_data
+                remaining_data.pop(backend_name, None)
 
         # Call parent constructor with remaining data
         super().__init__(**data)
@@ -266,6 +284,17 @@ class BackendSettings(DomainModel):
         for backend_name in registered_backends:
             if backend_name not in self.__dict__:
                 self.__dict__[backend_name] = BackendConfig()
+
+        # Finally, absorb any non-registered backend configs that were provided via env/file
+        # so that attribute access like config.backends.openai works even if
+        # connectors haven't been imported yet (empty registry).
+        for key, value in remaining_data.items():
+            if key == "default_backend" or key.startswith("_"):
+                continue
+            if isinstance(value, dict):
+                self.__dict__[key] = BackendConfig(**value)
+            elif isinstance(value, BackendConfig):
+                self.__dict__[key] = value
 
     def __getitem__(self, key: str) -> BackendConfig:
         """Allow dictionary-style access to backend configs."""
@@ -335,10 +364,19 @@ class BackendSettings(DomainModel):
         if name in self.__dict__:
             return cast(BackendConfig, self.__dict__[name])
 
-        # For other attributes, raise AttributeError to maintain normal behavior
-        raise AttributeError(
-            f"'{self.__class__.__name__}' object has no attribute '{name}'"
-        )
+        # Avoid creating configs for private/internal attributes to maintain security
+        if name.startswith(("_", "__")):
+            raise AttributeError(
+                f"'{self.__class__.__name__}' object has no attribute '{name}'"
+            )
+
+        # Lazily create a default backend configuration for unknown backends.
+        # This allows accessing backend configs without pre-registration while
+        # maintaining backward compatibility. Created configs are cached for
+        # subsequent access to avoid creating multiple instances.
+        config = BackendConfig()
+        self.__dict__[name] = config
+        return config
 
     def model_dump(self, **kwargs: Any) -> dict[str, Any]:
         """Override model_dump to include default_backend and dynamic backends."""
@@ -362,6 +400,7 @@ class AppConfig(DomainModel, IConfig):
     anthropic_port: int | None = None  # Will be set to port + 1 if not provided
     proxy_timeout: int = 120
     command_prefix: str = "!/"
+    context_window_override: int | None = None  # Override context window for all models
 
     # Rate limit settings
     default_rate_limit: int = 60
@@ -394,6 +433,11 @@ class AppConfig(DomainModel, IConfig):
 
     # Rewriting settings
     rewriting: RewritingConfig = Field(default_factory=RewritingConfig)
+
+    # Reasoning aliases settings
+    reasoning_aliases: ReasoningAliasesConfig = Field(
+        default_factory=lambda: ReasoningAliasesConfig(reasoning_alias_settings=[])
+    )
 
     # FastAPI app instance
     app: Any = None
@@ -480,6 +524,13 @@ class AppConfig(DomainModel, IConfig):
             "dangerous_command_steering_message": os.environ.get(
                 "DANGEROUS_COMMAND_STEERING_MESSAGE"
             ),
+            "pytest_compression_enabled": os.environ.get(
+                "PYTEST_COMPRESSION_ENABLED", "true"
+            ).lower()
+            == "true",
+            "pytest_compression_min_lines": int(
+                os.environ.get("PYTEST_COMPRESSION_MIN_LINES", "30")
+            ),
         }
 
         config["logging"] = {
@@ -511,6 +562,15 @@ class AppConfig(DomainModel, IConfig):
             ),
             "capture_total_max_bytes": (
                 int(os.environ.get("CAPTURE_TOTAL_MAX_BYTES", "104857600"))
+            ),
+            "capture_buffer_size": (
+                int(os.environ.get("CAPTURE_BUFFER_SIZE", "65536"))
+            ),
+            "capture_flush_interval": (
+                float(os.environ.get("CAPTURE_FLUSH_INTERVAL", "1.0"))
+            ),
+            "capture_max_entries_per_flush": (
+                int(os.environ.get("CAPTURE_MAX_ENTRIES_PER_FLUSH", "100"))
             ),
         }
 
@@ -646,6 +706,19 @@ class AppConfig(DomainModel, IConfig):
                         os.environ.get("ZAI_TIMEOUT", "0")
                     )
 
+        openai_keys: dict[str, str] = _collect_api_keys("OPENAI_API_KEY")
+        if openai_keys:
+            config_backends["openai"] = config_backends.get("openai", {})
+            config_backends["openai"]["api_key"] = list(openai_keys.values())
+            config_backends["openai"]["api_url"] = os.environ.get(
+                "OPENAI_API_BASE_URL", "https://api.openai.com/v1"
+            )
+            if os.environ.get("OPENAI_TIMEOUT"):
+                with contextlib.suppress(ValueError):
+                    config_backends["openai"]["timeout"] = int(
+                        os.environ.get("OPENAI_TIMEOUT", "0")
+                    )
+
         # Handle default backend if it's not explicitly configured above
         default_backend_type: str = os.environ.get("LLM_BACKEND", "openai")
         if default_backend_type not in config_backends:
@@ -736,16 +809,22 @@ def load_config(config_path: str | Path | None = None) -> AppConfig:
             try:
                 from pathlib import Path as _Path
 
+                from src.core.config.semantic_validation import (
+                    validate_config_semantics,
+                )
                 from src.core.config.yaml_validation import validate_yaml_against_schema
 
                 schema_path = (
                     _Path.cwd() / "config" / "schemas" / "app_config.schema.yaml"
                 )
+                # First validate JSON schema
                 validate_yaml_against_schema(_Path(path), schema_path)
+
+                # Then validate semantic correctness
+                validate_config_semantics(file_config, path)
+
             except Exception as _ex:  # pragma: no cover
-                logger.critical(
-                    "Config YAML validation failed for %s: %s", str(path), _ex
-                )
+                logger.critical("Config validation failed for %s: %s", str(path), _ex)
                 raise
 
             # Merge file config with environment defaults, preferring file values

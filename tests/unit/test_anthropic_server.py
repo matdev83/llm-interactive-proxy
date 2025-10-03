@@ -64,3 +64,9 @@ async def test_main_starts_server_when_port_set(
 
     # Run main; should complete without raising
     await main()
+
+
+# Suppress Windows ProactorEventLoop warnings for this module
+pytestmark = pytest.mark.filterwarnings(
+    "ignore:unclosed event loop <ProactorEventLoop.*:ResourceWarning"
+)

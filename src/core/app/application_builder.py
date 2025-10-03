@@ -61,7 +61,8 @@ class ApplicationBuilder:
             raise ValueError(f"Stage '{stage.name}' is already registered")
 
         self._stages[stage.name] = stage
-        logger.debug(f"Added stage: {stage}")
+        if logger.isEnabledFor(logging.DEBUG):
+            logger.debug(f"Added stage: {stage}")
         return self
 
     def add_default_stages(self) -> ApplicationBuilder:
@@ -81,8 +82,8 @@ class ApplicationBuilder:
         )
 
         return (
-            self.add_stage(CoreServicesStage())
-            .add_stage(InfrastructureStage())
+            self.add_stage(InfrastructureStage())
+            .add_stage(CoreServicesStage())
             .add_stage(BackendStage())
             .add_stage(CommandStage())
             .add_stage(ProcessorStage())
@@ -276,20 +277,18 @@ class ApplicationBuilder:
         # Configure middleware
         self._configure_middleware(app, config)
 
-        # Install API key redaction filter into logging early in app lifecycle.
+        # Install API key redaaction filter into logging early in app lifecycle.
         try:
             from src.core.common.logging_utils import (
                 discover_api_keys_from_config_and_env,
                 install_api_key_redaction_filter,
             )
 
-            # Use the discovery function to find all API keys from config and environment
-            api_keys: list[str] = discover_api_keys_from_config_and_env(config)
-            logger.debug(f"Discovered {len(api_keys)} API keys for redaction")
-
+            # Discover API keys from all sources for redaction
+            api_keys = discover_api_keys_from_config_and_env(config)
             install_api_key_redaction_filter(api_keys)
+            logger.info("API key redaction filter installed.")
         except Exception:
-            # Don't fail app creation if logging redaction cannot be installed
             logger.debug("Failed to install API key redaction filter", exc_info=True)
 
         # Register routes
@@ -355,7 +354,20 @@ class ApplicationBuilder:
                 )
                 if client:
                     await client.aclose()
+            except (RuntimeError, AttributeError):
+                # Ignore errors when closing client
+                pass
+
+            # Attempt to gracefully stop background services (e.g., wire capture)
+            try:
+                from src.core.interfaces.wire_capture_interface import IWireCapture
+
+                wire_capture = service_provider.get_service(IWireCapture)  # type: ignore[type-abstract]
+                if wire_capture and hasattr(wire_capture, "shutdown"):
+                    # type: ignore[attr-defined]
+                    await wire_capture.shutdown()  # pyright: ignore[reportAttributeAccessIssue]
             except Exception:
+                # Best-effort shutdown; ignore errors to avoid masking real failures
                 pass
 
         # Set lifespan handler

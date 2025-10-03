@@ -1,5 +1,9 @@
 import pytest
 
+pytestmark = pytest.mark.filterwarnings(
+    "ignore:unclosed event loop <ProactorEventLoop.*:ResourceWarning"
+)
+
 # --- Test Cases ---
 
 

@@ -16,10 +16,14 @@ from src.core.config.app_config import AppConfig
 from src.core.di.container import ServiceCollection
 from src.core.interfaces.application_state_interface import IApplicationState
 from src.core.interfaces.di_interface import IServiceProvider
+from src.core.services.backend_service import BackendService as _BackendService
 
 from .base import InitializationStage
 
 logger = logging.getLogger(__name__)
+
+
+_ORIGINAL_BACKEND_CALL_COMPLETION = _BackendService.call_completion
 
 
 class MockBackendStage(InitializationStage):
@@ -113,7 +117,214 @@ class MockBackendStage(InitializationStage):
                 *args: Any, **kwargs: Any
             ) -> ResponseEnvelope | StreamingResponseEnvelope:
                 """Mock chat completions that returns a standard response."""
-                request = kwargs.get("request_data") or (args[0] if args else None)
+                request = (
+                    kwargs.get("request")
+                    or kwargs.get("request_data")
+                    or (args[0] if args else None)
+                )
+
+                # Check if there's a configured mock backend that we should delegate to
+                # This allows tests to inject their own mock responses
+                try:
+                    from typing import cast
+
+                    from src.core.services.backend_service import BackendService
+
+                    provider = services.build_service_provider()
+                    backend_service = cast(BackendService, provider.get_required_service(IBackendService))  # type: ignore[type-abstract]
+
+                    # Check if the backend service has test-configured backends
+                    if (
+                        hasattr(backend_service, "_backends")
+                        and "openrouter" in backend_service._backends
+                    ):
+                        backend = backend_service._backends["openrouter"]
+
+                        if hasattr(backend, "chat_completions"):
+                            chat_completions = backend.chat_completions
+
+                            if (
+                                hasattr(chat_completions, "side_effect")
+                                and chat_completions.side_effect is not None
+                            ):
+                                side_effect = chat_completions.side_effect
+
+                                if callable(side_effect):
+                                    result = await side_effect(*args, **kwargs)
+                                    # Cast the result to the expected type
+                                    if isinstance(
+                                        result,
+                                        ResponseEnvelope | StreamingResponseEnvelope,
+                                    ):
+                                        return result
+                                    # If it's a dict, wrap it in a ResponseEnvelope
+                                    if isinstance(result, dict):
+                                        return ResponseEnvelope(
+                                            content=result,
+                                            headers={
+                                                "content-type": "application/json"
+                                            },
+                                            status_code=200,
+                                        )
+                                    return result  # type: ignore[no-any-return]
+                                else:
+                                    # side_effect is a list/iterator of responses
+                                    try:
+                                        # Try to get the next response from the side_effect
+                                        response = next(side_effect)
+
+                                        # Wrap the response in a ResponseEnvelope if it's not already
+                                        if isinstance(response, dict):
+                                            return ResponseEnvelope(
+                                                content=response,
+                                                headers={
+                                                    "content-type": "application/json"
+                                                },
+                                                status_code=200,
+                                            )
+                                        return response  # type: ignore[no-any-return]
+                                    except StopIteration:
+                                        # Iterator exhausted, fall back to default behavior
+                                        pass
+                            elif (
+                                hasattr(chat_completions, "return_value")
+                                and chat_completions.return_value is not None
+                            ):
+                                return_value = chat_completions.return_value
+
+                                # Wrap the response in a ResponseEnvelope if it's not already
+                                if isinstance(return_value, dict):
+                                    return ResponseEnvelope(
+                                        content=return_value,
+                                        headers={"content-type": "application/json"},
+                                        status_code=200,
+                                    )
+                                return return_value  # type: ignore[no-any-return]
+                except Exception:
+                    # If we can't get the backend or it fails, fall back to default behavior
+                    pass
+
+                # Check if tools are requested
+                tools = getattr(request, "tools", None) if request else None
+                tool_choice = getattr(request, "tool_choice", None) if request else None
+                has_tools = bool(tools or tool_choice)
+
+                # Create message content based on whether tools are requested
+                if has_tools:
+                    message_content = {
+                        "role": "assistant",
+                        "content": "Mock response from test backend",
+                        "tool_calls": [
+                            {
+                                "id": "call_mock_123",
+                                "type": "function",
+                                "function": {
+                                    "name": "get_weather",
+                                    "arguments": '{"location": "New York"}',
+                                },
+                            }
+                        ],
+                    }
+                    finish_reason = "tool_calls"
+                else:
+                    # Check if JSON schema is requested for structured output
+                    json_schema = None
+
+                    if (
+                        request
+                        and hasattr(request, "extra_body")
+                        and request.extra_body
+                    ):
+                        # Handle nested extra_body structure
+                        extra_body = request.extra_body
+                        if isinstance(extra_body, dict) and "extra_body" in extra_body:
+                            extra_body = extra_body["extra_body"]
+                        response_format = (
+                            extra_body.get("response_format")
+                            if isinstance(extra_body, dict)
+                            else None
+                        )
+                        if (
+                            response_format
+                            and response_format.get("type") == "json_schema"
+                        ):
+                            json_schema_info = response_format.get("json_schema", {})
+                            # Handle multiple field names for schema definition
+                            json_schema = (
+                                json_schema_info.get("schema")
+                                or json_schema_info.get("schema_dict")
+                                or json_schema_info.get("json_schema_def")
+                            )
+
+                    if json_schema:
+                        # Generate a simple JSON response that matches the schema
+                        import json
+
+                        def generate_mock_value(
+                            schema: dict[str, Any], prop_name: str = ""
+                        ) -> Any:
+                            """Generate mock data based on JSON schema type."""
+                            prop_type = schema.get("type", "string")
+
+                            if prop_type == "string":
+                                # Handle enum values
+                                if "enum" in schema:
+                                    return schema["enum"][0]  # Use first enum value
+                                return (
+                                    f"Mock {prop_name}" if prop_name else "Mock string"
+                                )
+                            elif prop_type == "number":
+                                return 42.0
+                            elif prop_type == "integer":
+                                return 42
+                            elif prop_type == "boolean":
+                                return True
+                            elif prop_type == "array":
+                                # Generate a simple array with one mock item
+                                items_schema = schema.get("items", {"type": "string"})
+                                mock_item = generate_mock_value(
+                                    items_schema, f"{prop_name}_item"
+                                )
+                                return [mock_item]
+                            elif prop_type == "object":
+                                # Generate a simple object
+                                if "properties" in schema:
+                                    mock_obj = {}
+                                    for obj_prop_name, obj_prop_schema in schema[
+                                        "properties"
+                                    ].items():
+                                        mock_obj[obj_prop_name] = generate_mock_value(
+                                            obj_prop_schema, obj_prop_name
+                                        )
+                                    return mock_obj
+                                else:
+                                    return {"mock_key": "mock_value"}
+                            else:
+                                return (
+                                    f"mock {prop_name}" if prop_name else "mock value"
+                                )
+
+                        if json_schema.get("properties"):
+                            mock_content: dict[str, Any] = {}
+                            for prop_name, prop_schema in json_schema.get(
+                                "properties", {}
+                            ).items():
+                                mock_content[prop_name] = generate_mock_value(
+                                    prop_schema, prop_name
+                                )
+                        else:
+                            mock_content = {"message": "Mock response"}
+
+                        message_content = {
+                            "role": "assistant",
+                            "content": json.dumps(mock_content, indent=2),
+                        }
+                    else:
+                        message_content = {
+                            "role": "assistant",
+                            "content": "Mock response from test backend",
+                        }
+                    finish_reason = "stop"
 
                 response_data = {
                     "id": "mock-response-1",
@@ -127,21 +338,8 @@ class MockBackendStage(InitializationStage):
                     "choices": [
                         {
                             "index": 0,
-                            "message": {
-                                "role": "assistant",
-                                "content": "Mock response from test backend",
-                                "tool_calls": [
-                                    {
-                                        "id": "call_mock_123",
-                                        "type": "function",
-                                        "function": {
-                                            "name": "get_weather",
-                                            "arguments": '{"location": "New York"}',
-                                        },
-                                    }
-                                ],
-                            },
-                            "finish_reason": "tool_calls",
+                            "message": message_content,
+                            "finish_reason": finish_reason,
                         }
                     ],
                     "usage": {
@@ -152,7 +350,11 @@ class MockBackendStage(InitializationStage):
                 }
 
                 # Handle streaming requests
-                if request and getattr(request, "stream", False):
+                stream_value = getattr(request, "stream", False) if request else False
+                # Also check stream parameter directly from kwargs
+                if not stream_value and "stream" in kwargs:
+                    stream_value = kwargs.get("stream", False)
+                if stream_value:
                     logger.info(
                         f"Mock backend returning streaming response for model: {response_data['model']}"
                     )
@@ -202,6 +404,18 @@ class MockBackendStage(InitializationStage):
                     or kwargs.get("request_data")
                     or (args[0] if args else None)
                 )
+
+                # If tests patched BackendService.call_completion, honor the patched implementation
+                try:
+                    patched_call = _BackendService.call_completion
+                except Exception:
+                    patched_call = None
+
+                if (
+                    patched_call is not None
+                    and patched_call is not _ORIGINAL_BACKEND_CALL_COMPLETION
+                ):
+                    return await patched_call(*args, **kwargs)  # type: ignore[misc]
 
                 try:
                     # Attempt to import Anthropic connector and call its method.

@@ -127,6 +127,68 @@ class EmptyResponseMiddleware(IResponseMiddleware):
 
         return is_empty
 
+    def _ensure_processed_response(
+        self, response: Any, context: dict[str, Any] | None
+    ) -> ProcessedResponse:
+        """Normalize arbitrary response objects into ``ProcessedResponse`` instances."""
+
+        if isinstance(response, ProcessedResponse):
+            return response
+
+        content: str = ""
+        metadata: dict[str, Any] | None = None
+
+        # Prefer explicit ``content`` attribute when present
+        if hasattr(response, "content"):
+            raw_content = response.content
+            if isinstance(raw_content, str):
+                content = raw_content
+            elif raw_content is not None:
+                content = str(raw_content)
+        elif isinstance(response, dict):
+            # Canonical OpenAI responses expose text under choices -> message
+            raw_content = response.get("content")
+            if isinstance(raw_content, str):
+                content = raw_content
+            elif raw_content is not None:
+                # Convert non-None content (including structured content) to string
+                content = str(raw_content)
+            elif "choices" in response:
+                try:
+                    first_choice = response.get("choices", [])[0]
+                except IndexError:
+                    first_choice = None
+                if isinstance(first_choice, dict):
+                    message = first_choice.get("message", {})
+                    if isinstance(message, dict):
+                        msg_content = message.get("content")
+                        if isinstance(msg_content, str):
+                            content = msg_content
+                        elif msg_content is not None:
+                            content = str(msg_content)
+                        tool_calls = message.get("tool_calls")
+                        if isinstance(tool_calls, list):
+                            metadata = {"tool_calls": tool_calls}
+        elif response is not None:
+            content = str(response)
+
+        if metadata is None:
+            raw_metadata = getattr(response, "metadata", None)
+            if isinstance(raw_metadata, dict):
+                metadata = raw_metadata
+            elif isinstance(response, dict):
+                raw_metadata = response.get("metadata")
+                if isinstance(raw_metadata, dict):
+                    metadata = raw_metadata
+
+        # Context may include upstream tool-call metadata that we should preserve
+        if metadata is None and context and isinstance(context, dict):
+            tool_calls = context.get("tool_calls")
+            if isinstance(tool_calls, list):
+                metadata = {"tool_calls": tool_calls}
+
+        return ProcessedResponse(content=content, metadata=metadata)
+
     async def process(
         self,
         response: Any,
@@ -150,20 +212,28 @@ class EmptyResponseMiddleware(IResponseMiddleware):
 
         context = context or {}
 
+        processed_response = self._ensure_processed_response(response, context)
+
         # Check if this is an empty response
-        if self._is_empty_response(response, context):
+        if self._is_empty_response(processed_response, context):
             # Check retry count for this session
             retry_count = self._retry_counts.get(session_id, 0)
 
             if retry_count < self._max_retries:
-                # Increment retry count
-                self._retry_counts[session_id] = retry_count + 1
+                original_request = context.get("original_request")
+                if original_request is None:
+                    logger.warning(
+                        "Empty response detected but no original_request in context; skipping retry"
+                    )
+                    return response
 
-                # Load recovery prompt
+                # Load recovery prompt only when a retry can actually happen
                 recovery_prompt = self._load_recovery_prompt()
+                next_retry_count = retry_count + 1
+                self._retry_counts[session_id] = next_retry_count
 
                 logger.info(
-                    f"Empty response detected for session {session_id}, attempt {retry_count + 1}/{self._max_retries}"
+                    f"Empty response detected for session {session_id}, attempt {next_retry_count}/{self._max_retries}"
                 )
 
                 # Raise a special exception that the request processor can catch
@@ -171,7 +241,8 @@ class EmptyResponseMiddleware(IResponseMiddleware):
                 raise EmptyResponseRetryError(
                     recovery_prompt=recovery_prompt,
                     session_id=session_id,
-                    retry_count=retry_count + 1,
+                    retry_count=next_retry_count,
+                    original_request=original_request,
                 )
             else:
                 # Max retries exceeded, reset counter and return error
@@ -203,10 +274,17 @@ class EmptyResponseMiddleware(IResponseMiddleware):
 class EmptyResponseRetryError(Exception):
     """Exception raised when an empty response is detected and should be retried."""
 
-    def __init__(self, recovery_prompt: str, session_id: str, retry_count: int):
+    def __init__(
+        self,
+        recovery_prompt: str,
+        session_id: str,
+        retry_count: int,
+        original_request: Any,
+    ):
         self.recovery_prompt = recovery_prompt
         self.session_id = session_id
         self.retry_count = retry_count
+        self.original_request = original_request
         super().__init__(
             f"Empty response detected for session {session_id}, retry {retry_count}"
         )

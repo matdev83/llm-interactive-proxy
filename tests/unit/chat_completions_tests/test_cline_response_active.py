@@ -1,13 +1,17 @@
 import json
+
+import pytest
+
+pytestmark = pytest.mark.filterwarnings(
+    "ignore:unclosed event loop <ProactorEventLoop.*:ResourceWarning"
+)
 from typing import Any
 from unittest.mock import AsyncMock, patch
 
 # Ensure no module-level skips are applied - DEBUG TEST
 from starlette.testclient import TestClient
 
-from tests.conftest import get_backend_instance
-
-pytestmark: list[Any] = []
+from tests.unit.chat_completions_tests.conftest import get_backend_instance
 
 
 def test_debug_skip_check() -> None:

@@ -22,7 +22,8 @@ def test_app_client(monkeypatch: pytest.MonkeyPatch) -> TestClient:
         backends={"default_backend": "mock", "mock": BackendConfig()},
     )
     app = new_build_app(config=config)
-    return TestClient(app)
+    with TestClient(app) as client:
+        yield client
 
 
 def test_chat_completions_endpoint_handler_setup():

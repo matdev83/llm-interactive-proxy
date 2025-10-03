@@ -1,4 +1,9 @@
 import pytest
+
+# Suppress Windows ProactorEventLoop ResourceWarnings for this module
+pytestmark = pytest.mark.filterwarnings(
+    "ignore:unclosed event loop <ProactorEventLoop.*:ResourceWarning"
+)
 from src.core.domain.streaming_response_processor import StreamingContent
 from src.core.services.streaming.content_accumulation_processor import (
     ContentAccumulationProcessor,

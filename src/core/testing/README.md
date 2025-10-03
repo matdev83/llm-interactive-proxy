@@ -13,7 +13,7 @@ The framework enforces proper async/sync patterns through:
 
 ## Quick Start for Coding Agents
 
-### ✅ DO: Use ValidatedTestStage
+### [OK] DO: Use ValidatedTestStage
 
 ```python
 from src.core.testing.base_stage import ValidatedTestStage
@@ -42,7 +42,7 @@ class MyTestStage(ValidatedTestStage):
         self.safe_register_instance(services, IBackendService, backend_service)
 ```
 
-### ❌ DON'T: Use InitializationStage directly
+### [X] DON'T: Use InitializationStage directly
 
 ```python
 # This can cause coroutine warnings!
@@ -50,10 +50,10 @@ class MyTestStage(InitializationStage):
     async def execute(self, services: ServiceCollection, config: AppConfig) -> None:
         # This creates AsyncMock which can cause warnings
         mock_service = AsyncMock(spec=ISessionService)
-        services.add_instance(ISessionService, mock_service)  # ⚠️ Problematic!
+        services.add_instance(ISessionService, mock_service)  # [!] Problematic!
 ```
 
-### ✅ DO: Use EnforcedMockFactory
+### [OK] DO: Use EnforcedMockFactory
 
 ```python
 from src.core.testing.interfaces import EnforcedMockFactory
@@ -63,15 +63,15 @@ session_service = EnforcedMockFactory.create_session_service_mock()
 backend_service = EnforcedMockFactory.create_backend_service_mock()
 ```
 
-### ❌ DON'T: Create AsyncMock directly for mixed interfaces
+### [X] DON'T: Create AsyncMock directly for mixed interfaces
 
 ```python
 # This can cause coroutine warnings!
-session_service = AsyncMock(spec=ISessionService)  # ⚠️ Problematic!
+session_service = AsyncMock(spec=ISessionService)  # [!] Problematic!
 # Because get_session() should be sync but returns AsyncMock
 ```
 
-### ✅ DO: Use SafeAsyncMockWrapper for complex cases
+### [OK] DO: Use SafeAsyncMockWrapper for complex cases
 
 ```python
 from src.core.testing.interfaces import SafeAsyncMockWrapper
@@ -89,27 +89,27 @@ wrapper.mark_method_as_sync('get_something', return_value=real_object)
 Session services have methods like `get_session()` that are called synchronously. If these return AsyncMock, you get coroutine warnings.
 
 ```python
-# ✅ GOOD
+# [OK] GOOD
 def get_session_impl(session_id: str) -> Session:
     return SafeTestSession(session_id)  # Real object
 
 mock_service.get_session = get_session_impl
 
-# ❌ BAD  
+# [X] BAD  
 mock_service.get_session = AsyncMock()  # Returns coroutine!
 ```
 
 ### 2. Use Proper Mock Types for Method Signatures
 
 ```python
-# ✅ GOOD - async methods get AsyncMock
+# [OK] GOOD - async methods get AsyncMock
 mock_service.update_session = AsyncMock()
 mock_service.create_session = AsyncMock()
 
-# ✅ GOOD - sync methods get regular Mock/function
+# [OK] GOOD - sync methods get regular Mock/function
 mock_service.get_session = lambda session_id: real_session
 
-# ❌ BAD - sync method gets AsyncMock
+# [X] BAD - sync method gets AsyncMock
 mock_service.get_session = AsyncMock()  # Will cause warnings!
 ```
 
@@ -216,12 +216,12 @@ def validated_app():
 ### Problem: Session Service Returns AsyncMock
 
 ```python
-# ❌ PROBLEM
+# [X] PROBLEM
 mock_session_service = AsyncMock(spec=ISessionService)
 # When test calls session_service.get_session(), it gets an AsyncMock
 # which causes "coroutine was never awaited" warning
 
-# ✅ SOLUTION
+# [OK] SOLUTION
 mock_session_service = EnforcedMockFactory.create_session_service_mock()
 # This ensures get_session() returns real Session objects
 ```
@@ -229,11 +229,11 @@ mock_session_service = EnforcedMockFactory.create_session_service_mock()
 ### Problem: Mixed Async/Sync Interface
 
 ```python
-# ❌ PROBLEM
+# [X] PROBLEM
 mock_service = AsyncMock(spec=IMixedService)
 # All methods return coroutines, even sync ones
 
-# ✅ SOLUTION
+# [OK] SOLUTION
 wrapper = SafeAsyncMockWrapper(spec=IMixedService)
 wrapper.mark_method_as_sync('sync_method', return_value=real_value)
 # Now sync_method returns real_value, async methods return coroutines
@@ -242,10 +242,10 @@ wrapper.mark_method_as_sync('sync_method', return_value=real_value)
 ### Problem: Controller Returns AsyncMock
 
 ```python
-# ❌ PROBLEM - Controller stage registers AsyncMock controllers
+# [X] PROBLEM - Controller stage registers AsyncMock controllers
 services.add_instance(ChatController, AsyncMock(spec=ChatController))
 
-# ✅ SOLUTION - Use ValidatedTestStage with proper factories
+# [OK] SOLUTION - Use ValidatedTestStage with proper factories
 class MyControllerStage(ValidatedTestStage):
     async def _register_services(self, services, config):
         # Create real controller with mocked dependencies

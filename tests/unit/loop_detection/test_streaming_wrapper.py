@@ -6,7 +6,7 @@ from src.core.domain.streaming_response_processor import (  # Added StreamingCon
     StreamingContent,
 )
 from src.core.services.streaming.stream_normalizer import StreamNormalizer
-from src.loop_detection.detector import LoopDetectionConfig, LoopDetector
+from src.loop_detection.hybrid_detector import HybridLoopDetector
 
 
 @pytest.mark.asyncio
@@ -14,14 +14,19 @@ async def test_stream_cancellation_on_loop() -> None:
     """Ensure the streaming wrapper cancels output when a loop is detected."""
 
     # Configure detector with low thresholds so the test can trigger loop detection
-    config = LoopDetectionConfig(
-        buffer_size=1024,
-        max_pattern_length=8192,
-        content_chunk_size=10,  # Smaller chunk size for test pattern
-        content_loop_threshold=2,  # Very low threshold to trigger detection
-        max_history_length=200,  # Smaller history for faster test
+    detector = HybridLoopDetector(
+        short_detector_config={
+            "content_chunk_size": 10,  # Smaller chunk size for test pattern
+            "content_loop_threshold": 2,  # Very low threshold to trigger detection
+            "max_history_length": 200,
+        },
+        long_detector_config={
+            "min_pattern_length": 60,
+            "max_pattern_length": 8192,
+            "min_repetitions": 2,
+            "max_history": 4096,
+        },
     )
-    detector = LoopDetector(config=config)
 
     # Test the detector with a realistic streaming pattern
     # The loop detector is designed to detect repeating patterns in continuous text

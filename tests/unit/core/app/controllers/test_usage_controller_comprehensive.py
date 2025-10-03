@@ -4,7 +4,7 @@ Tests for UsageController.
 This module provides comprehensive test coverage for the UsageController class.
 """
 
-from datetime import datetime
+from datetime import datetime, timezone
 from unittest.mock import AsyncMock
 
 import pytest
@@ -139,7 +139,7 @@ class TestUsageController:
                 completion_tokens=50,
                 total_tokens=150,
                 cost=0.02,
-                timestamp=datetime.utcnow(),
+                timestamp=datetime.now(timezone.utc),
             )
         ]
         mock_usage_service.get_recent_usage.return_value = mock_usage_data
@@ -189,7 +189,7 @@ class TestUsageController:
                 completion_tokens=100,
                 total_tokens=300,
                 cost=0.04,
-                timestamp=datetime.utcnow(),
+                timestamp=datetime.now(timezone.utc),
             )
         ]
         mock_usage_service.get_recent_usage.return_value = mock_usage_data

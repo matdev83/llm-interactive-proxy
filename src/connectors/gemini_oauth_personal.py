@@ -57,25 +57,44 @@ the path to the credentials file as input - no Google Cloud project configuratio
 """
 
 import asyncio
+import concurrent.futures
+import contextlib
 import json
 import logging
+import shutil
+import subprocess
 import time
+import uuid
 from collections.abc import AsyncGenerator
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import google.auth
 import google.auth.transport.requests
 import google.oauth2.credentials
 import httpx
 import requests  # type: ignore[import-untyped]
+import tiktoken
 from fastapi import HTTPException
+from watchdog.events import FileSystemEventHandler
+from watchdog.observers import Observer
 
+from src.core.domain.chat import (
+    CanonicalChatResponse,
+    ChatCompletionChoice,
+    ChatCompletionChoiceMessage,
+)
+
+if TYPE_CHECKING:
+    from watchdog.observers.api import BaseObserver
+
+from src.connectors.utils.gemini_request_counter import DailyRequestCounter
 from src.core.common.exceptions import (
     APIConnectionError,
     APITimeoutError,
     AuthenticationError,
     BackendError,
+    ServiceUnavailableError,
 )
 from src.core.config.app_config import AppConfig
 from src.core.domain.responses import (
@@ -96,6 +115,62 @@ CODE_ASSIST_ENDPOINT = "https://cloudcode-pa.googleapis.com"
 # Default project for free tier used in UserTierId enum: "free-tier"
 
 logger = logging.getLogger(__name__)
+
+
+TOKEN_EXPIRY_BUFFER_SECONDS = 30.0
+CLI_REFRESH_THRESHOLD_SECONDS = 120.0
+CLI_REFRESH_COOLDOWN_SECONDS = 30.0
+CLI_REFRESH_COMMAND = [
+    "gemini",
+    "-m",
+    "gemini-2.5-flash",
+    "-y",
+    "-p",
+    "Hi. What's up?",
+]
+
+# Timeout configuration for streaming requests
+# Connection timeout: time to establish connection
+DEFAULT_CONNECTION_TIMEOUT = 60.0
+# Read timeout: time between chunks during streaming (much longer for large responses)
+DEFAULT_READ_TIMEOUT = 300.0  # 5 minutes to handle large file reads and long responses
+
+
+class GeminiPersonalCredentialsFileHandler(FileSystemEventHandler):
+    """File system event handler for monitoring OAuth credentials file changes."""
+
+    def __init__(self, connector: "GeminiOAuthPersonalConnector"):
+        """Initialize the file handler with reference to the connector.
+
+        Args:
+            connector: The GeminiOAuthPersonalConnector instance to notify of file changes
+        """
+        super().__init__()
+        self.connector = connector
+
+    def on_modified(self, event):
+        """Handle file modification events."""
+        if not event.is_directory and event.src_path == str(
+            self.connector._credentials_path
+        ):
+            if logger.isEnabledFor(logging.INFO):
+                logger.info(f"Credentials file modified: {event.src_path}")
+
+            # Schedule credential reload in the connector's event loop in a thread-safe way
+            if self.connector._main_loop is not None:
+                try:
+                    future = asyncio.run_coroutine_threadsafe(
+                        self.connector._handle_credentials_file_change(),
+                        self.connector._main_loop,
+                    )
+                    # Store reference to prevent task from being garbage collected
+                    self.connector._pending_reload_task = future
+                except Exception as e:
+                    if logger.isEnabledFor(logging.ERROR):
+                        logger.error(f"Failed to schedule credentials reload: {e}")
+            else:
+                if logger.isEnabledFor(logging.WARNING):
+                    logger.warning("No event loop available for credentials reload")
 
 
 class GeminiOAuthPersonalConnector(GeminiBackend):
@@ -127,6 +202,21 @@ class GeminiOAuthPersonalConnector(GeminiBackend):
         self._refresh_token: str | None = None
         self._token_refresh_lock = asyncio.Lock()
         self.translation_service = translation_service
+        # Use BaseObserver for type checking to ensure stop/join are recognized by mypy
+        self._file_observer: BaseObserver | None = None
+        self._credential_validation_errors: list[str] = []
+        self._initialization_failed = False
+        self._last_validation_time = 0.0
+        self._pending_reload_task: asyncio.Task | concurrent.futures.Future | None = (
+            None
+        )
+        self._last_cli_refresh_attempt = 0.0
+        self._cli_refresh_process: subprocess.Popen[bytes] | None = None
+        # Store reference to the main event loop for thread-safe operations
+        self._main_loop: asyncio.AbstractEventLoop | None = None
+        # Flag to track if quota has been exceeded
+        self._quota_exceeded = False
+        self._request_counter: DailyRequestCounter | None = None
 
         # Check environment variable to allow disabling health checks globally
         import os
@@ -142,22 +232,355 @@ class GeminiOAuthPersonalConnector(GeminiBackend):
 
         # Set custom .gemini directory path (will be set in initialize)
         self.gemini_cli_oauth_path: str | None = None
+        self._request_counter = DailyRequestCounter(
+            persistence_path=Path("data/gemini_oauth_request_count.json"), limit=1000
+        )
 
-    def _is_token_expired(self) -> bool:
-        """Check if the current access token is expired or close to expiring."""
+    def is_backend_functional(self) -> bool:
+        """Check if backend is functional and ready to handle requests.
+
+        Returns:
+            bool: True if backend is functional, False otherwise
+        """
+        return (
+            self.is_functional
+            and not self._initialization_failed
+            and len(self._credential_validation_errors) == 0
+        )
+
+    def get_validation_errors(self) -> list[str]:
+        """Get the current list of credential validation errors.
+
+        Returns:
+            List of validation error messages
+        """
+        return self._credential_validation_errors.copy()
+
+    def _validate_credentials_structure(
+        self, credentials: dict[str, Any]
+    ) -> tuple[bool, list[str]]:
+        """Validate the structure and content of OAuth credentials.
+
+        Args:
+            credentials: The credentials dictionary to validate
+
+        Returns:
+            Tuple of (is_valid, list_of_errors)
+        """
+        errors = []
+
+        # Required fields for OAuth credentials
+        required_fields = ["access_token"]
+        for field in required_fields:
+            if field not in credentials:
+                errors.append(f"Missing required field: {field}")
+            elif not isinstance(credentials[field], str) or not credentials[field]:
+                errors.append(f"Invalid {field}: must be a non-empty string")
+
+        # Optional refresh token validation
+        if "refresh_token" in credentials and (
+            not isinstance(credentials["refresh_token"], str)
+            or not credentials["refresh_token"]
+        ):
+            errors.append("Invalid refresh_token: must be a non-empty string")
+
+        # Expiry validation (if present)
+        if "expiry_date" in credentials:
+            expiry = credentials["expiry_date"]
+            if not isinstance(expiry, int | float):
+                errors.append("Invalid expiry_date: must be a number (ms)")
+            else:
+                # Record expired status without failing validation; refresh logic handles it
+                import datetime
+
+                current_utc_s = datetime.datetime.now(datetime.timezone.utc).timestamp()
+                if current_utc_s >= float(expiry) / 1000.0 and logger.isEnabledFor(
+                    logging.INFO
+                ):
+                    logger.info(
+                        "Loaded Gemini OAuth credentials appear expired; refresh will be triggered."
+                    )
+
+        return len(errors) == 0, errors
+
+    def _validate_credentials_file_exists(self) -> tuple[bool, list[str]]:
+        """Validate that the OAuth credentials file exists and is readable.
+
+        Returns:
+            Tuple of (is_valid, list_of_errors)
+        """
+        errors = []
+
+        # Use custom path if provided, otherwise default to ~/.gemini
+        if self.gemini_cli_oauth_path:
+            creds_path = Path(self.gemini_cli_oauth_path) / "oauth_creds.json"
+        else:
+            home_dir = Path.home()
+            creds_path = home_dir / ".gemini" / "oauth_creds.json"
+
+        if not creds_path.exists():
+            errors.append(f"OAuth credentials file not found at {creds_path}")
+            return False, errors
+
+        if not creds_path.is_file():
+            errors.append(
+                f"OAuth credentials path exists but is not a file: {creds_path}"
+            )
+            return False, errors
+
+        try:
+            with open(creds_path, encoding="utf-8") as f:
+                credentials = json.load(f)
+
+            # Validate the loaded credentials
+            is_valid, validation_errors = self._validate_credentials_structure(
+                credentials
+            )
+            errors.extend(validation_errors)
+
+            return is_valid, errors
+
+        except json.JSONDecodeError as e:
+            errors.append(f"Invalid JSON in credentials file: {e}")
+            return False, errors
+        except PermissionError:
+            errors.append(f"Permission denied reading credentials file: {creds_path}")
+            return False, errors
+        except Exception as e:
+            errors.append(f"Unexpected error reading credentials file: {e}")
+            return False, errors
+
+    def _fail_init(self, errors: list[str]) -> None:
+        """Mark initialization as failed with given errors."""
+        self._credential_validation_errors = errors
+        self._initialization_failed = True
+        self.is_functional = False
+
+    def _degrade(self, errors: list[str]) -> None:
+        """Degrade backend functionality due to credential issues."""
+        self._credential_validation_errors = errors
+        self.is_functional = False
+
+    def _recover(self) -> None:
+        """Recover backend functionality after credential issues are resolved."""
+        self._credential_validation_errors = []
+        self.is_functional = True
+        self._initialization_failed = False
+
+    def _mark_backend_unusable(self) -> None:
+        """Mark this backend as unusable by removing it from functional backends list.
+
+        This method is called when quota exceeded errors are detected and the backend
+        should no longer be used for requests.
+        """
+        # We don't have direct access to the DI container here; just mark ourselves unusable.
+        self.is_functional = False
+        self._quota_exceeded = True
+
+        logger.error(
+            "Backend %s marked as unusable due to quota exceeded. "
+            "Manual intervention may be required to restore functionality.",
+            self.name,
+        )
+
+    def _start_file_watching(self) -> None:
+        """Start watching the credentials file for changes."""
+        if not self._credentials_path or self._file_observer:
+            return
+
+        try:
+            event_handler = GeminiPersonalCredentialsFileHandler(self)
+            self._file_observer = Observer()
+            # Watch the parent directory of the credentials file
+            watch_dir = self._credentials_path.parent
+            self._file_observer.schedule(event_handler, str(watch_dir), recursive=False)
+            self._file_observer.start()
+            if logger.isEnabledFor(logging.INFO):
+                logger.info(
+                    f"Started watching credentials file: {self._credentials_path}"
+                )
+        except Exception as e:
+            if logger.isEnabledFor(logging.WARNING):
+                logger.warning(f"Failed to start file watching: {e}")
+
+    def _stop_file_watching(self) -> None:
+        """Stop watching the credentials file."""
+        observer = self._file_observer
+        if observer:
+            try:
+                observer.stop()
+                observer.join()
+                self._file_observer = None
+                if logger.isEnabledFor(logging.INFO):
+                    logger.info("Stopped watching credentials file")
+            except Exception as e:
+                if logger.isEnabledFor(logging.WARNING):
+                    logger.warning(f"Error stopping file watcher: {e}")
+
+    async def _handle_credentials_file_change(self) -> None:
+        """Handle credentials file change event."""
+        try:
+            if logger.isEnabledFor(logging.INFO):
+                logger.info("Handling credentials file change...")
+
+            # Validate file first
+            ok, errs = self._validate_credentials_file_exists()
+            if not ok:
+                self._degrade(errs)
+                if logger.isEnabledFor(logging.WARNING):
+                    logger.warning(
+                        f"Updated credentials file is invalid: {'; '.join(errs)}"
+                    )
+                return
+
+            # Attempt to reload
+            if await self._load_oauth_credentials():
+                refreshed = await self._refresh_token_if_needed()
+                if refreshed:
+                    self._recover()
+                    if logger.isEnabledFor(logging.INFO):
+                        logger.info(
+                            "Successfully reloaded credentials from updated file"
+                        )
+                else:
+                    self._degrade(
+                        ["Credentials refreshed from file but token remains invalid"]
+                    )
+                    if logger.isEnabledFor(logging.WARNING):
+                        logger.warning(
+                            "Credentials file reload completed but token is still invalid"
+                        )
+            else:
+                self._degrade(["Failed to reload credentials after file change"])
+                if logger.isEnabledFor(logging.ERROR):
+                    logger.error("Failed to reload credentials after file change")
+
+        except Exception as e:
+            self._degrade([f"Error handling credentials file change: {e}"])
+            if logger.isEnabledFor(logging.ERROR):
+                logger.error(
+                    f"Error handling credentials file change: {e}", exc_info=True
+                )
+
+    async def _validate_runtime_credentials(self) -> bool:
+        """Validate credentials at runtime with throttling.
+
+        Returns:
+            bool: True if credentials are valid, False otherwise
+        """
+        now = time.time()
+        if now - self._last_validation_time < 30:
+            return self.is_backend_functional()
+        self._last_validation_time = now
+
+        refreshed = await self._refresh_token_if_needed()
+        if not refreshed:
+            self._degrade(["Token expired and automatic refresh failed"])
+            if logger.isEnabledFor(logging.WARNING):
+                logger.warning(
+                    "Token validation failed; automatic refresh did not produce a valid token."
+                )
+            return False
+
+        if not self.is_backend_functional():
+            self._recover()
+        return True
+
+    def _seconds_until_token_expiry(self) -> float | None:
+        """Return seconds remaining before token expiry, or None if unknown."""
         if not self._oauth_credentials:
-            return True  # No credentials means no valid token
+            return None
 
-        expiry_date_ms = self._oauth_credentials.get("expiry_date")
-        if not isinstance(expiry_date_ms, int | float):
-            return False  # No expiry date means token doesn't expire
+        expiry_value = self._oauth_credentials.get("expiry_date")
+        if not isinstance(expiry_value, int | float):
+            return None
 
-        # Convert milliseconds to seconds
-        expiry_date_s = float(expiry_date_ms) / 1000.0
+        expiry_seconds = float(expiry_value) / 1000.0
+        return expiry_seconds - time.time()
 
-        # Add a buffer for proactive refresh (e.g., 30 seconds before actual expiry)
-        refresh_buffer_s = 30
-        return time.time() >= (expiry_date_s - refresh_buffer_s)
+    def _is_token_expired(
+        self, buffer_seconds: float = TOKEN_EXPIRY_BUFFER_SECONDS
+    ) -> bool:
+        """Check if the current access token is expired or within buffer window."""
+        if not self._oauth_credentials:
+            return True
+
+        seconds_remaining = self._seconds_until_token_expiry()
+        if seconds_remaining is None:
+            return False
+
+        return seconds_remaining <= buffer_seconds
+
+    def _should_trigger_cli_refresh(self) -> bool:
+        """Determine whether we should proactively trigger CLI token refresh."""
+        if not self._oauth_credentials:
+            return True
+
+        seconds_remaining = self._seconds_until_token_expiry()
+        if seconds_remaining is None:
+            return False
+
+        if seconds_remaining > CLI_REFRESH_THRESHOLD_SECONDS:
+            return False
+
+        now = time.time()
+        if (now - self._last_cli_refresh_attempt) < CLI_REFRESH_COOLDOWN_SECONDS:
+            return False
+
+        return not (
+            self._cli_refresh_process and self._cli_refresh_process.poll() is None
+        )
+
+    def _launch_cli_refresh_process(self) -> None:
+        """Launch gemini CLI command to refresh the OAuth token in background."""
+        now = time.time()
+
+        if (now - self._last_cli_refresh_attempt) < CLI_REFRESH_COOLDOWN_SECONDS:
+            return
+
+        if self._cli_refresh_process and self._cli_refresh_process.poll() is None:
+            return
+
+        try:
+            command = list(CLI_REFRESH_COMMAND)
+            executable = shutil.which(command[0])
+            if executable:
+                command[0] = executable
+            else:
+                raise FileNotFoundError(command[0])
+
+            self._cli_refresh_process = subprocess.Popen(  # - intended CLI call
+                command,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+            self._last_cli_refresh_attempt = now
+            if logger.isEnabledFor(logging.INFO):
+                logger.info("Triggered Gemini CLI background refresh process")
+        except FileNotFoundError:
+            self._last_cli_refresh_attempt = now
+            if logger.isEnabledFor(logging.ERROR):
+                logger.error(
+                    "Gemini CLI binary not found; cannot refresh OAuth token automatically."
+                )
+        except Exception as exc:  # pragma: no cover - defensive logging
+            self._last_cli_refresh_attempt = now
+            if logger.isEnabledFor(logging.ERROR):
+                logger.error(
+                    "Failed to launch Gemini CLI for token refresh: %s",
+                    exc,
+                    exc_info=True,
+                )
+
+    async def _poll_for_new_token(self) -> bool:
+        """Poll the credential file for an updated token after CLI refresh."""
+        for _ in range(5):
+            await asyncio.sleep(1)
+            loaded = await self._load_oauth_credentials()
+            if loaded and not self._is_token_expired():
+                return True
+
+        return not self._is_token_expired()
 
     def _get_refresh_token(self) -> str | None:
         """Get refresh token, either from credentials or cached value."""
@@ -171,39 +594,58 @@ class GeminiOAuthPersonalConnector(GeminiBackend):
         return None
 
     async def _refresh_token_if_needed(self) -> bool:
-        """Ensure we have a valid access token; reload from CLI cache if expired.
+        """Ensure a valid access token is available, refreshing when necessary."""
+        if not self._oauth_credentials:
+            await self._load_oauth_credentials()
 
-        We intentionally avoid embedding OAuth client credentials. The official
-        gemini CLI persists credentials to ~/.gemini/oauth_creds.json and refreshes
-        them itself. Here we re-load that file if our token is stale.
-        """
-        if not self._is_token_expired():
+        if not self._oauth_credentials:
+            return False
+
+        expired = self._is_token_expired()
+        near_expiry = self._should_trigger_cli_refresh()
+
+        if not expired and not near_expiry:
             return True
 
         async with self._token_refresh_lock:
-            if not self._is_token_expired():
+            if not self._oauth_credentials:
+                await self._load_oauth_credentials()
+
+            if not self._oauth_credentials:
+                return False
+
+            expired = self._is_token_expired()
+            near_expiry = self._should_trigger_cli_refresh()
+
+            if not expired and near_expiry:
+                self._launch_cli_refresh_process()
                 return True
 
-            logger.info(
-                "Access token expired or near expiry; reloading CLI credentials..."
-            )
+            if not expired:
+                return True
 
-            # Attempt to reload the credentials file; the CLI should refresh it
+            if logger.isEnabledFor(logging.INFO):
+                logger.info(
+                    "Access token expired; reloading credentials and invoking CLI refresh if needed."
+                )
+
             reloaded = await self._load_oauth_credentials()
-            if not reloaded:
-                logger.warning(
-                    "Failed to reload Gemini OAuth credentials from ~/.gemini."
-                )
-                return False
+            if reloaded and not self._is_token_expired():
+                if self._should_trigger_cli_refresh():
+                    self._launch_cli_refresh_process()
+                return True
 
-            # After reload, consider token valid if not expired
-            if self._is_token_expired():
-                logger.warning(
-                    "Reloaded credentials are still expired. Please run 'gemini auth' to refresh."
-                )
-                return False
+            self._launch_cli_refresh_process()
 
-            return True
+            refreshed = await self._poll_for_new_token()
+            if refreshed:
+                return True
+
+            if logger.isEnabledFor(logging.WARNING):
+                logger.warning(
+                    "Automatic Gemini CLI refresh did not produce a valid token in time."
+                )
+            return False
 
     async def _save_oauth_credentials(self, credentials: dict[str, Any]) -> None:
         """Save OAuth credentials to oauth_creds.json file."""
@@ -215,9 +657,13 @@ class GeminiOAuthPersonalConnector(GeminiBackend):
 
             with open(creds_path, "w", encoding="utf-8") as f:
                 json.dump(credentials, f, indent=4)
-            logger.info(f"Gemini OAuth credentials saved to {creds_path}")
+            if logger.isEnabledFor(logging.INFO):
+                logger.info(f"Gemini OAuth credentials saved to {creds_path}")
         except OSError as e:
-            logger.error(f"Error saving Gemini OAuth credentials: {e}", exc_info=True)
+            if logger.isEnabledFor(logging.ERROR):
+                logger.error(
+                    f"Error saving Gemini OAuth credentials: {e}", exc_info=True
+                )
 
     async def _load_oauth_credentials(self) -> bool:
         """Load OAuth credentials from oauth_creds.json file."""
@@ -231,7 +677,10 @@ class GeminiOAuthPersonalConnector(GeminiBackend):
             self._credentials_path = creds_path
 
             if not creds_path.exists():
-                logger.warning(f"Gemini OAuth credentials not found at {creds_path}")
+                if logger.isEnabledFor(logging.WARNING):
+                    logger.warning(
+                        f"Gemini OAuth credentials not found at {creds_path}"
+                    )
                 return False
 
             # Check if file has been modified since last load
@@ -239,9 +688,10 @@ class GeminiOAuthPersonalConnector(GeminiBackend):
                 current_modified = creds_path.stat().st_mtime
                 if current_modified == self._last_modified and self._oauth_credentials:
                     # File hasn't changed and credentials are in memory, no need to reload
-                    logger.debug(
-                        "Gemini OAuth credentials file not modified, using cached."
-                    )
+                    if logger.isEnabledFor(logging.DEBUG):
+                        logger.debug(
+                            "Gemini OAuth credentials file not modified, using cached."
+                        )
                     return True
                 self._last_modified = current_modified
             except OSError:
@@ -253,27 +703,44 @@ class GeminiOAuthPersonalConnector(GeminiBackend):
 
             # Validate essential fields
             if "access_token" not in credentials:
-                logger.warning(
-                    "Malformed Gemini OAuth credentials: missing access_token"
-                )
+                if logger.isEnabledFor(logging.WARNING):
+                    logger.warning(
+                        "Malformed Gemini OAuth credentials: missing access_token"
+                    )
                 return False
 
             self._oauth_credentials = credentials
-            logger.info("Successfully loaded Gemini OAuth credentials.")
+            if logger.isEnabledFor(logging.INFO):
+                logger.info("Successfully loaded Gemini OAuth credentials.")
             return True
         except json.JSONDecodeError as e:
-            logger.error(
-                f"Error decoding Gemini OAuth credentials JSON: {e}",
-                exc_info=True,
-            )
+            if logger.isEnabledFor(logging.ERROR):
+                logger.error(
+                    f"Error decoding Gemini OAuth credentials JSON: {e}",
+                    exc_info=True,
+                )
             return False
         except OSError as e:
-            logger.error(f"Error loading Gemini OAuth credentials: {e}", exc_info=True)
+            if logger.isEnabledFor(logging.ERROR):
+                logger.error(
+                    f"Error loading Gemini OAuth credentials: {e}", exc_info=True
+                )
             return False
 
     async def initialize(self, **kwargs: Any) -> None:
-        """Initialize backend by loading and potentially refreshing token."""
-        logger.info("Initializing Gemini OAuth Personal backend.")
+        """Initialize backend with enhanced validation following the stale token handling pattern."""
+        if logger.isEnabledFor(logging.INFO):
+            logger.info(
+                "Initializing Gemini OAuth Personal backend with enhanced validation."
+            )
+
+        # Capture the current event loop for thread-safe operations
+        try:
+            self._main_loop = asyncio.get_running_loop()
+        except RuntimeError:
+            # If no running loop, create a new one
+            self._main_loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(self._main_loop)
 
         # Set the API base URL for Google Code Assist API (used by oauth-personal)
         self.gemini_api_base_url = kwargs.get(
@@ -283,43 +750,141 @@ class GeminiOAuthPersonalConnector(GeminiBackend):
         # Set custom .gemini directory path (defaults to ~/.gemini)
         self.gemini_cli_oauth_path = kwargs.get("gemini_cli_oauth_path")
 
+        # 1) Startup validation pipeline
+        # First validate credentials file exists and is readable
+        ok, errs = self._validate_credentials_file_exists()
+        if not ok:
+            self._fail_init(errs)
+            return
+
+        # 2) Load credentials into memory
         if not await self._load_oauth_credentials():
-            logger.warning("Failed to load initial Gemini OAuth credentials.")
-            self.is_functional = False
+            self._fail_init(["Failed to load credentials despite validation passing"])
             return
 
-        # Attempt to refresh token if needed during initialization
+        # 3) Structure validation
+        if self._oauth_credentials is not None:
+            ok, errs = self._validate_credentials_structure(self._oauth_credentials)
+            if not ok:
+                self._fail_init(errs)
+                return
+        else:
+            self._fail_init(["OAuth credentials are None after loading"])
+            return
+
+        # 4) Refresh if needed
         if not await self._refresh_token_if_needed():
-            logger.warning(
-                "Failed to refresh Gemini OAuth token during initialization."
-            )
-            self.is_functional = False
+            pending_message = "OAuth token refresh pending; Gemini CLI background refresh was triggered."
+            self._degrade([pending_message])
+            self._start_file_watching()
+            self._initialization_failed = False
+            self._last_validation_time = time.time()
+            if logger.isEnabledFor(logging.WARNING):
+                logger.warning(
+                    "Gemini OAuth Personal backend started with an expired token; "
+                    "waiting for the Gemini CLI to refresh credentials."
+                )
             return
 
-        # If token still appears expired after reload attempts, auto-disable backend
-        if self._is_token_expired():
-            logger.warning(
-                "Gemini OAuth token is expired. Disabling backend until you run 'gemini auth' to refresh."
-            )
-            self.is_functional = False
-            return
-
-        # If we reach here, credentials are loaded and potentially refreshed
-        # Fetch available models using the OAuth token
+        # 5) Load models (non-fatal)
         try:
             await self._ensure_models_loaded()
-            self.is_functional = True
-            logger.info(
-                f"Gemini OAuth Personal backend initialized with {len(self.available_models)} models."
-            )
         except Exception as e:
-            logger.error(
-                f"Failed to load models during initialization: {e}", exc_info=True
-            )
-            # Even if model loading fails, mark as functional if we have credentials
-            self.is_functional = True
+            if logger.isEnabledFor(logging.WARNING):
+                logger.warning(
+                    f"Failed to load models during initialization: {e}", exc_info=True
+                )
+            # Continue with initialization even if model loading fails
+
+        # 6) Start file watching and mark functional
+        self._start_file_watching()
+        self.is_functional = True
+        self._last_validation_time = time.time()
+
+        if logger.isEnabledFor(logging.INFO):
             logger.info(
-                "Gemini OAuth Personal backend initialized (models will be loaded on first use)."
+                f"Gemini OAuth Personal backend initialized successfully with {len(self.available_models)} models."
+            )
+
+    async def _ensure_models_loaded(self) -> None:
+        """Fetch models if not already cached - OAuth version.
+
+        Note: The Code Assist API doesn't have a models list endpoint,
+        so we use a hardcoded list of known models based on the official
+        gemini-cli source code (as of 2025).
+        """
+        if not self.available_models and self._oauth_credentials:
+            # Code Assist API doesn't have a /v1internal/models endpoint
+            # Use a hardcoded list based on gemini-cli's tokenLimits.ts and models.ts
+            self.available_models = [
+                # Current generation (2.5 series) - DEFAULT models
+                "gemini-2.5-pro",
+                "gemini-2.5-flash",
+                "gemini-2.5-flash-lite",
+                # Preview models
+                "gemini-2.5-pro-preview-05-06",
+                "gemini-2.5-pro-preview-06-05",
+                "gemini-2.5-flash-preview-05-20",
+                # 2.0 series
+                "gemini-2.0-flash",
+                "gemini-2.0-flash-thinking-exp-1219",
+                "gemini-2.0-flash-preview-image-generation",
+                # 1.5 series
+                "gemini-1.5-pro",
+                "gemini-1.5-flash",
+                # Embedding model
+                "gemini-embedding-001",
+            ]
+            if logger.isEnabledFor(logging.INFO):
+                logger.info(
+                    f"Loaded {len(self.available_models)} known Code Assist models"
+                )
+
+    async def list_models(
+        self, *, gemini_api_base_url: str, key_name: str, api_key: str
+    ) -> dict[str, Any]:
+        """List available models using OAuth authentication - ignores API key params."""
+        if not self._oauth_credentials or not self._oauth_credentials.get(
+            "access_token"
+        ):
+            raise HTTPException(
+                status_code=401, detail="No OAuth access token available"
+            )
+
+        headers = {"Authorization": f"Bearer {self._oauth_credentials['access_token']}"}
+        base_url = self.gemini_api_base_url or CODE_ASSIST_ENDPOINT
+        url = f"{base_url}/v1internal/models"
+
+        try:
+            response = await self.client.get(url, headers=headers)
+            if response.status_code >= 400:
+                try:
+                    error_detail = response.json()
+                except Exception:
+                    error_detail = response.text
+                raise BackendError(
+                    message=str(error_detail),
+                    code="gemini_oauth_error",
+                    status_code=response.status_code,
+                    backend_name=self.backend_type,
+                )
+            result: dict[str, Any] = response.json()
+            return result
+        except httpx.TimeoutException as e:
+            if logger.isEnabledFor(logging.ERROR):
+                logger.error(
+                    "Timeout connecting to Gemini OAuth API: %s", e, exc_info=True
+                )
+            raise ServiceUnavailableError(
+                message=f"Timeout connecting to Gemini OAuth API ({e})"
+            )
+        except httpx.RequestError as e:
+            if logger.isEnabledFor(logging.ERROR):
+                logger.error(
+                    "Request error connecting to Gemini OAuth API: %s", e, exc_info=True
+                )
+            raise ServiceUnavailableError(
+                message=f"Could not connect to Gemini OAuth API ({e})"
             )
 
     async def _resolve_gemini_api_config(
@@ -445,13 +1010,16 @@ class GeminiOAuthPersonalConnector(GeminiBackend):
             if not refreshed:
                 raise BackendError("Failed to refresh OAuth token during health check")
 
-            # Perform health check
+            # Perform health check (non-blocking - we only fail on token issues)
             healthy = await self._perform_health_check()
             if not healthy:
-                raise BackendError("Health check failed")
-
+                logger.warning(
+                    "Health check did not pass, but continuing with valid OAuth credentials. "
+                    "The backend will be tested when the first real request is made."
+                )
+            # Mark as checked regardless - we have valid credentials
             self._health_checked = True
-            logger.info("Health check passed - backend is ready for use")
+            logger.info("Backend health check completed - ready for use")
 
     async def chat_completions(  # type: ignore[override]
         self,
@@ -474,6 +1042,23 @@ class GeminiOAuthPersonalConnector(GeminiBackend):
         which is the correct endpoint for oauth-personal authentication,
         while maintaining OpenAI-compatible interface and response format.
         """
+        # Runtime validation with descriptive errors
+        if not await self._validate_runtime_credentials():
+            details = (
+                "; ".join(self._credential_validation_errors)
+                or "Backend is not functional"
+            )
+            raise HTTPException(
+                status_code=502,
+                detail=f"No valid credentials found for backend {self.name}: {details}",
+            )
+
+        if not await self._refresh_token_if_needed():
+            raise HTTPException(
+                status_code=502,
+                detail=f"No valid credentials found for backend {self.name}: Failed to refresh expired token",
+            )
+
         # Perform health check on first use (includes token refresh)
         await self._ensure_healthy()
 
@@ -542,6 +1127,9 @@ class GeminiOAuthPersonalConnector(GeminiBackend):
             if not await self._refresh_token_if_needed():
                 raise AuthenticationError("Failed to refresh OAuth token for API call")
 
+            if self._request_counter:
+                self._request_counter.increment()
+
             # Create an authorized session using the access token directly
             if not self._oauth_credentials:
                 raise AuthenticationError("No OAuth credentials available for API call")
@@ -556,6 +1144,12 @@ class GeminiOAuthPersonalConnector(GeminiBackend):
                 def __init__(self, token: str) -> None:
                     self.token = token
 
+                def before_request(
+                    self, request: Any, method: str, url: str, headers: dict
+                ) -> None:
+                    """Apply the token to the authentication header."""
+                    headers["Authorization"] = f"Bearer {self.token}"
+
                 def refresh(self, request: Any) -> None:
                     # No-op: token is managed by the CLI; we reload from file when needed
                     return
@@ -567,16 +1161,74 @@ class GeminiOAuthPersonalConnector(GeminiBackend):
             # Discover project ID (required for Code Assist API)
             project_id = await self._discover_project_id(auth_session)
 
-            # Convert messages to Gemini format using the translation service
-            canonical_request = self.translation_service.to_domain_request(
-                request=request_data,
-                source_format="anthropic",  # Assuming input is Anthropic-compatible
+            # request_data is expected to be a CanonicalChatRequest already
+            # (the frontend controller converts from frontend-specific format to domain format)
+            # Backends should ONLY convert FROM domain TO backend-specific format
+            canonical_request = request_data
+
+            # Debug logging to trace message flow
+            if logger.isEnabledFor(logging.DEBUG):
+                message_count = (
+                    len(canonical_request.messages)
+                    if hasattr(canonical_request, "messages")
+                    else 0
+                )
+                logger.debug(
+                    f"Processing {message_count} messages for Gemini Code Assist API"
+                )
+                if message_count > 0 and hasattr(canonical_request, "messages"):
+                    last_msg = canonical_request.messages[-1]
+                    last_msg_preview = str(getattr(last_msg, "content", ""))[:100]
+                    logger.debug(
+                        f"Last message role={getattr(last_msg, 'role', 'unknown')}, content preview={last_msg_preview}"
+                    )
+
+            # Convert from canonical/domain format to Gemini API format
+            gemini_request = self.translation_service.from_domain_to_gemini_request(
+                canonical_request
             )
 
-            # Prepare request body for Code Assist API (exactly matching KiloCode)
-            request_body = canonical_request.model_dump(exclude_unset=True)
-            request_body["model"] = effective_model  # Ensure model is correct
-            request_body["project"] = project_id  # Ensure project is correct
+            # Code Assist API doesn't support 'system' role in contents array
+            # Extract system messages and convert to systemInstruction with 'user' role
+            system_instruction = None
+            filtered_contents = []
+
+            for content in gemini_request.get("contents", []):
+                if content.get("role") == "system":
+                    # Convert system message to systemInstruction with 'user' role
+                    # (Code Assist API doesn't support 'system' role)
+                    system_instruction = {
+                        "role": "user",
+                        "parts": content.get("parts", []),
+                    }
+                else:
+                    filtered_contents.append(content)
+
+            # Build the request for Code Assist API
+            code_assist_request = {
+                "contents": filtered_contents,
+                "generationConfig": gemini_request.get("generationConfig", {}),
+            }
+
+            # Add systemInstruction if we found system messages
+            if system_instruction:
+                code_assist_request["systemInstruction"] = system_instruction
+
+            # Add other fields if present
+            if "tools" in gemini_request:
+                code_assist_request["tools"] = gemini_request["tools"]
+            if "toolConfig" in gemini_request:
+                code_assist_request["toolConfig"] = gemini_request["toolConfig"]
+            if "safetySettings" in gemini_request:
+                code_assist_request["safetySettings"] = gemini_request["safetySettings"]
+
+            # Prepare request body for Code Assist API
+            request_body = {
+                "model": effective_model,
+                "project": project_id,
+                "user_prompt_id": self._generate_user_prompt_id(request_data),
+                "request": code_assist_request,
+            }
 
             # Use the Code Assist API exactly like KiloCode does
             # IMPORTANT: KiloCode uses :streamGenerateContent, not :generateContent
@@ -585,6 +1237,7 @@ class GeminiOAuthPersonalConnector(GeminiBackend):
 
             # Use the auth_session.request exactly like KiloCode
             # Add ?alt=sse for server-sent events streaming
+            # Use tuple for (connect_timeout, read_timeout) to handle large responses
             try:
                 response = await asyncio.to_thread(
                     auth_session.request,
@@ -593,7 +1246,7 @@ class GeminiOAuthPersonalConnector(GeminiBackend):
                     params={"alt": "sse"},  # Important: KiloCode uses SSE streaming
                     json=request_body,
                     headers={"Content-Type": "application/json"},
-                    timeout=60,
+                    timeout=int(DEFAULT_CONNECTION_TIMEOUT),
                 )
             except requests.exceptions.Timeout as te:  # type: ignore[attr-defined]
                 raise APITimeoutError(
@@ -621,9 +1274,6 @@ class GeminiOAuthPersonalConnector(GeminiBackend):
 
             # Parse SSE stream response
             generated_text = ""
-            domain_response = None
-
-            # Read the SSE stream
             response_text = response.text
             for line in response_text.split("\n"):
                 if line.startswith("data: "):
@@ -632,30 +1282,86 @@ class GeminiOAuthPersonalConnector(GeminiBackend):
                         break
                     try:
                         data = json.loads(data_str)
-                        # Use translation service to convert to domain response
-                        domain_response = self.translation_service.to_domain_response(
-                            response=data,  # Corrected parameter name
-                            source_format="code_assist",
+                        # Extract content from the chunk
+                        chunk_response = (
+                            self.translation_service.to_domain_stream_chunk(
+                                chunk=data,
+                                source_format="code_assist",
+                            )
                         )
                         if (
-                            domain_response.choices
-                            and domain_response.choices[0].message.content
+                            chunk_response
+                            and chunk_response.get("choices")
+                            and chunk_response["choices"][0]
+                            .get("delta", {})
+                            .get("content")
                         ):
-                            generated_text += domain_response.choices[0].message.content
+                            generated_text += chunk_response["choices"][0]["delta"][
+                                "content"
+                            ]
                     except json.JSONDecodeError:
                         continue
 
-            # Convert to OpenAI-compatible format using translation_service
-            if not domain_response:
-                raise BackendError("Failed to parse a valid response from the backend.")
-            openai_response = self.translation_service.from_domain_response(
-                response=domain_response,
-                target_format="openai",
-            ).model_dump(exclude_unset=True)
+            # Manually calculate token usage since the API doesn't provide it
+            try:
+                encoding = tiktoken.get_encoding("cl100k_base")
 
-            logger.info("Successfully received response from Code Assist API")
+                # Reconstruct prompt text
+                prompt_text_parts = []
+                if code_assist_request.get("systemInstruction"):
+                    for part in code_assist_request["systemInstruction"].get(
+                        "parts", []
+                    ):
+                        if "text" in part:
+                            prompt_text_parts.append(part["text"])
+
+                for content in code_assist_request.get("contents", []):
+                    for part in content.get("parts", []):
+                        if "text" in part:
+                            prompt_text_parts.append(part["text"])
+
+                full_prompt = "\n".join(prompt_text_parts)
+
+                prompt_tokens = len(encoding.encode(full_prompt))
+                completion_tokens = len(encoding.encode(generated_text))
+                total_tokens = prompt_tokens + completion_tokens
+                usage = {
+                    "prompt_tokens": prompt_tokens,
+                    "completion_tokens": completion_tokens,
+                    "total_tokens": total_tokens,
+                }
+            except Exception as e:
+                logger.warning(f"Could not calculate token usage with tiktoken: {e}")
+                usage = {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
+
+            # Create a new CanonicalChatResponse with the full content and usage
+            domain_response = CanonicalChatResponse(
+                id=f"chatcmpl-code-assist-{int(time.time())}",
+                object="chat.completion",
+                created=int(time.time()),
+                model=effective_model,
+                choices=[
+                    ChatCompletionChoice(
+                        index=0,
+                        message=ChatCompletionChoiceMessage(
+                            role="assistant", content=generated_text
+                        ),
+                        finish_reason="stop",
+                    )
+                ],
+                usage=usage,
+            )
+
+            # Convert to OpenAI-compatible format
+            openai_response = self.translation_service.from_domain_to_openai_response(
+                domain_response
+            )
+
+            logger.info(
+                "Successfully received and processed response from Code Assist API"
+            )
             return ResponseEnvelope(
-                content=openai_response, headers={}, status_code=200
+                content=openai_response, headers={}, status_code=200, usage=usage
             )
 
         except AuthenticationError as e:
@@ -688,6 +1394,9 @@ class GeminiOAuthPersonalConnector(GeminiBackend):
                     "Failed to refresh OAuth token for streaming API call"
                 )
 
+            if self._request_counter:
+                self._request_counter.increment()
+
             # Create an authorized session using the access token directly
             if not self._oauth_credentials:
                 raise AuthenticationError(
@@ -702,6 +1411,12 @@ class GeminiOAuthPersonalConnector(GeminiBackend):
                 def __init__(self, token: str) -> None:
                     self.token = token
 
+                def before_request(
+                    self, request: Any, method: str, url: str, headers: dict
+                ) -> None:
+                    """Apply the token to the authentication header."""
+                    headers["Authorization"] = f"Bearer {self.token}"
+
                 def refresh(self, request: Any) -> None:
                     return
 
@@ -712,130 +1427,250 @@ class GeminiOAuthPersonalConnector(GeminiBackend):
             # Discover project ID (required for Code Assist API)
             project_id = await self._discover_project_id(auth_session)
 
-            # Convert messages to canonical domain request using the translation service
-            canonical_request = self.translation_service.to_domain_request(
-                request=request_data,
-                source_format="anthropic",  # Assuming input is Anthropic-compatible
+            # request_data is expected to be a CanonicalChatRequest already
+            # (the frontend controller converts from frontend-specific format to domain format)
+            # Backends should ONLY convert FROM domain TO backend-specific format
+            canonical_request = request_data
+
+            # Debug logging to trace message flow (streaming)
+            if logger.isEnabledFor(logging.DEBUG):
+                message_count = (
+                    len(canonical_request.messages)
+                    if hasattr(canonical_request, "messages")
+                    else 0
+                )
+                logger.debug(
+                    f"[STREAMING] Processing {message_count} messages for Gemini Code Assist API"
+                )
+                if message_count > 0 and hasattr(canonical_request, "messages"):
+                    last_msg = canonical_request.messages[-1]
+                    last_msg_preview = str(getattr(last_msg, "content", ""))[:100]
+                    logger.debug(
+                        f"[STREAMING] Last message role={getattr(last_msg, 'role', 'unknown')}, content preview={last_msg_preview}"
+                    )
+
+            # Convert from canonical/domain format to Gemini API format
+            gemini_request = self.translation_service.from_domain_to_gemini_request(
+                canonical_request
             )
 
-            # Prepare request body for Code Assist API (exactly matching KiloCode)
-            request_body = canonical_request.model_dump(exclude_unset=True)
-            request_body["model"] = effective_model  # Ensure model is correct
-            request_body["project"] = project_id  # Ensure project is correct
+            # Code Assist API doesn't support 'system' role in contents array
+            # Extract system messages and convert to systemInstruction with 'user' role
+            system_instruction = None
+            filtered_contents = []
+
+            for content in gemini_request.get("contents", []):
+                if content.get("role") == "system":
+                    # Convert system message to systemInstruction with 'user' role
+                    # (Code Assist API doesn't support 'system' role)
+                    system_instruction = {
+                        "role": "user",
+                        "parts": content.get("parts", []),
+                    }
+                else:
+                    filtered_contents.append(content)
+
+            # Build the request for Code Assist API
+            code_assist_request = {
+                "contents": filtered_contents,
+                "generationConfig": gemini_request.get("generationConfig", {}),
+            }
+
+            # Add systemInstruction if we found system messages
+            if system_instruction:
+                code_assist_request["systemInstruction"] = system_instruction
+
+            # Add other fields if present
+            if "tools" in gemini_request:
+                code_assist_request["tools"] = gemini_request["tools"]
+            if "toolConfig" in gemini_request:
+                code_assist_request["toolConfig"] = gemini_request["toolConfig"]
+            if "safetySettings" in gemini_request:
+                code_assist_request["safetySettings"] = gemini_request["safetySettings"]
+
+            # Prepare request body for Code Assist API
+            request_body = {
+                "model": effective_model,
+                "project": project_id,
+                "user_prompt_id": self._generate_user_prompt_id(request_data),
+                "request": code_assist_request,
+            }
 
             # Use the Code Assist API with streaming endpoint
             url = f"{self.gemini_api_base_url}/v1internal:streamGenerateContent"
             logger.info(f"Making streaming Code Assist API call to: {url}")
 
+            # For token calculation
+            encoding = tiktoken.get_encoding("cl100k_base")
+            try:
+                prompt_text_parts = []
+                if code_assist_request.get("systemInstruction"):
+                    for part in code_assist_request["systemInstruction"].get(
+                        "parts", []
+                    ):
+                        if "text" in part:
+                            prompt_text_parts.append(part["text"])
+                for content in code_assist_request.get("contents", []):
+                    for part in content.get("parts", []):
+                        if "text" in part:
+                            prompt_text_parts.append(part["text"])
+                full_prompt = "\n".join(prompt_text_parts)
+                prompt_tokens = len(encoding.encode(full_prompt))
+            except Exception as e:
+                logger.warning(f"Could not calculate prompt tokens with tiktoken: {e}")
+                prompt_tokens = 0
+
             # Create an async iterator that yields SSE-formatted chunks
             async def stream_generator() -> AsyncGenerator[ProcessedResponse, None]:
-                response = None  # Initialize response to None
+                response = None
+                generated_text = ""
                 try:
-                    # Use the auth_session.request exactly like KiloCode
-                    # Add ?alt=sse for server-sent events streaming
                     try:
                         response = await asyncio.to_thread(
                             auth_session.request,
                             method="POST",
                             url=url,
-                            params={
-                                "alt": "sse"
-                            },  # Important: KiloCode uses SSE streaming
+                            params={"alt": "sse"},
                             json=request_body,
                             headers={"Content-Type": "application/json"},
-                            timeout=60,
+                            timeout=int(DEFAULT_CONNECTION_TIMEOUT),
+                            stream=True,
                         )
-                    except requests.exceptions.Timeout as te:  # type: ignore[attr-defined]
+                    except requests.exceptions.Timeout as te:
                         logger.error(
                             f"Streaming timeout calling {url}: {te}", exc_info=True
                         )
-                        # End stream gracefully
-                        yield self.translation_service.to_domain_stream_chunk(
-                            chunk=None, source_format="code_assist"
+                        yield ProcessedResponse(
+                            content=self.translation_service.to_domain_stream_chunk(
+                                chunk=None, source_format="code_assist"
+                            )
                         )
                         return
-                    except requests.exceptions.RequestException as rexc:  # type: ignore[attr-defined]
+                    except requests.exceptions.RequestException as rexc:
                         logger.error(
                             f"Streaming connection error calling {url}: {rexc}",
                             exc_info=True,
                         )
-                        yield self.translation_service.to_domain_stream_chunk(
-                            chunk=None, source_format="code_assist"
+                        yield ProcessedResponse(
+                            content=self.translation_service.to_domain_stream_chunk(
+                                chunk=None, source_format="code_assist"
+                            )
                         )
                         return
 
-                    # Process the response
                     if response.status_code >= 400:
                         try:
                             error_detail = response.json()
                         except Exception:
                             error_detail = response.text
-
+                        if (
+                            response.status_code == 429
+                            and isinstance(error_detail, dict)
+                            and "Quota exceeded"
+                            in error_detail.get("error", {}).get("message", "")
+                        ):
+                            self._mark_backend_unusable()
+                            raise BackendError(
+                                message=f"Gemini CLI OAuth quota exceeded: {error_detail}",
+                                code="quota_exceeded",
+                                status_code=response.status_code,
+                            )
                         raise BackendError(
                             message=f"Code Assist API streaming error: {error_detail}",
                             code="code_assist_error",
                             status_code=response.status_code,
                         )
 
-                    # Process the streaming response using synchronous iter_lines()
-                    for line in response.iter_lines(
-                        chunk_size=1
-                    ):  # Process line by line
+                    # Process streaming byte-by-byte for true real-time streaming
+                    # Use a larger chunk_size for better performance (512 bytes is a good balance)
+                    line_buffer = ""
+                    done = False
+                    for chunk in response.iter_content(
+                        chunk_size=512, decode_unicode=False
+                    ):
+                        if done:
+                            break
                         try:
-                            decoded_line = line.decode("utf-8")
-                            if decoded_line.startswith("data: "):
-                                data_str = decoded_line[6:].strip()
-                                if data_str == "[DONE]":
-                                    yield self.translation_service.to_domain_stream_chunk(
-                                        chunk=None,  # Indicate end of stream
-                                        source_format="code_assist",
-                                    )
-                                    break
-                                try:
-                                    data = json.loads(data_str)
-                                    domain_chunk = (
-                                        self.translation_service.to_domain_stream_chunk(
-                                            chunk=data,  # Pass the parsed JSON data
-                                            source_format="code_assist",
-                                        )
-                                    )
-                                    yield domain_chunk
-                                except json.JSONDecodeError:
-                                    # If it's not JSON, it might be an empty line or comment, skip
-                                    continue
-                            else:
-                                # Handle non-data lines (e.g., comments, event types) if necessary
-                                if decoded_line.strip():
-                                    yield self.translation_service.to_domain_stream_chunk(
-                                        chunk={
-                                            "text": decoded_line
-                                        },  # Wrap in a dict for consistency
-                                        source_format="raw_text",  # Or a more specific raw format
-                                    )
+                            # Decode the chunk and process character by character
+                            chunk_str = chunk.decode("utf-8")
+                            for char in chunk_str:
+                                line_buffer += char
+                                if char == "\n":
+                                    decoded_line = line_buffer.rstrip("\r\n")
+                                    line_buffer = ""
+                                    if decoded_line.startswith("data: "):
+                                        data_str = decoded_line[6:].strip()
+                                        if data_str == "[DONE]":
+                                            done = True
+                                            break
+                                        try:
+                                            data = json.loads(data_str)
+                                            domain_chunk = self.translation_service.to_domain_stream_chunk(
+                                                chunk=data, source_format="code_assist"
+                                            )
+                                            # Accumulate generated text for usage calculation
+                                            if (
+                                                domain_chunk
+                                                and domain_chunk.get("choices")
+                                                and domain_chunk["choices"][0]
+                                                .get("delta", {})
+                                                .get("content")
+                                            ):
+                                                generated_text += domain_chunk[
+                                                    "choices"
+                                                ][0]["delta"]["content"]
+                                            # Always yield the chunk, regardless of content
+                                            yield ProcessedResponse(
+                                                content=domain_chunk
+                                            )
+                                        except json.JSONDecodeError:
+                                            continue
+                        except UnicodeDecodeError:
+                            # Skip invalid UTF-8 sequences
+                            continue
                         except Exception as chunk_error:
                             logger.error(
-                                f"Error processing stream line: {chunk_error}",
+                                f"Error processing stream chunk: {chunk_error}",
                                 exc_info=True,
                             )
                             continue
 
-                    # Ensure the stream is properly closed with a DONE signal
-                    yield self.translation_service.to_domain_stream_chunk(
-                        chunk=None,  # Indicate end of stream
-                        source_format="code_assist",
+                    # Calculate and yield usage
+                    try:
+                        completion_tokens = len(encoding.encode(generated_text))
+                        usage = {
+                            "prompt_tokens": prompt_tokens,
+                            "completion_tokens": completion_tokens,
+                            "total_tokens": prompt_tokens + completion_tokens,
+                        }
+                        usage_chunk = {
+                            "id": f"chatcmpl-gemini-usage-{int(time.time())}",
+                            "object": "chat.completion.chunk",
+                            "created": int(time.time()),
+                            "model": effective_model,
+                            "choices": [],
+                            "usage": usage,
+                        }
+                        yield ProcessedResponse(content=usage_chunk)
+                    except Exception as e:
+                        logger.warning(
+                            f"Could not calculate completion tokens for streaming: {e}"
+                        )
+
+                    final_chunk = self.translation_service.to_domain_stream_chunk(
+                        chunk=None, source_format="code_assist"
                     )
+                    yield ProcessedResponse(content=final_chunk)
 
                 except Exception as e:
                     logger.error(f"Error in streaming generator: {e}", exc_info=True)
-                    # Yield an error chunk or ensure stream ends gracefully
-                    yield self.translation_service.to_domain_stream_chunk(
-                        chunk=None,  # Indicate end of stream due to error
-                        source_format="code_assist",
+                    error_chunk = self.translation_service.to_domain_stream_chunk(
+                        chunk=None, source_format="code_assist"
                     )
-
+                    yield ProcessedResponse(content=error_chunk)
                 finally:
-                    if response:  # Ensure response is defined before closing
-                        response.close()  # Use synchronous close
+                    if response:
+                        response.close()
 
             return StreamingResponseEnvelope(
                 content=stream_generator(),
@@ -850,13 +1685,40 @@ class GeminiOAuthPersonalConnector(GeminiBackend):
             )
             raise
         except BackendError as e:
-            logger.error(f"Backend error during streaming API call: {e}", exc_info=True)
+            # For quota exceeded errors, don't log full stack trace to avoid console spam
+            if "quota exceeded" in str(e).lower():
+                logger.error(f"Backend error during streaming API call: {e}")
+            else:
+                logger.error(
+                    f"Backend error during streaming API call: {e}", exc_info=True
+                )
             raise
         except Exception as e:
             logger.error(
                 f"Unexpected error during streaming API call: {e}", exc_info=True
             )
             raise BackendError(f"Unexpected error during streaming API call: {e}")
+
+    def _generate_user_prompt_id(self, request_data: Any) -> str:
+        """Generate a unique user_prompt_id for Code Assist requests."""
+        session_hint: str | None = None
+        extra_body = getattr(request_data, "extra_body", None)
+        if isinstance(extra_body, dict):
+            raw_session = extra_body.get("session_id") or extra_body.get(
+                "user_prompt_id"
+            )
+            if raw_session is not None:
+                session_hint = str(raw_session)
+
+        base = "proxy"
+        if session_hint:
+            safe_session = "".join(
+                c if c.isalnum() or c in "-._" else "-" for c in session_hint
+            ).strip("-")
+            if safe_session:
+                base = f"{base}-{safe_session}"
+
+        return f"{base}-{uuid.uuid4().hex}"
 
     def _convert_to_code_assist_format(
         self, request_data: Any, processed_messages: list[Any], model: str
@@ -1139,6 +2001,14 @@ class GeminiOAuthPersonalConnector(GeminiBackend):
             # Fall back to default
             self._project_id = initial_project_id
             return str(self._project_id)
+
+    def __del__(self):
+        """Cleanup file watcher on destruction."""
+        self._stop_file_watching()
+        if self._cli_refresh_process and self._cli_refresh_process.poll() is None:
+            with contextlib.suppress(Exception):
+                self._cli_refresh_process.terminate()
+        self._cli_refresh_process = None
 
 
 backend_registry.register_backend(

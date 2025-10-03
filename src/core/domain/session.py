@@ -15,6 +15,7 @@ from src.core.domain.configuration.backend_config import BackendConfiguration
 from src.core.domain.configuration.loop_detection_config import (
     LoopDetectionConfiguration,
 )
+from src.core.domain.configuration.reasoning_aliases_config import ReasoningMode
 from src.core.domain.configuration.reasoning_config import ReasoningConfiguration
 from src.core.interfaces.configuration_interface import (
     IBackendConfig,
@@ -63,6 +64,9 @@ class SessionState(ValueObject):
     interactive_just_enabled: bool = False
     hello_requested: bool = False
     is_cline_agent: bool = False
+    pytest_compression_enabled: bool = True
+    compress_next_tool_call_reply: bool = False
+    pytest_compression_min_lines: int = 0
 
     def with_backend_config(self, backend_config: BackendConfiguration) -> SessionState:
         """Create a new session state with updated backend config."""
@@ -97,6 +101,20 @@ class SessionState(ValueObject):
     def with_is_cline_agent(self, is_cline: bool) -> SessionState:
         """Create a new session state with updated is_cline_agent flag."""
         return self.model_copy(update={"is_cline_agent": is_cline})
+
+    def with_pytest_compression_enabled(self, enabled: bool) -> SessionState:
+        """Create a new session state with updated pytest_compression_enabled flag."""
+        return self.model_copy(update={"pytest_compression_enabled": enabled})
+
+    def with_compress_next_tool_call_reply(self, should_compress: bool) -> SessionState:
+        """Create a new session state with updated compress_next_tool_call_reply flag."""
+        return self.model_copy(
+            update={"compress_next_tool_call_reply": should_compress}
+        )
+
+    def with_pytest_compression_min_lines(self, min_lines: int) -> SessionState:
+        """Create a new session state with updated pytest_compression_min_lines value."""
+        return self.model_copy(update={"pytest_compression_min_lines": min_lines})
 
 
 class SessionStateAdapter(ISessionState, ISessionStateMutator):
@@ -180,6 +198,21 @@ class SessionStateAdapter(ISessionState, ISessionStateMutator):
         return self._state.is_cline_agent
 
     @property
+    def pytest_compression_enabled(self) -> bool:
+        """Whether pytest output compression is enabled for this session."""
+        return self._state.pytest_compression_enabled
+
+    @property
+    def compress_next_tool_call_reply(self) -> bool:
+        """Whether the next tool call reply should be compressed."""
+        return self._state.compress_next_tool_call_reply
+
+    @property
+    def pytest_compression_min_lines(self) -> int:
+        """Minimum line threshold for pytest compression."""
+        return self._state.pytest_compression_min_lines
+
+    @property
     def override_model(self) -> str | None:
         """Get the override model from backend configuration."""
         # Use the property to ensure we get the value from model_value
@@ -255,6 +288,29 @@ class SessionStateAdapter(ISessionState, ISessionStateMutator):
         new_state = cast(SessionState, self._state).with_is_cline_agent(is_cline)
         return SessionStateAdapter(new_state)
 
+    def with_pytest_compression_enabled(self, enabled: bool) -> ISessionState:
+        """Create a new session state with updated pytest_compression_enabled flag."""
+        new_state = cast(SessionState, self._state).with_pytest_compression_enabled(
+            enabled
+        )
+        return SessionStateAdapter(new_state)
+
+    def with_compress_next_tool_call_reply(
+        self, should_compress: bool
+    ) -> ISessionState:
+        """Create a new session state with updated compress_next_tool_call_reply flag."""
+        new_state = cast(SessionState, self._state).with_compress_next_tool_call_reply(
+            should_compress
+        )
+        return SessionStateAdapter(new_state)
+
+    def with_pytest_compression_min_lines(self, min_lines: int) -> ISessionState:
+        """Create a new session state with updated pytest_compression_min_lines value."""
+        new_state = cast(SessionState, self._state).with_pytest_compression_min_lines(
+            min_lines
+        )
+        return SessionStateAdapter(new_state)
+
     # Mutable convenience methods expected by legacy tests
     def set_project(self, project: str | None) -> None:
         """Set project on the underlying state (mutating adapter)."""
@@ -295,6 +351,35 @@ class SessionStateAdapter(ISessionState, ISessionStateMutator):
 
 class Session(ISession):
     """Container for conversation state and history."""
+
+    def get_model(self) -> str | None:
+        """Get the current model from the backend configuration."""
+        return self.state.backend_config.model
+
+    def set_model(self, model: str) -> None:
+        """Set the model on the session state."""
+        new_backend_config = cast(
+            BackendConfiguration, self.state.backend_config
+        ).with_model(model)
+        self.state = self.state.with_backend_config(new_backend_config)
+
+    def set_provider(self, provider: str) -> None:
+        """Set the provider on the session state."""
+        new_backend_config = cast(
+            BackendConfiguration, self.state.backend_config
+        ).with_backend_type(provider)
+        self.state = self.state.with_backend_config(new_backend_config)
+
+    def set_reasoning_mode(self, mode: ReasoningMode) -> None:
+        """Set the reasoning mode on the session state."""
+        new_reasoning_config = cast(
+            ReasoningConfiguration, self.state.reasoning_config
+        ).model_copy(update=mode.model_dump(exclude_none=True))
+        self.state = self.state.with_reasoning_config(new_reasoning_config)
+
+    def get_reasoning_mode(self) -> IReasoningConfig:
+        """Get the current reasoning mode from the session state."""
+        return self.state.reasoning_config
 
     def __init__(
         self,

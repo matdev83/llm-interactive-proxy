@@ -23,12 +23,12 @@ class LoggingMiddleware(BaseHTTPMiddleware):
     async def dispatch(
         self, request: Request, call_next: RequestResponseEndpoint
     ) -> Response:
-        if self.log_requests:
+        if self.log_requests and logger.isEnabledFor(logging.INFO):
             logger.info(f"Request: {request.method} {request.url}")
 
         response = await call_next(request)
 
-        if self.log_responses:
+        if self.log_responses and logger.isEnabledFor(logging.INFO):
             logger.info(f"Response status: {response.status_code}")
 
         return response

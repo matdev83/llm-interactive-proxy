@@ -21,6 +21,10 @@ session:
   max_age: 86400  # 1 day
   default_interactive_mode: true
   force_set_project: false
+  
+  # Pytest output compression (reduces verbose test output to preserve context window)
+  pytest_compression_enabled: true  # Default: true
+  pytest_compression_min_lines: 30  # Only compress output with 30+ lines (default: 30)
 
 # Logging
 logging:

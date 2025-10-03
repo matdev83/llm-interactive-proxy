@@ -1,453 +1,254 @@
-from __future__ import annotations
+"""
+Common exception classes for the LLM Interactive Proxy.
 
-from typing import Any
+This module defines custom exception classes used throughout the application
+for better error handling and categorization.
+"""
+
+from __future__ import annotations
 
 
 class LLMProxyError(Exception):
-    """Base exception for the LLM proxy."""
-
-    def __init__(
-        self,
-        message: str = "",
-        code: str | None = None,
-        status_code: int = 500,
-        details: dict[str, Any] | None = None,
-    ):
-        super().__init__(message)
-        self.message = message
-        self.code = code
-        self.status_code = status_code
-        self.details = details
-
-    def to_dict(self) -> dict[str, Any]:
-        """Convert the exception to a dictionary for serialization."""
-        result: dict[str, Any] = {
-            "error": {
-                "message": self.message,
-                "type": self.__class__.__name__,
-                "code": self.code,
-            }
-        }
-        if self.details:
-            result["error"]["details"] = self.details
-        return result
-
-
-class BackendError(LLMProxyError):
-    """Exception raised when a backend operation fails."""
-
-    def __init__(
-        self,
-        message: str = "Backend operation failed",
-        code: str | None = "backend_error",
-        status_code: int = 500,
-        backend_name: str | None = None,
-        details: dict[str, Any] | None = None,
-    ):
-        super().__init__(
-            message=message, code=code, status_code=status_code, details=details
-        )
-        self.backend_name = backend_name
-
-    def to_dict(self) -> dict[str, Any]:
-        """Convert the exception to a dictionary for serialization."""
-        result = super().to_dict()
-        if self.backend_name:
-            result["error"]["backend"] = self.backend_name
-        if self.details:
-            result["error"]["details"] = self.details
-        return result
-
-
-class AuthenticationError(LLMProxyError):
-    """Exception raised when authentication fails."""
-
-    def __init__(
-        self, message: str = "Authentication failed", code: str | None = "auth_error"
-    ):
-        super().__init__(message=message, code=code, status_code=401)
-
-
-class ConfigurationError(LLMProxyError):
-    """Exception raised when configuration is invalid or missing."""
-
-    def __init__(
-        self,
-        message: str = "Configuration error",
-        code: str | None = "config_error",
-        details: dict[str, Any] | None = None,
-    ):
-        super().__init__(message=message, code=code, status_code=400, details=details)
-
-    def to_dict(self) -> dict[str, Any]:
-        """Convert the exception to a dictionary for serialization."""
-        result = super().to_dict()
-        if self.details:
-            result["details"] = self.details
-        return result
-
-
-class RateLimitExceededError(LLMProxyError):
-    """Exception raised when rate limit is exceeded."""
-
-    def __init__(
-        self,
-        message: str = "Rate limit exceeded",
-        code: str | None = "rate_limit_exceeded",
-        reset_at: float | None = None,
-        limit: int | None = None,
-        remaining: int | None = None,
-    ):
-        super().__init__(message=message, code=code, status_code=429)
-        self.reset_at = reset_at
-        self.limit = limit
-        self.remaining = remaining
-
-    def to_dict(self) -> dict[str, Any]:
-        """Convert the exception to a dictionary for serialization."""
-        result = super().to_dict()
-        if self.reset_at is not None:
-            result["error"]["reset_at"] = self.reset_at
-        if self.limit is not None:
-            result["error"]["limit"] = self.limit
-        if self.remaining is not None:
-            result["error"]["remaining"] = self.remaining
-        return result
-
-
-class ServiceUnavailableError(LLMProxyError):
-    """Exception raised when a backend service is unavailable."""
-
-    def __init__(
-        self,
-        message: str = "Service unavailable",
-        code: str | None = "service_unavailable",
-    ):
-        super().__init__(message=message, code=code, status_code=503)
-
-
-class LoopDetectionError(LLMProxyError):
-    """Exception raised when a loop is detected."""
-
-    def __init__(
-        self,
-        message: str = "Loop detected",
-        code: str | None = "loop_detected",
-        pattern: str | None = None,
-        repetitions: int | None = None,
-        details: dict[str, Any] | None = None,
-    ):
-        super().__init__(message=message, code=code, status_code=400)
-        self.pattern = pattern
-        self.repetitions = repetitions
-        self.details = details
-
-
-class InvalidRequestError(LLMProxyError):
-    """Error raised when a request is invalid."""
+    """Base exception class for all LLM proxy errors."""
 
     def __init__(
         self,
         message: str,
-        param: str | None = None,
-        code: str | None = "invalid_request",
-        details: dict[str, Any] | None = None,
+        details: dict | None = None,
+        *,
+        status_code: int | None = None,
+        **kwargs,
     ):
-        """Initialize the error.
+        """Initialize the exception.
 
         Args:
-            message: The error message
-            param: The parameter that caused the error
-            code: An error code
-            details: Additional details about the error
+            message: Human-readable error message
+            details: Optional dictionary with additional error details
+            status_code: Optional HTTP status code hint for transport adapters
         """
-        super().__init__(message=message, code=code, status_code=400)
-        self.param = param
-        self.details = details
+        super().__init__(message)
+        self.message = message
+        self.details = details or {}
+        self.status_code = status_code or 500
+        # Attach any extra attributes provided for compatibility with callers/tests
+        for key, value in (kwargs or {}).items():
+            setattr(self, key, value)
 
-    def to_dict(self) -> dict[str, Any]:
-        """Convert the error to a dictionary representation.
+    def to_dict(self) -> dict:
+        error_dict = {
+            "message": self.message,
+            "type": self.__class__.__name__,
+            "details": self.details,
+        }
 
-        Returns:
-            A dictionary representation of the error
-        """
-        result = super().to_dict()
+        # Include any additional attributes that were set via kwargs
+        for attr_name in dir(self):
+            if (
+                not attr_name.startswith("_")
+                and attr_name not in ["message", "details", "status_code", "args"]
+                and not callable(getattr(self, attr_name))
+            ):
+                error_dict[attr_name] = getattr(self, attr_name)
 
-        if self.param:
-            result["error"]["param"] = self.param
-
-        if self.details:
-            result["error"]["details"] = self.details
-
-        return result
+        return {"error": error_dict}
 
 
-class ToolCallLoopError(LLMProxyError):
-    """Exception raised when a tool call loop is detected."""
+class AuthenticationError(LLMProxyError):
+    """Raised when authentication fails."""
 
     def __init__(
         self,
-        message: str = "Tool call loop detected",
-        code: str | None = "tool_call_loop",
-        pattern: str | None = None,
-        tool_name: str | None = None,
-        details: dict[str, Any] | None = None,
+        message: str = "Authentication failed",
+        details: dict | None = None,
+        **kwargs,
     ):
-        """Initialize the error.
-
-        Args:
-            message: The error message
-            code: An error code
-            pattern: The detected loop pattern
-            tool_name: The tool that caused the loop
-            details: Additional details about the error
-        """
-        super().__init__(message=message, code=code, status_code=400)
-        self.pattern = pattern
-        self.tool_name = tool_name
-        self.details = details
-
-    def to_dict(self) -> dict[str, Any]:
-        """Convert the error to a dictionary representation.
-
-        Returns:
-            A dictionary representation of the error
-        """
-        result = super().to_dict()
-
-        if self.pattern:
-            result["error"]["pattern"] = self.pattern
-
-        if self.tool_name:
-            result["error"]["tool_name"] = self.tool_name
-
-        return result
+        super().__init__(message, details, status_code=401, **kwargs)
 
 
-class InitializationError(LLMProxyError):
-    """Exception raised during application initialization."""
+class BackendError(LLMProxyError):
+    """Raised when a backend operation fails."""
 
     def __init__(
         self,
-        message: str = "Application initialization failed",
-        code: str | None = "initialization_error",
-    ):
-        super().__init__(message=message, code=code, status_code=500)
-
-
-class StateError(LLMProxyError):
-    """Exception raised for issues with application state management."""
-
-    def __init__(
-        self,
-        message: str = "Application state error",
-        code: str | None = "state_error",
-    ):
-        super().__init__(message=message, code=code, status_code=500)
-
-
-class APIConnectionError(BackendError):
-    """Exception raised when there's an issue connecting to a backend API."""
-
-    def __init__(
-        self,
-        message: str = "Failed to connect to API",
-        code: str | None = "api_connection_error",
+        message: str = "Backend operation failed",
         backend_name: str | None = None,
+        details: dict | None = None,
+        **kwargs,
     ):
-        super().__init__(
-            message=message, code=code, status_code=503, backend_name=backend_name
-        )
+        # let adapters map to 502 by default unless overridden
+        status_code = kwargs.pop("status_code", 502)
+        super().__init__(message, details, status_code=status_code, **kwargs)
+        self.backend_name = backend_name
 
 
-class APITimeoutError(BackendError):
-    """Exception raised when an API call times out."""
+class ServiceUnavailableError(LLMProxyError):
+    """Raised when a service is temporarily unavailable."""
 
     def __init__(
         self,
-        message: str = "API call timed out",
-        code: str | None = "api_timeout_error",
-        backend_name: str | None = None,
+        message: str = "Service temporarily unavailable",
+        details: dict | None = None,
+        **kwargs,
     ):
-        super().__init__(
-            message=message, code=code, status_code=504, backend_name=backend_name
-        )
+        super().__init__(message, details, status_code=503, **kwargs)
 
 
-class ModelNotFoundError(BackendError):
-    """Exception raised when a requested model is not found on the backend."""
+class ConfigurationError(LLMProxyError):
+    """Raised when there's a configuration issue."""
 
     def __init__(
         self,
-        message: str = "Model not found",
-        code: str | None = "model_not_found",
-        backend_name: str | None = None,
-        model_name: str | None = None,
+        message: str = "Configuration error",
+        details: dict | None = None,
+        **kwargs,
     ):
-        super().__init__(
-            message=message, code=code, status_code=404, backend_name=backend_name
-        )
-        self.model_name = model_name
-
-    def to_dict(self) -> dict[str, Any]:
-        result = super().to_dict()
-        if self.model_name:
-            result["error"]["model_name"] = self.model_name
-        return result
+        super().__init__(message, details, status_code=400, **kwargs)
 
 
-class ParsingError(LLMProxyError):
-    """Base exception for errors during data parsing."""
+class RateLimitExceededError(LLMProxyError):
+    """Raised when rate limits are exceeded."""
 
     def __init__(
         self,
-        message: str = "Data parsing error",
-        code: str | None = "parsing_error",
-        status_code: int = 400,
-        details: dict[str, Any] | None = None,
+        message: str = "Rate limit exceeded",
+        details: dict | None = None,
+        **kwargs,
     ):
-        super().__init__(
-            message=message, code=code, status_code=status_code, details=details
-        )
+        reset_at = kwargs.pop("reset_at", None)
+        super().__init__(message, details, status_code=429, reset_at=reset_at, **kwargs)
+        # optional reset time in seconds for Retry-After
+        self.reset_at: int | None = reset_at
 
 
-class JSONParsingError(ParsingError):
-    """Exception raised for errors during JSON parsing."""
+class ValidationError(LLMProxyError):
+    """Raised when validation fails."""
 
     def __init__(
-        self,
-        message: str = "JSON parsing error",
-        code: str | None = "json_parsing_error",
-        details: dict[str, Any] | None = None,
+        self, message: str = "Validation failed", details: dict | None = None, **kwargs
     ):
-        super().__init__(message=message, code=code, status_code=400, details=details)
+        super().__init__(message, details, status_code=400, **kwargs)
 
 
-class ToolCallParsingError(ParsingError):
-    """Exception raised for errors during tool call parsing."""
+class InvalidRequestError(LLMProxyError):
+    """Raised when a request is invalid."""
 
     def __init__(
-        self,
-        message: str = "Tool call parsing error",
-        code: str | None = "tool_call_parsing_error",
-        details: dict[str, Any] | None = None,
+        self, message: str = "Invalid request", details: dict | None = None, **kwargs
     ):
-        super().__init__(message=message, code=code, status_code=400, details=details)
+        super().__init__(message, details, status_code=400, **kwargs)
 
 
-class CommandError(LLMProxyError):
-    """Base exception for errors related to command processing."""
-
-    def __init__(
-        self,
-        message: str = "Command error",
-        code: str | None = "command_error",
-        status_code: int = 400,
-        details: dict[str, Any] | None = None,
-    ):
-        super().__init__(
-            message=message, code=code, status_code=status_code, details=details
-        )
-
-
-class CommandExecutionError(CommandError):
-    """Exception raised when a command fails to execute."""
-
-    def __init__(
-        self,
-        message: str = "Command execution failed",
-        code: str | None = "command_execution_error",
-        command_name: str | None = None,
-        details: dict[str, Any] | None = None,
-    ):
-        super().__init__(message=message, code=code, status_code=400, details=details)
-        self.command_name = command_name
-
-    def to_dict(self) -> dict[str, Any]:
-        result = super().to_dict()
-        if self.command_name:
-            result["error"]["command_name"] = self.command_name
-        return result
-
-
-class InvalidArgumentError(CommandError):
-    """Exception raised when a command receives an invalid argument."""
-
-    def __init__(
-        self,
-        message: str = "Invalid argument",
-        code: str | None = "invalid_argument",
-        command_name: str | None = None,
-        details: dict[str, Any] | None = None,
-    ):
-        super().__init__(message=message, code=code, status_code=400, details=details)
-        self.command_name = command_name
-
-    def to_dict(self) -> dict[str, Any]:
-        result = super().to_dict()
-        if self.command_name:
-            result["error"]["command_name"] = self.command_name
-        return result
-
-
-class CommandCreationError(CommandError):
-    """Exception raised when a command fails to be created."""
-
-    def __init__(
-        self,
-        message: str = "Command creation failed",
-        code: str | None = "command_creation_error",
-        command_name: str | None = None,
-        details: dict[str, Any] | None = None,
-    ):
-        super().__init__(message=message, code=code, status_code=500, details=details)
-        self.command_name = command_name
-
-    def to_dict(self) -> dict[str, Any]:
-        result = super().to_dict()
-        if self.command_name:
-            result["error"]["command_name"] = self.command_name
-        return result
-
-
-class ServiceResolutionError(StateError):
-    """Exception raised when a service cannot be resolved from the container."""
+class ServiceResolutionError(LLMProxyError):
+    """Raised when service resolution fails in DI container."""
 
     def __init__(
         self,
         message: str = "Service resolution failed",
-        code: str | None = "service_resolution_error",
-        service_name: str | None = None,
-        details: dict[str, Any] | None = None,
+        details: dict | None = None,
+        **kwargs,
     ):
-        super().__init__(message=message, code=code)
-        self.service_name = service_name
-
-    def to_dict(self) -> dict[str, Any]:
-        result = super().to_dict()
-        if self.service_name:
-            result["error"]["service_name"] = self.service_name
-        return result
+        super().__init__(message, details, status_code=500, **kwargs)
 
 
-class ToolCallReactorError(LLMProxyError):
-    """Exception raised for errors in the tool call reactor system."""
+class LoopDetectionError(LLMProxyError):
+    """Raised when a loop is detected in responses."""
 
     def __init__(
         self,
-        message: str = "Tool call reactor error",
-        code: str | None = "tool_call_reactor_error",
-        handler_name: str | None = None,
-        details: dict[str, Any] | None = None,
+        message: str = "Loop detected in response",
+        details: dict | None = None,
+        **kwargs,
     ):
-        super().__init__(message=message, code=code, status_code=500)
-        self.handler_name = handler_name
-        self.details = details
+        super().__init__(message, details, status_code=400, **kwargs)
 
-    def to_dict(self) -> dict[str, Any]:
-        result = super().to_dict()
-        if self.handler_name:
-            result["error"]["handler_name"] = self.handler_name
-        if self.details:
-            result["error"]["details"] = self.details
-        return result
+
+class ParsingError(LLMProxyError):
+    """Raised when parsing fails."""
+
+    def __init__(
+        self, message: str = "Parsing failed", details: dict | None = None, **kwargs
+    ):
+        super().__init__(message, details, status_code=422, **kwargs)
+
+
+# Additional exceptions referenced across the codebase
+
+
+class InitializationError(LLMProxyError):
+    def __init__(
+        self,
+        message: str = "Initialization failed",
+        details: dict | None = None,
+        **kwargs,
+    ):
+        super().__init__(message, details, status_code=500, **kwargs)
+
+
+class ToolCallReactorError(LLMProxyError):
+    def __init__(
+        self,
+        message: str = "Tool call reactor error",
+        details: dict | None = None,
+        **kwargs,
+    ):
+        super().__init__(message, details, status_code=400, **kwargs)
+
+
+class ToolCallLoopError(LLMProxyError):
+    def __init__(
+        self,
+        message: str = "Tool call loop detected",
+        details: dict | None = None,
+        **kwargs,
+    ):
+        super().__init__(message, details, status_code=400, **kwargs)
+
+
+class ToolCallParsingError(LLMProxyError):
+    def __init__(
+        self,
+        message: str = "Tool call parsing error",
+        details: dict | None = None,
+        **kwargs,
+    ):
+        super().__init__(message, details, status_code=400, **kwargs)
+
+
+class JSONParsingError(ParsingError):
+    def __init__(
+        self,
+        message: str = "JSON parsing failed",
+        details: dict | None = None,
+        **kwargs,
+    ):
+        super().__init__(message, details, **kwargs)
+
+
+class CommandCreationError(LLMProxyError):
+    def __init__(
+        self,
+        message: str = "Failed to create command",
+        command_name: str | None = None,
+        details: dict | None = None,
+    ):
+        det = details.copy() if details else {}
+        if command_name:
+            det.setdefault("command_name", command_name)
+        super().__init__(message, det, status_code=500)
+
+
+class APIConnectionError(BackendError):
+    def __init__(
+        self,
+        message: str = "API connection error",
+        details: dict | None = None,
+        **kwargs,
+    ):
+        super().__init__(message, backend_name=None, details=details, **kwargs)
+
+
+class APITimeoutError(BackendError):
+    def __init__(
+        self, message: str = "API timeout", details: dict | None = None, **kwargs
+    ):
+        super().__init__(message, backend_name=None, details=details, **kwargs)

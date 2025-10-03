@@ -34,12 +34,12 @@ Options Settlement Tool: Access settlement values and implied volatilities for o
 Alternatives (Cloud & Feature-Rich)
 If you're interested in cloud-backed or more feature-heavy task solutions:
 
-• Microsoft Todo MCP
-Integrates with Microsoft To‑Do via Graph API, so every agent can interact with the same cloud-based list
+- Microsoft Todo MCP
+Integrates with Microsoft To-Do via Graph API, so every agent can interact with the same cloud-based list
 
 Includes full list and checklist actions (create, delete, update)
 
-• Todoist / Google Tasks MCPs
+- Todoist / Google Tasks MCPs
 Offer advanced task tracking features (labels, due dates, projects) with high adoption rates on platforms like Playbooks and PulseMCP
 Final Recommendation
 For most users seeking a local, agent-accessible, stable, and community-backed task list system, the RegiByte Todo List MCP is the best choice.

@@ -2,6 +2,10 @@ import os
 from unittest.mock import ANY, MagicMock, patch
 
 import pytest
+
+pytestmark = pytest.mark.filterwarnings(
+    "ignore:unclosed event loop <ProactorEventLoop.*:ResourceWarning"
+)
 from fastapi.testclient import TestClient
 from src.constants import DEFAULT_COMMAND_PREFIX
 from src.core.app.test_builder import build_test_app as app_main_build_app
@@ -100,22 +104,33 @@ def test_cli_log_argument(tmp_path: Path) -> None:
 
 
 def test_main_log_file(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    import logging
+
     import src.core.cli as cli
 
     log_file = tmp_path / "srv.log"
 
-    recorded = {}
+    root_logger = logging.getLogger()
+    original_handlers = root_logger.handlers[:]
+    root_logger.handlers.clear()
 
-    def fake_basic_config(**kwargs: dict[str, str]) -> None:
-        recorded.update(kwargs)
-
-    monkeypatch.setattr(cli.logging, "basicConfig", fake_basic_config)
-    monkeypatch.setattr(cli.uvicorn, "run", lambda app, host, port: None)
+    monkeypatch.setattr(
+        cli.uvicorn, "run", lambda app, host, port, log_config=None: None
+    )
     monkeypatch.setattr(cli, "_check_privileges", lambda: None)
 
-    cli.main(["--log", str(log_file)])
+    try:
+        cli.main(["--log", str(log_file)])
 
-    assert recorded.get("filename") == str(log_file)
+        file_handlers = [
+            h for h in root_logger.handlers if isinstance(h, logging.FileHandler)
+        ]
+        assert len(file_handlers) == 1
+        assert file_handlers[0].baseFilename == str(log_file)
+    finally:
+        for handler in root_logger.handlers:
+            handler.close()
+        root_logger.handlers[:] = original_handlers
 
 
 @pytest.mark.asyncio
@@ -184,6 +199,7 @@ def test_check_privileges_non_root(monkeypatch: pytest.MonkeyPatch) -> None:
     _check_privileges()
 
 
+@pytest.mark.skipif(os.name != "nt", reason="Windows-specific test")
 def test_check_privileges_admin_windows(monkeypatch: pytest.MonkeyPatch) -> None:
     import ctypes
 
@@ -199,6 +215,7 @@ def test_check_privileges_admin_windows(monkeypatch: pytest.MonkeyPatch) -> None
         _check_privileges()
 
 
+@pytest.mark.skipif(os.name != "nt", reason="Windows-specific test")
 def test_check_privileges_non_admin_windows(monkeypatch: pytest.MonkeyPatch) -> None:
     import ctypes
 
@@ -244,12 +261,21 @@ def test_apply_cli_args_disable_auth_forces_localhost() -> None:
         cfg = apply_cli_args(args)
         assert cfg.host == "127.0.0.1"
         assert cfg.auth.disable_auth is True
-        # Should log a warning about forcing localhost
-        mock_logging.warning.assert_called_once()
+        # Should log warnings about auth being disabled and host being forced
+        assert mock_logging.warning.call_count == 2
+        warning_calls = [str(call) for call in mock_logging.warning.call_args_list]
+        auth_disabled_warnings = [
+            call for call in warning_calls if "authentication is DISABLED" in call
+        ]
+        host_forcing_warnings = [
+            call for call in warning_calls if "Forcing host to 127.0.0.1" in call
+        ]
+        assert len(auth_disabled_warnings) == 1
+        assert len(host_forcing_warnings) == 1
 
 
 def test_apply_cli_args_disable_auth_with_localhost_no_warning() -> None:
-    """Test that disable_auth with localhost doesn't trigger warning."""
+    """Test that disable_auth with localhost doesn't trigger host forcing warning."""
     args = parse_cli_args(["--disable-auth", "--host", "127.0.0.1"])
     with (
         patch.dict(os.environ, {}, clear=True),
@@ -258,8 +284,17 @@ def test_apply_cli_args_disable_auth_with_localhost_no_warning() -> None:
         cfg = apply_cli_args(args)
         assert cfg.host == "127.0.0.1"
         assert cfg.auth.disable_auth is True
-        # Should not log a warning since host is already localhost
-        mock_logging.warning.assert_not_called()
+        # Should log only the auth disabled warning, not host forcing
+        assert mock_logging.warning.call_count == 1
+        warning_calls = [str(call) for call in mock_logging.warning.call_args_list]
+        auth_disabled_warnings = [
+            call for call in warning_calls if "authentication is DISABLED" in call
+        ]
+        host_forcing_warnings = [
+            call for call in warning_calls if "Forcing host to 127.0.0.1" in call
+        ]
+        assert len(auth_disabled_warnings) == 1
+        assert len(host_forcing_warnings) == 0
 
 
 def test_main_disable_auth_forces_localhost() -> None:
@@ -268,16 +303,19 @@ def test_main_disable_auth_forces_localhost() -> None:
         patch.dict(
             os.environ, {"DISABLE_AUTH": "true", "PROXY_HOST": "0.0.0.0"}, clear=True
         ),
-        patch("src.core.cli.logging.basicConfig"),
+        patch("src.core.cli._configure_logging"),
         patch("src.core.cli.logging") as mock_logging,
         patch("uvicorn.run") as mock_uvicorn,
         patch("src.core.cli._check_privileges"),
         patch("src.core.app.application_builder.build_app"),
+        patch("src.core.app.stages.backend.BackendStage.validate", return_value=True),
     ):
         main(["--port", "8080"])
 
         # Should force host to localhost
-        mock_uvicorn.assert_called_once_with(ANY, host="127.0.0.1", port=8080)
+        mock_uvicorn.assert_called_once_with(
+            ANY, host="127.0.0.1", port=8080, log_config=ANY
+        )
         # Should log warning about auth being disabled
         warning_calls = [str(call) for call in mock_logging.warning.call_args_list]
         auth_disabled_warnings = [
@@ -292,16 +330,19 @@ def test_main_disable_auth_with_localhost_no_force() -> None:
         patch.dict(
             os.environ, {"DISABLE_AUTH": "true", "PROXY_HOST": "127.0.0.1"}, clear=True
         ),
-        patch("src.core.cli.logging.basicConfig"),
+        patch("src.core.cli._configure_logging"),
         patch("src.core.cli.logging") as mock_logging,
         patch("uvicorn.run") as mock_uvicorn,
         patch("src.core.cli._check_privileges"),
         patch("src.core.app.application_builder.build_app"),
+        patch("src.core.app.stages.backend.BackendStage.validate", return_value=True),
     ):
         main(["--port", "8080"])
 
         # Should use localhost
-        mock_uvicorn.assert_called_once_with(ANY, host="127.0.0.1", port=8080)
+        mock_uvicorn.assert_called_once_with(
+            ANY, host="127.0.0.1", port=8080, log_config=ANY
+        )
         # Should log warning about auth being disabled but not about forcing host
         warning_calls = [str(call) for call in mock_logging.warning.call_args_list]
         auth_disabled_warnings = [
@@ -316,16 +357,19 @@ def test_main_auth_enabled_allows_custom_host() -> None:
         patch.dict(
             os.environ, {"DISABLE_AUTH": "false", "PROXY_HOST": "0.0.0.0"}, clear=True
         ),
-        patch("src.core.cli.logging.basicConfig"),
+        patch("src.core.cli._configure_logging"),
         patch("src.core.cli.logging") as mock_logging,
         patch("uvicorn.run") as mock_uvicorn,
         patch("src.core.cli._check_privileges"),
         patch("src.core.app.application_builder.build_app"),
+        patch("src.core.app.stages.backend.BackendStage.validate", return_value=True),
     ):
         main(["--port", "8080"])
 
         # Should use custom host when auth is enabled
-        mock_uvicorn.assert_called_once_with(ANY, host="0.0.0.0", port=8080)
+        mock_uvicorn.assert_called_once_with(
+            ANY, host="0.0.0.0", port=8080, log_config=ANY
+        )
         # Should not log warning about auth being disabled
         auth_warnings = [
             call

@@ -9,6 +9,10 @@ from typing import Any
 from unittest.mock import AsyncMock, patch
 
 import pytest
+
+pytestmark = pytest.mark.filterwarnings(
+    "ignore:unclosed event loop <ProactorEventLoop.*:ResourceWarning"
+)
 from fastapi.testclient import TestClient
 from src.core.domain.responses import ResponseEnvelope
 from src.core.interfaces.backend_service_interface import IBackendService

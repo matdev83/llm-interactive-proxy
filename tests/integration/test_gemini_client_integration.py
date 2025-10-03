@@ -21,6 +21,11 @@ from fastapi import HTTPException
 from src.core.app.application_builder import build_app
 from src.core.domain.responses import ResponseEnvelope
 
+# Suppress Windows ProactorEventLoop warnings for this module
+pytestmark = pytest.mark.filterwarnings(
+    "ignore:unclosed event loop <ProactorEventLoop.*:ResourceWarning"
+)
+
 # De-networked: no longer need get_backend_instance
 
 # De-networked: tests now use mocked Gemini client instead of real network calls
@@ -136,13 +141,12 @@ genai = MockGeminiClient()
 class ProxyServer:
     """Test server for integration tests."""
 
-    def __init__(self, config: dict[str, Any], port: int = 8001) -> None:
-        # Find an available port if the default is in use
-        if self._is_port_in_use(port):
+    def __init__(self, config: dict[str, Any], port: int | None = None) -> None:
+        # If no port specified, find an available port in a safe range
+        if port is None or self._is_port_in_use(port):
             port = self._find_available_port()
         self.port = port
         self.config = config
-        self.port = port
         self.config_file_path: Path | None = None
 
         # Create a temporary config file
@@ -171,18 +175,27 @@ class ProxyServer:
 
     @staticmethod
     def _find_available_port() -> int:
-        """Find an available port starting from a high number."""
+        """Find an available port in the user-allowed range with randomization."""
+        import random
         import socket
 
-        port = 9000  # Start from 9000 to avoid common ports
-        while port < 10000:  # Try up to 10000
+        # Use a range of user-allowed ports (1024-65535) with randomization
+        start_port = random.randint(1024, 30000)
+        max_attempts = 1000  # Limit attempts to avoid infinite loops
+
+        for i in range(max_attempts):
+            port = start_port + i
+            if port > 65535:
+                port = 1024 + (port - 65536)  # Wrap around to beginning of range
+
             with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
                 try:
                     s.bind(("127.0.0.1", port))
                     return port
                 except OSError:
-                    port += 1
-        raise RuntimeError("Could not find an available port")
+                    continue
+
+        raise RuntimeError("Could not find an available port after 1000 attempts")
 
     def start(self):
         """Start the server in a separate thread."""

@@ -24,6 +24,9 @@ dependencies = [
     "jsonschema>=4.19.0",
     "google-auth>=2.27.0",
     "google-auth-oauthlib>=1.2.0",
+    "json-repair",
+    "watchdog",
+    "pytz",
 ]
 requires-python = ">=3.10"
 readme = "README.md"
@@ -50,25 +53,33 @@ analyze-logs = "dev.tools.analyze_logs:main"
 
 [project.optional-dependencies]
 dev = [
-    "pytest",
-    "pytest-asyncio",
-    "pytest-cov",
-    "pytest-httpx",
-    "pytest-mock",
-    "ruff",
-    "black",
+    # Test stack (pin to match local green runs)
+    "pytest==8.3.2",
+    "pytest-asyncio==0.23.7",
+    "pytest-cov==5.0.0",
+    "pytest-xdist==3.6.1",
+    "pytest-httpx==0.30.0",
+    "pytest-mock==3.14.0",
+    "freezegun==1.5.1",
+    # Linters/formatters
+    "ruff==0.5.6",
+    "black==24.8.0",
     "requests",
     "bandit",
     "mdformat",
-    "types-PyYAML",
+    "types-PyYAML==6.0.12.20240808",
+    "types-jsonschema==4.23.0.20240813",
+    "types-colorama==0.4.15.20240311",
     "respx",
     "dependency-injector",
     "vulture",
-    "pytest-snapshot",
-    "mypy",
-    "hypothesis",
+    "pytest-snapshot==0.9.0",
+    "mypy==1.10.0",
+    "hypothesis==6.112.1",
     "xenon",
     "radon",
+    "types-pytz",
+
 ]
 
 [build-system]
@@ -78,11 +89,36 @@ build-backend = "setuptools.build_meta"
 [tool.setuptools]
 package-dir = {"" = "src"}
 
+
+
 [tool.pytest.ini_options]
-pythonpath = ["src", "tests"]
-addopts = "-v --asyncio-mode=auto -m \"not network and not loop_detection\"  --ignore=tests/integration/test_phase2_integration.py --pyargs src --durations=0 --junit-xml=test-results.xml"
-asyncio_default_fixture_loop_scope = "function"
+pythonpath = "."
+testpaths = ["tests"]
+addopts = "-v --asyncio-mode=auto -m \"not network and not loop_detection\" --ignore=tests/integration/test_phase2_integration.py --durations=0 --junit-xml=test-results.xml -n 16 --dist=loadscope --max-worker-restart=3 -W ignore"
+asyncio_mode = "auto"
 junit_duration_report = "call"
+log_cli_level = "INFO"
+
+# Logging configuration
+log_file = "logs/pytest.log"
+log_file_level = "DEBUG"
+log_file_format = "%(asctime)s [%(levelname)8s] %(name)s:%(lineno)s %(message)s"
+log_file_date_format = "%Y-%m-%d %H:%M:%S"
+# Filter warnings
+filterwarnings = [
+    "ignore::UserWarning:pydantic._internal._fields",
+    "ignore::DeprecationWarning",
+    "ignore:coroutine 'AsyncMockMixin\\._execute_mock_call' was never awaited:RuntimeWarning",
+    "ignore:DI CONTAINER VIOLATIONS DETECTED:UserWarning",
+    "ignore::ResourceWarning",
+    "ignore::Warning",
+    # Targeted upstream/runtime warnings (Windows + websockets)
+    "ignore:unclosed event loop <ProactorEventLoop.*:ResourceWarning",
+    "ignore:.*websockets\\.legacy is deprecated.*:DeprecationWarning",
+    "ignore:.*websockets\\.server\\.WebSocketServerProtocol is deprecated.*:DeprecationWarning",
+    "ignore:.*Construction of dict of EntryPoints is deprecated.*:DeprecationWarning",
+    "ignore:unclosed file <_io\\..*:ResourceWarning",
+]
 # To run integration tests, use: pytest -m integration
 # To run command tests, use: pytest -m command
 # To run session tests, use: pytest -m session
@@ -104,6 +140,7 @@ markers = [
     "di: marks tests that use the dependency injection architecture",
     "loop_detection: marks tests related to loop detection",
     "multimodal: marks tests related to multimodal content",
+    "quality: Tests that check code quality (linting, formatting)",
 ]
 
 
@@ -111,4 +148,236 @@ markers = [
 # Disable automatic line wrapping for Markdown files to match CI expectations
 wrap = 0
 
+[tool.pylint.messages_control]
+disable = ["C0301", "C0303", "C0114", "C0116"]
 
+[tool.ruff]
+# Target src and tests directories with Python files
+src = ["src", "tests"]
+
+# Exclude common directories
+exclude = [
+    ".bzr",
+    ".direnv",
+    ".eggs",
+    ".git",
+    ".git-rewrite",
+    ".hg",
+    ".mypy_cache",
+    ".nox",
+    ".pants.d",
+    ".pytype",
+    ".ruff_cache",
+    ".svn",
+    ".tox",
+    ".venv",
+    "__pypackages__",
+    "_build",
+    "buck-out",
+    "build",
+    "dist",
+    "node_modules",
+    "venv",
+    ".pytest_cache",
+    "__pycache__",
+]
+
+# Same as Black.
+line-length = 88
+indent-width = 4
+
+# Assume Python 3.10+
+target-version = "py310"
+
+[tool.ruff.lint]
+# Enable only rules that catch real issues, not formatting
+select = [
+    # Pyflakes - catches unused imports, undefined names, etc.
+    "F",
+    # pycodestyle errors - only serious runtime/syntax errors
+    "E9",   # Runtime errors
+    # isort - import sorting issues
+    "I",
+    # pep8-naming - naming convention violations
+    "N",
+    # pyupgrade - outdated syntax
+    "UP",
+    # flake8-bugbear - likely bugs
+    "B",
+    # flake8-simplify - code simplification
+    "SIM",
+    # flake8-comprehensions - list/dict/set comprehension issues
+    "C4",
+    # flake8-pie - unnecessary code
+    "PIE",
+    # Ruff-specific rules
+    "RUF",
+]
+
+# Ignore formatting and whitespace-related rules
+ignore = [
+    # Pycodestyle whitespace and newline rules
+    "E1", "E2", "E3",
+    "W1", "W2", "W3",
+    # Pydocstyle
+    "D",
+    # Specific formatting rules to ignore
+    "E501",  # Line too long
+    "E701",  # Multiple statements on one line
+    "E702",  # Multiple statements on one line (semicolon)
+    "E711",  # Comparison to None should be 'is' or 'is not'
+    "E712",  # Comparison to True should be 'is' or 'is not'
+    "E713",  # Test for membership should be 'not in'
+    "E714",  # Test for object identity should be 'is not'
+    "COM812", # Missing trailing comma
+    "COM819", # Trailing comma prohibited
+    "Q000", # Double quotes found but single quotes preferred
+
+    # Ignore some overly strict rules
+    "B008",  # Do not perform function calls in argument defaults
+    "B904",  # Within an except clause, raise exceptions with raise ... from err
+    "SIM108", # Use ternary operator instead of if-else-block
+    "RUF012", # Mutable class attributes should be annotated with `typing.ClassVar`
+    "N806", # Variable in function should be lowercase (for test constants)
+]
+
+# Allow fix for all enabled rules (except those in unfixable)
+fixable = ["ALL"]
+unfixable = []
+
+# Allow unused variables when underscore-prefixed
+dummy-variable-rgx = "^(_+|(_+[a-zA-Z0-9_]*[a-zA-Z0-9]+?))$"
+
+[tool.ruff.format]
+# Disable formatting entirely - we only want linting
+skip-magic-trailing-comma = true
+
+[tool.mypy]
+python_version = "3.10"
+warn_return_any = true
+warn_unused_configs = true
+exclude = ["dev/"]
+# Use local stub packages when third-party types are missing
+
+
+[[tool.mypy.overrides]]
+module = "google.genai"
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = "setuptools"
+ignore_missing_imports = true
+
+
+
+# Performance optimizations
+# Enable incremental mode with cache
+incremental = true
+cache_dir = ".mypy_cache"
+# Reduce strictness for performance in tests
+strict = false
+disallow_untyped_defs = true
+
+
+[tool.coverage.run]
+source = ["src"]
+omit = [
+    "*/tests/*",
+    "*/test_*",
+    "*/conftest.py",
+    "*/__pycache__/*",
+    "*/venv/*",
+    "*/.venv/*",
+]
+
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "def __repr__",
+    "raise AssertionError",
+    "raise NotImplementedError",
+    "if __name__ == .__main__.:",
+    "if TYPE_CHECKING:",
+    "@abstractmethod",
+]
+precision = 2
+show_missing = true
+
+[tool.coverage.xml]
+output = "coverage.xml"
+
+[tool.vulture]
+# Vulture configuration for dead code detection suppressions
+min_confidence = 80
+verbose = false
+sort_by_size = true
+ignore_names = [
+    # Names intentionally present but may appear unused in static scans
+    "HEALTH_CHECK_SUPPORTED",
+    "enable_health_check",
+    "disable_health_check",
+    "get_chat_controller_dependency",
+    "internal_health",
+    "chat_completions_v1",
+    "chat_completions_v2",
+    "gemini_generate_content",
+    "gemini_stream_generate_content",
+    "anthropic_health",
+    "OBJECT_TYPE_LIST",
+    "OBJECT_TYPE_MODEL",
+    "OBJECT_TYPE_CHAT_COMPLETION",
+    "OBJECT_TYPE_CHAT_COMPLETION_CHUNK",
+    "OBJECT_TYPE_MESSAGE",
+    "FIELD_OBJECT",
+    "FIELD_ID",
+    "FIELD_MODEL",
+    "FIELD_CONTENT",
+    "FIELD_ROLE",
+    "FIELD_CHOICES",
+    "FIELD_MESSAGE",
+    "FIELD_DELTA",
+    "FIELD_FINISH_REASON",
+    "FIELD_STOP_REASON",
+    "FIELD_TYPE",
+    "FIELD_NAME",
+    "FIELD_TEXT",
+    "FIELD_PARTS",
+    "FIELD_INLINE_DATA",
+    "FIELD_MIME_TYPE",
+    "FIELD_DATA",
+    "FIELD_SOURCE",
+    "FIELD_USAGE",
+    "FIELD_ERROR",
+    "ROLE_USER",
+    "ROLE_ASSISTANT",
+    "ROLE_SYSTEM",
+    "ROLE_MODEL",
+    "FINISH_REASON_STOP",
+    "FINISH_REASON_LENGTH",
+    "FINISH_REASON_TOOL_CALLS",
+    "FINISH_REASON_END_TURN",
+    "FINISH_REASON_MAX_TOKENS",
+    "FINISH_REASON_STOP_SEQUENCE",
+    "FINISH_REASON_ERROR",
+    "TOOL_CALL_TYPE_FUNCTION",
+    "MODEL_PREFIX_OPENAI",
+    "MODEL_PREFIX_ANTHROPIC",
+    "MODEL_PREFIX_GEMINI",
+    "MODEL_PREFIX_OPENROUTER",
+    "BACKEND_OPENAI",
+    "BACKEND_ANTHROPIC",
+    "BACKEND_GEMINI",
+    "BACKEND_OPENROUTER",
+    "BACKEND_QWEN_OAUTH",
+    "BACKEND_ZAI",
+    "BACKEND_DISPLAY_OPENAI",
+    "BACKEND_DISPLAY_ANTHROPIC",
+    "BACKEND_DISPLAY_GEMINI",
+    "BACKEND_DISPLAY_OPENROUTER",
+    "build_development_app",
+    "build_test_app",
+    "validate_yaml_against_schema",
+    "validate_static_yaml_configs",
+    "_load_yaml_file",
+    "_load_yaml_schema"
+]

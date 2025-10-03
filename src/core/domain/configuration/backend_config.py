@@ -96,6 +96,16 @@ class BackendConfiguration(ValueObject, IBackendConfig):
             }
         )
 
+    def with_backend_type(self, backend_type: str | None) -> IBackendConfig:
+        """Create a new config with updated backend type."""
+        return self.model_copy(
+            update={
+                "backend_type_value": backend_type,
+                # Keep existing model when changing backend
+                "invalid_override": False,
+            }
+        )
+
     def with_model(self, model: str | None) -> IBackendConfig:
         """Create a new config with updated model."""
         return self.model_copy(update={"model_value": model})

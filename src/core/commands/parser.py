@@ -9,20 +9,37 @@ from src.core.commands.command import Command
 
 
 class CommandParser:
-    """
-    A service that parses commands from message content.
-    """
+    """Parses command invocations from message content."""
 
     def __init__(self, command_prefix: str = "!/"):
-        """
-        Initializes the command parser.
-
-        Args:
-            command_prefix: The prefix used to identify commands.
-        """
+        """Initialize the parser with the desired command prefix."""
+        self._command_prefix: str = ""
+        self.pattern: re.Pattern
         self.command_prefix = command_prefix
-        self.pattern = self._compile_pattern()
-        # Ensure command handlers are imported so their @command decorators register them
+        self._import_command_handlers()
+
+    @property
+    def command_prefix(self) -> str:
+        """Return the current command prefix."""
+        return self._command_prefix
+
+    @command_prefix.setter
+    def command_prefix(self, value: str) -> None:
+        """Update the command prefix and refresh the parsing pattern."""
+        if not isinstance(value, str):
+            raise TypeError("Command prefix must be a string.")
+        if value == "":
+            raise ValueError("Command prefix must not be empty.")
+
+        self._command_prefix = value
+        self.pattern = self._compile_pattern(value)
+
+    def set_command_prefix(self, command_prefix: str) -> None:
+        """Public helper to update the command prefix via method call."""
+        self.command_prefix = command_prefix
+
+    def _import_command_handlers(self) -> None:
+        """Eagerly import handlers so decorator registration runs under DI."""
         try:
             import importlib
             import pkgutil
@@ -35,11 +52,11 @@ class CommandParser:
             # Parsing still works even if handlers fail to import; execution will no-op
             pass
 
-    def _compile_pattern(self) -> re.Pattern:
-        """
-        Compiles the regex pattern for command parsing.
-        """
-        escaped_prefix = re.escape(self.command_prefix)
+    def _compile_pattern(self, prefix: str | None = None) -> re.Pattern:
+        """Compile the regex pattern for command parsing using the given prefix."""
+        escaped_prefix = re.escape(
+            prefix if prefix is not None else self.command_prefix
+        )
         return re.compile(rf"{escaped_prefix}(?P<name>[\w-]+)(?:\((?P<args>[^)]*)\))?")
 
     def parse(self, content: str) -> tuple[Command, str] | None:

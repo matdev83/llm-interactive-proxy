@@ -6,10 +6,10 @@ This directory contains configuration files for the content rewriting feature.
 
 ```
 config/replacements/
-├── prompts/
-│   ├── system/      # System prompt rewriting rules
-│   └── user/        # User prompt rewriting rules
-└── replies/         # Response rewriting rules
+├-- prompts/
+│   ├-- system/      # System prompt rewriting rules
+│   └-- user/        # User prompt rewriting rules
+└-- replies/         # Response rewriting rules
 ```
 
 ## Rule Configuration

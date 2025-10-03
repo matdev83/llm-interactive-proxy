@@ -112,3 +112,10 @@ def test_invalid_persisted_backend(tmp_path, monkeypatch):
         assert client.app.state.app_config is not None
 
     monkeypatch.delenv("OPENROUTER_API_KEY_1", raising=False)  # Clean up
+
+
+import pytest
+
+pytestmark = pytest.mark.filterwarnings(
+    "ignore:unclosed event loop <ProactorEventLoop.*:ResourceWarning"
+)

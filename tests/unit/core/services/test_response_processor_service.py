@@ -3,6 +3,11 @@ from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+
+# Suppress Windows ProactorEventLoop ResourceWarnings for this module
+pytestmark = pytest.mark.filterwarnings(
+    "ignore:unclosed event loop <ProactorEventLoop.*:ResourceWarning"
+)
 from src.core.common.exceptions import LoopDetectionError, ParsingError
 from src.core.domain.chat import StreamingChatResponse
 from src.core.domain.streaming_response_processor import StreamingContent

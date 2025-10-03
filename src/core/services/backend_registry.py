@@ -1,3 +1,4 @@
+import logging
 from collections.abc import Callable
 from typing import TYPE_CHECKING
 
@@ -23,7 +24,10 @@ class BackendRegistry:
         if not callable(factory):
             raise TypeError("Backend factory must be a callable.")
         if name in self._factories:
-            raise ValueError(f"Backend '{name}' is already registered.")
+            logging.warning(
+                f"Backend '{name}' is already registered. Skipping registration."
+            )
+            return
         self._factories[name] = factory
 
     def get_backend_factory(self, name: str) -> Callable[..., "LLMBackend"]:

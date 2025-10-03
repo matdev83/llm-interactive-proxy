@@ -145,11 +145,20 @@ class ToolCallLoopDetectionMiddleware(IResponseMiddleware):
         if isinstance(content, dict):
             data = content
         else:
-            # Otherwise try to parse as JSON string
-            try:
-                data = json.loads(content) if isinstance(content, str) else {}
-            except (json.JSONDecodeError, TypeError, ValueError):
-                # Not JSON or doesn't have the expected structure
+            # Otherwise try to parse common JSON container types
+            if isinstance(content, str | bytes | bytearray):
+                try:
+                    data = json.loads(content)
+                except (json.JSONDecodeError, TypeError, ValueError):
+                    # Not JSON or doesn't have the expected structure
+                    return []
+            else:
+                # Unsupported content type (e.g., streaming iterators)
+                if logger.isEnabledFor(logging.DEBUG):
+                    logger.debug(
+                        "Unsupported response content type for tool call extraction: %s",
+                        type(content).__name__,
+                    )
                 return []
 
         # Check for OpenAI format

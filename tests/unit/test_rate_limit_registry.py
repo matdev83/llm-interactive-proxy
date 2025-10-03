@@ -99,6 +99,29 @@ class TestRateLimitRegistry:
         assert result is not None
         assert abs(result - time.time() - 30.0) < 1.0  # Should return the earliest
 
+    def test_earliest_ignores_expired_entries(
+        self, registry: RateLimitRegistry, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Expired entries should be pruned automatically when computing earliest."""
+
+        current_time = {"value": 1000.0}
+
+        def fake_time() -> float:
+            return current_time["value"]
+
+        monkeypatch.setattr(time, "time", fake_time)
+
+        registry.set("backend1", "model1", "key1", 5.0)
+        registry.set("backend2", "model2", "key2", 1.0)
+
+        # Advance time beyond the shorter delay; the second entry should expire
+        current_time["value"] = 1002.0
+
+        earliest = registry.earliest()
+        assert earliest == pytest.approx(1005.0)
+        # Expired entry should be removed even without calling get()
+        assert registry.get("backend2", "model2", "key2") is None
+
     def test_earliest_with_filtered_combinations(
         self, registry: RateLimitRegistry
     ) -> None:

@@ -50,7 +50,8 @@ async def app_client(test_env: None) -> TestClient:
     )
     app = await builder.build(config)
 
-    return TestClient(app)
+    with TestClient(app) as client:
+        yield client
 
 
 async def test_functional_backends_in_test_env(app_client: TestClient) -> None:
@@ -179,3 +180,9 @@ async def test_backend_service_uses_backend_config_provider(
     # Provider should expose a default backend string
     default_backend = provider.get_default_backend()
     assert isinstance(default_backend, str) and default_backend
+
+
+# Suppress Windows ProactorEventLoop warnings for this module
+pytestmark = pytest.mark.filterwarnings(
+    "ignore:unclosed event loop <ProactorEventLoop.*:ResourceWarning"
+)

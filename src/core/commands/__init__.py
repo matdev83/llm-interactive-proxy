@@ -1,1 +1,3 @@
-# Commands package
+from . import handlers
+
+__all__ = ["handlers"]

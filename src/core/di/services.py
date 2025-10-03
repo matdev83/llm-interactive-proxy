@@ -7,7 +7,6 @@ and resolving services from the container.
 
 from __future__ import annotations
 
-import asyncio
 import contextlib
 import logging
 import os
@@ -75,6 +74,7 @@ from src.core.services.json_repair_service import JsonRepairService
 from src.core.services.middleware_application_manager import (
     MiddlewareApplicationManager,
 )
+from src.core.services.pytest_compression_service import PytestCompressionService
 from src.core.services.request_processor_service import RequestProcessor
 from src.core.services.response_handlers import (
     DefaultNonStreamingResponseHandler,
@@ -102,7 +102,7 @@ from src.core.services.streaming.stream_normalizer import StreamNormalizer
 from src.core.services.streaming.tool_call_repair_processor import (
     ToolCallRepairProcessor,
 )
-from src.core.services.structured_wire_capture_service import StructuredWireCapture
+from src.core.services.structured_output_middleware import StructuredOutputMiddleware
 from src.core.services.tool_call_reactor_middleware import ToolCallReactorMiddleware
 from src.core.services.tool_call_reactor_service import (
     InMemoryToolCallHistoryTracker,
@@ -262,6 +262,7 @@ def register_core_services(
     from src.core.interfaces.command_parser_interface import ICommandParser
 
     _add_singleton(ICommandParser, CommandParser)  # type: ignore[type-abstract]
+    _add_singleton(CommandParser, CommandParser)  # Also register concrete type
 
     # Ensure command handlers are imported so their @command decorators register them
     try:
@@ -589,7 +590,8 @@ def register_core_services(
     def _agent_response_formatter_factory(
         provider: IServiceProvider,
     ) -> AgentResponseFormatter:
-        return AgentResponseFormatter()
+        session_service = provider.get_service(SessionService)
+        return AgentResponseFormatter(session_service=session_service)
 
     _add_singleton(
         AgentResponseFormatter, implementation_factory=_agent_response_formatter_factory
@@ -604,7 +606,8 @@ def register_core_services(
     # Register response manager
     def _response_manager_factory(provider: IServiceProvider) -> ResponseManager:
         agent_response_formatter = provider.get_required_service(IAgentResponseFormatter)  # type: ignore[type-abstract]
-        return ResponseManager(agent_response_formatter)
+        session_service = provider.get_required_service(ISessionService)  # type: ignore[type-abstract]
+        return ResponseManager(agent_response_formatter, session_service)
 
     _add_singleton(ResponseManager, implementation_factory=_response_manager_factory)
 
@@ -711,8 +714,19 @@ def register_core_services(
         )  # type: ignore[type-abstract]
 
     # Register individual stream processors
-    _add_singleton(LoopDetectionProcessor)
-    _add_singleton(ToolCallRepairProcessor)
+    def _loop_detection_processor_factory(
+        provider: IServiceProvider,
+    ) -> LoopDetectionProcessor:
+        from src.core.interfaces.loop_detector_interface import ILoopDetector
+
+        loop_detector: ILoopDetector = provider.get_required_service(
+            cast(type, ILoopDetector)
+        )
+        return LoopDetectionProcessor(loop_detector)
+
+    _add_singleton(
+        LoopDetectionProcessor, implementation_factory=_loop_detection_processor_factory
+    )
     _add_singleton(ContentAccumulationProcessor)
 
     # Register JSON repair service and processor
@@ -721,6 +735,20 @@ def register_core_services(
 
     _add_singleton(
         JsonRepairService, implementation_factory=_json_repair_service_factory
+    )
+
+    # Register StructuredOutputMiddleware
+    def _structured_output_middleware_factory(
+        provider: IServiceProvider,
+    ) -> StructuredOutputMiddleware:
+        json_repair_service: JsonRepairService = provider.get_required_service(
+            JsonRepairService
+        )
+        return StructuredOutputMiddleware(json_repair_service)
+
+    _add_singleton(
+        StructuredOutputMiddleware,
+        implementation_factory=_structured_output_middleware_factory,
     )
 
     def _json_repair_processor_factory(
@@ -744,16 +772,9 @@ def register_core_services(
         JsonRepairProcessor, implementation_factory=_json_repair_processor_factory
     )
 
-    # Register wire-capture service (singleton)
-    def _wire_capture_factory(provider: IServiceProvider) -> StructuredWireCapture:
-        cfg: AppConfig = provider.get_required_service(AppConfig)
-        return StructuredWireCapture(cfg)
-
-    _add_singleton(StructuredWireCapture, implementation_factory=_wire_capture_factory)
-    with contextlib.suppress(Exception):
-        services.add_singleton(
-            cast(type, IWireCapture), implementation_factory=_wire_capture_factory
-        )  # type: ignore[type-abstract]
+    # Wire capture service is registered in CoreServicesStage using BufferedWireCapture.
+    # Intentionally avoid legacy StructuredWireCapture registration here to keep
+    # the active format consistent across the app.
 
     # Register tool call repair service (if not already registered elsewhere as a concrete type)
     def _tool_call_repair_service_factory(
@@ -809,6 +830,22 @@ def register_core_services(
     _add_singleton(
         DangerousCommandService,
         implementation_factory=_dangerous_command_service_factory,
+    )
+
+    # Register pytest compression service
+    def _pytest_compression_service_factory(
+        provider: IServiceProvider,
+    ) -> PytestCompressionService:
+        from src.core.services.pytest_compression_service import (
+            PytestCompressionService,
+        )
+
+        provider.get_required_service(AppConfig)
+        return PytestCompressionService()
+
+    _add_singleton(
+        PytestCompressionService,
+        implementation_factory=_pytest_compression_service_factory,
     )
 
     # Register tool call reactor services
@@ -890,15 +927,11 @@ def register_core_services(
                 if effective_rules:
                     config_handler = ConfigSteeringHandler(rules=effective_rules)
                     try:
-                        loop = asyncio.get_event_loop()
-                        if not loop.is_running():
-                            loop.run_until_complete(
-                                reactor.register_handler(config_handler)
-                            )
-                    except RuntimeError as e:
-                        logger.debug(
-                            "Could not register config steering handler due to missing event loop: %s",
-                            e,
+                        reactor.register_handler_sync(config_handler)
+                    except Exception as e:
+                        logger.warning(
+                            f"Failed to register config steering handler: {e}",
+                            exc_info=True,
                         )
             except Exception as e:
                 logger.warning(
@@ -923,19 +956,43 @@ def register_core_services(
                         enabled=True,
                     )
                     try:
-                        loop = asyncio.get_event_loop()
-                        if not loop.is_running():
-                            loop.run_until_complete(
-                                reactor.register_handler(dangerous_handler)
-                            )
-                    except RuntimeError as e:
-                        logger.debug(
-                            "Could not register dangerous command handler due to missing event loop: %s",
-                            e,
+                        reactor.register_handler_sync(dangerous_handler)
+                    except Exception as e:
+                        logger.warning(
+                            f"Failed to register dangerous command handler: {e}",
+                            exc_info=True,
                         )
             except Exception as e:
                 logger.warning(
                     f"Failed to register DangerousCommandHandler: {e}", exc_info=True
+                )
+
+            # Register PytestCompressionHandler if enabled in session config
+            try:
+                if getattr(app_config.session, "pytest_compression_enabled", True):
+                    from src.core.services.tool_call_handlers.pytest_compression_handler import (
+                        PytestCompressionHandler,
+                    )
+
+                    pytest_compression_service = provider.get_required_service(
+                        PytestCompressionService
+                    )
+                    session_service = provider.get_required_service(SessionService)
+                    pytest_handler = PytestCompressionHandler(
+                        pytest_compression_service,
+                        session_service,
+                        enabled=True,
+                    )
+                    try:
+                        reactor.register_handler_sync(pytest_handler)
+                    except Exception as e:
+                        logger.warning(
+                            f"Failed to register pytest compression handler: {e}",
+                            exc_info=True,
+                        )
+            except Exception as e:
+                logger.warning(
+                    f"Failed to register PytestCompressionHandler: {e}", exc_info=True
                 )
 
         return reactor

@@ -17,6 +17,11 @@ from src.core.interfaces.session_service_interface import ISessionService
 from src.core.services.backend_factory import BackendFactory
 from src.core.services.backend_service import BackendService
 
+# Suppress Windows ProactorEventLoop ResourceWarnings for this module
+pytestmark = pytest.mark.filterwarnings(
+    "ignore:unclosed event loop <ProactorEventLoop.*:ResourceWarning"
+)
+
 
 class MockBackend(LLMBackend):
     """Mock implementation of LLMBackend for testing."""

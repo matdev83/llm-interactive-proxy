@@ -1,0 +1,50 @@
+# Example configuration file
+# Provides OpenAI compatible interface for Qwen backend
+# Enables wire capture for troubleshooting
+
+# Server settings - OpenAI compatible interface on 127.0.0.1
+  host: "127.0.0.1"
+  port: 8000
+  proxy_timeout: 120
+  command_prefix: "!/"
+
+  # Authentication - completely disabled
+  auth:
+    disable_auth: true
+    api_keys: []
+    auth_token: null
+
+  # Session management
+  session:
+    cleanup_enabled: true
+    cleanup_interval: 3600
+    max_age: 86400
+    default_interactive_mode: true
+    force_set_project: false
+
+  # Logging with wire capture enabled
+  logging:
+    level: "INFO"
+    request_logging: true
+    response_logging: true
+    log_file: null  # General application logs (optional)
+    capture_file: "logs/wire_capture.log"  # Wire-level HTTP capture
+    # High-performance buffered wire capture settings
+    capture_buffer_size: 65536  # 64KB buffer for performance
+    capture_flush_interval: 1.0  # Flush every 1 second
+    capture_max_entries_per_flush: 100  # Max entries per flush
+
+  # Backend configuration
+  backends:
+    default_backend: "qwen-oauth"
+
+    qwen-oauth:
+      timeout: 120
+      config_file: "config/backends/qwen-oauth/backend.yaml"
+      # No additional config needed - uses OAuth credentials from ~/.qwen/oauth_creds.json
+
+  # Model override - force all requests to use qwen-oauth backend
+  model_defaults:
+    "*":  # This will override any model requested
+      backend: "qwen-oauth"
+      model: "qwen3-coder-plus"  # Default model to use

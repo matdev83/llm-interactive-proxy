@@ -10,11 +10,16 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from fastapi.testclient import TestClient
-
-# from src.constants import BackendType # Removed BackendType import
 from src.core.app.test_builder import build_test_app as build_app
 from src.core.interfaces.application_state_interface import IApplicationState
 from src.core.interfaces.session_service_interface import ISessionService
+
+# Suppress Windows ProactorEventLoop warnings for this module
+pytestmark = pytest.mark.filterwarnings(
+    "ignore:unclosed event loop <ProactorEventLoop.*:ResourceWarning"
+)
+
+# from src.constants import BackendType  # Removed BackendType import
 
 
 @pytest.fixture
@@ -57,6 +62,11 @@ def middleware_order_validator():
 
 class TestModelsEndpoints:
     """Integration tests for models discovery endpoints."""
+
+    # Suppress Windows ProactorEventLoop warnings for this module
+    pytestmark = pytest.mark.filterwarnings(
+        "ignore:unclosed event loop <ProactorEventLoop.*:ResourceWarning"
+    )
 
     @pytest.fixture
     def app_with_auth_disabled(self, monkeypatch):
@@ -330,7 +340,7 @@ class TestModelsDiscovery:
         )
 
         # Mock OpenAI backend
-        mock_openai = MagicMock()
+        mock_openai = AsyncMock()
         mock_openai.get_available_models.return_value = [
             "gpt-4-turbo-preview",
             "gpt-4",
@@ -345,7 +355,7 @@ class TestModelsDiscovery:
 
         # Get backend and discover models
         backend = await service._get_or_create_backend("openai")  # Used string literal
-        models = backend.get_available_models()
+        models = await backend.get_available_models()
 
         assert len(models) == 4
         assert "gpt-4" in models
@@ -382,7 +392,7 @@ class TestModelsDiscovery:
         )
 
         # Mock Anthropic backend
-        mock_anthropic = MagicMock()
+        mock_anthropic = AsyncMock()
         mock_anthropic.get_available_models.return_value = [
             "claude-3-opus-20240229",
             "claude-3-sonnet-20240229",
@@ -399,7 +409,7 @@ class TestModelsDiscovery:
         backend = await service._get_or_create_backend(
             "anthropic"
         )  # Used string literal
-        models = backend.get_available_models()
+        models = await backend.get_available_models()
 
         assert len(models) == 4
         assert "claude-3-opus-20240229" in models
@@ -446,7 +456,7 @@ class TestModelsDiscovery:
         # First call fails
         mock_backend_factory.create_backend.side_effect = [
             ValueError("API key invalid"),
-            MagicMock(
+            AsyncMock(
                 get_available_models=lambda: ["openrouter/gpt-4", "openrouter/claude-3"]
             ),
         ]
@@ -456,7 +466,7 @@ class TestModelsDiscovery:
         mock_backend_factory.ensure_backend = AsyncMock(
             side_effect=[
                 ValueError("API key invalid"),
-                MagicMock(
+                AsyncMock(
                     get_available_models=lambda: [
                         "openrouter/gpt-4",
                         "openrouter/claude-3",

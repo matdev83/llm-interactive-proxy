@@ -14,27 +14,36 @@ from src.core.domain.streaming_response_processor import (
     LoopDetectionProcessor,
     StreamingContent,
 )
-from src.core.services.streaming.stream_normalizer import (
-    StreamNormalizer,
-)
-from src.loop_detection.config import LoopDetectionConfig
-from src.loop_detection.detector import LoopDetector
+from src.core.services.streaming.stream_normalizer import StreamNormalizer
+from src.loop_detection.hybrid_detector import HybridLoopDetector
 
 
 class TestRealWorldLoopDetection:
     """Test loop detection with real-world examples."""
 
-    def setup_method(self) -> None:
-        """Set up test configuration with 100 char minimum."""
-        self.config = LoopDetectionConfig(
-            enabled=True,
-            buffer_size=2048,  # Reduced buffer size for faster testing
-            max_pattern_length=1000,  # Reduced max pattern length for faster testing
+    def _create_detector(
+        self,
+        *,
+        content_loop_threshold: int = 10,
+        content_chunk_size: int = 50,
+        min_long_repetitions: int = 3,
+    ) -> HybridLoopDetector:
+        """Helper to create a hybrid detector tuned for tests."""
+        short_config = {
+            "content_loop_threshold": content_loop_threshold,
+            "content_chunk_size": content_chunk_size,
+            "max_history_length": 4096,
+        }
+        long_config = {
+            "min_pattern_length": 60,
+            "max_pattern_length": 1000,
+            "min_repetitions": min_long_repetitions,
+            "max_history": 4096,
+        }
+        return HybridLoopDetector(
+            short_detector_config=short_config,
+            long_detector_config=long_config,
         )
-        # Verify thresholds are initialised
-        assert self.config.short_pattern_threshold is not None
-        assert self.config.medium_pattern_threshold is not None
-        assert self.config.long_pattern_threshold is not None
 
     def load_test_data(self, filename: str) -> str:
         """Load test data from file."""
@@ -48,17 +57,10 @@ class TestRealWorldLoopDetection:
         content = "Kiro docs are available. " * 12
 
         # Use more sensitive detection settings for testing
-        test_config = LoopDetectionConfig(
-            enabled=True, buffer_size=1024, max_pattern_length=500
+        detector = self._create_detector(
+            content_loop_threshold=3,
+            content_chunk_size=25,
         )
-        # Tune new detector parameters for faster detection in tests
-        test_config.content_chunk_size = (
-            25  # Reduced from 50 to detect shorter patterns
-        )
-        test_config.content_loop_threshold = 3  # Reduced from 10 to trigger sooner
-
-        # Adjust the block analyzer minimum length to match our test pattern
-        detector = LoopDetector(config=test_config)
 
         # Process the content
         result = detector.process_chunk(content)
@@ -70,8 +72,9 @@ class TestRealWorldLoopDetection:
         assert (
             result.repetition_count >= 3
         ), f"Should have multiple repetitions, got {result.repetition_count}"
+        expected_min_length = 3 * 25
         assert (
-            result.total_length >= 100
+            result.total_length >= expected_min_length
         ), f"Should meet minimum length, got {result.total_length}"
 
         print(
@@ -84,16 +87,10 @@ class TestRealWorldLoopDetection:
         content = "CME Platinum Futures info. " * 12
 
         # Use more sensitive detection settings for testing
-        test_config = LoopDetectionConfig(
-            enabled=True, buffer_size=1024, max_pattern_length=500
+        detector = self._create_detector(
+            content_loop_threshold=3,
+            content_chunk_size=25,
         )
-        test_config.content_chunk_size = (
-            25  # Reduced from 50 to detect shorter patterns
-        )
-        test_config.content_loop_threshold = 3  # Reduced from 10 to trigger sooner
-
-        # Adjust the block analyzer minimum length to match our test pattern
-        detector = LoopDetector(config=test_config)
 
         # Process the content
         result = detector.process_chunk(content)
@@ -105,8 +102,9 @@ class TestRealWorldLoopDetection:
         assert (
             result.repetition_count >= 2
         ), f"Should have multiple repetitions, got {result.repetition_count}"
+        expected_min_length = 3 * 25
         assert (
-            result.total_length >= 100
+            result.total_length >= expected_min_length
         ), f"Should meet minimum length, got {result.total_length}"
 
         print(
@@ -117,7 +115,7 @@ class TestRealWorldLoopDetection:
         """Test that no loop is detected in normal content (example3_no_loop.md)."""
         content = self.load_test_data("example3_no_loop.md")
 
-        detector = LoopDetector(config=self.config)
+        detector = self._create_detector()
 
         # Process the content
         result = detector.process_chunk(content)
@@ -136,11 +134,10 @@ class TestRealWorldLoopDetection:
         content = "This is normal streaming content. " * 10
 
         # Use detection settings for testing
-        test_config = LoopDetectionConfig(
-            enabled=True, buffer_size=512, max_pattern_length=200
+        detector = self._create_detector(
+            content_loop_threshold=6,
+            content_chunk_size=40,
         )
-
-        detector = LoopDetector(config=test_config)
 
         # Simulate streaming with small chunks
         chunk_size = 60
@@ -183,7 +180,10 @@ class TestRealWorldLoopDetection:
         content = self.load_test_data("example3_no_loop.md")
         content = content[:800]  # Reduce content size for faster testing
 
-        detector = LoopDetector(config=self.config)
+        detector = self._create_detector(
+            content_loop_threshold=6,
+            content_chunk_size=40,
+        )
 
         # Simulate streaming with smaller chunks
         chunk_size = 150
@@ -241,9 +241,12 @@ class TestRealWorldLoopDetection:
     def test_unicode_character_counting(self) -> None:
         """Test that unicode characters are counted correctly."""
         # Create content with unicode characters (reduced count for faster testing)
-        unicode_content = "🔄 Processing... " * 10  # Reduced from 20 to 10
+        unicode_content = "[SPIN] Processing... " * 10  # Reduced from 20 to 10
 
-        detector = LoopDetector(config=self.config)
+        detector = self._create_detector(
+            content_loop_threshold=5,
+            content_chunk_size=30,
+        )
         result = detector.process_chunk(unicode_content)
 
         if result:

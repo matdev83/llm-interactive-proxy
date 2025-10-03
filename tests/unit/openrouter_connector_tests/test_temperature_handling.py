@@ -1,6 +1,11 @@
 from unittest.mock import AsyncMock, Mock
 
 import pytest
+
+# Suppress Windows ProactorEventLoop ResourceWarnings for this module
+pytestmark = pytest.mark.filterwarnings(
+    "ignore:unclosed event loop <ProactorEventLoop.*:ResourceWarning"
+)
 from src.connectors.openrouter import OpenRouterBackend
 from src.core.domain.chat import ChatMessage, ChatRequest
 
@@ -33,8 +38,12 @@ class TestOpenRouterTemperatureHandling:
         from src.core.config.app_config import AppConfig
 
         config = AppConfig()
+        from src.core.services.translation_service import TranslationService
+
         backend = OpenRouterBackend(
-            client=AsyncMock(spec=httpx.AsyncClient), config=config
+            client=AsyncMock(spec=httpx.AsyncClient),
+            config=config,
+            translation_service=TranslationService(),
         )
         # Call initialize with required arguments
         await backend.initialize(
@@ -244,7 +253,7 @@ class TestOpenRouterTemperatureHandling:
         """Test that temperature works alongside reasoning effort."""
         # Set both temperature and reasoning effort
         sample_request_data = sample_request_data.model_copy(
-            update={"temperature": 0.6, "reasoning_effort": 0.5}
+            update={"temperature": 0.6, "reasoning_effort": "medium"}
         )
 
         # Mock the HTTP response
@@ -278,7 +287,7 @@ class TestOpenRouterTemperatureHandling:
         assert "temperature" in payload
         assert payload["temperature"] == 0.6
         assert "reasoning_effort" in payload
-        assert payload["reasoning_effort"] == 0.5
+        assert payload["reasoning_effort"] == "medium"
 
     @pytest.mark.asyncio
     async def test_temperature_with_reasoning_config(

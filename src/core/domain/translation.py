@@ -8,6 +8,7 @@ from src.core.domain.chat import (
     ChatCompletionChoice,
     ChatCompletionChoiceMessage,
     ChatMessage,
+    ChatResponse,
 )
 
 
@@ -15,6 +16,69 @@ class Translation:
     """
     A class for translating requests and responses between different API formats.
     """
+
+    @staticmethod
+    def validate_json_against_schema(
+        json_data: dict[str, Any], schema: dict[str, Any]
+    ) -> tuple[bool, str | None]:
+        """
+        Validate JSON data against a JSON schema.
+
+        Args:
+            json_data: The JSON data to validate
+            schema: The JSON schema to validate against
+
+        Returns:
+            A tuple of (is_valid, error_message)
+        """
+        try:
+            import jsonschema
+
+            jsonschema.validate(json_data, schema)
+            return True, None
+        except ImportError:
+            # jsonschema not available, perform basic validation
+            return Translation._basic_schema_validation(json_data, schema)
+        except jsonschema.ValidationError as e:
+            return False, str(e)
+        except Exception as e:
+            return False, f"Schema validation error: {e!s}"
+
+    @staticmethod
+    def _basic_schema_validation(
+        json_data: dict[str, Any], schema: dict[str, Any]
+    ) -> tuple[bool, str | None]:
+        """
+        Perform basic JSON schema validation without jsonschema library.
+
+        This is a fallback validation that checks basic schema requirements.
+        """
+        try:
+            # Check type
+            schema_type = schema.get("type")
+            if schema_type == "object" and not isinstance(json_data, dict):
+                return False, f"Expected object, got {type(json_data).__name__}"
+            elif schema_type == "array" and not isinstance(json_data, list):
+                return False, f"Expected array, got {type(json_data).__name__}"
+            elif schema_type == "string" and not isinstance(json_data, str):
+                return False, f"Expected string, got {type(json_data).__name__}"
+            elif schema_type == "number" and not isinstance(json_data, int | float):
+                return False, f"Expected number, got {type(json_data).__name__}"
+            elif schema_type == "integer" and not isinstance(json_data, int):
+                return False, f"Expected integer, got {type(json_data).__name__}"
+            elif schema_type == "boolean" and not isinstance(json_data, bool):
+                return False, f"Expected boolean, got {type(json_data).__name__}"
+
+            # Check required properties for objects
+            if schema_type == "object" and isinstance(json_data, dict):
+                required = schema.get("required", [])
+                for prop in required:
+                    if prop not in json_data:
+                        return False, f"Missing required property: {prop}"
+
+            return True, None
+        except Exception as e:
+            return False, f"Basic validation error: {e!s}"
 
     @staticmethod
     def gemini_to_domain_request(request: Any) -> CanonicalChatRequest:
@@ -489,11 +553,40 @@ class Translation:
             config["maxOutputTokens"] = request.max_tokens
         if request.stop:
             config["stopSequences"] = request.stop
-        if request.reasoning_effort is not None:
-            config["thinkingConfig"] = {"reasoning_effort": request.reasoning_effort}
+        # Check for CLI override first (--thinking-budget flag)
+        import os
+
+        cli_thinking_budget = os.environ.get("THINKING_BUDGET")
+        if cli_thinking_budget is not None:
+            try:
+                budget = int(cli_thinking_budget)
+                config["thinkingConfig"] = {
+                    "thinkingBudget": budget,
+                    "includeThoughts": True,
+                }
+            except ValueError:
+                pass  # Invalid value, ignore
+
+        # Otherwise, use reasoning_effort if provided
+        elif request.reasoning_effort is not None:
+            # Gemini uses thinkingBudget (max reasoning tokens)
+            # Map reasoning_effort levels to approximate token budgets
+            # -1 = dynamic/unlimited (let model decide)
+            # 0 = no thinking
+            # positive int = max thinking tokens
+            effort_to_budget = {
+                "low": 512,
+                "medium": 2048,
+                "high": -1,  # Dynamic/unlimited
+            }
+            budget = effort_to_budget.get(request.reasoning_effort, -1)
+            config["thinkingConfig"] = {
+                "thinkingBudget": budget,
+                "includeThoughts": True,  # Include reasoning in output
+            }
 
         # Process messages with proper handling of multimodal content and tool calls
-        contents = []
+        contents: list[dict[str, Any]] = []
         for message in request.messages:
             msg_dict = {"role": message.role}
             parts = []
@@ -582,6 +675,55 @@ class Translation:
             if gemini_tools:
                 result["tools"] = gemini_tools
 
+        # Handle structured output for Responses API
+        if request.extra_body and "response_format" in request.extra_body:
+            response_format = request.extra_body["response_format"]
+            if response_format.get("type") == "json_schema":
+                json_schema = response_format.get("json_schema", {})
+                schema = json_schema.get("schema", {})
+
+                # For Gemini, add JSON mode and schema constraint to generation config
+                generation_config = result["generationConfig"]
+                if isinstance(generation_config, dict):
+                    generation_config["responseMimeType"] = "application/json"
+                    generation_config["responseSchema"] = schema
+
+                # Add schema name and description as additional context if available
+                schema_name = json_schema.get("name")
+                schema_description = json_schema.get("description")
+                if schema_name or schema_description:
+                    # Add schema context to the last user message or create a system-like instruction
+                    schema_context = "Generate a JSON response"
+                    if schema_name:
+                        schema_context += f" for '{schema_name}'"
+                    if schema_description:
+                        schema_context += f": {schema_description}"
+                    schema_context += (
+                        ". The response must conform to the provided JSON schema."
+                    )
+
+                    # Add this as context to help the model understand the structured output requirement
+                    if (
+                        contents
+                        and isinstance(contents[-1], dict)
+                        and contents[-1].get("role") == "user"
+                    ):
+                        # Append to the last user message
+                        last_message = contents[-1]
+                        if (
+                            isinstance(last_message, dict)
+                            and last_message.get("parts")
+                            and isinstance(last_message["parts"], list)
+                        ):
+                            last_message["parts"].append(
+                                {"text": f"\n\n{schema_context}"}
+                            )
+                    else:
+                        # Add as a new user message
+                        contents.append(
+                            {"role": "user", "parts": [{"text": schema_context}]}
+                        )
+
         return result
 
     @staticmethod
@@ -620,6 +762,13 @@ class Translation:
             payload["tools"] = request.tools
         if request.tool_choice is not None:
             payload["tool_choice"] = request.tool_choice
+
+        # Handle structured output for Responses API
+        if request.extra_body and "response_format" in request.extra_body:
+            response_format = request.extra_body["response_format"]
+            if response_format.get("type") == "json_schema":
+                # For OpenAI, we can pass the response_format directly
+                payload["response_format"] = response_format
 
         return payload
 
@@ -826,6 +975,41 @@ class Translation:
             metadata = request.extra_body.get("metadata")
             if metadata:
                 payload["metadata"] = metadata
+
+            # Handle structured output for Responses API
+            response_format = request.extra_body.get("response_format")
+            if response_format and response_format.get("type") == "json_schema":
+                json_schema = response_format.get("json_schema", {})
+                schema = json_schema.get("schema", {})
+                schema_name = json_schema.get("name")
+                schema_description = json_schema.get("description")
+                strict = json_schema.get("strict", True)
+
+                # For Anthropic, add comprehensive JSON schema instruction to system message
+                import json
+
+                schema_instruction = (
+                    "\n\nYou must respond with valid JSON that conforms to this schema"
+                )
+                if schema_name:
+                    schema_instruction += f" for '{schema_name}'"
+                if schema_description:
+                    schema_instruction += f" ({schema_description})"
+                schema_instruction += f":\n\n{json.dumps(schema, indent=2)}"
+
+                if strict:
+                    schema_instruction += "\n\nIMPORTANT: The response must strictly adhere to this schema. Do not include any additional fields or deviate from the specified structure."
+                else:
+                    schema_instruction += "\n\nNote: The response should generally follow this schema, but minor variations may be acceptable."
+
+                schema_instruction += "\n\nRespond only with the JSON object, no additional text or formatting."
+
+                if payload.get("system"):
+                    payload["system"] += schema_instruction
+                else:
+                    payload["system"] = (
+                        f"You are a helpful assistant.{schema_instruction}"
+                    )
 
         return payload
 
@@ -1091,3 +1275,387 @@ class Translation:
                 return Translation.openai_to_domain_stream_chunk(chunk)
         else:
             return {"error": "Invalid raw text chunk format"}
+
+    @staticmethod
+    def responses_to_domain_request(request: Any) -> CanonicalChatRequest:
+        """
+        Translate a Responses API request to a CanonicalChatRequest.
+
+        The Responses API request includes structured output requirements via response_format.
+        This method converts the request to the internal domain format while preserving
+        the JSON schema information for later use by backends.
+        """
+        from src.core.domain.responses_api import ResponsesRequest
+
+        # Handle both dict and object formats
+        if isinstance(request, dict):
+            # Convert dict to ResponsesRequest for validation
+            responses_request = ResponsesRequest(**request)
+        elif hasattr(request, "model_dump"):
+            # Already a Pydantic model
+            responses_request = (
+                request
+                if isinstance(request, ResponsesRequest)
+                else ResponsesRequest(**request.model_dump())
+            )
+        else:
+            # Try to extract attributes
+            responses_request = ResponsesRequest(
+                model=request.model,
+                messages=getattr(request, "messages", []),
+                response_format=request.response_format,
+                max_tokens=getattr(request, "max_tokens", None),
+                temperature=getattr(request, "temperature", None),
+                top_p=getattr(request, "top_p", None),
+                n=getattr(request, "n", None),
+                stream=getattr(request, "stream", None),
+                stop=getattr(request, "stop", None),
+                presence_penalty=getattr(request, "presence_penalty", None),
+                frequency_penalty=getattr(request, "frequency_penalty", None),
+                logit_bias=getattr(request, "logit_bias", None),
+                user=getattr(request, "user", None),
+                seed=getattr(request, "seed", None),
+                session_id=getattr(request, "session_id", None),
+                agent=getattr(request, "agent", None),
+                extra_body=getattr(request, "extra_body", None),
+            )
+
+        # Prepare extra_body with response format
+        extra_body = responses_request.extra_body or {}
+        extra_body["response_format"] = responses_request.response_format.model_dump()
+
+        # Convert to CanonicalChatRequest
+        canonical_request = CanonicalChatRequest(
+            model=responses_request.model,
+            messages=responses_request.messages,
+            temperature=responses_request.temperature,
+            top_p=responses_request.top_p,
+            max_tokens=responses_request.max_tokens,
+            n=responses_request.n,
+            stream=responses_request.stream,
+            stop=responses_request.stop,
+            presence_penalty=responses_request.presence_penalty,
+            frequency_penalty=responses_request.frequency_penalty,
+            logit_bias=responses_request.logit_bias,
+            user=responses_request.user,
+            seed=responses_request.seed,
+            session_id=responses_request.session_id,
+            agent=responses_request.agent,
+            extra_body=extra_body,
+        )
+
+        return canonical_request
+
+    @staticmethod
+    def from_domain_to_responses_response(response: ChatResponse) -> dict[str, Any]:
+        """
+        Translate a domain ChatResponse to a Responses API response format.
+
+        This method converts the internal domain response to the OpenAI Responses API format,
+        including parsing structured outputs and handling JSON schema validation results.
+        """
+        import json
+        import time
+
+        # Convert choices to Responses API format
+        choices = []
+        for choice in response.choices:
+            if choice.message:
+                # Try to parse the content as JSON for structured output
+                parsed_content = None
+                content = choice.message.content or ""
+
+                # Clean up content for JSON parsing
+                cleaned_content = content.strip()
+
+                # Handle cases where the model might wrap JSON in markdown code blocks
+                if cleaned_content.startswith("```json") and cleaned_content.endswith(
+                    "```"
+                ):
+                    cleaned_content = cleaned_content[7:-3].strip()
+                elif cleaned_content.startswith("```") and cleaned_content.endswith(
+                    "```"
+                ):
+                    cleaned_content = cleaned_content[3:-3].strip()
+
+                # Attempt to parse JSON content
+                if cleaned_content:
+                    try:
+                        parsed_content = json.loads(cleaned_content)
+                        # If parsing succeeded, use the cleaned content as the actual content
+                        content = cleaned_content
+                    except json.JSONDecodeError:
+                        # Content is not valid JSON, leave parsed as None
+                        # Try to extract JSON from the content if it contains other text
+                        try:
+                            # Look for JSON-like patterns in the content
+                            import re
+
+                            json_pattern = r"\{.*\}"
+                            json_match = re.search(
+                                json_pattern, cleaned_content, re.DOTALL
+                            )
+                            if json_match:
+                                potential_json = json_match.group(0)
+                                parsed_content = json.loads(potential_json)
+                                content = potential_json
+                        except (json.JSONDecodeError, AttributeError):
+                            # Still not valid JSON, leave parsed as None
+                            pass
+
+                response_choice = {
+                    "index": choice.index,
+                    "message": {
+                        "role": choice.message.role,
+                        "content": content,
+                        "parsed": parsed_content,
+                    },
+                    "finish_reason": choice.finish_reason or "stop",
+                }
+                choices.append(response_choice)
+
+        # Build the Responses API response
+        responses_response = {
+            "id": response.id,
+            "object": "response",
+            "created": response.created or int(time.time()),
+            "model": response.model,
+            "choices": choices,
+        }
+
+        # Add usage information if available
+        if response.usage:
+            responses_response["usage"] = response.usage
+
+        # Add system fingerprint if available
+        if hasattr(response, "system_fingerprint") and response.system_fingerprint:
+            responses_response["system_fingerprint"] = response.system_fingerprint
+
+        return responses_response
+
+    @staticmethod
+    def from_domain_to_responses_request(
+        request: CanonicalChatRequest,
+    ) -> dict[str, Any]:
+        """
+        Translate a CanonicalChatRequest to an OpenAI Responses API request format.
+
+        This method converts the internal domain request to the OpenAI Responses API format,
+        extracting the response_format from extra_body and structuring it properly.
+        """
+        # Start with basic OpenAI request format
+        payload = Translation.from_domain_to_openai_request(request)
+
+        # Extract and restructure response_format from extra_body
+        if request.extra_body and "response_format" in request.extra_body:
+            response_format = request.extra_body["response_format"]
+
+            # Ensure the response_format is properly structured for Responses API
+            if isinstance(response_format, dict):
+                payload["response_format"] = response_format
+            else:
+                # Handle case where response_format might be a Pydantic model
+                if hasattr(response_format, "model_dump"):
+                    payload["response_format"] = response_format.model_dump()
+                else:
+                    payload["response_format"] = response_format
+
+            # Remove response_format from extra_body to avoid duplication
+            extra_body_copy = dict(request.extra_body)
+            del extra_body_copy["response_format"]
+
+            # Add any remaining extra_body parameters
+            if extra_body_copy:
+                payload.update(extra_body_copy)
+
+        return payload
+
+    @staticmethod
+    def enhance_structured_output_response(
+        response: ChatResponse,
+        original_request_extra_body: dict[str, Any] | None = None,
+    ) -> ChatResponse:
+        """
+        Enhance a ChatResponse with structured output validation and repair.
+
+        This method validates the response against the original JSON schema
+        and attempts repair if validation fails.
+
+        Args:
+            response: The original ChatResponse
+            original_request_extra_body: The extra_body from the original request containing schema info
+
+        Returns:
+            Enhanced ChatResponse with validated/repaired structured output
+        """
+        if not original_request_extra_body:
+            return response
+
+        response_format = original_request_extra_body.get("response_format")
+        if not response_format or response_format.get("type") != "json_schema":
+            return response
+
+        json_schema_info = response_format.get("json_schema", {})
+        schema = json_schema_info.get("schema", {})
+
+        if not schema:
+            return response
+
+        # Process each choice
+        enhanced_choices = []
+        for choice in response.choices:
+            if not choice.message or not choice.message.content:
+                enhanced_choices.append(choice)
+                continue
+
+            content = choice.message.content.strip()
+
+            # Try to parse and validate the JSON
+            try:
+                import json
+
+                parsed_json = json.loads(content)
+
+                # Validate against schema
+                is_valid, error_msg = Translation.validate_json_against_schema(
+                    parsed_json, schema
+                )
+
+                if is_valid:
+                    # Content is valid, keep as is
+                    enhanced_choices.append(choice)
+                else:
+                    # Try to repair the JSON
+                    repaired_json = Translation._attempt_json_repair(
+                        parsed_json, schema, error_msg
+                    )
+                    if repaired_json is not None:
+                        # Use repaired JSON
+                        repaired_content = json.dumps(repaired_json, indent=2)
+                        enhanced_message = ChatCompletionChoiceMessage(
+                            role=choice.message.role,
+                            content=repaired_content,
+                            tool_calls=choice.message.tool_calls,
+                        )
+                        enhanced_choice = ChatCompletionChoice(
+                            index=choice.index,
+                            message=enhanced_message,
+                            finish_reason=choice.finish_reason,
+                        )
+                        enhanced_choices.append(enhanced_choice)
+                    else:
+                        # Repair failed, keep original
+                        enhanced_choices.append(choice)
+
+            except json.JSONDecodeError:
+                # Not valid JSON, try to extract and repair
+                extracted_content: str | None = Translation._extract_and_repair_json(
+                    content, schema
+                )
+                if extracted_content is not None:
+                    enhanced_message = ChatCompletionChoiceMessage(
+                        role=choice.message.role,
+                        content=extracted_content,
+                        tool_calls=choice.message.tool_calls,
+                    )
+                    enhanced_choice = ChatCompletionChoice(
+                        index=choice.index,
+                        message=enhanced_message,
+                        finish_reason=choice.finish_reason,
+                    )
+                    enhanced_choices.append(enhanced_choice)
+                else:
+                    # Repair failed, keep original
+                    enhanced_choices.append(choice)
+
+        # Create enhanced response
+        enhanced_response = CanonicalChatResponse(
+            id=response.id,
+            object=response.object,
+            created=response.created,
+            model=response.model,
+            choices=enhanced_choices,
+            usage=response.usage,
+            system_fingerprint=getattr(response, "system_fingerprint", None),
+        )
+
+        return enhanced_response
+
+    @staticmethod
+    def _attempt_json_repair(
+        json_data: dict[str, Any], schema: dict[str, Any], error_msg: str | None
+    ) -> dict[str, Any] | None:
+        """
+        Attempt to repair JSON data to conform to schema.
+
+        This is a basic repair mechanism that handles common issues.
+        """
+        try:
+            repaired = dict(json_data)
+
+            # Add missing required properties
+            if schema.get("type") == "object":
+                required = schema.get("required", [])
+                properties = schema.get("properties", {})
+
+                for prop in required:
+                    if prop not in repaired:
+                        # Add default value based on property type
+                        prop_schema = properties.get(prop, {})
+                        prop_type = prop_schema.get("type", "string")
+
+                        if prop_type == "string":
+                            repaired[prop] = ""
+                        elif prop_type == "number":
+                            repaired[prop] = 0.0
+                        elif prop_type == "integer":
+                            repaired[prop] = 0
+                        elif prop_type == "boolean":
+                            repaired[prop] = False
+                        elif prop_type == "array":
+                            repaired[prop] = []
+                        elif prop_type == "object":
+                            repaired[prop] = {}
+                        else:
+                            repaired[prop] = None
+
+            # Validate the repaired JSON
+            is_valid, _ = Translation.validate_json_against_schema(repaired, schema)
+            return repaired if is_valid else None
+
+        except Exception:
+            return None
+
+    @staticmethod
+    def _extract_and_repair_json(content: str, schema: dict[str, Any]) -> str | None:
+        """
+        Extract JSON from content and attempt repair.
+        """
+        try:
+            import json
+            import re
+
+            # Try to find JSON-like patterns
+            json_patterns = [
+                r"\{[^{}]*(?:\{[^{}]*\}[^{}]*)*\}",  # Simple nested objects
+                r"\{.*\}",  # Any content between braces
+            ]
+
+            for pattern in json_patterns:
+                matches = re.findall(pattern, content, re.DOTALL)
+                for match in matches:
+                    try:
+                        parsed = json.loads(match)
+                        if isinstance(parsed, dict):
+                            # Try to repair this JSON
+                            repaired = Translation._attempt_json_repair(
+                                parsed, schema, None
+                            )
+                            if repaired is not None:
+                                return json.dumps(repaired, indent=2)
+                    except json.JSONDecodeError:
+                        continue
+
+            return None
+        except Exception:
+            return None

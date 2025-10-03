@@ -103,10 +103,10 @@ The proxy centralizes exception handling so transports remain thin and domain-ce
 
 - DomainExceptionMiddleware translates `LLMProxyError` subclasses to HTTP JSON:
   `{ "error": { "message": str, "type": str, "code?": str, "details?": any } }` with the exception `status_code`.
-- FastAPI exception handlers map common third‑party errors:
-  - Upstream connectivity (httpx) → `503 Service Unavailable`.
-  - Malformed JSON → `400 Bad Request`.
-  - Pydantic validation → `422 Unprocessable Entity` with `details`.
+- FastAPI exception handlers map common third-party errors:
+  - Upstream connectivity (httpx) -> `503 Service Unavailable`.
+  - Malformed JSON -> `400 Bad Request`.
+  - Pydantic validation -> `422 Unprocessable Entity` with `details`.
 - Registration is done in `src/core/app/middleware_config.py`.
 
 ## Failover Strategy Toggle (for operators and developers)
@@ -153,7 +153,7 @@ The scanner identifies violations where services are manually instantiated inste
 **Concise Summary (Default - Always Visible):**
 
 ```
-⚠️  DI CONTAINER VIOLATIONS DETECTED: 61 violations in 14 files.
+[!]  DI CONTAINER VIOLATIONS DETECTED: 61 violations in 14 files.
 Most affected: core\di\services.py: 15, core\app\controllers\chat_controller.py: 8, core\app\controllers\anthropic_controller.py: 6.
 Use -s flag for detailed report | Fix with IServiceProvider.get_required_service()
 ```
@@ -163,17 +163,17 @@ Use -s flag for detailed report | Fix with IServiceProvider.get_required_service
 ```
 🎯 DI Container Scanner Results:
    📊 Total violations found: 61
-   📁 Files with violations: 14
-   📋 Violation types:
-      • manual_service_instantiation: 61
-   📁 Top affected files:
-      • core\di\services.py: 15 violations
-      • core\app\controllers\chat_controller.py: 8 violations
+   [FOLDER] Files with violations: 14
+   [CLIPBOARD] Violation types:
+      - manual_service_instantiation: 61
+   [FOLDER] Top affected files:
+      - core\di\services.py: 15 violations
+      - core\app\controllers\chat_controller.py: 8 violations
 ```
 
 #### Fixing DI Violations
 
-**❌ Bad (Violation):**
+**[X] Bad (Violation):**
 
 ```python
 def handle_request(self, request):
@@ -181,7 +181,7 @@ def handle_request(self, request):
     return processor.process(request)
 ```
 
-**✅ Good (Fixed):**
+**[OK] Good (Fixed):**
 
 ```python
 def __init__(self, command_processor: ICommandProcessor):
@@ -273,9 +273,9 @@ Place your custom handlers in: `src/core/services/tool_call_handlers/`
 Example directory structure:
 ```
 src/core/services/tool_call_handlers/
-├── __init__.py
-├── apply_diff_handler.py          # Built-in example
-└── your_custom_handler.py        # Your new handler
+├-- __init__.py
+├-- apply_diff_handler.py          # Built-in example
+└-- your_custom_handler.py        # Your new handler
 ```
 
 #### 2. Implement the Handler Interface

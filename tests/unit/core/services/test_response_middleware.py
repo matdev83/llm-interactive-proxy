@@ -174,7 +174,7 @@ class TestLoopDetectionMiddleware:
         assert result2 == response2
 
         # Check that accumulated content was passed to detector
-        args, kwargs = mock_loop_detector.check_for_loops.call_args
+        args, _kwargs = mock_loop_detector.check_for_loops.call_args
         assert "Part 1" in args[0] and "Part 2" in args[0]
 
     def test_reset_session(self, middleware):

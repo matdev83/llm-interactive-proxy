@@ -185,7 +185,8 @@ def openai_to_anthropic_stream_chunk(chunk_data: str, id: str, model: str) -> st
         return ""
     except Exception as e:
         # Log for debugging but return empty to keep stream alive
-        logging.getLogger(__name__).debug("Failed to convert stream chunk: %s", e)
+        if logging.getLogger(__name__).isEnabledFor(logging.DEBUG):
+            logging.getLogger(__name__).debug("Failed to convert stream chunk: %s", e)
         return ""
 
     # If we get here, it's an unhandled case - return empty string to keep stream alive
@@ -219,9 +220,10 @@ def extract_anthropic_usage(response: Any) -> dict[str, int]:
             input_tokens = int(getattr(usage_obj, "input_tokens", 0) or 0)
             output_tokens = int(getattr(usage_obj, "output_tokens", 0) or 0)
     except Exception:  # pragma: no cover - never break caller on edge-cases
-        logging.getLogger(__name__).debug(
-            "Failed to extract anthropic usage", exc_info=True
-        )
+        if logging.getLogger(__name__).isEnabledFor(logging.DEBUG):
+            logging.getLogger(__name__).debug(
+                "Failed to extract anthropic usage", exc_info=True
+            )
 
     return {
         "input_tokens": input_tokens,
@@ -271,7 +273,7 @@ def openai_stream_to_anthropic_stream(chunk_data: str) -> str:
         choice = openai_chunk.get("choices", [{}])[0]
         delta = choice.get("delta", {})
 
-        # 1) Role delta  → message_start
+        # 1) Role delta  -> message_start
         if "role" in delta:
             payload = {
                 "type": "message_start",
@@ -280,7 +282,7 @@ def openai_stream_to_anthropic_stream(chunk_data: str) -> str:
             }
             return f"{prefix}{json.dumps(payload)}\n\n"
 
-        # 2) Content token delta  → content_block_delta
+        # 2) Content token delta  -> content_block_delta
         if "content" in delta:
             payload = {
                 "type": "content_block_delta",
@@ -289,7 +291,7 @@ def openai_stream_to_anthropic_stream(chunk_data: str) -> str:
             }
             return f"{prefix}{json.dumps(payload)}\n\n"
 
-        # 3) Finish reason  → message_delta
+        # 3) Finish reason  -> message_delta
         if choice.get("finish_reason") is not None:
             anthropic_reason = _map_finish_reason(choice["finish_reason"])
             payload = {
@@ -299,7 +301,8 @@ def openai_stream_to_anthropic_stream(chunk_data: str) -> str:
             return f"{prefix}{json.dumps(payload)}\n\n"
 
     except Exception:  # pragma: no cover - never break the stream
-        logging.getLogger(__name__).debug("Stream conversion failed", exc_info=True)
+        if logging.getLogger(__name__).isEnabledFor(logging.DEBUG):
+            logging.getLogger(__name__).debug("Stream conversion failed", exc_info=True)
 
     # Fallback: return input unchanged so upstream can decide what to do
     return chunk_data

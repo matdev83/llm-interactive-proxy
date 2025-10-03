@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from collections.abc import Callable
 from typing import Any
 
@@ -9,6 +10,8 @@ from src.core.domain.chat import (
     ChatResponse,
 )
 from src.core.domain.translation import Translation
+
+logger = logging.getLogger(__name__)
 
 
 class TranslationService:
@@ -25,6 +28,7 @@ class TranslationService:
                 "anthropic": Translation.anthropic_to_domain_request,
                 "code_assist": Translation.code_assist_to_domain_request,
                 "raw_text": Translation.raw_text_to_domain_request,
+                "responses": Translation.responses_to_domain_request,
             },
             "response": {
                 "gemini": Translation.gemini_to_domain_response,
@@ -87,6 +91,21 @@ class TranslationService:
             return Translation.code_assist_to_domain_request(request)
         elif source_format == "raw_text":
             return Translation.raw_text_to_domain_request(request)
+        elif source_format == "responses":
+            logger.debug(
+                f"Converting Responses API request to domain format - model={getattr(request, 'model', 'unknown')}"
+            )
+            try:
+                domain_request = Translation.responses_to_domain_request(request)
+                logger.debug(
+                    f"Successfully converted Responses API request to domain format - model={getattr(request, 'model', 'unknown')}"
+                )
+                return domain_request
+            except Exception as e:
+                logger.error(
+                    f"Failed to convert Responses API request to domain format - model={getattr(request, 'model', 'unknown')}, error={e}"
+                )
+                raise
         converter = self._converters["request"].get(source_format)
         if not converter:
             raise NotImplementedError(
@@ -111,6 +130,8 @@ class TranslationService:
             return Translation.from_domain_to_gemini_request(request)
         elif target_format == "openai":
             return Translation.from_domain_to_openai_request(request)
+        elif target_format == "openai-responses":
+            return Translation.from_domain_to_responses_request(request)
         elif target_format == "anthropic":
             return Translation.from_domain_to_anthropic_request(request)
 
@@ -137,6 +158,9 @@ class TranslationService:
         if source_format == "gemini":
             return Translation.gemini_to_domain_response(response)
         elif source_format == "openai":
+            return Translation.openai_to_domain_response(response)
+        elif source_format == "openai-responses":
+            # OpenAI Responses API responses can be treated as OpenAI responses for domain conversion
             return Translation.openai_to_domain_response(response)
         elif source_format == "anthropic":
             return Translation.anthropic_to_domain_response(response)
@@ -372,6 +396,8 @@ class TranslationService:
         """
         if target_format == "openai":
             return self.from_domain_to_openai_response(response)
+        elif target_format == "openai-responses":
+            return self.from_domain_to_responses_response(response)
         elif target_format == "anthropic":
             return self.from_domain_to_anthropic_response(response)
         elif target_format == "gemini":
@@ -380,3 +406,80 @@ class TranslationService:
         raise NotImplementedError(
             f"Response converter for format '{target_format}' not implemented."
         )
+
+    def from_domain_to_responses_response(
+        self, response: ChatResponse
+    ) -> dict[str, Any]:
+        """Translates a domain ChatResponse to a Responses API response format."""
+        logger.debug(
+            f"Converting domain response to Responses API format - response_id={getattr(response, 'id', 'unknown')}"
+        )
+
+        try:
+            converted_response = Translation.from_domain_to_responses_response(response)
+            logger.debug(
+                f"Successfully converted response to Responses API format - response_id={getattr(response, 'id', 'unknown')}"
+            )
+            return converted_response
+        except Exception as e:
+            logger.error(
+                f"Failed to convert response to Responses API format - response_id={getattr(response, 'id', 'unknown')}, error={e}"
+            )
+            raise
+
+    def from_domain_to_responses_request(
+        self, request: CanonicalChatRequest
+    ) -> dict[str, Any]:
+        """Translates a CanonicalChatRequest to a Responses API request format."""
+        logger.debug(
+            f"Converting domain request to Responses API format - model={request.model}"
+        )
+
+        try:
+            converted_request = Translation.from_domain_to_responses_request(request)
+            logger.debug(
+                f"Successfully converted request to Responses API format - model={request.model}"
+            )
+            return converted_request
+        except Exception as e:
+            logger.error(
+                f"Failed to convert request to Responses API format - model={request.model}, error={e}"
+            )
+            raise
+
+    def enhance_structured_output_response(
+        self,
+        response: ChatResponse,
+        original_request_extra_body: dict[str, Any] | None = None,
+    ) -> ChatResponse:
+        """
+        Enhance a ChatResponse with structured output validation and repair.
+
+        This method validates the response against the original JSON schema
+        and attempts repair if validation fails.
+
+        Args:
+            response: The original ChatResponse
+            original_request_extra_body: The extra_body from the original request containing schema info
+
+        Returns:
+            Enhanced ChatResponse with validated/repaired structured output
+        """
+        return Translation.enhance_structured_output_response(
+            response, original_request_extra_body
+        )
+
+    def validate_json_against_schema(
+        self, json_data: dict[str, Any], schema: dict[str, Any]
+    ) -> tuple[bool, str | None]:
+        """
+        Validate JSON data against a JSON schema.
+
+        Args:
+            json_data: The JSON data to validate
+            schema: The JSON schema to validate against
+
+        Returns:
+            A tuple of (is_valid, error_message)
+        """
+        return Translation.validate_json_against_schema(json_data, schema)

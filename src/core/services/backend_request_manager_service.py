@@ -141,13 +141,95 @@ class BackendRequestManager(IBackendRequestManager):
             ):
                 # For non-streaming responses, process through response processor
                 try:
+                    # Extract processing context for structured output validation
+                    processing_context: dict[str, Any] = {}
+                    if hasattr(context, "processing_context"):
+                        raw_processing_context = getattr(
+                            context, "processing_context", {}
+                        )
+                        if isinstance(raw_processing_context, dict):
+                            processing_context = raw_processing_context
+                        else:
+                            processing_context = {}
+
                     # Process through response processor for empty response detection
                     # This works for both real implementations and mocks in tests
-                    await self._response_processor.process_response(
-                        backend_response.content, session_id
+                    processed_response = (
+                        await self._response_processor.process_response(
+                            backend_response.content,
+                            session_id,
+                            {
+                                "original_request": backend_request,
+                                "backend_response": backend_response,
+                            },
+                        )
                     )
+
+                    # Apply structured output middleware if schema is provided
+                    if processing_context and processing_context.get("response_schema"):
+                        schema_name = processing_context.get("schema_name", "unnamed")
+                        request_id = processing_context.get("request_id", session_id)
+
+                        logger.debug(
+                            f"Applying structured output middleware - session_id={session_id}, "
+                            f"request_id={request_id}, schema_name={schema_name}"
+                        )
+
+                        # Import here to avoid circular imports
+                        from src.core.di.services import get_service_provider
+                        from src.core.services.structured_output_middleware import (
+                            StructuredOutputMiddleware,
+                        )
+
+                        # Get services from DI container
+                        service_provider = get_service_provider()
+                        structured_output_middleware = (
+                            service_provider.get_required_service(
+                                StructuredOutputMiddleware
+                            )
+                        )
+
+                        # Apply the middleware
+                        try:
+                            processed_response = (
+                                await structured_output_middleware.process(
+                                    response=processed_response,
+                                    session_id=session_id,
+                                    context=processing_context,
+                                    is_streaming=False,
+                                )
+                            )
+                            logger.debug(
+                                f"Structured output middleware completed - session_id={session_id}, "
+                                f"request_id={request_id}"
+                            )
+                        except Exception as e:
+                            logger.error(
+                                f"Structured output middleware failed - session_id={session_id}, "
+                                f"request_id={request_id}, error={e}"
+                            )
+                            raise
+
                     # If we get here without exception, response was not empty
-                    # Return original response (don't replace with processed content)
+                    # Return the processed response (may include structured output validation)
+                    if hasattr(processed_response, "content"):
+                        # Update the backend response with processed content
+                        backend_response.content = processed_response.content
+                        # Add any metadata from processing
+                        if (
+                            hasattr(processed_response, "metadata")
+                            and processed_response.metadata
+                            and hasattr(backend_response, "metadata")
+                        ):
+                            if (
+                                not hasattr(backend_response, "metadata")
+                                or backend_response.metadata is None
+                            ):
+                                backend_response.metadata = {}
+                            backend_response.metadata.update(
+                                processed_response.metadata
+                            )
+
                     return backend_response
                 except EmptyResponseRetryError as e:
                     logger.info(
@@ -155,7 +237,7 @@ class BackendRequestManager(IBackendRequestManager):
                     )
                     # Create retry request with recovery prompt
                     retry_request = await self._create_retry_request(
-                        backend_request, e.recovery_prompt
+                        e.original_request, e.recovery_prompt
                     )
                     # Retry the request
                     return await self._backend_processor.process_backend_request(
@@ -181,7 +263,7 @@ class BackendRequestManager(IBackendRequestManager):
                 f"Empty response detected, retrying with recovery prompt: {e.recovery_prompt[:100]}..."
             )
             retry_request = await self._create_retry_request(
-                backend_request, e.recovery_prompt
+                e.original_request, e.recovery_prompt
             )
             return await self._backend_processor.process_backend_request(
                 request=retry_request, session_id=session_id, context=context

@@ -98,52 +98,50 @@ async def setup_app(app: FastAPI) -> AsyncGenerator[dict[str, Any], None]:
 async def test_chat_controller(setup_app: dict[str, Any]) -> None:
     """Test that chat controller uses the request processor correctly."""
     # Create test client
-    client = TestClient(setup_app["app"])
+    with TestClient(setup_app["app"]) as client:
+        # Make a request to the endpoint
+        response = client.post(
+            "/v1/chat/completions",
+            json={
+                "model": "test-model",
+                "messages": [{"role": "user", "content": "Test message"}],
+            },
+        )
 
-    # Make a request to the endpoint
-    response = client.post(
-        "/v1/chat/completions",
-        json={
-            "model": "test-model",
-            "messages": [{"role": "user", "content": "Test message"}],
-        },
-    )
+        # Verify that the request was processed by the mock
+        # Note: Since we replaced the mock with a regular function, we can't use assert_called_once
+        # The test would have failed if the mock wasn't called, so we can skip this assertion for now
 
-    # Verify that the request was processed by the mock
-    # Note: Since we replaced the mock with a regular function, we can't use assert_called_once
-    # The test would have failed if the mock wasn't called, so we can skip this assertion for now
-
-    # Check response
-    assert response.status_code == 200
-    # The response is now a Response object, not JSON
-    # We can't directly check the content, but we can verify the status code
+        # Check response
+        assert response.status_code == 200
+        # The response is now a Response object, not JSON
+        # We can't directly check the content, but we can verify the status code
 
 
 async def test_chat_controller_error_handling(setup_app: dict[str, Any]) -> None:
     """Test that chat controller handles errors properly."""
 
     # Create test client
-    client = TestClient(setup_app["app"])
+    with TestClient(setup_app["app"]) as client:
+        # Mock the request processor to raise an exception
+        mock_request_processor = setup_app["mock_request_processor"]
 
-    # Mock the request processor to raise an exception
-    mock_request_processor = setup_app["mock_request_processor"]
+        async def mock_error_process_request(*args: Any, **kwargs: Any) -> None:
+            raise Exception("Test error")
 
-    async def mock_error_process_request(*args: Any, **kwargs: Any) -> None:
-        raise Exception("Test error")
+        mock_request_processor.process_request = mock_error_process_request
 
-    mock_request_processor.process_request = mock_error_process_request
+        # Make a request that should trigger error handling
+        response = client.post(
+            "/v1/chat/completions",
+            json={
+                "model": "test-model",
+                "messages": [{"role": "user", "content": "Test message"}],
+            },
+        )
 
-    # Make a request that should trigger error handling
-    response = client.post(
-        "/v1/chat/completions",
-        json={
-            "model": "test-model",
-            "messages": [{"role": "user", "content": "Test message"}],
-        },
-    )
-
-    # Should get a 500 error
-    assert response.status_code == 500
+        # Should get a 500 error
+        assert response.status_code == 500
 
 
 async def test_anthropic_controller(setup_app: dict[str, Any]) -> None:

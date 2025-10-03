@@ -7,11 +7,12 @@ This service integrates usage tracking with the new SOLID architecture.
 from __future__ import annotations
 
 import logging
+import math
 import time
 import uuid
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from typing import Any, Protocol
 
 
@@ -104,7 +105,7 @@ class UsageTrackingService(IUsageTrackingService):
             completion_tokens=completion_tokens or 0,
             total_tokens=total_tokens or 0,
             cost=cost,
-            timestamp=datetime.utcnow(),
+            timestamp=datetime.now(timezone.utc),
         )
 
         # Store in repository
@@ -148,6 +149,7 @@ class UsageTrackingService(IUsageTrackingService):
                 self.cost = 0.0
                 self.remote_completion_id: str | None = None
                 self.usage_data: UsageData | None = None
+                self.cost_overridden = False
 
             def set_response(
                 self, response: dict[str, Any] | StreamingResponseLike
@@ -162,6 +164,7 @@ class UsageTrackingService(IUsageTrackingService):
             def set_cost(self, cost: float) -> None:
                 """Set the cost for this request."""
                 self.cost = cost
+                self.cost_overridden = True
 
             def set_completion_id(self, completion_id: str) -> None:
                 """Set the remote completion ID."""
@@ -193,7 +196,9 @@ class UsageTrackingService(IUsageTrackingService):
             prompt_tokens = None
             completion_tokens = None
             total_tokens = None
-            cost = tracker.cost
+            derived_cost: float | None = (
+                tracker.cost if tracker.cost_overridden else None
+            )
 
             # Extract from headers first if available
             if tracker.response_headers:
@@ -204,6 +209,10 @@ class UsageTrackingService(IUsageTrackingService):
                 prompt_tokens = prompt_tokens or u.get("prompt_tokens")
                 completion_tokens = completion_tokens or u.get("completion_tokens")
                 total_tokens = total_tokens or u.get("total_tokens")
+                if not tracker.cost_overridden:
+                    header_cost = self._parse_billing_cost(billing.get("cost"))
+                    if header_cost is not None:
+                        derived_cost = header_cost
 
             # Extract from response body
             if tracker.response is not None:
@@ -212,6 +221,18 @@ class UsageTrackingService(IUsageTrackingService):
                 prompt_tokens = prompt_tokens or u.get("prompt_tokens")
                 completion_tokens = completion_tokens or u.get("completion_tokens")
                 total_tokens = total_tokens or u.get("total_tokens")
+                if not tracker.cost_overridden:
+                    response_cost = self._parse_billing_cost(billing.get("cost"))
+                    if response_cost is not None:
+                        derived_cost = response_cost
+
+            cost = (
+                tracker.cost
+                if tracker.cost_overridden
+                else derived_cost if derived_cost is not None else tracker.cost
+            )
+            if not tracker.cost_overridden and derived_cost is not None:
+                tracker.cost = cost
 
             # Persist usage data
             usage_data = await self.track_usage(
@@ -228,6 +249,25 @@ class UsageTrackingService(IUsageTrackingService):
             )
             tracker.set_usage_data(usage_data)
 
+    @staticmethod
+    def _parse_billing_cost(value: Any) -> float | None:
+        """Parse a billing cost value into a float if valid."""
+
+        if value is None:
+            return None
+        try:
+            candidate = float(value)
+        except (TypeError, ValueError):
+            logger.debug(
+                "Ignoring invalid billing cost value: %s", value, exc_info=True
+            )
+            return None
+        if math.isnan(candidate) or math.isinf(candidate):
+            logger.debug(
+                "Ignoring non-finite billing cost value: %s", value, exc_info=True
+            )
+            return None
+        return candidate
     async def get_usage_stats(
         self, project: str | None = None, days: int = 30
     ) -> dict[str, Any]:
@@ -240,7 +280,52 @@ class UsageTrackingService(IUsageTrackingService):
         Returns:
             Usage statistics dictionary
         """
-        return await self._repository.get_stats(project)
+        if days <= 0:
+            logger.warning(
+                "Received non-positive days=%s when requesting usage stats; "
+                "falling back to complete history.",
+                days,
+            )
+            return await self._repository.get_stats(project)
+
+        usage_records = await self._repository.get_all()
+        cutoff = datetime.now(timezone.utc) - timedelta(days=days)
+
+        stats: dict[str, dict[str, Any]] = {}
+        project_filter = project
+
+        for usage in usage_records:
+            if project_filter is not None and usage.project != project_filter:
+                continue
+
+            usage_timestamp = usage.timestamp
+            if usage_timestamp.tzinfo is None:
+                usage_timestamp = usage_timestamp.replace(tzinfo=timezone.utc)
+
+            if usage_timestamp < cutoff:
+                continue
+
+            model_stats = stats.setdefault(
+                usage.model,
+                {
+                    "total_tokens": 0,
+                    "prompt_tokens": 0,
+                    "completion_tokens": 0,
+                    "cost": 0.0,
+                    "requests": 0,
+                },
+            )
+
+            model_stats["total_tokens"] += usage.total_tokens
+            model_stats["prompt_tokens"] += usage.prompt_tokens
+            model_stats["completion_tokens"] += usage.completion_tokens
+
+            if usage.cost is not None:
+                model_stats["cost"] += usage.cost
+
+            model_stats["requests"] += 1
+
+        return stats
 
     async def get_recent_usage(
         self, session_id: str | None = None, limit: int = 100

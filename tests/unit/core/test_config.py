@@ -47,7 +47,7 @@ def test_app_config_from_env(mock_env_vars: dict[str, str]) -> None:
 
     # Check that the API keys are set (but don't check exact values as they might be modified
     # in test environments by BackendFactory.ensure_backend)
-    assert len(config.backends.openai.api_key) > 0
+    assert config.backends.openai.api_key
     assert len(config.backends.openrouter.api_key) > 0
     assert config.auth.disable_auth is True
 

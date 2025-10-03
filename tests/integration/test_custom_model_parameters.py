@@ -183,7 +183,9 @@ class TestCustomModelParameters:
             },
             key_name="openrouter",
         )
-        request_data = sample_request_data.model_copy(update={"reasoning_effort": 0.7})
+        request_data = sample_request_data.model_copy(
+            update={"reasoning_effort": "high"}
+        )
 
         await backend.chat_completions(
             request_data=request_data,
@@ -195,7 +197,7 @@ class TestCustomModelParameters:
         assert sent_request is not None
         payload = json.loads(sent_request.content)
         assert "reasoning_effort" in payload
-        assert payload["reasoning_effort"] == 0.7
+        assert payload["reasoning_effort"] == "high"
 
     @pytest.mark.asyncio
     async def test_gemini_reasoning_effort_parameter(
@@ -212,7 +214,9 @@ class TestCustomModelParameters:
             gemini_api_base_url="https://generativelanguage.googleapis.com",
             key_name="gemini",
         )
-        request_data = sample_request_data.model_copy(update={"reasoning_effort": 0.8})
+        request_data = sample_request_data.model_copy(
+            update={"reasoning_effort": "high"}
+        )
 
         await backend.chat_completions(
             request_data=request_data,
@@ -226,7 +230,9 @@ class TestCustomModelParameters:
         assert "generationConfig" in payload
         assert "thinkingConfig" in payload["generationConfig"]
         assert "reasoning_effort" in payload["generationConfig"]["thinkingConfig"]
-        assert payload["generationConfig"]["thinkingConfig"]["reasoning_effort"] == 0.8
+        assert (
+            payload["generationConfig"]["thinkingConfig"]["reasoning_effort"] == "high"
+        )
 
     @pytest.mark.asyncio
     async def test_anthropic_reasoning_effort_parameter(
@@ -239,7 +245,9 @@ class TestCustomModelParameters:
         """Test that reasoning_effort is included in the Anthropic payload."""
         backend = backend_factory.create_backend("anthropic", mock_app_config)
         await backend.initialize(api_key="test-key", key_name="anthropic")
-        request_data = sample_request_data.model_copy(update={"reasoning_effort": 0.9})
+        request_data = sample_request_data.model_copy(
+            update={"reasoning_effort": "high"}
+        )
 
         await backend.chat_completions(
             request_data=request_data,
@@ -251,7 +259,7 @@ class TestCustomModelParameters:
         assert sent_request is not None
         payload = json.loads(sent_request.content)
         assert "reasoning_effort" in payload
-        assert payload["reasoning_effort"] == 0.9
+        assert payload["reasoning_effort"] == "high"
 
     @pytest.mark.asyncio
     async def test_openrouter_seed_parameter(
