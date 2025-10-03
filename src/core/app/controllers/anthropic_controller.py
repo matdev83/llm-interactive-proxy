@@ -110,11 +110,11 @@ class AnthropicController:
                 messages=messages,
                 model=openai_request_data.get("model", ""),
                 stream=openai_request_data.get("stream", False),
-                temperature=openai_request_data.get("temperature", 0.7),
-                max_tokens=openai_request_data.get("max_tokens", 1000),
-                top_p=openai_request_data.get("top_p", 1.0),
-                frequency_penalty=openai_request_data.get("frequency_penalty", 0.0),
-                presence_penalty=openai_request_data.get("presence_penalty", 0.0),
+                temperature=openai_request_data.get("temperature"),
+                max_tokens=openai_request_data.get("max_tokens"),
+                top_p=openai_request_data.get("top_p"),
+                frequency_penalty=openai_request_data.get("frequency_penalty"),
+                presence_penalty=openai_request_data.get("presence_penalty"),
                 stop=openai_request_data.get("stop"),
             )
 
