@@ -53,26 +53,30 @@ class HelpCommandHandler(ICommandHandler):
             return CommandResult(success=True, message="Mock help information")
 
         # Detailed mode using service methods
-        if command.args and "command_name" in command.args:
+        if command.args:
             cmd_name = command.args.get("command_name") or ""
-            handler_class = await self._command_service.get_command_handler(cmd_name)  # type: ignore[attr-defined]
-            if handler_class is None:
-                return CommandResult(
-                    success=False, message=f"Command '{cmd_name}' not found."
-                )
-            handler: ICommandHandler = handler_class(self._command_service)
-            parts = [
-                f"{handler.command_name} - {handler.description}",
-                f"Format: {handler.format}",
-                "Examples:",
-            ]
-            parts.extend([f"  {ex}" for ex in handler.examples])
-            return CommandResult(success=True, message="\n".join(parts))
+            if not cmd_name and command.args:
+                cmd_name = next(iter(command.args.keys()), "")
+            cmd_name = cmd_name.strip()
+            if cmd_name:
+                handler_class = await self._command_service.get_command_handler(cmd_name)  # type: ignore[attr-defined]
+                if handler_class is None:
+                    return CommandResult(
+                        success=False, message=f"Command '{cmd_name}' not found."
+                    )
+                handler: ICommandHandler = handler_class(self._command_service)
+                parts = [
+                    f"{handler.command_name} - {handler.description}",
+                    f"Format: {handler.format}",
+                    "Examples:",
+                ]
+                parts.extend([f"  {ex}" for ex in handler.examples])
+                return CommandResult(success=True, message="\n".join(parts))
 
         all_cmds = await self._command_service.get_all_commands()  # type: ignore[attr-defined]
         if not all_cmds:
             return CommandResult(success=True, message="No commands available.")
         lines = ["Available commands:"]
         for name, handler in all_cmds.items():
-            lines.append(f"{name} - {handler.description}")
+            lines.append(f"- {name} - {handler.description}")
         return CommandResult(success=True, message="\n".join(lines))

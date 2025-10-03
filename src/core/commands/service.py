@@ -7,7 +7,7 @@ from src.core.commands.handlers.failover_command_handler import (
     SessionStateApplicationStateAdapter,
 )
 from src.core.commands.parser import CommandParser
-from src.core.commands.registry import get_command_handler
+from src.core.commands.registry import get_all_commands, get_command_handler
 from src.core.domain import chat as models
 from src.core.domain.chat import ChatMessage
 from src.core.domain.processed_result import ProcessedResult
@@ -126,14 +126,16 @@ class NewCommandService(ICommandService):
                     break
                 continue
 
+            handler: ICommandHandler
             if handler_class is FailoverCommandHandler:
                 app_state_adapter = SessionStateApplicationStateAdapter(session)
-                handler: ICommandHandler = handler_class(
+                handler = handler_class(
+                    self,
                     secure_state_access=app_state_adapter,
                     secure_state_modification=app_state_adapter,
                 )
             else:
-                handler = handler_class()
+                handler = handler_class(self)
 
             result = await handler.handle(command, session)
 
@@ -209,3 +211,18 @@ class NewCommandService(ICommandService):
             command_executed=command_executed,
             command_results=command_results,
         )
+
+    async def get_command_handler(
+        self, name: str
+    ) -> type[ICommandHandler] | None:  # pragma: no cover - exercised via integration tests
+        """Return the registered handler class for the provided command name."""
+        return get_command_handler(name)
+
+    async def get_all_commands(
+        self,
+    ) -> dict[str, ICommandHandler]:  # pragma: no cover - exercised via integration tests
+        """Return instantiated handlers for all registered commands."""
+        handlers: dict[str, ICommandHandler] = {}
+        for name, handler_class in sorted(get_all_commands().items()):
+            handlers[name] = handler_class(self)
+        return handlers
