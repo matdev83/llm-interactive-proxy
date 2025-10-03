@@ -282,7 +282,9 @@ class SetCommand(StatefulCommandBase, BaseCommand):
                 state,
             )
 
-        updated_state = state.with_interactive_just_enabled(enabled)
+        new_backend_config = state.backend_config.with_interactive_mode(enabled)
+        updated_state = state.with_backend_config(new_backend_config)
+        updated_state = updated_state.with_interactive_just_enabled(enabled)
 
         return (
             CommandResult(
